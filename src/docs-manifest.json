@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "0d992da4fdd408636c64e3b2989220524fd9e93d",
+  "sourceCommit": "de29ed39e0fe4f62a30f1d9a41af9ac75aeae4de",
   "topicCount": 55,
-  "contentSha256": "e98805a8dabf93c7459a4847a6ab655ba994259994204e0b5d55cfadb06bef5c",
+  "contentSha256": "b3566db43405ab9e4cb32bfe11b318d3378062a0b8d0f9f9191c738a7492f296",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -267,8 +267,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 3,
-      "sha256": "629c83a2eb0ee800acafa5c6d0cda29d9e67b4ae473feabb3f03803a6edd2e76",
+      "version": 4,
+      "sha256": "ac11a610cb28aa4677e53ba9be28ebeba749fe1a9703b9027c145a40cd3dac9d",
       "file": "recovery.md"
     },
     {

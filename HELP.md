@@ -1883,13 +1883,15 @@ singularity-flow resume WORK-123 --fetch
 
 Resume performs fetch plus fast-forward-only checkout and asks for a agent. It reconstructs work state from the branch rather than copying a local session.
 
-If push fails, the local commit is retained and transitions are blocked. Fix connectivity or authentication and run:
+If a process dies before the governed commit, the local journal retains an integrity-bound preimage. Run `sync`; it reclaims only a dead owner, preserves interrupted partial bytes under `.git/singularity-flow/publication-rescues/`, restores the exact pre-transaction governed state, and leaves unrelated source edits untouched. A live command is reported as active and is never rolled back.
+
+If push fails after the commit, the local commit is retained and transitions are blocked. Fix connectivity or authentication and run:
 
 ```bash
 singularity-flow sync
 ```
 
-Sync retries the existing history without rebasing, resetting, or force-pushing. A normal non-fast-forward rejection protects concurrent terminal decisions from overwriting one another.
+After the commit boundary, sync retries the existing history without rebasing, resetting, or force-pushing. A normal non-fast-forward rejection protects concurrent terminal decisions from overwriting one another.
 
 ## World model
 

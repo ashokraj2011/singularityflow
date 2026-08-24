@@ -10,6 +10,8 @@ import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
 import { subjectRef } from './subject-ref.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
+import { restorePublicationPreimage } from './publication-recovery.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
 
@@ -191,25 +193,45 @@ export function livePreparedPublicationOwner(pending) {
 }
 
 /**
- * Clear only the pre-commit crash state whose complete rollback is proven by Git.
+ * Recover a dead pre-commit transaction under the same subject lock used by publication.
  *
- * A `prepared` journal is written before lifecycle state changes. If the process is killed after
- * its own rollback (or before the first write), the old recovery path permanently blocked the
- * subject: there was no commit to push, while `sync` refused to clear the journal. HEAD equality and
- * a clean porcelain status prove that every tracked, staged, and untracked byte is back at the
- * journal's exact baseline. Anything dirty, advanced, live, or ambiguous remains a hard stop.
+ * New journals carry a durable preimage and can restore a partially written governed directory.
+ * Legacy journals have no such proof and retain the old clean-tree-only recovery rule. The journal
+ * remains in place on every refusal or restore failure, so retrying recovery is idempotent.
  */
-export async function discardCleanPreparedPublication(root, pending) {
+export async function recoverPreparedPublication(root, pending) {
   const journal = pending?.journalRecord;
   if (!pending?.journal
     || pending.record?.recoveryStage !== 'interrupted-before-branch-ref-advanced'
     || journal?.stage !== 'prepared'
     || journal?.commit != null
     || head(root) !== journal.expectedHead
-    || changes(root).trim()
-    || processIsAlive(journal.owner?.pid) !== false) return false;
-  await clearPublicationJournal(root, journal.subject);
-  return true;
+    || processIsAlive(journal.owner?.pid) !== false) return null;
+  const subject = journal.subject;
+  if (!subject?.kind || !subject?.id) return null;
+  return withSubjectLock(root, subject, async () => {
+    const latest = await readPublicationJournal(root, subject);
+    if (!latest
+      || latest.record.owner?.processId !== journal.owner?.processId
+      || latest.record.expectedHead !== journal.expectedHead
+      || latest.record.stage !== 'prepared'
+      || latest.record.commit != null
+      || head(root) !== journal.expectedHead) return null;
+    let restoration = { restored: false, rescuePath: null, preimageSha256: null };
+    if (latest.record.recoveryPreimage) {
+      restoration = await restorePublicationPreimage(root, latest.record.recoveryPreimage, {
+        subject,
+        preserveCurrent: true
+      });
+    } else if (changes(root).trim()) return null;
+    await clearPublicationJournal(root, subject);
+    return Object.freeze({ recovered: true, ...restoration });
+  });
+}
+
+/** Backward-compatible boolean wrapper used by older clean-journal recovery callers and tests. */
+export async function discardCleanPreparedPublication(root, pending) {
+  return Boolean(await recoverPreparedPublication(root, pending));
 }
 
 /** Find legacy markers that no active subject read has migrated. */

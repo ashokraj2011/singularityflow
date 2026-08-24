@@ -1,11 +1,15 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { gitDir } from './git.mjs';
-import { exists, nowIso, readJson, writeJson } from './util.mjs';
+import { exists, nowIso, readJson, writeAtomic } from './util.mjs';
 import { unlink } from 'node:fs/promises';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const PROCESS_OWNER_ID = randomUUID();
+
+async function writePrivateJson(target, value) {
+  await writeAtomic(target, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
 
 function safeId(id) {
   return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
@@ -26,7 +30,8 @@ export async function beginPublicationJournal(root, {
   expectedHead,
   branch,
   remote,
-  event
+  event,
+  recoveryPreimage = null
 }) {
   const record = {
     schemaVersion: currentSchemaVersion('publication-journal'),
@@ -40,9 +45,10 @@ export async function beginPublicationJournal(root, {
     owner: { pid: process.pid, processId: PROCESS_OWNER_ID },
     createdAt: nowIso(),
     updatedAt: nowIso(),
-    commit: null
+    commit: null,
+    recoveryPreimage
   };
-  await writeJson(publicationJournalPath(root, subject.kind, subject.id), record);
+  await writePrivateJson(publicationJournalPath(root, subject.kind, subject.id), record);
   return record;
 }
 
@@ -54,7 +60,7 @@ export async function updatePublicationJournal(root, subject, updates) {
   const current = await readPublicationJournal(root, subject);
   if (!current) return null;
   const record = { ...current.record, ...updates, updatedAt: nowIso() };
-  await writeJson(current.path, record);
+  await writePrivateJson(current.path, record);
   return record;
 }
 

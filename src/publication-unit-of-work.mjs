@@ -16,6 +16,7 @@ import {
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -82,20 +83,30 @@ export class GitPublicationUnitOfWork {
      * be trusted.
      */
     const publicationHead = head(root);
+    // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
+    // An ordinary exception can use the same preimage immediately; a hard process death leaves it
+    // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
+    const recoveryPreimage = state?.captureRecovery
+      ? await state.captureRecovery()
+      : await capturePublicationPreimage(root, allowedPaths);
     await beginPublicationJournal(root, {
       subject,
       expectedHead: publicationHead,
       branch: publication.branch,
       remote: publication.remote ?? 'origin',
-      event: envelope
+      event: envelope,
+      recoveryPreimage
     });
     let wroteState = false;
     let ledgerIntentPath = null;
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
-      if (wroteState && state?.rollback) {
-        try { await state.rollback(); } catch (failure) { restoreFailure = failure; }
+      if (wroteState) {
+        try {
+          if (state?.rollback) await state.rollback(recoveryPreimage);
+          else await restorePublicationPreimage(root, recoveryPreimage, { subject });
+        } catch (failure) { restoreFailure = failure; }
       }
       // The journal is cleared on every path out, including a failed restore. Rethrowing before this
       // left a `prepared` journal whose expectedHead still matched HEAD, which every later process
@@ -182,7 +193,12 @@ export class GitPublicationUnitOfWork {
       await clearPublicationJournal(root, subject);
       throw error;
     }
-    await updatePublicationJournal(root, subject, { stage: 'committed', commit: sourceCommit });
+    // The branch ref is now the durable recovery boundary. Drop the potentially large preimage as
+    // the journal advances: rollback is forbidden after this point, and a later failure must retain
+    // and publish the commit instead of carrying authored bytes through every journal rewrite.
+    await updatePublicationJournal(root, subject, {
+      stage: 'committed', commit: sourceCommit, recoveryPreimage: null
+    });
     // The envelope this function returns is bound to the commit; the intent's payload deliberately
     // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);

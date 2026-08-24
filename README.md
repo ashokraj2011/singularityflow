@@ -1567,13 +1567,15 @@ approval:
 
 ## Publication and recovery
 
-With `git.publish: required`, generation and lifecycle commands are successful only after a normal fast-forward push. If a push fails, the local commit is retained and an untracked work-item publication sidecar is marked pending. Further transitions are blocked until:
+With `git.publish: required`, generation and lifecycle commands are successful only after a normal fast-forward push. Before the first governed write, the transaction journal persists an integrity-bound preimage. If the process dies before commit, `sync` reclaims its dead lock, preserves the interrupted partial bytes under `.git/singularity-flow/publication-rescues/`, restores only the recorded governed roots, verifies the restored digest, and leaves unrelated source or staged changes untouched. A live command is reported as active and is never rolled back.
+
+If a push fails after commit, the local commit is retained and a machine-local pending-publication record blocks further transitions until:
 
 ```bash
 singularity-flow sync
 ```
 
-`sync` retries the existing commit without rewriting history. Optimistic branch-head checks prevent concurrent decisions from silently overwriting each other.
+After the commit boundary, `sync` retries the existing commit without rewriting history. Optimistic branch-head checks prevent concurrent decisions from silently overwriting each other.
 
 For isolated tests only, `git.publish: off` disables remote publication. Do not use it when Git is the state-transfer channel.
 
@@ -2096,7 +2098,7 @@ evidence workflow.
 | `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
 | `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT` | Return a completed Story to an allowed phase with a governed comment, commit, and push. |
 | `singularity-flow cancel [ID] --fetch --reason TEXT --confirm ID` | Stop active work without claiming completion; preserve all artifacts and approvals, commit and push the decision, and show the Story under Archived. |
-| `singularity-flow sync` | Retry a pending publication without rewriting the commit. |
+| `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |
 | `singularity-flow epic merge-plan [--epic ID]` | Show the dependency-ordered story merge sequence, each story's status, and the next story to merge. |

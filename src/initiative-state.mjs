@@ -14,7 +14,7 @@ import { initiativeOutputRequired } from './initiative-policy.mjs';
 import { groundingMode } from './grounding.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
-  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeAtomic, writeJson, writeText
+  secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
 } from './util.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
@@ -28,11 +28,12 @@ import {
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
   clearPendingPublication,
-  discardCleanPreparedPublication,
   livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
+  recoverPreparedPublication,
 } from './publication-pending.mjs';
+import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -1232,30 +1233,6 @@ export function initiativeDefinitionHash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-async function captureInitiativeDirectory(directory, relative = '', captured = new Map()) {
-  const entries = await readdir(path.join(directory, relative), { withFileTypes: true })
-    .catch((error) => { if (error?.code === 'ENOENT') return []; throw error; });
-  for (const entry of entries) {
-    const child = relative ? path.join(relative, entry.name) : entry.name;
-    if (entry.isDirectory()) await captureInitiativeDirectory(directory, child, captured);
-    else if (entry.isFile()) captured.set(posix(child), await readFile(path.join(directory, child)));
-  }
-  return captured;
-}
-
-async function restoreInitiativeDirectory(directory, captured) {
-  const now = await captureInitiativeDirectory(directory);
-  for (const [relative, contents] of captured) {
-    if (now.get(relative)?.equals(contents)) continue;
-    const target = path.join(directory, relative);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeAtomic(target, contents);
-  }
-  for (const relative of now.keys()) {
-    if (!captured.has(relative)) await rm(path.join(directory, relative), { force: true });
-  }
-}
-
 export async function commitInitiativeChange(root, portfolio, initiative, event, message, {
   extraPaths = [],
   appendOnly = false,
@@ -1311,12 +1288,11 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   // projections as well as state.json. Capture the complete governed Initiative directory so a
   // pre-commit failure cannot leave any part of an unpublished decision behind.
   void rollbackInitiative;
-  const initiativeDirectory = path.join(root, initiativeRelative(portfolio, initiative.initiative.id));
-  const priorInitiativeDirectory = await captureInitiativeDirectory(initiativeDirectory);
+  const initiativeDirectory = initiativeRelative(portfolio, initiative.initiative.id);
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: initiative[Symbol.for('singularity-flow.state-revision')] ?? null,
-    allowedPaths: [initiativeRelative(portfolio, initiative.initiative.id), ...extraPaths, ...claimHealedTemplatePaths(root, portfolio.templatesRoot)],
+    allowedPaths: [initiativeDirectory, ...extraPaths, ...claimHealedTemplatePaths(root, portfolio.templatesRoot)],
     event: envelope,
     commit: { message },
     state: {
@@ -1329,7 +1305,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
       },
       // Restore the complete governed Initiative directory: a publication that fails after any
       // manifest, context, decision, projection, or state write must leave no unpublished change.
-      rollback: () => restoreInitiativeDirectory(initiativeDirectory, priorInitiativeDirectory)
+      rollback: (preimage) => restorePublicationPreimage(root, preimage, { subject: envelope.subject })
     },
     publication: { mode, remote, branch: initiative.initiative.branch },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),
@@ -1362,16 +1338,6 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
   }
   const record = pending.record;
   if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
-    if (await discardCleanPreparedPublication(root, pending)) {
-      return {
-        pending: false,
-        pushed: null,
-        remote: record.remote,
-        branch: record.branch,
-        recoveredPrepared: true,
-        ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
-      };
-    }
     const liveOwner = livePreparedPublicationOwner(pending);
     if (liveOwner) {
       throw new SingularityFlowError(
@@ -1380,6 +1346,19 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
         + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
         + 'After interrupting it, run singularity-flow initiative sync again.'
       );
+    }
+    const recovery = await recoverPreparedPublication(root, pending);
+    if (recovery) {
+      return {
+        pending: false,
+        pushed: null,
+        remote: record.remote,
+        branch: record.branch,
+        recoveredPrepared: true,
+        restoredPrepared: recovery.restored,
+        rescuePath: recovery.rescuePath,
+        ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
+      };
     }
     throw new SingularityFlowError(
       `Initiative '${initiative.initiative.id}' was interrupted before its governed commit completed. `

@@ -906,10 +906,11 @@ const PAGES = Object.freeze({
     seeAlso: ['reject', 'cancel', 'approve']
   },
   sync: {
-    summary: 'Complete a publication that was interrupted after its commit.',
+    summary: 'Recover an interrupted publication without losing prior work.',
     description: [
-      'When a governed commit landed but its push did not, the Story is left with a pending',
-      'publication and every later mutation is refused. This publishes the retained commit.'
+      'After a commit, sync retries its exact push. Before a commit, a dead transaction restores',
+      'the integrity-bound preimage recorded in its local journal and preserves partial bytes in',
+      '.git/singularity-flow/publication-rescues/. A live command is never rolled back.'
     ],
     examples: [['singularity-flow sync', '']],
     seeAlso: ['doctor', 'ledger', 'status']

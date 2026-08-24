@@ -1,10 +1,10 @@
-import { copyFile, lstat, mkdir, readFile, readlink, readdir, rm } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, readlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
   SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
-  run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeAtomic, writeJson, writeText
+  run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import { branch, changedFiles, head, identity, pushBranch, remoteContains, untrackedFiles } from './git.mjs';
 import {
@@ -64,13 +64,14 @@ import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
   clearPendingPublication,
-  discardCleanPreparedPublication,
   hasPendingPublication,
   livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
+  recoverPreparedPublication,
   writePendingPublication,
 } from './publication-pending.mjs';
+import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { publishCapabilityRepositories } from './capability-start.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
@@ -388,46 +389,6 @@ export function storyStatusMarkdown(workflow) {
   workflow.history.slice(-15).reverse().forEach((item) => lines.push(`- ${item.at} — **${item.event}**${item.phase ? ` (${item.phase})` : ''} by ${item.actor ?? 'unknown'}${item.agent ? ` · governed agent ${item.agent}` : ''}${item.detail ? `: ${item.detail}` : ''}`));
   if (workflow.sequenceOverrides?.length) lines.push('', `> ⚠ ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
   return `${lines.join('\n')}\n`;
-}
-
-/**
- * Every file under a directory, as bytes, so a failed transaction can put them all back.
- *
- * A work item is a handful of Markdown and JSON files, so holding them in memory for the duration of
- * one publication is cheap — and it is the only way to undo a `state.write` that touches several
- * files, none of which the aggregate knows about.
- */
-async function captureDirectory(directory, relative = '', captured = new Map()) {
-  const entries = await readdir(path.join(directory, relative), { withFileTypes: true })
-    .catch((error) => { if (error?.code === 'ENOENT') return []; throw error; });
-  for (const entry of entries) {
-    const child = relative ? path.join(relative, entry.name) : entry.name;
-    if (entry.isDirectory()) await captureDirectory(directory, child, captured);
-    else if (entry.isFile()) captured.set(posix(child), await readFile(path.join(directory, child)));
-  }
-  return captured;
-}
-
-/**
- * Put a captured directory back exactly as it was: restore what changed, and remove what the failed
- * transaction created. Files it never captured are left alone — an unrelated file that arrived
- * meanwhile is not this transaction's to delete.
- */
-async function restoreDirectory(directory, captured) {
-  const now = await captureDirectory(directory);
-  for (const [relative, contents] of captured) {
-    // Only what actually changed. Rollback runs whenever the write *may* have started, including
-    // when it threw before touching anything — and rewriting an unchanged file would still change
-    // its bytes, because a fresh serialisation is not guaranteed to match the one on disk. A
-    // rollback that alters the repository is not a rollback.
-    if (now.get(relative)?.equals(contents)) continue;
-    const target = path.join(directory, relative);
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeAtomic(target, contents);
-  }
-  for (const relative of now.keys()) {
-    if (!captured.has(relative)) await rm(path.join(directory, relative), { force: true });
-  }
 }
 
 export async function saveWorkflow(root, config, workflow) {
@@ -3236,7 +3197,6 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = workDirRelative(config, workflow.workItem.id);
-  const priorWorkDirectory = await captureDirectory(path.join(root, workDirectory));
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -3314,7 +3274,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       // touches, not only the aggregate.
       // The captured bytes are the aggregate too, so restoring them is the whole undo — writing
       // `priorWorkflow` on top would re-serialise a file that is already correct.
-      rollback: () => restoreDirectory(path.join(root, workDirectory), priorWorkDirectory),
+      rollback: (preimage) => restorePublicationPreimage(root, preimage, { subject: envelope.subject }),
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {
@@ -3347,16 +3307,6 @@ export async function syncPublication(root, config, workflow) {
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
   if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
-    if (await discardCleanPreparedPublication(root, pending)) {
-      return {
-        pushed: head(root),
-        remote: pending.record.remote,
-        branch: pending.record.branch,
-        recoveredPrepared: true,
-        capabilityPublished: [],
-        ledger: await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id })
-      };
-    }
     const liveOwner = livePreparedPublicationOwner(pending);
     if (liveOwner) {
       throw new SingularityFlowError(
@@ -3365,6 +3315,19 @@ export async function syncPublication(root, config, workflow) {
         + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
         + 'After interrupting it, run singularity-flow sync again.'
       );
+    }
+    const recovery = await recoverPreparedPublication(root, pending);
+    if (recovery) {
+      return {
+        pushed: head(root),
+        remote: pending.record.remote,
+        branch: pending.record.branch,
+        recoveredPrepared: true,
+        restoredPrepared: recovery.restored,
+        rescuePath: recovery.rescuePath,
+        capabilityPublished: [],
+        ledger: await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id })
+      };
     }
     throw new SingularityFlowError(
       `Story '${workflow.workItem.id}' was interrupted before its governed commit completed. `

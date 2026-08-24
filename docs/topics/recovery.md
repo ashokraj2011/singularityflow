@@ -14,9 +14,9 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 3
+version: 4
 ---
-Publication is a transaction: verified preconditions, one isolated commit of allowlisted paths, compare-and-swap branch advance, push without force, and journals under `.git/singularity-flow/`. A failed push leaves pending publication; `sflow sync` replays it exactly once. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing durable: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
+Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
 ## Purpose and prerequisites
 
@@ -37,9 +37,16 @@ Use this topic when the current goal matches **recovery**. Start in a governed c
 5. For an automatic action, confirm the exact `planId`. The command recomputes repository HEAD and the worktree fingerprint and refuses a stale plan.
 6. Re-read recovery once after completion. Retry the original lifecycle command only when its fingerprint changed.
 
+For an interrupted publication, `sflow sync` selects the recovery action from the journal boundary:
+
+- **Live owner:** stop and return to the terminal running the reported PID.
+- **Dead owner, before commit:** restore the durable preimage and retain the interrupted bytes in the reported rescue directory.
+- **Commit created, push incomplete:** publish the retained commit without rebasing, amending, or regenerating.
+- **Legacy dirty journal without a preimage:** fail closed and require manual inspection; recovery never guesses what the previous bytes were.
+
 ## State and safety
 
-Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can mutate governed or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Only system-owned transport actions are automatic. Source, authored artifacts, policy, approvals, and human answers are never auto-edited. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
+Recovery inspection is read-only and never invokes a model or AST. `recover --apply`, `sync`, and `refresh-branch` can mutate governed or machine-local state and remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Pre-commit rollback touches only the governed roots named by the integrity-checked journal; unrelated source edits and staged files are not reset. Only system-owned transport and exact preimage restoration are automatic. Source, authored artifacts, policy, approvals, and human answers are never invented or repaired by a model. AST or a language pack being unavailable is advisory and cannot block recovery or ordinary file-based work.
 
 ## Troubleshooting
 

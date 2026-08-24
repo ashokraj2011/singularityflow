@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,8 +9,10 @@ import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated } from '../src/git.mjs';
 import {
-  discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication
+  discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
+  recoverPreparedPublication
 } from '../src/publication-pending.mjs';
+import { capturePublicationPreimage, restorePublicationPreimage } from '../src/publication-recovery.mjs';
 import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 
@@ -37,6 +39,7 @@ const stages = ['after-state-write', 'after-commit', 'after-push', 'after-ledger
 const kinds = ['story', 'initiative'];
 const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-unit-of-work.mjs')).href;
 const eventModule = pathToFileURL(path.join(packageRoot, 'src/lifecycle-event.mjs')).href;
+const recoveryModule = pathToFileURL(path.join(packageRoot, 'src/publication-recovery.mjs')).href;
 
 async function pathExists(target) {
   try { await access(target); return true; }
@@ -275,6 +278,89 @@ test('a live prepared journal is reported as active rather than interrupted', ()
   });
   pending.journalRecord.owner.pid = 2147483647;
   assert.equal(livePreparedPublicationOwner(pending), null);
+});
+
+test('a dead pre-commit transaction restores its durable preimage and preserves unrelated work', async (t) => {
+  for (const kind of kinds) {
+    await t.test(kind, async () => {
+      const root = await repository(`sflow-durable-rollback-${kind}-`);
+      const subject = { kind, id: `${kind.toUpperCase()}-DURABLE-ROLLBACK`, branch: 'main' };
+      const target = `${kind}-state.json`;
+      const prior = `${JSON.stringify({ status: 'before', authored: 'preserve me' })}\n`;
+      await writeFile(path.join(root, target), prior);
+      git(['add', target], root);
+      git(['commit', '-m', 'canonical state'], root);
+      const canonical = git(['rev-parse', 'HEAD'], root);
+      const script = [
+        `import { writeFile } from 'node:fs/promises';`,
+        `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+        `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+        `import { restorePublicationPreimage } from ${JSON.stringify(recoveryModule)};`,
+        `const root = ${JSON.stringify(root)};`,
+        `const subject = ${JSON.stringify(subject)};`,
+        `const target = ${JSON.stringify(target)};`,
+        `await new GitPublicationUnitOfWork(root).execute({`,
+        `  subject,`,
+        `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
+        `  commit: { message: '[${subject.id}] durable rollback' },`,
+        `  publication: { mode: 'off', branch: 'main' }, allowedPaths: [target],`,
+        `  state: {`,
+        `    write: () => writeFile(root + '/' + target, '{"status":"interrupted"}\\n'),`,
+        `    rollback: (preimage) => restorePublicationPreimage(root, preimage, { subject })`,
+        `  },`,
+        `  fault: (current) => { if (current === 'after-state-write') process.exit(73); }`,
+        `});`
+      ].join('\n');
+      const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+        cwd: packageRoot, encoding: 'utf8'
+      });
+      assert.equal(child.status, 73, child.stderr);
+      assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"interrupted"}\n');
+      await writeFile(path.join(root, 'developer.txt'), 'unrelated work survives recovery\n');
+
+      const pending = await readPendingPublication(root, subject);
+      assert.equal(pending.journalRecord.recoveryPreimage.format, 'publication-preimage-v1');
+      const recovery = await recoverPreparedPublication(root, pending);
+      assert.equal(recovery.restored, true);
+      assert.ok(recovery.rescuePath);
+      assert.equal(await readFile(path.join(root, target), 'utf8'), prior);
+      assert.equal(await readFile(path.join(root, 'developer.txt'), 'utf8'), 'unrelated work survives recovery\n');
+      assert.equal(await readFile(path.join(recovery.rescuePath, 'worktree', target), 'utf8'), '{"status":"interrupted"}\n');
+      assert.equal(await pathExists(publicationJournalPath(root, kind, subject.id)), false);
+      assert.equal(git(['rev-parse', 'HEAD'], root), canonical);
+      assert.equal(git(['status', '--porcelain'], root), '?? developer.txt');
+    });
+  }
+});
+
+test('a corrupt durable preimage is refused before restoration', async () => {
+  const root = await repository('sflow-corrupt-rollback-');
+  const target = 'governed.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  const preimage = structuredClone(await capturePublicationPreimage(root, [target]));
+  preimage.roots[0].files[0].contents = Buffer.from('{"status":"tampered"}\n').toString('base64');
+  await writeFile(path.join(root, target), '{"status":"interrupted"}\n');
+  await assert.rejects(
+    () => restorePublicationPreimage(root, preimage, { subject: { kind: 'story', id: 'CORRUPT' }, preserveCurrent: true }),
+    /failed integrity validation/
+  );
+  assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"interrupted"}\n');
+});
+
+test('durable preimages restore executable modes as well as file bytes', async () => {
+  const root = await repository('sflow-mode-rollback-');
+  const target = path.join(root, 'governed.sh');
+  await writeFile(target, '#!/bin/sh\necho before\n');
+  await chmod(target, 0o755);
+  const preimage = await capturePublicationPreimage(root, ['governed.sh']);
+  await writeFile(target, '#!/bin/sh\necho interrupted\n');
+  await chmod(target, 0o600);
+  const recovery = await restorePublicationPreimage(root, preimage, {
+    subject: { kind: 'story', id: 'MODE' }
+  });
+  assert.equal(recovery.restored, true);
+  assert.equal(await readFile(target, 'utf8'), '#!/bin/sh\necho before\n');
+  assert.equal((await stat(target)).mode & 0o777, 0o755);
 });
 
 test('a lock left by a killed process is reclaimed for Story and Initiative subjects', async (t) => {

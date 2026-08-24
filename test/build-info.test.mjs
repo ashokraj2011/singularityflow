@@ -14,7 +14,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -184,4 +184,25 @@ test('the diagnostics page reports which build is running', async () => {
   const build = snapshot.checks.find((entry) => entry.id === 'build');
   assert.ok(build, 'doctor has no build check');
   assert.equal(build.message, versionLine());
+});
+
+test('diagnostics remain available from a detached verification checkout', async (t) => {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-doctor-detached-'));
+  t.after(() => rm(checkout, { recursive: true, force: true }));
+  const git = (...args) => {
+    const result = spawnSync('git', args, { cwd: checkout, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git('init', '-b', 'main');
+  git('config', 'user.name', 'Detached Doctor');
+  git('config', 'user.email', 'detached@example.invalid');
+  await writeFile(path.join(checkout, 'README.md'), '# Detached diagnostics\n');
+  git('add', 'README.md');
+  git('commit', '-m', 'fixture');
+  git('checkout', '--detach', 'HEAD');
+
+  const { doctorSnapshot } = await import('../src/doctor.mjs');
+  const snapshot = await doctorSnapshot(checkout, { offline: true, probeModelProvider: false });
+  assert.equal(snapshot.branch, '(detached)');
+  assert.match(snapshot.head, /^[0-9a-f]{40,64}$/);
 });

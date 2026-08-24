@@ -494,6 +494,15 @@ function modelInvocationAuditV1ToV2(source) {
   };
 }
 
+function modelInvocationAuditV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    generationNonce: source.generationNonce ?? null,
+    attestation: source.attestation ?? null
+  };
+}
+
 function observationSummaryV2ToV3(source) {
   const exitCode = source.source?.exitCode;
   const hasExitCode = Number.isInteger(exitCode);
@@ -682,8 +691,8 @@ const families = [
   family({ id: 'local-identity-reservation', currentVersion: 1, paths: [/^singularity\/identity-reservations\/[^/]+\.json$/], immutable: true }),
   family({ id: 'mcp-host-receipt', currentVersion: 1, paths: [/^\$git\/mcp\/(?:cache|receipts)\/[^/]+\.json$/] }),
   family({
-    id: 'model-invocation-audit', currentVersion: 2,
-    steps: [migration(1, 2, modelInvocationAuditV1ToV2)],
+    id: 'model-invocation-audit', currentVersion: 3,
+    steps: [migration(1, 2, modelInvocationAuditV1ToV2), migration(2, 3, modelInvocationAuditV2ToV3)],
     paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
   }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),
@@ -731,6 +740,7 @@ const families = [
     paths: [/^\$git\/pending-publication\/[^/]+\.json$/, /\/publication-pending\.json$/], unversionedAs: 2
   }),
   family({ id: 'publication-journal', currentVersion: 1, paths: [/^\$git\/publication-journal\/[^/]+\.json$/] }),
+  family({ id: 'story-start-journal', currentVersion: 1, paths: [/^\$git\/story-start\/[^/]+\.json$/] }),
   family({ id: 'telemetry-cursor', currentVersion: 1, paths: [/^\$git\/telemetry-cursors\.json$/] }),
   family({ id: 'telemetry-preference', currentVersion: 1 }),
   family({ id: 'telemetry-launch', currentVersion: 1, paths: [/^\$git\/telemetry\/launches\/tel_[^/]+\.json$/] }),

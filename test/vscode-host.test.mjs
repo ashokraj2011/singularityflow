@@ -1975,11 +1975,15 @@ test('the packaged POC release candidate journey survives publication, review, C
         ''
       ].join('\n'));
     }
+    const authorSession = cli(['agent', '--agent', before.phases[phaseId].defaultAgent], 'Release Author');
+    assert.equal(authorSession.status, 0, `select release author session failed:\n${authorSession.stderr}`);
     for (const args of [
       ['phase', 'publish', phaseId, '--authored', 'human'],
       ['submit', '--phase', phaseId]
     ]) {
-      const lifecycleResult = cli(args, reviewer.name);
+      // Keep generation authorship independent from both reviewers. Production workflows now
+      // reject self-approval by default, including in this packaged release-candidate journey.
+      const lifecycleResult = cli(args, 'Release Author');
       assert.equal(lifecycleResult.status, 0, `${args.join(' ')} failed:\n${lifecycleResult.stderr}`);
     }
     const firstApproval = cli(['approve', phaseId, '--yes'], reviewer.name);

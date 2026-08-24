@@ -10,13 +10,14 @@ import {
   claimAutoAuthorization, finishAutoAuthorization, ratifyAutoPlan
 } from './auto-plan.mjs';
 import { createAutoFlightState, listAutoFlights } from './auto-flight-store.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 
 function flightId(plan) {
   const digest = createHash('sha256').update(`${plan.planSha256}\0${nowIso()}\0${process.pid}`).digest('hex');
   return `AFL-${digest.slice(0, 26).toUpperCase()}`;
 }
 
-export async function startAutoFlight(root, planId, confirmation) {
+async function startAutoFlightLocked(root, planId, confirmation) {
   const { plan, authorization } = await ratifyAutoPlan(root, planId, confirmation);
   const active = (await listAutoFlights(root)).filter((state) => ['running', 'paused', 'waiting-human'].includes(state.status));
   if (active.length >= plan.execution.concurrency.maximumPerWorkspace) {
@@ -32,7 +33,9 @@ export async function startAutoFlight(root, planId, confirmation) {
       });
     }
   }
-  const id = flightId(plan);
+  const id = authorization.recovery === 'reconstruct-flight' && authorization.flightId
+    ? authorization.flightId
+    : flightId(plan);
   const repository = plan.repositories[0];
   const worktree = path.join(gitCommonDir(root), 'singularity-flow', 'auto-worktrees', id, repository.id);
   const claimed = await claimAutoAuthorization(root, plan, authorization, id);
@@ -61,6 +64,11 @@ export async function startAutoFlight(root, planId, confirmation) {
       capabilityId: plan.capability?.id ?? null,
       worktree: started.worktree,
       scopePrediction: plan.proposal.predictedPaths,
+      configuration: {
+        workflowSha256: plan.bindings.workflowSha256,
+        executionHostDescriptorSha256: plan.executionHost?.driver?.descriptorSha256 ?? null
+      },
+      repositories: plan.repositories,
       execution: plan.execution,
       stopReason: waiting ? 'first-human-boundary' : 'authorized-start',
       nextAction: waiting
@@ -82,4 +90,10 @@ export async function startAutoFlight(root, planId, confirmation) {
       code: 'AUTO_START_INCOMPLETE', details: { planId: plan.planId }, cause: error
     });
   }
+}
+
+/** Serialize concurrency admission, authorization claim, Story start, and flight creation. */
+export async function startAutoFlight(root, planId, confirmation) {
+  return withSubjectLock(root, { kind: 'auto-workspace', id: 'concurrency' }, () =>
+    startAutoFlightLocked(root, planId, confirmation));
 }

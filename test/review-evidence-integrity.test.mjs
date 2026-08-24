@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { canonicalJson } from '../src/records.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
-import { readStoryReviewPacket } from '../src/story-lineage.mjs';
+import { readStoryReviewPacket, reviewArtifactSetSha256 } from '../src/story-lineage.mjs';
 import { run } from '../src/util.mjs';
 
 function git(root, args) {
@@ -24,23 +24,37 @@ test('review reads delivery and test evidence from the immutable submission comm
   const evidenceRoot = 'singularity/work-items/REV-1/context/code-delivery';
   const codePath = `${evidenceRoot}/implementation-gen1.json`;
   const testPath = `${evidenceRoot}/tests/implementation-gen1-unit.json`;
+  const artifactPath = 'singularity/work-items/REV-1/artifacts/implementation/implementation-summary.md';
+  const artifactBytes = Buffer.from('# Immutable implementation evidence\n');
   const codeReceipt = { schemaVersion: currentSchemaVersion('code-delivery'), kind: 'code-delivery', status: 'ready' };
   const testReceipt = { schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution', status: 'passed' };
   const digest = (record) => createHash('sha256').update(canonicalJson(record)).digest('hex');
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: 'REV-1', phase: 'implementation', generation: 1,
+    artifacts: [{
+      path: artifactPath,
+      kind: 'implementation-summary',
+      sha256: createHash('sha256').update(artifactBytes).digest('hex'),
+      size: artifactBytes.length
+    }],
+    checks: [{ id: 'unit', status: 'passed' }],
     submissionEvidence: {
       codeDelivery: { path: codePath, sha256: digest(codeReceipt), status: 'ready' },
-      testExecutions: [{ commandId: 'unit', path: testPath, sha256: digest(testReceipt), status: 'passed' }]
+      testExecutions: [{ commandId: 'unit', path: testPath, sha256: digest(testReceipt), status: 'passed' }],
+      checksSha256: createHash('sha256').update(JSON.stringify([{ id: 'unit', status: 'passed' }])).digest('hex'),
+      artifactSetSha256: null
     }
   };
+  base.submissionEvidence.artifactSetSha256 = reviewArtifactSetSha256(base.artifacts);
   const packetSha256 = createHash('sha256').update(JSON.stringify(base)).digest('hex');
   const packetPath = `singularity/work-items/REV-1/submissions/implementation/${packetSha256}.json`;
   for (const [relative, record] of [[codePath, codeReceipt], [testPath, testReceipt], [packetPath, { ...base, packetSha256 }]]) {
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
     await writeFile(path.join(root, relative), `${JSON.stringify(record, null, 2)}\n`);
   }
+  await mkdir(path.dirname(path.join(root, artifactPath)), { recursive: true });
+  await writeFile(path.join(root, artifactPath), artifactBytes);
   git(root, ['add', '.']);
   git(root, ['commit', '-m', 'submission evidence']);
   const evidenceCommit = git(root, ['rev-parse', 'HEAD']);

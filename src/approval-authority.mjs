@@ -1,6 +1,21 @@
 import { SingularityFlowError } from './util.mjs';
 
 export const DEFAULT_APPROVAL_AUTHORITY = 'git-contributors';
+export const APPROVAL_SECURITY_PROFILES = Object.freeze(['poc', 'team', 'regulated']);
+
+export function normalizeApprovalSecurity(value = {}) {
+  const source = typeof value === 'string' ? { profile: value } : (value ?? {});
+  const profile = source.profile ?? 'team';
+  if (!APPROVAL_SECURITY_PROFILES.includes(profile)) {
+    throw new SingularityFlowError(`approvalSecurity.profile must be ${APPROVAL_SECURITY_PROFILES.join(', ')}.`);
+  }
+  return {
+    profile,
+    allowAnyGitIdentity: profile === 'poc',
+    allowSelfApproval: profile === 'poc',
+    requireNamedMembers: profile === 'regulated'
+  };
+}
 
 function normalizedEmail(value) {
   return String(value ?? '').trim().toLowerCase();
@@ -10,11 +25,12 @@ function normalizedLogin(value) {
   return String(value ?? '').trim().toLowerCase();
 }
 
-export function normalizeApprovalAuthorities(value = null) {
+export function normalizeApprovalAuthorities(value = null, securityValue = {}) {
+  const security = normalizeApprovalSecurity(securityValue);
   const source = value ?? {
     [DEFAULT_APPROVAL_AUTHORITY]: {
       label: 'Git contributors',
-      allowAnyGitIdentity: true,
+      allowAnyGitIdentity: security.allowAnyGitIdentity,
       members: []
     }
   };
@@ -38,7 +54,7 @@ export function normalizeApprovalAuthorities(value = null) {
     const seen = new Set();
     result[id] = {
       label: authority.label?.trim() || id,
-      allowAnyGitIdentity: authority.allowAnyGitIdentity === true,
+      allowAnyGitIdentity: authority.allowAnyGitIdentity ?? security.allowAnyGitIdentity,
       githubTeams: [...new Set(githubTeams)],
       members: members.map((member, index) => {
         if (!member || typeof member !== 'object' || Array.isArray(member)) {
@@ -55,14 +71,15 @@ export function normalizeApprovalAuthorities(value = null) {
         return { name: member.name?.trim() || null, email: email || null, githubLogin: githubLogin || null };
       })
     };
-    if (!result[id].allowAnyGitIdentity && !result[id].members.length) {
-      throw new SingularityFlowError(`Approval authority '${id}' must list members or set allowAnyGitIdentity: true.`);
+    if (security.requireNamedMembers && !result[id].allowAnyGitIdentity && !result[id].members.length) {
+      throw new SingularityFlowError(`Regulated approval authority '${id}' must list named members.`);
     }
   }
   return result;
 }
 
-export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
+export function normalizeApprovalPolicy(value = {}, authorities, phaseId, securityValue = {}) {
+  const security = normalizeApprovalSecurity(securityValue);
   if (value === 'none' || value?.mode === 'none') {
     return {
       mode: 'none',
@@ -132,7 +149,7 @@ export function normalizeApprovalPolicy(value = {}, authorities, phaseId) {
     requiredAuthorities: [...required],
     minimum,
     rejectTo,
-    allowSelfApproval: value.allowSelfApproval !== false,
+    allowSelfApproval: value.allowSelfApproval ?? security.allowSelfApproval,
     changeRequests: {
       commentRequired: changeRequests.commentRequired !== false,
       reopenCompleted: changeRequests.reopenCompleted !== false

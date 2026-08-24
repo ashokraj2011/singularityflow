@@ -81,7 +81,10 @@ export class StoryStateStore {
     const publication = await this.publish(workflow, event, message, paths, {
       ...options,
       rollbackWorkflow: prior,
-      beforeStateWrite: async () => { value = await transition(workflow); }
+      beforeStateWrite: async () => {
+        value = await transition(workflow);
+        return value;
+      }
     });
     return { value, publication };
   }
@@ -125,7 +128,10 @@ export class InitiativeStateStore {
     const publication = await this.publish(initiative, event, message, {
       ...options,
       rollbackInitiative: prior,
-      beforeStateWrite: async () => { value = await transition(initiative); }
+      beforeStateWrite: async () => {
+        value = await transition(initiative);
+        return value;
+      }
     });
     return { value, publication };
   }

@@ -1,4 +1,4 @@
-import { copyFile, lstat, mkdir, readFile, readlink } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readFile, readlink, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -6,7 +6,9 @@ import {
   SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
   run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
-import { branch, changedFiles, head, identity, pushBranch, remoteContains, untrackedFiles } from './git.mjs';
+import {
+  branch, changedFiles, head, identity, pushBranch, pushCommitToBranch, remoteContains, untrackedFiles
+} from './git.mjs';
 import {
   WORKFLOW_PATH, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
   normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
@@ -1339,6 +1341,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
         || codeModelObservation?.host !== 'singularity-flow-kernel'
         || codeModelObservation?.source !== 'model-invocation-audit'
         || !codeModelObservation?.observedAt
+        || codeModelObservation?.observationIntegrity !== 'external-host-attested'
         || Number(codeModelObservation?.generation) !== Number(phase.generation + 1))) {
       throw new SingularityFlowError('Code-model assurance is missing its provider, model, host audit source, timestamp, or generation binding.', {
         code: 'CODE_MODEL_ASSURANCE_REQUIRED'
@@ -1423,6 +1426,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
         invocationIds: codeModelObservation ? [codeModelObservation.invocationId] : [],
         host: codeModelObservation?.host ?? null,
         observationSource: codeModelObservation?.source ?? null,
+        observationIntegrity: codeModelObservation?.observationIntegrity ?? 'unverified-local',
         observedAt: codeModelObservation?.observedAt ?? null,
         generation: codeModelObservation?.generation ?? null
       },
@@ -1722,6 +1726,10 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       await secureRepositoryPath(root, path.relative(root, path.dirname(resultTarget)), {
         label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
       });
+      // A timestamp is not execution evidence: touching yesterday's report made it fresh. The
+      // configured structured-result path is disposable command output, so remove it before the
+      // process starts. Anything parsed afterwards must have been created by this invocation.
+      await rm(resultTarget, { recursive: true, force: true });
     }
     // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
     // harness marker to a nested `node --test` process makes Node treat the required repository
@@ -1770,13 +1778,26 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
   return checks;
 }
 
-export function qualityValidationVerdict(checks = []) {
-  const failed = checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
-  const unavailable = checks.filter((check) => check.status === 'skipped-warning');
+export function qualityValidationVerdict(checks = [], { required = false } = {}) {
+  const known = new Set(['passed', 'failed', 'blocked', 'skipped-warning', 'unavailable']);
+  const invalid = checks.filter((check) => !known.has(check?.status));
+  const explicitFailures = checks.filter((check) => check.status === 'failed' || check.status === 'blocked');
+  // Invalid or unknown output is never equivalent to a passing command. Keep it in `failed` as
+  // well as `invalid` so every existing gate fails closed while callers gain the precise reason.
+  const failed = [...explicitFailures, ...invalid];
+  const unavailable = checks.filter((check) => ['skipped-warning', 'unavailable'].includes(check.status));
   const unavailableRequired = unavailable.filter((check) => (check.requirement ?? 'required') === 'required');
+  let verdict;
+  if (!checks.length) verdict = required ? 'invalid' : 'not-required';
+  else if (invalid.length) verdict = 'invalid';
+  else if (explicitFailures.length) verdict = 'failed';
+  else if (unavailable.length === checks.length) verdict = 'unavailable';
+  else if (unavailable.length) verdict = 'partial';
+  else verdict = 'passed';
   return {
-    verdict: failed.length ? 'failed' : unavailable.length ? 'partial' : 'passed',
+    verdict,
     failed,
+    invalid,
     unavailable,
     unavailableRequired
   };
@@ -2158,7 +2179,48 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
-  const validation = qualityValidationVerdict(phase.checks ?? []);
+  const packetEntry = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
+    entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));
+  if (!packetEntry) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' cannot be approved without an immutable review packet for generation ${phase.generation}.`,
+      { code: 'STORY_REVIEW_EVIDENCE_REQUIRED' }
+    );
+  }
+  const { readStoryReviewPacket, reviewArtifactSetSha256 } = await import('./story-lineage.mjs');
+  const submittedReview = await readStoryReviewPacket(root, config, workflow, packetEntry.packetSha256);
+  if (submittedReview.phase !== phase.id || Number(submittedReview.generation) !== Number(phase.generation)) {
+    throw new SingularityFlowError(`Phase '${phase.id}' review packet does not bind its current generation.`, {
+      code: 'STORY_REVIEW_EVIDENCE_INVALID'
+    });
+  }
+  const currentArtifacts = [];
+  for (const artifact of phase.artifacts ?? []) {
+    const current = await snapshot(path.join(root, artifact.path));
+    if (!current.exists || !current.sha256) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' artifact '${artifact.path}' is absent or no longer a regular file. Submit a fresh generation.`,
+        { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+      );
+    }
+    currentArtifacts.push({
+      path: artifact.path,
+      kind: artifact.kind ?? null,
+      sha256: current.sha256,
+      size: current.size
+    });
+  }
+  const currentChecksSha256 = createHash('sha256').update(JSON.stringify(phase.checks ?? [])).digest('hex');
+  if (submittedReview.submissionEvidence?.artifactSetSha256 !== reviewArtifactSetSha256(currentArtifacts)
+    || submittedReview.submissionEvidence?.checksSha256 !== currentChecksSha256) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' artifacts or quality evidence changed after submission. Submit a fresh immutable review packet.`,
+      { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+    );
+  }
+  const validation = qualityValidationVerdict(submittedReview.checks ?? [], {
+    required: (phase.qualityCommands ?? []).some((check) => (check.requirement ?? 'required') === 'required')
+  });
   const failedChecks = validation.failed;
   const unavailableRequiredChecks = validation.unavailableRequired;
   if (failedChecks.length || unavailableRequiredChecks.length) {
@@ -2167,7 +2229,6 @@ export async function approvePhase(root, config, workflow, {
       { code: 'PHASE_VALIDATION_FAILED' }
     );
   }
-  let submittedReview = null;
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
     const currentTree = await sourceTreeHash(root);
@@ -2182,13 +2243,6 @@ export async function approvePhase(root, config, workflow, {
         `Phase '${phase.id}' code or tests changed after validation. Submit a fresh validated generation.`,
         { code: 'CODE_DELIVERY_VALIDATION_STALE' }
       );
-    }
-    submittedReview = await import('./story-lineage.mjs').then(({ readStoryReviewPacket }) =>
-      readStoryReviewPacket(root, config, workflow));
-    if (submittedReview.phase !== phase.id || Number(submittedReview.generation) !== Number(phase.generation)) {
-      throw new SingularityFlowError(`Phase '${phase.id}' review packet does not bind its current generation.`, {
-        code: 'CODE_DELIVERY_VALIDATION_REQUIRED'
-      });
     }
     const submittedChecksSha256 = createHash('sha256')
       .update(JSON.stringify(submittedReview.checks ?? []))
@@ -2312,11 +2366,6 @@ export async function approvePhase(root, config, workflow, {
       + `Record one decision for every article with singularity-flow approve ${phase.id} --article <id>=satisfied|exception|not-applicable [--article-reason TEXT], or --checklist <file.json>.`
     );
   }
-  const packet = workflow.lineage?.submissions?.findLast?.((entry) =>
-    entry.phase === phase.id && entry.generation === phase.generation
-  ) ?? [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
-    entry.phase === phase.id && entry.generation === phase.generation
-  );
   const decision = {
     decision: 'approved',
     phase: phase.id,
@@ -2332,8 +2381,11 @@ export async function approvePhase(root, config, workflow, {
     // Recorded as the single hash of the complete set, so an approval cannot survive a member being
     // regenerated underneath it — the bundle it named no longer exists.
     ...(phase.artifactSet ? { artifactSet: phase.artifactSet.setId, bundleSha256: phase.artifactSet.bundleSha256 } : {}),
-    reviewPacketSha256: submittedReview?.packetSha256 ?? packet?.packetSha256 ?? null,
-    ...(phaseRequiresCodeDelivery(phase) ? { reviewEvidenceCommit: submittedReview?.evidenceCommit ?? null } : {}),
+    reviewPacketSha256: submittedReview.packetSha256,
+    evidenceCommit: submittedReview.evidenceCommit,
+    artifactSetSha256: submittedReview.submissionEvidence.artifactSetSha256,
+    // Compatibility alias for consumers introduced with code-delivery v2.
+    ...(phaseRequiresCodeDelivery(phase) ? { reviewEvidenceCommit: submittedReview.evidenceCommit } : {}),
     // Recorded on the decision, not on the phase: the articles are what *this reviewer* confirmed,
     // and a second approver's exceptions are their own. The checklist hash travels with them so a
     // later reader knows which version of the articles was answered.
@@ -2388,11 +2440,14 @@ export async function approvePhase(root, config, workflow, {
   }
   workflow.history.push({ at: decision.at, actor: key, agent: session.agent, event: decision.selfApproval ? 'phase_self_approved' : 'phase_approved', phase: phase.id, detail: reached ? `threshold reached${workflow.currentPhase ? `; advanced to ${workflow.currentPhase}` : '; complete'}` : 'approval recorded' });
   if (persist) {
-    // Approval metadata is part of the managed artifact. Render it before
-    // taking the approved snapshot so the metadata write cannot immediately
-    // make the registered approval hash stale.
-    await updateArtifactMetadata(root, config, workflow, phase);
-    await registerApprovedSnapshot(root, config, workflow, phase);
+    // A partial threshold decision must not rewrite the artifact under review. Doing so made the
+    // next reviewer see different bytes and invalidated the immutable submission packet even
+    // though no authored content changed. The workflow and decision receipt record partial votes;
+    // managed artifact metadata is rendered only once the threshold is actually reached.
+    if (reached) {
+      await updateArtifactMetadata(root, config, workflow, phase);
+      await registerApprovedSnapshot(root, config, workflow, phase);
+    }
     await writeDecision(root, config, workflow, phase, decision);
     await saveWorkflow(root, config, workflow);
   }
@@ -2784,6 +2839,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       path: brief.path,
       renderedPath: brief.renderedPath,
       sourceSha256: brief.sourceSha256,
+      sourceBytes: brief.sourceBytes ?? null,
       renderedSha256: brief.renderedSha256,
       integritySha256: brief.integritySha256
     }));
@@ -3141,6 +3197,8 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
 
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
+  eventFromResult = null,
+  transactionId = null,
   rollbackWorkflow = null,
   recoveryPreimage = null
 } = {}) {
@@ -3210,7 +3268,42 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         // after the publication unit has acquired the subject lock and opened
         // its recovery journal. Callers may prepare an in-memory decision before
         // this point, but may not persist governed files outside this callback.
-        if (beforeStateWrite) await beforeStateWrite();
+        const transitionResult = beforeStateWrite ? await beforeStateWrite() : undefined;
+        if (eventFromResult) {
+          const derived = await eventFromResult(transitionResult, workflow, publicationEvent);
+          if (derived) {
+            const finalized = lifecycleEvent({
+              ...publicationEvent,
+              ...derived,
+              subject: publicationEvent.subject,
+              payload: { ...(publicationEvent.payload ?? {}), ...(derived.payload ?? {}) }
+            });
+            Object.assign(publicationEvent, finalized, {
+              eventId: publicationEvent.eventId,
+              createdAt: publicationEvent.createdAt
+            });
+            if (ledgerIntent) {
+              ledgerIntent.eventType = publicationEvent.type;
+              ledgerIntent.subject.phase = publicationEvent.phaseId;
+              ledgerIntent.subject.generation = publicationEvent.generation;
+              ledgerIntent.actor = {
+                name: publicationEvent.actor?.name ?? null,
+                email: publicationEvent.actor?.email ?? null,
+                githubLogin: publicationEvent.actor?.login ?? publicationEvent.actor?.githubLogin ?? null,
+                identityAssurance: derived.identityAssurance
+                  ?? ledgerIntent.actor?.identityAssurance
+                  ?? 'unavailable'
+              };
+              ledgerIntent.agent = publicationEvent.agent;
+              ledgerIntent.authorityGroup = publicationEvent.authorityGroup;
+              ledgerIntent.payload = {
+                ...(ledgerIntent.payload ?? {}),
+                lifecyclePayload: publicationEvent.payload,
+                lifecycleEvent: publicationEvent
+              };
+            }
+          }
+        }
         // Design-source selection is lifecycle authority, not an incidental file
         // write. Build and bind it only after the publication unit has acquired
         // the subject lock, checked the revision, and opened its journal.
@@ -3249,10 +3342,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             .find((item) => !item.invalidatedAt && item.decision === 'approved');
           if (approval) {
             if (binding) approval.designSourceSet = binding;
-            await updateArtifactMetadata(root, config, workflow, requestedPhase);
-            // This hash represents the final approved artifact, including its
-            // managed approval metadata. Do not rewrite it after this point.
-            await registerApprovedSnapshot(root, config, workflow, requestedPhase);
+            if (requestedPhase.status === 'approved') {
+              await updateArtifactMetadata(root, config, workflow, requestedPhase);
+              // This hash represents the final approved artifact, including its
+              // managed approval metadata. Do not rewrite it after this point.
+              await registerApprovedSnapshot(root, config, workflow, requestedPhase);
+            }
             await writeDecision(root, config, workflow, requestedPhase, approval);
             // The advancing phase's interval baseline is a durable write like the three above, and
             // it belongs here for the same reason. `approvePhase` used to write it before the unit
@@ -3260,15 +3355,18 @@ export async function commitAndPublish(root, config, workflow, event, message, e
             // failed approval left the file on disk with a workflow.json that no longer referenced
             // it. `currentPhase` has already advanced in memory by this point, and the helper is a
             // no-op for a phase that does not use intervals or already has an open one.
-            await ensureWorkIntervalBaseline(root, config, workflow, {
-              phaseId: workflow.currentPhase,
-              itemDirectory: workDir(root, config, workflow.workItem.id),
-              itemRelative: workDirRelative(config, workflow.workItem.id)
-            });
+            if (requestedPhase.status === 'approved') {
+              await ensureWorkIntervalBaseline(root, config, workflow, {
+                phaseId: workflow.currentPhase,
+                itemDirectory: workDir(root, config, workflow.workItem.id),
+                itemRelative: workDirRelative(config, workflow.workItem.id)
+              });
+            }
           }
         }
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
-        return saveWorkflow(root, config, workflow);
+        await saveWorkflow(root, config, workflow);
+        return { event: publicationEvent, transitionResult };
       },
       // Captured before the projection mutates it in place, so a publication that fails after the
       // write leaves no record of an event that never happened — and covering every file the write
@@ -3289,7 +3387,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     publication: { mode: workflowPublicationMode(config, workflow), remote: config.git?.remote ?? 'origin', branch: targetBranch },
     pendingRecord: () => ({ workId: workflow.workItem.id }),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
-    recoveryPreimage
+    recoveryPreimage,
+    transactionId
   });
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
@@ -3312,7 +3411,7 @@ export async function syncPublication(root, config, workflow) {
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
   if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
-    const liveOwner = livePreparedPublicationOwner(pending);
+    const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
       throw new SingularityFlowError(
         `Story '${workflow.workItem.id}' has an active governed publication command (PID ${liveOwner.pid}`
@@ -3340,9 +3439,18 @@ export async function syncPublication(root, config, workflow) {
     );
   }
   const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
+  if (record.recoveryStage === 'publication-recovery-diverged') {
+    throw new SingularityFlowError(
+      `Story '${workflow.workItem.id}' recovery diverged and was stopped safely. ${record.error} `
+      + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
+      { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
+    );
+  }
   const capabilityOnly = pending?.record?.recoveryStage === 'capability-publication-pending';
   if (!capabilityOnly) {
-    const result = pushBranch(root, record.remote, record.branch);
+    const result = record.commit
+      ? pushCommitToBranch(root, record.remote, record.commit, record.branch)
+      : pushBranch(root, record.remote, record.branch);
     if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
   }
   const capability = publishCapabilityRepositories(record.capabilityPublications ?? []);
@@ -3366,7 +3474,7 @@ export async function syncPublication(root, config, workflow) {
   });
   const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
   return {
-    pushed: head(root), remote: record.remote, branch: record.branch,
+    pushed: record.commit ?? head(root), remote: record.remote, branch: record.branch,
     capabilityPublished: capability.published, ledger
   };
 }

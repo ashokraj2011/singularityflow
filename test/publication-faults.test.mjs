@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, stat, symlink, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
-import { commitIsolated } from '../src/git.mjs';
+import { commitIsolated, gitDir } from '../src/git.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
   recoverPreparedPublication, recoverPreparedPublicationBySubject
@@ -42,6 +42,28 @@ const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-
 const draftModule = pathToFileURL(path.join(packageRoot, 'src/draft-unit-of-work.mjs')).href;
 const eventModule = pathToFileURL(path.join(packageRoot, 'src/lifecycle-event.mjs')).href;
 const recoveryModule = pathToFileURL(path.join(packageRoot, 'src/publication-recovery.mjs')).href;
+
+async function crashPublication(root, subject, target, stage, { mode = 'required' } = {}) {
+  const script = [
+    `import { writeFile } from 'node:fs/promises';`,
+    `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
+    `import { lifecycleEvent } from ${JSON.stringify(eventModule)};`,
+    `const root = ${JSON.stringify(root)};`,
+    `const subject = ${JSON.stringify(subject)};`,
+    `await new GitPublicationUnitOfWork(root).execute({`,
+    `  subject, allowedPaths: [${JSON.stringify(target)}],`,
+    `  event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),`,
+    `  commit: { message: '[${subject.id}] crash identity test' },`,
+    `  publication: { mode: ${JSON.stringify(mode)}, branch: 'main', remote: 'origin' },`,
+    `  state: { write: () => writeFile(root + '/' + ${JSON.stringify(target)}, '{"status":"transaction"}\\n') },`,
+    `  fault: (current) => { if (current === ${JSON.stringify(stage)}) process.exit(77); }`,
+    `});`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.status, 77, child.stderr);
+}
 
 async function pathExists(target) {
   try { await access(target); return true; }
@@ -235,6 +257,130 @@ test('prewritten journals make hard process death discoverable before and after 
   }
 });
 
+test('recovery refuses every advanced HEAD that is not the exact transaction commit', async (t) => {
+  for (const pushed of [false, true]) {
+    await t.test(pushed ? 'unrelated pushed commit' : 'unrelated local commit', async () => {
+      const root = await repository(`sflow-diverged-${pushed ? 'pushed' : 'local'}-`);
+      if (pushed) {
+        const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-diverged-origin-'));
+        git(['init', '--bare', '-q'], remote);
+        git(['remote', 'add', 'origin', remote], root);
+        git(['push', '-u', 'origin', 'main'], root);
+      }
+      const subject = { kind: 'story', id: `DIVERGED-${pushed ? 'PUSHED' : 'LOCAL'}`, branch: 'main' };
+      const target = 'story-state.json';
+      await writeFile(path.join(root, target), '{"status":"before"}\n');
+      git(['add', target], root);
+      git(['commit', '-m', 'canonical state'], root);
+      await crashPublication(root, subject, target, 'after-state-write');
+
+      await writeFile(path.join(root, 'manual.txt'), 'unrelated\n');
+      git(['add', 'manual.txt'], root);
+      git(['commit', '-m', 'manual unrelated commit'], root);
+      if (pushed) git(['push', 'origin', 'main'], root);
+
+      const pending = await readPendingPublication(root, subject);
+      assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED');
+      assert.equal(pending.record.recoveryStage, 'publication-recovery-diverged');
+      assert.equal(pending.journalRecord.commit, null);
+      assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), true);
+    });
+  }
+
+  await t.test('checkout switched to another branch', async () => {
+    const root = await repository('sflow-diverged-branch-');
+    const subject = { kind: 'story', id: 'DIVERGED-BRANCH', branch: 'main' };
+    const target = 'story-state.json';
+    await writeFile(path.join(root, target), '{"status":"before"}\n');
+    git(['add', target], root);
+    git(['commit', '-m', 'canonical state'], root);
+    await crashPublication(root, subject, target, 'after-state-write');
+    git(['switch', '-c', 'other'], root);
+    const pending = await readPendingPublication(root, subject);
+    assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED');
+    assert.match(pending.record.error, /checkout is on branch 'other'/);
+    assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), true);
+  });
+
+  await t.test('advanced HEAD is merely an ancestor of the remote branch', async () => {
+    const root = await repository('sflow-diverged-remote-ancestor-');
+    const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-diverged-ancestor-origin-'));
+    git(['init', '--bare', '-q'], remote);
+    git(['remote', 'add', 'origin', remote], root);
+    git(['push', '-u', 'origin', 'main'], root);
+    const subject = { kind: 'story', id: 'DIVERGED-ANCESTOR', branch: 'main' };
+    const target = 'story-state.json';
+    await writeFile(path.join(root, target), '{"status":"before"}\n');
+    git(['add', target], root);
+    git(['commit', '-m', 'canonical state'], root);
+    git(['push', 'origin', 'main'], root);
+    await crashPublication(root, subject, target, 'after-state-write');
+    await writeFile(path.join(root, 'manual.txt'), 'one\n');
+    git(['add', 'manual.txt'], root);
+    git(['commit', '-m', 'manual B'], root);
+    const manualB = git(['rev-parse', 'HEAD'], root);
+    await writeFile(path.join(root, 'manual-2.txt'), 'two\n');
+    git(['add', 'manual-2.txt'], root);
+    git(['commit', '-m', 'manual C'], root);
+    git(['push', 'origin', 'main'], root);
+    git(['reset', '--hard', manualB], root);
+    const pending = await readPendingPublication(root, subject);
+    assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED');
+    assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), true);
+  });
+});
+
+test('transaction recovery verifies mode, tree, and event identity', async (t) => {
+  await t.test('mode off never creates a remote-push marker', async () => {
+    const root = await repository('sflow-mode-off-recovery-');
+    const subject = { kind: 'story', id: 'MODE-OFF', branch: 'main' };
+    const target = 'story-state.json';
+    await writeFile(path.join(root, target), '{"status":"before"}\n');
+    git(['add', target], root);
+    git(['commit', '-m', 'canonical state'], root);
+    await crashPublication(root, subject, target, 'after-ref-update', { mode: 'off' });
+    assert.equal(await readPendingPublication(root, subject), null);
+    assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+    assert.equal(await pathExists(path.join(root, '.git', 'singularity-flow', 'pending-publication', 'story--MODE-OFF.json')), false);
+  });
+
+  await t.test('same-tree different commit is not accepted', async () => {
+    const root = await repository('sflow-same-tree-identity-');
+    const subject = { kind: 'story', id: 'SAME-TREE', branch: 'main' };
+    const target = 'story-state.json';
+    await writeFile(path.join(root, target), '{"status":"before"}\n');
+    git(['add', target], root);
+    git(['commit', '-m', 'canonical state'], root);
+    const expectedHead = git(['rev-parse', 'HEAD'], root);
+    await crashPublication(root, subject, target, 'after-commit-object');
+    const journal = JSON.parse(await readFile(publicationJournalPath(root, subject.kind, subject.id), 'utf8'));
+    const impostor = git(['commit-tree', journal.tree, '-p', expectedHead, '-m', 'same tree, wrong identity'], root);
+    git(['update-ref', 'refs/heads/main', impostor, expectedHead], root);
+    const pending = await readPendingPublication(root, subject);
+    assert.notEqual(impostor, journal.commit);
+    assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED');
+    assert.match(pending.record.error, /does not contain the exact transaction commit/);
+  });
+
+  await t.test('wrong event digest is rejected', async () => {
+    const root = await repository('sflow-wrong-event-identity-');
+    const subject = { kind: 'story', id: 'WRONG-EVENT', branch: 'main' };
+    const target = 'story-state.json';
+    await writeFile(path.join(root, target), '{"status":"before"}\n');
+    git(['add', target], root);
+    git(['commit', '-m', 'canonical state'], root);
+    await crashPublication(root, subject, target, 'after-ref-update');
+    const journalPath = publicationJournalPath(root, subject.kind, subject.id);
+    const journal = JSON.parse(await readFile(journalPath, 'utf8'));
+    journal.eventSha256 = `sha256:${'f'.repeat(64)}`;
+    await writeFile(journalPath, `${JSON.stringify(journal, null, 2)}\n`);
+    const pending = await readPendingPublication(root, subject);
+    assert.equal(pending.record.code, 'PUBLICATION_RECOVERY_DIVERGED');
+    assert.match(pending.record.error, /different event digest/);
+    assert.equal(await pathExists(journalPath), true);
+  });
+});
+
 test('a dead prepared journal is discarded only when Git proves the pre-commit transaction is empty', async () => {
   const root = await repository('sflow-clean-prepared-journal-');
   const subject = { kind: 'story', id: 'STORY-CLEAN-PREPARED', branch: 'main' };
@@ -321,7 +467,8 @@ test('a dead pre-commit transaction restores its durable preimage and preserves 
       await writeFile(path.join(root, 'developer.txt'), 'unrelated work survives recovery\n');
 
       const pending = await readPendingPublication(root, subject);
-      assert.equal(pending.journalRecord.recoveryPreimage.format, 'publication-preimage-v1');
+      assert.equal(pending.journalRecord.recoveryPreimage.format, 'publication-preimage-v2');
+      assert.equal('contents' in pending.journalRecord.recoveryPreimage.roots[0].files[0], false);
       const recovery = await recoverPreparedPublication(root, pending);
       assert.equal(recovery.restored, true);
       assert.ok(recovery.rescuePath);
@@ -340,11 +487,11 @@ test('a corrupt durable preimage is refused before restoration', async () => {
   const target = 'governed.json';
   await writeFile(path.join(root, target), '{"status":"before"}\n');
   const preimage = structuredClone(await capturePublicationPreimage(root, [target]));
-  preimage.roots[0].files[0].contents = Buffer.from('{"status":"tampered"}\n').toString('base64');
+  preimage.roots[0].files[0].blob.digest = '0'.repeat(64);
   await writeFile(path.join(root, target), '{"status":"interrupted"}\n');
   await assert.rejects(
     () => restorePublicationPreimage(root, preimage, { subject: { kind: 'story', id: 'CORRUPT' }, preserveCurrent: true }),
-    /failed integrity validation/
+    /blob reference is invalid/
   );
   assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"interrupted"}\n');
 });
@@ -624,4 +771,102 @@ test('a failure after branch ref advancement records the exact commit for public
       assert.equal(pending.record.event.sourceCommit, committed);
     });
   }
+});
+
+test('an outer draft cannot erase a nested publication recovery record', async () => {
+  const root = await repository('sflow-nested-publication-');
+  const subject = { kind: 'story', id: 'NESTED-RECOVERY', branch: 'main' };
+  const target = 'nested-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'nested baseline'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'outer-draft',
+    allowedPaths: [target],
+    write: async () => {
+      await writeFile(path.join(root, target), '{"status":"draft"}\n');
+      return new GitPublicationUnitOfWork(root).execute({
+        subject,
+        event: lifecycleEvent({
+          type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
+        }),
+        commit: { message: '[NESTED-RECOVERY] nested publication' },
+        publication: { mode: 'required', branch: 'main', remote: 'origin' },
+        allowedPaths: [target],
+        state: { write: () => writeFile(path.join(root, target), '{"status":"committed"}\n') },
+        fault: (stage) => {
+          if (stage === 'after-ref-update') throw new Error('nested ref advanced');
+        }
+      });
+    }
+  }), /nested ref advanced/);
+
+  const pending = await readPendingPublication(root, subject);
+  assert.ok(pending, 'the outer draft erased the nested publication recovery marker');
+  assert.equal(pending.record.commit, git(['rev-parse', 'HEAD'], root));
+  assert.equal(pending.record.recoveryStage, 'branch-ref-advanced-before-publication');
+});
+
+test('preimages are content-addressed and reject oversized files and directory depth', async () => {
+  const root = await repository('sflow-preimage-bounds-');
+  await mkdir(path.join(root, 'governed'), { recursive: true });
+  await writeFile(path.join(root, 'governed', 'small.txt'), 'bounded bytes\n');
+  const snapshot = await capturePublicationPreimage(root, ['governed']);
+  const file = snapshot.roots[0].files[0];
+  assert.equal(file.contents, undefined, 'preimage bytes must not be embedded in the journal');
+  assert.equal(file.blob.digest, file.sha256);
+
+  const oversized = path.join(root, 'oversized.bin');
+  await writeFile(oversized, '');
+  await truncate(oversized, 64 * 1024 * 1024 + 1);
+  await assert.rejects(
+    () => capturePublicationPreimage(root, ['oversized.bin']),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_QUOTA_EXCEEDED'
+  );
+
+  let nested = path.join(root, 'too-deep');
+  for (let index = 0; index < 66; index += 1) nested = path.join(nested, `d${index}`);
+  await mkdir(nested, { recursive: true });
+  await writeFile(path.join(nested, 'leaf.txt'), 'too deep\n');
+  await assert.rejects(
+    () => capturePublicationPreimage(root, ['too-deep']),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_QUOTA_EXCEEDED'
+  );
+});
+
+test('recovery restores directory modes and bounds rescue retention per subject', async () => {
+  const root = await repository('sflow-rescue-retention-');
+  const subject = { kind: 'story', id: 'RESCUE-BOUNDS', branch: 'main' };
+  const directory = path.join(root, 'governed');
+  await mkdir(path.join(directory, 'nested'), { recursive: true });
+  await chmod(directory, 0o750);
+  await chmod(path.join(directory, 'nested'), 0o710);
+  await writeFile(path.join(directory, 'nested', 'state.txt'), 'original\n');
+  const snapshot = await capturePublicationPreimage(root, ['governed']);
+
+  for (let index = 0; index < 5; index += 1) {
+    await chmod(directory, 0o777);
+    await chmod(path.join(directory, 'nested'), 0o777);
+    await writeFile(path.join(directory, 'nested', 'state.txt'), `interrupted ${index}\n`);
+    await restorePublicationPreimage(root, snapshot, { subject, preserveCurrent: true });
+  }
+  assert.equal((await stat(directory)).mode & 0o777, 0o750);
+  assert.equal((await stat(path.join(directory, 'nested'))).mode & 0o777, 0o710);
+
+  const rescueRoot = path.join(gitDir(root), 'singularity-flow', 'publication-rescues');
+  const retained = (await readdir(rescueRoot)).filter((name) => name.startsWith('story--RESCUE-BOUNDS--'));
+  assert.equal(retained.length, 3, 'only the configured per-subject rescue generations are retained');
+});
+
+test('preimage capture never follows a governed symlink', async () => {
+  const root = await repository('sflow-preimage-symlink-');
+  await writeFile(path.join(root, 'outside.txt'), 'must not enter recovery evidence\n');
+  await mkdir(path.join(root, 'governed'));
+  await symlink('../outside.txt', path.join(root, 'governed', 'replacement.txt'));
+  await assert.rejects(
+    () => capturePublicationPreimage(root, ['governed']),
+    /refuses symbolic links|must not be a symbolic link/
+  );
 });

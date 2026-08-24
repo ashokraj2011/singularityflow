@@ -339,26 +339,30 @@ mcpServers:
       captureResults: true
 
 # Human approval groups are matched against the real Git/GitHub identity.
+approvalSecurity:
+  # poc permits open/self approval for local experiments; team is the safe normal default;
+  # regulated additionally requires every authority group to list named members.
+  profile: team
 approvalAuthorities:
   product-approvers:
     label: Product approvers
-    allowAnyGitIdentity: true
+    allowAnyGitIdentity: false
     members: []
   architecture-reviewers:
     label: Architecture reviewers
-    allowAnyGitIdentity: true
+    allowAnyGitIdentity: false
     members: []
   engineering-reviewers:
     label: Engineering reviewers
-    allowAnyGitIdentity: true
+    allowAnyGitIdentity: false
     members: []
   quality-reviewers:
     label: Quality reviewers
-    allowAnyGitIdentity: true
+    allowAnyGitIdentity: false
     members: []
   design-reviewers:
     label: Design reviewers
-    allowAnyGitIdentity: true
+    allowAnyGitIdentity: false
     members: []
 
 # Typed artifact sets [SPK:REQ-110]. The primary member is the human-facing document; supporting

@@ -108,6 +108,9 @@ test('every approval creates and pushes its own atomic decision commit', async (
   flow(root, ['init']);
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8')); config.worldModel.grounding = 'off';
+  config.approvalAuthorities['product-approvers'].members = [{
+    name: 'Independent Reviewer', email: 'independent.reviewer@example.com'
+  }];
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root); run('git', ['commit', '-m', 'init'], root); run('git', ['push', '-u', 'origin', 'main'], root);
 

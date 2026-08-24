@@ -33,7 +33,7 @@ export class DraftUnitOfWork {
     }
     if (!operation) throw new SingularityFlowError('Draft transaction requires an operation name.');
     if (typeof write !== 'function') throw new SingularityFlowError('Draft transaction requires a write function.');
-    return withSubjectLock(root, subject, async () => {
+    return withSubjectLock(root, subject, async (lockOwner) => {
       if (branch(root) !== subject.branch) {
         throw new SingularityFlowError(`Current branch ${branch(root)} must match ${subject.kind} branch ${subject.branch}.`);
       }
@@ -51,7 +51,7 @@ export class DraftUnitOfWork {
       }
       const expectedHead = head(root);
       const recoveryPreimage = await capturePublicationPreimage(root, allowedPaths);
-      await beginPublicationJournal(root, {
+      const journal = await beginPublicationJournal(root, {
         subject,
         expectedHead,
         branch: subject.branch,
@@ -59,7 +59,8 @@ export class DraftUnitOfWork {
         event: null,
         recoveryPreimage,
         transactionKind: 'draft',
-        operation
+        operation,
+        lockOwner
       });
       try {
         // The durable preimage is also the hand-off token for a nested first-publication
@@ -67,21 +68,21 @@ export class DraftUnitOfWork {
         const value = await write(recoveryPreimage);
         if (fault) await fault('after-draft-write', { value });
         if (validate) await validate(value);
-        await clearPublicationJournal(root, subject);
+        await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         return value;
       } catch (error) {
         // A nested publication may have advanced the branch and then failed during transport. Once
         // HEAD moves, rollback is forbidden: the exact commit is the stable recovery state and its
         // pending-publication marker must remain authoritative.
         if (head(root) !== expectedHead) {
-          await clearPublicationJournal(root, subject);
+          await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
           throw error;
         }
         let restoration = null;
         try {
           await updatePublicationJournal(root, subject, {
             stage: 'restoring', recoveryAttemptedAt: nowIso(), originalError: error?.message ?? String(error)
-          });
+          }, { transactionId: journal.transactionId });
           restoration = await restorePublicationPreimage(root, recoveryPreimage, {
             subject,
             preserveCurrent: true
@@ -92,7 +93,7 @@ export class DraftUnitOfWork {
             rollbackError: restoreFailure.message,
             rollbackFailedAt: nowIso(),
             rescuePath: restoration?.rescuePath ?? null
-          }).catch(() => {});
+          }, { transactionId: journal.transactionId }).catch(() => {});
           throw new SingularityFlowError(
             `${subject.kind} '${subject.id}' failed during ${operation} and its draft state could not be restored: ${restoreFailure.message}. `
             + 'The durable journal was retained; run the appropriate sync command.',
@@ -102,7 +103,7 @@ export class DraftUnitOfWork {
             }
           );
         }
-        await clearPublicationJournal(root, subject);
+        await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         throw error;
       }
     });

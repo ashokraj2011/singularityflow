@@ -113,6 +113,14 @@ test('a legacy Story runs through the shared phases untouched by the pack', asyn
   // never touched by accident; seeding `main` with it is therefore a deliberate second step, and
   // `start` refuses without it.
   sflow(root, ['init', '--work-id', 'SEED', '--base', 'main']);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(workflow.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
+  await writeFile(workflowPath, YAML.stringify(workflow));
   git(root, 'add', '-A');
   git(root, 'commit', '-m', 'governance');
   git(root, 'checkout', '-q', 'main');

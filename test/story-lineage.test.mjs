@@ -72,9 +72,12 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
   const source = packet.artifacts.find((artifact) => artifact.path.endsWith('/artifacts/specification/spec.md'));
   for (const brief of packet.agentBriefs) {
     const record = JSON.parse(await readFile(path.join(root, brief.path), 'utf8'));
-    assert.equal(record.source.sha256, source.sha256);
+    assert.equal(record.source.sha256, brief.sourceSha256,
+      'the packet binds the exact generation bytes from which the brief was rendered');
     assert.equal(record.integritySha256, brief.integritySha256);
   }
+  assert.notEqual(packet.agentBriefs[0].sourceSha256, source.sha256,
+    'submission metadata may change the review artifact without redefining the published brief source');
 });
 
 function git(root, args, options = {}) {

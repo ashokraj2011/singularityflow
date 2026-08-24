@@ -12,6 +12,7 @@ import {
   verifyRepositoryChangeSetIntegrity
 } from './repository-change-set.mjs';
 import { canonicalJson } from './records.mjs';
+import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
@@ -145,7 +146,7 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
   };
 }
 
-async function pathEvidence(root, paths) {
+async function pathEvidence(root, paths, { changeSet = null } = {}) {
   const records = [];
   for (const relative of paths) {
     const absolute = path.join(root, relative);
@@ -153,25 +154,51 @@ async function pathEvidence(root, paths) {
     const current = info?.isSymbolicLink()
       ? { exists: true, size: info.size, sha256: null }
       : await snapshot(absolute);
+    const endpoint = changeSet?.entries?.find((entry) => entry.newPath === relative || entry.oldPath === relative) ?? null;
+    const gitlink = endpoint?.newPath === relative && endpoint?.newMode === '160000';
+    const removed = !current.exists && endpoint?.oldPath === relative && endpoint?.oldObject;
+    const baselineKind = endpoint?.oldMode === '160000' ? 'gitlink' : 'blob';
+    const baselineVerified = removed
+      ? run('git', ['cat-file', '-e', `${endpoint.oldObject}^{${baselineKind === 'gitlink' ? 'commit' : 'blob'}}`], {
+        cwd: root, allowFailure: true
+      }).status === 0
+      : false;
     records.push({
       path: relative,
       kind: isAllowedTestAutomationPath(relative) ? 'test' : 'source',
-      fileKind: !info ? 'missing' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'regular-file' : 'non-regular',
-      exists: current.exists,
-      size: current.size,
-      sha256: current.sha256
+      fileKind: gitlink ? 'gitlink' : !info ? 'missing' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'regular-file' : 'non-regular',
+      exists: gitlink || current.exists,
+      size: gitlink ? null : current.size,
+      sha256: gitlink ? endpoint.newObject : current.sha256,
+      ...(removed ? {
+        verifiedAbsence: baselineVerified,
+        baseline: { object: endpoint.oldObject, mode: endpoint.oldMode, kind: baselineKind }
+      } : {}),
+      ...(gitlink ? { gitlink: { commit: endpoint.newObject, mode: endpoint.newMode } } : {})
     });
   }
   return records;
 }
 
-async function validatedReusablePaths(root, candidates, priorEvidence, { role }) {
+async function validatedReusablePaths(root, candidates, priorEvidence, { role, sourceExtensions = [] }) {
   const prior = new Map((priorEvidence ?? []).map((record) => [record.path, record]));
   const current = await pathEvidence(root, candidates);
   const valid = [];
   for (const record of current) {
     const previous = prior.get(record.path);
-    const executable = role !== 'test' || await isExecutableTestSourcePath(root, record.path);
+    if (role === 'source' && record.fileKind === 'missing' && previous?.fileKind === 'missing'
+      && previous.verifiedAbsence === true && previous.baseline?.object) {
+      const kind = previous.baseline.kind === 'gitlink' ? 'commit' : 'blob';
+      const available = run('git', ['cat-file', '-e', `${previous.baseline.object}^{${kind}}`], {
+        cwd: root, allowFailure: true
+      }).status === 0;
+      if (available) { valid.push(record.path); continue; }
+    }
+    if (role === 'source' && record.fileKind === 'gitlink' && previous?.fileKind === 'gitlink'
+      && record.sha256 === previous.sha256) {
+      valid.push(record.path); continue;
+    }
+    const executable = role !== 'test' || await isExecutableTestSourcePath(root, record.path, { sourceExtensions });
     if (!previous || previous.fileKind !== 'regular-file' || record.fileKind !== 'regular-file'
         || !previous.sha256 || previous.sha256 !== record.sha256 || !executable) {
       throw new SingularityFlowError(
@@ -228,16 +255,21 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     );
   }
   const currentPaths = applicationEntries
-    .filter((entry) => entry.status !== 'deleted' && entry.newPath && entry.newContent?.kind === 'regular-file')
+    .filter((entry) => entry.status !== 'deleted' && entry.newPath
+      && (entry.newContent?.kind === 'regular-file' || entry.newMode === '160000'))
     .map((entry) => entry.newPath);
   const changedPaths = [...new Set(currentPaths)].sort();
   const changedEndpointPaths = new Set(applicationEntries.flatMap((entry) =>
     [entry.oldPath, entry.newPath].filter(Boolean)));
   const changedTestCandidates = changedPaths.filter(isAllowedTestAutomationPath);
+  const sourceExtensions = [...new Set((phase.qualityCommands ?? []).flatMap((command, index) => {
+    try { return normalizeExternalCommand(command, index).result?.sourceExtensions ?? []; }
+    catch { return []; }
+  }))];
   const changedTestPaths = [];
   const supportingTestPaths = [];
   for (const candidate of changedTestCandidates) {
-    if (await isExecutableTestSourcePath(root, candidate)) changedTestPaths.push(candidate);
+    if (await isExecutableTestSourcePath(root, candidate, { sourceExtensions })) changedTestPaths.push(candidate);
     else if (isSupportingTestResourcePath(candidate)) supportingTestPaths.push(candidate);
   }
   const symlinks = applicationEntries.filter((entry) => entry.newContent?.kind === 'symlink');
@@ -257,11 +289,11 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ? (phase.deliveryEvidence?.testPaths ?? []).filter((candidate) => !changedEndpointPaths.has(candidate))
     : [];
   const reusableTestPaths = await validatedReusablePaths(
-    root, reusableTestCandidates, phase.deliveryEvidence?.paths, { role: 'test' }
+    root, reusableTestCandidates, phase.deliveryEvidence?.paths, { role: 'test', sourceExtensions }
   );
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths])].sort();
   const deletedSourcePaths = applicationEntries
-    .filter((entry) => entry.status === 'deleted' && entry.oldPath
+    .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath
       && !isAllowedTestAutomationPath(entry.oldPath))
     .map((entry) => entry.oldPath);
   const changedSourcePaths = [...new Set([
@@ -318,7 +350,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     changeSet,
     paths: await pathEvidence(root, [...new Set([
       ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths
-    ])].sort()),
+    ])].sort(), { changeSet }),
     sourcePaths,
     deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
     testPaths,
@@ -587,6 +619,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   if (receipt.model?.assurance !== 'unavailable' && (!receipt.model?.provider || !receipt.model?.resolvedModel
       || receipt.model?.host !== 'singularity-flow-kernel'
       || receipt.model?.observationSource !== 'model-invocation-audit'
+      || receipt.model?.observationIntegrity !== 'external-host-attested'
       || !receipt.model?.observedAt
       || Number(receipt.model?.generation) !== Number(receipt.generation)
       || !(receipt.model?.invocationIds ?? []).length)) {

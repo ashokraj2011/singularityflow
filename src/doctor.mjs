@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { branch, changes, hasRemote, hasUpstream, head } from './git.mjs';
+import { changes, hasRemote, hasUpstream, head } from './git.mjs';
 import { initializationStatus, loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
@@ -22,6 +22,7 @@ import { resolveModelProvider } from './model-runner.mjs';
 import { probePromptAttachmentCapability } from './model-provider-capability.mjs';
 import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
+import { listStoryStartJournals } from './story-start-journal.mjs';
 
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
@@ -34,6 +35,17 @@ export async function doctorSnapshot(root, {
   const major = Number(process.versions.node.split('.')[0]);
   checks.push(check('node', major >= 20 ? 'pass' : 'fail', `Node.js ${process.versions.node}`, major >= 20 ? null : 'Install Node.js 20 or newer.'));
   checks.push(check('git', 'pass', `Git repository ${root}`));
+  const interruptedStarts = await listStoryStartJournals(root);
+  checks.push(check(
+    'story-start-recovery',
+    interruptedStarts.length ? 'fail' : 'pass',
+    interruptedStarts.length
+      ? `${interruptedStarts.length} Story start transaction(s) require recovery: ${interruptedStarts.map((entry) => entry.record?.subject?.id ?? path.basename(entry.path, '.json')).join(', ')}.`
+      : 'No interrupted Story start transaction is present.',
+    interruptedStarts.length
+      ? 'Re-run singularity-flow start <WORK-ID>; it restores the prior checkout, configuration, sessions, and sibling repositories before retrying.'
+      : null
+  ));
   try {
     schemaReport = await schemaCensus(root);
     const blocked = schemaReport.totals.outsideRange + schemaReport.totals.unreadable;
@@ -259,7 +271,10 @@ export async function doctorSnapshot(root, {
         ? 'Start the agent with singularity-flow copilot, finish one turn, then run singularity-flow telemetry status.'
         : 'Review local metadata-only capture with singularity-flow telemetry enable. Work remains unblocked if you decline.'
   ));
-  const currentBranch = branch(root);
+  // Diagnostics must remain available in CI, release verification, and bisect checkouts where
+  // HEAD is intentionally detached. Lifecycle mutation still uses git.branch() and therefore
+  // continues to reject detached HEAD; doctor merely reports the state instead of crashing.
+  const currentBranch = diagnosticBranch(root);
   const requested = workId ?? currentBranch;
   let workflow = null;
   const subjectIndex = await buildRepositorySubjectIndex(root, { definition });
@@ -399,6 +414,11 @@ export async function doctorSnapshot(root, {
   return summarize(root, checks, workflow, session, definition, activeSubject, performanceReport, schemaReport);
 }
 
+function diagnosticBranch(root) {
+  const result = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true });
+  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : '(detached)';
+}
+
 function summarize(root, checks, workflow, session, definition, activeSubject = null, performance = null, schemaReport = null) {
   const counts = Object.fromEntries(['pass', 'warn', 'fail', 'skip'].map((status) => [status, checks.filter((item) => item.status === status).length]));
   const modelFreedom = modelFreedomSnapshot({
@@ -409,7 +429,7 @@ function summarize(root, checks, workflow, session, definition, activeSubject = 
   const subject = workflow
     ? { kind: 'story', id: workflow.workItem.id }
     : activeSubject ? { kind: activeSubject.kind, id: activeSubject.id } : null;
-  return { schemaVersion: 1, repository: root, branch: branch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, schemaCensus: schemaReport, checks };
+  return { schemaVersion: 1, repository: root, branch: diagnosticBranch(root), head: head(root), workId: subject?.id ?? null, subject, agent: session?.agent ?? null, healthy: counts.fail === 0, counts, modelFreedom, performance, schemaCensus: schemaReport, checks };
 }
 
 export function doctorText(report) {

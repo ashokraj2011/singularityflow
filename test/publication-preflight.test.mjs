@@ -9,7 +9,10 @@ import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { recoveryPlan } from '../src/collaboration.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
-import { artifactPlaceholderFindings } from '../src/publication-preflight.mjs';
+import {
+  artifactPlaceholderFindings, authoredArtifactFingerprint, inspectArtifactContent,
+  inspectRequiredArtifactContent
+} from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig, publishGeneration, scanArtifacts } from '../src/state.mjs';
 
@@ -100,7 +103,14 @@ async function codeFixture(name, { acceptance = true } = {}) {
   const phase = workflow.phases.implementation;
   const item = path.join(root, 'singularity', 'work-items', 'DELIVERY-1');
   const target = path.join(item, phase.requiredArtifact.path);
-  await writeFile(target, '# Implementation\n\nImplemented source and acceptance tests with deterministic validation evidence.\n');
+  await writeFile(target, [
+    '# Implementation', '',
+    'Implemented the bounded product change and its acceptance-mapped tests.', '',
+    '## Delivery evidence', '',
+    'The generation records the exact changed source paths, test paths, traceability tags, and configured command results. Publication binds those bytes to the open generation intent and preserves the resulting receipt for later verification.', '',
+    '## Residual risk', '',
+    'No additional behavior is claimed beyond the source and acceptance evidence registered by this generation.', ''
+  ].join('\n'));
 
   if (acceptance) {
     const requirementsPath = path.join(item, 'artifacts', 'requirements', 'requirements.md');
@@ -147,6 +157,29 @@ test('artifact preflight reports every authored placeholder and excludes approve
   assert.deepEqual(findings.map((finding) => finding.line), [3, 4, 5]);
 });
 
+test('one content inspection counts only authored bytes and reports every blocker in recovery order', () => {
+  const text = [
+    '<!-- singularity-flow:metadata', '{"large":"managed metadata does not prove authoring"}', '-->',
+    '# Intake', '', '## Objective', '', 'TODO describe it.', '',
+    '<!-- singularity-flow:inputs:start -->', 'Approved input '.repeat(100),
+    '<!-- singularity-flow:inputs:end -->', ''
+  ].join('\n');
+  const baseline = {
+    generation: 1,
+    fingerprint: authoredArtifactFingerprint(text)
+  };
+  const inspected = inspectArtifactContent(text, {
+    path: 'intake.md', contract: { generation: 1, minimumBytes: 200 }, baseline
+  });
+  assert.ok(inspected.bytes < 200, 'managed metadata or approved inputs counted as authored bytes');
+  assert.deepEqual(inspected.findings.map((finding) => finding.code), [
+    'artifact.placeholder.unresolved',
+    'artifact.template.unchanged',
+    'artifact.required.too-short'
+  ]);
+  assert.equal(inspected.findings[0].value, 'TODO');
+});
+
 test('an untouched prepared template is refused before publication mutates phase state', async () => {
   const { root, config, workflow, phase, target, statePath } = await fixture('placeholder');
   await inContext(root, async () => {
@@ -159,7 +192,17 @@ test('an untouched prepared template is refused before publication mutates phase
     try {
       await assert.rejects(
         () => publishGeneration(root, config, workflow, { phaseId: 'intake', authorship: AUTHORSHIP }),
-        /contains unresolved placeholder 'TODO' at line \d+[\s\S]*Complete .*intake\.md, remove every placeholder/
+        (error) => {
+          assert.equal(error.code, 'ARTIFACT_AUTHORING_INCOMPLETE');
+          assert.match(error.message, /contains unresolved placeholder 'TODO' at line \d+/);
+          assert.match(error.message, /still matches its prepared template/);
+          assert.match(error.message, /recover PREFLIGHT-1 --phase intake --json/);
+          assert.deepEqual(error.details.retry, {
+            skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,
+            command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
+          });
+          return true;
+        }
       );
     } finally {
       console.warn = originalWarn;
@@ -169,6 +212,22 @@ test('an untouched prepared template is refused before publication mutates phase
     assert.equal(await readFile(statePath, 'utf8'), stateBefore, 'the refused template rewrote durable Story state');
     assert.deepEqual(warnings, [], 'an expected prepared artifact was reported as accidental adoption');
   });
+});
+
+test('recovery exposes the same authored-byte findings and a bounded Copilot retry contract', async () => {
+  const { root, config, workflow, phase } = await fixture('recovery-authoring');
+  const findings = await inspectRequiredArtifactContent(root, config, workflow, phase);
+  assert.ok(findings.some((finding) => finding.code === 'artifact.placeholder.unresolved'));
+  assert.ok(findings.some((finding) => finding.code === 'artifact.template.unchanged'));
+  const plan = await recoveryPlan(root, config, workflow, { phaseId: 'intake' });
+  const action = plan.actions.find((entry) => entry.id === 'complete-artifact:intake');
+  assert.deepEqual(action.retry, {
+    maximumAttempts: 1,
+    requiresFingerprintChange: true,
+    beforeRetry: 'singularity-flow recover PREFLIGHT-1 --phase intake --json',
+    command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
+  });
+  assert.equal(action.skill, '/sf-phase');
 });
 
 test('scaffold angle placeholders are rejected but immutable approved-input placeholders are ignored', async () => {

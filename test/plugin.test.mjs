@@ -137,6 +137,20 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(epicRequirements, /epic sources answer/);
 });
 
+test('Copilot phase recovery re-authors once and never loops or pads an incomplete artifact', async () => {
+  const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
+  const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
+  const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  for (const content of [workflowAgent, phase, next]) {
+    assert.match(content, /ARTIFACT_AUTHORING_INCOMPLETE/);
+    assert.match(content, /retry.*once|once.*retry/is);
+    assert.match(content, /fingerprint.*change/is);
+    assert.match(content, /nested Copilot|nested Copilot\/model invocation/i);
+  }
+  assert.match(phase, /Never add padding/i);
+  assert.match(phase, /Stop.*second refusal/is);
+});
+
 test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {
   const expectations = {
     'sflow-refresh-branch': /singularity-flow refresh-branch --json/,

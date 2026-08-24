@@ -51,7 +51,9 @@ function spec({ marker = false, sections = true, answered = false } = {}) {
     ...(answered ? ['- An operator may make at most three attempts; the fourth moves the payment to manual review. [DRIVE:REQ-003]'] : []),
     '',
     ...(marker ? [`[NEEDS CLARIFICATION: ${MARKER}]`, ''] : []),
-    'Retry is idempotent per attempt identifier, so a duplicated request never charges twice.', ''
+    'Retry is idempotent per attempt identifier, so a duplicated request never charges twice.', '',
+    '## Evidence boundaries', '',
+    'Verification must observe the new attempt identifier, the preserved provider response, and the absence of a second charge for a duplicated request.', ''
   ].join('\n');
 }
 

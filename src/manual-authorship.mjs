@@ -2,6 +2,9 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import { SingularityFlowError, writeBytes } from './util.mjs';
+import {
+  artifactFindingMessage, authoredArtifactText, inspectArtifactContent
+} from './publication-preflight.mjs';
 
 export const AUTHORSHIP_PRODUCERS = Object.freeze([
   'human', 'governed-agent', 'deterministic', 'external-tool', 'legacy-unspecified'
@@ -81,27 +84,35 @@ export function assertProducerAllowed(phase, producer) {
   }
 }
 
-function validateHeadings(text, headings, label) {
-  if (!headings?.length) return;
-  const present = new Set([...text.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map((match) => match[1].trim().toLowerCase()));
-  const missing = headings.filter((heading) => !present.has(String(heading).trim().toLowerCase()));
-  if (missing.length) throw new SingularityFlowError(`${label} is missing required Markdown headings: ${missing.join(', ')}.`, { code: 'MANUAL_ARTIFACT_INVALID' });
-}
-
 function validateArtifactBytes(bytes, contract, label, { text = null } = {}) {
-  const minimum = contract.minimumBytes ?? 1;
-  const maximum = contract.maximumBytes ?? Number.MAX_SAFE_INTEGER;
-  if (bytes.length < minimum) throw new SingularityFlowError(`${label} is too short (${bytes.length} bytes; minimum ${minimum}).`, { code: 'MANUAL_ARTIFACT_INVALID' });
-  if (bytes.length > maximum) throw new SingularityFlowError(`${label} is too large (${bytes.length} bytes; maximum ${maximum}).`, { code: 'MANUAL_ARTIFACT_INVALID' });
   const needsTextValidation = Boolean(contract.validation?.requiredHeadings?.length || contract.validation?.forbiddenPlaceholders?.length);
   if (needsTextValidation && text == null) {
     throw new SingularityFlowError(`${label} is binary but its artifact contract requires text validation.`, { code: 'MANUAL_ARTIFACT_INVALID' });
   }
-  if (text == null) return;
-  validateHeadings(text, contract.validation?.requiredHeadings, label);
-  const forbidden = contract.validation?.forbiddenPlaceholders ?? [];
-  const found = forbidden.find((value) => text.toLowerCase().includes(String(value).toLowerCase()));
-  if (found) throw new SingularityFlowError(`${label} contains forbidden placeholder '${found}'.`, { code: 'MANUAL_ARTIFACT_INVALID' });
+  if (text == null) {
+    const minimum = contract.minimumBytes ?? 1;
+    const maximum = contract.maximumBytes ?? Number.MAX_SAFE_INTEGER;
+    if (bytes.length < minimum || bytes.length > maximum) {
+      const comparison = bytes.length < minimum ? `minimum ${minimum}` : `maximum ${maximum}`;
+      throw new SingularityFlowError(`${label} has ${bytes.length} bytes; ${comparison}.`, {
+        code: 'MANUAL_ARTIFACT_INVALID'
+      });
+    }
+    return;
+  }
+  const inspected = inspectArtifactContent(text, { path: label, contract });
+  if (inspected.findings.length) throw new SingularityFlowError(
+    `${label} is not publishable:\n- ${inspected.findings.map(artifactFindingMessage).join('\n- ')}\n`
+    + 'Complete every listed authoring issue before publishing; adding padding alone is not a recovery.',
+    {
+      code: 'ARTIFACT_AUTHORING_INCOMPLETE',
+      details: {
+        findings: inspected.findings,
+        fingerprint: inspected.fingerprint,
+        retry: { skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true }
+      }
+    }
+  );
 }
 
 export async function importManualArtifact({ sourcePath, targetPath, contract }) {
@@ -117,9 +128,9 @@ export async function importManualArtifact({ sourcePath, targetPath, contract })
     if (sanitized.includes(MANAGED_METADATA_MARKER)) {
       throw new SingularityFlowError('Manual artifact contains forged or misplaced Singularity Flow metadata.', { code: 'MANUAL_ARTIFACT_INVALID' });
     }
-    authored = Buffer.from(sanitized, 'utf8');
+    authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
   }
-  const text = /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? authored.toString('utf8') : null;
+  const text = /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? original.toString('utf8') : null;
   validateArtifactBytes(authored, contract, path.basename(sourcePath), { text });
   const after = await readFile(sourcePath);
   if (sha256(after) !== sha256(original)) {
@@ -143,10 +154,10 @@ export async function inspectInPlaceArtifact(targetPath, contract) {
     if (sanitized.replace(MANAGED_INPUTS, '').includes(MANAGED_METADATA_MARKER)) {
       throw new SingularityFlowError('Prepared artifact contains forged or misplaced Singularity Flow metadata.', { code: 'MANUAL_ARTIFACT_INVALID' });
     }
-    authored = Buffer.from(sanitized, 'utf8');
+    authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
   }
   validateArtifactBytes(authored, contract, path.basename(targetPath), {
-    text: authored === bytes ? null : authored.toString('utf8')
+    text: /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? bytes.toString('utf8') : null
   });
   return Object.freeze({ kind: 'in-place', filename: path.basename(targetPath), mediaType, sha256: sha256(authored), bytes: authored.length });
 }

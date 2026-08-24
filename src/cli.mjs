@@ -3263,6 +3263,11 @@ async function phaseCommand(positionals, options) {
   const session = await loadSession(root);
   const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
   const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
+  // Refuse an incomplete in-place artifact before artifact discovery mutates even the in-memory
+  // aggregate. The transaction repeats this inspection to close the change-between-check-and-use
+  // window; this first read gives CLI and Copilot hosts the complete deterministic remediation
+  // without beginning publication work.
+  if (!sourcePath) await inspectInPlaceArtifact(targetPath, requestedPhase.requiredArtifact);
   // Discover the prospective generation's artifact set before opening the publication unit. This
   // changes only the in-memory aggregate; the unit below still owns every durable write. Without
   // this preflight, implementation source/tests first discovered inside `publishGeneration` were

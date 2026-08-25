@@ -1,6 +1,6 @@
 ---
 name: sflow-capability-map
-description: Map a capability to a Git repository in an organisation's capability tree, or place a capability that groups others beneath a parent. Use when the contributor wants to describe what their organisation builds, add a new service or product to the map, or start using Singularity Flow on a repository that has never been governed.
+description: Propose, review, and activate a capability in an organisation map, including first-time repository onboarding.
 disable-model-invocation: true
 
 ---
@@ -12,49 +12,32 @@ disable-model-invocation: true
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
 
-Capabilities form trees: `delivery` ships from repositories; `collection` groups capabilities. Either may be top-level or nested.
+`delivery` ships from repositories; `collection` groups capabilities. The lead owns the map. Flow uses a temporary clone, so no checkout is required.
 
-The lead repository owns `singularity/capabilities.yml`; `portfolio.yml` declares repositories. Flow edits a temporary clone, so this works outside Git.
-
-1. Run `singularity-flow capability leads --json`. Use one result; for several, ask which organisation; for none, ask for the lead clone URL. Never guess.
-2. Run `singularity-flow capability organisation <LEAD-URL> --json` and show the
-   tree and possible parents.
-3. Ask only for missing: kebab-case ID, display name, kind (`collection` or `delivery`), optional parent, and repository URL(s). A delivery requires repositories; a collection forbids them. Parent may be any capability allowed by validation; omit it to create a top-level capability.
+1. Run `singularity-flow capability leads --json`. Use the sole result; otherwise ask which lead URL. Never guess.
+2. Run `singularity-flow capability organisation <LEAD-URL> --json`; show the tree and possible parents.
+3. Ask only for missing: kebab-case ID, name, kind, optional parent, and repository URL(s). `delivery` requires repositories; `collection` forbids them.
 4. Run:
 
    `singularity-flow capability map <ID> --lead <LEAD-URL> --kind <KIND> [--name TEXT] [--parent ID] [--repository URL] [--jira-project KEY] [--teams A,B] --json`
 
-5. Report the review branch, base, and commit. State that the proposal targets
-   `sflow/config`; application branches and state were not changed. It is not
-   active yet.
-6. Ask the contributor to review and merge the branch through the repository's
-   normal controls. After they confirm the merge, run:
+5. Report branch, base, and full commit; it targets `sflow/config` and is not active. Run `singularity-flow capability proposal <REVIEW-BRANCH> --lead <LEAD-URL> --json`, show all changed files and the diff, then ask approval for that exact commit.
+6. Only after the contributor explicitly approves, run:
 
-   `singularity-flow capability publish --lead <LEAD-URL> --json`
+   `singularity-flow capability activate <REVIEW-BRANCH> --lead <LEAD-URL> --confirm <FULL-PROPOSAL-COMMIT> --json`
 
-   Then re-read `capability organisation` and report the active tree.
+7. On `CAPABILITY_CONFIGURATION_UNPROTECTED`, explain the exception and ask explicit acceptance. Only then repeat with `--acknowledge-unprotected`.
+8. If branch protection or permissions reject activation, report the preserved branch for external review. After confirmed merge into `sflow/config`, run the same exact-hash `capability activate` command again to record the audit and projection.
+9. Run `capability organisation <LEAD-URL> --refresh --json`; report the active tree.
 
 ## Starting from nothing
 
-An ungoverned lead repository is a normal starting point. The first map writes
-the proposed `singularity/` configuration to a review branch based on
-`sflow/config`; it never pushes an application or state branch. Existing
-configuration is preserved and only missing starter files and the capability
-change are added. Do not run `bootstrap` first.
+For an ungoverned lead, map directly; do not bootstrap. The proposal creates the required configuration review branch without writing application or state branches.
 
 ## Boundaries
 
-- Jira projects and team names belong to a **capability**, not to a workspace.
-  Set them here.
-- A workspace is capabilities plus a local working directory. Do not create one
-  from this skill; offer `/sf-workspace` afterwards.
-- Do not edit `singularity/capabilities.yml` or `singularity/portfolio.yml` by
-  hand. Both are validated on every write, and a hand edit skips that.
-- Do not merge, force-push, or delete the review branch. The contributor's
-  repository controls decide what reaches `sflow/config`. Do not run
-  `capability publish` before the contributor confirms the review branch was
-  merged there.
-- Policy is inherited from the root toward each child and every fold is
-  monotonic: a child may tighten what an ancestor set and can never loosen it.
-  Use `/sf-capabilities` to explain the effect rather than reasoning about it
-  from the file.
+- Jira projects and teams belong to capabilities, not workspaces.
+- Do not create a workspace here; offer `/sf-workspace` afterwards.
+- Never hand-edit the capability or portfolio files.
+- Never use raw Git to merge, push, force-push, or delete the proposal. Use exact-commit activation after human approval; it cannot bypass branch protection. `capability publish` is a projection-repair command, not an activation substitute.
+- Inherited policy is monotonic; use `/sf-capabilities` to explain it.

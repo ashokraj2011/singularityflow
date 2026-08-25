@@ -44,6 +44,18 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
   assert.match(content, /commit, and push result/);
 });
 
+test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
+  assert.match(content, /capability proposal <REVIEW-BRANCH>.*--json/s);
+  assert.match(content, /explicitly approves/);
+  assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);
+  assert.match(content, /CAPABILITY_CONFIGURATION_UNPROTECTED/);
+  assert.match(content, /--acknowledge-unprotected/);
+  assert.match(content, /external review[\s\S]*same exact-hash `capability activate` command again/i);
+  assert.match(content, /`capability publish` is a[\s\S]*projection-repair command/i);
+  assert.doesNotMatch(content, /Ask the contributor to review and merge[\s\S]*capability publish/);
+});
+
 test('document skill manages active and detached evidence with explicit consequences', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-documents', 'SKILL.md'), 'utf8');
   assert.match(content, /documents list[\s\S]*--all/);

@@ -51,7 +51,7 @@ import { normalizeClarificationPolicy, renderClarificationProtocol } from './cla
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
-import { resolveReference } from './harness-imports.mjs';
+import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
 import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
 } from './composition-cache.mjs';
@@ -129,9 +129,16 @@ function representationIdentity(sha256) {
 
 function approvedReferenceCaptureReason(reference, inputRecords = []) {
   const identity = referenceIdentity(reference?.path, reference?.rawSha256);
-  if (!identity) return null;
   for (const entry of inputRecords) {
-    if (entry.status !== 'captured'
+    if (entry.status !== 'captured') continue;
+    // The opaque handle binds the registered repository, subject, revision and exact artifact.
+    // Prefer it over the mutable working-tree hash: publication adds kernel metadata after the
+    // authored representation was captured, so the same governed artifact can legitimately have
+    // a different current raw hash while retaining the same immutable reference handle.
+    if (reference?.handle && entry.representation?.expansionHandle === reference.handle) {
+      return 'same-governed-reference-handle';
+    }
+    if (!identity
         || referenceIdentity(entry.source?.path ?? entry.repositoryPath, entry.source?.rawSha256 ?? entry.sha256) !== identity) continue;
     const existing = entry.representation;
     const candidate = reference.representation;
@@ -176,11 +183,12 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
   const previews = []; const warnings = []; const deduplicated = [];
   for (const descriptor of descriptors) {
     try {
-      const resolved = await resolveReference(root, descriptor.handle, {
+      const resolved = authoredReferencePreview(await resolveReference(root, descriptor.handle, {
         maxBytes: policy?.previewTextBytes,
         totalEnvelopeBytes: policy?.totalEnvelopeBytes
-      });
+      }));
       const capturedReason = approvedReferenceCaptureReason({
+        handle: descriptor.handle,
         path: resolved.reference.artifact.path,
         rawSha256: resolved.source.rawSha256,
         representation: {
@@ -215,6 +223,7 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
         previewBytes: resolved.preview.bytes,
         renderer: resolved.renderer,
         truncated: resolved.truncated,
+        managedBytesExcluded: resolved.managedBytesExcluded ?? 0,
         text: resolved.preview.text
       });
     } catch (error) {
@@ -241,6 +250,54 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
     ])
   ].join('\n') : '';
   return { text, previews, warnings, deduplicated };
+}
+
+function presentSourceValue(value) {
+  if (Array.isArray(value)) {
+    const selected = value.map((entry) => typeof entry === 'string' ? entry.trim() : entry).filter((entry) => (
+      typeof entry === 'string' ? Boolean(entry) : entry != null
+    ));
+    return selected.length ? selected : undefined;
+  }
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (value && typeof value === 'object') {
+    const selected = Object.fromEntries(Object.entries(value)
+      .map(([key, entry]) => [key, presentSourceValue(entry)])
+      .filter(([, entry]) => entry !== undefined));
+    return Object.keys(selected).length ? selected : undefined;
+  }
+  return value == null ? undefined : value;
+}
+
+/** The immutable Story request, projected without provider payloads or empty fields. */
+function workSourcePromptContext(workflow, source, sourceRecord) {
+  if (!workflow) return { text: '', record: null };
+  if (!source || !sourceRecord?.sha256) {
+    throw new SingularityFlowError(`Pinned Story source is missing for ${workflow.workItem.id}.`, {
+      code: 'WORK_SOURCE_MISSING'
+    });
+  }
+  const fields = [
+    'type', 'stableId', 'id', 'key', 'url', 'title', 'description', 'desiredOutcome',
+    'acceptanceCriteria', 'scope', 'outOfScope', 'constraints', 'dependencies', 'risks',
+    'stakeholders', 'urgency', 'notes', 'targetOrigin'
+  ];
+  const projection = Object.fromEntries(fields
+    .map((field) => [field, presentSourceValue(source[field])])
+    .filter(([, value]) => value !== undefined));
+  const text = [
+    '# Pinned Story source',
+    '',
+    `- Immutable source: \`${sourceRecord.path}\``,
+    `- SHA-256: \`${sourceRecord.sha256}\``,
+    '- Authority: this is the requested outcome. Later evidence may refine missing detail but may not silently contradict or replace it.',
+    '- Conflict recovery: if a human answer or approved artifact conflicts with this source, stop and use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`; recompose only after the amendment is governed.',
+    '',
+    '```json',
+    JSON.stringify(projection, null, 2),
+    '```'
+  ].join('\n');
+  return { text, record: sourceRecord };
 }
 
 function commonGitDirectory(root) {
@@ -522,6 +579,99 @@ function render(template, root, config, options) {
   let result = template;
   for (const [token, value] of Object.entries(tokens)) result = result.split(token).join(value);
   return result;
+}
+
+/**
+ * Remove instructions for outputs the immutable grounding plan did not request.
+ *
+ * The legacy builder template teaches every role and repeats a full all-views manifest even when a
+ * phase asks for one brief view. That text dominated the measured model input. Custom builder
+ * prompts remain byte-for-byte under their owner's control; this specialization applies only to
+ * the packaged template and retains the exact output/validation contract.
+ */
+export function specializeBuiltinWorldModelPrompt(template, {
+  selections = [], views = [], depth = 'standard', task = null
+} = {}) {
+  const ids = new Set(selections.map(selectionId));
+  const selectedViews = new Set(views);
+  let text = String(template);
+  text = text.replace(
+    /\nAllowed values:\n[\s\S]*?\nOptional focus:/,
+    '\nThe CLI has fixed this view set. Do not infer, add, or generate any other view.\n\nOptional focus:'
+  );
+  text = text.replace(
+    /\n# Section anchors — required[\s\S]*?(?=\n# Structured facts block)/,
+    '\n# Section anchors — required\n\nGive every `##` heading a stable lowercase, view-namespaced `{#anchor}` and list emitted anchors in `manifest.json`.\n'
+  );
+  text = text.replace(
+    /\n# Structured facts block — required in every view[\s\S]*?(?=\n# View-selection behavior)/,
+    '\n# Structured facts block — required in every full view\n\nAfter TL;DR, add a compact fenced YAML `## Facts` section containing only observed components, entry points, symbols, commands, and hotspots relevant to the selected view.\n'
+  );
+  text = text.replace(
+    /\n# View-selection behavior[\s\S]*?(?=\n# Universal rules)/,
+    `\n# Fixed selection\n\nGenerate exactly: ${[...ids].sort().map((id) => `\`${id}\``).join(', ') || '`none`'}. The CLI owns selection; do not add related roles or tiers.\n`
+  );
+  const viewNames = ['Business', 'Architecture', 'Development', 'Testing', 'Release', 'Operations', 'Security'];
+  for (const label of viewNames) {
+    const id = label.toLowerCase();
+    if (selectedViews.has(id) && ids.has(`${id}/full`)) continue;
+    const block = new RegExp(`\\n## ${label} view[^\\n]*\\n[\\s\\S]*?(?=\\n## (?:${viewNames.join('|')}) view|\\n# Step 3:)`);
+    text = text.replace(block, '');
+  }
+  if (!ids.has('core/full')) {
+    text = text.replace(/\n## `core\/summary\.md`[\s\S]*?(?=\n## `core\/summary\.brief\.md`)/, '');
+  }
+  if (['light', 'quick'].includes(depth)) {
+    text = text.replace(/\n# Step 3: Create domain models[\s\S]*?(?=\n# Step 4:)/, '');
+  }
+  if (!String(task ?? '').trim()) {
+    text = text.replace(/\n# Step 4: Create task-specific guides[\s\S]*?(?=\n# Step 5:)/, '');
+  }
+  const coreTier = (tier) => ids.has(`core/${tier}`)
+    ? { status: 'ready', path: tier === 'brief' ? 'core/summary.brief.md' : 'core/summary.md' }
+    : { status: 'missing', path: null };
+  const manifestViews = Object.fromEntries([...selectedViews].sort().map((view) => [view, {
+    tiers: {
+      brief: ids.has(`${view}/brief`) ? { status: 'ready', path: `views/${view}.brief.md` } : { status: 'missing', path: null },
+      full: ids.has(`${view}/full`) ? { status: 'ready', path: `views/${view}.md` } : { status: 'missing', path: null }
+    },
+    anchors: []
+  }]));
+  const manifestShape = {
+    schema_version: '3.0',
+    repository_commit: '<exact full inspected commit>',
+    repository_branch: '<exact inspected branch>',
+    working_tree_clean: true,
+    generated_at: '<provided ISO timestamp>',
+    generated_date: '<provided date>',
+    builder_version: '2.0',
+    builder_prompt_sha256: '<provided SHA-256>',
+    analysis_depth: depth,
+    core: { tiers: { brief: coreTier('brief'), full: coreTier('full') }, model: { path: 'core/model.json' }, anchors: [] },
+    views: manifestViews,
+    path_index: { path: 'index/path-map.json' },
+    domains: [],
+    task_guides: String(task ?? '').trim()
+      ? [{ id: '<stable task id>', path: 'task-guides/<stable task id>.md', task: String(task).trim() }]
+      : [],
+    evidence: { path: 'evidence/evidence.jsonl' }
+  };
+  text = text.replace(
+    /\n# Step 7: Declare the generated fragment[\s\S]*?(?=\n# Depth control)/,
+    [
+      '\n# Step 7: Declare the generated fragment', '',
+      'Create `manifest.json` with exactly the selected ready tiers and no undeclared files. The CLI deterministically replaces final provenance, hashes, byte counts, source hash, path-index fallback, and materialization history, then validates the complete directory. Do not invent those values.', '',
+      '```json', JSON.stringify(manifestShape, null, 2), '```', ''
+    ].join('\n')
+  );
+  text = text.replace(
+    /\n# Depth control[\s\S]*?(?=\n# Context-budget requirements)/,
+    `\n# Depth control\n\nApply only \`${depth}\` depth. Inspect and emit no broader coverage than the fixed selections require.\n`
+  );
+  if (selectedViews.size <= 1) {
+    text = text.replace(/\n# Cross-view consistency[\s\S]*?(?=\n# Validation)/, '');
+  }
+  return text.replace(/\n{3,}/g, '\n\n');
 }
 
 async function init(root) {
@@ -1072,7 +1222,10 @@ function parallelGeneration(config, options, views) {
   const explicitlyConfiguredParallel = options.parallel !== undefined;
   const enabled = optionBoolean(options, 'parallel', config.generation?.parallel ?? true)
     && (!explicitlyConfiguredRunner || explicitlyConfiguredParallel)
-    && views.length > 1;
+    // A single requested view still needs one evidence packet. Previously it jumped directly into
+    // the large synthesis prompt with zero discovery evidence — exactly the expensive empty route
+    // the fallback guard is meant to prevent.
+    && views.length > 0;
   const maxWorkers = optionNumber(options, 'workers', config.generation?.maxWorkers ?? 4);
   if (!Number.isInteger(maxWorkers) || maxWorkers < 1 || maxWorkers > 16) {
     throw new SingularityFlowError('--workers must be an integer from 1 through 16.');
@@ -1849,7 +2002,15 @@ async function build(root, config, options) {
     }
     const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
     const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
-    const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
+    const renderedBasePrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
+    const renderedPrompt = config.promptSource === 'builtin'
+      ? specializeBuiltinWorldModelPrompt(renderedBasePrompt, {
+          selections: plan.selections,
+          views,
+          depth,
+          task: optionString(options, 'task')
+        })
+      : renderedBasePrompt;
     const synthesisPacketDirectory = path.join(temporary, 'synthesis-packets');
     await mkdir(synthesisPacketDirectory, { recursive: true });
     const synthesisPackets = [];
@@ -2465,7 +2626,16 @@ async function ensure(root, config, options, requestedPhase = null) {
         // buildLight refuses these: they belong to the model-driven path it is standing in for.
         parallel: undefined, workers: undefined, runner: undefined, depth: undefined
       });
-    }, { upgradeMinimal: !deterministic });
+    // A deterministic fallback is durable and reusable for this exact source snapshot. Re-running
+    // the same failed provider route at every phase spent the same tokens again. An explicit
+    // `wm build` remains the retry/upgrade path; ordinary `wm ensure` reuses the fallback until the
+    // source or required selection changes.
+    }, {
+      // Naming a depth is an explicit request to materialize/upgrade that depth. Automatic phase
+      // ensures do not name one and therefore reuse a same-source light fallback instead of
+      // repeatedly spending on the failed route.
+      upgradeMinimal: !deterministic && options.depth !== undefined
+    });
   const output = {
     plan,
     mode: result.mode,
@@ -2633,6 +2803,16 @@ async function compose(root, options) {
   }
   const sourcePath = workflow ? path.join(root, workItemRoot, workflow.workItem.id, 'source.json') : null;
   const source = sourcePath && existsSync(sourcePath) ? JSON.parse(readFileSync(sourcePath, 'utf8')) : null;
+  const sourceInfo = sourcePath ? await snapshot(sourcePath) : null;
+  const sourceRelative = sourcePath ? posix(path.relative(root, sourcePath)) : null;
+  if (workflow?.resolution?.sourceSha256 && sourceInfo?.sha256 !== workflow.resolution.sourceSha256) {
+    throw new SingularityFlowError('source.json differs from the immutable Story source snapshot.', {
+      code: 'WORK_SOURCE_HASH_MISMATCH'
+    });
+  }
+  const workSource = workSourcePromptContext(workflow, source, sourceInfo?.exists ? {
+    path: sourceRelative, sha256: sourceInfo.sha256, bytes: sourceInfo.size
+  } : null);
   const signals = {
     agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,
@@ -2744,6 +2924,7 @@ async function compose(root, options) {
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
+    { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
     { id: 'active-clause-capsule', text: clauseCapsule.text, mandatory: true, priority: 0 },
     { id: 'clarification-protocol', text: clarification, mandatory: true, priority: 0 },
     { id: 'governed-agent-policy', text: text.trimEnd(), mandatory: true, priority: 0 },
@@ -2779,6 +2960,8 @@ async function compose(root, options) {
       sourceBytes: promptComposition.inputLinearization.sourceBytes,
       authoredSourceBytes: promptComposition.inputLinearization.authoredBytes,
       managedSourceBytesExcluded: promptComposition.inputLinearization.managedBytesExcluded,
+      managedReferenceBytesExcluded: approvedReferences.previews
+        .reduce((total, entry) => total + (entry.managedBytesExcluded ?? 0), 0),
       deliveredSourceBytes: promptComposition.inputLinearization.injectedBytes,
       assurance: 'sflow-measured'
     },
@@ -2788,6 +2971,7 @@ async function compose(root, options) {
     }
   };
   promptComposition.structuralContext = structural.record;
+  promptComposition.workSource = workSource.record;
   promptComposition.activeClauseCapsule = clauseCapsule.capsule
     ? {
         sha256: clauseCapsule.capsule.capsuleSha256,
@@ -2859,6 +3043,7 @@ async function compose(root, options) {
     modelCommit,
     manifestSha256: manifestInfo.sha256,
     requiredSelections: worldModelEnabled ? plan.selections : [],
+    workSource: workSource.record,
     structuralContext: structural.record,
     clarification: clarificationPolicy,
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
@@ -2892,6 +3077,7 @@ async function compose(root, options) {
     const { file } = await recordInjection(root, workflow, phase, {
       ...injection, agent, sections: files, modelCommit,
       structuralContext: structural.record,
+      workSource: workSource.record,
       promptStudy: promptStudy ? {
         studyRunId: promptStudy.studyRunId,
         variant: structuredClone(promptStudy.variant),

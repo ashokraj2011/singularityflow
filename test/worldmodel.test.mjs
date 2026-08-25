@@ -13,6 +13,7 @@ import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildRe
 import { registerReference, resolveReference } from '../src/harness-imports.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { snapshot } from '../src/util.mjs';
+import { specializeBuiltinWorldModelPrompt } from '../src/worldmodel.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -246,7 +247,11 @@ test('wm inject renders matched agent context and records the generation audit',
       requestedAt: '2026-08-05T00:00:00.000Z', requestedBy: { name: 'Product reviewer' }
     }]
   }));
-  await writeFile(path.join(workDir, 'source.json'), JSON.stringify({ type: 'manual', labels: [] }));
+  await writeFile(path.join(workDir, 'source.json'), JSON.stringify({
+    type: 'manual', id: 'WM-1', title: 'Pinned visual change',
+    description: 'Change the background color to blue',
+    acceptanceCriteria: ['A screenshot proves the blue background'], labels: []
+  }));
 
   const preview = run(process.execPath, [bin, 'wm', 'inject', '--phase', 'design', '--dry-run'], root);
   assert.match(preview, /rules matched: 1/);
@@ -254,6 +259,10 @@ test('wm inject renders matched agent context and records the generation audit',
   const rendered = run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1', '--render-only'], root);
   assert.match(rendered, /Active Story phase contract/);
   assert.match(rendered, /Work ID: `WM-1`/);
+  assert.match(rendered, /# Pinned Story source/);
+  assert.match(rendered, /Change the background color to blue/);
+  assert.match(rendered, /A screenshot proves the blue background/);
+  assert.match(rendered, /intent-amendment propose/);
   assert.match(rendered, /Developer agent/);
   assert.match(rendered, /INJECTED DEVELOPMENT VIEW/);
   assert.match(rendered, /Open stakeholder change requests/);
@@ -360,6 +369,23 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.deepEqual(verified.errors, []);
   await writeFile(promptPath, 'tampered prompt\n');
   assert.match((await verifyGroundingRecord(root, loadedDefinition, verificationWorkflow, phase, { agent: 'developer' })).errors.join('\n'), /prompt snapshot hash differs/);
+});
+
+test('the packaged builder prompt contains only requested view and tier instructions', async () => {
+  const template = await readFile(path.join(packageRoot, 'templates/worldmodel-builder.md'), 'utf8');
+  const specialized = specializeBuiltinWorldModelPrompt(template, {
+    selections: [
+      { kind: 'core', tier: 'brief' },
+      { kind: 'view', view: 'business', tier: 'brief' }
+    ],
+    views: ['business'], depth: 'quick', task: null
+  });
+  assert.match(specialized, /core\/brief/);
+  assert.match(specialized, /business\/brief/);
+  assert.doesNotMatch(specialized, /## Architecture view|## Development view|## Testing view/);
+  assert.doesNotMatch(specialized, /## Business view/, 'brief tiers use the bounded generic brief contract');
+  assert.doesNotMatch(specialized, /Create task-specific guides|Create domain models/);
+  assert.ok(Buffer.byteLength(specialized) < 18_000, 'fixed one-view prompt remains compact');
 });
 
 test('wm build isolates the generator, commits a validated model, and tracks source-tree freshness', async () => {

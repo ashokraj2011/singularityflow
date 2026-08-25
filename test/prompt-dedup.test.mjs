@@ -22,6 +22,16 @@ function reference(overrides = {}) {
   };
 }
 
+test('the same governed reference handle deduplicates across publication metadata changes', () => {
+  const handle = 'sfref:v1:story:WORK-1:abcdefabcdef';
+  assert.equal(approvedReferenceAlreadyCaptured(reference({
+    handle, rawSha256: `sha256:${'d'.repeat(64)}`
+  }), [input({
+    kind: 'full', sha256: `sha256:${'c'.repeat(64)}`, bytes: 500,
+    complete: true, expansionHandle: handle
+  })]), true);
+});
+
 test('approved reference dedup requires model-visible equivalence, completeness, or visible expansion', () => {
   assert.equal(approvedReferenceAlreadyCaptured(reference(), [input({
     kind: 'truncated', sha256: preview, bytes: 100, complete: false, expansionHandle: null

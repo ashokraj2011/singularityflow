@@ -4,7 +4,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { head } from './git.mjs';
-import { resolveReference } from './harness-imports.mjs';
+import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
 import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
 import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
@@ -902,6 +902,22 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       if (!info.exists || info.sha256 !== record.renderedSha256) problems.push(`grounding prompt snapshot hash differs: ${promptRelative}`);
     }
   }
+  if (record.workSource) {
+    const expectedSourcePath = posix(path.join(
+      definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'source.json'
+    ));
+    const sourceInfo = await snapshot(path.join(root, expectedSourcePath));
+    if (record.workSource.path !== expectedSourcePath
+        || !sourceInfo.exists
+        || record.workSource.sha256 !== sourceInfo.sha256
+        || record.workSource.bytes !== sourceInfo.size) {
+      problems.push(`grounding composition is not bound to the current pinned Story source: ${expectedSourcePath}`);
+    }
+    if (workflow.resolution?.sourceSha256
+        && record.workSource.sha256 !== workflow.resolution.sourceSha256) {
+      problems.push(`grounding composition Story source differs from the immutable workflow source hash: ${expectedSourcePath}`);
+    }
+  }
   // Resolved with the same rule the composer used, from the same module. When these two disagreed
   // the verifier reported views as "omitted" that composition had correctly decided not to include.
   const plan = resolveGroundingPlan({
@@ -989,10 +1005,16 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       else {
         if (approvedHandles.size && !approvedHandles.has(handle)) problems.push(`grounding reference is not an approved earlier-phase input: ${handle}`);
         try {
-          const resolved = await resolveReference(root, handle, {
+          const rawResolved = await resolveReference(root, handle, {
             maxBytes: referencePolicy.previewTextBytes,
             totalEnvelopeBytes: referencePolicy.totalEnvelopeBytes
           });
+          const authoredResolved = authoredReferencePreview(rawResolved);
+          // Historical prompt receipts recorded the complete published preview. New receipts use
+          // the authored-only projection. Both are reproducible from the same immutable handle;
+          // select by the recorded preview identity so an upgrade does not invalidate history.
+          const resolved = file.previewSha256 === authoredResolved.preview.sha256
+            ? authoredResolved : rawResolved;
           if (resolved.reference.artifact.path !== recordedPath
               || resolved.source.rawSha256 !== file.sha256 || resolved.source.rawBytes !== file.bytes
               || (file.previewSha256 && resolved.preview.sha256 !== file.previewSha256)

@@ -4,6 +4,7 @@ import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
+import { gitDir } from '../src/git.mjs';
 import {
   clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, recordPromptAudit,
   renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention, scrubPrompt
@@ -430,6 +431,73 @@ test('workspace prompt audit resolves invocation evidence from the repository th
     assert.equal(viewedFromFirst.records[0].execution.invocationId, 'second-invocation');
     assert.equal(viewedFromFirst.records[0].execution.tokens.total, 30);
     assert.deepEqual(viewedFromFirst.records[0].execution.tools.allowed, ['read_file']);
+  } finally {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  }
+});
+
+test('workspace prompt audit resolves receipts written by a managed Story worktree', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-worktree-'));
+  const workspacePath = path.join(base, 'workspace');
+  const canonical = path.join(workspacePath, 'repos', 'app');
+  const managed = path.join(workspacePath, '.singularity-flow', 'story-worktrees', 'WORK-1', 'repos', 'app');
+  await mkdir(canonical, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main'], { cwd: canonical });
+  run('git', ['config', 'user.name', 'Prompt Worktree'], { cwd: canonical });
+  run('git', ['config', 'user.email', 'prompt-worktree@example.com'], { cwd: canonical });
+  await writeFile(path.join(canonical, 'README.md'), '# App\n');
+  run('git', ['add', 'README.md'], { cwd: canonical });
+  run('git', ['commit', '-m', 'initialize'], { cwd: canonical });
+  await mkdir(path.dirname(managed), { recursive: true });
+  run('git', ['worktree', 'add', '-q', '-b', 'WORK-1', managed], { cwd: canonical });
+  await writeFile(path.join(workspacePath, 'workspace.json'), `${JSON.stringify({
+    version: 1, id: 'worktree', name: 'Managed worktree',
+    anchor: { provider: 'workspace', key: 'worktree', title: 'Managed worktree' },
+    leadRepository: 'app',
+    repositories: { app: { url: 'https://example.invalid/app.git', path: 'repos/app', defaultBranch: 'main' } }
+  }, null, 2)}\n`);
+  const selectionFile = path.join(base, 'active-workspace.json');
+  const registryFile = path.join(base, 'workspaces.json');
+  await writeFile(selectionFile, `${JSON.stringify({
+    schemaVersion: 1, workspaceId: 'worktree', workspaceName: 'Managed worktree', workspacePath,
+    repositoryId: 'app', repositoryPath: canonical, selectedAt: new Date().toISOString()
+  })}\n`);
+  await writeFile(registryFile, '[]\n');
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selectionFile;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+  try {
+    await setPromptAudit(canonical, true);
+    const prompt = 'managed Story implementation prompt';
+    const record = await recordPromptAudit(managed, {
+      agent: 'developer', phase: 'implementation', workId: 'WORK-1', prompt,
+      source: 'model-invocation', supportingEvidence: [{ kind: 'model-invocation-audit', id: 'managed-invocation' }]
+    });
+    const directory = path.join(gitDir(managed), 'singularity-flow', 'model-invocations');
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'managed-invocation.json'), `${JSON.stringify({
+      schemaVersion: 3, id: 'managed-invocation', operationId: 'phase.implement', policy: 'required',
+      modelMode: 'enabled', rootOperationId: 'phase.implement', provider: 'copilot-cli', model: 'gpt-5.4',
+      routing: null, promptSha256: record.promptSha256, promptBytes: record.bytes,
+      promptTransport: 'attachment', promptEncoding: 'utf-8', promptLayout: null,
+      tokenAdmission: null, economics: null, cwdSha256: '0'.repeat(64), channel: 'copilot-host',
+      subject: { kind: 'story', id: 'WORK-1', phase: 'implementation' }, generationNonce: null,
+      toolPolicy: { mode: 'allowlist', names: ['read_file', 'edit_file'] },
+      limits: { timeoutMs: 1000, outputBytes: 1024, promptBytes: 4096 }, status: 'completed',
+      startedAt: '2026-08-25T00:00:00.000Z', completedAt: '2026-08-25T00:00:01.000Z',
+      outputBytes: 4, outputSha256: '1'.repeat(64),
+      usage: { status: 'exact', assurance: 'provider-reported', inputTokens: 40, outputTokens: 10, totalTokens: 50 },
+      attestation: null
+    })}\n`);
+    const listed = await listPromptAudits(canonical, { includePrompt: true });
+    assert.equal(listed.records[0].repositoryPath, path.resolve(managed));
+    assert.equal(listed.records[0].execution.invocationId, 'managed-invocation');
+    assert.equal(listed.records[0].execution.tokens.total, 50);
+    assert.deepEqual(listed.records[0].execution.tools.allowed, ['read_file', 'edit_file']);
   } finally {
     if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;

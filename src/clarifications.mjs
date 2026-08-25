@@ -279,6 +279,7 @@ export function renderClarificationProtocol(value, phaseId) {
     `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Do not ask for information already established by pinned sources, approved upstream artifacts, or the repository world model.',
+    '- If a proposed answer contradicts the pinned Story source, stop. Do not record it as an ordinary clarification or author over the source; use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"`, then recompose after governance resolves it.',
     '- Treat pinned evidence as fact. Label every hypothesis or proposed design explicitly; never convert it into an acceptance or specification decision without human confirmation.',
     '- For each question, explain briefly why the answer changes the governed output. Offer a recommended/default choice when the evidence supports one.',
     '- Do not infer an answer from generic knowledge. The user may explicitly answer “unknown” or defer a non-blocking decision.',

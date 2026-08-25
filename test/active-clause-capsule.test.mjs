@@ -39,6 +39,24 @@ test('active clause capsule carries every predecessor clause verbatim with risks
   assert.match(result.capsule.capsuleSha256, /^sha256:[a-f0-9]{64}$/);
 });
 
+test('legacy clause bodies are projected onto authored bytes without breaking index provenance', () => {
+  const workflow = {
+    workItem: { id: 'ORDER-OLD' }, phaseOrder: ['requirements', 'implementation'],
+    phases: { requirements: { id: 'requirements', generation: 1 }, implementation: { id: 'implementation', generation: 0 } }
+  };
+  const result = buildActiveClauseCapsule({ indexes: [{
+    phase: 'requirements', source: { sha256: 'a'.repeat(64) }, clauses: [{
+      id: 'ORDER:AC-001', bodySha256: 'b'.repeat(64), dependsOn: [],
+      body: 'Keep this.\n\n<!-- singularity-flow:inputs:start -->\nDo not replay this.\n<!-- singularity-flow:inputs:end -->'
+    }]
+  }] }, workflow, workflow.phases.implementation);
+  assert.equal(result.capsule.clauses[0].text, 'Keep this.');
+  assert.equal(result.capsule.clauses[0].representation, 'authored-content-projection');
+  assert.equal(result.capsule.clauses[0].continuityProof, 'managed-envelope-excluded');
+  assert.match(result.capsule.clauses[0].sourceBodySha256, /^sha256:b{64}$/);
+  assert.doesNotMatch(result.text, /Do not replay this/);
+});
+
 test('active clause capsule never imports the current or later phase indexes', () => {
   const workflow = {
     workItem: { id: 'ORDER-2' }, phaseOrder: ['requirements', 'implementation'],

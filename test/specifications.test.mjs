@@ -47,6 +47,16 @@ test('specification clauses are stable, typed, and dependency checked', () => {
   }), /dependency cycle/);
 });
 
+test('specification clauses never absorb kernel-managed approved inputs', () => {
+  const [clause] = extractClauses([
+    '# Requirements', '', '[APP:AC-001]', 'Producer-owned acceptance.', '',
+    '<!-- singularity-flow:inputs:start -->', '[APP:REQ-999] Prior governed input.',
+    '<!-- singularity-flow:inputs:end -->'
+  ].join('\n'), { sourcePath: 'requirements.md', namespace: 'APP' });
+  assert.equal(clause.body, 'Producer-owned acceptance.');
+  assert.deepEqual(clause.dependsOn, []);
+});
+
 test('a specification index binds clauses to the exact source bytes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-index-'));
   await mkdir(path.join(root, 'artifacts'));

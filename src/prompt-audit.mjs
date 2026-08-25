@@ -4,7 +4,7 @@ import {
   appendFile, chmod, mkdir, open, readFile, readdir, realpath, rm, stat, unlink
 } from 'node:fs/promises';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
-import { gitDir } from './git.mjs';
+import { gitCommonDir, gitDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
@@ -301,13 +301,32 @@ function applyIntegrityAnchors(data, config, { allowTailAdvance = false } = {}) 
 }
 
 async function allowedRepositoryRoots(root, target) {
-  if (!target.workspacePath) return new Set([await realpath(root).catch(() => path.resolve(root))]);
-  const workspace = await readWorkspace(target.workspacePath);
-  return new Set(await Promise.all(Object.values(workspace.repositories)
-    .map((repository) => {
-      const candidate = workspaceRepositoryPath(workspace, repository);
-      return realpath(candidate).catch(() => path.resolve(candidate));
-    })));
+  const roots = !target.workspacePath
+    ? [await realpath(root).catch(() => path.resolve(root))]
+    : await (async () => {
+      const workspace = await readWorkspace(target.workspacePath);
+      return Promise.all(Object.values(workspace.repositories)
+        .map((repository) => {
+          const candidate = workspaceRepositoryPath(workspace, repository);
+          return realpath(candidate).catch(() => path.resolve(candidate));
+        }));
+    })();
+  return {
+    roots: new Set(roots),
+    // A managed Story checkout has a different worktree Git directory but the same common Git
+    // directory as its registered workspace repository. This is the bounded identity that admits
+    // its invocation receipts without allowing an arbitrary path named in a prompt record.
+    commonGitDirectories: new Set(roots.map((repository) => {
+      try { return gitCommonDir(repository); }
+      catch { return null; }
+    }).filter(Boolean))
+  };
+}
+
+function allowedRepository(repository, allowed) {
+  if (allowed.roots.has(repository)) return true;
+  try { return allowed.commonGitDirectories.has(gitCommonDir(repository)); }
+  catch { return false; }
 }
 
 async function invocationEntries(root, promptRecords, target) {
@@ -316,7 +335,7 @@ async function invocationEntries(root, promptRecords, target) {
   const fallbackRepositories = new Set();
   for (const record of promptRecords) {
     const repository = record._repositoryCanonical;
-    if (!allowed.has(repository)) continue;
+    if (!allowedRepository(repository, allowed)) continue;
     const linked = linkedInvocationId(record);
     if (linked && /^[A-Za-z0-9._-]{1,128}$/.test(linked)) {
       if (!requested.has(repository)) requested.set(repository, new Set());
@@ -620,6 +639,7 @@ export function renderPromptAudit(record) {
     '',
     `- Source bytes: ${record.composition?.economics?.source?.sourceBytes == null ? 'unavailable' : record.composition.economics.source.sourceBytes.toLocaleString('en-US')}`,
     `- Managed source bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedSourceBytesExcluded ?? record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')} (source linearization; not a token-savings claim)`,
+    `- Managed governed-reference bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedReferenceBytesExcluded ?? 0).toLocaleString('en-US')} (reference projection; not a token-savings claim)`,
     `- Duplicate approved-reference preview bytes excluded from prompt: ${(record.composition?.economics?.prompt?.deduplicatedPromptBytes ?? duplicateReferenceBytes).toLocaleString('en-US')}`,
     `- Budget-evicted prompt bytes: ${(record.composition?.economics?.prompt?.budgetEvictedPromptBytes ?? 0).toLocaleString('en-US')}`,
     `- Final prompt bytes: ${(record.composition?.economics?.prompt?.finalPromptBytes ?? record.bytes).toLocaleString('en-US')}`,

@@ -1,9 +1,11 @@
 /** Mandatory cross-phase continuity for active requirements, risks and unresolved human requests. */
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
+import { authoredArtifactText } from './publication-preflight.mjs';
 
 function strings(value) {
   if (Array.isArray(value)) return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -11,22 +13,34 @@ function strings(value) {
   return [];
 }
 
+function textSha256(value) {
+  return createHash('sha256').update(String(value ?? '')).digest('hex');
+}
+
 export function buildActiveClauseCapsule(records, workflow, phase, source = null) {
   if (!workflow || !phase) return { text: '', capsule: null };
   const clauses = predecessorSpecClauses(records, workflow, phase.id)
     .map((clause) => {
       const producer = records.indexes.find((index) => (index.clauses ?? []).some((entry) => entry.id === clause.id));
+      // Compatibility for specification indexes created before managed phase inputs were excluded
+      // from clause bodies. Preserve the historical index hash as sourceBodySha256 while delivering
+      // the same authored-only projection new indexes now persist.
+      const projectedBody = authoredArtifactText(clause.body).trim();
+      const projected = projectedBody !== clause.body;
       return {
         id: clause.id,
         status: 'active',
-        representation: 'verbatim',
-        text: clause.body,
-        bodySha256: `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/, '')}`,
+        representation: projected ? 'authored-content-projection' : 'verbatim',
+        text: projectedBody,
+        bodySha256: `sha256:${textSha256(projectedBody)}`,
+        ...(projected ? {
+          sourceBodySha256: `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/, '')}`
+        } : {}),
         source: clause.source ?? null,
         sourceSha256: producer?.source?.sha256
           ? `sha256:${String(producer.source.sha256).replace(/^sha256:/, '')}` : null,
         dependencies: [...(clause.dependsOn ?? [])],
-        continuityProof: 'present-verbatim'
+        continuityProof: projected ? 'managed-envelope-excluded' : 'present-verbatim'
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -48,7 +62,7 @@ export function buildActiveClauseCapsule(records, workflow, phase, source = null
   const text = [
     '# Active Clause Capsule',
     '',
-    '> Kernel-derived mandatory continuity context. Every active clause below is carried verbatim from a generation-bound specification index. Do not omit, weaken, or silently supersede it.',
+    '> Kernel-derived mandatory continuity context. Active producer-authored clause text is carried from generation-bound specification indexes; kernel-managed envelopes are excluded. Do not omit, weaken, or silently supersede it.',
     '',
     '```json',
     canonicalJson(capsule).trimEnd(),

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
-  HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, formatReferenceHandle, normalizeHarnessImports,
+  authoredReferencePreview, HARNESS_IMPORTS_DEFAULT_ENVELOPE_BYTES, HARNESS_IMPORTS_HARD_MAXIMUM_BYTES, formatReferenceHandle, normalizeHarnessImports,
   parseReferenceHandle, registerReference, renderReferencePreview, resolveReference
 } from '../src/harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from '../src/harness-events.mjs';
@@ -124,6 +124,20 @@ test('binary renderer returns metadata and never base64', () => {
   assert.equal(result.renderer.id, 'binary-metadata');
   assert.match(result.preview.text, /Binary content is not embedded/);
   assert.doesNotMatch(result.preview.text, /base64/i);
+});
+
+test('model-visible Markdown references exclude kernel metadata and recursive approved inputs', () => {
+  const rendered = renderReferencePreview(Buffer.from([
+    '<!-- singularity-flow:metadata', '{"generatedBy":"local-user"}', '-->',
+    '# Requirements', '',
+    '<!-- singularity-flow:inputs:start -->', 'Earlier phase replay.', '<!-- singularity-flow:inputs:end -->',
+    '', 'Producer-authored requirement.'
+  ].join('\n')), 'text/markdown');
+  const projected = authoredReferencePreview({ mediaType: 'text/markdown', ...rendered });
+  assert.match(projected.preview.text, /Producer-authored requirement/);
+  assert.doesNotMatch(projected.preview.text, /local-user|Earlier phase replay|singularity-flow:inputs/);
+  assert.ok(projected.preview.bytes < rendered.preview.bytes);
+  assert.ok(projected.managedBytesExcluded > 0);
 });
 
 test('harness reports exact engine evidence and honest unavailable host coverage', async () => {

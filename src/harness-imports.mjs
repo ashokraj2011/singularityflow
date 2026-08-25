@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import YAML from 'yaml';
+import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { repoRoot } from './git.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
@@ -196,6 +197,35 @@ export function renderReferencePreview(bytesValue, mediaType = 'application/octe
     source: { rawSha256: sha256(bytes), rawBytes: bytes.length },
     preview: { text: bounded.text, bytes: bounded.bytes, sha256: sha256(Buffer.from(bounded.text)), summary },
     truncated: bounded.truncated || (!textual && bytes.length > 0), warnings
+  };
+}
+
+/**
+ * Project a governed Markdown reference onto producer-authored bytes for model delivery.
+ *
+ * A published phase artifact also carries kernel metadata and an approved-input envelope. Those
+ * bytes are essential to lifecycle verification, but replaying them into a later prompt recursively
+ * duplicates evidence and can expose local identity metadata. The opaque reference still binds the
+ * exact registered Git object; only its inline, model-visible projection is reduced here.
+ */
+export function authoredReferencePreview(resolved) {
+  if (resolved?.mediaType !== 'text/markdown' || !resolved.preview?.text) return resolved;
+  const text = String(resolved.preview.text);
+  const boundaryEnd = text.indexOf('\n\n');
+  const boundary = boundaryEnd >= 0 ? text.slice(0, boundaryEnd) : MODEL_BOUNDARY;
+  const payload = boundaryEnd >= 0 ? text.slice(boundaryEnd + 2) : text;
+  const authored = authoredArtifactText(payload).trim();
+  const projectedText = `${boundary}\n\n${authored || '[No producer-authored Markdown was present in this bounded preview.]'}`;
+  const projectedBytes = Buffer.byteLength(projectedText, 'utf8');
+  return {
+    ...resolved,
+    preview: {
+      ...resolved.preview,
+      text: projectedText,
+      bytes: projectedBytes,
+      sha256: sha256(Buffer.from(projectedText))
+    },
+    managedBytesExcluded: Math.max(0, Number(resolved.preview.bytes ?? 0) - projectedBytes)
   };
 }
 

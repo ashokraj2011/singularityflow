@@ -218,6 +218,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     promptStudy: injection.promptStudy ?? null,
     promptDefinition: injection.promptDefinition ?? null,
     structuralContext: structuredClone(injection.structuralContext ?? null),
+    workSource: structuredClone(injection.workSource ?? null),
     promptBudget: structuredClone(injection.promptBudget ?? null),
     remoteSkills: structuredClone(injection.remoteSkills ?? []),
     promptPath: injection.renderedText != null ? posix(path.relative(root, promptFile)) : null,

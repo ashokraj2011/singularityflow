@@ -7,6 +7,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, exists, nowIso, posix, run, secureRepositoryPath, snapshot, writeJson
 } from './util.mjs';
+import { authoredArtifactText } from './publication-preflight.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -171,7 +172,11 @@ export function extractClauses(markdown, {
     const line = lineNumber(markdown, entry.index);
     seen.set(id, line);
     const end = matches[index + 1]?.index ?? markdown.length;
-    const body = markdown.slice(entry.end, end).trim();
+    // Clause boundaries are found in the complete published artifact so line numbers and source
+    // hashes remain exact. The clause body itself must contain only producer-authored bytes: a
+    // trailing managed input envelope otherwise makes the last clause recursively contain every
+    // preceding phase even though anchors inside that envelope were correctly ignored above.
+    const body = authoredArtifactText(markdown.slice(entry.end, end)).trim();
     const dependsOn = dependencies(body).filter((candidate) => candidate !== id);
     if (dependsOn.length > limits.maxDependenciesPerClause) {
       throw new SingularityFlowError(`Clause ${id} references more than ${limits.maxDependenciesPerClause} dependencies.`);

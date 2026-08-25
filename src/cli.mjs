@@ -2353,8 +2353,8 @@ async function nextCommand(options) {
   });
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log('\nAfter authoring and validation, publish the generation:');
-  console.log(`  Run (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
   console.log(`  Run (authored by Copilot): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
+  console.log(`  Manual alternative (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
   console.log(`  In Copilot: ${generationSkillForPhase(phase)} ${phase.id}`);
 }
 

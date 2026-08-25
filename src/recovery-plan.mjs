@@ -5,6 +5,7 @@ import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './deli
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
 import { isApplicationChangeEntry } from './work-intervals.mjs';
+import { publishedGenerationCommit } from './generation-boundary.mjs';
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
   return {
@@ -50,7 +51,9 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
   let command = `singularity-flow phase begin ${phase.id}`;
   let mode = 'guided';
   let changeSetDigest = null;
-  const baseCommit = workflow.workIntervals?.current?.sourceBaseCommit ?? null;
+  const previousGenerationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
+  const baseCommit = previousGenerationCommit
+    ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
   if (baseCommit) {
     try {
       const changeSet = await buildRepositoryChangeSet(root, {
@@ -63,7 +66,8 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
       const applicationChanges = (changeSet.entries ?? []).filter(isApplicationChangeEntry);
       if (applicationChanges.length) {
         changeSetDigest = changeSet.digest;
-        if ((workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') === 'allow-explicit-adoption') {
+        if (previousGenerationCommit
+            || (workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') === 'allow-explicit-adoption') {
           command += ` --adopt-existing --confirm ${changeSet.digest}`;
         } else {
           mode = 'manual';
@@ -92,7 +96,8 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
       detail: mode === 'manual'
         ? 'Published bytes changed, but Story policy forbids adopting the existing application changes. Preserve the work and obtain a policy decision before beginning another generation.'
         : 'Begin a new generation intent bound to the current bytes. The published generation remains preserved.',
-      command, skill: '/sf-code', evidence: { path: phase.generationIntent.path ?? null, line: null }
+      command, skill: mode === 'manual' ? null : '/sf-code',
+      evidence: { path: phase.generationIntent.path ?? null, line: null }
     })
   };
 }

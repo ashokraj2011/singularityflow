@@ -48,7 +48,7 @@ import {
 } from './delivery-evidence.mjs';
 import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import {
-  beginCodeGeneration, consumeGenerationIntent, verifyOpenGenerationIntent
+  beginCodeGeneration, consumeGenerationIntent, publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
@@ -1060,13 +1060,6 @@ function rebuildUsageAggregates(workflow) {
   }
 }
 
-function generationCommit(root, workflow, phase, number = phase.generation) {
-  const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${number}]`;
-  const result = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true });
-  if (result.status !== 0) return null;
-  return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject))?.[0] ?? null;
-}
-
 export async function sourceTreeHash(root) {
   const indexed = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
     .map((line) => {
@@ -1205,7 +1198,19 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
   // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
   // preflight, not a half-started generation that has to be repaired in durable state.
-  const deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  // Execute the exact structured test command before consuming the generation intent. Submission
+  // still reruns it against the committed generation, but command inference, test discovery, and
+  // result-adapter incompatibility must be found while the current generation is still editable.
+  // Otherwise the only way to repair a bad adapter is to mutate bytes after publication and enter
+  // generation recovery for a failure the kernel could have detected earlier.
+  if (deliveryPreflight) {
+    await preflightCodeDeliveryTests(root, config, workflow, phase, deliveryPreflight);
+    // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
+    // evidence after they finish so publication never commits bytes that were absent from the
+    // preflight change set or retains hashes for bytes the test command changed.
+    deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  }
   // Downstream briefs are derived later from the exact published bytes, but their authored
   // heading contract can be validated now. This keeps ambiguity, missing preserved sections, and
   // size-bound failures on the no-mutation side of the publication boundary.
@@ -1692,14 +1697,21 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
     const commandRoot = commandTarget.absolute;
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
-      if (resultTarget !== root && !resultTarget.startsWith(`${path.resolve(root)}${path.sep}`)) {
+      // `secureRepositoryPath` resolves macOS' /var -> /private/var alias. Compare the result to the
+      // same canonical root; mixing the caller's lexical root with the secured real path falsely
+      // classified repository-contained reports as external.
+      const repositoryTarget = await secureRepositoryPath(root, '.', {
+        label: 'Repository root', mustExist: true, type: 'directory'
+      });
+      if (resultTarget !== repositoryTarget.absolute
+          && !resultTarget.startsWith(`${repositoryTarget.absolute}${path.sep}`)) {
         throw new SingularityFlowError(`Test result path resolves outside the repository: ${policy.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
       }
-      await secureRepositoryPath(root, path.relative(root, resultTarget), {
+      await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, resultTarget), {
         label: `Test result '${policy.result.path}'`, mustExist: false
       });
       await mkdir(path.dirname(resultTarget), { recursive: true });
-      await secureRepositoryPath(root, path.relative(root, path.dirname(resultTarget)), {
+      await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, path.dirname(resultTarget)), {
         label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
       });
       // A timestamp is not execution evidence: touching yesterday's report made it fresh. The
@@ -1721,6 +1733,7 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true,
         stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
+          || policy.result?.adapter === 'node-tap'
           || (policy.result?.adapter === 'junit-xml'
             && policy.argv.some((argument) => argument === '--test-reporter=junit')))
           ? path.resolve(commandRoot, policy.result.path)
@@ -1752,6 +1765,72 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
     });
   }
   return checks;
+}
+
+async function preflightCodeDeliveryTests(root, config, workflow, phase, deliveryEvidence) {
+  if (workflow.resolution?.codeDelivery?.tests?.executionAssurance === 'testcase-exact') {
+    throw new SingularityFlowError(
+      'testcase-exact assurance requires an adapter that binds source annotations to executed test identities; no such binding is configured.',
+      { code: 'CODE_TEST_RESULT_REQUIRED' }
+    );
+  }
+  const commands = (await resolveDeliveryQualityCommands(root, { ...phase, deliveryEvidence }))
+    .filter((command) => command && typeof command === 'object' && !Array.isArray(command) && command.kind === 'test')
+    .map((command, index) => normalizeRequiredTestCommand(command, index))
+    .map((command) => ({
+      ...command,
+      result: {
+        ...command.result,
+        minimumDiscovered: Math.max(
+          command.result.minimumDiscovered,
+          workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1
+        ),
+        minimumPassed: Math.max(
+          command.result.minimumPassed,
+          workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
+        )
+      }
+    }));
+  if (!commands.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} has no structured repository test command. Configure kind: test, argv, workingDirectory, affectedRoots, and a result adapter before publication.`,
+      { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
+    );
+  }
+  const checks = await qualityChecks(root, phase, config, commands);
+  const passing = [];
+  for (const command of commands) {
+    const check = checks.find((entry) => entry.id === command.id);
+    if (!check || check.status === 'skipped-warning') {
+      throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+    }
+    if (check.status === 'blocked') {
+      throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
+    }
+    if (check.status !== 'passed' || check.exitCode !== 0) {
+      throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
+    }
+    const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+    const receipt = buildTestExecutionReceipt(command, check, parsed);
+    if (receipt.tests.discovered < parsed.minimumDiscovered) {
+      throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+    }
+    if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
+      throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
+    }
+    passing.push(command);
+  }
+  if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
+    const paths = phase.sourceBoundary === 'test-automation'
+      ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+    const uncovered = paths.filter((candidate) => !passing.some((command) =>
+      command.affectedRoots.some((root) => root === '.' || candidate === root
+        || candidate.startsWith(`${root.replace(/\/$/, '')}/`))));
+    if (uncovered.length) {
+      throw new SingularityFlowError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
+    }
+  }
+  return { commands, checks };
 }
 
 export function qualityValidationVerdict(checks = [], { required = false } = {}) {
@@ -1881,7 +1960,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // submission gate below has passed.
   const flightPlanBoundary = evaluateChangeFlightPlanBoundary(root, workflow, { phaseId: phase.id });
 
-  phase.generationCommit = generationCommit(root, workflow, phase);
+  phase.generationCommit = publishedGenerationCommit(root, workflow, phase);
   if (!phase.generationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {
     requestedPhase: phase.id,
     reason: `Generation commit is missing for generation ${phase.generation}.`

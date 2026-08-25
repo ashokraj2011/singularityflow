@@ -199,3 +199,39 @@ test('session-only prompts allow synchronization commands but no implementation 
     sessionId: 'copilot-new', toolName: 'edit', toolArgs: { path: 'src/app.js' }
   }), {});
 });
+
+test('Copilot cannot mutate a consumed code generation or claim human authorship', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-consumed-generation-'));
+  const current = workflow({ workItemSelection: 'off', requireBeforeTools: false });
+  current.currentPhase = 'implementation';
+  current.phases.implementation = {
+    id: 'implementation', status: 'in_progress', generation: 1, defaultAgent: 'developer',
+    generationPolicy: { task: 'code' },
+    generationIntent: { generation: 1, status: 'consumed' }
+  };
+  await activateWorkItemSession(root, definition, current);
+
+  for (const payload of [
+    { toolName: 'copilot_applyPatch', toolArgs: { path: 'src/app.js' } },
+    { toolName: 'replace_string_in_file', toolArgs: { path: 'src/app.js' } },
+    { toolName: 'run_in_terminal', toolArgs: { command: 'npm test' } },
+    { toolName: 'run_in_terminal', toolArgs: { command: 'git status; npm test' } }
+  ]) {
+    const denied = await agentGuardHook(root, definition, current, payload);
+    assert.equal(denied.permissionDecision, 'deny');
+    assert.match(denied.permissionDecisionReason, /already published and immutable/);
+  }
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: `cd '${root}' && singularity-flow submit implementation` }
+  }), {});
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal', toolArgs: { command: 'singularity-flow recover HOOK-1 --phase implementation --json' }
+  }), {});
+  const wrongAuthorship = await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow phase publish implementation --authored human' }
+  });
+  assert.equal(wrongAuthorship.permissionDecision, 'deny');
+  assert.match(wrongAuthorship.permissionDecisionReason, /cannot claim human/);
+});

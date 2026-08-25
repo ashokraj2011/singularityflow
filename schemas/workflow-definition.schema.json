@@ -870,7 +870,7 @@
               "type": "object",
               "required": ["adapter", "path"],
               "properties": {
-                "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
+                "adapter": { "enum": ["junit-xml", "jest-json", "vitest-json", "playwright-json", "go-test-json", "node-tap", "dotnet-trx", "cargo-json", "sflow-test-result-v1"] },
                 "path": { "type": "string", "minLength": 1 },
                 "minimumDiscovered": { "type": "integer", "minimum": 1 }
               },

@@ -15,6 +15,7 @@ import {
 import {
   activeWorkspaceFile, workspaceContextForRepository, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -243,6 +244,48 @@ function isSessionBoundaryToolCall(payload) {
   return Boolean(terminal && typeof chars === 'string' && /^\d+\r?\n$/.test(chars));
 }
 
+function isCopilotRepositoryMutation(payload) {
+  const tool = String(payload.toolName ?? '').toLowerCase().replace(/[^a-z]/g, '');
+  return [
+    'patch', 'edit', 'replace', 'insert', 'write', 'delete', 'remove',
+    'createfile', 'createdirectory', 'mkdir', 'movefile', 'rename'
+  ].some((name) => tool === name || tool.includes(name));
+}
+
+function isConsumedGenerationTerminalCallAllowed(payload, phase) {
+  const command = setupCommandText(payload.toolArgs);
+  if (!command) return true;
+  if (/[;&|`$<>\n]/.test(command)) return false;
+  const flow = '(?:singularity-flow|sflow)';
+  const id = '[A-Za-z0-9._-]+';
+  const safeFlow = [
+    `^${flow} (?:nextsteps|status)(?: ${id})?(?: --json)?$`,
+    `^${flow} recover ${id}(?: --phase ${id})?(?: --json)?$`,
+    `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
+    `^${flow} phase show ${phase.id}(?: --json| --show-artifact){0,2}$`,
+    `^${flow} submit ${phase.id}(?: --no-checks)?(?: --json)?$`,
+    `^${flow} phase publish ${phase.id} --authored governed-agent --channel copilot-host(?: --usage-json [A-Za-z0-9._/-]+)?(?: --json)?$`,
+    `^${flow} (?:doctor|logs)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+-]+)?)*$`,
+    `^${flow} documents (?:list|view)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+/-]+)?)*$`,
+    `^${flow} choices (?:begin|answer|status)(?: [A-Za-z0-9._:/-]+)*?(?: --json)?$`,
+    `^${flow} (?:approve|reject|cancel) (?:[^;&|]+)$`,
+    `^${flow} workspace current(?: --json)?$`,
+    `^${flow} session status(?: --json)?$`
+  ];
+  if (safeFlow.some((pattern) => new RegExp(pattern).test(command))) return true;
+  return [
+    /^git status(?: .*)?$/, /^git diff(?: .*)?$/, /^git log(?: .*)?$/,
+    /^git show(?: .*)?$/, /^git rev-parse(?: .*)?$/, /^pwd$/
+  ].some((pattern) => pattern.test(command));
+}
+
+function copilotPublicationAuthorshipViolation(payload) {
+  const command = setupCommandText(payload.toolArgs);
+  if (!/^(?:singularity-flow|sflow) phase publish\s/.test(command)) return false;
+  return !/(?:^|\s)--authored governed-agent(?:\s|$)/.test(command)
+    || !/(?:^|\s)--channel copilot-host(?:\s|$)/.test(command);
+}
+
 function isAgentToolCall(payload) {
   const command = setupCommandText(payload.toolArgs);
   // Copilot may orient itself before invoking the first command in /sflow-session. Permit only
@@ -310,6 +353,24 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
   if (initiative) {
     log.info('hook.guard.allow', 'governed initiative branch', { reason: 'initiative', initiativeId: initiative.initiative.id });
     return {};
+  }
+  if (workflow && copilotPublicationAuthorshipViolation(payload)) {
+    const phase = currentPhase(workflow);
+    return {
+      permissionDecision: 'deny',
+      permissionDecisionReason: `A Copilot-issued publication cannot claim human or external authorship. Run 'singularity-flow phase publish ${phase?.id ?? '<PHASE>'} --authored governed-agent --channel copilot-host'. A human may use manual authorship only from their own terminal action.`
+    };
+  }
+  const phase = workflow ? currentPhase(workflow) : null;
+  const consumedCodeGeneration = phaseRequiresCodeDelivery(phase)
+    && phase?.generationIntent?.status === 'consumed'
+    && Number(phase.generationIntent.generation) === Number(phase.generation);
+  if (consumedCodeGeneration && (isCopilotRepositoryMutation(payload)
+      || !isConsumedGenerationTerminalCallAllowed(payload, phase))) {
+    return {
+      permissionDecision: 'deny',
+      permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Run 'singularity-flow submit ${phase.id}' if the bytes are unchanged; otherwise run 'singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json', review its exact digest, and begin the next generation before editing.`
+    };
   }
   const status = await agentSessionStatus(root, definition, workflow);
   const blocked = status.workItemSelectionRequired;

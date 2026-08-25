@@ -206,6 +206,24 @@ test('structured test receipts require discovery and zero failures', async () =>
   }), false, 'summary counts must account for every discovered test');
 });
 
+test('Node TAP adapter preserves exact npm test scripts and validates their final summary', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-node-tap-'));
+  await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: { test: 'DATA_MODE=demo node --import tsx --test server/**/*.test.ts' }
+  }));
+  const command = await inferModuleTestCommand(root, { root: '.', system: 'node', manifest: 'package.json' });
+  assert.deepEqual(command.argv, ['npm', 'test']);
+  assert.equal(command.result.adapter, 'node-tap');
+  await writeFile(path.join(root, command.result.path), [
+    'TAP version 13', 'ok 1 - first', 'ok 2 - second', '1..2',
+    '# tests 2', '# suites 0', '# pass 2', '# fail 0', '# cancelled 0', '# skipped 0', '# todo 0', ''
+  ].join('\n'));
+  assert.deepEqual((await parseTestResult(root, command)).tests, {
+    discovered: 2, passed: 2, failed: 0, skipped: 0
+  });
+});
+
 test('structured result containment rejects a symlinked parent directory', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-contained-results-'));
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-outside-results-'));
@@ -392,6 +410,39 @@ test('generation begin is idempotent and refuses source mutated before its bound
     () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, dirtyPhase, { persist: false }),
     (error) => error.code === 'GENERATION_DIRTY_START' && /--adopt-existing/.test(error.message)
   );
+});
+
+test('a later generation uses the prior generated commit and permits digest-confirmed rollover', async () => {
+  const root = await repository('rollover');
+  const intervalBaseline = git(root, ['rev-parse', 'HEAD']);
+  const phase = {
+    id: 'implementation', generation: 1, generationPolicy: { task: 'code' },
+    sourceBoundary: 'unrestricted'
+  };
+  const workflow = {
+    workItem: { id: 'CGA-ROLL' },
+    workIntervals: { current: { phaseId: 'implementation', status: 'open', sourceBaseCommit: intervalBaseline } },
+    resolution: { codeDelivery: { generationBoundary: { dirtyStart: 'block' } } }
+  };
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', '[CGA-ROLL][phase:implementation][generated:1] publish artifacts']);
+  const published = git(root, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "repaired";\n');
+  let confirmedDigest = null;
+  await assert.rejects(
+    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false }),
+    (error) => {
+      confirmedDigest = error.message.match(/sha256:[a-f0-9]{64}/)?.[0] ?? null;
+      return error.code === 'GENERATION_DIRTY_START' && Boolean(confirmedDigest);
+    }
+  );
+  const intent = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, {
+    adoptExisting: true, confirm: confirmedDigest, persist: false
+  });
+  assert.equal(intent.baseline.commit, published);
+  assert.equal(intent.baseline.previousGenerationCommit, published);
+  assert.equal(intent.baseline.mode, 'adopted');
 });
 
 test('generation-start verification binds the entire durable receipt', async () => {

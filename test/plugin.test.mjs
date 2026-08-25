@@ -132,7 +132,7 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /wait/i);
     assert.match(content, /stop before (?:authoring|preparation)/i);
   }
-  assert.match(next, /delegate terminally.*\/sf-code/is);
+  assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
 });

@@ -71,7 +71,14 @@ async function codeFixture(name, { acceptance = true } = {}) {
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
   git(root, 'config', 'user.email', ACTOR.email);
-  await writeFile(path.join(root, 'pom.xml'), '<project><artifactId>delivery</artifactId></project>\n');
+  await writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+    name: 'delivery-fixture', private: true, scripts: { test: 'node test-runner.mjs' }
+  }, null, 2)}\n`);
+  await writeFile(path.join(root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
+    ''
+  ].join('\n'));
   await initializeDefinition(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize repository');
@@ -86,7 +93,12 @@ async function codeFixture(name, { acceptance = true } = {}) {
     order: 0,
     inputs: [],
     clarification: { ...implementation.clarification, mode: 'off' },
-    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] }
+    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['implementation'] },
+    qualityCommands: [{
+      id: 'fixture-tests', kind: 'test', argv: [process.execPath, 'test-runner.mjs'],
+      workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/unit.json', minimumDiscovered: 1 }
+    }]
   }];
   await setAgentSession(root, config, ACTOR, 'developer', 'DELIVERY-1', { phaseId: 'implementation', source: 'test' });
   const workflow = await createWorkflow(root, config, {
@@ -404,6 +416,27 @@ test('an AST-off workflow profile bypasses AST without weakening ordinary delive
   assert.deepEqual(context.phase.deliveryEvidence.acceptanceCriteria.missing, []);
 });
 
+test('structured test discovery fails before publication consumes the generation intent', async () => {
+  const context = await codeFixture('test-preflight');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await writeFile(path.join(context.root, 'test-runner.mjs'), [
+    "import { writeFileSync } from 'node:fs';",
+    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ tests: { discovered: 0, passed: 0, failed: 0, skipped: 0 } }));",
+    ''
+  ].join('\n'));
+  await inContext(context.root, () => assert.rejects(
+    () => publishGeneration(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+    }),
+    (error) => error.code === 'CODE_TEST_ZERO_DISCOVERED' && /before publication/.test(error.message)
+  ));
+  assert.equal(context.phase.generation, 0);
+  assert.equal(context.phase.generationIntent.status, 'open');
+  assert.equal(context.phase.deliveryEvidence, undefined);
+});
+
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {
   const context = await codeFixture('complete');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
@@ -432,10 +465,24 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   ));
   assert.equal(retried.generation, 1, 'an unchanged retry created another generation');
 
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int unbound = 1; }\n');
+  const unavailableBaseline = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const manual = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.equal(manual.mode, 'manual');
+  assert.equal(manual.command, null);
+  assert.equal(manual.skill, null, 'a commandless policy blocker advertised an executable code skill');
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+
+  git(context.root, 'add', '.');
+  git(context.root, 'commit', '-m', '[DELIVERY-1][phase:implementation][generated:1] publish artifacts');
+
   await writeFile(
     path.join(context.root, context.phase.deliveryEvidence.receiptPath),
     `${JSON.stringify({ ...receipt, status: 'tampered-secondary-output' }, null, 2)}\n`
   );
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int repaired = 1; }\n');
   await inContext(context.root, () => assert.rejects(
     () => publishGeneration(context.root, context.config, context.workflow, {
       phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
@@ -449,8 +496,9 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.ok(recovery.blockers.some((entry) => entry.code === 'generation.intent.consumed-changed'));
   const renewal = recovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.ok(renewal, 'recovery did not offer a new generation boundary');
-  assert.equal(renewal.mode, 'manual');
-  assert.equal(renewal.command, null, 'blocked adoption policy was bypassed');
+  assert.equal(renewal.mode, 'guided');
+  assert.match(renewal.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+  assert.equal(renewal.skill, '/sf-code');
 
   context.workflow.resolution.codeDelivery.generationBoundary.dirtyStart = 'allow-explicit-adoption';
   const adoptable = await recoveryPlan(context.root, context.config, context.workflow, {

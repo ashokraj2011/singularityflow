@@ -171,9 +171,11 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       const manifest = JSON.parse(await readFile(path.join(root, cwd, 'package.json'), 'utf8'));
       const script = String(manifest.scripts?.test ?? '');
       const manager = await nodePackageManager(root, module.root, manifest);
-      const testArgv = manager === 'npm' ? ['npm', 'test', '--']
+      const testCommand = manager === 'npm' ? ['npm', 'test']
         : manager === 'yarn' ? ['yarn', 'test']
-          : manager === 'pnpm' ? ['pnpm', 'test', '--'] : ['bun', 'run', 'test', '--'];
+          : manager === 'pnpm' ? ['pnpm', 'test'] : ['bun', 'run', 'test'];
+      const testArgv = ['npm', 'pnpm', 'bun'].includes(manager)
+        ? [...testCommand, '--'] : testCommand;
       if (/\bjest\b/i.test(script)) return {
         id: `${module.root}-node-tests`, kind: 'test',
         argv: [...testArgv, '--json', '--outputFile', `${resultBase}.json`],
@@ -186,11 +188,15 @@ export async function inferModuleTestCommand(root, module, { platform = process.
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'vitest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
       };
+      // Preserve the repository's exact Node test script. Reconstructing it as bare `node --test`
+      // drops loaders, environment bindings, explicit TypeScript paths, and repository-owned
+      // discovery rules. Node's final TAP summary is deterministic structured evidence, so capture
+      // that output without replacing the command being proved.
       if (/\bnode\b[^\n]*--test\b/i.test(script)) return {
         id: `${module.root}-node-tests`, kind: 'test',
-        argv: ['node', '--test', '--test-reporter=junit'],
+        argv: testCommand,
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
-        result: { adapter: 'junit-xml', path: `${resultBase}.xml`, minimumDiscovered: 1 }
+        result: { adapter: 'node-tap', path: `${resultBase}.tap`, minimumDiscovered: 1 }
       };
       return null;
     }
@@ -491,6 +497,31 @@ function countsFromJson(adapter, parsed) {
   };
 }
 
+function nodeTapCounts(value) {
+  const summary = Object.create(null);
+  for (const line of String(value).split(/\r?\n/)) {
+    const match = line.match(/^# (tests|pass|fail|cancelled|skipped|todo) ([0-9]+)\s*$/);
+    if (match) summary[match[1]] = Number(match[2]);
+  }
+  if (!Number.isInteger(summary.tests) || !Number.isInteger(summary.pass) || !Number.isInteger(summary.fail)) {
+    throw new SingularityFlowError('Structured Node TAP result is missing its final tests, pass, or fail summary.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const counts = {
+    discovered: summary.tests,
+    passed: summary.pass,
+    failed: summary.fail + (summary.cancelled ?? 0),
+    skipped: (summary.skipped ?? 0) + (summary.todo ?? 0)
+  };
+  if (counts.passed + counts.failed + counts.skipped > counts.discovered) {
+    throw new SingularityFlowError('Structured Node TAP outcome counts exceed discovered tests.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  return counts;
+}
+
 async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
   if (depth > MAX_RESULT_DEPTH) {
     throw new SingularityFlowError(`Structured test result directory exceeds depth ${MAX_RESULT_DEPTH}.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
@@ -562,6 +593,8 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
         skipped: totals.skipped + counts.skipped
       }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
     }
+  } else if (adapter === 'node-tap') {
+    tests = nodeTapCounts(bytes.toString('utf8'));
   } else if (adapter === 'go-test-json') {
     const events = bytes.toString('utf8').split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
     tests = countsFromJson(adapter, events);

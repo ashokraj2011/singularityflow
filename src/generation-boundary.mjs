@@ -7,7 +7,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
 import { isApplicationChangeEntry } from './work-intervals.mjs';
-import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
+import { nowIso, posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
   return posix(path.join(
@@ -23,6 +23,17 @@ function currentApplicationEntries(changeSet) {
 function generationStartSha256(record) {
   const { receiptSha256: _receiptSha256, ...content } = record ?? {};
   return `sha256:${createHash('sha256').update(canonicalJson(content)).digest('hex')}`;
+}
+
+export function publishedGenerationCommit(root, workflow, phase, number = phase.generation) {
+  if (!Number.isInteger(Number(number)) || Number(number) < 1) return null;
+  const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${number}]`;
+  const result = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
+    cwd: root, allowFailure: true
+  });
+  if (result.status !== 0) return null;
+  return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
+    .find(([, message]) => message.startsWith(subject))?.[0] ?? null;
 }
 
 async function verifiedIntentRecord(root, workflow, phase, intent) {
@@ -81,8 +92,18 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
       { code: 'GENERATION_INTENT_REQUIRED' }
     );
   }
+  const previousGenerationCommit = Number(phase.generation ?? 0) > 0
+    ? publishedGenerationCommit(root, workflow, phase, phase.generation)
+    : null;
+  if (Number(phase.generation ?? 0) > 0 && !previousGenerationCommit) {
+    throw new SingularityFlowError(
+      `Published commit for ${phase.id} generation ${phase.generation} is unavailable; recover synchronization before beginning another generation.`,
+      { code: 'GENERATION_INTENT_REQUIRED' }
+    );
+  }
+  const baselineCommit = previousGenerationCommit ?? interval.sourceBaseCommit;
   const changeSet = await buildRepositoryChangeSet(root, {
-    baseCommit: interval.sourceBaseCommit,
+    baseCommit: baselineCommit,
     subject: { workId: workflow.workItem.id, phase: phase.id, generation, generationIntentId: null }
   });
   const existing = currentApplicationEntries(changeSet);
@@ -94,7 +115,11 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     );
   }
   if (adoptExisting) {
-    if (dirtyPolicy !== 'allow-explicit-adoption') {
+    // `dirtyStart` protects generation 1 from inheriting unbounded work that predates governance.
+    // A later generation is different: its baseline is the exact prior generated commit and the
+    // contributor confirms the digest of only the post-publication delta. Permit that bounded
+    // rollover so a failed submit can be repaired without weakening initial dirty-start policy.
+    if (!previousGenerationCommit && dirtyPolicy !== 'allow-explicit-adoption') {
       throw new SingularityFlowError('This Story policy does not permit adoption of existing source changes.', { code: 'GENERATION_DIRTY_START' });
     }
     if (!confirm || confirm !== changeSet.digest) {
@@ -115,10 +140,11 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     task: 'code',
     status: 'open',
     baseline: {
-      commit: interval.sourceBaseCommit,
+      commit: baselineCommit,
       tree: changeSet.base.tree,
       initialChangeSetDigest: changeSet.digest,
-      mode: existing.length ? 'adopted' : 'clean'
+      mode: existing.length ? 'adopted' : 'clean',
+      previousGenerationCommit
     },
     grounding: {
       compositionSha256: phase.grounding?.compositionSha256 ?? null,
@@ -158,9 +184,6 @@ export function requireOpenGenerationIntent(workflow, phase) {
       { code: 'GENERATION_INTENT_REQUIRED' }
     );
   }
-  if (intent.baseline?.commit && intent.baseline.commit !== workflow.workIntervals?.current?.sourceBaseCommit) {
-    throw new SingularityFlowError('The generation intent no longer matches the governed work-interval baseline.', { code: 'GENERATION_INTENT_REQUIRED' });
-  }
   return intent;
 }
 
@@ -168,6 +191,14 @@ export async function verifyOpenGenerationIntent(root, workflow, phase) {
   const intent = requireOpenGenerationIntent(workflow, phase);
   if (!intent) return null;
   await verifiedIntentRecord(root, workflow, phase, intent);
+  const expectedBaseline = Number(intent.generation) > 1
+    ? publishedGenerationCommit(root, workflow, phase, Number(intent.generation) - 1)
+    : workflow.workIntervals?.current?.sourceBaseCommit ?? null;
+  if (!expectedBaseline || intent.baseline?.commit !== expectedBaseline) {
+    throw new SingularityFlowError('The generation intent no longer matches its governed generation baseline.', {
+      code: 'GENERATION_INTENT_REQUIRED'
+    });
+  }
   return intent;
 }
 
@@ -188,7 +219,8 @@ export async function generationStartPublicationBinding(root, workflow, phase) {
     baselineCommit: receipt.baseline?.commit ?? null,
     baselineTree: receipt.baseline?.tree ?? null,
     initialChangeSetDigest: receipt.baseline?.initialChangeSetDigest ?? null,
-    previousGenerationCommit: phase.deliveryEvidence?.tree?.generationCommit ?? null
+    previousGenerationCommit: receipt.baseline?.previousGenerationCommit
+      ?? phase.deliveryEvidence?.tree?.generationCommit ?? null
   });
 }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -74,6 +74,32 @@ test('a dirty prior checkout cannot block a new Story and is never mutated', asy
     worktree, 'singularity/work-items/ISO-STORY-1/workflow.json'
   ), 'utf8')).workItem.id, 'ISO-STORY-1');
   assert.equal(result.data.worktree.isolated, true);
+});
+
+test('session attach reuses the managed Story worktree instead of switching its launch clone', async (t) => {
+  const { root } = await repository(t);
+  const started = run(process.execPath, [cli,
+    'start', 'ISO-ATTACH-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Attach independently',
+    '--description', 'Reuse the exact managed Story checkout without disturbing the launch clone.'
+  ], root);
+  const worktree = JSON.parse(started.stdout).data.repositoryPath;
+  run('git', ['push', '-q', '-u', 'origin', 'ISO-ATTACH-1'], worktree);
+  await writeFile(path.join(root, 'unrelated-launch-work.txt'), 'must remain in the launch checkout\n');
+
+  const attached = run(process.execPath, [cli, 'session', 'attach', 'ISO-ATTACH-1', '--json'], root);
+  const result = JSON.parse(attached.stdout);
+
+  assert.equal(path.resolve(result.repositoryPath), path.resolve(worktree));
+  assert.equal(await realpath(result.sourceRepositoryPath), await realpath(root));
+  assert.equal(result.resolvedFrom, 'managed-story-worktree');
+  assert.equal(result.materialization, 'reused-managed-story-worktree');
+  assert.equal(git(root, ['branch', '--show-current']), 'main');
+  assert.match(git(root, ['status', '--porcelain']), /unrelated-launch-work\.txt/);
+  assert.equal(git(worktree, ['branch', '--show-current']), 'ISO-ATTACH-1');
+  const status = JSON.parse(run(process.execPath, [cli, 'session', 'status', '--json'], worktree).stdout);
+  assert.equal(status.workId, 'ISO-ATTACH-1');
+  assert.equal(status.ready, true);
 });
 
 test('a failed isolated start removes its disposable checkout and branch', async (t) => {

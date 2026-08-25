@@ -184,3 +184,17 @@ export function listStoryWorktrees(root) {
     .filter((entry) => entry.path.split(path.sep).includes('story-worktrees'))
     .map((entry) => ({ repositoryPath: entry.path, branch: entry.branch, head: entry.head }));
 }
+
+/**
+ * Find the existing managed checkout that owns a durable Story branch.
+ *
+ * Git permits a local branch to be checked out in only one worktree. Session attachment must
+ * therefore enter that checkout rather than asking the launch clone to switch to the same branch.
+ * Restricting the lookup to Singularity Flow's managed Story paths avoids adopting an unrelated
+ * worktree that the contributor created and owns themselves.
+ */
+export function storyWorktreeForBranch(root, branchName) {
+  const requested = String(branchName ?? '').trim();
+  if (!requested) return null;
+  return listStoryWorktrees(root).find((entry) => entry.branch === requested) ?? null;
+}

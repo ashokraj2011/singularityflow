@@ -5901,8 +5901,15 @@ async function sessionCommand(positionals, options) {
     const subject = resolveContext(subjectIndex, { reference, kind: 'story' });
     const id = subject.id;
     const targetBranch = subject.selectedBranch;
-    const alreadyCurrent = branch(root) === targetBranch;
-    if (!alreadyCurrent) assertClean(root);
+    // A Story started from VS Code or a dirty launch checkout owns an isolated managed worktree.
+    // Git will not check the same branch out in the canonical clone, so attaching from that clone
+    // must resolve and operate on the checkout that already owns it. The managed path is discovered
+    // from Git's worktree registry rather than reconstructed from mutable workspace configuration.
+    const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
+    const managedWorktree = storyWorktreeForBranch(root, targetBranch);
+    const attachmentRoot = managedWorktree?.repositoryPath ?? root;
+    const alreadyCurrent = branch(attachmentRoot) === targetBranch;
+    if (!alreadyCurrent) assertClean(attachmentRoot);
     const remoteName = `${remote}/${targetBranch}`;
     const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
     const remoteSha = refHead(root, remoteRef);
@@ -5916,25 +5923,29 @@ async function sessionCommand(positionals, options) {
         + `Expected matching state at ${subject.location.path} and a valid pinned ${WORKFLOW_PATH}.`
       );
     }
-    const dirtyInPlace = alreadyCurrent && Boolean(changes(root).trim());
+    const dirtyInPlace = alreadyCurrent && Boolean(changes(attachmentRoot).trim());
     let materialization;
     if (dirtyInPlace) {
-      if (head(root) !== remoteSha) {
+      if (head(attachmentRoot) !== remoteSha) {
         throw new SingularityFlowError(
           `Local branch '${targetBranch}' has uncommitted changes and is not at the exact ${remote}/${targetBranch} head. `
           + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
         );
       }
-      materialization = 'bound-current-with-local-changes';
+      materialization = managedWorktree
+        ? 'bound-managed-story-worktree-with-local-changes'
+        : 'bound-current-with-local-changes';
     } else {
-      materialization = checkout(root, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
-      try { fastForwardTo(root, remoteName); }
+      materialization = managedWorktree
+        ? 'reused-managed-story-worktree'
+        : checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
+      try { fastForwardTo(attachmentRoot, remoteName); }
       catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
     }
-    if (head(root) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
-    const attachedConfig = await loadConfig(root);
-    const workflow = await loadStoryAggregate(root, attachedConfig, id);
-    const session = await activateWorkItemSession(root, attachedConfig, workflow);
+    if (head(attachmentRoot) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
+    const attachedConfig = await loadConfig(attachmentRoot);
+    const workflow = await loadStoryAggregate(attachmentRoot, attachedConfig, id);
+    const session = await activateWorkItemSession(attachmentRoot, attachedConfig, workflow);
     const result = {
       workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
       phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,
@@ -5944,14 +5955,23 @@ async function sessionCommand(positionals, options) {
         command: `singularity-flow session context --work-id ${id} --slice brief --max-output-bytes 32768 --json`
       }
     };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...result, repositoryPath: root, resolvedFrom: resolved.resolvedFrom }, null, 2));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+      ...result,
+      repositoryPath: attachmentRoot,
+      resolvedFrom: managedWorktree ? 'managed-story-worktree' : resolved.resolvedFrom,
+      ...(managedWorktree ? { sourceRepositoryPath: root } : {})
+    }, null, 2));
     // This checked out a branch. When the repository came from the selection rather than from where
     // the caller is standing, saying which one is the difference between an attach and a surprise.
     if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
+    if (managedWorktree) console.log(`Story worktree: ${attachmentRoot}`);
     console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
     console.log(`Current phase: ${workflow.currentPhase ?? 'complete'} · status: ${workflow.status}`);
     if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
     else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
+    if (managedWorktree && path.resolve(process.cwd()) !== path.resolve(attachmentRoot)) {
+      console.log(`Continue in the isolated Story checkout: cd ${JSON.stringify(attachmentRoot)}`);
+    }
     console.log(`Bounded Copilot context: ${result.context.command}`);
     return;
   }

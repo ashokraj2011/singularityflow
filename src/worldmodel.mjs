@@ -64,10 +64,13 @@ import {
   resolveWorldModelGenerationRouting, worldModelInvocationAttribution
 } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
+import { compilePromptSections } from './prompt-budget.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
 const MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
+const WORLD_MODEL_DISCOVERY_TOOLS = Object.freeze(['read_file', 'search', 'create_file']);
+const WORLD_MODEL_SYNTHESIS_TOOLS = Object.freeze(['read_file', 'search', 'edit_file', 'create_file']);
 const WORLD_MODEL_TEMP_PREFIXES = [
   'singularity-flow-world-model-',
   'singularity-flow-world-model-branch-'
@@ -112,9 +115,19 @@ function assertWorldModelRecoveryId(id) {
   return String(id);
 }
 
-async function renderApprovedReferenceContext(root, definition, workflow, activePhase) {
+function referenceIdentity(pathName, sha256) {
+  return pathName && sha256 ? `${posix(pathName)}@${String(sha256).replace(/^sha256:/, '')}` : null;
+}
+
+export function approvedReferenceAlreadyCaptured(reference, inputRecords = []) {
+  const identity = referenceIdentity(reference?.path, reference?.rawSha256);
+  return Boolean(identity && inputRecords.some((entry) => entry.status === 'captured'
+    && referenceIdentity(entry.repositoryPath, entry.sha256) === identity));
+}
+
+async function renderApprovedReferenceContext(root, definition, workflow, activePhase, { inputRecords = [] } = {}) {
   const policy = workflow?.resolution?.harnessImports ?? definition.harnessImports;
-  if (!workflow || policy?.mode === 'off') return { text: '', previews: [], warnings: [] };
+  if (!workflow || policy?.mode === 'off') return { text: '', previews: [], warnings: [], deduplicated: [] };
   const phaseOrder = Array.isArray(workflow.phaseOrder)
     ? workflow.phaseOrder
     : Object.keys(workflow.phases ?? {});
@@ -131,13 +144,26 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
       }
     }
   }
-  const previews = []; const warnings = [];
+  const previews = []; const warnings = []; const deduplicated = [];
   for (const descriptor of descriptors) {
     try {
       const resolved = await resolveReference(root, descriptor.handle, {
         maxBytes: policy?.previewTextBytes,
         totalEnvelopeBytes: policy?.totalEnvelopeBytes
       });
+      if (approvedReferenceAlreadyCaptured({
+        path: resolved.reference.artifact.path, rawSha256: resolved.source.rawSha256
+      }, inputRecords)) {
+        deduplicated.push({
+          handle: descriptor.handle,
+          path: resolved.reference.artifact.path,
+          rawSha256: resolved.source.rawSha256,
+          rawBytes: resolved.source.rawBytes,
+          previewBytes: resolved.preview.bytes,
+          reason: 'already-present-as-approved-phase-input'
+        });
+        continue;
+      }
       previews.push({
         handle: descriptor.handle,
         phase: descriptor.phase,
@@ -176,7 +202,7 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
       ''
     ])
   ].join('\n') : '';
-  return { text, previews, warnings };
+  return { text, previews, warnings, deduplicated };
 }
 
 function commonGitDirectory(root) {
@@ -1272,7 +1298,7 @@ async function runParallelDiscovery(
         prompt: { file: promptFile },
         channel: 'world-model-discovery',
         subject: { kind: 'repository-world-model', view },
-        tools: { mode: 'all' },
+        tools: { mode: 'allowlist', names: [...WORLD_MODEL_DISCOVERY_TOOLS] },
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
     } catch (error) {
@@ -1327,7 +1353,10 @@ async function runParallelDiscovery(
       }
     }
     const bytes = Buffer.byteLength(packet);
-    if (!packet.trim()) return outcome({ reason: 'did not create its analysis packet', retryable: true, result: 'no-packet' });
+    // A successful provider process that ignored its one required output is a contract failure,
+    // not a transient transport error. Repeating the same prompt spends another model call without
+    // adding evidence, so degrade once and let the caller decide whether synthesis is meaningful.
+    if (!packet.trim()) return outcome({ reason: 'did not create its analysis packet', retryable: false, result: 'no-packet' });
     // An oversized packet will not shrink on a re-run, so degrade it without spending another attempt.
     if (bytes > MAX_DISCOVERY_PACKET_BYTES) {
       return outcome({ reason: `created an analysis packet above the 24 KiB limit (${bytes} bytes)`, retryable: false, result: 'oversized', bytes });
@@ -1763,6 +1792,19 @@ async function build(root, config, options) {
       reusedViews: discovery.packets.filter((packet) => packet.origin === 'checkpoint')
         .map((packet) => packet.view).sort()
     });
+    if (discovery.enabled && views.length && !discovery.packets.length) {
+      throw new SingularityFlowError(
+        'World-model discovery produced no usable packets; final synthesis was not started.',
+        {
+          code: 'WORLD_MODEL_DISCOVERY_EMPTY',
+          details: {
+            views,
+            failures: discovery.degradedViews,
+            nextAction: 'Inspect the discovery invocation audits, then retry after correcting the model/tool contract or use deterministic light materialization.'
+          }
+        }
+      );
+    }
     const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
     const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
     const renderedPrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
@@ -1787,7 +1829,7 @@ ${repositoryFactsDigest}
         prompt: { file: promptFile },
         channel: 'world-model-synthesis',
         subject: { kind: 'repository-world-model' },
-        tools: { mode: 'all' },
+        tools: { mode: 'allowlist', names: [...WORLD_MODEL_SYNTHESIS_TOOLS] },
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the
@@ -1868,7 +1910,19 @@ ${repositoryFactsDigest}
       validated = await validateDraft();
     } catch (error) {
       const missingManifest = error.message === 'World-model builder did not create manifest.json.';
-      const reason = missingManifest ? 'did not create manifest.json' : `created invalid output: ${error.message}`;
+      if (missingManifest) {
+        throw new SingularityFlowError(
+          'World-model final synthesis completed without manifest.json; recovery was not repeated because no partial model exists to repair.',
+          {
+            code: 'WORLD_MODEL_SYNTHESIS_EMPTY',
+            details: {
+              invocationId: synthesisResult?.invocationId ?? null,
+              nextAction: 'Inspect the synthesis invocation audit and correct the provider tool/output contract before retrying.'
+            }
+          }
+        );
+      }
+      const reason = `created invalid output: ${error.message}`;
       console.warn(`Warning: world-model final synthesis ${reason}; retrying final synthesis once without repeating discovery.`);
       await rm(staging, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
@@ -2401,13 +2455,19 @@ function groundingSectionsText(selected, rulePaths) {
 }
 
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
-  if (!workflow || !phase) return { contract: '', inputs: '', evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
+  if (!workflow || !phase) return { contract: '', inputs: '', inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
   const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
   const requiredArtifact = phase.requiredArtifact?.path
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
+  const pinnedIntelligence = workflow.resolution?.intelligence ?? {};
+  const astContract = pinnedIntelligence.ast === 'off' || definition.ast?.mode === 'off'
+    ? 'off; ordinary repository file access remains available'
+    : ['optional-context', 'required-context'].includes(pinnedIntelligence.ast)
+      ? 'optional bounded context; absence never blocks ordinary repository file access'
+      : 'available on request; ordinary repository file access is the default';
   const templateSnapshot = workflow.resolution?.templates?.[phase.id];
   let template = '';
   // Migrating a legacy Story deliberately synthesizes its phase contract even when the old record
@@ -2436,7 +2496,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     ...artifactContentContractLines(phase.requiredArtifact),
     '- Path boundary: Resolve every named path inside the work-item directory or repository root. Never search the filesystem outside this repository.',
     `- Write scope: \`${phase.writeScope ?? 'artifact-only'}\``,
-    `- Intelligence: world-model=\`${workflow.resolution?.intelligence?.worldModel ?? 'inherit'}\`, AST=\`${workflow.resolution?.intelligence?.ast ?? 'inherit'}\`, agent-briefs=\`${workflow.resolution?.intelligence?.agentBriefs ?? 'inherit'}\``,
+    `- Intelligence: world-model=\`${pinnedIntelligence.worldModel ?? 'inherit'}\`, AST=\`${astContract}\`, agent-briefs=\`${pinnedIntelligence.agentBriefs ?? 'inherit'}\``,
     ...(worldModelDisabledForWorkflow(workflow)
       ? ['- Context arm: `generic`; do not request, assume, or reconstruct world-model, AST, or agent-brief context.']
       : []),
@@ -2464,6 +2524,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
   return {
     contract,
     inputs,
+    inputRecords: collected.records,
     evidence: evidence.markdown,
     evidenceFiles: evidence.files,
     evidenceEntries: evidence.entries,
@@ -2549,7 +2610,9 @@ async function compose(root, options) {
   const rulePaths = new Set(injection.sections.map((section) => section.path));
   const requiredText = groundingSectionsText(mandatory, rulePaths);
   const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
-  const approvedReferences = await renderApprovedReferenceContext(root, definition, workflow, phase);
+  const approvedReferences = await renderApprovedReferenceContext(root, definition, workflow, phase, {
+    inputRecords: governed.inputRecords
+  });
   const pinnedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === signals.phase);
   const clarificationPolicy = normalizeClarificationPolicy(
     pinnedPhase?.clarification ?? definition.phases?.[signals.phase]?.clarification
@@ -2596,22 +2659,32 @@ async function compose(root, options) {
   structural.warnings.forEach((warning) => console.error(`AST warning: ${warning}`));
   designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
-  const pieces = [
-    governed.contract,
-    clarification,
-    text.trimEnd(),
-    mcpPolicy,
-    designSources.markdown,
-    requiredText,
-    capability.text,
-    structural.text,
-    remote.text,
-    governed.evidence,
-    approvedReferences.text,
-    changeRequestContext,
-    governed.inputs
-  ].filter((part) => part?.trim());
-  const candidateText = `${pieces.join('\n\n')}\n`;
+  const promptCompilation = compilePromptSections([
+    { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
+    { id: 'clarification-protocol', text: clarification, mandatory: true, priority: 0 },
+    { id: 'governed-agent-policy', text: text.trimEnd(), mandatory: true, priority: 0 },
+    { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
+    { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
+    { id: 'world-model-grounding', text: requiredText, mandatory: config.grounding === 'enforce', priority: 40 },
+    { id: 'capability-world-model', text: capability.text, priority: 50 },
+    { id: 'optional-ast-context', text: structural.text, priority: 70 },
+    { id: 'agent-skills', text: remote.text, mandatory: true, priority: 5 },
+    { id: 'active-story-evidence', text: governed.evidence, mandatory: true, priority: 5 },
+    { id: 'approved-reference-previews', text: approvedReferences.text, priority: 80 },
+    { id: 'stakeholder-change-requests', text: changeRequestContext, mandatory: true, priority: 0 },
+    { id: 'approved-phase-inputs', text: governed.inputs, mandatory: true, priority: 0 }
+  ], workflow?.resolution?.tokenEconomy ?? definition.tokenEconomy ?? {});
+  promptCompilation.warnings.forEach((warning) => console.error(`Token-economy warning: ${warning}`));
+  const candidateText = promptCompilation.text;
+  const { text: _compiledPromptText, ...promptComposition } = promptCompilation;
+  promptComposition.deduplicatedReferences = approvedReferences.deduplicated;
+  promptComposition.inputLinearization = {
+    sourceBytes: governed.inputRecords.reduce((total, entry) => total + (entry.bytes ?? 0), 0),
+    authoredBytes: governed.inputRecords.reduce((total, entry) => total + (entry.authoredBytes ?? entry.bytes ?? 0), 0),
+    managedBytesExcluded: governed.inputRecords.reduce((total, entry) => total + (entry.managedBytesExcluded ?? 0), 0),
+    injectedBytes: governed.inputRecords.reduce((total, entry) => total + (entry.injectedBytes ?? 0), 0)
+  };
+  promptComposition.structuralContext = structural.record;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   const manifestInfo = worldModelEnabled
     ? await snapshot(path.join(required.directory, 'manifest.json'))
@@ -2685,6 +2758,12 @@ async function compose(root, options) {
       previewSha256: preview.previewSha256, previewBytes: preview.previewBytes,
       renderer: preview.renderer
     })),
+    promptBudget: {
+      ...promptCompilation.policy,
+      originalBytes: promptCompilation.originalBytes,
+      finalBytes: promptCompilation.finalBytes,
+      omitted: promptCompilation.omitted.map((entry) => ({ id: entry.id, sha256: entry.sha256 }))
+    },
     changeRequests: openChangeRequests.map((request) => ({ id: request.id, clauseIds: request.clauseIds ?? [], comment: request.comment }))
   }, candidateText, { enabled: cacheEnabled });
   const composedText = cached.text;
@@ -2731,7 +2810,8 @@ async function compose(root, options) {
         previewSha256: preview.previewSha256, previewBytes: preview.previewBytes,
         renderer: preview.renderer, truncated: preview.truncated
       })),
-      compositionCache: { key: cached.key, hit: cached.hit }
+      compositionCache: { key: cached.key, hit: cached.hit },
+      promptBudget: promptComposition
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
   }
@@ -2751,7 +2831,8 @@ async function compose(root, options) {
         previewSha256: preview.previewSha256, previewBytes: preview.previewBytes,
         renderer: preview.renderer
       })),
-      compositionCache: { key: cached.key, hit: cached.hit }
+      compositionCache: { key: cached.key, hit: cached.hit },
+      composition: promptComposition
     });
     if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
   }

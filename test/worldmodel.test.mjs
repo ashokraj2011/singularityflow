@@ -83,7 +83,7 @@ if (packet) {
   const startedAt = Date.now();
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'start', view: assignedView, at: startedAt }) + '\\n');
   await new Promise((resolve) => setTimeout(resolve, 200));
-  if (process.env.SFLOW_MOCK_SKIP_PACKET_VIEW === assignedView) process.exit(0);
+  if (process.env.SFLOW_MOCK_SKIP_ALL_PACKETS === '1' || process.env.SFLOW_MOCK_SKIP_PACKET_VIEW === assignedView) process.exit(0);
   await mkdir(path.dirname(packet), { recursive: true });
   await writeFile(packet, '# ' + assignedView + ' discovery packet\\n\\nObserved ' + assignedView + ' facts at README.md:1.\\n');
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'end', view: assignedView, at: Date.now() }) + '\\n');
@@ -1119,7 +1119,7 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   assert.match(first.stderr, /checkpoint retained in the repository: 1 completed, 1 pending/);
   assert.equal((await lstat(path.join(root, 'singularity/world-model/.checkpoints'))).isDirectory(), true);
   const firstEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
-  assert.equal(firstEvents.filter((event) => event.event === 'start').length, 3);
+  assert.equal(firstEvents.filter((event) => event.event === 'start').length, 2);
   assert.equal(firstEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
 
   const second = result(process.execPath, args, root, {
@@ -1129,7 +1129,7 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
   assert.match(second.stderr, /World-model resume: 1 completed view packet reused; 1 pending/);
   const allEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
-  assert.equal(allEvents.filter((event) => event.event === 'start').length, 4);
+  assert.equal(allEvents.filter((event) => event.event === 'start').length, 3);
   assert.equal(allEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
@@ -1167,7 +1167,46 @@ test('wm build falls back to final synthesis when an optional discovery worker o
   assert.ok(manifest.views.architecture);
 });
 
-test('wm build retries final synthesis once when the builder omits manifest.json', async () => {
+test('wm build does not synthesize when every discovery worker omits its packet', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-discovery-empty-'));
+  const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-discovery-empty-${process.pid}-${Date.now()}.jsonl`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Discovery Empty Tester'], root);
+  run('git', ['config', 'user.email', 'discovery-empty@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
+  await writeFile(path.join(root, 'README.md'), '# Empty discovery test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize'], root);
+
+  const execution = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2'
+  ], root, {
+    ...process.env, SFLOW_MOCK_SKIP_ALL_PACKETS: '1', SFLOW_PARALLEL_TEST_LOG: activityLog
+  });
+  assert.notEqual(execution.status, 0);
+  assert.match(execution.stderr, /discovery produced no usable packets; final synthesis was not started/);
+  const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(events.filter((event) => event.event === 'start').length, 2);
+  assert.equal(events.filter((event) => event.event === 'synthesis').length, 0);
+  const audits = (await readdir(path.join(root, '.git/singularity-flow/model-invocations')))
+    .filter((name) => name.endsWith('.json'));
+  assert.equal(audits.length, 2);
+  for (const name of audits) {
+    const audit = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/model-invocations', name), 'utf8'));
+    assert.deepEqual(audit.toolPolicy, {
+      mode: 'allowlist', names: ['read_file', 'search', 'create_file']
+    });
+  }
+});
+
+test('wm build fails fast when the builder omits manifest.json', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-synthesis-retry-'));
   const marker = path.join(os.tmpdir(), `sflow-worldmodel-synthesis-retry-${process.pid}-${Date.now()}.txt`);
   run('git', ['init', '-b', 'main'], root);
@@ -1188,9 +1227,16 @@ test('wm build retries final synthesis once when the builder omits manifest.json
   const execution = result(process.execPath, [
     bin, 'wm', 'build', '--phase', 'intake', '--no-parallel'
   ], root, { ...process.env, SFLOW_MOCK_MANIFEST_RETRY_MARKER: marker });
-  assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
-  assert.match(execution.stderr, /did not create manifest\.json; retrying final synthesis once/);
-  assert.ok(JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8')));
+  assert.notEqual(execution.status, 0);
+  assert.match(execution.stderr, /completed without manifest\.json; recovery was not repeated/);
+  const audits = (await readdir(path.join(root, '.git/singularity-flow/model-invocations')))
+    .filter((name) => name.endsWith('.json'));
+  assert.equal(audits.length, 1, 'a no-output synthesis must not spend a second model call');
+  const audit = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/model-invocations', audits[0]), 'utf8'));
+  assert.deepEqual(audit.toolPolicy, {
+    mode: 'allowlist', names: ['read_file', 'search', 'edit_file', 'create_file']
+  });
+  await assert.rejects(() => readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'), /ENOENT/);
 });
 
 test('wm build retries final synthesis when a declared view is a directory', async () => {

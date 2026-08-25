@@ -56,6 +56,17 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
   const record = await recordPromptAudit(root, {
     agent: 'developer', phase: 'implementation', workId: 'STORY-TOOLS', workType: 'feature',
     generation: 3, task: 'code', prompt, source: 'model-invocation',
+    composition: {
+      policy: { mode: 'enforce', profile: 'standard', maximumInputTokens: 18000 },
+      originalBytes: 96, finalBytes: Buffer.byteLength(prompt), omitted: [{ id: 'optional-ast-context' }],
+      inputLinearization: { managedBytesExcluded: 2048 },
+      structuralContext: { status: 'complete', factsReturned: 12, structuralFactsReturned: 12 },
+      deduplicatedReferences: [{ path: 'artifacts/intake.md', previewBytes: 1024 }],
+      sections: [{
+        id: 'phase-contract', included: true, bytes: 48, estimatedTokens: 12,
+        mandatory: true
+      }]
+    },
     supportingEvidence: [{ kind: 'model-invocation-audit', id: 'invocation-1' }]
   });
   const invocationDirectory = path.join(root, '.git/singularity-flow/model-invocations');
@@ -99,13 +110,20 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
   const rendered = renderPromptAudit(viewed.record);
   for (const heading of [
     '## Context', '## Model and execution', '## Tools', '## Tokens and cost',
-    '## Request and output', '## Grounding and references', '## Prompt'
+    '## Request and output', '## Grounding and references', '## Prompt composition',
+    '## Context efficiency', '## Prompt'
   ]) assert.match(rendered, new RegExp(heading.replaceAll('#', '\\#')));
   assert.match(rendered, /Allowed tools: `read_file`, `edit_file`/);
   assert.match(rendered, /Observed tool calls: unavailable/);
   assert.match(rendered, /Total provider tokens: 150/);
   assert.match(rendered, /Provider cost: \$0\.001000/);
   assert.match(rendered, /Prompt-only estimate: .*sflow-estimated/);
+  assert.match(rendered, /Policy: enforce\/standard/);
+  assert.match(rendered, /Optional sections omitted: 1/);
+  assert.match(rendered, /duplicates removed: 1/);
+  assert.match(rendered, /Recursive managed-input bytes excluded: 2,048/);
+  assert.match(rendered, /Duplicate approved-reference preview bytes excluded: 1,024/);
+  assert.match(rendered, /AST structural facts selected: 12/);
   assert.match(rendered, /Sent prompt bytes: 48/);
   assert.match(rendered, /Prompt transport: attachment/);
   assert.match(rendered, /--- BEGIN CAPTURED GOVERNED PROMPT ---/);

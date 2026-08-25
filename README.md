@@ -1614,6 +1614,10 @@ fails stale if policy, revision, scope, or relevant bytes change. Required symbo
 syntax assurance from a real parser; text previews remain advisory. Receipts bind broker and extractor
 versions as well as outcomes. See
 [AST Intelligence](docs/AST-INTELLIGENCE.md) for policy, cache, preference, and adapter details.
+AST prompt context is always optional: disabled, unavailable, or file-inventory-only results inject
+zero AST bytes and ordinary repository file access continues. When structural facts are injected,
+the prompt audit records their count and exact payload bytes so AST/no-AST studies can compare
+context cost and provider usage without treating a file listing as structural value.
 In VS Code, use **Singularity Flow → Configuration → AST intelligence**, the Configuration Center,
 or **Singularity Flow: AST Intelligence Settings** from the Command Palette. The panel exposes
 repository and machine policy, lifecycle-gate receipts, bounded previews, adapter availability,
@@ -1751,6 +1755,12 @@ singularity-flow wm cleanup --force
 
 `wm light` deterministically reads Git paths plus bounded package-manifest metadata and never launches Copilot. `wm build` with `quick`, `standard`, or `deep` runs the semantic model generator in a detached analysis worktree, rejects writes outside its isolated output, validates every manifest entry, records a repository source-tree hash, commits the model, and follows the configured Git publication policy. When a semantic phase requests multiple views, view-scoped read-only discovery workers run concurrently (four by default), write private bounded packets, and feed one final synthesizer. Each completed packet is checkpointed immediately under `singularity/world-model/.checkpoints/`. If the command fails or is stopped, rerun the same command (or add the explicit `--resume` flag): exact source/prompt/options matches are reused and only pending or invalid views run again. `--no-resume` discards the matching checkpoint and rebuilds every view. A successful validated installation removes the checkpoint automatically. Packet ordering, validation, installation, commit, and push remain single-owner operations. Use `--workers N`, `--no-parallel`, or the `worldModel.generation` YAML policy to tune semantic generation. Work-item lifecycle commits, checkpoints, and the model commit itself do not make the model stale; repository source/configuration changes do.
 
+Discovery and synthesis receive explicit read/search/write allowlists rather than unrestricted
+provider tools. A successful discovery call that writes no packet is not repeated; if every view
+does that, synthesis never starts. A synthesis call that writes no manifest also fails after one
+call, while an invalid partial model receives one bounded repair attempt. These failures still use
+the configured deterministic-light fallback at the `wm ensure` boundary so Story work can continue.
+
 To remove the separate `wm light` step from a Story, configure the lifecycle in
 `singularity/workflow.yml`:
 
@@ -1790,7 +1800,17 @@ For an opt-in, workspace-local history of the governed prompts actually composed
 `/sf-prompt-log on` (or `singularity-flow prompt-log on`). Review records in VS Code under
 **Configuration → Prompt audit**, or run `singularity-flow prompt-log list` and
 `singularity-flow prompt-log view latest`. Capture is off by default and never includes Copilot's
-hidden system prompt or chat history.
+hidden system prompt or chat history. The structured view separates prompt sections, authorized
+tools, provider usage, and context-efficiency measurements. It reports managed upstream bytes and
+duplicate approved-reference previews removed before transport, AST structural facts/payload bytes,
+and optional sections omitted by the approved token budget.
+
+`wm compose` compiles named prompt sections under the Story's pinned `tokenEconomy` profile. `off`
+and `observe` preserve compatibility (`observe` reports an overflow); `assist` removes lowest-priority
+optional sections and records their hashes; `enforce` does the same but refuses with
+`TKN_MANDATORY_CONTEXT_OVERFLOW` when non-evictable governance alone cannot fit. Approved upstream
+artifacts contribute only their producer-authored bytes—their managed input blocks are never nested
+again—and an exact path/hash match is never injected a second time as a governed reference preview.
 
 Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. With `worldModel.grounding: enforce` (the starter setting), generation cannot publish until the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot verify. The selected mode is pinned when the work item starts. Use `warn` for an adoption period or `off` to disable the grounding gate. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
 

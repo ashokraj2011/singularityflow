@@ -8,7 +8,7 @@ import { BUILD_INFO } from './build-info.mjs';
 import {
   configurationAssetPaths, CONFIGURATION_BRANCH, ensureConfigurationBranch, isConfigurationAsset
 } from './configuration-branch.mjs';
-import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { identity } from './git.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -404,6 +404,29 @@ export async function refreshPackagedConfiguration(root, {
       const lockTarget = await assertSafeTarget(root, PACKAGE_BASELINE_PATH);
       await mkdir(path.dirname(lockTarget), { recursive: true });
       await writeAtomic(lockTarget, lockText);
+    }
+  }
+
+  if (!dryRun) {
+    try {
+      // Workflow fields, agents, templates and prompts are one executable contract. Validating only
+      // the merged workflow allowed a preserved, older agent to omit a newly introduced phase and
+      // still be pushed to sflow/config; every later Story then failed while loading configuration.
+      await loadDefinition(root);
+    } catch (error) {
+      const preserved = conflicts.filter((entry) => entry.resolution === 'preserved-local'
+        || entry.resolution === 'preserved-local-deletion').map((entry) => entry.path);
+      const guidance = preserved.length
+        ? ` Resolve the relevant preserved conflict with --resolve PATH=bundled and preview again. Preserved: ${preserved.join(', ')}.`
+        : '';
+      const cause = String(error.message).replace(/[.\s]+$/, '');
+      throw new SingularityFlowError(
+        `The refreshed configuration is not operational: ${cause}.${guidance}`,
+        {
+          code: 'CONFIGURATION_REFRESH_INVALID',
+          details: { conflicts, cause: error.message }
+        }
+      );
     }
   }
 

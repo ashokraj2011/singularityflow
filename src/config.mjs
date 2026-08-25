@@ -14,6 +14,7 @@ import {
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   discoverAgents,
@@ -747,13 +748,14 @@ export async function loadDefinition(root) {
 }
 
 async function loadDefinitionUncached(root) {
+  const definitionRoot = configurationReadRoot(root);
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, {
     label: 'Workflow configuration',
     type: 'file'
   });
   if (workflow.exists) {
     const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
-    const agents = await discoverAgents(root);
+    const agents = await discoverAgents(definitionRoot);
     definition.agents = Object.fromEntries(agents.map((agent) => [agent.id, agent]));
     definition.agentCatalog = agents;
     definition.agentPromptsRoot = '.github/agents';

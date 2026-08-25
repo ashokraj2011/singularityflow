@@ -6,6 +6,7 @@ import path from 'node:path';
 import { BlockList, isIP } from 'node:net';
 import YAML from 'yaml';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -248,8 +249,9 @@ async function agentFiles(directory) {
 }
 
 export async function discoverAgents(root) {
+  const repositoryRoot = configurationReadRoot(root);
   const locations = [
-    ['repository', path.join(root, '.github/agents')],
+    ['repository', path.join(repositoryRoot, '.github/agents')],
     ['plugin', path.join(PACKAGE_ROOT, 'plugin/agents')],
     ['bundled', path.join(PACKAGE_ROOT, 'templates/agents')]
   ];
@@ -257,7 +259,7 @@ export async function discoverAgents(root) {
   for (const [scope, directory] of locations) {
     for (const file of await agentFiles(directory)) {
       const text = await readFile(file, 'utf8');
-      const parsed = parseAgentDependencies(text, { source: posix(path.relative(root, file)) });
+      const parsed = parseAgentDependencies(text, { source: posix(path.relative(repositoryRoot, file)) });
       if (!agents.has(parsed.id)) agents.set(parsed.id, { ...parsed, scope, file, text, sha256: hash(text) });
     }
   }

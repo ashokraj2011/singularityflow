@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import YAML from 'yaml';
@@ -174,6 +175,48 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.deepEqual(envelope.included, ['repository']);
   assert.equal(envelope.repository.branch, 'main');
   assert.equal(Object.hasOwn(envelope, 'configuration'), false);
+});
+
+test('read-only snapshots load approved configuration without copying it onto the application branch', async () => {
+  const root = await repository();
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);
+  run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], root);
+  run('git', ['rm', '-r', 'singularity', '.github/agents'], root);
+  run('git', ['commit', '-m', 'Keep application main free of governed configuration'], root);
+
+  const before = {
+    head: run('git', ['rev-parse', 'HEAD'], root).stdout.trim(),
+    status: run('git', ['status', '--porcelain=v1'], root).stdout,
+    objects: run('git', ['count-objects', '-v'], root).stdout
+  };
+  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false);
+
+  const snapshot = await repositorySnapshot(root, null, null, {
+    included: ['repository', 'lifecycle', 'configuration', 'capabilities']
+  });
+  assert.equal(snapshot.repository.branch, 'main');
+  assert.equal(snapshot.lifecycle.selectedWorkId, null);
+  assert.equal(snapshot.configuration.configurationValid, true);
+  assert.equal(snapshot.configuration.definition.version, 2);
+  assert.match(snapshot.configuration.definitionText, /^version: 2/m);
+  assert.equal(snapshot.capabilities.path, 'singularity/capabilities.yml');
+  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false,
+    'the approved configuration is a disposable read view, never a checkout mutation');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before.head);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, before.status);
+  assert.equal(run('git', ['count-objects', '-v'], root).stdout, before.objects,
+    'a snapshot does not fetch or write Git objects');
+
+  const compatibility = await repositorySnapshot(root);
+  assert.equal(compatibility.repository.branch, 'main');
+  assert.equal(compatibility.definition.version, 2);
+  assert.match(compatibility.definitionText, /^version: 2/m);
+
+  const cli = run(process.execPath, [bin, 'snapshot', '--include', 'repository', '--include', 'lifecycle',
+    '--include', 'capabilities', '--json'], root);
+  const envelope = JSON.parse(cli.stdout);
+  assert.equal(envelope.repository.branch, 'main');
+  assert.deepEqual(envelope.included, ['repository', 'lifecycle', 'capabilities']);
 });
 
 test('lifecycle snapshots keep generated phase artifacts regardless of lifecycle status', async () => {

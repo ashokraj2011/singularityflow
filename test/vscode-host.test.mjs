@@ -608,6 +608,34 @@ test('a folder that is not a Singularity Flow repository still gets a provider t
   assert.ok(registered.commands.has('singularityFlow.init'), 'the command it offers exists');
 });
 
+test('an application branch loads through its fetched approved sflow configuration', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  run('git', ['push', 'origin', 'INIT-CHECKOUT:refs/heads/sflow/config'], { cwd: root });
+  run('git', ['fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config'], { cwd: root });
+  run('git', ['switch', 'main'], { cwd: root });
+  run('git', ['rm', '-r', 'singularity', '.github/agents'], { cwd: root });
+  run('git', ['commit', '-m', 'Application main has no configuration checkout'], { cwd: root });
+  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false);
+
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const lifecycle = section(registered, 'lifecycle');
+  assert.ok(lifecycle, 'the repository is accepted through origin/sflow/config');
+  await until(() => lifecycle.getChildren().every((node) => node.contextValue !== 'sflow.loading') ? true : null);
+  assert.ok(lifecycle.getChildren().every((node) => node.contextValue !== 'sflow.uninitialized'),
+    'the application checkout is not mislabeled as uninitialized');
+  assert.deepEqual(registered.errors, []);
+  assert.equal(existsSync(path.join(root, 'singularity/workflow.yml')), false,
+    'extension activation does not copy approved configuration onto main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, '');
+});
+
 test('a window with nothing open and no active workspace says which of the two to fix', async (t) => {
   if (!requireBundle(t)) return;
   // "Open the repository that contains singularity/workflow.yml" was a demand, and the wrong one:

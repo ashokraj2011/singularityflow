@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 
 export class SingularityFlowError extends Error {
@@ -594,7 +595,7 @@ export async function secureRepositoryPath(root, candidate, {
   type = null
 } = {}) {
   const relative = repoRelative(root, candidate);
-  const canonicalRoot = await realpath(path.resolve(root));
+  const canonicalRoot = await realpath(configurationReadRootForPath(root, relative));
   const absolute = path.resolve(canonicalRoot, relative);
   const entry = await lstatOrNull(absolute);
   if (entry?.isSymbolicLink()) throw new SingularityFlowError(`${label} cannot be a symbolic link: ${relative}`);

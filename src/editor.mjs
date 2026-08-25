@@ -88,6 +88,7 @@ import { IMPACT_CONFIG_PATH, loadImpactDefinition, normalizeImpactDefinition } f
 import { modelFreedomSnapshot } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
@@ -484,6 +485,9 @@ async function initiativeEditorSnapshot(root, portfolio, initiativeId) {
 async function fullRepositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null) {
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
+  const workflowFile = await secureRepositoryPath(root, WORKFLOW_PATH, {
+    label: 'Workflow configuration', type: 'file', mustExist: true
+  });
   const items = await workItems(root, definition);
   const initiatives = portfolio ? await listInitiatives(root, portfolio) : [];
   const currentBranch = branch(root);
@@ -575,7 +579,10 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
-  const portfolioText = portfolio ? await readFile(path.join(root, PORTFOLIO_PATH), 'utf8') : null;
+  const portfolioFile = portfolio ? await secureRepositoryPath(root, PORTFOLIO_PATH, {
+    label: 'Portfolio configuration', type: 'file', mustExist: true
+  }) : null;
+  const portfolioText = portfolioFile ? await readFile(portfolioFile.absolute, 'utf8') : null;
   return {
     schemaVersion: 1,
     // HEAD is carried so a surface can tell that a planning context was built against a different
@@ -607,7 +614,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     }),
     definition,
     definitionPath: WORKFLOW_PATH,
-    definitionText: await readFile(path.join(root, WORKFLOW_PATH), 'utf8'),
+    definitionText: await readFile(workflowFile.absolute, 'utf8'),
     // Also in `configurationSlice`, and it has to be in both. The extension now loads that slice on
     // demand, while compatibility consumers may still request the full projection here.
     modelRouting: await modelRoutingProjection(root, definition),
@@ -1103,7 +1110,9 @@ async function integrationSlice(root) {
  * the surface the latency budget is actually about.
  */
 export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, { included = null } = {}) {
-  return withDefinitionCache(() => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included }));
+  return withApprovedConfigurationRead(root, () => withDefinitionCache(
+    () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included })
+  ));
 }
 
 async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included }) {

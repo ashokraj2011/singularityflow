@@ -174,20 +174,50 @@ test('repository refresh restores additive policy and missing assets without ove
   const missing = path.join(root, 'singularity/templates/feature/implementation-spec.md');
   await rm(missing);
   const customAgent = path.join(root, '.github/agents/developer.agent.md');
-  await writeFile(customAgent, '# Repository developer\n');
+  const customizedAgent = `${await readFile(path.join(ROOT, 'templates/agents/developer.agent.md'), 'utf8')}\n<!-- repository customization -->\n`;
+  await writeFile(customAgent, customizedAgent);
 
   const result = await refreshPackagedConfiguration(root);
   const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(refreshed.phases.implementation.generation.task, 'code');
   assert.equal(refreshed.defaultBaseBranch, 'release');
   assert.match(await readFile(missing, 'utf8'), /implementation/i);
-  assert.equal(await readFile(customAgent, 'utf8'), '# Repository developer\n');
+  assert.equal(await readFile(customAgent, 'utf8'), customizedAgent);
   assert.ok(result.conflicts.some((entry) => entry.path === '.github/agents/developer.agent.md'));
   assert.equal(YAML.parse(await readFile(path.join(root, PACKAGE_BASELINE_PATH), 'utf8')).format,
     'singularity-flow-configuration-baseline/v1');
   const repeated = await refreshPackagedConfiguration(root);
   assert.equal(repeated.changed, false);
   assert.deepEqual(repeated.files, []);
+});
+
+test('configuration refresh refuses a cross-file-invalid preserved agent and accepts an explicit repair', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-contract-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const qaFile = path.join(root, '.github/agents/qa.agent.md');
+  const currentQa = await readFile(qaFile, 'utf8');
+  const olderQa = currentQa.replaceAll(
+    'reproduction,verify,verification,testing,visual-verification,conformance,release',
+    'reproduction,verify,verification,visual-verification,conformance,release'
+  );
+  assert.notEqual(olderQa, currentQa, 'the fixture removes the default for the testing phase');
+  await writeFile(qaFile, olderQa);
+
+  await assert.rejects(() => refreshPackagedConfiguration(root), (error) => {
+    assert.equal(error.code, 'CONFIGURATION_REFRESH_INVALID');
+    assert.match(error.message, /testing.*default governed agent/i);
+    assert.match(error.message, /--resolve PATH=bundled/);
+    assert.ok(error.details.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'));
+    return true;
+  });
+
+  const repaired = await refreshPackagedConfiguration(root, {
+    resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+  });
+  assert.ok(repaired.conflicts.some((entry) => entry.path === '.github/agents/qa.agent.md'
+    && entry.resolution === 'accepted-bundled'));
+  assert.equal(await readFile(qaFile, 'utf8'), currentQa);
 });
 
 test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {

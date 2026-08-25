@@ -116,6 +116,16 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
       }
       if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(canonical, legacyRoot);
     }
+    const approvedRefs = spawnSync('git', [
+      'for-each-ref', '--format=%(refname)',
+      'refs/remotes/*/sflow/config', 'refs/heads/sflow/config'
+    ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
+    const approvedWorkflow = approvedRefs.status === 0 && approvedRefs.stdout.split(/\r?\n/)
+      .map((entry) => entry.trim()).filter(Boolean).some((ref) => spawnSync(
+        'git', ['cat-file', '-e', `${ref}:singularity/workflow.yml`],
+        { cwd: canonical, encoding: 'utf8', windowsHide: true }
+      ).status === 0);
+    if (approvedWorkflow) return canonical;
     throw new UninitializedRepositoryError(canonical);
   }
   return canonical;

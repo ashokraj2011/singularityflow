@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
-import { exists, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
+import { exists, secureRepositoryPath, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 
 export const CAPABILITIES_PATH = 'singularity/capabilities.yml';
@@ -266,12 +266,14 @@ export function validateCapabilities(definition, portfolio = null) {
 }
 
 export async function loadCapabilities(root, { required = false } = {}) {
-  const file = path.join(root, CAPABILITIES_PATH);
-  if (!(await exists(file))) {
+  const located = await secureRepositoryPath(root, CAPABILITIES_PATH, {
+    label: 'Capability map', type: 'file'
+  });
+  if (!located.exists) {
     if (required) throw new SingularityFlowError(`Missing ${CAPABILITIES_PATH}.`);
     return null;
   }
-  return validateCapabilities(YAML.parse(await readFile(file, 'utf8')));
+  return validateCapabilities(YAML.parse(await readFile(located.absolute, 'utf8')));
 }
 
 /**

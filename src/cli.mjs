@@ -133,7 +133,7 @@ import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-ide
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, materializeConfigurationSnapshot,
-  resolveConfigurationRemote
+  resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
@@ -824,16 +824,17 @@ export async function startCommand(positionals, options) {
       })
     : null;
   const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
-  const configurationRemote = await resolveConfigurationRemote(root, remote);
-  if (!config && !configurationRemote) {
+  const configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
+  if (!config && !configurationAuthority) {
     throw new SingularityFlowError(
-      `Missing ${WORKFLOW_PATH}. This repository is not inside an active workspace whose lead `
-      + `repository has the approved sflow/config branch. Map and approve the workspace capability first.`);
+      `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
+      + `state configuration mirror is available for this repository or its active workspace lead. `
+      + 'Refresh the workspace configuration authority first.');
   }
   // Enrollment is completed before the Story branch and its immutable configuration snapshot are
   // created. A failed configuration push stops here, so the Story can never pin the older authority
   // and then discover at approval time that the person who started it was omitted.
-  if (!materializedSeed && configurationRemote) {
+  if (!materializedSeed && configurationAuthority?.branch === CONFIGURATION_BRANCH) {
     const enrollment = await publishCurrentIdentityToConfiguration(root, {
       target: '*', automatic: true
     });
@@ -879,7 +880,7 @@ export async function startCommand(positionals, options) {
   }
   assertBaseCarriesGovernance(root, {
     config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
-    configurationRemote
+    configurationRemote: configurationAuthority?.remote ?? null
   });
   const originalSession = await loadSession(root, { required: false });
   const originalCopilotSession = await loadCopilotSession(root);
@@ -943,14 +944,14 @@ export async function startCommand(positionals, options) {
   // Application branches do not own shared configuration. A new Story receives the exact approved
   // configuration revision here, before any selection or generation happens, and the initial Story
   // commit publishes the copied files together with their provenance record.
-  if (createdBranch && configurationRemote) {
+  if (createdBranch && configurationAuthority) {
     configurationRestorePoint = await captureConfigurationState(root);
     await updateStoryStartJournal(root, id, startJournal.transactionId, {
       stage: 'configuration-captured',
       configurationRestorePoint: serializeConfigurationRestorePoint(configurationRestorePoint)
     });
     configurationSnapshot = await materializeConfigurationSnapshot(root, {
-      remote: configurationRemote,
+      authority: configurationAuthority,
       remoteName: remote
     });
   }

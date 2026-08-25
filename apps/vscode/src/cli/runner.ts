@@ -11,6 +11,7 @@
  * plain Node process against a fake spawn.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -126,6 +127,29 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
         { cwd: canonical, encoding: 'utf8', windowsHide: true }
       ).status === 0);
     if (approvedWorkflow) return canonical;
+    const stateRefs = spawnSync('git', [
+      'for-each-ref', '--format=%(refname)', 'refs/remotes/*/state', 'refs/heads/state'
+    ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
+    const verifiedStateWorkflow = stateRefs.status === 0 && stateRefs.stdout.split(/\r?\n/)
+      .map((entry) => entry.trim()).filter(Boolean).some((ref) => {
+        const manifestResult = spawnSync('git', ['show', `${ref}:configuration/manifest.json`], {
+          cwd: canonical, encoding: 'utf8', windowsHide: true
+        });
+        const workflowResult = spawnSync('git', ['show', `${ref}:singularity/workflow.yml`], {
+          cwd: canonical, encoding: 'buffer', windowsHide: true
+        });
+        if (manifestResult.status !== 0 || workflowResult.status !== 0) return false;
+        try {
+          const manifest = JSON.parse(manifestResult.stdout);
+          return manifest?.format === 'singularity-flow-configuration-mirror/v2'
+            && manifest?.layout === 'canonical-paths'
+            && manifest?.source?.branch === 'sflow/config'
+            && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+            && manifest?.files?.['singularity/workflow.yml']
+              === createHash('sha256').update(workflowResult.stdout).digest('hex');
+        } catch { return false; }
+      });
+    if (verifiedStateWorkflow) return canonical;
     throw new UninitializedRepositoryError(canonical);
   }
   return canonical;

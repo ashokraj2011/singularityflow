@@ -29,7 +29,7 @@ import { readWorkspace } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import {
-  resolveApprovedConfigurationCapability, resolveConfigurationRemote
+  resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 
@@ -280,9 +280,9 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // a stale machine-local workspace from passing UI preflight and failing only after configuration
   // has been materialized onto a new Story branch.
   if (lifecycleRoot && capabilityId) {
-    const configurationRemote = await resolveConfigurationRemote(lifecycleRoot, remote);
-    if (configurationRemote) {
-      await resolveApprovedConfigurationCapability(configurationRemote, capabilityId);
+    const configurationAuthority = await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
+    if (configurationAuthority) {
+      await resolveApprovedConfigurationCapability(configurationAuthority, capabilityId);
     } else {
       await resolveLifecycleCapability(lifecycleRoot, {
         capabilityId,

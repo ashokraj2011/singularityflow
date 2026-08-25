@@ -1,7 +1,8 @@
 /** Read the locally fetched, approved `sflow/config` commit without changing the checkout. */
 import os from 'node:os';
 import path from 'node:path';
-import { chmod, lstat, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import {
   isConfigurationReadPath, withConfigurationReadRoot
 } from './configuration-read-scope.mjs';
@@ -9,6 +10,9 @@ import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
+const STATE_BRANCH = 'state';
+const STATE_MANIFEST = 'configuration/manifest.json';
+const STATE_FORMAT = 'singularity-flow-configuration-mirror/v2';
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
 
@@ -33,6 +37,32 @@ function approvedConfigurationAuthority(root) {
       cwd: root, allowFailure: true
     });
     if (workflow.status === 0) return { kind: 'approved-configuration-ref', ref, commit };
+  }
+  const stateRefs = run('git', [
+    'for-each-ref', '--format=%(refname)',
+    `refs/remotes/*/${STATE_BRANCH}`, `refs/heads/${STATE_BRANCH}`
+  ], { cwd: root, allowFailure: true }).stdout.trim().split('\n')
+    .map((entry) => entry.trim()).filter(Boolean)
+    .sort((left, right) => (left === `refs/remotes/origin/${STATE_BRANCH}` ? -1 : 0)
+      - (right === `refs/remotes/origin/${STATE_BRANCH}` ? -1 : 0) || left.localeCompare(right));
+  for (const ref of stateRefs) {
+    const commit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
+      cwd: root, allowFailure: true
+    }).stdout.trim();
+    if (!/^[0-9a-f]{40,64}$/.test(commit)) continue;
+    const shown = run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
+    if (shown.status !== 0) continue;
+    let manifest;
+    try { manifest = JSON.parse(shown.stdout); } catch { continue; }
+    const files = manifest?.files;
+    if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
+      || manifest?.source?.branch !== CONFIGURATION_BRANCH
+      || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+      || !files || typeof files !== 'object' || Array.isArray(files)
+      || !Object.hasOwn(files, WORKFLOW_PATH)
+      || Object.entries(files).some(([relative, sha]) =>
+        !isConfigurationReadPath(relative) || !/^[0-9a-f]{64}$/.test(sha))) continue;
+    return { kind: 'verified-state-mirror', ref, commit, manifest };
   }
   return null;
 }
@@ -87,6 +117,23 @@ async function extractConfiguration(root, authority, destination) {
     await writeFile(target, batch.stdout.subarray(start, end));
     await chmod(target, entry.mode === '100755' ? 0o755 : 0o644);
     cursor = end + 1;
+  }
+  if (authority.kind === 'verified-state-mirror') {
+    const declared = Object.keys(authority.manifest.files).sort();
+    const copied = entries.map((entry) => entry.file).sort();
+    if (JSON.stringify(declared) !== JSON.stringify(copied)) {
+      throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    for (const relative of copied) {
+      const actual = createHash('sha256').update(await readFile(path.join(destination, relative))).digest('hex');
+      if (actual !== authority.manifest.files[relative]) {
+        throw new SingularityFlowError(`State configuration mirror hash does not match for '${relative}'.`, {
+          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+        });
+      }
+    }
   }
 }
 

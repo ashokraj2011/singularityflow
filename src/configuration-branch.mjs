@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
 } from 'node:fs/promises';
-import { initializeDefinition } from './config.mjs';
+import { initializeDefinition, loadDefinition } from './config.mjs';
 import {
   describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
   setDefaultBaseBranch, setGroundingMode
@@ -30,6 +30,9 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
+export const STATE_CONFIGURATION_BRANCH = 'state';
+export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
+const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';
 
 // These directories are lifecycle state or generated evidence, never shared configuration.
 const RUNTIME_ROOTS = new Set([
@@ -440,6 +443,131 @@ async function cloneConfiguration(remote, target) {
   return run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim();
 }
 
+function remoteBranchHead(remote, branch) {
+  const result = run('git', ['ls-remote', '--heads', remote, `refs/heads/${branch}`], {
+    allowFailure: true
+  });
+  if (result.status !== 0) return null;
+  const sha = result.stdout.trim().split(/\s+/)[0] ?? '';
+  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
+}
+
+async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH) {
+  const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-read-'));
+  try {
+    const clone = run('git', [
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+      '--filter=blob:none', '--no-checkout', '--branch', branch, remote, source
+    ], { allowFailure: true });
+    if (clone.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read configuration recovery mirror from '${remote}' branch '${branch}': `
+        + `${(clone.stderr || clone.stdout).trim().split('\n')[0]}`
+      );
+    }
+    const mirrorCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+    const manifestResult = run('git', ['show', `HEAD:${STATE_CONFIGURATION_MANIFEST}`], {
+      cwd: source, allowFailure: true
+    });
+    if (manifestResult.status !== 0) {
+      throw new SingularityFlowError(
+        `State branch '${branch}' does not contain ${STATE_CONFIGURATION_MANIFEST}.`,
+        { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
+      );
+    }
+    let manifest;
+    try { manifest = JSON.parse(manifestResult.stdout); }
+    catch (error) {
+      throw new SingularityFlowError(`State configuration manifest is invalid JSON: ${error.message}`, {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    if (manifest?.format !== STATE_CONFIGURATION_FORMAT || manifest?.layout !== 'canonical-paths'
+      || manifest?.source?.branch !== CONFIGURATION_BRANCH
+      || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+      || !manifest?.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)) {
+      throw new SingularityFlowError(
+        `State configuration manifest must be ${STATE_CONFIGURATION_FORMAT} with canonical paths and an exact ${CONFIGURATION_BRANCH} source.`,
+        { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
+      );
+    }
+    const declared = Object.keys(manifest.files).sort();
+    if (!declared.includes('singularity/workflow.yml') || declared.some((relative) =>
+      !isConfigurationAsset(relative) || !/^[0-9a-f]{64}$/.test(manifest.files[relative] ?? ''))) {
+      throw new SingularityFlowError('State configuration manifest contains an invalid or incomplete file set.', {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination);
+    if (JSON.stringify(copied) !== JSON.stringify(declared)) {
+      throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    for (const relative of copied) {
+      const actual = createHash('sha256').update(await readFile(path.join(destination, relative))).digest('hex');
+      if (actual !== manifest.files[relative]) {
+        throw new SingularityFlowError(`State configuration mirror hash does not match for '${relative}'.`, {
+          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+        });
+      }
+    }
+    // Hash integrity is necessary but not sufficient. A mirror is usable only when its complete
+    // workflow, agent, prompt and template contract is operational under this engine build.
+    await loadDefinition(destination);
+    return {
+      remote, branch, mirrorCommit,
+      sourceBranch: CONFIGURATION_BRANCH,
+      sourceCommit: manifest.source.commit,
+      files: manifest.files
+    };
+  } finally {
+    await removeTemporaryTree(source);
+  }
+}
+
+export async function resolveRemoteStoryConfigurationAuthority(remote) {
+  const url = String(remote ?? '').trim();
+  if (!url) return null;
+  const configurationCommit = remoteBranchHead(url, CONFIGURATION_BRANCH);
+  if (configurationCommit) {
+    return { remote: url, branch: CONFIGURATION_BRANCH, commit: configurationCommit, source: 'configuration' };
+  }
+  if (!remoteBranchHead(url, STATE_CONFIGURATION_BRANCH)) return null;
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-probe-'));
+  try {
+    const mirror = await copyVerifiedStateConfiguration(url, scratch);
+    return {
+      remote: url, branch: STATE_CONFIGURATION_BRANCH, commit: mirror.mirrorCommit,
+      sourceCommit: mirror.sourceCommit, source: 'verified-state-mirror'
+    };
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/** Find a Story-readable authority in this repository or its active workspace lead. */
+export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin') {
+  const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
+  const ownAuthority = own ? await resolveRemoteStoryConfigurationAuthority(own) : null;
+  if (ownAuthority) return ownAuthority;
+
+  const active = await readActiveWorkspaceContext(
+    activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
+  ).catch(() => null);
+  if (!active?.workspacePath) return null;
+  const workspace = await readWorkspace(active.workspacePath).catch(() => null);
+  const canonical = async (value) => realpath(value).catch(() => path.resolve(value));
+  const repositoryRoot = await canonical(root);
+  const memberRoots = workspace
+    ? await Promise.all(Object.values(workspace.repositories).map((repository) =>
+      canonical(workspaceRepositoryPath(workspace, repository))))
+    : [];
+  if (!memberRoots.includes(repositoryRoot)) return null;
+  const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
+  return lead ? resolveRemoteStoryConfigurationAuthority(lead) : null;
+}
+
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
 export async function resolveConfigurationRemote(root, remoteName = 'origin') {
   const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
@@ -472,13 +600,23 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin') {
  */
 export async function materializeConfigurationSnapshot(root, {
   remote = null,
-  remoteName = 'origin'
+  remoteName = 'origin',
+  authority = null
 } = {}) {
-  const sourceRemote = remote ?? await resolveConfigurationRemote(root, remoteName);
-  if (!sourceRemote) return null;
+  const resolvedAuthority = authority
+    ?? (remote ? await resolveRemoteStoryConfigurationAuthority(remote) : await resolveStoryConfigurationAuthority(root, remoteName));
+  if (!resolvedAuthority) return null;
+  const sourceRemote = resolvedAuthority.remote;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-materialize-'));
   try {
-    const commit = await cloneConfiguration(sourceRemote, scratch);
+    let commit;
+    let mirror = null;
+    if (resolvedAuthority.branch === STATE_CONFIGURATION_BRANCH) {
+      mirror = await copyVerifiedStateConfiguration(sourceRemote, scratch, resolvedAuthority.branch);
+      commit = mirror.sourceCommit;
+    } else {
+      commit = await cloneConfiguration(sourceRemote, scratch);
+    }
     const removed = await clearConfigurationAssets(root);
     const files = await copyAssets(scratch, root);
     if (!files.includes('singularity/workflow.yml')) {
@@ -494,6 +632,7 @@ export async function materializeConfigurationSnapshot(root, {
       repository: sourceRemote,
       branch: CONFIGURATION_BRANCH,
       commit,
+      ...(mirror ? { mirror: { branch: mirror.branch, commit: mirror.mirrorCommit } } : {}),
       materializedAt: new Date().toISOString(),
       files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b)))
     };
@@ -520,14 +659,25 @@ export async function materializeConfigurationSnapshot(root, {
 export async function resolveApprovedConfigurationCapability(remote, capabilityId) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-capability-'));
   try {
-    const commit = await cloneConfiguration(remote, scratch);
+    const authority = typeof remote === 'string'
+      ? await resolveRemoteStoryConfigurationAuthority(remote)
+      : remote;
+    if (!authority) throw new SingularityFlowError('No Story-readable configuration authority is available.');
+    const materialized = authority.branch === STATE_CONFIGURATION_BRANCH
+      ? await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch)
+      : { sourceCommit: await cloneConfiguration(authority.remote, scratch) };
     const { resolveLifecycleCapability } = await import('./capability-context.mjs');
     const capability = await resolveLifecycleCapability(scratch, {
       capabilityId,
       required: true,
       offline: true
     });
-    return { branch: CONFIGURATION_BRANCH, commit, capability };
+    return {
+      branch: authority.branch,
+      commit: materialized.sourceCommit,
+      mirrorCommit: materialized.mirrorCommit ?? null,
+      capability
+    };
   } finally {
     await removeTemporaryTree(scratch);
   }

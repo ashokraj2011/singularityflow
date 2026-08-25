@@ -13,6 +13,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -284,6 +285,37 @@ test('a Git repository without Singularity Flow is refused, naming the remedy', 
     assert.match(error.message, /singularity-flow init/);
     return true;
   });
+});
+
+test('a configuration-free application branch validates through a hash-bound state mirror', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-state-'));
+  const root = path.join(base, 'app');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'State Mirror Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'state@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'README.md'), '# Application\n');
+  run('git', ['add', 'README.md'], { cwd: root });
+  run('git', ['commit', '-qm', 'Application'], { cwd: root });
+  const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  run('git', ['switch', '-q', '--orphan', 'state'], { cwd: root });
+  const workflow = 'version: 2\n';
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await mkdir(path.join(root, 'configuration'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), workflow);
+  await writeFile(path.join(root, 'configuration/manifest.json'), `${JSON.stringify({
+    format: 'singularity-flow-configuration-mirror/v2',
+    layout: 'canonical-paths',
+    source: { branch: 'sflow/config', commit: sourceCommit },
+    files: {
+      'singularity/workflow.yml': createHash('sha256').update(workflow).digest('hex')
+    }
+  }, null, 2)}\n`);
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'Verified state configuration mirror'], { cwd: root });
+  run('git', ['switch', '-q', 'main'], { cwd: root });
+
+  assert.equal(await validateRepositoryDirectory(root), await realpath(root));
 });
 
 test('a nested directory is refused, and the message names the folder that was tried', async () => {

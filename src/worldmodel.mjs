@@ -14,6 +14,7 @@ import {
 import { invokeModel } from './model-runner.mjs';
 import { nullLogger, repositoryLogger } from './logging.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
@@ -331,7 +332,7 @@ function requireText(file) {
 }
 
 async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
-  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+  if (existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
     const configuredDefinition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
     const activeId = workId ?? run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
@@ -2195,7 +2196,7 @@ async function withTargetBranch(root, options, operation) {
   if (!branchName || branchName === branch(root)) return operation(root);
   validBranch(root, branchName);
   let remote = optionString(options, 'remote');
-  if (!remote && existsSync(path.join(root, WORKFLOW_PATH))) {
+  if (!remote && existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
     remote = (await loadDefinition(root)).git?.remote;
   }
   remote ??= 'origin';
@@ -2501,7 +2502,9 @@ async function ensure(root, config, options, requestedPhase = null) {
 async function factsCommand(root, options) {
   // A definition when there is one, so governance material is excluded from the file set; an
   // empty one otherwise, which only means nothing is filtered out.
-  const definition = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadDefinition(root).catch(() => ({})) : {};
+  const definition = existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))
+    ? await loadDefinition(root).catch(() => ({}))
+    : {};
   const sourceState = await worldModelSourceSnapshot(root, definition);
   const facts = await deriveRepositoryFacts(root, sourceState, { churn: optionBoolean(options, 'churn', true) });
   if (optionBoolean(options, 'json')) {

@@ -24,6 +24,7 @@ import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
 import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { applySelectionPriority, FACT_PRIORITIES } from './ast-fact-order.mjs';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
@@ -123,7 +124,7 @@ async function loadRuntime(root, requestedWorkBinding = null) {
   const expectedBinding = normalizeWorkBinding(requestedWorkBinding);
   let definition = {};
   let state = null;
-  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+  if (existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
     definition = await loadDefinition(root);
     const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
     const workId = expectedBinding?.workId ?? branch;

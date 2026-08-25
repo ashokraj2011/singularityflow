@@ -48,6 +48,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -59,7 +60,7 @@ async function router() {
 
 export async function storyInboxCommand(options) {
   const root = repoRoot();
-  const portfolio = await loadPortfolio(root);
+  const portfolio = await withApprovedConfigurationRead(root, () => loadPortfolio(root));
   if (!portfolio.jira?.enabled) {
     throw new SingularityFlowError('Story inbox requires the workspace Jira connection configured in singularity/portfolio.yml.');
   }
@@ -143,7 +144,10 @@ export async function storyFetchCommand(positionals, options) {
   const leadRoot = repoRoot();
   const storyKey = requirePositional(positionals, 2, 'Jira Story key').toUpperCase();
   if (!/^[A-Z][A-Z0-9_-]*-\d+$/.test(storyKey)) throw new SingularityFlowError('story fetch requires a Jira Story key such as MOB-123.');
-  const portfolio = await loadPortfolio(leadRoot);
+  // Fetch starts on an application branch, which deliberately may not carry shared configuration.
+  // Read and release the approved overlay before checkout so the fetched Story's pinned snapshot,
+  // not a temporary latest-policy overlay, owns every lifecycle operation after attachment.
+  const portfolio = await withApprovedConfigurationRead(leadRoot, () => loadPortfolio(leadRoot));
   const issue = await getIssue(storyKey);
   const storedProperty = await getIssueProperty(storyKey, STORY_LINEAGE_PROPERTY);
   if (!storedProperty) {

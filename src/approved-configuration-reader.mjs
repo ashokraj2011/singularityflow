@@ -67,6 +67,45 @@ function approvedConfigurationAuthority(root) {
   return null;
 }
 
+/**
+ * Repair a narrow/single-branch clone by fetching only a published configuration authority.
+ *
+ * The ref is written to the ordinary remote-tracking namespace, exactly as a full clone would have
+ * done. The selected branch, HEAD, index and application files are never changed. Prefer the
+ * reviewed configuration authority; `state` is recovery-only and is accepted later only after its
+ * complete manifest and every declared byte have been verified.
+ */
+function refreshApprovedConfigurationAuthority(root) {
+  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
+  if (listed.status !== 0) return null;
+  const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)
+    .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
+      || left.localeCompare(right));
+  for (const remote of remotes) {
+    const advertised = run('git', [
+      'ls-remote', '--heads', '--', remote,
+      `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
+    ], { cwd: root, allowFailure: true });
+    if (advertised.status !== 0) continue;
+    const branches = new Set(advertised.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[1])
+      .filter(Boolean));
+    for (const branch of [CONFIGURATION_BRANCH, STATE_BRANCH]) {
+      if (!branches.has(`refs/heads/${branch}`)) continue;
+      const destination = `refs/remotes/${remote}/${branch}`;
+      const validRef = run('git', ['check-ref-format', destination], { cwd: root, allowFailure: true });
+      if (validRef.status !== 0) continue;
+      const fetched = run('git', [
+        'fetch', '--quiet', '--no-tags', '--force', '--', remote,
+        `+refs/heads/${branch}:${destination}`
+      ], { cwd: root, allowFailure: true });
+      if (fetched.status !== 0) continue;
+      const authority = approvedConfigurationAuthority(root);
+      if (authority) return authority;
+    }
+  }
+  return null;
+}
+
 async function extractConfiguration(root, authority, destination) {
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', authority.commit, '--',
@@ -139,7 +178,8 @@ async function extractConfiguration(root, authority, destination) {
 
 /**
  * Use the working-tree configuration when present; otherwise mount the fetched approved commit in
- * a disposable directory. No ref, index, application file, or Git object is changed.
+ * a disposable directory. A narrow clone may refresh one ordinary remote-tracking authority ref;
+ * the selected ref, HEAD, index and application files are never changed.
  */
 export async function withApprovedConfigurationRead(root, fn) {
   const workflow = await lstat(path.join(root, WORKFLOW_PATH)).catch((error) => {
@@ -147,7 +187,7 @@ export async function withApprovedConfigurationRead(root, fn) {
     throw error;
   });
   if (workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
-  const authority = approvedConfigurationAuthority(root);
+  const authority = approvedConfigurationAuthority(root) ?? refreshApprovedConfigurationAuthority(root);
   if (!authority) return fn(null);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-read-'));
   try {

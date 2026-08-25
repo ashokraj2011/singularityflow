@@ -318,6 +318,55 @@ test('a configuration-free application branch validates through a hash-bound sta
   assert.equal(await validateRepositoryDirectory(root), await realpath(root));
 });
 
+test('repository validation refreshes a verified state authority for a narrow clone', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-narrow-state-'));
+  const source = path.join(base, 'source');
+  const remote = path.join(base, 'application.git');
+  const publisher = path.join(base, 'publisher');
+  const clone = path.join(base, 'clone');
+  await mkdir(source);
+  run('git', ['init', '-q', '-b', 'main'], { cwd: source });
+  run('git', ['config', 'user.name', 'Narrow Clone Tester'], { cwd: source });
+  run('git', ['config', 'user.email', 'narrow@example.test'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# Application\n');
+  run('git', ['add', 'README.md'], { cwd: source });
+  run('git', ['commit', '-qm', 'Application'], { cwd: source });
+  const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+  run('git', ['clone', '-q', '--bare', source, remote], { cwd: base });
+
+  await mkdir(publisher);
+  run('git', ['init', '-q', '-b', 'state'], { cwd: publisher });
+  run('git', ['config', 'user.name', 'State Publisher'], { cwd: publisher });
+  run('git', ['config', 'user.email', 'state@example.test'], { cwd: publisher });
+  const workflow = 'version: 2\n';
+  await mkdir(path.join(publisher, 'singularity'), { recursive: true });
+  await mkdir(path.join(publisher, 'configuration'), { recursive: true });
+  await writeFile(path.join(publisher, 'singularity/workflow.yml'), workflow);
+  await writeFile(path.join(publisher, 'configuration/manifest.json'), `${JSON.stringify({
+    format: 'singularity-flow-configuration-mirror/v2',
+    layout: 'canonical-paths',
+    source: { branch: 'sflow/config', commit: sourceCommit },
+    files: {
+      'singularity/workflow.yml': createHash('sha256').update(workflow).digest('hex')
+    }
+  }, null, 2)}\n`);
+  run('git', ['add', '-A'], { cwd: publisher });
+  run('git', ['commit', '-qm', 'Verified state configuration mirror'], { cwd: publisher });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: publisher });
+  run('git', ['push', '-q', 'origin', 'state'], { cwd: publisher });
+
+  run('git', ['clone', '-q', '--single-branch', '--branch', 'main', remote, clone], { cwd: base });
+  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+    cwd: clone, allowFailure: true
+  }).status, 0);
+  assert.equal(await validateRepositoryDirectory(clone), await realpath(clone));
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+    cwd: clone, allowFailure: true
+  }).status, 0, 'validation fetched only the governed recovery authority');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: clone }).stdout.trim(), 'main');
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: clone }).stdout, '');
+});
+
 test('a nested directory is refused, and the message names the folder that was tried', async () => {
   // Caught by the .git probe rather than the top-level comparison, since a nested directory has no
   // .git of its own. The top-level guard behind it is what catches a worktree or submodule, where

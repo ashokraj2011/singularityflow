@@ -6,6 +6,7 @@ import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { operationContext } from '../operation-context.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -111,13 +112,20 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
 }
 
 export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {
-  const initialized = existsSync(path.join(root, 'singularity/workflow.yml'));
+  return withApprovedConfigurationRead(root, (authority) => resolveSnapshotInScope(
+    root, positionals, Boolean(authority)
+  ));
+}
+
+async function resolveSnapshotInScope(root, positionals, approvedConfigurationAvailable) {
+  const initialized = approvedConfigurationAvailable
+    || existsSync(path.join(root, 'singularity/workflow.yml'));
   if (!initialized) return nextStepsSnapshot({ initialized: false, branch: branch(root) });
   const requestedWorkId = positionals[1] ?? null;
   const reference = requestedWorkId ?? branch(root);
   const selected = resolveContext(await buildRepositorySubjectIndex(root), { reference, required: false });
   if (selected?.kind === 'initiative') return initiativeSnapshot(root, selected);
-  if (selected?.kind !== 'story') return nextStepsSnapshot({ branch: branch(root), requestedWorkId });
+  if (selected?.kind !== 'story') return nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
   const workflow = selected.state;
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);

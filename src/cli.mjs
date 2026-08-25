@@ -824,7 +824,19 @@ export async function startCommand(positionals, options) {
       })
     : null;
   const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
-  const configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
+  // A repository that still carries its approved workflow on the selected application base is a
+  // complete legacy authority in its own right. Do not mistake an unrelated `state` branch (for
+  // example one that contains only a governed world model) for a configuration mirror and reject
+  // an otherwise valid Story start. The current checkout alone is not enough evidence: a
+  // governance proposal also carries a workflow while its selected application base deliberately
+  // does not, and that case must still materialize the reviewed remote authority.
+  const baseCarriesConfiguration = [
+    `refs/remotes/${remote}/${baseAtStart}`,
+    `refs/heads/${baseAtStart}`
+  ].some((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
+  const configurationAuthority = config && baseCarriesConfiguration
+    ? null
+    : await resolveStoryConfigurationAuthority(root, remote);
   if (!config && !configurationAuthority) {
     throw new SingularityFlowError(
       `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
@@ -1283,11 +1295,13 @@ function printSelectionReceipt(receipt) {
 async function choicesCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'choices subcommand');
   const root = repoRoot();
-  let config = await loadConfig(root);
   let receipt;
   if (subcommand === 'begin') {
     const action = requirePositional(positionals, 2, 'selection action');
     const workId = requirePositional(positionals, 3, 'work ID');
+    let config = (await withApprovedConfigurationRead(
+      root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+    )).definition;
     validateId(config, workId);
     let workflow = null;
     if (action === 'approve') {
@@ -1319,7 +1333,9 @@ async function choicesCommand(positionals, options) {
 async function resumeCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
-  const discovery = await sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root));
+  const discovery = await withApprovedConfigurationRead(
+    root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+  );
   const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
   const remote = discovery.remote;
@@ -1363,7 +1379,9 @@ async function resumeCommand(positionals, options) {
 async function returnCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
-  const discovery = await sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root));
+  const discovery = await withApprovedConfigurationRead(
+    root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
+  );
   const initialConfig = discovery.definition;
   const remote = discovery.remote;
   const offline = optionBoolean(options, 'offline');
@@ -2011,7 +2029,15 @@ async function guideCommand(positionals, options) {
 
 async function resolveNextStepsSnapshot(positionals, options) {
   const root = repoRoot();
-  const initialized = existsSync(path.join(root, WORKFLOW_PATH)) || existsSync(path.join(root, 'singularity/config.json'));
+  return withApprovedConfigurationRead(root, (authority) => resolveNextStepsSnapshotInScope(
+    root, positionals, options, Boolean(authority)
+  ));
+}
+
+async function resolveNextStepsSnapshotInScope(root, positionals, options, approvedConfigurationAvailable) {
+  const initialized = approvedConfigurationAvailable
+    || existsSync(path.join(root, WORKFLOW_PATH))
+    || existsSync(path.join(root, 'singularity/config.json'));
   let snapshot;
   if (!initialized) snapshot = nextStepsSnapshot({ initialized: false, branch: branch(root) });
   else {
@@ -2081,7 +2107,7 @@ async function resolveNextStepsSnapshot(positionals, options) {
         publicationPending: await storyPublicationPending(root, config, workflow.workItem.id),
         prerequisites
       });
-    } else snapshot = nextStepsSnapshot({ branch: branch(root), requestedWorkId });
+    } else snapshot = nextStepsSnapshot({ initialized: true, branch: branch(root), requestedWorkId });
   }
   return snapshot;
 }
@@ -3262,7 +3288,16 @@ async function visualCommand(positionals, options) {
 }
 
 async function wmCommand(positionals, options) {
-  if (positionals[1] !== 'design-inventory') return worldModelCommand(repoRoot(), positionals, options);
+  if (positionals[1] !== 'design-inventory') {
+    const root = repoRoot();
+    const readsApprovedPolicy = new Set([
+      'ast', 'facts', 'prompt', 'build', 'light', 'availability', 'status', 'ensure',
+      'context', 'budget', 'check', 'show-prompt'
+    ]).has(positionals[1]);
+    return readsApprovedPolicy
+      ? withApprovedConfigurationRead(root, () => worldModelCommand(root, positionals, options))
+      : worldModelCommand(root, positionals, options);
+  }
   if (!optionBoolean(options, 'from-records')) throw new SingularityFlowError('Design inventory generation is deterministic and requires --from-records.');
   const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
   const binding = approvedDesignSourceBinding(workflow);
@@ -4948,11 +4983,11 @@ async function doctorCommand(positionals, options) {
     return telemetryCommand(['telemetry', 'enable'], options);
   }
   const root = repoRoot();
-  const report = await doctorSnapshot(root, {
+  const report = await withApprovedConfigurationRead(root, () => doctorSnapshot(root, {
     workId: positionals[1],
     offline: optionBoolean(options, 'offline'),
     performance: optionBoolean(options, 'performance')
-  });
+  }));
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
   else process.stdout.write(doctorText(report));
   if (!report.healthy) process.exitCode = 2;
@@ -4993,21 +5028,23 @@ async function receiptCommand(positionals, options) {
 async function workflowCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'workflow subcommand'); const root = repoRoot();
   if (subcommand === 'list') {
-    const catalog = (await workflowCatalog(root)).map((item) => ({ ...item, governs: 'story' }));
-    // Initiative workflows are the same shape — a label and an ordered list of phases — and were
-    // only ever listed separately because they are stored in a different file under a different
-    // name. That is a fact about the storage, not about the thing.
-    const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
-      .map((workflow) => ({ ...workflow, status: 'current' }));
-    const both = [...catalog, ...initiatives];
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(both, null, 2));
-    return console.log(table(both.map((item) => ({
-      id: item.id, label: item.label, governs: item.governs, phases: item.phases.length, status: item.status
-    })), [
-      { key: 'id', label: 'WORKFLOW' }, { key: 'label', label: 'LABEL' },
-      { key: 'governs', label: 'GOVERNS' }, { key: 'phases', label: 'PHASES' },
-      { key: 'status', label: 'STATUS' }
-    ]));
+    return withApprovedConfigurationRead(root, async () => {
+      const catalog = (await workflowCatalog(root)).map((item) => ({ ...item, governs: 'story' }));
+      // Initiative workflows are the same shape — a label and an ordered list of phases — and were
+      // only ever listed separately because they are stored in a different file under a different
+      // name. That is a fact about the storage, not about the thing.
+      const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
+        .map((workflow) => ({ ...workflow, status: 'current' }));
+      const both = [...catalog, ...initiatives];
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(both, null, 2));
+      return console.log(table(both.map((item) => ({
+        id: item.id, label: item.label, governs: item.governs, phases: item.phases.length, status: item.status
+      })), [
+        { key: 'id', label: 'WORKFLOW' }, { key: 'label', label: 'LABEL' },
+        { key: 'governs', label: 'GOVERNS' }, { key: 'phases', label: 'PHASES' },
+        { key: 'status', label: 'STATUS' }
+      ]));
+    });
   }
 
   // Authoring, folded in rather than given a noun of its own. `add` already means "install a
@@ -5093,16 +5130,18 @@ async function workflowCommand(positionals, options) {
     throw new SingularityFlowError('Use workflow phase add|edit.');
   }
   if (subcommand === 'simulate') {
-    const result = await simulateWorkflow(root, positionals[2]);
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(simulationText(result));
-    return;
+    return withApprovedConfigurationRead(root, async () => {
+      const result = await simulateWorkflow(root, positionals[2]);
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(simulationText(result));
+    });
   }
   if (subcommand === 'diff') {
-    const result = await workflowDiff(root, requirePositional(positionals, 2, 'workflow type'));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(result.equal ? `Workflow '${result.id}' matches the bundled profile.` : `Workflow '${result.id}' differs from the bundled profile.`);
-    if (!result.equal) process.stdout.write(`\n--- INSTALLED ---\n${YAML.stringify(result.installed)}\n--- BUNDLED ---\n${YAML.stringify(result.bundled)}`);
-    return;
+    return withApprovedConfigurationRead(root, async () => {
+      const result = await workflowDiff(root, requirePositional(positionals, 2, 'workflow type'));
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(result.equal ? `Workflow '${result.id}' matches the bundled profile.` : `Workflow '${result.id}' differs from the bundled profile.`);
+      if (!result.equal) process.stdout.write(`\n--- INSTALLED ---\n${YAML.stringify(result.installed)}\n--- BUNDLED ---\n${YAML.stringify(result.bundled)}`);
+    });
   }
   // `install` is what this does — it copies a packaged workflow into the repository. `add` and
   // `upgrade` are what it was called, kept working because repositories and scripts use them.
@@ -6971,16 +7010,17 @@ function initiativeDraftTransaction(root, portfolio, initiative, operation, writ
 async function initiativeCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   const root = repoRoot();
+  if (subcommand === 'profiles') {
+    return withApprovedConfigurationRead(root, async () => {
+      const profiles = initiativeProfileChoices(await loadPortfolio(root));
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(profiles, null, 2));
+      else console.log(table(profiles.map((profile) => ({ id: profile.id, label: profile.label, description: profile.description })), [
+        { key: 'id', label: 'PROFILE' }, { key: 'label', label: 'LABEL' }, { key: 'description', label: 'PHASES' }
+      ]));
+    });
+  }
   let portfolio = await loadPortfolio(root);
   let config = await loadConfig(root);
-  if (subcommand === 'profiles') {
-    const profiles = initiativeProfileChoices(portfolio);
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(profiles, null, 2));
-    else console.log(table(profiles.map((profile) => ({ id: profile.id, label: profile.label, description: profile.description })), [
-      { key: 'id', label: 'PROFILE' }, { key: 'label', label: 'LABEL' }, { key: 'description', label: 'PHASES' }
-    ]));
-    return;
-  }
   if (subcommand === 'choices') return initiativeChoicesCommand(root, config, portfolio, positionals, options);
   if (subcommand === 'start') {
     const initiativeId = requirePositional(positionals, 2, 'initiative ID');
@@ -7715,14 +7755,18 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   const root = repoRoot();
   let result;
   if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
-  else if (subcommand === 'validate') result = await validateEditorConfiguration(root);
+  else if (subcommand === 'validate') result = await withApprovedConfigurationRead(
+    root, () => validateEditorConfiguration(root)
+  );
   else if (subcommand === 'save') result = await saveConfigurationFile(
     root,
     requirePositional(positionals, 2, 'configuration path'),
     await stdinText(),
     { expectedSha256: optionString(options, 'expected-sha256') }
   );
-  else if (subcommand === 'read') result = await readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
+  else if (subcommand === 'read') result = await withApprovedConfigurationRead(
+    root, () => readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'))
+  );
   else if (subcommand === 'export-bundle') result = await exportConfigurationBundle(root);
   else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));

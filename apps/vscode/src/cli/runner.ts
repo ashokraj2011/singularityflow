@@ -117,39 +117,75 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
       }
       if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(canonical, legacyRoot);
     }
-    const approvedRefs = spawnSync('git', [
-      'for-each-ref', '--format=%(refname)',
-      'refs/remotes/*/sflow/config', 'refs/heads/sflow/config'
-    ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
-    const approvedWorkflow = approvedRefs.status === 0 && approvedRefs.stdout.split(/\r?\n/)
-      .map((entry) => entry.trim()).filter(Boolean).some((ref) => spawnSync(
-        'git', ['cat-file', '-e', `${ref}:singularity/workflow.yml`],
-        { cwd: canonical, encoding: 'utf8', windowsHide: true }
-      ).status === 0);
-    if (approvedWorkflow) return canonical;
-    const stateRefs = spawnSync('git', [
-      'for-each-ref', '--format=%(refname)', 'refs/remotes/*/state', 'refs/heads/state'
-    ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
-    const verifiedStateWorkflow = stateRefs.status === 0 && stateRefs.stdout.split(/\r?\n/)
-      .map((entry) => entry.trim()).filter(Boolean).some((ref) => {
-        const manifestResult = spawnSync('git', ['show', `${ref}:configuration/manifest.json`], {
+    const approvedWorkflowAvailable = (): boolean => {
+      const refs = spawnSync('git', [
+        'for-each-ref', '--format=%(refname)',
+        'refs/remotes/*/sflow/config', 'refs/heads/sflow/config'
+      ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
+      return refs.status === 0 && refs.stdout.split(/\r?\n/)
+        .map((entry) => entry.trim()).filter(Boolean).some((ref) => spawnSync(
+          'git', ['cat-file', '-e', `${ref}:singularity/workflow.yml`],
+          { cwd: canonical, encoding: 'utf8', windowsHide: true }
+        ).status === 0);
+    };
+    const verifiedStateWorkflowAvailable = (): boolean => {
+      const refs = spawnSync('git', [
+        'for-each-ref', '--format=%(refname)', 'refs/remotes/*/state', 'refs/heads/state'
+      ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
+      return refs.status === 0 && refs.stdout.split(/\r?\n/)
+        .map((entry) => entry.trim()).filter(Boolean).some((ref) => {
+          const manifestResult = spawnSync('git', ['show', `${ref}:configuration/manifest.json`], {
+            cwd: canonical, encoding: 'utf8', windowsHide: true
+          });
+          const workflowResult = spawnSync('git', ['show', `${ref}:singularity/workflow.yml`], {
+            cwd: canonical, encoding: 'buffer', windowsHide: true
+          });
+          if (manifestResult.status !== 0 || workflowResult.status !== 0) return false;
+          try {
+            const manifest = JSON.parse(manifestResult.stdout);
+            return manifest?.format === 'singularity-flow-configuration-mirror/v2'
+              && manifest?.layout === 'canonical-paths'
+              && manifest?.source?.branch === 'sflow/config'
+              && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+              && manifest?.files?.['singularity/workflow.yml']
+                === createHash('sha256').update(workflowResult.stdout).digest('hex');
+          } catch { return false; }
+        });
+    };
+    if (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable()) return canonical;
+
+    // A narrow clone (for example `--single-branch main`) has not copied either governed
+    // namespace. Refresh only the exact authority ref into the normal remote-tracking namespace;
+    // never checkout it and never touch HEAD, the index, or application files.
+    const remotes = spawnSync('git', ['remote'], {
+      cwd: canonical, encoding: 'utf8', windowsHide: true
+    });
+    const names = remotes.status === 0 ? remotes.stdout.split(/\r?\n/)
+      .map((entry) => entry.trim()).filter(Boolean)
+      .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
+        || left.localeCompare(right)) : [];
+    for (const remote of names) {
+      const advertised = spawnSync('git', [
+        'ls-remote', '--heads', '--', remote, 'refs/heads/sflow/config', 'refs/heads/state'
+      ], { cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 15_000 });
+      if (advertised.status !== 0) continue;
+      const branches = new Set(advertised.stdout.split(/\r?\n/)
+        .map((line) => line.trim().split(/\s+/)[1]).filter(Boolean));
+      for (const authorityBranch of ['sflow/config', 'state']) {
+        if (!branches.has(`refs/heads/${authorityBranch}`)) continue;
+        const destination = `refs/remotes/${remote}/${authorityBranch}`;
+        const valid = spawnSync('git', ['check-ref-format', destination], {
           cwd: canonical, encoding: 'utf8', windowsHide: true
         });
-        const workflowResult = spawnSync('git', ['show', `${ref}:singularity/workflow.yml`], {
-          cwd: canonical, encoding: 'buffer', windowsHide: true
-        });
-        if (manifestResult.status !== 0 || workflowResult.status !== 0) return false;
-        try {
-          const manifest = JSON.parse(manifestResult.stdout);
-          return manifest?.format === 'singularity-flow-configuration-mirror/v2'
-            && manifest?.layout === 'canonical-paths'
-            && manifest?.source?.branch === 'sflow/config'
-            && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
-            && manifest?.files?.['singularity/workflow.yml']
-              === createHash('sha256').update(workflowResult.stdout).digest('hex');
-        } catch { return false; }
-      });
-    if (verifiedStateWorkflow) return canonical;
+        if (valid.status !== 0) continue;
+        const fetched = spawnSync('git', [
+          'fetch', '--quiet', '--no-tags', '--force', '--', remote,
+          `+refs/heads/${authorityBranch}:${destination}`
+        ], { cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+        if (fetched.status === 0
+          && (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable())) return canonical;
+      }
+    }
     throw new UninitializedRepositoryError(canonical);
   }
   return canonical;

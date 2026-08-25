@@ -306,16 +306,46 @@ test('Story start recovers from a verified state mirror when sflow/config is una
     const mirrored = await publishStateConfigurationMirror(fixture);
     run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote });
     const checkout = path.join(fixture.root, 'state-only-story-checkout');
-    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, checkout], { cwd: fixture.root });
     run('git', ['config', 'user.name', 'State Story Tester'], { cwd: checkout });
     run('git', ['config', 'user.email', 'state-story@example.com'], { cwd: checkout });
+    assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+      cwd: checkout, allowFailure: true
+    }).status, 0, 'the narrow clone begins without a local state ref');
 
     const branches = spawnSync(process.execPath, [cli, 'workspace', 'branches', '--json'], {
       cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
     });
     assert.equal(branches.status, 0, branches.stderr || branches.stdout);
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+      cwd: checkout, allowFailure: true
+    }).status, 0, 'the read path refreshes only the missing authority ref');
     assert.ok(JSON.parse(branches.stdout).choices.some((choice) => choice.branch === 'main' && choice.everywhere),
       'the VS Code base-branch command reads the local verified state mirror too');
+
+    // These are the independent calls made while the VS Code Start form is open. It is not enough
+    // for base preflight alone to work: either missing catalog silently empties a required dropdown
+    // and prevents the form from ever issuing `start`.
+    const profiles = spawnSync(process.execPath, [cli, 'initiative', 'profiles', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(profiles.status, 0, profiles.stderr || profiles.stdout);
+    assert.ok(JSON.parse(profiles.stdout).some((profile) => profile.id === 'epic-planning'));
+    const workflows = spawnSync(process.execPath, [cli, 'workflow', 'list', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(workflows.status, 0, workflows.stderr || workflows.stdout);
+    assert.ok(JSON.parse(workflows.stdout).some((workflow) => workflow.id === 'chore' && workflow.governs === 'story'));
+    const validation = spawnSync(process.execPath, [cli, 'configuration', 'validate', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(validation.status, 0, validation.stderr || validation.stdout);
+    assert.equal(JSON.parse(validation.stdout).valid, true);
+    const beforeStart = spawnSync(process.execPath, [cli, 'nextsteps', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(beforeStart.status, 0, beforeStart.stderr || beforeStart.stdout);
+    assert.equal(JSON.parse(beforeStart.stdout).state, 'no_active_work_item');
 
     const started = spawnSync(process.execPath, [
       cli, 'start', 'CFG-STATE', '--json', '--title', 'Use state recovery configuration',
@@ -336,6 +366,50 @@ test('Story start recovers from a verified state mirror when sflow/config is una
     assert.equal(run('git', ['cat-file', '-e', 'CFG-STATE:singularity/configuration-source.json'], {
       cwd: fixture.remote, allowFailure: true
     }).status, 0, 'the Story publishes hash-bound state-mirror provenance');
+
+    const narrowResume = path.join(fixture.root, 'narrow-state-story-resume-checkout');
+    run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, narrowResume], {
+      cwd: fixture.root
+    });
+    run('git', ['config', 'user.name', 'Narrow Resume Tester'], { cwd: narrowResume });
+    run('git', ['config', 'user.email', 'narrow-resume@example.com'], { cwd: narrowResume });
+    const narrowResumed = spawnSync(process.execPath, [
+      cli, 'resume', 'CFG-STATE', '--fetch', '--agent', 'developer', '--json'
+    ], { cwd: narrowResume, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(narrowResumed.status, 0, narrowResumed.stderr || narrowResumed.stdout);
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: narrowResume }).stdout.trim(), 'CFG-STATE');
+
+    // Once started, every phase is driven by the immutable configuration snapshot carried by the
+    // Story. Prove that ordinary phase reads and authoring preparation no longer consult the shared
+    // mirror by removing that authority before exercising them.
+    run('git', ['update-ref', '-d', 'refs/heads/state'], { cwd: fixture.remote });
+    const phase = spawnSync(process.execPath, [cli, 'phase', 'show', 'intake', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(phase.status, 0, phase.stderr || phase.stdout);
+    assert.equal(JSON.parse(phase.stdout).phase, 'intake');
+    const prepared = spawnSync(process.execPath, [cli, 'prepare', 'intake', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
+    const duringStory = spawnSync(process.execPath, [cli, 'nextsteps', '--json'], {
+      cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
+    });
+    assert.equal(duringStory.status, 0, duringStory.stderr || duringStory.stdout);
+    assert.equal(JSON.parse(duringStory.stdout).workId, 'CFG-STATE');
+
+    // A second machine can re-enter from the published lifecycle branch even if the shared mirror
+    // is temporarily unavailable. Resume first discovers the Story ref, then switches to and uses
+    // that ref's pinned files; it never recreates or substitutes configuration.
+    const resumedCheckout = path.join(fixture.root, 'state-story-resume-checkout');
+    run('git', ['clone', '-q', fixture.remote, resumedCheckout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Resume Tester'], { cwd: resumedCheckout });
+    run('git', ['config', 'user.email', 'resume@example.com'], { cwd: resumedCheckout });
+    const resumed = spawnSync(process.execPath, [
+      cli, 'resume', 'CFG-STATE', '--fetch', '--agent', 'developer', '--json'
+    ], { cwd: resumedCheckout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: resumedCheckout }).stdout.trim(), 'CFG-STATE');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

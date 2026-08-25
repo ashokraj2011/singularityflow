@@ -147,6 +147,9 @@ Usage:
   singularity-flow prompt-log on|off|status
   singularity-flow prompt-log list [--agent ID] [--phase ID] [--work-id ID] [--limit N] [--include-prompt] [--json]
   singularity-flow prompt-log view [RECORD-ID|latest] [--raw] [--json]
+  singularity-flow prompt-log retention --retention-days 1..365
+  singularity-flow prompt-log repair --confirm "REPAIR PROMPT AUDIT"
+  singularity-flow prompt-log clear --confirm "DELETE PROMPT AUDIT"
   singularity-flow ledger init [--json]
   singularity-flow ledger doctor [--json]
   singularity-flow ledger status [--json]

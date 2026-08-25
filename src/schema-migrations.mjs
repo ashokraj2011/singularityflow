@@ -42,6 +42,30 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function promptAuditSettingsV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    retentionDays: Number.isInteger(source.retentionDays) ? source.retentionDays : 30,
+    lastPrunedAt: source.lastPrunedAt ?? null,
+    headMac: source.headMac ?? null,
+    tailMac: source.tailMac ?? null,
+    logBytes: Number.isInteger(source.logBytes) ? source.logBytes : null,
+    logMtimeMs: Number.isFinite(source.logMtimeMs) ? source.logMtimeMs : null,
+    maximumBytes: Number.isInteger(source.maximumBytes) ? source.maximumBytes : 67108864
+  };
+}
+
+function promptAuditRecordV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    integrity: source.integrity ?? null,
+    handoffSha256: source.handoffSha256 ?? null,
+    handoffBytes: Number.isInteger(source.handoffBytes) ? source.handoffBytes : null
+  };
+}
+
 function astResultV1ToV2(source) {
   const facts = (source.facts ?? []).map((fact) => ({
     ...fact,
@@ -799,8 +823,16 @@ const families = [
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap-index', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/index\.json$/] }),
-  family({ id: 'prompt-audit-settings', currentVersion: 1, paths: [/^(?:\$git|\$workspace)\/prompt-audit\/settings\.json$/] }),
-  family({ id: 'prompt-audit-record', currentVersion: 1, paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true }),
+  family({
+    id: 'prompt-audit-settings', currentVersion: 2,
+    steps: [migration(1, 2, promptAuditSettingsV1ToV2)],
+    paths: [/^(?:\$git|\$workspace)\/prompt-audit\/settings\.json$/]
+  }),
+  family({
+    id: 'prompt-audit-record', currentVersion: 2,
+    steps: [migration(1, 2, promptAuditRecordV1ToV2)],
+    paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
+  }),
   family({
     id: 'dx-command-timing', currentVersion: 2,
     steps: [migration(1, 2, dxCommandTimingV1ToV2)],

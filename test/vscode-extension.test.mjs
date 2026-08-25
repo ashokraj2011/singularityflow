@@ -3643,6 +3643,11 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /\['wm', 'show-prompt', '--record-audit'\]/,
     'the exact governed prompt rendered for native Copilot is captured only at handoff');
+  const storyHandoff = extension.slice(
+    extension.indexOf('const openGovernedCopilot'), extension.indexOf('const openWorkspaceCopilot')
+  );
+  assert.match(storyHandoff, /query: prompt/);
+  assert.doesNotMatch(storyHandoff, /query: handoff/);
   const panel = await readFile(source('views/prompt-audit.ts'), 'utf8');
   assert.match(panel, /\['prompt-log', 'list', '--include-prompt'/);
   assert.match(panel, /\['prompt-log', this\.snapshot\?\.enabled \? 'off' : 'on'/);

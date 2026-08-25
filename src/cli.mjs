@@ -33,7 +33,10 @@ import {
   TELEMETRY_DISCLOSURE,
   TELEMETRY_DISCLOSURE_CONFIRMATION
 } from './telemetry-provision.mjs';
-import { listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, setPromptAudit } from './prompt-audit.mjs';
+import {
+  clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit,
+  repairPromptAudits, setPromptAudit, setPromptAuditRetention
+} from './prompt-audit.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
@@ -7771,8 +7774,20 @@ async function promptLogCommand(positionals, options) {
     });
   } else if (action === 'view') {
     result = await readPromptAudit(root, positionals[2] ?? 'latest');
+  } else if (action === 'retention') {
+    result = await setPromptAuditRetention(root, optionNumber(options, 'retention-days'));
+  } else if (action === 'clear') {
+    if (optionString(options, 'confirm') !== 'DELETE PROMPT AUDIT') {
+      throw new SingularityFlowError('Clearing prompt history requires --confirm "DELETE PROMPT AUDIT".');
+    }
+    result = await clearPromptAudits(root);
+  } else if (action === 'repair') {
+    if (optionString(options, 'confirm') !== 'REPAIR PROMPT AUDIT') {
+      throw new SingularityFlowError('Repairing prompt history requires --confirm "REPAIR PROMPT AUDIT".');
+    }
+    result = await repairPromptAudits(root);
   } else {
-    throw new SingularityFlowError(`Unknown prompt-log action '${action}'. Use on, off, status, list, or view.`);
+    throw new SingularityFlowError(`Unknown prompt-log action '${action}'. Use on, off, status, list, view, retention, repair, or clear.`);
   }
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   if (action === 'view') {
@@ -7795,17 +7810,24 @@ async function promptLogCommand(positionals, options) {
         : String(record.execution.tokens.total),
       tools: record.execution.tools.mode ?? '—',
       status: record.execution.status,
+      integrity: record.integrityVerification?.status ?? 'legacy',
       id: record.id
     })), [
       { key: 'time', label: 'TIME' }, { key: 'source', label: 'TYPE' },
       { key: 'agent', label: 'AGENT' }, { key: 'story', label: 'STORY' },
       { key: 'phase', label: 'PHASE' }, { key: 'model', label: 'MODEL' },
       { key: 'tokens', label: 'TOKENS' }, { key: 'tools', label: 'TOOLS' },
-      { key: 'status', label: 'STATUS' }, { key: 'id', label: 'RECORD', shrink: false }
+      { key: 'status', label: 'STATUS' }, { key: 'integrity', label: 'INTEGRITY' },
+      { key: 'id', label: 'RECORD', shrink: false }
     ], { min: 5 }));
   }
+  if (action === 'clear') console.log(`Cleared ${result.removed} prompt-audit record(s).`);
+  else if (action === 'repair') console.log(`Prompt audit repaired: ${result.repaired} rejected item(s), ${result.resealed} record(s) resealed.`);
+  else if (action === 'retention') console.log(`Prompt-audit retention set to ${result.retentionDays} day(s).`);
   console.log(`Prompt audit: ${result.enabled ? 'on' : 'off'} · ${result.count} record(s) · ${result.scope} scope`);
+  console.log(`Retention: ${result.retentionDays} day(s) · integrity: ${result.integrity.status}`);
   console.log(`File: ${result.logFile}`);
+  for (const warning of result.warnings ?? []) console.log(`Warning: ${warning}`);
   if (action === 'on') console.log('Future governed prompts composed for Copilot will be captured. Existing prompts are not backfilled.');
 }
 

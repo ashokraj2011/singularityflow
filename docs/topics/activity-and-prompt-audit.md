@@ -12,7 +12,7 @@ related:
   - evidence-and-ledger
   - telemetry-and-cost
   - copilot-and-surfaces
-version: 2
+version: 3
 ---
 Activity logs report lifecycle and operational events without exposing secrets. Prompt audit is optional, workspace-local evidence of composed governed prompts and does not replace lifecycle state.
 
@@ -39,6 +39,12 @@ token and cost, request/output, grounding, and prompt sections. `--raw` returns 
 prompt. Provider token totals remain `unavailable` when the host did not report them; the separate
 prompt-only estimate is labelled `sflow-estimated`. Tool policy describes authorization and never
 claims that an individual tool was called.
+
+Prompt capture defaults to 30-day retention with a 64 MiB ceiling and uses private append-locked storage with a
+machine-local HMAC chain. Configure it with `sflow prompt-log retention --retention-days <1..365>`.
+Use `sflow prompt-log repair --confirm "REPAIR PROMPT AUDIT"` to quarantine malformed or unsafe
+history and reseal valid records. Use `sflow prompt-log clear --confirm "DELETE PROMPT AUDIT"` to
+permanently remove both active history and recovery copies.
 
 ## State and safety
 

@@ -3274,20 +3274,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
     const prompt = await client.runText(['wm', 'show-prompt', '--record-audit']);
-    const handoff = [
-      '# Singularity Flow governed Story handoff',
-      '',
-      `Working directory: ${client.repository}`,
-      ...(activeWorkId ? [`Story: ${activeWorkId}`] : []),
-      '',
-      'Use this repository as the working directory for every file and shell operation.',
-      'Do not inspect or modify another repository merely because it was open in the previous chat.',
-      '',
-      prompt
-    ].join('\n');
     await vscode.commands.executeCommand('workbench.action.chat.newChat');
     await vscode.commands.executeCommand('workbench.action.chat.open', {
-      query: handoff,
+      // `wm show-prompt --record-audit` returns and records this complete host handoff. Do not add
+      // bytes here: the audit SHA must describe the exact query passed to native Copilot.
+      query: prompt,
       isPartialQuery: false
     });
   };

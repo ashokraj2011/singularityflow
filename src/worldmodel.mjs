@@ -2988,7 +2988,16 @@ async function showPrompt(root, options) {
   }
 
   const skill = await readFile(skillFile, 'utf8');
+  const selectedWorkId = config.workflow?.workItem?.id ?? optionString(options, 'work-id') ?? null;
   const prefix = [
+    '# Singularity Flow governed Story handoff',
+    '',
+    `Working directory: ${root}`,
+    ...(selectedWorkId ? [`Story: ${selectedWorkId}`] : []),
+    '',
+    'Use this repository as the working directory for every file and shell operation.',
+    'Do not inspect or modify another repository merely because it was open in the previous chat.',
+    '',
     '# Effective Copilot context',
     '',
     `- Skill: \`/${skillId}\``,
@@ -3025,7 +3034,7 @@ async function showPrompt(root, options) {
       phase,
       generation: config.workflow?.phases?.[phase]
         ? Number(config.workflow.phases[phase].generation ?? 0) + 1 : null,
-      workId: config.workflow?.workItem?.id ?? optionString(options, 'work-id') ?? null,
+      workId: selectedWorkId,
       workType: config.workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
       source: 'vscode-governed-handoff'

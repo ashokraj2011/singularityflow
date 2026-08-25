@@ -111,6 +111,7 @@ test('an allowlist tool policy must name at least one tool', async () => {
 test('the universal model boundary refuses unsafe enforcement before provider execution', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-admission-'));
   run('git', ['init', '-q'], { cwd: root });
+  await setPromptAudit(root, true);
   await assert.rejects(() => withOperationContext({
     operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
   }, () => invokeModel(request(root, {
@@ -122,4 +123,7 @@ test('the universal model boundary refuses unsafe enforcement before provider ex
   assert.equal(audit.status, 'failed');
   assert.equal(audit.error.code, 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT');
   assert.equal(audit.tokenAdmission.admitted, null);
+  const captured = await listPromptAudits(root, { includePrompt: true });
+  assert.equal(captured.records.length, 1, 'the exact prompt is captured before the refused provider boundary');
+  assert.equal(captured.records[0].execution.status, 'failed');
 });

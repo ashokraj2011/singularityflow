@@ -209,11 +209,12 @@ export async function clearActiveWorkspaceContext(selectionFile, workspacePath) 
   return true;
 }
 
-export async function workspaceContextForRepository(repositoryRoot, selectionFile, registryFile) {
+export async function workspaceContextForRepository(repositoryRoot, selectionFile, registryFile, { strict = false } = {}) {
   // Session-start hooks have a short timeout and may run in workspaces with many repositories.
   // The launcher/switch command already verified and refreshed this selection, so matching the
   // persisted repository here avoids a status scan of every clone on each Copilot startup.
-  const context = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false }).catch(() => null);
+  const selected = readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
+  const context = strict ? await selected : await selected.catch(() => null);
   if (!context) return null;
   const root = await canonical(repositoryRoot);
   const repository = await canonical(context.repositoryPath);

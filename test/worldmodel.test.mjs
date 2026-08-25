@@ -268,13 +268,17 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(inspected, /END GOVERNED PHASE PROMPT/);
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
   run(process.execPath, [bin, 'prompt-log', 'on'], root);
-  run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1', '--record-audit'], root);
+  const handedOff = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1', '--record-audit'], root);
   const promptAuditPath = path.join(root, '.git/singularity-flow/prompt-audit/prompts.jsonl');
   let promptAudits = (await readFile(promptAuditPath, 'utf8')).trim().split('\n').map(JSON.parse);
   assert.equal(promptAudits.length, 1);
   assert.equal(promptAudits[0].source, 'vscode-governed-handoff');
   assert.equal(promptAudits[0].agent, 'developer');
   assert.equal(promptAudits[0].workId, 'WM-1');
+  assert.equal(promptAudits[0].prompt, handedOff, 'the audit bytes are the exact host query');
+  assert.equal(promptAudits[0].handoffBytes, Buffer.byteLength(handedOff));
+  assert.match(promptAudits[0].prompt, /Working directory:/);
+  assert.match(promptAudits[0].prompt, /Use this repository as the working directory/);
   assert.match(promptAudits[0].prompt, /BEGIN plugin\/skills\/sflow-phase\/SKILL\.md/);
   assert.match(promptAudits[0].prompt, /INJECTED DEVELOPMENT VIEW/);
   run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1'], root);

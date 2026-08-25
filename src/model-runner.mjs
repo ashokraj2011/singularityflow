@@ -425,6 +425,10 @@ export async function invokeModel(request) {
     // still removed by the outer finally.
     await writeJson(file, event);
     auditStarted = true;
+    // When prompt capture is enabled it is part of the same fail-closed boundary. Record the exact
+    // staged bytes before provider start so a crash, kill, or provider hang cannot leave an
+    // invocation receipt with no corresponding prompt record.
+    await captureInvocationPrompt(resolvedAuditRoot, staged, event);
     if (normalized.tokenAdmission?.mode === 'enforce') {
       if (!admission.safeToEnforce || admission.maximumInputTokens == null) {
         throw new SingularityFlowError(
@@ -482,9 +486,6 @@ export async function invokeModel(request) {
       economics: invocationEconomics(staged.bytes, result.usage)
     });
     await writeJson(file, completedEvent);
-    await captureInvocationPrompt(resolvedAuditRoot, staged, completedEvent).catch((error) => {
-      log.warn('model.prompt.audit-failed', null, { errorCode: error.code ?? 'PROMPT_AUDIT_FAILED' });
-    });
     log.info('model.provider.completed', null, {
       provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
       durationMs: Date.now() - providerStartedAt, exitCode: result.status ?? 0, signal: result.signal ?? null
@@ -520,9 +521,6 @@ export async function invokeModel(request) {
         error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }
       }).catch(() => ({ ...event, status: 'failed', completedAt: nowIso(), error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' } }));
       await writeJson(file, failedEvent).catch(() => {});
-      await captureInvocationPrompt(resolvedAuditRoot, staged, failedEvent).catch((auditError) => {
-        log.warn('model.prompt.audit-failed', null, { errorCode: auditError.code ?? 'PROMPT_AUDIT_FAILED' });
-      });
     }
     if (providerStartedAt != null) log.info('model.provider.failed', null, {
       provider: providerId, transport: 'attachment', promptBytes: staged.bytes,

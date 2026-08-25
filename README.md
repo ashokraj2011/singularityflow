@@ -1806,6 +1806,14 @@ tools, provider usage, and context-efficiency measurements. It reports managed u
 duplicate approved-reference previews removed before transport, AST structural facts/payload bytes,
 and optional sections omitted by the approved token budget.
 
+Prompt records are private (`0600`), append-locked, scrub common credential formats, and use a
+machine-local HMAC chain to detect accidental edits, deletion, or reordering. The default retention
+is 30 days with a 64 MiB storage ceiling; change the duration with
+`prompt-log retention --retention-days <1..365>`. A malformed interrupted
+JSONL tail is quarantined before the next capture. Use `prompt-log repair --confirm "REPAIR PROMPT AUDIT"`
+for an explicit integrity recovery, or `prompt-log clear --confirm "DELETE PROMPT AUDIT"` to remove
+active history and all recovery copies.
+
 `wm compose` compiles named prompt sections under the Story's pinned `tokenEconomy` profile. `off`
 and `observe` preserve compatibility (`observe` reports an overflow); `assist` removes lowest-priority
 optional sections and records their hashes; `enforce` does the same but refuses with

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7305ec58a23ce08ddc99c70822704f4382fd01e8",
+  "sourceCommit": "7d20ddde6e1a029d6794bc81da44598e9c554e52",
   "topicCount": 55,
-  "contentSha256": "101eece030ef80b77936485d3afff44a4d3c4980ae5d926599da3252db88984c",
+  "contentSha256": "9753bde5ffe1d23e4f9d0987abdb10935bd01d00f704f333e279bbf59e5630d3",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
       "title": "Activity logs, prompt audit, and operational trace",
-      "version": 2,
-      "sha256": "e8c0f76825d877b573bf095e965918e5f96c4e7710c24bcbe9f693dd8857ff07",
+      "version": 3,
+      "sha256": "28959e2a4e1bc773bd5b764a66a3162dab3695db90a0595563a04f9fb180fec2",
       "file": "activity-and-prompt-audit.md"
     },
     {

@@ -2754,7 +2754,7 @@ singularity-flow fresh-install [--checkout DIRECTORY] [--yes] [--registry URL] [
 singularity-flow choices begin|answer|status ...
 singularity-flow clarification status [PHASE] [--json]
 singularity-flow clarification record [PHASE] (--question TEXT --answer TEXT | --response-file FILE) [--json]
-singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH]
+singularity-flow start <WORK-ID> --from-branch BRANCH [--jira | --story-file FILE] [--work-type ID] [--agent ID] [--ref CANONICAL-BRANCH] [--isolated-worktree]
 singularity-flow resume <WORK-ID|BRANCH> [--fetch]
 singularity-flow return <WORK-ID> [--apply --confirm WORK-ID] [--remote REMOTE] [--json]
 singularity-flow agent [WORK-ID]

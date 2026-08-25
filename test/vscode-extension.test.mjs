@@ -2656,6 +2656,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--title', 'Retry a failed charge',
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
+    '--isolated-worktree',
     '--from-branch', 'main',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
@@ -2723,6 +2724,7 @@ test('a tracked Story is fetched by key', () => {
   assert.deepEqual(intakeProblems(form), []);
   assert.deepEqual(intakeCommand(form), [
     'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature',
+    '--isolated-worktree',
     '--from-branch', 'main'
   ]);
 });

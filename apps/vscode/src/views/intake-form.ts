@@ -272,14 +272,15 @@ export function intakeCommand(form: IntakeForm): string[] {
   // single-repository default is reached by the same code path it always was.
   const capabilityBase = form.baseBranch ? ['--from-branch', form.baseBranch] : [];
   const target = form.workType === 'poc-workflow' ? ['--target-url', form.targetUrl.trim()] : [];
-  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...target, ...capabilityBase];
+  const isolated = ['--isolated-worktree'];
+  if (tracked) return ['story', 'start', identifier, '--json', '--fetch', '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
   if (form.tracker === 'github') {
     return ['start', identifier, '--json', '--fetch', '--github', form.key.trim(),
-      '--work-type', form.workType!, ...target, ...capabilityBase];
+      '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
   }
   const args = ['start', identifier, '--json', '--fetch',
     '--title', form.title.trim(), '--description', form.description.trim(),
-    '--work-type', form.workType!, ...target, ...capabilityBase];
+    '--work-type', form.workType!, ...isolated, ...target, ...capabilityBase];
   if (form.acceptanceCriteria.trim()) {
     args.push('--acceptance-criteria', form.acceptanceCriteria.trim());
   }
@@ -548,6 +549,9 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
     ? `workspace <strong>${escape(form.targetWorkspace)}</strong> · ` : ''}repository
       <strong>${escape(form.targetRepository)}</strong>${form.targetBranch
     ? ` · branch <code>${escape(form.targetBranch)}</code>` : ''}</p>` : ''}
+    ${form.shape === 'story' ? `<p class="meta">This Story gets a dedicated Git checkout. The target
+      branch, index, and uncommitted files above stay unchanged; the editor opens the new checkout
+      only after its governed start succeeds.</p>` : ''}
   </header>
 
   <section>

@@ -8,6 +8,7 @@ import {
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { gitCommonDir } from './git.mjs';
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
 
@@ -218,5 +219,14 @@ export async function workspaceContextForRepository(repositoryRoot, selectionFil
   if (!context) return null;
   const root = await canonical(repositoryRoot);
   const repository = await canonical(context.repositoryPath);
-  return root === repository ? context : null;
+  if (root === repository) return context;
+  // A linked Story worktree is another checkout of the same repository, not an unknown repository.
+  // Match the repository-wide Git common directory so capability, configuration and audit context
+  // continue to resolve after VS Code opens the isolated checkout.
+  try {
+    if (await canonical(gitCommonDir(root)) === await canonical(gitCommonDir(repository))) {
+      return { ...context, repositoryPath: root, canonicalRepositoryPath: repository, storyWorktree: true };
+    }
+  } catch { /* A non-Git path is simply not the selected workspace repository. */ }
+  return null;
 }

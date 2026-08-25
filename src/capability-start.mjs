@@ -23,7 +23,7 @@ import {
 } from './capability-branches.mjs';
 import {
   assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch, pushCommitToBranch,
-  refExists, refHead, repoRoot
+  gitCommonDir, refExists, refHead, repoRoot
 } from './git.mjs';
 import { readWorkspace } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
@@ -303,7 +303,11 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       );
     }
     const root = repoRoot(target);
-    assertClean(root);
+    // The lifecycle repository may be executing from its dedicated Story worktree while the
+    // workspace's canonical checkout intentionally contains unrelated work. Both paths share the
+    // same Git common directory, so only sibling repositories still need the legacy clean-checkout
+    // precondition here.
+    if (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot))) assertClean(root);
     fetchRemote(root, remote);
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
@@ -356,7 +360,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
 export function capabilityPublicationPlan(preflight, lifecycleRoot) {
   const primary = repoRoot(lifecycleRoot);
   return (preflight ?? [])
-    .filter((entry) => entry.publishRequired && repoRoot(entry.root) !== primary)
+    .filter((entry) => entry.publishRequired
+      && gitCommonDir(repoRoot(entry.root)) !== gitCommonDir(primary))
     .map((entry) => ({
       schemaVersion: 1,
       repository: entry.repository,
@@ -423,7 +428,9 @@ export function rollbackCapabilityRepositories(prepared, storyBranch) {
   return failures;
 }
 
-export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, { remote = 'origin' } = {}) {
+export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, {
+  remote = 'origin', lifecycleRoot = null
+} = {}) {
   const prepared = [];
   try {
     for (const repository of plan.repositories) {
@@ -434,6 +441,16 @@ export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, 
         continue;
       }
       const root = repoRoot(target);
+      if (lifecycleRoot && gitCommonDir(root) === gitCommonDir(repoRoot(lifecycleRoot))) {
+        prepared.push({
+          repository: repository.id,
+          target: repoRoot(lifecycleRoot),
+          base: base.branch,
+          source: base.source,
+          action: 'isolated-worktree'
+        });
+        continue;
+      }
       assertClean(root);
       const already = currentBranch(root);
       const checkoutMode = checkout(root, storyBranch, {

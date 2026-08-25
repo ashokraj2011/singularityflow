@@ -1638,22 +1638,16 @@ test('an Epic can be started and its first source pinned entirely from the edito
   assert.equal(provider.getChildren(sources)[0].label, 'brief.md');
 });
 
-test('Story intake refuses a dirty target before opening the form', async (t) => {
+test('Story intake remains available when another checkout has uncommitted work', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   await writeFile(path.join(root, 'unfinished-change.txt'), 'not ready to govern\n');
-  registered.selfApprovalAnswer = 'Open Source Control';
-
   await registered.commands.get('singularityFlow.startWork')();
 
-  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.intake'), false,
-    'the form is not shown for a target the engine will refuse');
-  const warning = registered.warnings.find((message) => /Cannot start work/.test(message));
-  assert.match(warning ?? '', /checkout/);
-  assert.match(warning ?? '', /INIT-CHECKOUT/);
-  assert.match(warning ?? '', /unfinished-change\.txt/);
-  assert.ok(registered.executedCommands.some((entry) => entry.id === 'workbench.view.scm'),
-    'the refusal offers the relevant recovery surface');
+  assert.equal(registered.panels.some((entry) => entry.id === 'singularityFlow.intake'), true,
+    'a new Story can be described because it will receive an isolated checkout');
+  assert.equal(registered.warnings.some((message) => /Cannot start work/.test(message)), false);
+  assert.equal(await readFile(path.join(root, 'unfinished-change.txt'), 'utf8'), 'not ready to govern\n');
 });
 
 test('a manual Story is submitted end to end from the editor', async (t) => {
@@ -1704,18 +1698,24 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   await intakePanel.post({ type: 'field', field: 'acceptanceCriteria', value: 'Testing proves the result' });
   await intakePanel.post({ type: 'start' });
 
-  await until(() => run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim() === 'STORY-UI'
-    ? true : null, { what: 'the Story branch to be created' });
+  const openFolder = await until(() => registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder'
+  ) ?? null, { what: 'the isolated Story checkout to open' });
+  const storyRoot = openFolder.args[0].fsPath;
+  assert.equal(openFolder.args[1], false, 'the Story checkout replaces the launch folder in this window');
   await until(() => registered.infos.find((message) => /Story STORY-UI started/.test(message)) ?? null,
     { what: 'the editor to report the started Story' });
   assert.deepEqual(registered.errors, []);
   assert.deepEqual(registered.warnings, []);
-  assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: root }).stdout.trim(),
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main',
+    'the launch checkout is not switched');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'STORY-UI');
+  assert.equal(run('git', ['log', '-1', '--pretty=%s'], { cwd: storyRoot }).stdout.trim(),
     '[STORY-UI][init] start feature workflow');
   assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
   assert.equal(
     run('git', ['ls-remote', 'origin', 'refs/heads/STORY-UI'], { cwd: root }).stdout.split(/\s+/)[0],
-    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    run('git', ['rev-parse', 'HEAD'], { cwd: storyRoot }).stdout.trim(),
     'the packaged editor published only the Story branch'
   );
 });
@@ -1803,8 +1803,14 @@ test('the packaged POC release candidate journey survives publication, review, C
     { what: 'the explicit base-branch publication preflight to pass' });
   await intake.post({ type: 'start' });
 
-  await until(() => run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim() === 'POC-RC-1'
-    ? true : null, { what: 'the isolated POC Story branch to be created' });
+  const openedStory = await until(() => registered.executedCommands.find(
+    (entry) => entry.id === 'vscode.openFolder'
+  ) ?? null, { what: 'the isolated POC Story checkout to open' });
+  const storyRoot = openedStory.args[0].fsPath;
+  assert.equal(openedStory.args[1], false, 'the isolated Story replaces the launch folder');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main',
+    'the release-candidate launch checkout remains on its original branch');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'POC-RC-1');
   await until(() => registered.infos.find((message) => /Story POC-RC-1 started/.test(message)) ?? null,
     { what: 'the packaged editor to report the POC Story start' });
   assert.equal(run('git', ['rev-parse', 'POC-RC-1^'], { cwd: root }).stdout.trim(), baseCommit,
@@ -1812,15 +1818,15 @@ test('the packaged POC release candidate journey survives publication, review, C
   assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
     'starting the Story never changes the selected base ref');
   assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], { cwd: root }).stdout.split(/\s+/)[0],
-    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    run('git', ['rev-parse', 'HEAD'], { cwd: storyRoot }).stdout.trim(),
     'the packaged intake publishes only the isolated Story ref');
 
   const cli = (args, actor = 'Initiative Owner') => spawnSync(process.execPath,
     [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
-      cwd: root, encoding: 'utf8',
+      cwd: storyRoot, encoding: 'utf8',
       env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: actor }
     });
-  const phaseArtifact = path.join(root,
+  const phaseArtifact = path.join(storyRoot,
     'singularity/work-items/POC-RC-1/artifacts/poc-intake/intake.md');
   let artifact = await readFile(phaseArtifact, 'utf8');
   artifact = artifact
@@ -1841,15 +1847,15 @@ test('the packaged POC release candidate journey survives publication, review, C
   // Change the actual Git identity before refreshing the editor. My Work must classify the
   // approval against this email, and the packaged Approvals surface must permit the real receipt
   // ceremony for that independent reviewer.
-  run('git', ['config', 'user.name', reviewer.name], { cwd: root });
-  run('git', ['config', 'user.email', reviewer.email], { cwd: root });
+  run('git', ['config', 'user.name', reviewer.name], { cwd: storyRoot });
+  run('git', ['config', 'user.email', reviewer.email], { cwd: storyRoot });
   const previousTestIdentity = process.env.SINGULARITY_FLOW_TEST_IDENTITY;
   process.env.SINGULARITY_FLOW_TEST_IDENTITY = reviewer.name;
   t.after(() => {
     if (previousTestIdentity == null) delete process.env.SINGULARITY_FLOW_TEST_IDENTITY;
     else process.env.SINGULARITY_FLOW_TEST_IDENTITY = previousTestIdentity;
   });
-  const canonicalRoot = await realpath(root);
+  const canonicalRoot = await realpath(storyRoot);
   const reviewHost = stubVscode();
   reviewHost.api.workspace.workspaceFolders = [{ uri: { fsPath: canonicalRoot } }];
   const reviewExtension = loadExtension(reviewHost.api);
@@ -1873,16 +1879,16 @@ test('the packaged POC release candidate journey survives publication, review, C
 
   reviewHost.registered.typed = 'poc-intake';
   await approvals.post({ type: 'approve', id: 'story-phase:poc-intake' });
-  const workflowStateFile = path.join(root, 'singularity/work-items/POC-RC-1/workflow.json');
+  const workflowStateFile = path.join(storyRoot, 'singularity/work-items/POC-RC-1/workflow.json');
   await until(() => {
     const state = JSON.parse(readFileSync(workflowStateFile, 'utf8'));
     return state.currentPhase === 'poc-impact-analysis' ? state : null;
   }, { what: 'the independent approval to advance the POC Story' });
   await until(() => {
     const remoteHead = run('git', ['ls-remote', 'origin', 'refs/heads/POC-RC-1'], {
-      cwd: root
+      cwd: storyRoot
     }).stdout.split(/\s+/)[0];
-    const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+    const localHead = run('git', ['rev-parse', 'HEAD'], { cwd: storyRoot }).stdout.trim();
     return remoteHead && remoteHead === localHead ? remoteHead : null;
   }, { what: 'the approval to be durably published to the Story ref' });
   assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd: root }).stdout.split(/\s+/)[0], baseCommit,
@@ -1899,7 +1905,7 @@ test('the packaged POC release candidate journey survives publication, review, C
   const sessionStatus = JSON.parse(session.stdout);
   assert.equal(sessionStatus.workId, 'POC-RC-1');
   assert.equal(sessionStatus.ready, true);
-  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'POC-RC-1',
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: storyRoot }).stdout.trim(), 'POC-RC-1',
     'the shell sees the same Story branch as the editor');
   await until(() => reviewHost.registered.statusBars.some((item) =>
     /POC-RC-1/.test(item.text) && /poc-impact-analysis/.test(item.text)) ? true : null,
@@ -1952,7 +1958,7 @@ test('the packaged POC release candidate journey survives publication, review, C
   ]) {
     let before = JSON.parse(await readFile(workflowStateFile, 'utf8'));
     assert.equal(before.currentPhase, phaseId);
-    const phaseFile = path.join(root, 'singularity/work-items/POC-RC-1', before.phases[phaseId].requiredArtifact.path);
+    const phaseFile = path.join(storyRoot, 'singularity/work-items/POC-RC-1', before.phases[phaseId].requiredArtifact.path);
     if (!existsSync(phaseFile)) {
       const prepared = cli(['prepare', phaseId], reviewer.name);
       assert.equal(prepared.status, 0, `prepare ${phaseId} failed:\n${prepared.stderr}`);
@@ -1965,7 +1971,7 @@ test('the packaged POC release candidate journey survives publication, review, C
     phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
     await writeFile(phaseFile, phaseText);
     if (phaseId === 'poc-test-generation') {
-      const generatedTest = path.join(root, 'tests', 'poc-generated.test.mjs');
+      const generatedTest = path.join(storyRoot, 'tests', 'poc-generated.test.mjs');
       await mkdir(path.dirname(generatedTest), { recursive: true });
       await writeFile(generatedTest, [
         "import assert from 'node:assert/strict';",

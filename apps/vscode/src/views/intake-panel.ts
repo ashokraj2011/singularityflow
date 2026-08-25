@@ -22,6 +22,7 @@ export interface Started {
   shape: Shape;
   id: string;
   currentPhase?: string;
+  repositoryPath?: string;
 }
 
 export interface IntakeTarget {
@@ -433,6 +434,7 @@ export class IntakePanel {
         initiative?: { id?: string };
         reservation?: { id?: string };
         currentPhase?: string;
+        repositoryPath?: string;
       };
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
@@ -446,7 +448,9 @@ export class IntakePanel {
         ?? (this.form.tracker === 'jira' ? this.form.key.trim() : this.form.id.trim());
       const shape = this.form.shape;
       this.dispose();
-      await this.onStarted({ shape, id, currentPhase: payload.currentPhase });
+      await this.onStarted({
+        shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath
+      });
     } catch (error) {
       this.update({ busy: false, error: (error as Error).message });
     }

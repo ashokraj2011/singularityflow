@@ -2737,7 +2737,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await store.refresh();
     const repositoryState = store.current.snapshot?.repository;
     const changedPaths = repositoryState?.changes ?? [];
-    if (changedPaths.length) {
+    // Stories run in dedicated worktrees, so a dirty checkout from another Story is not a blocker.
+    // Initiative and Epic starts still use the selected checkout and retain the existing guard when
+    // that shape was requested directly. With the generic Start Work entry, the form decides the
+    // shape first and the engine applies the appropriate boundary.
+    if (changedPaths.length && defaults.shape && defaults.shape !== 'story') {
       const branchName = repositoryState?.branch ?? 'detached HEAD';
       const repositoryName = path.basename(repositoryState?.root ?? repository);
       const target = workspaceLabel ? `${workspaceLabel} → ${repositoryName}` : repositoryName;
@@ -2821,6 +2825,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { IntakePanel } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
+      if (started.shape === 'story' && started.repositoryPath
+          && path.resolve(started.repositoryPath) !== path.resolve(repository)) {
+        void vscode.window.showInformationMessage(
+          `Story ${started.id} started in its isolated checkout. Opening it now.`
+        );
+        await vscode.commands.executeCommand(
+          'vscode.openFolder', vscode.Uri.file(started.repositoryPath), false
+        );
+        return;
+      }
       await store.refresh();
       const subject = started.shape === 'story' ? 'Story'
         : started.shape === 'epic' ? 'Epic' : 'Initiative';

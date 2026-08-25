@@ -12,7 +12,7 @@ import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -559,9 +559,47 @@ async function retainCapabilityPublicationRecovery(root, workId, publication, en
   return next;
 }
 
+async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, options) {
+  const {
+    completeStoryWorktree, prepareStoryWorktree, rollbackStoryWorktree
+  } = await import('./story-worktree.mjs');
+  const prepared = await prepareStoryWorktree(sourceRoot, id);
+  const previousDirectory = process.cwd();
+  try {
+    process.chdir(prepared.repositoryPath);
+    const result = await startCommand(positionals, {
+      ...options,
+      'isolated-worktree': false,
+      'managed-story-worktree': prepared.repositoryPath,
+      'story-launch-repository': sourceRoot
+    });
+    completeStoryWorktree(prepared);
+    return result;
+  } catch (error) {
+    const recovery = rollbackStoryWorktree(prepared);
+    if (recovery.retained) {
+      throw new SingularityFlowError(
+        `${error.message}\nThe governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`,
+        { code: error.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED', details: { repositoryPath: recovery.repositoryPath }, cause: error }
+      );
+    }
+    throw error;
+  } finally {
+    process.chdir(previousDirectory);
+  }
+}
+
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
+  const managedStoryWorktree = optionString(options, 'managed-story-worktree');
+  // A Story owns a branch, index and working directory of its own. VS Code always asks for this
+  // isolation; the CLI also selects it automatically when the launch checkout is dirty, so
+  // unrelated files from an earlier Story can never become a global Story-start lock.
+  if (!managedStoryWorktree && (optionBoolean(options, 'isolated-worktree')
+      || (!optionBoolean(options, 'allow-dirty') && changes(root).trim()))) {
+    return startCommandInIsolatedWorktree(root, id, positionals, options);
+  }
   // Story start mutates checkout/configuration/session planes before workflow.json exists. Recover
   // their write-ahead journal before trying to load configuration, because a hard kill may have
   // interrupted configuration materialization itself.
@@ -856,7 +894,8 @@ export async function startCommand(positionals, options) {
           targetBranchExisted: refExists(target, `refs/heads/${canonicalBranch}`),
           baseCommit: refExists(target, baseRef) ? refHead(target, baseRef) : null
         };
-      })
+      }).filter((repository) => !managedStoryWorktree
+        || gitCommonDir(repository.target) !== gitCommonDir(root))
     : [];
   const startJournal = await beginStoryStartJournal(root, {
     id,
@@ -891,7 +930,9 @@ export async function startCommand(positionals, options) {
    */
   if (storyBase.scope === 'capability') {
     capabilityRepositoriesPrepared = prepareCapabilityRepositories(
-      storyBase.workspaceRoot, storyBase.plan, canonicalBranch, { remote }
+      storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
+        remote, lifecycleRoot: managedStoryWorktree ? root : null
+      }
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);
     await updateStoryStartJournal(root, id, startJournal.transactionId, {
@@ -1136,6 +1177,7 @@ export async function startCommand(positionals, options) {
     data: {
       workItem: { id: workflow.workItem.id, branch: workflow.workItem.branch, title: workflow.workItem.title },
       id: workflow.workItem.id,
+      repositoryPath: root,
       workType,
       currentPhase: workflow.currentPhase,
       documents: supportingDocuments.length,
@@ -1173,6 +1215,13 @@ export async function startCommand(positionals, options) {
           prepared: capabilityRepositoriesPrepared ?? [],
           publications: capabilityPublication.published
         }
+      } : {}),
+      ...(managedStoryWorktree ? {
+        worktree: {
+          isolated: true,
+          repositoryPath: root,
+          launchRepository: optionString(options, 'story-launch-repository') ?? null
+        }
       } : {})
     },
     next: [
@@ -1191,12 +1240,18 @@ export async function startCommand(positionals, options) {
   });
   if (!optionBoolean(options, 'json')) {
     summary(workflow);
+    if (managedStoryWorktree) {
+      const shellPath = root.replaceAll("'", "'\\''");
+      console.log(`Isolated Story checkout: ${root}`);
+      console.log(`Continue there: cd '${shellPath}'`);
+    }
     if (workflow.measurement?.plan?.variantId) {
       console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
     }
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
   }
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
+  return startResult;
   } catch (error) {
     // One recovery implementation handles both an ordinary throw and the next process after a hard
     // kill. It restores configuration/session/sibling checkouts only while Git still proves they

@@ -1034,7 +1034,10 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   assert.match(execution.stderr, /4 pending view workers, up to 2 concurrent/);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
-  const { routing, rebuild_reason: rebuildReason, ...generation } = manifest.generation;
+  const {
+    routing, rebuild_reason: rebuildReason,
+    synthesis_composition: synthesisComposition, ...generation
+  } = manifest.generation;
   assert.deepEqual(generation, {
     parallel: true,
     strategy: 'view',
@@ -1047,6 +1050,19 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     effective_mode: 'agentic'
   });
   assert.equal(rebuildReason, 'policy-forced');
+  assert.deepEqual(synthesisComposition, {
+    candidatePacketBytes: 276,
+    selectedPacketBytes: 276,
+    omittedPacketBytes: 0,
+    packetSummaries: 4,
+    packetExpansionHandles: 4,
+    admissionAssurance: 'estimated',
+    safeToEnforce: false,
+    maximumSynthesisInputTokens: 24000,
+    compositionLimitTokens: 22976,
+    recoveryReserveTokens: 1024,
+    synthesisOverflow: 'summarize-or-refuse'
+  });
   assert.equal(routing.mode, 'task-routed');
   assert.deepEqual(routing.discovery.map((entry) => entry.view), [
     'business', 'development', 'security', 'testing'

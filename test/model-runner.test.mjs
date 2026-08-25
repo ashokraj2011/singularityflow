@@ -48,6 +48,13 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   assert.equal(audit.promptEncoding, 'utf-8');
   assert.equal(audit.promptBytes, Buffer.byteLength(prompt));
   assert.equal(audit.promptSha256, createHash('sha256').update(prompt).digest('hex'));
+  assert.equal(audit.tokenAdmission.logicalPromptTokens.assurance, 'estimated');
+  assert.equal(audit.tokenAdmission.safeToEnforce, false);
+  assert.equal(audit.economics.prompt.finalPromptBytes, Buffer.byteLength(prompt));
+  assert.equal(audit.economics.provider.inputTokens, null);
+  assert.deepEqual(audit.promptLayout.omitted, []);
+  assert.equal(audit.promptLayout.selected[0].sha256, audit.promptSha256);
+  assert.equal(audit.promptLayout.selected[0].bytes, audit.promptBytes);
   assert.doesNotMatch(JSON.stringify(audit), /CGR_CANARY|_END/);
   const verified = await listModelInvocations(root, {
     subjectId: 'MODEL-1', phase: 'implementation', generationIntentId: 'intent-1', generation: 2
@@ -99,4 +106,20 @@ test('an allowlist tool policy must name at least one tool', async () => {
   }, () => invokeModel(request(root, {
     tools: { mode: 'allowlist', names: [] }
   }))), (error) => error.code === 'MODEL_REQUEST_INVALID' && /must not be empty/.test(error.message));
+});
+
+test('the universal model boundary refuses unsafe enforcement before provider execution', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-admission-'));
+  run('git', ['init', '-q'], { cwd: root });
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    tokenAdmission: { mode: 'enforce', maximumInputTokens: 1000 }
+  }))), (error) => error.code === 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT');
+  const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
+  const [name] = await readdir(auditDirectory);
+  const audit = JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'));
+  assert.equal(audit.status, 'failed');
+  assert.equal(audit.error.code, 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT');
+  assert.equal(audit.tokenAdmission.admitted, null);
 });

@@ -14,7 +14,7 @@ test('[TKN:REQ-140] pilot policy defaults to observe and keeps feature switches 
   assert.equal(policy.mode, 'observe');
   assert.equal(policy.observationFirewall, true);
   assert.equal(policy.historicalMemory, false);
-  assert.equal(selectedTokenEconomyProfile(policy).maxInputTokens, 18_000);
+  assert.equal(selectedTokenEconomyProfile(policy).maximumEstimatedPromptTokens, 18_000);
   assert.equal(normalizeTokenEconomy({ enabled: false, mode: 'enforce' }).mode, 'off');
   assert.throws(
     () => selectedTokenEconomyProfile(policy, 'not-approved'),

@@ -15,6 +15,7 @@ import { prepareTelemetryLaunch } from './telemetry-provision.mjs';
 import { repositoryLogger } from './logging.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import { canonicalJson } from './records.mjs';
+import { assessTokenAdmission } from './token-admission.mjs';
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
@@ -87,6 +88,58 @@ function positiveInteger(value, label) {
   return value;
 }
 
+function observedUsage(usage, field) {
+  const direct = usage?.[field];
+  if (Number.isFinite(direct) && direct >= 0) return Number(direct);
+  const observed = usage?.observations?.[field]?.value;
+  return Number.isFinite(observed) && observed >= 0 ? Number(observed) : null;
+}
+
+function invocationEconomics(promptBytes, usage = null) {
+  const inputTokens = observedUsage(usage, 'inputTokens');
+  const outputTokens = observedUsage(usage, 'outputTokens');
+  const cachedInputTokens = observedUsage(usage, 'cachedInputTokens');
+  const reasoningTokens = observedUsage(usage, 'reasoningTokens');
+  const uncachedInputTokens = inputTokens != null && cachedInputTokens != null
+    && cachedInputTokens <= inputTokens ? inputTokens - cachedInputTokens : null;
+  return {
+    source: {
+      sourceBytes: null, managedSourceBytesExcluded: null,
+      assurance: 'unavailable-at-provider-boundary'
+    },
+    prompt: {
+      candidatePromptBytes: promptBytes, deduplicatedPromptBytes: 0,
+      budgetEvictedPromptBytes: 0, finalPromptBytes: promptBytes,
+      assurance: 'sflow-measured'
+    },
+    provider: {
+      inputTokens, outputTokens, cachedInputTokens, uncachedInputTokens, reasoningTokens,
+      totalTokens: observedUsage(usage, 'totalTokens')
+        ?? (inputTokens != null && outputTokens != null ? inputTokens + outputTokens : null),
+      providerCost: Number.isFinite(usage?.providerCost) ? usage.providerCost : null,
+      assurance: inputTokens == null && outputTokens == null
+        ? 'unavailable' : usage?.assurance ?? 'provider-reported'
+    },
+    system: { totalSystemTokens: null, assurance: 'unavailable' }
+  };
+}
+
+function boundaryPromptLayout(staged) {
+  const section = {
+    id: 'provider-request-prompt', mandatory: true, bytes: staged.bytes,
+    sha256: staged.sha256, reason: 'selected-at-model-boundary'
+  };
+  return {
+    boundary: 'model-runner',
+    candidate: [section],
+    mandatory: [section],
+    selected: [section],
+    omitted: [],
+    unavailable: [],
+    expanded: []
+  };
+}
+
 async function normalizeRequest(request, context) {
   if (!request || typeof request !== 'object' || Array.isArray(request)) {
     throw new SingularityFlowError('Model request must be an object.', { code: 'MODEL_REQUEST_INVALID' });
@@ -143,6 +196,15 @@ async function normalizeRequest(request, context) {
   // A task is optional and additive: every caller that names a model directly still works. When one
   // is given it must be in the closed enum, refused here rather than deep in the mapping.
   if (request.task != null) assertModelTask(request.task, 'Model request task');
+  if (request.tokenAdmission != null
+      && (!request.tokenAdmission || typeof request.tokenAdmission !== 'object'
+        || Array.isArray(request.tokenAdmission))) {
+    throw new SingularityFlowError('Model request tokenAdmission must be an object.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  if (request.tokenAdmission?.mode != null
+      && !['observe', 'enforce'].includes(request.tokenAdmission.mode)) {
+    throw new SingularityFlowError('Model request tokenAdmission.mode must be observe or enforce.', { code: 'MODEL_REQUEST_INVALID' });
+  }
   return Object.freeze({
     ...request,
     provider: provider.trim(),
@@ -291,6 +353,11 @@ export async function invokeModel(request) {
   const file = path.join(directory, `${id}.json`);
   await mkdir(directory, { recursive: true });
   const staged = await stageModelPrompt(normalized.prompt, { maximumBytes: normalized.limits.promptBytes });
+  const admission = assessTokenAdmission({
+    ...(normalized.tokenAdmission ?? {}),
+    model: routing?.model ?? normalized.model ?? null,
+    logicalPromptBytes: staged.bytes
+  });
   log.info('model.prompt.staged', null, {
     provider: providerId, transport: 'attachment', promptBytes: staged.bytes
   });
@@ -321,6 +388,9 @@ export async function invokeModel(request) {
     promptBytes: staged.bytes,
     promptTransport: 'attachment',
     promptEncoding: staged.encoding,
+    promptLayout: boundaryPromptLayout(staged),
+    tokenAdmission: admission,
+    economics: invocationEconomics(staged.bytes),
     cwdSha256: sha256(normalized.cwd),
     channel: normalized.channel,
     subject: normalized.subject ?? null,
@@ -355,6 +425,20 @@ export async function invokeModel(request) {
     // still removed by the outer finally.
     await writeJson(file, event);
     auditStarted = true;
+    if (normalized.tokenAdmission?.mode === 'enforce') {
+      if (!admission.safeToEnforce || admission.maximumInputTokens == null) {
+        throw new SingularityFlowError(
+          'Model invocation cannot enforce a context boundary without complete tokenizer/provider admission evidence.',
+          { code: 'TKN_ADMISSION_ASSURANCE_INSUFFICIENT', details: { admission } }
+        );
+      }
+      if (admission.admitted !== true) {
+        throw new SingularityFlowError(
+          'Model invocation exceeds the admitted provider context boundary.',
+          { code: 'TKN_PROVIDER_CONTEXT_OVERFLOW', details: { admission } }
+        );
+      }
+    }
     const telemetryHost = normalized.channel.includes('vscode')
       ? 'vscode-terminal'
       : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
@@ -394,7 +478,8 @@ export async function invokeModel(request) {
       completedAt,
       outputBytes,
       outputSha256,
-      usage: result.usage ?? { status: 'unavailable' }
+      usage: result.usage ?? { status: 'unavailable' },
+      economics: invocationEconomics(staged.bytes, result.usage)
     });
     await writeJson(file, completedEvent);
     await captureInvocationPrompt(resolvedAuditRoot, staged, completedEvent).catch((error) => {
@@ -420,6 +505,8 @@ export async function invokeModel(request) {
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' },
+      tokenAdmission: admission,
+      economics: completedEvent.economics,
       startedAt: event.startedAt,
       completedAt,
       invocation: { id, path: file, provider: providerId, model: event.model }

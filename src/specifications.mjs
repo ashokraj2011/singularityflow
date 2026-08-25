@@ -372,8 +372,17 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
 }
 
 export function predecessorSpecClauses(records, workflow, phaseId) {
-  const position = workflow.phaseOrder.indexOf(phaseId);
-  const allowed = new Set(workflow.phaseOrder.slice(0, Math.max(0, position)));
+  // Current records carry phaseOrder. Legacy/ad-hoc fixtures may only carry the pinned resolution
+  // or phase map; they still need a deterministic, non-throwing continuity projection. When no
+  // predecessor order can be proven, treating no phase as a predecessor is safer than importing a
+  // current/later clause.
+  const phaseOrder = Array.isArray(workflow?.phaseOrder)
+    ? workflow.phaseOrder
+    : Array.isArray(workflow?.resolution?.phases)
+      ? workflow.resolution.phases.map((phase) => phase.id).filter(Boolean)
+      : Object.keys(workflow?.phases ?? {});
+  const position = phaseOrder.indexOf(phaseId);
+  const allowed = new Set(position < 0 ? [] : phaseOrder.slice(0, position));
   return (records.indexes ?? [])
     .filter((index) => allowed.has(index.phase))
     .flatMap((index) => index.clauses ?? []);

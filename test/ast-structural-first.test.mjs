@@ -145,6 +145,8 @@ test('the composed prompt page leads with structure and says how much it carries
   assert.match(context.text, /·\s+\d+ structural/, 'the header does not disclose the structural count');
   const structural = Number(context.text.match(/·\s+(\d+) structural/)[1]);
   assert.ok(structural >= 1, 'the injected page carries no structural facts');
+  assert.doesNotMatch(context.text, /"kind": "file"/,
+    'file inventory leaked into a structural prompt after structural facts were available');
 });
 
 test('disabled or unavailable AST still composes without failing the workflow', async () => {

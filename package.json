@@ -39,6 +39,7 @@
     "RELEASE-INITIATIVE-ORCHESTRATION.md",
     "scripts/worldmodel-minimal.sh",
     "scripts/replace-identities.mjs",
+    "scripts/verification-receipt.mjs",
     "LICENSE"
   ],
   "workspaces": [
@@ -81,7 +82,8 @@
     "release:dry": "node scripts/release.mjs --dry-run",
     "smoke:golden": "node scripts/golden-journey-smoke.mjs",
     "benchmark:dx": "node scripts/dx-benchmark.mjs",
-    "benchmark:dx:enforce": "node scripts/dx-benchmark.mjs --enforce"
+    "benchmark:dx:enforce": "node scripts/dx-benchmark.mjs --enforce",
+    "verification:receipt": "node scripts/verification-receipt.mjs"
   },
   "engines": {
     "node": ">=20"

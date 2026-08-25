@@ -8,7 +8,7 @@ const CAPABILITY_MODES = Object.freeze(['off', 'optional', 'required']);
 const BREACH_POLICIES = Object.freeze(['refuse', 'partial']);
 
 const DEFAULT_PROFILE = Object.freeze({
-  maxInputTokens: 18_000,
+  maximumEstimatedPromptTokens: 18_000,
   reservedOutputTokens: 6_000,
   maxExpansionTokens: 8_000,
   observationCapsuleTokens: 3_000,
@@ -47,11 +47,19 @@ function enabled(value, fallback, label) {
 function normalizeProfile(value, label) {
   const source = object(value ?? {}, label);
   for (const key of Object.keys(source)) if (![
-    'maxInputTokens', 'reservedOutputTokens', 'maxExpansionTokens',
+    'maximumEstimatedPromptTokens', 'maxInputTokens', 'reservedOutputTokens', 'maxExpansionTokens',
     'observationCapsuleTokens', 'policyOnBudgetBreach'
   ].includes(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
+  if (source.maximumEstimatedPromptTokens != null && source.maxInputTokens != null
+      && source.maximumEstimatedPromptTokens !== source.maxInputTokens) {
+    throw new SingularityFlowError(`${label} cannot give maximumEstimatedPromptTokens and legacy maxInputTokens different values.`);
+  }
   return Object.freeze({
-    maxInputTokens: integer(source.maxInputTokens, DEFAULT_PROFILE.maxInputTokens, `${label}.maxInputTokens`, { minimum: 1024 }),
+    maximumEstimatedPromptTokens: integer(
+      source.maximumEstimatedPromptTokens ?? source.maxInputTokens,
+      DEFAULT_PROFILE.maximumEstimatedPromptTokens,
+      `${label}.maximumEstimatedPromptTokens`, { minimum: 1024 }
+    ),
     reservedOutputTokens: integer(source.reservedOutputTokens, DEFAULT_PROFILE.reservedOutputTokens, `${label}.reservedOutputTokens`),
     maxExpansionTokens: integer(source.maxExpansionTokens, DEFAULT_PROFILE.maxExpansionTokens, `${label}.maxExpansionTokens`),
     observationCapsuleTokens: integer(source.observationCapsuleTokens, DEFAULT_PROFILE.observationCapsuleTokens, `${label}.observationCapsuleTokens`),

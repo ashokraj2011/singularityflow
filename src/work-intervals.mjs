@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { lstat, readFile } from 'node:fs/promises';
 import { branch, changedFiles, gitDir, head } from './git.mjs';
-import { buildRepositoryChangeSet, changeSetPaths, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import {
+  buildRepositoryChangeSet, changeSetPaths, repositoryCaseInsensitivePaths, repositoryChangeSetDigest
+} from './repository-change-set.mjs';
 import { loadActiveSpecRecords } from './specifications.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
@@ -242,16 +244,30 @@ export function isApplicationChangeEntry(entry) {
     isApplicationChangePath(candidate, { untracked: entry?.untracked === true && candidate === entry?.newPath }));
 }
 
+/**
+ * Project a repository change set onto the application bytes that a contributor is being asked to
+ * adopt. The repository HEAD is deliberately not part of this projection: Singularity Flow may
+ * commit governance-only receipts while the application delta remains byte-for-byte identical.
+ * Entry identities and current-content hashes still bind every application rename, deletion,
+ * staged/unstaged edit, and untracked source file to the confirmation digest.
+ */
+export function applicationChangeSetProjection(changeSet) {
+  const { digest: _digest, ...core } = changeSet;
+  const projection = {
+    ...core,
+    target: { ...core.target, head: null },
+    entries: (core.entries ?? []).filter(isApplicationChangeEntry)
+  };
+  return { ...projection, digest: repositoryChangeSetDigest(projection) };
+}
+
 function splitNull(value) {
   return value.split('\0').map((item) => item.trim()).filter(Boolean);
 }
 
 async function pathsSince(root, sourceBaseCommit) {
   const changeSet = await buildRepositoryChangeSet(root, { baseCommit: sourceBaseCommit });
-  const applicationChangeSet = {
-    ...changeSet,
-    entries: changeSet.entries.filter(isApplicationChangeEntry)
-  };
+  const applicationChangeSet = applicationChangeSetProjection(changeSet);
   return changeSetPaths(applicationChangeSet, { bothEndpoints: true });
 }
 

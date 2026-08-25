@@ -6,7 +6,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
-import { isApplicationChangeEntry } from './work-intervals.mjs';
+import { applicationChangeSetProjection } from './work-intervals.mjs';
 import { nowIso, posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
@@ -14,10 +14,6 @@ function receiptRelative(config, workflow, phase, generation) {
     config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
     'context', 'generation-start', `${phase.id}-gen${generation}.json`
   ));
-}
-
-function currentApplicationEntries(changeSet) {
-  return (changeSet.entries ?? []).filter(isApplicationChangeEntry);
 }
 
 function generationStartSha256(record) {
@@ -106,11 +102,12 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     baseCommit: baselineCommit,
     subject: { workId: workflow.workItem.id, phase: phase.id, generation, generationIntentId: null }
   });
-  const existing = currentApplicationEntries(changeSet);
+  const applicationChangeSet = applicationChangeSetProjection(changeSet);
+  const existing = applicationChangeSet.entries;
   const dirtyPolicy = workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block';
   if (existing.length && !adoptExisting) {
     throw new SingularityFlowError(
-      `Code already changed before generation begin. Re-run with --adopt-existing --confirm ${changeSet.digest} only after reviewing the full change set.`,
+      `Code already changed before generation begin. Re-run with --adopt-existing --confirm ${applicationChangeSet.digest} only after reviewing the full application change set.`,
       { code: 'GENERATION_DIRTY_START' }
     );
   }
@@ -122,8 +119,8 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     if (!previousGenerationCommit && dirtyPolicy !== 'allow-explicit-adoption') {
       throw new SingularityFlowError('This Story policy does not permit adoption of existing source changes.', { code: 'GENERATION_DIRTY_START' });
     }
-    if (!confirm || confirm !== changeSet.digest) {
-      throw new SingularityFlowError(`Adoption confirmation must equal the current change-set digest ${changeSet.digest}.`, { code: 'GENERATION_DIRTY_START' });
+    if (!confirm || confirm !== applicationChangeSet.digest) {
+      throw new SingularityFlowError(`Adoption confirmation must equal the current application change-set digest ${applicationChangeSet.digest}.`, { code: 'GENERATION_DIRTY_START' });
     }
   }
   const telemetry = await beginTelemetryCapture(root, workflow, phase);
@@ -142,7 +139,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     baseline: {
       commit: baselineCommit,
       tree: changeSet.base.tree,
-      initialChangeSetDigest: changeSet.digest,
+      initialChangeSetDigest: applicationChangeSet.digest,
       mode: existing.length ? 'adopted' : 'clean',
       previousGenerationCommit
     },
@@ -155,7 +152,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     startedAt,
     startedBy: { actor, agent },
     telemetryCursor: { key: `${workflow.workItem.id}:${phase.id}:${generation}`, startedAt: telemetry.startedAt },
-    adoption: existing.length ? { confirmedDigest: changeSet.digest, paths: existing.length } : null
+    adoption: existing.length ? { confirmedDigest: applicationChangeSet.digest, paths: existing.length } : null
   };
   const receipt = { ...receiptContent, receiptSha256: generationStartSha256(receiptContent) };
   phase.generationIntent = {

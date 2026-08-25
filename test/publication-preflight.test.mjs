@@ -500,10 +500,55 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.match(renewal.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
   assert.equal(renewal.skill, '/sf-code');
 
+  const generatedContext = path.join(
+    context.root, 'singularity', 'work-items', 'DELIVERY-1', 'context', 'recovery-attempt.json'
+  );
+  await writeFile(generatedContext, '{"generatedBy":"singularity-flow"}\n');
+  git(context.root, 'add', 'singularity/work-items/DELIVERY-1/context/recovery-attempt.json');
+  git(context.root, 'commit', '-m', 'record governance-only recovery context');
+  await writeFile(path.join(context.root, '.sflow', 'results', 'retry.json'), '{"status":"passed"}\n');
+  const stableRecovery = await recoveryPlan(context.root, context.config, context.workflow, {
+    phaseId: 'implementation'
+  });
+  const stableRenewal = stableRecovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.equal(stableRenewal.command, renewal.command,
+    'governance commits or generated test results changed the recovery adoption digest');
+
   context.workflow.resolution.codeDelivery.generationBoundary.dirtyStart = 'allow-explicit-adoption';
   const adoptable = await recoveryPlan(context.root, context.config, context.workflow, {
     phaseId: 'implementation'
   });
   const adoption = adoptable.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.match(adoption.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+});
+
+test('prepare refuses a consumed code generation before writing next-generation state', async () => {
+  const context = await codeFixture('consumed-prepare');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishGeneration(context.root, context.config, context.workflow, {
+    phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
+  }));
+  const artifactBefore = await readFile(context.target, 'utf8');
+  const phaseBefore = JSON.stringify(context.phase);
+  const nextReceipt = path.join(
+    context.root, 'singularity', 'work-items', 'DELIVERY-1',
+    'context', 'generation-start', 'implementation-gen2.json'
+  );
+
+  await assert.rejects(
+    () => inContext(context.root, () => preparePhaseInputs(
+      context.root, context.config, context.workflow, 'implementation'
+    )),
+    (error) => error.code === 'GENERATION_INTENT_ALREADY_CONSUMED'
+      && /recover DELIVERY-1 --phase implementation --json/.test(error.message)
+      && /exact phase-begin action before preparing/.test(error.message)
+  );
+
+  assert.equal(await readFile(context.target, 'utf8'), artifactBefore,
+    'prepare rewrote the artifact before rejecting the consumed generation');
+  assert.equal(JSON.stringify(context.phase), phaseBefore,
+    'prepare mutated phase state before rejecting the consumed generation');
+  await assert.rejects(() => readFile(nextReceipt), (error) => error.code === 'ENOENT');
 });

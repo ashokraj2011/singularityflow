@@ -782,6 +782,21 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
 } = {}) {
   if (!dryRun) await assertNoPendingPublication(root, config, workflow, 'prepare or change phase inputs');
   const phase = await assertPhaseSequence(root, workflow, 'prepare', { requestedPhase: requested });
+  const explicitlyReopened = (workflow.changeRequests ?? []).some((request) =>
+    request.status === 'open' && request.targetPhase === phase.id)
+    || (phase.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
+  if (!dryRun
+      && phaseRequiresCodeDelivery(phase)
+      && phase.generationIntent?.status === 'consumed'
+      && Number(phase.generationIntent.generation) === Number(phase.generation)
+      && !explicitlyReopened) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' generation ${phase.generation} is already published. `
+      + `Run singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json, `
+      + 'then execute its exact phase-begin action before preparing the next generation.',
+      { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
+    );
+  }
   await assertMcpPhaseReadiness(root, workflow, phase);
   await hydrateImpactPlan(root, workflow);
   const impactGate = impactImplementationGate(workflow, phase.id);

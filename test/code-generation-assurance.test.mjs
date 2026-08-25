@@ -437,12 +437,40 @@ test('a later generation uses the prior generated commit and permits digest-conf
       return error.code === 'GENERATION_DIRTY_START' && Boolean(confirmedDigest);
     }
   );
+  const generatedContext = path.join(root, 'singularity', 'work-items', 'CGA-ROLL', 'context', 'attempt.json');
+  await mkdir(path.dirname(generatedContext), { recursive: true });
+  await writeFile(generatedContext, '{"generatedBy":"singularity-flow"}\n');
+  git(root, ['add', 'singularity/work-items/CGA-ROLL/context/attempt.json']);
+  git(root, ['commit', '-m', 'record governance-only recovery context']);
+  await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+  await writeFile(path.join(root, '.sflow', 'results', 'tests.json'), '{"status":"passed"}\n');
+  let stableDigest = null;
+  await assert.rejects(
+    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false }),
+    (error) => {
+      stableDigest = error.message.match(/sha256:[a-f0-9]{64}/)?.[0] ?? null;
+      return error.code === 'GENERATION_DIRTY_START' && Boolean(stableDigest);
+    }
+  );
+  assert.equal(stableDigest, confirmedDigest,
+    'governance commits or generated test results changed the application adoption digest');
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "changed-after-review";\n');
+  await assert.rejects(
+    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, {
+      adoptExisting: true, confirm: confirmedDigest, persist: false
+    }),
+    (error) => error.code === 'GENERATION_DIRTY_START'
+      && /current application change-set digest/.test(error.message)
+      && !error.message.includes(confirmedDigest)
+  );
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "repaired";\n');
   const intent = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, {
     adoptExisting: true, confirm: confirmedDigest, persist: false
   });
   assert.equal(intent.baseline.commit, published);
   assert.equal(intent.baseline.previousGenerationCommit, published);
   assert.equal(intent.baseline.mode, 'adopted');
+  assert.equal(intent.baseline.initialChangeSetDigest, confirmedDigest);
 });
 
 test('generation-start verification binds the entire durable receipt', async () => {

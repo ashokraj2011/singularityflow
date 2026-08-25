@@ -4,7 +4,7 @@ import { planAgentBriefs } from './agent-briefs.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
-import { isApplicationChangeEntry } from './work-intervals.mjs';
+import { applicationChangeSetProjection } from './work-intervals.mjs';
 import { publishedGenerationCommit } from './generation-boundary.mjs';
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
@@ -63,12 +63,12 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
           generationIntentId: null
         }
       });
-      const applicationChanges = (changeSet.entries ?? []).filter(isApplicationChangeEntry);
-      if (applicationChanges.length) {
-        changeSetDigest = changeSet.digest;
+      const applicationChangeSet = applicationChangeSetProjection(changeSet);
+      if (applicationChangeSet.entries.length) {
+        changeSetDigest = applicationChangeSet.digest;
         if (previousGenerationCommit
             || (workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') === 'allow-explicit-adoption') {
-          command += ` --adopt-existing --confirm ${changeSet.digest}`;
+          command += ` --adopt-existing --confirm ${applicationChangeSet.digest}`;
         } else {
           mode = 'manual';
           command = null;

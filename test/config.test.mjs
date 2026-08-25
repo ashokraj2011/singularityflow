@@ -91,6 +91,10 @@ test('the shipped workflow schema stays in parity with token economy and code-de
 
   const tokenSchema = schema.$defs.tokenEconomy.properties;
   const normalized = normalizeTokenEconomy(template.tokenEconomy);
+  assert.equal(tokenSchema.mode.default, 'observe');
+  assert.equal(template.tokenEconomy.mode, 'observe');
+  assert.equal(normalizeTokenEconomy({}).mode, 'observe');
+  assert.equal(normalized.mode, 'observe');
   assert.deepEqual(Object.keys(normalized).sort(), Object.keys(tokenSchema).sort());
   const profileSchema = schema.$defs.tokenEconomyProfile.properties;
   assert.deepEqual(

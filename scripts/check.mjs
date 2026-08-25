@@ -373,6 +373,13 @@ for (const id of ['product-owner', 'architect', 'developer', 'qa']) {
 checked.push('templates/agents');
 if (workflowTemplate.ledger?.enabled !== false || workflowTemplate.ledger?.branch !== 'state') fail('workflow template must ship the opt-in orphan capability-ledger configuration.');
 if (workflowTemplate.ledger?.publication !== 'warn') fail('workflow template must ship warning-only state publication by default.');
+if (workflowTemplate.tokenEconomy?.enabled !== true || workflowTemplate.tokenEconomy?.mode !== 'observe') {
+  fail('workflow template must enable token economy in non-intervening observe mode by default.');
+}
+const workflowSchema = JSON.parse(await readFile(path.join(root, 'schemas/workflow-definition.schema.json'), 'utf8'));
+if (workflowSchema.$defs?.tokenEconomy?.properties?.mode?.default !== 'observe') {
+  fail('workflow schema must declare observe as the default token-economy mode.');
+}
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));

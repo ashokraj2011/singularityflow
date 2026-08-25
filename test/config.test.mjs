@@ -384,12 +384,23 @@ test('world-model parallel generation policy is bounded and view-scoped', async 
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-world-model-generation-'));
   await initializeDefinition(root);
   const definition = await loadDefinition(root);
-  assert.deepEqual(definition.worldModel.generation, { parallel: true, maxWorkers: 4, strategy: 'view' });
+  assert.deepEqual(definition.worldModel.generation, {
+    parallel: true, maxWorkers: 4, strategy: 'view',
+    maximumDiscoveryPacketBytes: 24576,
+    maximumSynthesisInputTokens: 24000,
+    synthesisOverflow: 'summarize-or-refuse'
+  });
   definition.worldModel.generation.maxWorkers = 17;
   assert.throws(() => validateDefinition(definition), /maxWorkers must be an integer from 1 through 16/);
   definition.worldModel.generation.maxWorkers = 2;
   definition.worldModel.generation.strategy = 'component';
   assert.throws(() => validateDefinition(definition), /strategy must be 'view'/);
+  definition.worldModel.generation.strategy = 'view';
+  definition.worldModel.generation.maximumSynthesisInputTokens = 1024;
+  assert.throws(() => validateDefinition(definition), /maximumSynthesisInputTokens/);
+  definition.worldModel.generation.maximumSynthesisInputTokens = 24000;
+  definition.worldModel.generation.synthesisOverflow = 'truncate';
+  assert.throws(() => validateDefinition(definition), /synthesisOverflow/);
 });
 
 test('sequence gates default safely to hard and support work-type overrides', async () => {

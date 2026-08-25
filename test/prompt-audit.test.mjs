@@ -57,7 +57,7 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
     agent: 'developer', phase: 'implementation', workId: 'STORY-TOOLS', workType: 'feature',
     generation: 3, task: 'code', prompt, source: 'model-invocation',
     composition: {
-      policy: { mode: 'enforce', profile: 'standard', maximumInputTokens: 18000 },
+      policy: { mode: 'enforce', profile: 'standard', maximumEstimatedPromptTokens: 18000 },
       originalBytes: 96, finalBytes: Buffer.byteLength(prompt), omitted: [{ id: 'optional-ast-context' }],
       inputLinearization: { managedBytesExcluded: 2048 },
       structuralContext: { status: 'complete', factsReturned: 12, structuralFactsReturned: 12 },
@@ -121,8 +121,9 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
   assert.match(rendered, /Policy: enforce\/standard/);
   assert.match(rendered, /Optional sections omitted: 1/);
   assert.match(rendered, /duplicates removed: 1/);
-  assert.match(rendered, /Recursive managed-input bytes excluded: 2,048/);
-  assert.match(rendered, /Duplicate approved-reference preview bytes excluded: 1,024/);
+  assert.match(rendered, /Managed source bytes excluded before prompt composition: 2,048/);
+  assert.match(rendered, /Duplicate approved-reference preview bytes excluded from prompt: 1,024/);
+  assert.match(rendered, /Provider uncached input tokens: 100/);
   assert.match(rendered, /AST structural facts selected: 12/);
   assert.match(rendered, /Sent prompt bytes: 48/);
   assert.match(rendered, /Prompt transport: attachment/);

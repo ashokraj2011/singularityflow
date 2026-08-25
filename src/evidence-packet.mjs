@@ -479,7 +479,7 @@ export async function compileEvidencePacket(root, request = {}) {
   const tokenEconomy = normalizeTokenEconomy(workflow?.resolution?.tokenEconomy ?? definition.tokenEconomy ?? {});
   const selectedProfile = selectedTokenEconomyProfile(tokenEconomy, request.profile ?? null);
   const profileBudget = ['assist', 'enforce'].includes(tokenEconomy.mode)
-    ? Math.min(MAX_OUTPUT_BYTES, selectedProfile.maxInputTokens * 4) : null;
+    ? Math.min(MAX_OUTPUT_BYTES, selectedProfile.maximumEstimatedPromptTokens * 4) : null;
   const maximumOutputBytes = packetBudget(request.maxOutputBytes ?? profileBudget);
   const sourceRevision = head(root);
   if (!sourceRevision) throw new SingularityFlowError('Repository source revision is unavailable.', {
@@ -645,7 +645,7 @@ export async function compileEvidencePacket(root, request = {}) {
       requestedSlices: slices,
       budget: {
         maximumOutputBytes, includedContentBytes, profile: selectedProfile.id,
-        maximumInputTokens: selectedProfile.maxInputTokens,
+        maximumEstimatedPromptTokens: selectedProfile.maximumEstimatedPromptTokens,
         reservedOutputTokens: selectedProfile.reservedOutputTokens,
         estimatedInputTokens: Math.ceil(includedContentBytes / 4),
         estimationMethod: 'utf8-bytes-divided-by-four', exact: false

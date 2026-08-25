@@ -137,10 +137,13 @@ function executionProjection(record, invocation) {
     limits: null,
     prompt: null,
     output: null,
-    error: null
+    error: null,
+    tokenAdmission: null,
+    economics: null
   };
   const input = numericUsage(invocation.usage, 'inputTokens');
   const output = numericUsage(invocation.usage, 'outputTokens');
+  const cachedInput = numericUsage(invocation.usage, 'cachedInputTokens');
   const total = numericUsage(invocation.usage, 'totalTokens')
     ?? (input != null && output != null ? input + output : null);
   const completed = Date.parse(invocation.completedAt);
@@ -171,7 +174,7 @@ function executionProjection(record, invocation) {
       assurance: invocation.usage?.assurance ?? (total == null ? 'unavailable' : 'provider-reported'),
       input,
       output,
-      cachedInput: numericUsage(invocation.usage, 'cachedInputTokens'),
+      cachedInput,
       reasoning: numericUsage(invocation.usage, 'reasoningTokens'),
       total,
       providerCost: Number.isFinite(invocation.usage?.providerCost) ? invocation.usage.providerCost : null,
@@ -191,7 +194,19 @@ function executionProjection(record, invocation) {
     output: invocation.outputBytes == null ? null : {
       bytes: invocation.outputBytes, sha256: invocation.outputSha256 ?? null
     },
-    error: invocation.error ?? null
+    error: invocation.error ?? null,
+    tokenAdmission: invocation.tokenAdmission ?? null,
+    economics: invocation.economics ?? {
+      provider: {
+        inputTokens: input,
+        outputTokens: output,
+        cachedInputTokens: cachedInput,
+        uncachedInputTokens: input != null && cachedInput != null && cachedInput <= input
+          ? input - cachedInput : null,
+        assurance: invocation.usage?.assurance ?? (input == null ? 'unavailable' : 'provider-reported')
+      },
+      system: { totalSystemTokens: null, assurance: 'unavailable' }
+    }
   };
 }
 
@@ -316,7 +331,7 @@ export function renderPromptAudit(record) {
     '## Prompt composition',
     '',
     `- Policy: ${record.composition?.policy ? `${record.composition.policy.mode}/${record.composition.policy.profile}` : 'unavailable'}`,
-    `- Configured input limit: ${record.composition?.policy?.maximumInputTokens == null ? 'unavailable' : `${record.composition.policy.maximumInputTokens.toLocaleString('en-US')} estimated tokens`}`,
+    `- Configured estimated prompt-text limit: ${record.composition?.policy?.maximumEstimatedPromptTokens == null ? 'unavailable' : `${record.composition.policy.maximumEstimatedPromptTokens.toLocaleString('en-US')} estimated tokens`}`,
     `- Before budgeting: ${record.composition?.originalBytes == null ? 'unavailable' : `${record.composition.originalBytes.toLocaleString('en-US')} bytes`}`,
     `- Sent after budgeting: ${record.composition?.finalBytes == null ? record.bytes.toLocaleString('en-US') : `${record.composition.finalBytes.toLocaleString('en-US')} bytes`}`,
     `- Optional sections omitted: ${record.composition?.omitted?.length ?? 0}`,
@@ -326,8 +341,16 @@ export function renderPromptAudit(record) {
     '',
     '## Context efficiency',
     '',
-    `- Recursive managed-input bytes excluded: ${(record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')}`,
-    `- Duplicate approved-reference preview bytes excluded: ${duplicateReferenceBytes.toLocaleString('en-US')}`,
+    `- Source bytes: ${record.composition?.economics?.source?.sourceBytes == null ? 'unavailable' : record.composition.economics.source.sourceBytes.toLocaleString('en-US')}`,
+    `- Managed source bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedSourceBytesExcluded ?? record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')} (source linearization; not a token-savings claim)`,
+    `- Duplicate approved-reference preview bytes excluded from prompt: ${(record.composition?.economics?.prompt?.deduplicatedPromptBytes ?? duplicateReferenceBytes).toLocaleString('en-US')}`,
+    `- Budget-evicted prompt bytes: ${(record.composition?.economics?.prompt?.budgetEvictedPromptBytes ?? 0).toLocaleString('en-US')}`,
+    `- Final prompt bytes: ${(record.composition?.economics?.prompt?.finalPromptBytes ?? record.bytes).toLocaleString('en-US')}`,
+    `- Provider input tokens: ${token(execution.economics?.provider?.inputTokens)} (${execution.economics?.provider?.assurance ?? 'unavailable'})`,
+    `- Provider cached input tokens: ${token(execution.economics?.provider?.cachedInputTokens)}`,
+    `- Provider uncached input tokens: ${token(execution.economics?.provider?.uncachedInputTokens)}`,
+    `- Provider/system tokens: ${token(execution.economics?.system?.totalSystemTokens)} (${execution.economics?.system?.assurance ?? 'unavailable'})`,
+    `- Admission assurance: ${execution.tokenAdmission?.totalAdmissionTokens?.assurance ?? 'unavailable'}`,
     `- AST status: ${display(record.composition?.structuralContext?.status, 'not requested or unavailable')}`,
     `- AST facts selected: ${record.composition?.structuralContext?.factsReturned ?? 0}`,
     `- AST structural facts selected: ${record.composition?.structuralContext?.structuralFactsReturned ?? 0}`,

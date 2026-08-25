@@ -3,23 +3,54 @@ import assert from 'node:assert/strict';
 
 import { approvedReferenceAlreadyCaptured } from '../src/worldmodel.mjs';
 
-test('approved reference previews deduplicate only an exact captured path and raw hash', () => {
-  const inputs = [{
-    status: 'captured',
-    repositoryPath: 'singularity/work-items/WORK-1/artifacts/intake/intake.md',
-    sha256: 'a'.repeat(64)
-  }];
-  assert.equal(approvedReferenceAlreadyCaptured({
-    path: inputs[0].repositoryPath, rawSha256: `sha256:${'a'.repeat(64)}`
-  }, inputs), true);
-  assert.equal(approvedReferenceAlreadyCaptured({
-    path: inputs[0].repositoryPath, rawSha256: 'b'.repeat(64)
-  }, inputs), false);
-  assert.equal(approvedReferenceAlreadyCaptured({
-    path: 'singularity/work-items/WORK-1/artifacts/design/design.md',
-    rawSha256: 'a'.repeat(64)
-  }, inputs), false);
-  assert.equal(approvedReferenceAlreadyCaptured({
-    path: inputs[0].repositoryPath, rawSha256: 'a'.repeat(64)
-  }, [{ ...inputs[0], status: 'hash_mismatch' }]), false);
+const path = 'singularity/work-items/WORK-1/artifacts/intake/intake.md';
+const raw = `sha256:${'a'.repeat(64)}`;
+const preview = `sha256:${'b'.repeat(64)}`;
+
+function input(representation, overrides = {}) {
+  return {
+    status: 'captured', repositoryPath: path, sha256: raw,
+    source: { path, rawSha256: raw }, representation, ...overrides
+  };
+}
+
+function reference(overrides = {}) {
+  return {
+    path, rawSha256: raw,
+    representation: { kind: 'truncated', sha256: preview, bytes: 100, complete: false, expansionHandle: 'sfref:preview' },
+    ...overrides
+  };
+}
+
+test('approved reference dedup requires model-visible equivalence, completeness, or visible expansion', () => {
+  assert.equal(approvedReferenceAlreadyCaptured(reference(), [input({
+    kind: 'truncated', sha256: preview, bytes: 100, complete: false, expansionHandle: null
+  })]), true, 'the exact representation is already visible');
+
+  assert.equal(approvedReferenceAlreadyCaptured(reference(), [input({
+    kind: 'full', sha256: `sha256:${'c'.repeat(64)}`, bytes: 500, complete: true, expansionHandle: null
+  })]), true, 'a complete existing representation contains the preview');
+
+  for (const kind of ['summary', 'clauses', 'truncated', 'fallback-whole']) {
+    assert.equal(approvedReferenceAlreadyCaptured(reference(), [input({
+      kind, sha256: `sha256:${'c'.repeat(64)}`, bytes: 50, complete: false, expansionHandle: 'sfref:exact-source'
+    })]), true, `${kind} remains safe when its exact expansion handle is model-visible`);
+  }
+});
+
+test('same source never suppresses a different incomplete representation without expansion', () => {
+  for (const kind of ['summary', 'clauses', 'truncated', 'fallback-whole']) {
+    assert.equal(approvedReferenceAlreadyCaptured(reference(), [input({
+      kind, sha256: `sha256:${'c'.repeat(64)}`, bytes: 50, complete: false, expansionHandle: null
+    })]), false, `${kind} does not become complete merely because its raw source matches`);
+  }
+  assert.equal(approvedReferenceAlreadyCaptured(reference(), [input(null)]), false,
+    'a legacy record with source identity alone proves no model-visible representation');
+});
+
+test('dedup still requires exact source identity and a captured status', () => {
+  const complete = input({ kind: 'full', sha256: preview, bytes: 100, complete: true, expansionHandle: null });
+  assert.equal(approvedReferenceAlreadyCaptured({ ...reference(), rawSha256: `sha256:${'d'.repeat(64)}` }, [complete]), false);
+  assert.equal(approvedReferenceAlreadyCaptured({ ...reference(), path: 'another.md' }, [complete]), false);
+  assert.equal(approvedReferenceAlreadyCaptured(reference(), [{ ...complete, status: 'hash_mismatch' }]), false);
 });

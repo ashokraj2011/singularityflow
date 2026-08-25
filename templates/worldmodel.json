@@ -6,7 +6,10 @@
   "generation": {
     "parallel": true,
     "maxWorkers": 4,
-    "strategy": "view"
+    "strategy": "view",
+    "maximumDiscoveryPacketBytes": 24576,
+    "maximumSynthesisInputTokens": 24000,
+    "synthesisOverflow": "summarize-or-refuse"
   },
   "grounding": "off",
   "staleness": "warn",

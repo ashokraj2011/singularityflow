@@ -149,7 +149,7 @@ export function renderCommandResult(result) {
     const { status, policy, profile, configurationDigest } = result.data.diagnostic;
     return [
       `TOKEN ECONOMY · ${status} · ${policy.mode} · profile ${profile.id}`,
-      `Input ${profile.maxInputTokens.toLocaleString('en-US')} · reserved output ${profile.reservedOutputTokens.toLocaleString('en-US')} · expansion ${profile.maxExpansionTokens.toLocaleString('en-US')} tokens`,
+      `Estimated prompt ${profile.maximumEstimatedPromptTokens.toLocaleString('en-US')} · reserved output ${profile.reservedOutputTokens.toLocaleString('en-US')} · expansion ${profile.maxExpansionTokens.toLocaleString('en-US')} tokens`,
       `Observation firewall ${policy.observationFirewall ? 'on' : 'off'} · progressive retrieval ${policy.progressiveRetrieval ? 'on' : 'off'} · provider telemetry ${policy.providerTelemetry}`,
       `Configuration ${configurationDigest}`
     ].join('\n');

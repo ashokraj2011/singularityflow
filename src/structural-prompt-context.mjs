@@ -89,7 +89,12 @@ export async function requiredStructuralPromptContext(root, workflow) {
       ]
     };
   }
-  const facts = JSON.stringify(compactFacts, null, 2);
+  // Durable derivation retains every fact. The prompt is structural by default: allowing file
+  // inventory to consume the remaining page capacity recreates the exact glob-equivalent payload
+  // this boundary exists to avoid. Inventory belongs to explicit repository-inventory tasks, not
+  // ordinary AST context injection.
+  const promptFacts = structuralFacts;
+  const facts = JSON.stringify(promptFacts, null, 2);
   const config = await loadDefinition(root);
   const phase = workflow.phases?.[workflow.currentPhase] ?? {
     id: workflow.currentPhase ?? workflow.resolution?.phases?.[0]?.id ?? 'intake',

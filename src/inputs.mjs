@@ -94,6 +94,11 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       approvedSha256: registered?.sha256 ?? null,
       sha256: current.sha256,
       bytes: current.size,
+      source: {
+        path: repositoryPath,
+        rawSha256: current.sha256 ? `sha256:${String(current.sha256).replace(/^sha256:/, '')}` : null
+      },
+      representation: null,
       injectedBytes: 0,
       truncated: false,
       authoredBytes: 0,
@@ -113,6 +118,7 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
     if (status === 'captured') {
       const raw = await readFile(path.join(itemDirectory, relativeArtifact));
       const authored = Buffer.from(authoredArtifactText(raw.toString('utf8')), 'utf8');
+      const exactExpansionHandle = expansionHandle(workflow, producer, repositoryPath);
       record.authoredBytes = authored.length;
       record.managedBytesExcluded = raw.length - authored.length;
       let selectedBytes = authored.length;
@@ -120,7 +126,7 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
         const brief = await readAgentBrief(root, workflow, producer, phase, declaration, { itemRelative });
         record.projection.briefPath = brief.record?.rendered?.path ?? null;
         record.projection.briefSha256 = brief.record?.rendered?.sha256 ?? null;
-        record.projection.expansionHandle = expansionHandle(workflow, producer, repositoryPath);
+        record.projection.expansionHandle = exactExpansionHandle;
         if (brief.status === 'fallback-whole') {
           record.projection.kind = 'fallback-whole';
           record.content = embeddedInputContent(raw, null);
@@ -162,6 +168,19 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
         record.injectedBytes = Buffer.byteLength(record.content, 'utf8');
         record.truncated = declaration.maxBytes != null && record.injectedBytes < selectedBytes;
       }
+      if (record.content != null) {
+        const kind = declaration.projection === 'approved-summary'
+          ? record.projection.kind === 'fallback-whole' ? 'fallback-whole' : 'summary'
+          : declaration.selector?.kind === 'clauses' ? 'clauses'
+            : record.truncated ? 'truncated' : 'full';
+        record.representation = {
+          kind,
+          sha256: `sha256:${sha256(record.content)}`,
+          bytes: Buffer.byteLength(record.content, 'utf8'),
+          complete: ['full', 'fallback-whole'].includes(kind) && !record.truncated,
+          expansionHandle: exactExpansionHandle
+        };
+      }
     }
     const level = severity(mode, record.optional, status);
     const message = inputMessage(phase, record);
@@ -177,11 +196,11 @@ export function renderInputsBlock(result) {
   const sections = result.records.map((entry) => {
     const header = `## Approved phase input: ${entry.phase}`;
     const projection = entry.projection?.kind ?? 'full';
-    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.projection?.expansionHandle ? ` expansion=${entry.projection.expansionHandle}` : ''} -->`;
+    const metadata = `<!-- source=${entry.repositoryPath ?? entry.path ?? 'missing'} sha256=${entry.sha256 ?? 'unavailable'} status=${entry.status} projection=${projection}${entry.representation?.sha256 ? ` representation-sha256=${entry.representation.sha256}` : ''}${entry.projection?.briefSha256 ? ` brief-sha256=${entry.projection.briefSha256}` : ''}${entry.representation?.expansionHandle ? ` expansion=${entry.representation.expansionHandle}` : ''} -->`;
     if (entry.status !== 'captured') return `${header}\n\n${metadata}\n\n> ${inputMessage({ id: 'This phase' }, entry) ?? `Input is ${entry.status}.`}`;
     const suffix = entry.truncated ? '\n\n> Input truncated at its configured byte limit.' : '';
-    const expansion = entry.projection?.expansionHandle
-      ? `\n\n> Exact source expansion: \`${entry.projection.expansionHandle}\`. Use \`singularity-flow show ${entry.projection.expansionHandle} --section "<heading>"\` only when exact wording is needed.`
+    const expansion = entry.representation?.expansionHandle
+      ? `\n\n> Exact source expansion: \`${entry.representation.expansionHandle}\`. Use \`singularity-flow show ${entry.representation.expansionHandle} --section "<heading>"\` only when exact wording is needed.`
       : '';
     return `${header}\n\n${metadata}\n\n${entry.content.trimEnd()}${expansion}${suffix}`;
   });

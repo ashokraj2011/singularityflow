@@ -453,12 +453,30 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.generation != null) {
     const generation = definition.worldModel.generation;
     if (!generation || typeof generation !== 'object' || Array.isArray(generation)) throw new SingularityFlowError('worldModel.generation must be an object.');
-    for (const key of Object.keys(generation)) if (!['parallel', 'maxWorkers', 'strategy'].includes(key)) throw new SingularityFlowError(`worldModel.generation contains unknown field '${key}'.`);
+    for (const key of Object.keys(generation)) if (![
+      'parallel', 'maxWorkers', 'strategy', 'maximumDiscoveryPacketBytes',
+      'maximumSynthesisInputTokens', 'synthesisOverflow'
+    ].includes(key)) throw new SingularityFlowError(`worldModel.generation contains unknown field '${key}'.`);
     if (generation.parallel != null && typeof generation.parallel !== 'boolean') throw new SingularityFlowError('worldModel.generation.parallel must be boolean.');
     if (generation.maxWorkers != null && (!Number.isInteger(generation.maxWorkers) || generation.maxWorkers < 1 || generation.maxWorkers > 16)) {
       throw new SingularityFlowError('worldModel.generation.maxWorkers must be an integer from 1 through 16.');
     }
     if (generation.strategy != null && generation.strategy !== 'view') throw new SingularityFlowError("worldModel.generation.strategy must be 'view'.");
+    if (generation.maximumDiscoveryPacketBytes != null
+        && (!Number.isInteger(generation.maximumDiscoveryPacketBytes)
+          || generation.maximumDiscoveryPacketBytes < 1024
+          || generation.maximumDiscoveryPacketBytes > 1024 * 1024)) {
+      throw new SingularityFlowError('worldModel.generation.maximumDiscoveryPacketBytes must be an integer from 1024 through 1048576.');
+    }
+    if (generation.maximumSynthesisInputTokens != null
+        && (!Number.isInteger(generation.maximumSynthesisInputTokens)
+          || generation.maximumSynthesisInputTokens < 2048
+          || generation.maximumSynthesisInputTokens > 1_000_000)) {
+      throw new SingularityFlowError('worldModel.generation.maximumSynthesisInputTokens must be an integer from 2048 through 1000000.');
+    }
+    if (generation.synthesisOverflow != null && generation.synthesisOverflow !== 'summarize-or-refuse') {
+      throw new SingularityFlowError("worldModel.generation.synthesisOverflow must be 'summarize-or-refuse'.");
+    }
   }
   if (definition.worldModel?.materialization != null) {
     const materialization = definition.worldModel.materialization;

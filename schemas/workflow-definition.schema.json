@@ -446,7 +446,10 @@
           "properties": {
             "parallel": { "type": "boolean", "default": true },
             "maxWorkers": { "type": "integer", "minimum": 1, "maximum": 16, "default": 4 },
-            "strategy": { "enum": ["view"], "default": "view" }
+            "strategy": { "enum": ["view"], "default": "view" },
+            "maximumDiscoveryPacketBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "default": 24576 },
+            "maximumSynthesisInputTokens": { "type": "integer", "minimum": 2048, "maximum": 1000000, "default": 24000 },
+            "synthesisOverflow": { "enum": ["summarize-or-refuse"], "default": "summarize-or-refuse" }
           },
           "additionalProperties": false
         },

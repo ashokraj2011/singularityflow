@@ -16,10 +16,11 @@
  * whoever knows the answer. It leaves `dist/` with both artefacts and their checksums, ready to go.
  *
  *   node scripts/release.mjs [--dry-run] [--skip-tests]
+ *     --verification-receipt <path> --verification-key <trusted-public-key.pem>
  *
  * `--dry-run` builds everything and writes nothing to `dist/`, so the whole pipeline can be
- * rehearsed. `--skip-tests` exists for a rebuild minutes after a green run; it prints a warning,
- * because a release nobody tested is the thing this script is for preventing.
+ * rehearsed. A real promotion requires an independently signed clean-checkout receipt. `--skip-tests`
+ * avoids rerunning locally only when that exact-commit receipt is already present and trusted.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -28,6 +29,7 @@ import { mkdir, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promi
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { releaseChannelManifest } from '../src/release-channel.mjs';
+import { verifyVerificationReceipt } from '../src/verification-receipt.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -35,6 +37,12 @@ const dist = path.join(root, 'dist');
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
 const skipTests = argv.includes('--skip-tests');
+function option(name) {
+  const index = argv.indexOf(name);
+  return index === -1 ? null : argv[index + 1];
+}
+const verificationReceiptPath = option('--verification-receipt');
+const verificationKeyPath = option('--verification-key');
 
 function step(message) { console.log(`\n• ${message}`); }
 
@@ -61,6 +69,22 @@ async function main() {
   if (dirty) {
     throw new Error(`The working tree is not clean, so this release would not be reproducible:\n${dirty}`);
   }
+  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  let verificationReceipt = null;
+  let trustedVerificationKey = null;
+  if (!dryRun) {
+    if (!verificationReceiptPath || !verificationKeyPath) {
+      throw new Error('Release promotion requires --verification-receipt <path> and --verification-key <trusted-public-key.pem>. Generate the receipt with npm run verification:receipt -- --signing-key <ed25519-private.pem>.');
+    }
+    verificationReceipt = JSON.parse(await readFile(path.resolve(root, verificationReceiptPath), 'utf8'));
+    trustedVerificationKey = await readFile(path.resolve(root, verificationKeyPath));
+    verifyVerificationReceipt(verificationReceipt, {
+      trustedPublicKeyPem: trustedVerificationKey,
+      expectedCommit: commit,
+      expectedTree: tree
+    });
+  }
 
   // `npm run check` already asserts one version across the root package, the plugin manifest, the
   // extension, both package-lock entries and the marketplace manifest — so there is no separate
@@ -75,7 +99,7 @@ async function main() {
   step('Enforcing developer-experience latency budgets');
   must('npm', ['run', 'benchmark:dx:enforce']);
 
-  if (skipTests) console.warn('  Warning: --skip-tests was passed. This release has not been tested.');
+  if (skipTests) console.warn('  Local tests skipped; the exact-commit signed verification receipt remains the release authority.');
   else {
     step('Running the test suite');
     must('npm', ['test']);
@@ -88,11 +112,17 @@ async function main() {
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const extensionManifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
   const { version } = manifest;
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-
   step(`Packing the CLI and Copilot plugin (${version})`);
   const packed = JSON.parse(must('npm', ['pack', '--json'], { json: true }));
   const tarball = path.join(root, packed[0].filename);
+  if (!dryRun) {
+    verifyVerificationReceipt(verificationReceipt, {
+      trustedPublicKeyPem: trustedVerificationKey,
+      expectedCommit: commit,
+      expectedTree: tree,
+      expectedPackageSha256: `sha256:${await sha256(tarball)}`
+    });
+  }
 
   step('Building the VS Code extension');
   // Through the staging script, never `vsce` directly: `vsce package` on its own produces a .vsix
@@ -140,6 +170,7 @@ async function main() {
     minVSCode: extensionManifest.engines.vscode,
     artifacts
   }), null, 2)}\n`);
+  await writeFile(path.join(dist, 'VERIFICATION-RECEIPT.json'), `${JSON.stringify(verificationReceipt, null, 2)}\n`);
 
   console.log([
     '',

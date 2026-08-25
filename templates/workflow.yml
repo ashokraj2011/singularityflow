@@ -346,9 +346,12 @@ mcpServers:
 
 # Human approval groups are matched against the real Git/GitHub identity.
 approvalSecurity:
-  # poc permits open/self approval for local experiments; team is the safe normal default;
-  # regulated additionally requires every authority group to list named members.
+  # Self approval and first-use enrollment keep the default usable for a lone developer. Disable
+  # either control in People & approvals when independent review or managed membership is required.
+  # Regulated additionally requires every authority group to list named members.
   profile: team
+  allowSelfApproval: true
+  autoEnrollNewIdentities: true
 approvalAuthorities:
   product-approvers:
     label: Product approvers

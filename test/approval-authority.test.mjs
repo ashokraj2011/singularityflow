@@ -5,6 +5,7 @@ import {
   matchApprovalAuthority,
   normalizeApprovalAuthorities,
   normalizeApprovalPolicy,
+  normalizeApprovalSecurity,
   remainingRequiredAuthorities,
   requireApprovalAuthority
 } from '../src/approval-authority.mjs';
@@ -74,7 +75,11 @@ test('approval authority supports authenticated GitHub login and explicit any-Gi
 test('approval policy normalizes configurable governed change-request controls', () => {
   const defaults = normalizeApprovalPolicy({ authorities: ['architecture-reviewers'] }, authorities, 'design');
   assert.deepEqual(defaults.changeRequests, { commentRequired: true, reopenCompleted: true });
-  assert.equal(defaults.allowSelfApproval, false);
+  assert.equal(defaults.allowSelfApproval, true);
+  assert.equal(normalizeApprovalPolicy(
+    { authorities: ['architecture-reviewers'] }, authorities, 'design',
+    { profile: 'team', allowSelfApproval: false }
+  ).allowSelfApproval, false);
   assert.equal(normalizeApprovalPolicy(
     { authorities: ['architecture-reviewers'] }, authorities, 'design', { profile: 'poc' }
   ).allowSelfApproval, true);
@@ -86,6 +91,21 @@ test('approval policy normalizes configurable governed change-request controls',
   assert.throws(() => normalizeApprovalPolicy({
     authorities: ['architecture-reviewers'], changeRequests: { reopenCompleted: 'yes' }
   }, authorities, 'design'), /reopenCompleted must be boolean/);
+});
+
+test('approval security defaults to self approval and automatic enrollment with explicit controls', () => {
+  assert.deepEqual(normalizeApprovalSecurity({ profile: 'team' }), {
+    profile: 'team',
+    allowAnyGitIdentity: false,
+    allowSelfApproval: true,
+    autoEnrollNewIdentities: true,
+    requireNamedMembers: false
+  });
+  assert.equal(normalizeApprovalSecurity({
+    profile: 'team', allowSelfApproval: false, autoEnrollNewIdentities: false
+  }).allowSelfApproval, false);
+  assert.equal(normalizeApprovalSecurity({ profile: 'regulated' }).autoEnrollNewIdentities, false);
+  assert.throws(() => normalizeApprovalSecurity({ autoEnrollNewIdentities: 'yes' }), /must be boolean/);
 });
 
 test('regulated approval authority configuration rejects empty restricted groups and duplicate identities', () => {

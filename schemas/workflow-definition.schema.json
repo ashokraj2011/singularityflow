@@ -268,7 +268,11 @@
     },
     "approvalSecurity": {
       "type": "object",
-      "properties": { "profile": { "enum": ["poc", "team", "regulated"] } },
+      "properties": {
+        "profile": { "enum": ["poc", "team", "regulated"] },
+        "allowSelfApproval": { "type": "boolean" },
+        "autoEnrollNewIdentities": { "type": "boolean" }
+      },
       "additionalProperties": false
     },
     "approvalAuthorities": {

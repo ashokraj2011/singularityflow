@@ -2058,7 +2058,8 @@ test('People & approvals adds the current Git identity to every configured group
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
   registered.warningAnswers.push('Add, commit & push');
   await panel.post({
-    type: 'add-current-identity', target: '*', enableSolo: true
+    type: 'add-current-identity', target: '*',
+    allowSelfApproval: false, autoEnrollNewIdentities: false
   });
 
   const pinnedWorkflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
@@ -2067,7 +2068,11 @@ test('People & approvals adds the current Git identity to every configured group
   const workflow = YAML.parse(run('git', [
     `--git-dir=${remote}`, 'show', 'sflow/config:singularity/workflow.yml'
   ]).stdout);
-  assert.equal(workflow.approvalSecurity.profile, 'poc');
+  assert.equal(workflow.approvalSecurity.profile, 'team');
+  assert.equal(workflow.approvalSecurity.allowSelfApproval, false,
+    'the UI can disable the default self-approval behavior');
+  assert.equal(workflow.approvalSecurity.autoEnrollNewIdentities, false,
+    'the UI can disable the default automatic enrollment behavior');
   for (const [authority, value] of Object.entries(workflow.approvalAuthorities)) {
     assert.ok(value.members.some((member) => member.email === EMAIL), `${authority} contains the current Git identity`);
   }

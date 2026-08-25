@@ -1058,6 +1058,7 @@ application branch. See
 - `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
 - `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, clarification checkpoints, quality commands, and approval rules.
 - `agents`: prompt-only governed agents, suggested phases, and additional world-model views.
+- `approvalSecurity`: independently controls self-approval and automatic enrollment of a new Git identity before new work pins its authority groups; both default on outside the regulated profile.
 - `approvalAuthorities`: real-human approval groups matched by Git email or authenticated GitHub login.
 - `documents`: allowed upload phases, maximum file size, and text-preview limit; work types may override this policy.
 - `git`: remote name and whether publication is required.

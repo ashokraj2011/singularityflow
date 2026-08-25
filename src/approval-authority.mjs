@@ -9,10 +9,18 @@ export function normalizeApprovalSecurity(value = {}) {
   if (!APPROVAL_SECURITY_PROFILES.includes(profile)) {
     throw new SingularityFlowError(`approvalSecurity.profile must be ${APPROVAL_SECURITY_PROFILES.join(', ')}.`);
   }
+  for (const field of ['allowSelfApproval', 'autoEnrollNewIdentities']) {
+    if (source[field] != null && typeof source[field] !== 'boolean') {
+      throw new SingularityFlowError(`approvalSecurity.${field} must be boolean.`);
+    }
+  }
   return {
     profile,
     allowAnyGitIdentity: profile === 'poc',
-    allowSelfApproval: profile === 'poc',
+    // Team work starts usable for a lone developer. Regulated repositories retain the conservative
+    // default unless an administrator explicitly enables either behavior in approved configuration.
+    allowSelfApproval: source.allowSelfApproval ?? profile !== 'regulated',
+    autoEnrollNewIdentities: source.autoEnrollNewIdentities ?? profile !== 'regulated',
     requireNamedMembers: profile === 'regulated'
   };
 }

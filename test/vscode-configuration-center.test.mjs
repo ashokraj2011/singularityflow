@@ -78,8 +78,10 @@ test('people and approvals offers the resolved Git identity, group menu, solo mo
   assert.equal(view.approvalSecurityProfile, 'team');
   const html = configurationCenterHtml(view, 'people', null, null, null, []);
   assert.match(html, /Add my current Git identity/);
+  assert.match(html, /All configured approval groups \(2\) — default/);
   assert.match(html, /All Story approval groups \(1\)/);
-  assert.match(html, /All Story and Initiative groups \(2\)/);
+  assert.ok(html.indexOf('value="*"') < html.indexOf('value="story:*"'),
+    'all configured groups is the select default');
   assert.match(html, /Solo developer mode/);
   assert.match(html, /Add, commit &amp; push/);
   assert.doesNotMatch(html, /Save without publishing/);

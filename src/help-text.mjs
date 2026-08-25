@@ -336,7 +336,7 @@ Usage:
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
   singularity-flow configuration validate --json
   singularity-flow configuration save <PATH>    Reads replacement content from stdin
-  singularity-flow configuration add-current-identity --target story:*|initiative:*|*|SCOPE:GROUP [--solo] [--json]
+  singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--solo] [--json]
   singularity-flow state planes [WORK-ID] [--json]
   singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
   singularity-flow initiative profiles [--json]

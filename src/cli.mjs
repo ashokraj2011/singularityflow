@@ -7619,7 +7619,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishEditorConfiguration(root, optionString(options, 'message'));
   else if (subcommand === 'add-current-identity') result = await publishCurrentIdentityToConfiguration(root, {
-    target: optionString(options, 'target', 'story:*'),
+    target: optionString(options, 'target', '*'),
     solo: optionBoolean(options, 'solo')
   });
   else if (subcommand === 'portfolio-bootstrap') {

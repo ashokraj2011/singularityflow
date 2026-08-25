@@ -142,6 +142,7 @@ import {
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
+import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
@@ -8517,76 +8518,78 @@ async function workspaceCommand(positionals, options) {
    */
   if (subcommand === 'branches') {
     const root = repoRoot();
-    const definition = await loadConfig(root);
-    const {
-      storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
-    } = await import('./capability-start.mjs');
-    const catalog = await storyBaseCatalog(root, {
-      remote: definition.git?.remote ?? 'origin',
-      defaultBranch: definition.defaultBaseBranch,
-      capabilityId: optionString(options, 'capability')
-    });
-    const storyId = optionString(options, 'preflight-story');
-    let preflight = null;
-    if (storyId) {
-      validateId(definition, storyId);
-      const selected = await storyBaseForRepository(root, {
-        values: optionStrings(options, 'from-branch'),
-        interactive: false,
+    return withApprovedConfigurationRead(root, async () => {
+      const definition = await loadConfig(root);
+      const {
+        storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
+      } = await import('./capability-start.mjs');
+      const catalog = await storyBaseCatalog(root, {
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
         capabilityId: optionString(options, 'capability')
       });
-      const repositories = await preflightStoryRepositories(
-        selected.workspaceRoot, selected.plan, storyId,
-        {
+      const storyId = optionString(options, 'preflight-story');
+      let preflight = null;
+      if (storyId) {
+        validateId(definition, storyId);
+        const selected = await storyBaseForRepository(root, {
+          values: optionStrings(options, 'from-branch'),
+          interactive: false,
+          remote: definition.git?.remote ?? 'origin',
+          defaultBranch: definition.defaultBaseBranch,
+          capabilityId: optionString(options, 'capability')
+        });
+        const repositories = await preflightStoryRepositories(
+          selected.workspaceRoot, selected.plan, storyId,
+          {
+            remote: selected.remote,
+            publishRequired: (definition.git?.publish ?? 'required') !== 'off',
+            lifecycleRoot: root,
+            capabilityId: selected.capability
+          }
+        );
+        preflight = {
+          passed: true,
+          storyBranch: storyId,
           remote: selected.remote,
-          publishRequired: (definition.git?.publish ?? 'required') !== 'off',
-          lifecycleRoot: root,
-          capabilityId: selected.capability
-        }
-      );
-      preflight = {
-        passed: true,
-        storyBranch: storyId,
-        remote: selected.remote,
-        destinationRef: `refs/heads/${storyId}`,
-        repositories: repositories.map((entry) => ({
-          repository: entry.repository,
-          remote: entry.remote,
-          baseBranch: entry.baseBranch,
-          baseCommit: entry.baseCommit,
-          destinationRef: entry.destinationRef,
-          publishRequired: entry.publishRequired
-        }))
+          destinationRef: `refs/heads/${storyId}`,
+          repositories: repositories.map((entry) => ({
+            repository: entry.repository,
+            remote: entry.remote,
+            baseBranch: entry.baseBranch,
+            baseCommit: entry.baseCommit,
+            destinationRef: entry.destinationRef,
+            publishRequired: entry.publishRequired
+          }))
+        };
+      }
+      const result = {
+        resultType: 'capability-branches',
+        schemaVersion: 2,
+        scope: catalog.scope,
+        selectionRequired: true,
+        remote: catalog.remote,
+        capability: catalog.capability,
+        repositories: catalog.repositories.map((repository) => ({
+          id: repository.id, defaultBranch: repository.defaultBranch
+        })),
+        // Reported rather than thrown: the editor should render the branches it does know about and
+        // say which repositories it could not reach, not show an empty list or an error dialog.
+        unreachable: catalog.unreachable,
+        choices: catalog.choices,
+        preflight
       };
-    }
-    const result = {
-      resultType: 'capability-branches',
-      schemaVersion: 2,
-      scope: catalog.scope,
-      selectionRequired: true,
-      remote: catalog.remote,
-      capability: catalog.capability,
-      repositories: catalog.repositories.map((repository) => ({
-        id: repository.id, defaultBranch: repository.defaultBranch
-      })),
-      // Reported rather than thrown: the editor should render the branches it does know about and
-      // say which repositories it could not reach, not show an empty list or an error dialog.
-      unreachable: catalog.unreachable,
-      choices: catalog.choices,
-      preflight
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(catalog.scope === 'capability'
-      ? `Base branches for capability '${catalog.capability}' (${catalog.repositories.length} repositories):`
-      : `Base branches for repository '${catalog.repositoryId}' on '${catalog.remote}':`);
-    for (const choice of result.choices) {
-      console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
-        + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
-    }
-    for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
-    return result;
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(catalog.scope === 'capability'
+        ? `Base branches for capability '${catalog.capability}' (${catalog.repositories.length} repositories):`
+        : `Base branches for repository '${catalog.repositoryId}' on '${catalog.remote}':`);
+      for (const choice of result.choices) {
+        console.log(`  ${choice.branch.padEnd(28)} ${choice.everywhere ? `all ${choice.total}` : `${choice.present} of ${choice.total}`}`
+          + (choice.missingFrom.length ? ` — missing from ${choice.missingFrom.join(', ')}` : ''));
+      }
+      for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
+      return result;
+    });
   }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));

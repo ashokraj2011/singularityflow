@@ -178,6 +178,23 @@ test('workspace branch preflight proves the exact destination without creating i
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-PREVIEW').stdout.trim(), '');
 });
 
+test('workspace branch choices use approved configuration when application main has no workflow file', async () => {
+  const { root } = await repository();
+  git(root, 'push', 'origin', 'main:refs/heads/sflow/config');
+  git(root, 'fetch', 'origin', 'refs/heads/sflow/config:refs/remotes/origin/sflow/config');
+  git(root, 'rm', '-r', 'singularity', '.github/agents');
+  git(root, 'commit', '-m', 'Keep application main free of configuration');
+  const headBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
+
+  const result = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+
+  assert.equal(result.remote, 'origin');
+  assert.ok(result.choices.some((choice) => choice.branch === 'main' && choice.everywhere));
+  assert.equal(result.unreachable.length, 0);
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), headBefore);
+  assert.equal(git(root, 'status', '--porcelain=v1').stdout, '');
+});
+
 test('remote publication preflight failure creates no branch, Story state, or session change', async () => {
   const { root } = await repository();
   git(root, 'config', 'remote.origin.receivepack', '/usr/bin/false');

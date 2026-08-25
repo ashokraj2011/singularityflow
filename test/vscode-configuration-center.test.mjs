@@ -8,8 +8,10 @@ import YAML from 'yaml';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
 const {
+  authorityWithMember,
   configurationCenterView,
   configurationRefreshDecision,
+  updateApprovalSecurityProfileYaml,
   updateAuthorityYaml,
   updateMcpYaml,
   updateWorldModelYaml,
@@ -20,7 +22,12 @@ const {
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
 
 const snapshot = {
+  identities: {
+    git: { name: 'Casey Dev', email: 'casey@example.com', login: 'caseydev' },
+    github: 'caseydev'
+  },
   definition: {
+    approvalSecurity: { profile: 'team' },
     phases: { intake: { label: 'Intake' }, verification: { label: 'Verification' } },
     worldModel: {
       views: ['business', 'architecture'], grounding: 'warn', staleness: 'fail',
@@ -59,6 +66,59 @@ test('configuration center keeps human authorities distinct from governed agents
   const html = configurationCenterHtml(view, 'people', null, null, null, []);
   assert.match(html, /People are not agents/);
   assert.match(html, /real Git email or authenticated GitHub login/);
+});
+
+test('people and approvals offers the resolved Git identity, group menu, solo mode, and governed publication', () => {
+  const view = configurationCenterView(snapshot, { name: 'Local profile', role: 'architect' });
+  assert.deepEqual(view.gitIdentity, {
+    name: 'Casey Dev',
+    email: 'casey@example.com',
+    githubLogin: 'caseydev'
+  });
+  assert.equal(view.approvalSecurityProfile, 'team');
+  const html = configurationCenterHtml(view, 'people', null, null, null, []);
+  assert.match(html, /Add my current Git identity/);
+  assert.match(html, /All Story approval groups \(1\)/);
+  assert.match(html, /All Story and Initiative groups \(2\)/);
+  assert.match(html, /Solo developer mode/);
+  assert.match(html, /Add, commit &amp; push/);
+  assert.doesNotMatch(html, /Save without publishing/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'add-current-identity'/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /enableSolo: data\.get\('enableSolo'\) === 'on'/);
+});
+
+test('adding the current Git identity enriches matching members and never duplicates them', () => {
+  const identity = { name: 'Casey Dev', email: 'CASEY@EXAMPLE.COM', githubLogin: 'caseydev' };
+  const empty = authorityWithMember({
+    id: 'product-approvers', label: 'Product approvers', scope: 'story',
+    allowAnyGitIdentity: false, members: []
+  }, identity);
+  assert.equal(empty.changed, true);
+  assert.deepEqual(empty.authority.members, [{
+    name: 'Casey Dev', email: 'casey@example.com', githubLogin: 'caseydev'
+  }]);
+
+  const enriched = authorityWithMember({
+    id: 'product-approvers', label: 'Product approvers', scope: 'story',
+    allowAnyGitIdentity: false,
+    members: [{ name: 'Casey Dev', email: 'casey@example.com', githubLogin: '' }]
+  }, identity);
+  assert.equal(enriched.changed, true);
+  assert.equal(enriched.authority.members.length, 1);
+  assert.equal(enriched.authority.members[0].githubLogin, 'caseydev');
+
+  const unchanged = authorityWithMember(enriched.authority, identity);
+  assert.equal(unchanged.changed, false);
+  assert.equal(unchanged.authority.members.length, 1);
+});
+
+test('solo developer mode changes only the approval security profile', () => {
+  const output = updateApprovalSecurityProfileYaml(
+    'version: 2\n# retain me\napprovalSecurity:\n  profile: team\nphases: {}\n', 'poc'
+  );
+  assert.match(output, /# retain me/);
+  assert.equal(YAML.parse(output).approvalSecurity.profile, 'poc');
+  assert.deepEqual(YAML.parse(output).phases, {});
 });
 
 test('configuration center exposes guided world-model policy, generation, and injection settings', () => {

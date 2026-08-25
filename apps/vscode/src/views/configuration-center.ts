@@ -5,7 +5,8 @@ import type { WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  configurationCenterView, configurationRefreshDecision, updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
+  configurationCenterView, configurationRefreshDecision,
+  updateAuthorityYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateMcpDraft, validateWorldModelDraft,
   CONFIGURATION_TABS,
   type AuthorityDraft, type AuthorityView, type ConfigurationTab, type McpDraft, type McpServerView,
@@ -16,6 +17,7 @@ import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configur
 export type ConfigurationCenterMessage =
   | { type: 'save'; path: string; content: string; expectedSha256: string }
   | { type: 'profile'; name: string; role: string }
+  | { type: 'add-current-identity'; target: string; solo: boolean }
   | { type: 'action'; action: string }
   /**
    * Open a repository file the Center listed. Carries the path rather than an action name because
@@ -124,6 +126,9 @@ export class ConfigurationCenterPanel {
       const error = await this.onMessage({ type: 'profile', name: String(message.name ?? ''), role: String(message.role ?? '') });
       if (error) this.errors = [error]; else this.notice = 'Local profile saved.'; return this.render();
     }
+    if (message.type === 'add-current-identity') return this.addCurrentIdentity(
+      String(message.target ?? ''), message.enableSolo === true
+    );
     if (message.type === 'save-authority') {
       const draft = message as unknown as AuthorityDraft;
       this.errors = validateAuthorityDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
@@ -176,6 +181,49 @@ export class ConfigurationCenterPanel {
       if (action === 'delete-mcp') return this.deleteMcp();
       const error = await this.onMessage({ type: 'action', action }); if (error) this.errors = [error]; return this.render();
     }
+  }
+
+  private async addCurrentIdentity(target: string, enableSolo: boolean): Promise<void> {
+    const view = this.view(); const identity = view?.gitIdentity;
+    if (!view || !identity) return this.showErrors([
+      'No usable Git email or GitHub login was resolved for this repository. Configure git user.name and user.email, refresh, and try again.'
+    ]);
+    const authorities = target === '*'
+      ? view.authorities
+      : target === 'story:*'
+        ? view.authorities.filter((entry) => entry.scope === 'story')
+        : target === 'initiative:*'
+          ? view.authorities.filter((entry) => entry.scope === 'initiative')
+          : view.authorities.filter((entry) => `${entry.scope}:${entry.id}` === target);
+    if (!authorities.length) return this.showErrors(['Choose at least one current approval group.']);
+    if (!identity.email && authorities.some((entry) => entry.scope === 'initiative')) {
+      return this.showErrors(['Initiative approval groups require a Git email. Configure git user.email, refresh, and try again.']);
+    }
+
+    const labels = authorities.map((entry) => `${entry.label} (${entry.scope})`);
+    const action = 'Add, commit & push';
+    const confirmed = await vscode.window.showWarningMessage(
+      `${action} for ${identity.name}?`,
+      {
+        modal: true,
+        detail: [
+          `Identity: ${identity.email || identity.githubLogin}`,
+          `Approval groups:\n${labels.map((label) => `• ${label}`).join('\n')}`,
+          enableSolo ? 'Future Stories will use the explicit solo/POC profile and may record self-approval.' : '',
+          'Existing Story snapshots remain unchanged.'
+        ].filter(Boolean).join('\n\n')
+      },
+      action
+    );
+    if (confirmed !== action) return;
+
+    try {
+      const error = await this.onMessage({ type: 'add-current-identity', target, solo: enableSolo });
+      if (error) return this.showErrors([error]);
+    } catch (error) { return this.showErrors([(error as Error).message]); }
+    this.dirty = false;
+    this.notice = `Approved configuration processed for ${identity.name}. Existing Story snapshots were not changed.`;
+    this.render();
   }
 
   private async deleteAuthority(): Promise<void> {

@@ -2042,7 +2042,7 @@ test('starting work before any approver is named says so first, and offers the f
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
 });
 
-test('People & approvals adds the current Git identity to every Story group and publishes it', async (t) => {
+test('People & approvals adds the current Git identity to every configured group and publishes it', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
@@ -2058,7 +2058,7 @@ test('People & approvals adds the current Git identity to every Story group and 
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
   registered.warningAnswers.push('Add, commit & push');
   await panel.post({
-    type: 'add-current-identity', target: 'story:*', enableSolo: true
+    type: 'add-current-identity', target: '*', enableSolo: true
   });
 
   const pinnedWorkflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
@@ -2069,6 +2069,12 @@ test('People & approvals adds the current Git identity to every Story group and 
   ]).stdout);
   assert.equal(workflow.approvalSecurity.profile, 'poc');
   for (const [authority, value] of Object.entries(workflow.approvalAuthorities)) {
+    assert.ok(value.members.some((member) => member.email === EMAIL), `${authority} contains the current Git identity`);
+  }
+  const portfolio = YAML.parse(run('git', [
+    `--git-dir=${remote}`, 'show', 'sflow/config:singularity/portfolio.yml'
+  ]).stdout);
+  for (const [authority, value] of Object.entries(portfolio.approvalAuthorities)) {
     assert.ok(value.members.some((member) => member.email === EMAIL), `${authority} contains the current Git identity`);
   }
   const after = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();

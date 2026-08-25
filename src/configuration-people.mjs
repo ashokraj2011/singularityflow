@@ -126,7 +126,7 @@ function configurationRemoteName(root, remoteUrl) {
  * added to `.git` so a failed push remains recoverable through `singularity-flow push`.
  */
 export async function publishCurrentIdentityToConfiguration(root, {
-  target = 'story:*', solo = false, transport = {}
+  target = '*', solo = false, transport = {}
 } = {}) {
   const actor = identity(root);
   const member = normalizedMember(actor);

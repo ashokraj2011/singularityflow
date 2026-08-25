@@ -86,10 +86,15 @@ test('bootstrapping governs a repository that knew nothing about any of this', a
   assert.equal(portfolio.repositories['acme-platform'].url, bare);
   assert.equal(portfolio.repositories['acme-platform'].defaultBranch, 'main');
 
-  // An Epic cannot start until an authority has a member, and on a repository nobody else has
-  // touched the person doing this is the only true answer.
-  const named = Object.values(portfolio.approvalAuthorities).filter((authority) => authority.members?.length);
-  assert.ok(named.length, 'at least one approval authority has a member');
+  // New authorities are immediately usable by the person establishing the repository. Story and
+  // Initiative groups are both populated so the first failure cannot be deferred to approval time.
+  assert.ok(Object.values(portfolio.approvalAuthorities).every((authority) =>
+    authority.members?.some((member) => member.email === 'bootstrap.tester@example.com')),
+  'every Initiative approval authority contains the current Git identity');
+  const workflow = YAML.parse(configFile('workflow.yml'));
+  assert.ok(Object.values(workflow.approvalAuthorities).every((authority) =>
+    authority.members?.some((member) => member.email === 'bootstrap.tester@example.com')),
+  'every Story approval authority contains the current Git identity');
 
   // The orphan state branch exists, locally and on the remote.
   assert.equal(result.stateBranch, 'state');

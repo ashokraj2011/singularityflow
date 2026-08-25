@@ -14,8 +14,8 @@
  *   1. Clone the repository, or adopt a checkout that is already there.
  *   2. Write `singularity/` — workflow, portfolio, templates, agents.
  *   3. Declare the repository in the portfolio, so a capability may deliver from it.
- *   4. Name the person running this as an approval authority, because an Epic cannot start until
- *      at least one authority has a member and discovering that later is a poor greeting.
+ *   4. Name the person running this in every empty Story and Initiative approval group, so a new
+ *      repository cannot defer its first authorization failure until an approval ceremony.
  *   5. Write the capability map with the capability described.
  *   6. Commit on a review branch, establish the orphan configuration and state branches, and push.
  *
@@ -68,9 +68,10 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
     url, defaultBranch, required: true
   }));
 
-  // An Epic cannot start until an approval authority has a member. Naming the person doing this is
-  // the only answer that is true on a repository nobody else has touched yet; adding colleagues is
-  // an edit they can make from the portfolio once there is something to approve.
+  // A freshly generated configuration must not defer its first authorization failure until the
+  // first approval ceremony. Name the person establishing the authority in every empty Initiative
+  // group and, below, every empty Story group. Existing memberships are governance data and remain
+  // untouched when configuration was imported from an application branch.
   if (actor.email) {
     const authorities = document.getIn(['approvalAuthorities']);
     for (const item of authorities?.items ?? []) {
@@ -84,6 +85,21 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
   }
 
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
+
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parseDocument(await readFile(workflowFile, 'utf8'));
+  if (actor.email) {
+    const authorities = workflow.getIn(['approvalAuthorities']);
+    for (const item of authorities?.items ?? []) {
+      const key = String(item.key?.value ?? item.key);
+      const members = workflow.getIn(['approvalAuthorities', key, 'members']);
+      if (members?.items?.length) continue;
+      workflow.setIn(['approvalAuthorities', key, 'members'], workflow.createNode([
+        { name: actor.name || actor.email, email: actor.email }
+      ]));
+    }
+  }
+  await writeFile(workflowFile, workflow.toString(YAML_OUTPUT), 'utf8');
   return { declared: repositoryId };
 }
 

@@ -265,14 +265,14 @@ function currentIdentityCard(view: ConfigurationCenterView): string {
   const story = view.authorities.filter((entry) => entry.scope === 'story');
   const initiative = view.authorities.filter((entry) => entry.scope === 'initiative');
   const choices = [
+    ...(story.length || initiative.length ? [`<option value="*">All configured approval groups (${story.length + initiative.length}) — default</option>`] : []),
     ...(story.length ? [`<option value="story:*">All Story approval groups (${story.length})</option>`] : []),
     ...(initiative.length ? [`<option value="initiative:*">All Initiative approval groups (${initiative.length})</option>`] : []),
-    ...(story.length && initiative.length ? [`<option value="*">All Story and Initiative groups (${story.length + initiative.length})</option>`] : []),
     ...(story.length ? [`<optgroup label="Individual Story groups">${story.map((group) => `<option value="story:${escape(group.id)}">${escape(group.label)}</option>`).join('')}</optgroup>`] : []),
     ...(initiative.length ? [`<optgroup label="Individual Initiative groups">${initiative.map((group) => `<option value="initiative:${escape(group.id)}">${escape(group.label)}</option>`).join('')}</optgroup>`] : [])
   ].join('');
   return `<form id="current-identity-authority-form" class="editor-card">
-    <div class="section-heading"><div><h2>${icon('approval')}Add my current Git identity</h2><p class="muted">Choose one group or apply the identity to every group in a scope. Existing matching members are enriched, never duplicated.</p></div></div>
+    <div class="section-heading"><div><h2>${icon('approval')}Add my current Git identity</h2><p class="muted">By default, your identity is added to every configured approval group. You can narrow it to one scope or group. Existing matching members are enriched, never duplicated.</p></div></div>
     <div class="summary-grid"><div class="summary-card"><strong>${escape(identity.name)}</strong><span>Git name</span></div><div class="summary-card"><strong>${escape(identity.email || 'not configured')}</strong><span>Git email</span></div><div class="summary-card"><strong>${escape(identity.githubLogin || 'not resolved')}</strong><span>GitHub login</span></div></div>
     <div class="form-grid"><label class="span-2"><span>Apply identity to</span><select name="target">${choices}</select><small>Authority is granted only to the selected governed groups.</small></label></div>
     <label class="check"><input name="enableSolo" type="checkbox"${view.approvalSecurityProfile === 'poc' ? ' checked' : ''}>Solo developer mode — allow future Stories to record self-approval</label>

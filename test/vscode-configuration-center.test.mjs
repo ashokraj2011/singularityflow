@@ -76,17 +76,21 @@ test('people and approvals offers the resolved Git identity, group menu, solo mo
     githubLogin: 'caseydev'
   });
   assert.equal(view.approvalSecurityProfile, 'team');
+  assert.equal(view.approvalAllowSelfApproval, true);
+  assert.equal(view.approvalAutoEnrollNewIdentities, true);
   const html = configurationCenterHtml(view, 'people', null, null, null, []);
   assert.match(html, /Add my current Git identity/);
   assert.match(html, /All configured approval groups \(2\) — default/);
   assert.match(html, /All Story approval groups \(1\)/);
   assert.ok(html.indexOf('value="*"') < html.indexOf('value="story:*"'),
     'all configured groups is the select default');
-  assert.match(html, /Solo developer mode/);
+  assert.match(html, /Allow self-approval for newly started work/);
+  assert.match(html, /Automatically add a new Git identity to every approval group/);
   assert.match(html, /Add, commit &amp; push/);
   assert.doesNotMatch(html, /Save without publishing/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'add-current-identity'/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /enableSolo: data\.get\('enableSolo'\) === 'on'/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /allowSelfApproval: data\.get\('allowSelfApproval'\) === 'on'/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /autoEnrollNewIdentities: data\.get\('autoEnrollNewIdentities'\) === 'on'/);
 });
 
 test('adding the current Git identity enriches matching members and never duplicates them', () => {

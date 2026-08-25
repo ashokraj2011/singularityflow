@@ -62,9 +62,11 @@ approval kernel will use. It defaults to all configured Story and Initiative aut
 one authority or one scope only when intentionally narrowing that grant. Existing matches are enriched rather than duplicated. **Add, commit
 & push** updates an isolated checkout of the approved `sflow/config` authority, validates the
 complete workflow and portfolio, retains the exact commit for push recovery, and publishes it. It
-never edits, stages, or commits the active Story/Initiative checkout. Lone developers may explicitly
-enable the `poc` approval-security profile so future Stories can record self-approval. Published
-changes never rewrite the immutable configuration snapshot of an existing Story.
+never edits, stages, or commits the active Story/Initiative checkout. **Allow self-approval** and
+**Automatically add a new Git identity** are enabled by default for normal team configuration and
+disabled by default for the regulated profile. The latter publishes a new identity into all Story
+and Initiative groups before a newly started Story pins its configuration. Either control can be
+disabled here; published changes never rewrite an existing Story's immutable snapshot.
 
 ## MCP tools
 

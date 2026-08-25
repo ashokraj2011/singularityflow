@@ -3338,8 +3338,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (error) { return (error as Error).message; }
     }
     if (message.type === 'add-current-identity') {
-      const args = ['configuration', 'add-current-identity', '--target', message.target];
-      if (message.solo) args.push('--solo');
+      const args = [
+        'configuration', 'add-current-identity', '--target', message.target,
+        '--self-approval', message.allowSelfApproval ? 'on' : 'off',
+        '--auto-enroll', message.autoEnrollNewIdentities ? 'on' : 'off'
+      ];
       output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
       try {
         const result = await client.run<{

@@ -17,7 +17,10 @@ import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configur
 export type ConfigurationCenterMessage =
   | { type: 'save'; path: string; content: string; expectedSha256: string }
   | { type: 'profile'; name: string; role: string }
-  | { type: 'add-current-identity'; target: string; solo: boolean }
+  | {
+      type: 'add-current-identity'; target: string;
+      allowSelfApproval: boolean; autoEnrollNewIdentities: boolean;
+    }
   | { type: 'action'; action: string }
   /**
    * Open a repository file the Center listed. Carries the path rather than an action name because
@@ -127,7 +130,9 @@ export class ConfigurationCenterPanel {
       if (error) this.errors = [error]; else this.notice = 'Local profile saved.'; return this.render();
     }
     if (message.type === 'add-current-identity') return this.addCurrentIdentity(
-      String(message.target ?? ''), message.enableSolo === true
+      String(message.target ?? ''),
+      message.allowSelfApproval === true,
+      message.autoEnrollNewIdentities === true
     );
     if (message.type === 'save-authority') {
       const draft = message as unknown as AuthorityDraft;
@@ -183,7 +188,9 @@ export class ConfigurationCenterPanel {
     }
   }
 
-  private async addCurrentIdentity(target: string, enableSolo: boolean): Promise<void> {
+  private async addCurrentIdentity(
+    target: string, allowSelfApproval: boolean, autoEnrollNewIdentities: boolean
+  ): Promise<void> {
     const view = this.view(); const identity = view?.gitIdentity;
     if (!view || !identity) return this.showErrors([
       'No usable Git email or GitHub login was resolved for this repository. Configure git user.name and user.email, refresh, and try again.'
@@ -209,7 +216,8 @@ export class ConfigurationCenterPanel {
         detail: [
           `Identity: ${identity.email || identity.githubLogin}`,
           `Approval groups:\n${labels.map((label) => `• ${label}`).join('\n')}`,
-          enableSolo ? 'Future Stories will use the explicit solo/POC profile and may record self-approval.' : '',
+          `Self-approval: ${allowSelfApproval ? 'enabled' : 'disabled'}`,
+          `Automatic enrollment for new Git identities: ${autoEnrollNewIdentities ? 'enabled' : 'disabled'}`,
           'Existing Story snapshots remain unchanged.'
         ].filter(Boolean).join('\n\n')
       },
@@ -218,7 +226,9 @@ export class ConfigurationCenterPanel {
     if (confirmed !== action) return;
 
     try {
-      const error = await this.onMessage({ type: 'add-current-identity', target, solo: enableSolo });
+      const error = await this.onMessage({
+        type: 'add-current-identity', target, allowSelfApproval, autoEnrollNewIdentities
+      });
       if (error) return this.showErrors([error]);
     } catch (error) { return this.showErrors([(error as Error).message]); }
     this.dirty = false;

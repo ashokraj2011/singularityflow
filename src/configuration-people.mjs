@@ -5,6 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
   CONFIGURATION_BRANCH, resolveConfigurationRemote
 } from './configuration-branch.mjs';
@@ -126,13 +127,16 @@ function configurationRemoteName(root, remoteUrl) {
  * added to `.git` so a failed push remains recoverable through `singularity-flow push`.
  */
 export async function publishCurrentIdentityToConfiguration(root, {
-  target = '*', solo = false, transport = {}
+  target = '*', solo = false, allowSelfApproval = null,
+  autoEnrollNewIdentities = null, automatic = false, transport = {}
 } = {}) {
+  for (const [name, value] of Object.entries({ allowSelfApproval, autoEnrollNewIdentities })) {
+    if (value != null && typeof value !== 'boolean') {
+      throw new SingularityFlowError(`${name} must be boolean when supplied.`);
+    }
+  }
   const actor = identity(root);
   const member = normalizedMember(actor);
-  if (!member.email && !member.githubLogin) {
-    throw new SingularityFlowError('No usable Git email or authenticated GitHub login was resolved. Configure git user.email and try again.');
-  }
   const remoteUrl = await resolveConfigurationRemote(root);
   if (!remoteUrl) {
     throw new SingularityFlowError(
@@ -155,6 +159,17 @@ export async function publishCurrentIdentityToConfiguration(root, {
     const workflowText = await readFile(path.join(scratch, WORKFLOW_PATH), 'utf8').catch(() => null);
     if (workflowText == null) throw new SingularityFlowError(`${CONFIGURATION_BRANCH} does not contain ${WORKFLOW_PATH}.`);
     const workflow = parseDocument(workflowText, WORKFLOW_PATH);
+    const currentSecurity = normalizeApprovalSecurity(workflow.toJS()?.approvalSecurity ?? {});
+    if (automatic && !currentSecurity.autoEnrollNewIdentities) {
+      return {
+        changed: false, pushed: false, branch: CONFIGURATION_BRANCH, commit: previousCommit,
+        identity: member, groups: [], profile: currentSecurity.profile,
+        approvalSecurity: currentSecurity, automatic: true, skipped: 'automatic-enrollment-disabled'
+      };
+    }
+    if (!member.email && !member.githubLogin) {
+      throw new SingularityFlowError('No usable Git email or authenticated GitHub login was resolved. Configure git user.email and try again.');
+    }
     const portfolioText = await readFile(path.join(scratch, PORTFOLIO_PATH), 'utf8').catch(() => null);
     const portfolio = portfolioText == null ? null : parseDocument(portfolioText, PORTFOLIO_PATH);
     const story = authorityRows(workflow, 'story');
@@ -169,14 +184,30 @@ export async function publishCurrentIdentityToConfiguration(root, {
       document.setIn(['approvalAuthorities', entry.id, 'members'], merged.members);
       changedGroups.push({ id: entry.id, scope: entry.scope });
     }
-    const previousProfile = workflow.getIn(['approvalSecurity', 'profile']) ?? 'team';
+    const previousProfile = currentSecurity.profile;
     const profileChanged = solo && previousProfile !== 'poc';
     if (profileChanged) workflow.setIn(['approvalSecurity', 'profile'], 'poc');
-    if (!changedGroups.length && !profileChanged) {
+    const desiredSelfApproval = allowSelfApproval == null
+      ? (solo ? true : null)
+      : Boolean(allowSelfApproval);
+    const desiredAutoEnrollment = autoEnrollNewIdentities == null
+      ? null
+      : Boolean(autoEnrollNewIdentities);
+    const selfApprovalChanged = desiredSelfApproval != null
+      && workflow.getIn(['approvalSecurity', 'allowSelfApproval']) !== desiredSelfApproval;
+    const autoEnrollmentChanged = desiredAutoEnrollment != null
+      && workflow.getIn(['approvalSecurity', 'autoEnrollNewIdentities']) !== desiredAutoEnrollment;
+    if (selfApprovalChanged) {
+      workflow.setIn(['approvalSecurity', 'allowSelfApproval'], desiredSelfApproval);
+    }
+    if (autoEnrollmentChanged) {
+      workflow.setIn(['approvalSecurity', 'autoEnrollNewIdentities'], desiredAutoEnrollment);
+    }
+    if (!changedGroups.length && !profileChanged && !selfApprovalChanged && !autoEnrollmentChanged) {
       return {
         changed: false, pushed: false, branch: CONFIGURATION_BRANCH, commit: previousCommit,
         identity: member, groups: selected.map(({ id, scope }) => ({ id, scope })),
-        profile: previousProfile
+        profile: previousProfile, approvalSecurity: currentSecurity, automatic: Boolean(automatic)
       };
     }
 
@@ -216,7 +247,10 @@ export async function publishCurrentIdentityToConfiguration(root, {
         operation: 'sflow.configuration.people.add-current-identity',
         target,
         groups: changedGroups,
-        solo: Boolean(solo)
+        solo: Boolean(solo),
+        allowSelfApproval: desiredSelfApproval,
+        autoEnrollNewIdentities: desiredAutoEnrollment,
+        automatic: Boolean(automatic)
       }
     }, transport);
     return {
@@ -227,6 +261,8 @@ export async function publishCurrentIdentityToConfiguration(root, {
       identity: member,
       groups: changedGroups,
       profile: profileChanged ? 'poc' : previousProfile,
+      approvalSecurity: normalizeApprovalSecurity(workflow.toJS()?.approvalSecurity ?? {}),
+      automatic: Boolean(automatic),
       transportIntent: publication.intentId,
       transportStatus: publication.status,
       nextAction: publication.nextAction ?? null

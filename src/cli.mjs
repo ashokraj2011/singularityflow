@@ -787,6 +787,22 @@ export async function startCommand(positionals, options) {
       `Missing ${WORKFLOW_PATH}. This repository is not inside an active workspace whose lead `
       + `repository has the approved sflow/config branch. Map and approve the workspace capability first.`);
   }
+  // Enrollment is completed before the Story branch and its immutable configuration snapshot are
+  // created. A failed configuration push stops here, so the Story can never pin the older authority
+  // and then discover at approval time that the person who started it was omitted.
+  if (!materializedSeed && configurationRemote) {
+    const enrollment = await publishCurrentIdentityToConfiguration(root, {
+      target: '*', automatic: true
+    });
+    if (enrollment.changed && !enrollment.pushed) {
+      throw new SingularityFlowError(
+        `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
+          ? `Run: ${enrollment.nextAction.command}`
+          : 'Open Push recovery, publish the retained configuration commit, and start again.'}`,
+        { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
+      );
+    }
+  }
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
   // Listing branches establishes read access; this dry-run additionally establishes that the
@@ -7618,10 +7634,23 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishEditorConfiguration(root, optionString(options, 'message'));
-  else if (subcommand === 'add-current-identity') result = await publishCurrentIdentityToConfiguration(root, {
-    target: optionString(options, 'target', '*'),
-    solo: optionBoolean(options, 'solo')
-  });
+  else if (subcommand === 'add-current-identity') {
+    const controlledBoolean = (key) => {
+      const value = optionString(options, key);
+      if (value == null) return null;
+      if (!['on', 'off'].includes(value)) {
+        throw new SingularityFlowError(`--${key} must be on or off.`);
+      }
+      return value === 'on';
+    };
+    result = await publishCurrentIdentityToConfiguration(root, {
+      target: optionString(options, 'target', '*'),
+      solo: optionBoolean(options, 'solo'),
+      allowSelfApproval: controlledBoolean('self-approval'),
+      autoEnrollNewIdentities: controlledBoolean('auto-enroll'),
+      automatic: optionBoolean(options, 'automatic')
+    });
+  }
   else if (subcommand === 'portfolio-bootstrap') {
     let input = {};
     const text = await stdinText();

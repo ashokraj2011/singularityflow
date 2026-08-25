@@ -84,6 +84,8 @@ export interface ConfigurationCenterView {
   /** The repository identity the kernel will attribute governed decisions to. */
   gitIdentity: AuthorityMemberView | null;
   approvalSecurityProfile: 'poc' | 'team' | 'regulated';
+  approvalAllowSelfApproval: boolean;
+  approvalAutoEnrollNewIdentities: boolean;
   /** Artifact templates with their catalog names and usage, absorbed from the sidebar. */
   fileSets: FileSetView[];
   authorities: AuthorityView[];
@@ -260,6 +262,9 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const gitEmail = String(gitIdentity?.email ?? '').trim().toLowerCase();
   const gitLogin = String(gitIdentity?.login ?? snapshot.identities?.github ?? '').trim();
   const approvalSecurityProfile = definition.approvalSecurity?.profile;
+  const normalizedApprovalSecurityProfile = approvalSecurityProfile === 'poc' || approvalSecurityProfile === 'regulated'
+    ? approvalSecurityProfile : 'team';
+  const approvalSecurityDefault = normalizedApprovalSecurityProfile !== 'regulated';
   return {
     profile,
     gitIdentity: gitEmail || gitLogin ? {
@@ -267,8 +272,9 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       email: gitEmail,
       githubLogin: gitLogin
     } : null,
-    approvalSecurityProfile: approvalSecurityProfile === 'poc' || approvalSecurityProfile === 'regulated'
-      ? approvalSecurityProfile : 'team',
+    approvalSecurityProfile: normalizedApprovalSecurityProfile,
+    approvalAllowSelfApproval: definition.approvalSecurity?.allowSelfApproval ?? approvalSecurityDefault,
+    approvalAutoEnrollNewIdentities: definition.approvalSecurity?.autoEnrollNewIdentities ?? approvalSecurityDefault,
     /**
      * Read straight from the snapshot the engine already annotates. The catalog join happens once,
      * server-side; recomputing "what uses this template" here would be the designer and the kernel

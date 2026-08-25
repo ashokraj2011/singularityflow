@@ -11,6 +11,7 @@ import {
   isConfigurationAsset, materializeConfigurationSnapshot, readConfigurationSource
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
 import { run } from '../src/util.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
@@ -230,6 +231,24 @@ test('Story start materializes approved configuration without requiring it on ap
     ));
     assert.match(workflow.resolution.configurationSource.commit, /^[0-9a-f]{40}$/);
     assert.equal(workflow.resolution.configurationSource.branch, CONFIGURATION_BRANCH);
+    assert.equal(workflow.phases.intake.approvalPolicy.allowSelfApproval, true,
+      'new Stories pin the default self-approval control');
+    assert.ok(Object.values(workflow.resolution.approvalAuthorities).every((authority) =>
+      authority.members.some((member) => member.email === 'story@example.com')),
+    'the Story pins its starter identity in every approval group');
+    const approvedWorkflow = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(approvedWorkflow.approvalAuthorities).every((authority) =>
+      authority.members.some((member) => member.email === 'story@example.com')),
+    'automatic enrollment is published before configuration is materialized');
+    assert.equal(approvedWorkflow.approvalSecurity.autoEnrollNewIdentities, true);
+    const approvedPortfolio = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/portfolio.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(approvedPortfolio.approvalAuthorities).every((authority) =>
+      authority.members.some((member) => member.email === 'story@example.com')),
+    'automatic enrollment covers every Initiative approval group too');
     assert.equal(
       run('git', ['cat-file', '-e', 'main:singularity/workflow.yml'], {
         cwd: fixture.remote, allowFailure: true
@@ -240,6 +259,40 @@ test('Story start materializes approved configuration without requiring it on ap
     assert.equal(run('git', ['cat-file', '-e', 'CFG-100:singularity/configuration-source.json'], {
       cwd: fixture.remote, allowFailure: true
     }).status, 0, 'the published Story carries configuration provenance');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('automatic identity enrollment obeys the approved configuration switch', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const approved = path.join(fixture.root, 'approved-auto-enrollment-off');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, approved], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Tester'], { cwd: approved });
+    run('git', ['config', 'user.email', 'configuration@example.com'], { cwd: approved });
+    const workflowFile = path.join(approved, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.approvalSecurity.autoEnrollNewIdentities = false;
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: approved });
+    run('git', ['commit', '-qm', 'disable automatic identity enrollment'], { cwd: approved });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: approved });
+
+    const checkout = path.join(fixture.root, 'auto-enrollment-off-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Unlisted Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'unlisted@example.com'], { cwd: checkout });
+    const result = await publishCurrentIdentityToConfiguration(checkout, { automatic: true });
+    assert.equal(result.changed, false);
+    assert.equal(result.skipped, 'automatic-enrollment-disabled');
+
+    const after = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/workflow.yml`
+    ], { cwd: fixture.remote }).stdout);
+    assert.ok(Object.values(after.approvalAuthorities).every((authority) =>
+      !authority.members.some((member) => member.email === 'unlisted@example.com')));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

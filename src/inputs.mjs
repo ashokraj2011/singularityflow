@@ -5,6 +5,7 @@ import { exists, nowIso, posix, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 import { readAgentBrief } from './agent-briefs.mjs';
+import { authoredArtifactText } from './publication-preflight.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -22,9 +23,12 @@ function utf8Prefix(buffer, maxBytes) {
 }
 
 function embeddedInputContent(buffer, maxBytes) {
-  return utf8Prefix(buffer, maxBytes)
-    .replaceAll(INPUTS_START, '<!-- approved source inputs:start -->')
-    .replaceAll(INPUTS_END, '<!-- approved source inputs:end -->');
+  // Only bytes authored by the producer belong in the next phase prompt. Re-embedding the
+  // producer's managed input block makes a seven-phase workflow grow recursively and also sends
+  // evidence the kernel has already verified. Strip the managed envelope before truncation so a
+  // budget is always spent on producer-owned content.
+  const authored = Buffer.from(authoredArtifactText(buffer.toString('utf8')), 'utf8');
+  return utf8Prefix(authored, maxBytes);
 }
 
 function severity(mode, optional, status) {
@@ -92,6 +96,8 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
       bytes: current.size,
       injectedBytes: 0,
       truncated: false,
+      authoredBytes: 0,
+      managedBytesExcluded: 0,
       content: null,
       projection: declaration.projection === 'approved-summary' ? {
         kind: 'approved-summary',
@@ -106,11 +112,10 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
     };
     if (status === 'captured') {
       const raw = await readFile(path.join(itemDirectory, relativeArtifact));
-      // Producer artifacts may already contain their own managed input block. Keep
-      // that approved context, but neutralize its control markers before nesting
-      // it in the consumer's block so extraction and integrity hashing remain
-      // unambiguous at every depth of the phase chain.
-      let selectedBytes = raw.length;
+      const authored = Buffer.from(authoredArtifactText(raw.toString('utf8')), 'utf8');
+      record.authoredBytes = authored.length;
+      record.managedBytesExcluded = raw.length - authored.length;
+      let selectedBytes = authored.length;
       if (declaration.projection === 'approved-summary') {
         const brief = await readAgentBrief(root, workflow, producer, phase, declaration, { itemRelative });
         record.projection.briefPath = brief.record?.rendered?.path ?? null;
@@ -145,7 +150,7 @@ export async function collectInputs(root, workflow, phase, { itemDirectory, item
           fallback: declaration.selector.fallback
         });
         const selected = renderClauseContext(clauses);
-        selectedBytes = Buffer.byteLength(selected || raw);
+        selectedBytes = Buffer.byteLength(selected || authored);
         record.content = embeddedInputContent(Buffer.from(selected || raw), declaration.maxBytes ?? null);
         record.selector = {
           ...declaration.selector,

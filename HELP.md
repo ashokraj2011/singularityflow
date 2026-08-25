@@ -2015,8 +2015,11 @@ singularity-flow prompt-log off
 ```
 
 `/sf-prompt-log` exposes the same controls in Copilot. The default `view` is a structured report
-with context, model execution, tool authorization, tokens and cost, request/output, grounding, and
-prompt sections; `--raw` prints only the prompt. Each record identifies the governed agent, Story,
+with context, model execution, tool authorization, tokens and cost, request/output, grounding,
+section-level composition, context efficiency, and the prompt; `--raw` prints only the prompt.
+Efficiency includes managed upstream bytes removed, duplicate reference previews removed, AST
+structural fact/payload counts, and optional sections omitted by the approved token profile. Each
+record identifies the governed agent, Story,
 phase, generation, timestamp, prompt hash, and secret-redaction count. The append-only JSONL
 file lives under `<workspace>/.singularity-flow/prompt-audit/prompts.jsonl`; when no active workspace
 matches the repository, it falls back to `.git/singularity-flow/prompt-audit/prompts.jsonl`.

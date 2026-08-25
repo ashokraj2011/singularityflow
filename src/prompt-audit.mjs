@@ -239,6 +239,10 @@ export function renderPromptAudit(record) {
       : tools.mode === 'all' ? 'All provider tools' : 'Unavailable';
   const evidence = record.supportingEvidence ?? [];
   const references = record.references ?? [];
+  const duplicateReferenceBytes = (record.composition?.deduplicatedReferences ?? [])
+    .reduce((total, entry) => total + (entry.previewBytes ?? 0), 0);
+  const astSection = (record.composition?.sections ?? [])
+    .find((section) => section.id === 'optional-ast-context');
   const lines = [
     `# Prompt audit ${record.id}`,
     '',
@@ -307,6 +311,27 @@ export function renderPromptAudit(record) {
     `- Supporting evidence records: ${evidence.length}`,
     `- Governed references: ${references.length}`,
     `- Composition cache: ${record.compositionCache ? `${record.compositionCache.hit ? 'hit' : 'miss'} (${record.compositionCache.key})` : 'unavailable'}`,
+    `- Approved-input/reference duplicates removed: ${record.composition?.deduplicatedReferences?.length ?? 0}`,
+    '',
+    '## Prompt composition',
+    '',
+    `- Policy: ${record.composition?.policy ? `${record.composition.policy.mode}/${record.composition.policy.profile}` : 'unavailable'}`,
+    `- Configured input limit: ${record.composition?.policy?.maximumInputTokens == null ? 'unavailable' : `${record.composition.policy.maximumInputTokens.toLocaleString('en-US')} estimated tokens`}`,
+    `- Before budgeting: ${record.composition?.originalBytes == null ? 'unavailable' : `${record.composition.originalBytes.toLocaleString('en-US')} bytes`}`,
+    `- Sent after budgeting: ${record.composition?.finalBytes == null ? record.bytes.toLocaleString('en-US') : `${record.composition.finalBytes.toLocaleString('en-US')} bytes`}`,
+    `- Optional sections omitted: ${record.composition?.omitted?.length ?? 0}`,
+    ...((record.composition?.sections ?? []).map((section) =>
+      `- ${section.included ? 'included' : 'omitted'} \`${section.id}\`: ${section.bytes.toLocaleString('en-US')} bytes · ${section.estimatedTokens.toLocaleString('en-US')} estimated tokens${section.mandatory ? ' · mandatory' : ''}`
+    )),
+    '',
+    '## Context efficiency',
+    '',
+    `- Recursive managed-input bytes excluded: ${(record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')}`,
+    `- Duplicate approved-reference preview bytes excluded: ${duplicateReferenceBytes.toLocaleString('en-US')}`,
+    `- AST status: ${display(record.composition?.structuralContext?.status, 'not requested or unavailable')}`,
+    `- AST facts selected: ${record.composition?.structuralContext?.factsReturned ?? 0}`,
+    `- AST structural facts selected: ${record.composition?.structuralContext?.structuralFactsReturned ?? 0}`,
+    `- AST prompt bytes: ${astSection?.included ? astSection.bytes.toLocaleString('en-US') : '0'}`,
     '',
     '## Prompt',
     '',
@@ -367,6 +392,7 @@ export async function recordPromptAudit(root, input) {
     supportingEvidence: input.supportingEvidence ?? [],
     references: input.references ?? [],
     compositionCache: input.compositionCache ?? null,
+    composition: input.composition ?? null,
     promptSha256,
     bytes: Buffer.byteLength(scrubbed.prompt),
     redactions: scrubbed.redactions,

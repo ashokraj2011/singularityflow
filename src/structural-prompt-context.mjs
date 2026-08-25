@@ -63,8 +63,33 @@ export async function requiredStructuralPromptContext(root, workflow) {
     extractor: fact.extractor?.id ?? null,
     ...(fact.extractors ? { extractors: fact.extractors.map((entry) => entry?.id ?? null) } : {})
   }));
-  const facts = JSON.stringify(compactFacts, null, 2);
   const scope = result.scope ?? {};
+  const page = result.provenance?.evidence?.outputs?.page;
+  const structuralFacts = compactFacts.filter((fact) => fact?.kind !== 'file');
+  if (!structuralFacts.length) {
+    return {
+      text: '',
+      record: {
+        status: 'empty', assurance: result.assurance,
+        engine: result.provenance?.engine ?? null,
+        engineVersion: result.provenance?.engineVersion ?? null,
+        extractors: structuredClone(result.provenance?.extractors ?? []),
+        definitionSha256: scope.definitionSha256 ?? null,
+        repositoryRevision: scope.repositoryRevision ?? null,
+        coneSha256: scope.coneSha256 ?? scope.worktreeFingerprint ?? null,
+        derivation: null, factsSha256: page?.factsSha256 ?? null,
+        factsReturned: compactFacts.length, factsAvailable: result.page?.available ?? compactFacts.length,
+        structuralFactsReturned: 0, continuationAvailable: false,
+        canonicalizationVersion: page?.canonicalizationVersion ?? 1,
+        pageOffset: page?.offset ?? 0, continuationBinding: null
+      },
+      warnings: [
+        `Optional AST context returned no structural facts (${compactFacts.length} file-inventory facts were suppressed); no AST payload was injected and ordinary repository file access continues.`,
+        ...(result.diagnostics ?? []).map((item) => `AST ${item.code}: ${item.message}`)
+      ]
+    };
+  }
+  const facts = JSON.stringify(compactFacts, null, 2);
   const config = await loadDefinition(root);
   const phase = workflow.phases?.[workflow.currentPhase] ?? {
     id: workflow.currentPhase ?? workflow.resolution?.phases?.[0]?.id ?? 'intake',
@@ -86,7 +111,6 @@ export async function requiredStructuralPromptContext(root, workflow) {
   } else {
     derivationWarnings.push('Optional AST context is not durable evidence; continuing with the available bounded facts.');
   }
-  const page = result.provenance?.evidence?.outputs?.page;
   const record = {
     status: result.status,
     assurance: result.assurance,

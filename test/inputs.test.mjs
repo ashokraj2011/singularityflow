@@ -70,7 +70,7 @@ test('record mode captures complete approved content and records a managed block
   assert.equal(JSON.parse(await readFile(recorded.file, 'utf8')).renderedSha256, rendered.sha256);
 });
 
-test('approved artifacts with managed inputs remain safe when injected downstream', async () => {
+test('approved artifacts inject only producer-authored bytes and never recurse managed inputs', async () => {
   const value = await fixture('enforce');
   await writeFile(value.producerPath, `# Requirements\n\n<!-- singularity-flow:inputs:start -->\n\n# Approved phase inputs\n\nUpstream evidence.\n\n<!-- singularity-flow:inputs:end -->\n\nAC-001 complete behavior.\n`);
   const info = await snapshot(value.producerPath);
@@ -83,8 +83,53 @@ test('approved artifacts with managed inputs remain safe when injected downstrea
   const artifact = applyInputsBlock('# Design\n\n{{inputs}}\n', rendered.text, 'enforce');
   assert.equal((artifact.match(/singularity-flow:inputs:start/g) ?? []).length, 1);
   assert.equal((artifact.match(/singularity-flow:inputs:end/g) ?? []).length, 1);
-  assert.match(artifact, /approved source inputs:start/);
+  assert.doesNotMatch(artifact, /Upstream evidence|approved source inputs:start/);
+  assert.match(artifact, /AC-001 complete behavior/);
+  assert.ok(result.records[0].managedBytesExcluded > 0);
+  assert.ok(result.records[0].authoredBytes < result.records[0].bytes);
   assert.equal(extractInputsBlock(artifact), rendered.text);
+});
+
+test('managed phase inputs remain linear across a long workflow chain', async () => {
+  const value = await fixture('enforce');
+  let producer = value.workflow.phases.requirements;
+  let producerPath = value.producerPath;
+  let producerId = 'requirements';
+  let previousAuthored = 'AC-001 complete behavior.';
+
+  for (let index = 1; index <= 7; index += 1) {
+    const consumerId = `phase-${index}`;
+    const declaration = {
+      phase: producerId, optional: false, maxBytes: null,
+      path: producer.requiredArtifact.path
+    };
+    const consumer = {
+      id: consumerId, generation: 0,
+      requiredArtifact: { path: `artifacts/${consumerId}/${consumerId}.md` },
+      inputs: [declaration]
+    };
+    value.workflow.phases[consumerId] = consumer;
+    value.workflow.resolution.phases = [{ id: consumerId, inputs: [declaration] }];
+    const result = await collectInputs(value.root, value.workflow, consumer, value);
+    const nextAuthored = `Owned content for ${consumerId}.`;
+    const artifact = applyInputsBlock(`# ${consumerId}\n\n${nextAuthored}\n`, renderInputsBlock(result).text, 'enforce');
+    assert.match(artifact, new RegExp(previousAuthored.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal((artifact.match(/singularity-flow:inputs:start/g) ?? []).length, 1);
+    assert.ok(Buffer.byteLength(artifact) < 1_500, 'phase input grew recursively');
+
+    producerPath = path.join(value.itemDirectory, consumer.requiredArtifact.path);
+    await mkdir(path.dirname(producerPath), { recursive: true });
+    await writeFile(producerPath, artifact);
+    const info = await snapshot(producerPath);
+    consumer.status = 'approved'; consumer.generation = 1;
+    consumer.artifacts = [{
+      path: `${value.itemRelative}/${consumer.requiredArtifact.path}`,
+      status: 'approved', ...info
+    }];
+    producer = consumer;
+    producerId = consumerId;
+    previousAuthored = nextAuthored;
+  }
 });
 
 test('explicit input budgets truncate safely while omitted budgets do not', async () => {

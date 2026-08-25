@@ -449,22 +449,170 @@ nothing out permanently: Flow clones `sflow/config` into a temporary directory,
 pushes a `sflow/config-change/capability/...` review branch, and discards the
 checkout. It never writes the lead repository's application default branch.
 
-```
-singularity-flow capability map payments-api --lead https://git.example.corp/acme/platform.git \
-  --name "Payments API" --kind delivery --parent payments --repository https://git.example.corp/acme/api.git \
-  --metadata applicationId=APP-1001 --metadata costCenter=PAYMENTS
+### End-to-end guide: capability onboarding to a working workspace
 
-# Review the exact proposal, then activate it with its full commit SHA:
-singularity-flow capability proposals --lead https://git.example.corp/acme/platform.git
-singularity-flow capability proposal <REVIEW-BRANCH> --lead https://git.example.corp/acme/platform.git
-singularity-flow capability activate <REVIEW-BRANCH> \
-  --lead https://git.example.corp/acme/platform.git --confirm <FULL-PROPOSAL-COMMIT> \
-  --acknowledge-unprotected # only when the remote permits a direct update
+The example below onboards a `payments-api` delivery capability whose approved
+configuration is owned by the platform lead repository. Replace every example URL,
+ID, and local path; capability and workspace IDs use lower-case kebab case.
+
+#### 1. Locate the configuration authority
+
+```bash
+singularity-flow capability leads --json
+singularity-flow capability organisation \
+  "https://git.example.corp/acme/platform.git" --refresh --json
 ```
 
-In VS Code, open **Configuration → Review proposals**. The dashboard lists pending
-changes across all registered lead repositories and works without an active
-workspace. Select a row to inspect the exact diff and activate the reviewed commit.
+Use the lead repository that owns the organisation map. If no lead is registered,
+pass its clone URL explicitly in the following commands; the first proposal can
+initialize an ungoverned lead without a prior workspace or `bootstrap` operation.
+
+#### 2. Propose the capability
+
+```bash
+singularity-flow capability map payments-api \
+  --lead "https://git.example.corp/acme/platform.git" \
+  --name "Payments API" \
+  --kind delivery \
+  --type tech \
+  --parent payments \
+  --repository "https://git.example.corp/acme/payments-api.git" \
+  --metadata applicationId=APP-1001 \
+  --metadata costCenter=PAYMENTS \
+  --json
+```
+
+A `delivery` capability requires at least one repeatable `--repository`; a
+`collection` groups other capabilities and must not name repositories. For a
+delivery spanning several repositories, repeat `--repository` and add
+`--lead-repository <URL>` to identify which delivery repository owns governed
+state. The result returns a review branch, its `sflow/config` base, and a full
+proposal commit. Nothing is active yet, and no application branch was changed.
+
+#### 3. Review the exact proposal
+
+```bash
+singularity-flow capability proposals \
+  --lead "https://git.example.corp/acme/platform.git"
+
+singularity-flow capability proposal "<REVIEW-BRANCH>" \
+  --lead "https://git.example.corp/acme/platform.git" \
+  --json
+```
+
+Review the complete commit, changed-file set, and diff. The proposal must target
+`sflow/config` and contain only governed configuration. Keep the full
+`proposalCommit`; a shortened SHA is deliberately rejected during activation.
+
+#### 4. Approve and activate
+
+```bash
+singularity-flow capability activate "<REVIEW-BRANCH>" \
+  --lead "https://git.example.corp/acme/platform.git" \
+  --confirm "<FULL-PROPOSAL-COMMIT>" \
+  --json
+```
+
+Activation makes a normal non-force update, records the reviewer and exact commit
+in the capability ledger, and projects the approved map to the orphan state branch.
+It never updates the application default branch.
+
+If activation reports `CAPABILITY_CONFIGURATION_UNPROTECTED`, the dry-run proved
+that this identity can update an unprotected `sflow/config`. Follow organisational
+policy and, only after explicitly accepting that exception, repeat the exact command
+with `--acknowledge-unprotected`. If branch protection or permissions reject the
+normal update, merge the preserved proposal branch into `sflow/config` through the
+repository's review controls, then rerun the same exact-hash `capability activate`
+command. It detects the external merge and completes the activation audit and state
+projection. `capability publish` repairs a projection; it is not a substitute for
+activating a reviewed proposal.
+
+#### 5. Verify onboarding readiness
+
+```bash
+singularity-flow capability organisation \
+  "https://git.example.corp/acme/platform.git" --readiness --refresh --json
+
+singularity-flow capabilities doctor payments-api --json
+```
+
+Proceed only when the capability is present in the active tree, every delivery
+repository resolves, and the configuration/state authorities are ready. A proposal
+branch by itself is not an onboarded capability.
+
+#### 6. Prepare and materialize the workspace
+
+```bash
+singularity-flow workspace prepare \
+  "https://git.example.corp/acme/platform.git" \
+  --id payments-work \
+  --name "Payments workspace" \
+  --capability payments-api \
+  --lead-capability payments-api \
+  --base "/approved/workspaces" \
+  --initialize \
+  --json
+```
+
+`prepare` is a non-materializing preflight. It returns a `bootstrapId`, the exact
+destination, repository plan, branch plan, and any authentication, network, disk,
+or state-branch blockers. Review that output, then resume the same plan:
+
+```bash
+singularity-flow workspace bootstrap resume "<BOOTSTRAP-ID>" \
+  --confirm payments-work \
+  --json
+```
+
+Selecting a collection includes its descendants. Selecting a delivery includes all
+repositories it ships from. `--lead-capability` identifies the repository used as
+the workspace's default governed context; it must be one of the selected delivery
+capabilities. Interrupted setup is resumed with the same bootstrap ID rather than
+starting another clone transaction.
+
+#### 7. Select and verify the workspace
+
+```bash
+singularity-flow workspace use payments-work --repository payments-api --json
+singularity-flow workspace current --json
+singularity-flow workspace list --json
+```
+
+The current result must name the workspace, lead repository, selected repository,
+and local repository path. Work can then start with `/sf-start` in Copilot or the
+Lifecycle **Start work** action in VS Code.
+
+#### VS Code and Copilot path
+
+- In VS Code, use **Configuration → Capabilities → Map capability**, then
+  **Review capability proposal**. **Merge and acknowledge** uses the same
+  exact-commit activation and cannot bypass branch protection.
+- Use **Workspaces → Create workspace**, review the preflight, resume it, then choose
+  **Work here**. The selected workspace becomes the context for Lifecycle and
+  Configuration.
+- In Copilot, `/sf-capability-map` performs propose, review, and explicit activation;
+  `/sf-workspace` prepares or selects the workspace; `/sf-workspace-session` attaches
+  the current Copilot session to its repository.
+
+#### Common onboarding failures
+
+- **“No capability map to publish”** — the proposal is not active. Review it and run
+  exact-commit `capability activate`; do not call `capability publish` first.
+- **Proposal branch creation works but activation is rejected** — creating a branch
+  does not prove permission to update protected `sflow/config`. Use the repository's
+  normal review merge, then rerun exact-hash activation.
+- **“Confirmation must be the exact proposal commit”** — re-read `capability
+  proposal` and use its complete `proposalCommit`, not the displayed short SHA.
+- **Missing state or configuration readiness** — rerun activation after an external
+  merge, then use `capability organisation --readiness --refresh` before workspace
+  creation.
+- **Workspace materialization is interrupted** — inspect `workspace bootstrap
+  status` or `workspace doctor --network`, repair the named cause, and resume the
+  existing bootstrap ID.
+
+In VS Code, **Configuration → Review proposals** lists pending changes across all
+registered lead repositories and works without an active workspace. Select a row
+to inspect the exact diff and activate the reviewed commit.
 
 The first capability mapped into a repository creates `sflow/config` if needed,
 imports any existing reusable configuration as its seed, declares the repository,

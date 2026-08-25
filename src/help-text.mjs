@@ -61,6 +61,7 @@ Usage:
   singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID|BRANCH> [--fetch] [--allow-dirty]
   singularity-flow return <WORK-ID> [--apply --confirm WORK-ID] [--offline] [--json]
+  singularity-flow cancel <WORK-ID> --release [--apply --confirm WORK-ID] [--json]
   singularity-flow agent [WORK-ID] [--agent ID]
   singularity-flow session status|candidates [--json]
   singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]

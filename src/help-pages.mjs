@@ -889,11 +889,22 @@ const PAGES = Object.freeze({
   },
   cancel: {
     summary: 'Cancel a Story and archive it, with a recorded reason.',
+    description: [
+      'Cancellation preserves the Story branch and never discards source edits. If local edits remain,',
+      'preview --release separately; applying stores them in a named recoverable stash, returns to the',
+      "Story's recorded base branch, and clears only the stale machine-local Story selection."
+    ],
     options: [
       ['--reason TEXT', 'Why the work is being cancelled. Required.'],
-      ['--confirm WORK-ID', 'Type the Work ID to confirm.']
+      ['--confirm WORK-ID', 'Type the Work ID to confirm cancellation or an applied release.'],
+      ['--release', 'Preview releasing an already-cancelled checkout without changing it.'],
+      ['--apply', 'With --release, preserve local edits and return to the recorded base branch.']
     ],
-    examples: [['singularity-flow cancel PAY-1 --reason "Superseded by PAY-9" --confirm PAY-1', '']],
+    examples: [
+      ['singularity-flow cancel PAY-1 --reason "Superseded by PAY-9" --confirm PAY-1', 'Archive the Story without changing source edits.'],
+      ['singularity-flow cancel PAY-1 --release', 'Preview the exact paths and destination.'],
+      ['singularity-flow cancel PAY-1 --release --apply --confirm PAY-1', 'Stash the preserved edits and return to the base branch.']
+    ],
     seeAlso: ['reopen', 'reject']
   },
   reopen: {

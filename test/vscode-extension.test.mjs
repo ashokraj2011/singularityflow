@@ -3658,6 +3658,15 @@ test('VS Code exposes workspace prompt auditing and records the governed Copilot
   assert.match(panel, /not provider billing usage/);
 });
 
+test('cancelled dirty Story intake offers a recoverable release before reopening the form', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /Preserve changes & return to base/);
+  assert.match(extension, /'cancel', cancelled\.workItem\.id, '--release', '--apply'/);
+  assert.match(extension, /return startWork\(defaults\)/);
+  assert.doesNotMatch(extension, /git stash/,
+    'the extension delegates preservation to the engine instead of mutating Git itself');
+});
+
 test('Flow Impact has a dedicated configuration and reporting entry point', async () => {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, 'apps', 'vscode', 'package.json'), 'utf8'));
   assert.ok(packageJson.contributes.commands.some((entry) => entry.command === 'singularityFlow.openFlowImpact'));

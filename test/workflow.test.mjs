@@ -205,6 +205,57 @@ test('cancel requires an exact confirmation and archives work without deleting i
   assert.ok(next.actions.some((action) => action.command.includes('documents list CANCEL-101')));
 });
 
+test('a cancelled dirty checkout has a previewed, recoverable release path back to its base branch', async () => {
+  const root = await repository();
+  const workId = 'CANCEL-RELEASE-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
+    '--title', 'Stop local styling work', '--description', 'Preserve unfinished source edits when this Story is cancelled.'
+  ]);
+  await writeFile(path.join(root, 'unfinished-source.css'), 'body { background: green; }\n');
+  const cancelled = flow(root, [
+    'cancel', workId, '--reason', 'No longer required', '--confirm', workId
+  ]);
+  assert.match(cancelled.stdout, /1 uncommitted path\(s\) remain/);
+  assert.match(cancelled.stdout, new RegExp(`cancel ${workId} --release`));
+
+  const preview = JSON.parse(flow(root, ['cancel', workId, '--release', '--json']).stdout);
+  assert.equal(preview.applied, false);
+  assert.equal(preview.branch, workId);
+  assert.equal(preview.baseBranch, 'main');
+  assert.deepEqual(preview.changedPaths, ['unfinished-source.css']);
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), workId);
+  assert.match(execute('git', ['status', '--short'], root).stdout, /unfinished-source\.css/);
+
+  const refused = flow(root, ['cancel', workId, '--release', '--apply', '--confirm', 'SOMEONE-ELSE'], {
+    allowFailure: true
+  });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, new RegExp(`--apply --confirm ${workId}`));
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), workId);
+
+  const applied = JSON.parse(flow(root, [
+    'cancel', workId, '--release', '--apply', '--confirm', workId, '--json'
+  ]).stdout);
+  assert.equal(applied.applied, true);
+  assert.equal(applied.currentBranch, 'main');
+  assert.match(applied.stashSha, /^[a-f0-9]{40,64}$/);
+  assert.equal(applied.recoveryCommand, `git stash apply --index ${applied.stashSha}`);
+  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+  assert.equal(execute('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(execute('git', ['cat-file', '-e', `${applied.stashSha}^{commit}`], root).status, 0);
+  assert.match(execute('git', ['stash', 'show', '--name-only', '--include-untracked', applied.stashSha], root).stdout,
+    /unfinished-source\.css/);
+  assert.equal(execute('git', ['show-ref', '--verify', '--quiet', `refs/heads/${workId}`], root).status, 0,
+    'the archived Story branch remains available');
+  const archived = JSON.parse(execute('git', [
+    'show', `${workId}:singularity/work-items/${workId}/workflow.json`
+  ], root).stdout);
+  assert.equal(archived.status, 'cancelled');
+  await assert.rejects(readFile(path.join(root, '.git/singularity-flow/session.json')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(root, '.git/singularity-flow/copilot-session.json')), { code: 'ENOENT' });
+});
+
 test('CLI Story start pins configuration and world model from the refreshed configured remote', async () => {
   const source = await repository();
   const configPath = path.join(source, 'singularity/workflow.yml');

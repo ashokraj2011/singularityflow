@@ -286,7 +286,7 @@ export interface StoryPhase {
 }
 
 export interface StoryWorkflow {
-  workItem: { id: string; title?: string; branch?: string; workType?: string };
+  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string };
   currentPhase: string | null;
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;

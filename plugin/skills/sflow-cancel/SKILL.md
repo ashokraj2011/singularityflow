@@ -19,4 +19,6 @@ This is an explicit human lifecycle decision, not an artifact-generation task.
 4. Ask the human for explicit confirmation of the exact Work ID.
 5. Run `singularity-flow cancel <WORK-ID> --fetch --reason "<exact reason>" --confirm <WORK-ID>`.
 6. Stop on a stale/diverged branch, pending publication, completed Story, already-cancelled Story, or confirmation mismatch. Never reset, rebase, force-push, or delete the branch.
-7. Report the cancellation reason, human Git identity, governed agent audit context, phase, commit, push, and that the Story is now visible under **Archived** in VS Code.
+7. If cancellation reports remaining uncommitted paths, explain that a new Story will remain blocked until they are preserved. Run `singularity-flow cancel <WORK-ID> --release --json` to preview the exact paths, stash consequence, and recorded base branch. Ask separately whether to apply that release; never infer this authority from the cancellation confirmation.
+8. Only after explicit release approval, run `singularity-flow cancel <WORK-ID> --release --apply --confirm <WORK-ID> --json`. Report the durable stash SHA and recovery command exactly. The archived branch and governed history remain intact.
+9. Report the cancellation reason, human Git identity, governed agent audit context, phase, commit, push, and that the Story is now visible under **Archived** in VS Code.

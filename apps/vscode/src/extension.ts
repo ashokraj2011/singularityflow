@@ -2743,15 +2743,60 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const target = workspaceLabel ? `${workspaceLabel} → ${repositoryName}` : repositoryName;
       const sample = changedPaths.slice(0, 3).join(', ');
       const remaining = changedPaths.length - Math.min(changedPaths.length, 3);
+      const cancelled = store.current.snapshot?.workflow?.status === 'cancelled'
+        ? store.current.snapshot.workflow : null;
+      let release: {
+        workId: string; branch: string; baseBranch: string; changedPathCount: number;
+        changedPaths: string[]; ready: boolean;
+      } | null = null;
+      if (cancelled?.workItem.id && cancelled.workItem.branch === branchName) {
+        try {
+          release = await client.run<{
+            workId: string; branch: string; baseBranch: string; changedPathCount: number;
+            changedPaths: string[]; ready: boolean;
+          }>([
+            'cancel', cancelled.workItem.id, '--release', '--json'
+          ]);
+        } catch (error) {
+          output.appendLine(`Cancelled checkout release is unavailable: ${(error as Error).message}`);
+        }
+      }
+      const releaseAction = release?.ready ? 'Preserve changes & return to base' : null;
       const open = await vscode.window.showWarningMessage(
         `Cannot start work in ${target} on ${branchName}: ${changedPaths.length} uncommitted path(s) (${sample}${remaining ? `, +${remaining} more` : ''}).`,
         {
           modal: true,
           detail: `Repository: ${repositoryState?.root ?? repository}\nBranch: ${branchName}\n\n`
-            + `${changedPaths.join('\n')}\n\nCommit or stash these changes before starting governed work.`
+            + `${changedPaths.join('\n')}\n\n`
+            + (release
+              ? `This Story is cancelled. Singularity Flow can preserve these edits in a named Git stash and return to ${release.baseBranch}; the archived branch and history remain intact.`
+              : 'Commit or stash these changes before starting governed work.')
         },
+        ...(releaseAction ? [releaseAction] : []),
         'Open Source Control'
       );
+      if (releaseAction && open === releaseAction && cancelled) {
+        try {
+          const result = await client.run<{
+            baseBranch: string; stashSha: string | null; recoveryCommand: string | null;
+            sessionWarning: string | null;
+          }>([
+            'cancel', cancelled.workItem.id, '--release', '--apply',
+            '--confirm', cancelled.workItem.id, '--json'
+          ]);
+          await store.refresh();
+          const preserved = result.stashSha
+            ? ` Changes were preserved at stash commit ${result.stashSha.slice(0, 12)}.` : '';
+          void vscode.window.showInformationMessage(
+            `Cancelled Story ${cancelled.workItem.id} remains archived. Returned to ${result.baseBranch}.${preserved}`
+            + (result.sessionWarning ? ` ${result.sessionWarning}` : '')
+          );
+          return startWork(defaults);
+        } catch (error) {
+          showRefusal(error, { headline: `Could not release cancelled Story ${cancelled.workItem.id}` });
+          return;
+        }
+      }
       if (open === 'Open Source Control') await vscode.commands.executeCommand('workbench.view.scm');
       return;
     }

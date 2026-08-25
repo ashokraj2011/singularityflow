@@ -12,7 +12,7 @@ import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -110,6 +110,7 @@ import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import { detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources } from './epic-sources.mjs';
 import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES, addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage } from './epic-lifecycle.mjs';
 import { createStoryReviewPacket, finalizeStoryDelivery, readStoryReviewPacket } from './story-lineage.mjs';
+import { cancelledWorktreeReleasePlan, releaseCancelledWorktree } from './cancelled-worktree.mjs';
 import {
   composeEvidenceReceipt, renderEvidenceReceipt, renderEvidenceReceiptMarkdown
 } from './evidence-receipt.mjs';
@@ -4435,6 +4436,33 @@ async function cancelCommand(positionals, options) {
   }
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
+  if (optionBoolean(options, 'release')) {
+    const plan = cancelledWorktreeReleasePlan(root, config, workflow);
+    let result = plan;
+    if (optionBoolean(options, 'apply')) {
+      const confirmation = optionString(options, 'confirm');
+      if (confirmation !== workflow.workItem.id) {
+        throw new SingularityFlowError(
+          `Releasing the cancelled checkout stashes local changes and switches to '${plan.baseBranch}'. `
+          + `Re-run with --apply --confirm ${workflow.workItem.id}.`
+        );
+      }
+      result = await releaseCancelledWorktree(root, config, workflow);
+    }
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Cancelled Story checkout release — ${result.applied ? 'complete' : 'preview'}`);
+    console.log(`Story: ${result.workId} · archived branch: ${result.branch}`);
+    console.log(`Return to: ${result.baseBranch}`);
+    console.log(`Local changes: ${result.changedPathCount} path(s)${result.changedPathCount ? ' → named recoverable stash' : ''}`);
+    for (const candidate of result.changedPaths) console.log(`- ${candidate}`);
+    if (!result.applied) console.log(`Apply: singularity-flow cancel ${result.workId} --release --apply --confirm ${result.workId}`);
+    else if (result.stashSha) {
+      console.log(`Preserved stash commit: ${result.stashSha}`);
+      console.log(`Restore when wanted: ${result.recoveryCommand}`);
+    }
+    if (result.sessionWarning) console.log(`Warning: ${result.sessionWarning}`);
+    return result;
+  }
   const confirmation = optionString(options, 'confirm');
   if (confirmation !== workflow.workItem.id) {
     throw new SingularityFlowError(
@@ -4480,6 +4508,11 @@ async function cancelCommand(positionals, options) {
   console.log(publication.pushed
     ? `Cancellation committed ${publication.sha.slice(0, 8)} and pushed; the Story is now archived.`
     : `Cancellation committed ${publication.sha.slice(0, 8)} locally; the Story is now archived.`);
+  const remainingChanges = changedFiles(root);
+  if (remainingChanges.length) {
+    console.log(`${remainingChanges.length} uncommitted path(s) remain on the archived branch.`);
+    console.log(`Preview safe release: singularity-flow cancel ${workflow.workItem.id} --release`);
+  }
 }
 
 async function syncCommand(positionals = []) {

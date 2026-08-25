@@ -2127,6 +2127,7 @@ evidence workflow.
 | `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
 | `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT` | Return a completed Story to an allowed phase with a governed comment, commit, and push. |
 | `singularity-flow cancel [ID] --fetch --reason TEXT --confirm ID` | Stop active work without claiming completion; preserve all artifacts and approvals, commit and push the decision, and show the Story under Archived. |
+| `singularity-flow cancel ID --release [--apply --confirm ID]` | Preview or apply a reversible release of a cancelled checkout: preserve remaining edits in a named stash, return to the recorded base branch, and keep the archived branch intact. |
 | `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it. |
 | `singularity-flow gate --terminal` | Run the final deterministic/remote-state gate. |
 | `singularity-flow pr [ID] [--create]` | Preview the story pull request built from committed governed state; `--create` opens it after typed confirmation. |

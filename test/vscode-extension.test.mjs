@@ -3811,8 +3811,12 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);
   assert.match(panel, /normal non-force Git push/i);
-  assert.match(panel, /proposal\.merged \? 'Already merged'/,
-    'historical proposals cannot be activated again from the review UI');
+  assert.match(panel, /proposal\.merged \? 'Record merged activation'/,
+    'an externally merged exact proposal remains actionable for audit and projection recovery');
+  assert.match(panel, /Retry exact activation/,
+    'a preserved review-required proposal can be retried without starting another proposal');
+  assert.match(panel, /Available recovery paths|After correcting the blocker/,
+    'the review surface shows the exact recovery rather than only a failure sentence');
   const workspacePanel = await readFile(source('views/workspace-panel.ts'), 'utf8');
   assert.match(workspacePanel, /refresh \? \['--refresh'\] : \[\]/,
     'the workspace refresh action bypasses the durable organisation cache');

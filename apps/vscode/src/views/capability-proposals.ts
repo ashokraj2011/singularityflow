@@ -13,6 +13,8 @@ interface CapabilityProposalSummary {
   changedFiles: Array<{ status: string; paths: string[] }>;
   valid: boolean;
   merged?: boolean;
+  status?: string;
+  failure?: { code?: string; message?: string; nextAction?: { command?: string } };
 }
 
 interface ProposalEntry extends CapabilityProposalSummary { lead: string }
@@ -43,7 +45,9 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       aria-label="Review capability proposal ${escape(shortName(entry.branch))}">
       <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
       <strong>${escape(shortName(entry.branch))}</strong>
-      <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : 'blocked by validation'}</small>
+      <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
+      ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
+      ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}
     </button>`).join('')}</div>
   </section>`).join('');
   return `${brandLockup()}

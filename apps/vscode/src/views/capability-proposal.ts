@@ -19,12 +19,19 @@ export interface CapabilityProposal {
 }
 
 interface ActivationResult {
+  status?: 'activated' | 'activated-without-projection' | 'activation-complete-projection-pending'
+    | 'review-required' | 'activation-pending';
+  activated?: boolean;
   targetBranch: string;
   targetCommit: string;
   proposalCommit: string;
   alreadyMerged: boolean;
-  projection?: { published?: boolean; branch?: string; commit?: string; reason?: string };
-  audit?: { eventId?: string; sequence?: number; ledgerCommit?: string };
+  projection?: { published?: boolean; pending?: boolean; branch?: string; commit?: string; reason?: string } | null;
+  audit?: { recorded?: boolean; eventId?: string; sequence?: number; ledgerCommit?: string };
+  failure?: { code?: string; classification?: string; retryable?: boolean; message?: string };
+  externalAction?: { action: string; sourceBranch: string; targetBranch: string; proposalCommit: string } | null;
+  nextAction?: { command?: string; skill?: string } | null;
+  preserved?: string[];
 }
 
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
@@ -38,6 +45,24 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
   const files = proposal.changedFiles.map((file) => `<tr>
       <td><code>${escape(file.status)}</code></td><td>${escape(file.paths.join(' to '))}</td></tr>`).join('');
   const projection = activated?.projection;
+  const activationComplete = activated?.activated !== false;
+  const activationNotice = !activated ? '' : activationComplete
+    ? `<div class="notice ok"><p><strong>Capability activated.</strong> ${escape(
+      activated.alreadyMerged ? 'The externally merged proposal is now audited.' : `Approved ${activated.targetBranch} now points to ${activated.targetCommit.slice(0, 12)}.`
+    )}</p><p>${escape(projection?.published
+      ? `Projection published to ${projection.branch}@${projection.commit?.slice(0, 12)}.`
+      : projection?.branch ? `${projection.branch} was already current.`
+        : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
+          ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
+          : ''}${activated.nextAction?.command
+            ? `<p><strong>Recovery:</strong> <code>${escape(activated.nextAction.command)}</code></p>` : ''}</div>`
+    : `<div class="notice governance-warning"><p><strong>Activation is waiting.</strong> ${escape(
+      activated.failure?.message ?? `Status: ${activated.status ?? 'review-required'}.`
+    )}</p>${activated.externalAction
+      ? `<p>Merge <code>${escape(activated.externalAction.sourceBranch)}</code> into <code>${escape(activated.externalAction.targetBranch)}</code> through the repository review controls.</p>`
+      : ''}${activated.nextAction?.command
+      ? `<p>After correcting the blocker, run the same exact activation: <code>${escape(activated.nextAction.command)}</code></p>`
+      : ''}<p>Preserved: ${escape((activated.preserved ?? ['proposal branch', 'approved configuration', 'application branches']).join(', '))}.</p></div>`;
   return `${brandLockup({ compact: true })}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
@@ -45,14 +70,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
       <p class="meta">Review one exact commit before it becomes approved organisation configuration.</p>
     </header>
     ${error ? `<div class="notice error"><p>${escape(error)}</p></div>` : ''}
-    ${activated ? `<div class="notice ok"><p><strong>Capability activated.</strong> ${escape(
-      activated.alreadyMerged ? 'The proposal was already merged.' : `Approved ${activated.targetBranch} now points to ${activated.targetCommit.slice(0, 12)}.`
-    )}</p><p>${escape(projection?.published
-      ? `Projection published to ${projection.branch}@${projection.commit?.slice(0, 12)}.`
-      : projection?.branch ? `${projection.branch} was already current.`
-        : `Projection: ${projection?.reason ?? 'not available'}.`)}</p>${activated.audit?.eventId
-          ? `<p>Activation audit: <code>${escape(activated.audit.eventId)}</code>${activated.audit.sequence == null ? '' : ` at ledger sequence ${activated.audit.sequence}`}.</p>`
-          : ''}</div>` : ''}
+    ${activationNotice}
     <div class="summary-grid">
       <div class="summary-card"><span>Proposal</span><strong>${escape(proposal.proposalCommit.slice(0, 12))}</strong></div>
       <div class="summary-card"><span>Approved target</span><strong>${escape(proposal.targetCommit.slice(0, 12))}</strong></div>
@@ -80,7 +98,7 @@ function reviewHtml(proposal: CapabilityProposal | null, busy: boolean, error: s
     </section>
     <section class="next">
       <div class="actions">
-        <button class="primary" data-action="activate" ${busy || !proposal.valid || proposal.merged || activated ? 'disabled' : ''}>${icon('merge')} ${proposal.merged ? 'Already merged' : busy ? 'Activating…' : 'Merge and acknowledge'}</button>
+        <button class="primary" data-action="activate" ${busy || !proposal.valid || activationComplete && Boolean(activated) ? 'disabled' : ''}>${icon('merge')} ${busy ? 'Activating…' : proposal.merged ? 'Record merged activation' : activated && !activationComplete ? 'Retry exact activation' : 'Merge and acknowledge'}</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} Refresh</button>
         <button class="secondary" data-action="copy">${icon('branch')} Copy branch</button>
       </div>
@@ -169,11 +187,17 @@ export class CapabilityProposalPanel {
     }
     if (message.type !== 'activate' || !this.proposal || this.busy) return;
     const proposal = this.proposal;
+    const externallyMerged = proposal.merged;
+    const confirmationLabel = externallyMerged ? 'Record merged activation' : 'Merge and acknowledge';
     const confirmed = await vscode.window.showWarningMessage(
-      `Merge ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} into ${proposal.targetBranch}, then publish the capability projection?`,
-      { modal: true, detail: 'This uses a normal non-force Git push. If the remote permits a direct update, this confirmation explicitly acknowledges that branch protection is not enforced for your actor. The application default branch is not changed.' },
-      'Merge and acknowledge');
-    if (confirmed !== 'Merge and acknowledge') return;
+      externallyMerged
+        ? `Record the exact externally merged proposal ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} and publish its capability projection?`
+        : `Merge ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} into ${proposal.targetBranch}, then publish the capability projection?`,
+      { modal: true, detail: externallyMerged
+        ? 'The approved configuration already contains this exact proposal. This records the activation audit and repairs the state projection; the application default branch is not changed.'
+        : 'This uses a normal non-force Git push. If the remote permits a direct update, this confirmation explicitly acknowledges that branch protection is not enforced for your actor. The application default branch is not changed.' },
+      confirmationLabel);
+    if (confirmed !== confirmationLabel) return;
     this.busy = true; this.error = null; this.render();
     const { result, error } = await this.run([
       'capability', 'activate', proposal.branch, '--lead', this.lead,
@@ -183,9 +207,14 @@ export class CapabilityProposalPanel {
     if (error) this.error = error;
     else {
       this.activated = result as ActivationResult;
-      await this.onActivated?.(this.activated);
-      void vscode.window.showInformationMessage(
-        `Capability configuration activated on ${this.activated.targetBranch}.`);
+      if (this.activated.activated !== false) {
+        await this.onActivated?.(this.activated);
+        void vscode.window.showInformationMessage(
+          `Capability configuration activated on ${this.activated.targetBranch}.`);
+      } else {
+        void vscode.window.showWarningMessage(
+          this.activated.failure?.message ?? 'Capability activation is waiting for repository review.');
+      }
     }
     this.render();
   }

@@ -7,7 +7,8 @@ import test from 'node:test';
 import { probeGitRemote } from '../src/git-remote-diagnostics.mjs';
 import {
   abandonWorkspaceBootstrap, prepareWorkspaceBootstrap, readWorkspaceBootstrap,
-  enterpriseGitDiagnostics, portableWorkspacePathFindings, resumeWorkspaceBootstrap,
+  enterpriseGitDiagnostics, portableWorkspacePathFindings, preflightWorkspaceBootstrap,
+  resumeWorkspaceBootstrap, retryWorkspaceBootstrap,
   workspaceBootstrapRoot
 } from '../src/workspace-bootstrap.mjs';
 import { run } from '../src/util.mjs';
@@ -165,6 +166,93 @@ test('an occupied destination is a blocker and no existing byte is adopted', asy
   assert.equal(prepared.preflight.ready, false);
   assert.ok(prepared.preflight.findings.some((entry) => entry.classification === 'target-occupied'));
   assert.equal(await readFile(path.join(occupied, 'keep.txt'), 'utf8'), 'mine\n');
+});
+
+test('blocked preflight exposes classified recovery actions without losing the bootstrap', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote, 'trunk')
+  }, { env });
+
+  assert.equal(prepared.status, 'waiting-user');
+  assert.equal(prepared.preflight.ready, false);
+  assert.ok(prepared.preflight.findings.some((entry) => entry.classification === 'offline'));
+  assert.equal(prepared.nextAction.id, 'resume');
+  assert.match(prepared.nextAction.command, new RegExp(prepared.bootstrapId));
+  assert.ok(prepared.recoveryActions.some((entry) => entry.id === 'inspect'));
+  assert.ok(prepared.recoveryActions.some((entry) =>
+    entry.finding?.includes('offline') && /Reconnect/.test(entry.instruction)));
+  assert.equal((await readWorkspaceBootstrap(prepared.bootstrapId, { env })).bootstrapId,
+    prepared.bootstrapId);
+});
+
+test('attempt exhaustion has an explicit confirmed retry generation', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
+  let session = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote, 'trunk')
+  }, { env });
+  session = await preflightWorkspaceBootstrap(session.bootstrapId, { env });
+  session = await preflightWorkspaceBootstrap(session.bootstrapId, { env });
+  session = await preflightWorkspaceBootstrap(session.bootstrapId, { env });
+  assert.equal(session.fault.classification, 'attempt-budget-exhausted');
+  assert.equal(session.nextAction.id, 'renew-attempts');
+  assert.match(session.nextAction.command, /workspace bootstrap retry/);
+
+  await assert.rejects(retryWorkspaceBootstrap(session.bootstrapId, {
+    confirmation: 'wrong', reason: 'network restored', env
+  }), (error) => error.code === 'BOOTSTRAP_CONFIRMATION_REQUIRED');
+  const renewed = await retryWorkspaceBootstrap(session.bootstrapId, {
+    confirmation: 'demo', reason: 'network restored', env
+  });
+  assert.equal(renewed.recoveryGeneration, 1);
+  assert.equal(renewed.operationBudgets.preflight.used, 0);
+  assert.equal(renewed.operationBudgets.materialize.used, 0);
+  assert.equal(renewed.nextAction.id, 'resume');
+  assert.equal(renewed.recoveryAuthorizations.at(-1).proof.planHash, renewed.planHash);
+});
+
+test('retry refuses a target that is not provably owned by the preserved bootstrap', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = environment(fixture.root);
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote, 'trunk')
+  }, { env });
+  await mkdir(prepared.plan.workspace.targetPath, { recursive: true });
+  await writeFile(path.join(prepared.plan.workspace.targetPath, 'keep.txt'), 'mine\n');
+  await preflightWorkspaceBootstrap(prepared.bootstrapId, { env });
+  await preflightWorkspaceBootstrap(prepared.bootstrapId, { env });
+  await preflightWorkspaceBootstrap(prepared.bootstrapId, { env });
+
+  await assert.rejects(retryWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: 'demo', reason: 'try again', env
+  }), (error) => {
+    assert.equal(error.code, 'BOOTSTRAP_RETRY_TARGET_UNPROVEN');
+    assert.match(error.details.nextAction.command, /bootstrap status/);
+    return true;
+  });
+  assert.equal(await readFile(path.join(prepared.plan.workspace.targetPath, 'keep.txt'), 'utf8'), 'mine\n');
+});
+
+test('retry cannot bypass a bootstrap budget that still has attempts', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = { ...environment(fixture.root), SINGULARITY_FLOW_NO_NETWORK: '1' };
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: fixture.remote },
+    createInput: input(fixture.root, fixture.remote, 'trunk')
+  }, { env });
+
+  await assert.rejects(retryWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: 'demo', reason: 'skip the remaining attempts', env
+  }), (error) => {
+    assert.equal(error.code, 'BOOTSTRAP_RETRY_NOT_REQUIRED');
+    assert.match(error.details.nextAction.command, /bootstrap resume/);
+    return true;
+  });
 });
 
 test('remote diagnostics classify authentication without retaining provider output or secrets', () => {

@@ -601,14 +601,35 @@ Lifecycle **Start work** action in VS Code.
 - **Proposal branch creation works but activation is rejected** — creating a branch
   does not prove permission to update protected `sflow/config`. Use the repository's
   normal review merge, then rerun exact-hash activation.
+- **Activation says `review-required`** — the proposal and approved branch are
+  unchanged. Merge the named proposal into `sflow/config` through normal repository
+  controls, then run the returned exact activation command to record the audit and
+  projection. **Activation says `activation-pending`** for a network, credential, or
+  transport failure instead; correct that classified cause and run the same command.
 - **“Confirmation must be the exact proposal commit”** — re-read `capability
   proposal` and use its complete `proposalCommit`, not the displayed short SHA.
+- **Proposal is empty, conflicted, from unrelated history, or contains application
+  files** — activation changes nothing and retains the branch for inspection. Rebase
+  or replace it with a configuration-only proposal; never force it into
+  `sflow/config`.
 - **Missing state or configuration readiness** — rerun activation after an external
   merge, then use `capability organisation --readiness --refresh` before workspace
-  creation.
+  creation. If activation completed but projection is pending, run the returned
+  `capability publish --lead ...` repair command; do not repeat the merge.
 - **Workspace materialization is interrupted** — inspect `workspace bootstrap
   status` or `workspace doctor --network`, repair the named cause, and resume the
-  existing bootstrap ID.
+  existing bootstrap ID. If its bounded attempt budget is exhausted, keep the same
+  reviewed plan and explicitly open another recovery generation:
+
+  ```bash
+  singularity-flow workspace bootstrap retry "<BOOTSTRAP-ID>" \
+    --confirm "<WORKSPACE-ID>" \
+    --reason "corrected the reported blocker" \
+    --json
+  ```
+
+  Retry proves that any partial target belongs to that exact bootstrap before it
+  resets attempt counters; it never adopts an unrelated directory.
 
 In VS Code, **Configuration → Review proposals** lists pending changes across all
 registered lead repositories and works without an active workspace. Select a row

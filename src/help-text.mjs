@@ -456,6 +456,7 @@ Usage:
     [--lead-capability ID] [--base DIRECTORY] [--initialize] [--json]
   singularity-flow workspace bootstrap status [BOOTSTRAP-ID] [--json]
   singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> --confirm WORKSPACE-ID [--json]
+  singularity-flow workspace bootstrap retry <BOOTSTRAP-ID> --confirm WORKSPACE-ID --reason TEXT [--json]
   singularity-flow workspace bootstrap abandon <BOOTSTRAP-ID> --reason TEXT [--json]
   singularity-flow workspace doctor [--network] [--json]
   singularity-flow push status [INTENT-ID] [--all] [--json]

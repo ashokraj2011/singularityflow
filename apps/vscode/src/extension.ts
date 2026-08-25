@@ -1240,6 +1240,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       for (const session of result.sessions ?? []) {
         output.appendLine(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId ?? ''}`);
+        if (session.nextAction?.command) output.appendLine(`    Recover: ${session.nextAction.command}`);
       }
       output.show(true);
       void vscode.window.showInformationMessage(result.healthy
@@ -1304,7 +1305,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(`${selected.label} is ready.`);
         await vscode.commands.executeCommand('singularityFlow.openWorkspaces');
       } else {
-        showRefusal(result.fault?.message ?? 'Workspace setup still needs attention. No reviewed plan was widened.', {
+        const blockers = (result.preflight?.findings ?? [])
+          .filter((finding: any) => finding.severity === 'blocker')
+          .map((finding: any) => `${finding.message}${finding.action ? `\nRecovery: ${finding.action}` : ''}`);
+        const actions = (result.recoveryActions ?? [])
+          .filter((action: any) => action.command)
+          .map((action: any) => `${action.label ?? action.id}: ${action.command}`);
+        const detail = [
+          result.fault?.message,
+          ...blockers,
+          actions.length ? `Available recovery paths:\n${actions.join('\n')}` : null,
+          'The bootstrap ID, reviewed plan, and any owned partial workspace were preserved.'
+        ].filter(Boolean).join('\n\n');
+        showRefusal(detail || 'Workspace setup still needs attention. No reviewed plan was widened.', {
           headline: `Setup is ${result.status}`
         });
       }

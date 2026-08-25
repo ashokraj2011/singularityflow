@@ -6634,7 +6634,9 @@ async function capabilityCommand(positionals, options) {
     if (!proposals.length) return console.log('No pending capability proposals.');
     for (const proposal of proposals) {
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
-        + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
+        + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : proposal.status ?? 'invalid'}`);
+      if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
+      if (proposal.failure?.nextAction?.command) console.log(`  recover: ${proposal.failure.nextAction.command}`);
     }
     return;
   }
@@ -6664,6 +6666,17 @@ async function capabilityCommand(positionals, options) {
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.activated) {
+      console.log(`Capability activation is ${result.status}.`);
+      console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
+      console.log(`  approved ${result.targetBranch} remains at ${result.targetCommit}`);
+      if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
+      if (result.externalAction) {
+        console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
+      }
+      if (result.nextAction?.command) console.log(`  after recovery: ${result.nextAction.command}`);
+      return;
+    }
     console.log(result.alreadyMerged
       ? `${branch} was already merged into ${result.targetBranch}.`
       : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
@@ -6674,6 +6687,7 @@ async function capabilityCommand(positionals, options) {
         ? `The ${result.projection.branch} capability projection is already current.`
         : `Capability projection not published: ${result.projection?.reason}.`);
     }
+    if (result.nextAction?.command) console.log(`Recovery: ${result.nextAction.command}`);
     console.log(`Recorded activation audit ${result.audit.eventId} at ledger sequence ${result.audit.sequence}.`);
     return;
   }
@@ -8379,7 +8393,13 @@ function renderWorkspaceBootstrap(session) {
   }
   if (session.fault) console.log(`Recovery: ${session.fault.message}`);
   if (session.workspaceJournal?.path) console.log(`Journal: ${session.workspaceJournal.path}`);
-  if (session.nextAction?.command) console.log(`Next CLI step: ${session.nextAction.command}`);
+  if (session.recoveryActions?.length) {
+    console.log('Recovery paths:');
+    for (const action of session.recoveryActions) {
+      console.log(`  ${action.label ?? action.id}: ${action.command}`);
+      if (action.instruction) console.log(`    ${action.instruction}`);
+    }
+  } else if (session.nextAction?.command) console.log(`Next CLI step: ${session.nextAction.command}`);
   if (session.nextAction?.skill) console.log(`Copilot: ${session.nextAction.skill}`);
 }
 
@@ -8500,7 +8520,7 @@ async function workspaceCommand(positionals, options) {
     const action = positionals[2] ?? 'status';
     const {
       abandonWorkspaceBootstrap, listWorkspaceBootstraps, readWorkspaceBootstrap,
-      resumeWorkspaceBootstrap
+      resumeWorkspaceBootstrap, retryWorkspaceBootstrap
     } = await import('./workspace-bootstrap.mjs');
     if (action === 'status') {
       const id = positionals[3] ?? null;
@@ -8519,6 +8539,16 @@ async function workspaceCommand(positionals, options) {
       renderWorkspaceBootstrap(result);
       return result;
     }
+    if (action === 'retry') {
+      const id = requirePositional(positionals, 3, 'bootstrap ID');
+      const result = await retryWorkspaceBootstrap(id, {
+        confirmation: optionString(options, 'confirm'),
+        reason: optionString(options, 'reason')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      renderWorkspaceBootstrap(result);
+      return result;
+    }
     if (action === 'abandon') {
       const id = requirePositional(positionals, 3, 'bootstrap ID');
       const result = await abandonWorkspaceBootstrap(id, { reason: optionString(options, 'reason') });
@@ -8526,7 +8556,7 @@ async function workspaceCommand(positionals, options) {
       renderWorkspaceBootstrap(result);
       return result;
     }
-    throw new SingularityFlowError("workspace bootstrap supports 'status', 'resume', and 'abandon'.");
+    throw new SingularityFlowError("workspace bootstrap supports 'status', 'resume', 'retry', and 'abandon'.");
   }
   if (subcommand === 'doctor') {
     const { workspaceBootstrapDoctor } = await import('./workspace-bootstrap.mjs');

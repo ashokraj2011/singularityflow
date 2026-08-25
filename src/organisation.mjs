@@ -42,9 +42,40 @@ import {
 } from './configuration-branch.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
+import {
+  classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
+
+function quoted(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
+function capabilityCommand(action, { remote, branch = null, commit = null, acknowledge = false } = {}) {
+  const args = ['singularity-flow', 'capability', action];
+  if (branch) args.push(quoted(branch));
+  if (remote) args.push('--lead', quoted(sanitizeRemote(remote)));
+  if (commit) args.push('--confirm', quoted(commit));
+  if (acknowledge) args.push('--acknowledge-unprotected');
+  args.push('--json');
+  return args.join(' ');
+}
+
+function capabilityRecovery({
+  stage, state, remote = null, branch = null, commit = null, nextAction = null,
+  recoverable = true, preserved = []
+}) {
+  return {
+    journey: 'capability-onboarding', stage, state, recoverable,
+    lead: remote ? sanitizeRemote(remote) : null,
+    proposalBranch: branch,
+    proposalCommit: commit,
+    preserved,
+    nextAction
+  };
+}
 
 function capabilityProposalBranch(value) {
   const branch = String(value ?? '').trim();
@@ -52,7 +83,13 @@ function capabilityProposalBranch(value) {
     || !/^sflow\/config-change\/capability\/[a-z0-9._/-]+$/.test(branch)
     || branch.includes('..') || branch.endsWith('/') || branch.includes('//')) {
     throw new SingularityFlowError(
-      `Capability proposal must be a branch beneath '${CAPABILITY_PROPOSAL_PREFIX}'.`);
+      `Capability proposal must be a branch beneath '${CAPABILITY_PROPOSAL_PREFIX}'.`, {
+        code: 'CAPABILITY_PROPOSAL_BRANCH_INVALID',
+        details: capabilityRecovery({
+          stage: 'review', state: 'input-refused', recoverable: true,
+          nextAction: { command: 'singularity-flow capability proposals --all --json', skill: '/sf-capability-map' }
+        })
+      });
   }
   return branch;
 }
@@ -93,9 +130,21 @@ function commitIdentity(root, ref) {
 
 async function withCapabilityProposalCheckout(url, branch, operation) {
   const remote = String(url ?? '').trim();
-  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'review', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+    })
+  });
   if (!remoteHasConfigurationBranch(remote)) {
-    throw new SingularityFlowError(`'${remote}' has no '${CONFIGURATION_BRANCH}' branch.`);
+    throw new SingularityFlowError(`'${sanitizeRemote(remote)}' has no '${CONFIGURATION_BRANCH}' branch. Map the first capability to initialize its configuration authority.`, {
+      code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
+      details: capabilityRecovery({
+        stage: 'review', state: 'configuration-not-initialized', remote, recoverable: true,
+        nextAction: { command: `singularity-flow capability map <CAPABILITY-ID> --lead ${quoted(sanitizeRemote(remote))} --json`, skill: '/sf-capability-map' }
+      })
+    });
   }
   const proposalBranch = capabilityProposalBranch(branch);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-review-'));
@@ -109,7 +158,14 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
     ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability review.`, {
+          code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+          details: capabilityRecovery({
+            stage: 'review', state: 'authority-unavailable', remote, branch: proposalBranch,
+            nextAction: { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' },
+            preserved: ['remote-configuration', 'proposal-branch']
+          })
+        });
     }
     const fetched = run('git', ['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
@@ -117,7 +173,14 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
     });
     if (fetched.status !== 0) {
       throw new SingularityFlowError(
-        `Capability proposal '${proposalBranch}' does not exist on '${remote}'.`);
+        `Capability proposal '${proposalBranch}' does not exist on '${sanitizeRemote(remote)}'. Refresh the proposal list before retrying.`, {
+          code: 'CAPABILITY_PROPOSAL_NOT_FOUND',
+          details: capabilityRecovery({
+            stage: 'review', state: 'proposal-not-found', remote, branch: proposalBranch,
+            nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        });
     }
     return await operation(scratch, remote, proposalBranch,
       `refs/remotes/origin/${proposalBranch}`);
@@ -208,7 +271,13 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
   const remote = String(url ?? '').trim();
-  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'proposal', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+    })
+  });
 
   await ensureConfigurationBranch(remote);
   const baseBranch = CONFIGURATION_BRANCH;
@@ -220,7 +289,14 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
     ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability proposal.`, {
+          code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+          details: capabilityRecovery({
+            stage: 'proposal', state: 'authority-unavailable', remote,
+            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        });
     }
 
     const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
@@ -246,7 +322,14 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
     }).stdout.trim();
     if (exists) {
       throw new SingularityFlowError(
-        `Review branch '${reviewBranch}' already exists on '${remote}'. Review or remove that proposal before retrying.`);
+        `Review branch '${reviewBranch}' already exists on '${sanitizeRemote(remote)}'. The existing proposal was preserved; review and activate it instead of creating a competing proposal.`, {
+          code: 'CAPABILITY_PROPOSAL_ALREADY_EXISTS',
+          details: capabilityRecovery({
+            stage: 'proposal', state: 'proposal-already-exists', remote, branch: reviewBranch,
+            nextAction: { command: capabilityCommand('proposal', { remote, branch: reviewBranch }), skill: '/sf-capability-map' },
+            preserved: ['existing-proposal', 'approved-configuration', 'application-branches']
+          })
+        });
     }
     run('git', ['switch', '--quiet', '-c', reviewBranch], { cwd: scratch });
 
@@ -263,7 +346,14 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
       `HEAD:refs/heads/${reviewBranch}`], { cwd: scratch, allowFailure: true });
     if (pushed.status !== 0) {
       throw new SingularityFlowError(
-        `The change could not be pushed to '${remote}': ${(pushed.stderr || pushed.stdout).trim().split('\n')[0]}`);
+        `The capability proposal could not be pushed to '${sanitizeRemote(remote)}'. No authority branch changed. Correct Git write access and retry the same mapping command.`, {
+          code: 'CAPABILITY_PROPOSAL_PUSH_FAILED',
+          details: capabilityRecovery({
+            stage: 'proposal', state: 'proposal-not-published', remote,
+            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        });
     }
     return {
       ...result, changed: true, pushed: true, commit,
@@ -360,7 +450,13 @@ async function capabilityMapFromState(remote, branch = 'state') {
  */
 export async function readOrganisation(url, { refresh = false } = {}) {
   const remote = String(url ?? '').trim();
-  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'organisation-read', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+    })
+  });
   const branch = CONFIGURATION_BRANCH;
   const cached = await readOrganisationCache(remote);
   const tip = configurationBranchHead(remote);
@@ -375,7 +471,15 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       };
     }
     throw new SingularityFlowError(
-      `Cannot read '${remote}': ${tip.error || 'the remote is unreachable and no cached organisation is available.'}`
+      `Cannot read '${sanitizeRemote(remote)}': ${redactDiagnosticText(tip.error || 'the remote is unreachable and no cached organisation is available.')}`,
+      {
+        code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: capabilityRecovery({
+          stage: 'organisation-read', state: 'authority-unavailable', remote,
+          nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+          preserved: ['lead-registry', 'validated-organisation-cache']
+        })
+      }
     );
   }
   if (!tip.exists) {
@@ -403,7 +507,14 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     ], { allowFailure: true });
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access and refresh the same organisation.`, {
+          code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+          details: capabilityRecovery({
+            stage: 'organisation-read', state: 'authority-unavailable', remote,
+            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            preserved: ['lead-registry', 'validated-organisation-cache']
+          })
+        });
     }
     const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], { cwd: scratch, allowFailure: true });
     const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], { cwd: scratch, allowFailure: true });
@@ -479,7 +590,14 @@ export async function mapCapability(leadUrl, {
   jiraProject = null,
   teams = []
 } = {}) {
-  if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
+  if (!capabilityId) throw new SingularityFlowError('A capability identifier is required. Use a lower-case kebab-case ID; nothing was changed.', {
+    code: 'CAPABILITY_ID_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'proposal', state: 'input-refused', remote: leadUrl, recoverable: true,
+      nextAction: { command: `singularity-flow capability map <lower-case-kebab-id> --lead ${quoted(sanitizeRemote(leadUrl ?? '<LEAD-URL>'))} --json`, skill: '/sf-capability-map' },
+      preserved: ['approved-configuration', 'application-branches']
+    })
+  });
   const cloneStrategy = normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
 
   return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
@@ -619,11 +737,24 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
  */
 export async function publishOrganisationCapabilityMap(url) {
   const remote = String(url ?? '').trim();
-  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'projection', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+    })
+  });
   const baseBranch = CONFIGURATION_BRANCH;
   if (!remoteHasConfigurationBranch(remote)) {
     throw new SingularityFlowError(
-      `Cannot publish capabilities because '${remote}' has no '${CONFIGURATION_BRANCH}' branch.`);
+      `Cannot publish capabilities because '${sanitizeRemote(remote)}' has no '${CONFIGURATION_BRANCH}' branch. Activate a reviewed proposal first.`, {
+        code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
+        details: capabilityRecovery({
+          stage: 'projection', state: 'configuration-not-active', remote, recoverable: true,
+          nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
+          preserved: ['application-branches']
+        })
+      });
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
@@ -632,8 +763,16 @@ export async function publishOrganisationCapabilityMap(url) {
       '--filter=blob:none', '--branch', baseBranch, remote, scratch
     ], { allowFailure: true });
     if (cloned.status !== 0) {
+      const failure = classifyGitRemoteFailure(cloned);
       throw new SingularityFlowError(
-        `Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+        `Cannot read '${sanitizeRemote(remote)}'. ${failure.advice}`, {
+          code: failure.code,
+          details: capabilityRecovery({
+            stage: 'projection', state: 'authority-unavailable', remote,
+            nextAction: { command: capabilityCommand('publish', { remote }), skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'application-branches']
+          })
+        });
     }
     const state = await publishCapabilityMap(scratch, {
       message: `Publish reviewed capability map from ${baseBranch}`
@@ -647,20 +786,57 @@ export async function publishOrganisationCapabilityMap(url) {
 /** Pending capability proposals on a lead repository, without changing either authority branch. */
 export async function listCapabilityProposals(url, { includeMerged = false } = {}) {
   const remote = String(url ?? '').trim();
-  if (!remote) throw new SingularityFlowError('A lead repository URL is required.');
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'review', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
+    })
+  });
   if (!remoteHasConfigurationBranch(remote)) return [];
   const heads = run('git', ['ls-remote', '--heads', remote,
     `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`], { allowFailure: true });
   if (heads.status !== 0) {
+    const failure = classifyGitRemoteFailure(heads);
     throw new SingularityFlowError(
-      `Cannot list capability proposals on '${remote}': ${(heads.stderr || heads.stdout).trim().split('\n')[0]}`);
+      `Cannot list capability proposals on '${sanitizeRemote(remote)}'. ${failure.advice}`, {
+        code: failure.code,
+        details: capabilityRecovery({
+          stage: 'review', state: 'authority-unavailable', remote,
+          nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
+          preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+        })
+      });
   }
   const branches = heads.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
-    .map((line) => line.split(/\s+/)[1]?.replace(/^refs\/heads\//, '')).filter(Boolean).sort();
+    .map((line) => {
+      const [proposalCommit, ref] = line.split(/\s+/);
+      return { proposalCommit, branch: ref?.replace(/^refs\/heads\//, '') };
+    }).filter((entry) => entry.branch).sort((left, right) => left.branch.localeCompare(right.branch));
   const proposals = [];
-  for (const branch of branches) {
-    const proposal = await inspectCapabilityProposal(remote, branch);
-    if (includeMerged || !proposal.merged) proposals.push(proposal);
+  for (const entry of branches) {
+    try {
+      const proposal = await inspectCapabilityProposal(remote, entry.branch);
+      if (includeMerged || !proposal.merged) proposals.push(proposal);
+    } catch (error) {
+      // One corrupt or stale proposal must remain visible without hiding every healthy proposal on
+      // the same lead. It is deliberately not actionable: review can show the structured reason.
+      proposals.push({
+        remote: sanitizeRemote(remote), branch: entry.branch,
+        targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
+        proposalCommit: entry.proposalCommit, proposalBase: null, mergeBase: null,
+        merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
+        status: 'unreadable',
+        failure: {
+          code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
+          message: redactDiagnosticText(error?.message ?? String(error)),
+          nextAction: error?.details?.nextAction ?? {
+            command: capabilityCommand('proposal', { remote, branch: entry.branch }),
+            skill: '/sf-capability-map'
+          }
+        }
+      });
+    }
   }
   return proposals;
 }
@@ -723,13 +899,34 @@ export async function activateCapabilityProposal(url, branch, {
       const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
       const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
       if (String(confirm ?? '').trim() !== proposalCommit) {
+        const nextAction = {
+          command: capabilityCommand('activate', {
+            remote, branch: proposalBranch, commit: proposalCommit
+          }),
+          skill: '/sf-capability-map'
+        };
         throw new SingularityFlowError(
-          `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed.`);
+          `Confirmation must be the exact proposal commit '${proposalCommit}'. Nothing was changed. Re-run: ${nextAction.command}`, {
+            code: 'CAPABILITY_PROPOSAL_CONFIRMATION_MISMATCH',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'confirmation-required', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          });
       }
       const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
       if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
+        const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
         throw new SingularityFlowError(
-          `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
+          `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'. Nothing was changed. Inspect or replace the preserved proposal.`, {
+            code: 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'proposal-invalid', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          });
       }
       const alreadyMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
         cwd: root, allowFailure: true
@@ -742,17 +939,41 @@ export async function activateCapabilityProposal(url, branch, {
         : mergeBaseResult.stdout.trim();
       const changed = proposalChangedFiles(root, reviewBase, ref);
       if (!changed.names.length) {
-        throw new SingularityFlowError(`Capability proposal '${proposalBranch}' contains no changes.`);
+        const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+        throw new SingularityFlowError(`Capability proposal '${proposalBranch}' contains no changes. Nothing was changed; inspect or replace the preserved proposal.`, {
+          code: 'CAPABILITY_PROPOSAL_EMPTY',
+          details: capabilityRecovery({
+            stage: 'activation', state: 'proposal-invalid', remote,
+            branch: proposalBranch, commit: proposalCommit, nextAction,
+            preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+          })
+        });
       }
       const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
       if (invalidFiles.length) {
+        const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
         throw new SingularityFlowError(
-          `Capability proposal contains non-configuration files: ${invalidFiles.join(', ')}.`);
+          `Capability proposal contains non-configuration files: ${invalidFiles.join(', ')}. Nothing was changed; replace it with a configuration-only proposal.`, {
+            code: 'CAPABILITY_PROPOSAL_FILES_INVALID',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'proposal-invalid', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          });
       }
       const definition = await loadDefinition(root);
       if (!definition.ledger?.enabled) {
+        const nextAction = { command: 'singularity-flow workspace refresh-configuration --dry-run --json', skill: '/sf-workspace' };
         throw new SingularityFlowError(
-          'Capability activation requires the capability ledger so the review decision can be audited. Nothing was changed.'
+          'Capability activation requires the capability ledger so the review decision can be audited. Nothing was changed; refresh or repair the approved configuration, then retry.', {
+            code: 'CAPABILITY_ACTIVATION_LEDGER_REQUIRED',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'configuration-repair-required', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          }
         );
       }
       let protection = { enforced: null, detail: 'proposal is already merged' };
@@ -764,34 +985,111 @@ export async function activateCapabilityProposal(url, branch, {
           'merge', '--no-ff', '--no-edit', ref
         ], { cwd: root, allowFailure: true });
         if (merged.status !== 0) {
+          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
             `Capability proposal cannot be merged cleanly into '${CONFIGURATION_BRANCH}'. `
-            + `The proposal remains on '${proposalBranch}' for review.`);
+            + `The proposal remains on '${proposalBranch}' for review. Rebase or replace it against the current approved configuration.`, {
+              code: 'CAPABILITY_PROPOSAL_CONFLICT',
+              details: capabilityRecovery({
+                stage: 'activation', state: 'proposal-conflicted', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            });
         }
         const capabilities = YAML.parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'));
         const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
           ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8')) : null;
-        validateCapabilities(capabilities, portfolio);
+        try {
+          validateCapabilities(capabilities, portfolio);
+        } catch (error) {
+          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+          throw new SingularityFlowError(
+            `Capability proposal is not operational: ${redactDiagnosticText(error?.message ?? String(error))}. Nothing was changed; correct the preserved proposal and review it again.`, {
+              code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
+              details: capabilityRecovery({
+                stage: 'activation', state: 'proposal-invalid', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            });
+        }
         // Probe the prospective merge commit, not the proposal tip. If the authority advanced
         // after this proposal was created, pushing the proposal itself is non-fast-forward even on
         // an unprotected server and would produce a false claim that protection was enforced.
         protection = configurationProtectionProbe(root, 'HEAD');
         if (!protection.enforced && !acknowledgeUnprotected) {
+          const nextAction = {
+            command: capabilityCommand('activate', {
+              remote, branch: proposalBranch, commit: proposalCommit, acknowledge: true
+            }),
+            skill: '/sf-capability-map'
+          };
           throw new SingularityFlowError(
-            `'${CONFIGURATION_BRANCH}' on '${remote}' accepted the exact dry-run update, so branch `
+            `'${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}' accepted the exact dry-run update, so branch `
             + 'protection is not enforced for this actor. Nothing was changed. Review the proposal '
-            + 'externally or re-run with --acknowledge-unprotected to record an explicit exception.',
-            { code: 'CAPABILITY_CONFIGURATION_UNPROTECTED' }
+            + `externally or explicitly acknowledge the exception. Re-run: ${nextAction.command}`,
+            {
+              code: 'CAPABILITY_CONFIGURATION_UNPROTECTED',
+              details: capabilityRecovery({
+                stage: 'activation', state: 'unprotected-acknowledgement-required', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            }
           );
         }
         const pushed = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
           cwd: root, allowFailure: true
         });
         if (pushed.status !== 0) {
-          throw new SingularityFlowError(
-            `The proposal remains on '${proposalBranch}', but '${CONFIGURATION_BRANCH}' rejected the normal push: `
-            + `${(pushed.stderr || pushed.stdout).trim().split('\n')[0]}. `
-            + 'Merge it through the repository review controls, then publish the capability projection.');
+          const failure = classifyGitRemoteFailure(pushed);
+          const pushDiagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
+          const nextAction = {
+            command: capabilityCommand('activate', {
+              remote, branch: proposalBranch, commit: proposalCommit
+            }),
+            skill: '/sf-capability-map'
+          };
+          // A failed push is not automatically a review decision. Authentication, connectivity,
+          // a missing remote, and unsupported transports need their own repair path; only an
+          // enforced authority that rejects a non-retryable update is sent to repository review.
+          const repositoryRequestedReview = ['authorization-denied', 'unknown'].includes(failure.classification)
+            && /protected branch|review required|pull request|required reviews?|pre-receive hook declined/i
+              .test(pushDiagnostic);
+          const reviewRequired = repositoryRequestedReview || (protection.enforced === true
+            && !failure.retryable
+            && !['remote-not-found', 'branch-not-found', 'protocol-unsupported'].includes(failure.classification));
+          return {
+            status: reviewRequired ? 'review-required' : 'activation-pending',
+            activated: false,
+            remote: sanitizeRemote(remote),
+            branch: proposalBranch,
+            proposalCommit,
+            targetBranch: CONFIGURATION_BRANCH,
+            targetBefore,
+            targetCommit: targetBefore,
+            proposedMergeCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+            alreadyMerged: false,
+            changedFiles: changed.statuses,
+            protection,
+            failure: {
+              code: reviewRequired ? 'CAPABILITY_ACTIVATION_REVIEW_REQUIRED' : failure.code,
+              classification: failure.classification,
+              retryable: failure.retryable,
+              message: reviewRequired
+                ? `The proposal is preserved. Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
+                : `The proposal is preserved. ${failure.advice}`
+            },
+            externalAction: reviewRequired ? {
+              action: 'merge-proposal', sourceBranch: proposalBranch,
+              targetBranch: CONFIGURATION_BRANCH, proposalCommit
+            } : null,
+            nextAction,
+            preserved: ['proposal-branch', 'approved-configuration', 'application-branches'],
+            audit: { recorded: false },
+            projection: null
+          };
         }
       }
       const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
@@ -827,12 +1125,28 @@ export async function activateCapabilityProposal(url, branch, {
       try {
         audit = await appendLedgerIntent(root, definition.ledger, intent, targetCommit);
       } catch (error) {
+        const nextAction = {
+          command: capabilityCommand('activate', {
+            remote, branch: proposalBranch, commit: proposalCommit
+          }),
+          skill: '/sf-capability-map'
+        };
         throw new SingularityFlowError(
           `Capability configuration reached '${CONFIGURATION_BRANCH}' at ${targetCommit}, but its `
-          + `activation audit could not be appended: ${error.message}. Re-run the same activation to reconcile it.`
+          + `activation audit could not be appended: ${error.message}. Re-run to reconcile: ${nextAction.command}`,
+          {
+            code: 'CAPABILITY_ACTIVATION_AUDIT_PENDING',
+            details: capabilityRecovery({
+              stage: 'activation-audit', state: 'configuration-active-audit-pending', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['approved-configuration', 'proposal-branch', 'application-branches']
+            })
+          }
         );
       }
       return {
+        status: 'activated',
+        activated: true,
         remote,
         branch: proposalBranch,
         proposalCommit,
@@ -852,8 +1166,34 @@ export async function activateCapabilityProposal(url, branch, {
         }
       };
     });
-  const projection = await publishOrganisationCapabilityMap(url);
-  return { ...reviewed, projection };
+  if (!reviewed.activated) return reviewed;
+  try {
+    const projection = await publishOrganisationCapabilityMap(url);
+    const projectionPending = !projection.published && !projection.branch
+      && projection.reason !== 'state publication is disabled';
+    const nextAction = projectionPending
+      ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
+      : null;
+    return {
+      ...reviewed,
+      status: projectionPending ? 'activation-complete-projection-pending'
+        : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
+      projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
+      nextAction
+    };
+  } catch (error) {
+    const nextAction = { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' };
+    return {
+      ...reviewed,
+      status: 'activation-complete-projection-pending',
+      projection: {
+        published: false, pending: true,
+        reason: redactDiagnosticText(error?.message ?? String(error)),
+        nextAction
+      },
+      nextAction
+    };
+  }
 }
 
 /**
@@ -1068,11 +1408,27 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
   const { flattenCapabilityTree } = { flattenCapabilityTree: flatten };
   const rows = flattenCapabilityTree(organisation.capabilities ?? []);
   const chosen = new Set(capabilities);
-  if (!chosen.size) throw new SingularityFlowError('A workspace needs at least one capability.');
+  const inspectAction = {
+    command: `singularity-flow capability organisation ${quoted(sanitizeRemote(organisation.url ?? '<LEAD-URL>'))} --readiness --refresh --json`,
+    skill: '/sf-workspace-bootstrap'
+  };
+  if (!chosen.size) throw new SingularityFlowError('A workspace needs at least one capability.', {
+    code: 'WORKSPACE_CAPABILITY_SELECTION_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'workspace-plan', state: 'selection-required', remote: organisation.url,
+      nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+    })
+  });
 
   for (const id of chosen) {
     if (!rows.some((row) => row.id === id)) {
-      throw new SingularityFlowError(`Unknown capability '${id}' in this organisation.`);
+      throw new SingularityFlowError(`Unknown capability '${id}' in this organisation. Refresh the approved map and select an active capability.`, {
+        code: 'WORKSPACE_CAPABILITY_UNKNOWN',
+        details: capabilityRecovery({
+          stage: 'workspace-plan', state: 'capability-unknown', remote: organisation.url,
+          nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+        })
+      });
     }
   }
 
@@ -1087,19 +1443,37 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
   const shipping = covered.filter((row) => shipsFrom(row).length);
   if (!shipping.length) {
     throw new SingularityFlowError(
-      'None of the chosen capabilities ships from a repository, so there would be nothing to work in.');
+      'None of the chosen capabilities ships from a repository, so there would be nothing to work in.', {
+        code: 'WORKSPACE_CAPABILITY_HAS_NO_DELIVERY',
+        details: capabilityRecovery({
+          stage: 'workspace-plan', state: 'delivery-required', remote: organisation.url,
+          nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+        })
+      });
   }
 
   const lead = leadCapability ?? shipping[0].id;
   const leadRow = covered.find((row) => row.id === lead);
   if (!leadRow) {
-    throw new SingularityFlowError(`Lead capability '${lead}' is not among the chosen capabilities.`);
+    throw new SingularityFlowError(`Lead capability '${lead}' is not among the chosen capabilities. Select a delivery capability included by this workspace.`, {
+      code: 'WORKSPACE_LEAD_CAPABILITY_OUTSIDE_SELECTION',
+      details: capabilityRecovery({
+        stage: 'workspace-plan', state: 'lead-selection-invalid', remote: organisation.url,
+        nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+      })
+    });
   }
   const leadShips = shipsFrom(leadRow);
   if (!leadShips.length) {
     throw new SingularityFlowError(
       `Lead capability '${lead}' does not ship from a repository. The lead is where the workspace's `
-      + 'state branch is created, so it has to be one that does.');
+      + 'state branch is created, so it has to be one that does.', {
+        code: 'WORKSPACE_LEAD_CAPABILITY_HAS_NO_DELIVERY',
+        details: capabilityRecovery({
+          stage: 'workspace-plan', state: 'lead-delivery-required', remote: organisation.url,
+          nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+        })
+      });
   }
   // With several, the capability's own lead decides — the state branch goes in one repository, and
   // which one is a decision the map records rather than one the ordering of a list makes.
@@ -1112,7 +1486,13 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
       if (!declared?.url) {
         throw new SingularityFlowError(
           `Capability '${row.id}' ships from '${id}', which the organisation's portfolio `
-          + 'does not declare, so there is nowhere to clone it from.');
+          + 'does not declare, so there is nowhere to clone it from.', {
+            code: 'WORKSPACE_CAPABILITY_REPOSITORY_UNDECLARED',
+            details: capabilityRecovery({
+              stage: 'workspace-plan', state: 'repository-undeclared', remote: organisation.url,
+              nextAction: inspectAction, preserved: ['capability-map', 'workspace-registry']
+            })
+          });
       }
       repositories[id] = {
         url: declared.url,

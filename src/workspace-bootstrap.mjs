@@ -131,6 +131,7 @@ function summary(session) {
     targetPath: session.plan?.workspace?.targetPath ?? null,
     updatedAt: session.updatedAt,
     nextAction: session.nextAction,
+    recoveryActions: session.recoveryActions ?? [],
     blocking: session.preflight?.findings?.filter((finding) => finding.severity === 'blocker').length ?? 0
   };
 }
@@ -280,6 +281,48 @@ function consumeBudget(session, operation) {
 
 function safeFailureMessage(error) {
   return redactDiagnosticText(error?.message ?? error ?? 'Unknown bootstrap failure').slice(0, 1_000);
+}
+
+function bootstrapStatusAction(bootstrapId) {
+  return {
+    id: 'inspect', label: 'Inspect preserved setup',
+    command: `singularity-flow workspace bootstrap status ${bootstrapId} --json`,
+    skill: `/sf-workspace-bootstrap ${bootstrapId}`
+  };
+}
+
+function bootstrapResumeAction(session) {
+  return {
+    id: 'resume', label: 'Recheck and resume the same plan',
+    command: `singularity-flow workspace bootstrap resume ${session.bootstrapId} --confirm ${session.plan.workspace.confirmation} --json`,
+    skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+  };
+}
+
+function bootstrapRetryAction(session) {
+  return {
+    id: 'renew-attempts', label: 'Authorize another bounded recovery generation',
+    command: `singularity-flow workspace bootstrap retry ${session.bootstrapId} --confirm ${session.plan.workspace.confirmation} --reason "corrected the reported blocker" --json`,
+    skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+  };
+}
+
+function bootstrapRecoveryActions(session, blockers = []) {
+  const inspect = bootstrapStatusAction(session.bootstrapId);
+  const resume = bootstrapResumeAction(session);
+  if (!blockers.length) return [resume, inspect];
+  return [
+    ...(blockers.some((entry) => entry.retryable) ? [resume] : []),
+    ...blockers.map((entry) => ({
+      id: `resolve:${entry.id}`,
+      label: entry.retryable ? 'Correct blocker and retry' : 'Correct input and prepare replacement',
+      finding: entry.id,
+      instruction: entry.action,
+      command: entry.retryable ? resume.command : inspect.command,
+      skill: `/sf-workspace-bootstrap ${session.bootstrapId}`
+    })),
+    inspect
+  ];
 }
 
 function uniqueFaults(current, additions) {
@@ -449,7 +492,15 @@ export async function prepareWorkspaceBootstrap({
     workspaceJournal: null,
     result: null,
     fault: null,
-    nextAction: { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` }
+    nextAction: { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation} --json`, skill: `/sf-workspace-bootstrap ${bootstrapId}` },
+    recoveryActions: [
+      {
+        id: 'resume', label: 'Preflight and materialize the reviewed plan',
+        command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${plan.workspace.confirmation} --json`,
+        skill: `/sf-workspace-bootstrap ${bootstrapId}`
+      },
+      bootstrapStatusAction(bootstrapId)
+    ]
   });
   return preflightWorkspaceBootstrap(record.bootstrapId, { env, home, runCommand });
 }
@@ -766,7 +817,10 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
     if (session.preflight && session.planHash !== planHashFor(session.plan)) {
       throw new SingularityFlowError(
         `Workspace bootstrap '${bootstrapId}' no longer matches its reviewed plan. Prepare a new bootstrap session.`,
-        { code: 'BOOTSTRAP_PLAN_HASH_INVALID' }
+        { code: 'BOOTSTRAP_PLAN_HASH_INVALID', details: {
+          bootstrapId, preserved: ['bootstrap-record', 'workspace-target'],
+          nextAction: bootstrapStatusAction(bootstrapId)
+        } }
       );
     }
     const preflightAttempt = (session.steps ?? [])
@@ -776,15 +830,14 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       budgets = consumeBudget(session, 'preflight');
     } catch (error) {
       if (error?.code !== 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED') throw error;
+      const retry = bootstrapRetryAction(session);
       return writeSession(root, {
         ...session,
         status: 'waiting-user',
         revision: session.revision + 1,
         fault: { classification: 'attempt-budget-exhausted', message: error.message, occurredAt: nowIso() },
-        nextAction: {
-          command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
-          skill: `/sf-workspace-bootstrap ${bootstrapId}`
-        }
+        nextAction: retry,
+        recoveryActions: [retry, bootstrapStatusAction(bootstrapId)]
       });
     }
     const started = beginStep(session.steps, {
@@ -816,9 +869,10 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       stepId: started.step.stepId,
       createdPaths: session.createdPaths
     }));
+    const recoveryActions = bootstrapRecoveryActions(session, blockers);
     const nextAction = blockers.length
-      ? { command: `singularity-flow workspace bootstrap status ${bootstrapId}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` }
-      : { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` };
+      ? recoveryActions.find((entry) => entry.id === 'resume') ?? recoveryActions[0]
+      : recoveryActions[0];
     return writeSession(root, {
       ...session,
       status: 'waiting-user',
@@ -840,7 +894,8 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
         checks: [...machine.checks, ...remote.checks],
         findings
       },
-      nextAction
+      nextAction,
+      recoveryActions
     });
   });
 }
@@ -855,19 +910,26 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
   if (session.status === 'ready') return session;
   if (session.status === 'abandoned') {
     throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' was abandoned and cannot be resumed.`, {
-      code: 'BOOTSTRAP_ABANDONED'
+      code: 'BOOTSTRAP_ABANDONED', details: { bootstrapId, nextAction: bootstrapStatusAction(bootstrapId) }
     });
   }
   if (session.planHash !== planHashFor(session.plan)) {
     throw new SingularityFlowError(
       `Workspace bootstrap '${bootstrapId}' no longer matches its reviewed plan. Prepare a new bootstrap session.`,
-      { code: 'BOOTSTRAP_PLAN_HASH_INVALID' }
+      { code: 'BOOTSTRAP_PLAN_HASH_INVALID', details: {
+        bootstrapId, preserved: ['bootstrap-record', 'workspace-target'],
+        nextAction: bootstrapStatusAction(bootstrapId)
+      } }
     );
   }
   if (confirmation !== session.plan.workspace.confirmation) {
+    const nextAction = bootstrapResumeAction(session);
     throw new SingularityFlowError(
-      `Workspace bootstrap requires exact workspace confirmation '${session.plan.workspace.confirmation}'.`,
-      { code: 'BOOTSTRAP_CONFIRMATION_REQUIRED' }
+      `Workspace bootstrap requires exact workspace confirmation '${session.plan.workspace.confirmation}'. Nothing was changed. Re-run: ${nextAction.command}`,
+      { code: 'BOOTSTRAP_CONFIRMATION_REQUIRED', details: {
+        bootstrapId, confirmation: session.plan.workspace.confirmation,
+        preserved: ['bootstrap-record', 'reviewed-plan', 'workspace-target'], nextAction
+      } }
     );
   }
   if (!session.preflight?.ready) return session;
@@ -880,15 +942,14 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       budgets = consumeBudget(session, 'materialize');
     } catch (error) {
       if (error?.code !== 'BOOTSTRAP_ATTEMPT_BUDGET_EXHAUSTED') throw error;
+      const retry = bootstrapRetryAction(session);
       return writeSession(root, {
         ...session,
         status: 'waiting-user',
         revision: session.revision + 1,
         fault: { classification: 'attempt-budget-exhausted', message: error.message, occurredAt: nowIso() },
-        nextAction: {
-          command: `singularity-flow workspace bootstrap status ${bootstrapId}`,
-          skill: `/sf-workspace-bootstrap ${bootstrapId}`
-        }
+        nextAction: retry,
+        recoveryActions: [retry, bootstrapStatusAction(bootstrapId)]
       });
     }
     const attempt = { number: session.attempts.length + 1, startedAt: nowIso(), completedAt: null, status: 'running' };
@@ -1013,6 +1074,11 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       const attempts = session.attempts.map((entry) => entry.number === attempt.number
         ? { ...entry, completedAt, status: finalStatus }
         : entry);
+      const nextAction = initialization?.error
+        ? (initialization.publicationIntent?.intentId
+          ? { id: 'recover-push', label: 'Recover exact state publication', command: `singularity-flow push status ${initialization.publicationIntent.intentId}`, skill: '/sf-push' }
+          : bootstrapResumeAction(session))
+        : { id: 'select', label: 'Select the ready workspace', command: `singularity-flow workspace use ${session.plan.workspace.id} --json`, skill: '/sf-workspace' };
       return writeSession(root, {
         ...session,
         status: finalStatus,
@@ -1024,11 +1090,10 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         fault: initialization?.error ? {
           classification: 'initialization-failed', message: initialization.error, occurredAt: completedAt
         } : null,
-        nextAction: initialization?.error
-          ? (initialization.publicationIntent?.intentId
-            ? { command: `singularity-flow push status ${initialization.publicationIntent.intentId}`, skill: '/sf-push' }
-            : { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` })
-          : { command: `singularity-flow workspace use ${session.plan.workspace.id}`, skill: '/sf-workspace' }
+        nextAction,
+        recoveryActions: initialization?.error
+          ? [nextAction, bootstrapStatusAction(bootstrapId)]
+          : [nextAction]
       });
     } catch (error) {
       const failedAt = nowIso();
@@ -1053,6 +1118,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           ? [...new Set([...(session.createdPaths ?? []), session.plan.workspace.targetPath])]
           : session.createdPaths
       });
+      const nextAction = bootstrapResumeAction(session);
       return writeSession(root, {
         ...session,
         status: workspaceExists ? 'degraded' : 'waiting-user',
@@ -1063,7 +1129,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           result: 'needs-user',
           errorReference: faultRecord.faultKey,
           nextAction: {
-            command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`,
+            command: nextAction.command,
             skill: `/sf-workspace-bootstrap ${bootstrapId}`
           }
         }),
@@ -1077,9 +1143,117 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
           message: safeFailureMessage(error),
           occurredAt: failedAt
         },
-        nextAction: { command: `singularity-flow workspace bootstrap resume ${bootstrapId} --confirm ${session.plan.workspace.confirmation}`, skill: `/sf-workspace-bootstrap ${bootstrapId}` }
+        nextAction,
+        recoveryActions: [nextAction, bootstrapStatusAction(bootstrapId)]
       });
     }
+  });
+}
+
+/**
+ * Explicitly authorize another bounded recovery generation without widening or replacing the plan.
+ *
+ * Retry budgets keep a broken unattended loop from cloning forever, but exhaustion must not make a
+ * human-correctable network, credential, disk, or partial-clone failure permanent. This operation
+ * resets only the attempt counters. It refuses any occupied target unless both the managed
+ * workspace identity and its materialization journal bind it to this exact bootstrap receipt.
+ */
+export async function retryWorkspaceBootstrap(bootstrapId, {
+  confirmation, reason, env = process.env, home = os.homedir()
+} = {}) {
+  const explanation = String(reason ?? '').trim();
+  if (!explanation) throw new SingularityFlowError('Retrying a workspace bootstrap requires --reason.', {
+    code: 'BOOTSTRAP_RETRY_REASON_REQUIRED',
+    details: { bootstrapId, nextAction: bootstrapStatusAction(bootstrapId) }
+  });
+  const root = workspaceBootstrapRoot(env, home);
+  return withLease(root, bootstrapId, async () => {
+    const session = await readWorkspaceBootstrap(bootstrapId, { env, home });
+    if (session.status === 'ready') {
+      throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' is already ready.`, {
+        code: 'BOOTSTRAP_ALREADY_READY', details: { bootstrapId, nextAction: session.nextAction }
+      });
+    }
+    if (session.status === 'abandoned') {
+      throw new SingularityFlowError(`Workspace bootstrap '${bootstrapId}' was abandoned and cannot be retried.`, {
+        code: 'BOOTSTRAP_ABANDONED', details: { bootstrapId }
+      });
+    }
+    if (confirmation !== session.plan.workspace.confirmation) {
+      const nextAction = bootstrapRetryAction(session);
+      throw new SingularityFlowError(
+        `Workspace bootstrap retry requires exact workspace confirmation '${session.plan.workspace.confirmation}'. Nothing was changed.`,
+        { code: 'BOOTSTRAP_CONFIRMATION_REQUIRED', details: { bootstrapId, nextAction } }
+      );
+    }
+    if (session.planHash !== planHashFor(session.plan)) {
+      throw new SingularityFlowError(
+        `Workspace bootstrap '${bootstrapId}' no longer matches its reviewed plan. Nothing was changed.`,
+        { code: 'BOOTSTRAP_PLAN_HASH_INVALID', details: { bootstrapId, nextAction: bootstrapStatusAction(bootstrapId) } }
+      );
+    }
+
+    const currentBudgets = operationBudgets(session);
+    const exhaustedOperations = Object.entries(currentBudgets)
+      .filter(([, budget]) => budget.used >= budget.maximum)
+      .map(([operation]) => operation);
+    if (!exhaustedOperations.length) {
+      const nextAction = bootstrapResumeAction(session);
+      throw new SingularityFlowError(
+        `Workspace bootstrap '${bootstrapId}' still has bounded attempts available. Resume the preserved plan instead of resetting its safety budget.`,
+        {
+          code: 'BOOTSTRAP_RETRY_NOT_REQUIRED',
+          details: {
+            bootstrapId,
+            operationBudgets: currentBudgets,
+            preserved: ['bootstrap-record', 'reviewed-plan', 'workspace-target'],
+            nextAction
+          }
+        }
+      );
+    }
+
+    const target = session.plan.workspace.targetPath;
+    const targetInfo = await lstat(target).catch(() => null);
+    if (targetInfo) {
+      const workspace = !targetInfo.isSymbolicLink() && targetInfo.isDirectory()
+        ? await readWorkspace(target).catch(() => null) : null;
+      const journalFile = workspace
+        ? path.join(target, workspace.directories.logs, 'workspace-materialization.json') : null;
+      const journal = journalFile
+        ? await readFile(journalFile, 'utf8').then(JSON.parse).catch(() => null) : null;
+      if (workspace?.id !== session.plan.workspace.id || journal?.bootstrapId !== bootstrapId) {
+        throw new SingularityFlowError(
+          `Workspace bootstrap retry refused the occupied target because it is not owned by '${bootstrapId}': ${target}. Nothing was changed.`,
+          {
+            code: 'BOOTSTRAP_RETRY_TARGET_UNPROVEN',
+            details: { bootstrapId, target, nextAction: bootstrapStatusAction(bootstrapId) }
+          }
+        );
+      }
+    }
+
+    const nextAction = bootstrapResumeAction(session);
+    return writeSession(root, {
+      ...session,
+      status: 'waiting-user',
+      revision: session.revision + 1,
+      recoveryGeneration: Number(session.recoveryGeneration ?? 0) + 1,
+      operationBudgets: structuredClone(DEFAULT_OPERATION_BUDGETS),
+      fault: null,
+      recoveryAuthorizations: [...(session.recoveryAuthorizations ?? []), {
+        authorizedAt: nowIso(), generation: Number(session.recoveryGeneration ?? 0) + 1,
+        effects: ['reset-bounded-attempt-counters'],
+        proof: {
+          bootstrapId, planHash: session.planHash,
+          reviewedPlanUnchanged: true, targetOwnershipProven: true,
+          exhaustedOperations,
+          reason: explanation.slice(0, 1_000), targetExisted: Boolean(targetInfo)
+        }
+      }],
+      nextAction,
+      recoveryActions: [nextAction, bootstrapStatusAction(bootstrapId)]
+    });
   });
 }
 

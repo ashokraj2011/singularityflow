@@ -30,8 +30,11 @@ occupied, or Home reports an unfinished workspace bootstrap.
 5. When preflight is ready, ask the contributor to confirm the recorded workspace ID and run the
    exact returned resume command. Resume reruns preflight before any destination mutation.
 6. If resume is degraded or waiting, preserve and report the same bootstrap ID, its journal path,
-   the classified finding, and the returned next action. Do not start a second setup for the same
-   plan.
+   the classified finding, and every returned recovery action. Do not start a second setup for the
+   same plan. If the attempt budget is exhausted after the blocker is corrected, obtain the exact
+   workspace confirmation and a human reason, then run `singularity-flow workspace bootstrap retry
+   <BOOTSTRAP-ID> --confirm <WORKSPACE-ID> --reason <TEXT> --json`. This opens another bounded
+   recovery generation only after target ownership and plan integrity are proven.
 7. Abandon only after the contributor asks, using
    `singularity-flow workspace bootstrap abandon <BOOTSTRAP-ID> --reason <TEXT> --json`. Abandoning
    the session does not delete an already-created workspace shell or repository.

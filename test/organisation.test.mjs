@@ -240,7 +240,14 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.match(inspected.diff, /calculator/);
   await assert.rejects(
     activateCapabilityProposal(org.platform, proposed.branch, { confirm: inspected.proposalCommit.slice(0, 12) }),
-    /Confirmation must be the exact proposal commit/
+    (error) => {
+      assert.equal(error.code, 'CAPABILITY_PROPOSAL_CONFIRMATION_MISMATCH');
+      assert.equal(error.details.proposalCommit, inspected.proposalCommit);
+      assert.match(error.details.nextAction.command, new RegExp(inspected.proposalCommit));
+      assert.deepEqual(error.details.preserved,
+        ['proposal-branch', 'approved-configuration', 'application-branches']);
+      return true;
+    }
   );
   assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore);
 
@@ -348,7 +355,7 @@ test('capability review and activation do not negotiate unrelated monorepo histo
   assert.equal(activated.projection.published, true);
 });
 
-test('capability activation respects configuration branch protection and retains the proposal', async () => {
+test('protected activation returns a resumable review receipt and exact post-merge recovery', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const proposed = await mapCapability(org.platform, {
@@ -367,14 +374,59 @@ exit 0
 `);
   await chmod(hook, 0o755);
 
-  await assert.rejects(activateCapabilityProposal(org.platform, proposed.branch, {
+  const waiting = await activateCapabilityProposal(org.platform, proposed.branch, {
     confirm: proposed.commit,
     acknowledgeUnprotected: true
-  }), /rejected the normal push.*review controls/s);
+  });
+  assert.equal(waiting.status, 'review-required');
+  assert.equal(waiting.activated, false);
+  assert.equal(waiting.targetCommit, configBefore);
+  assert.equal(waiting.externalAction.sourceBranch, proposed.branch);
+  assert.equal(waiting.externalAction.targetBranch, 'sflow/config');
+  assert.match(waiting.nextAction.command, new RegExp(proposed.commit));
+  assert.deepEqual(waiting.preserved,
+    ['proposal-branch', 'approved-configuration', 'application-branches']);
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
   const pending = await listCapabilityProposals(org.platform);
   assert.equal(pending.length, 1);
   assert.equal(pending[0].branch, proposed.branch);
+
+  await rm(hook);
+  await mergeProposal(org.platform, proposed);
+  const recovered = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit
+  });
+  assert.equal(recovered.status, 'activated');
+  assert.equal(recovered.activated, true);
+  assert.equal(recovered.alreadyMerged, true);
+  assert.equal(recovered.audit.recorded, true);
+  assert.equal(recovered.projection.published, true);
+});
+
+test('a transient activation push failure is recoverable without pretending repository review is required', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const configBefore = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+echo "fatal: Could not resolve host: git.example.test" >&2
+exit 1
+`);
+  await chmod(hook, 0o755);
+
+  const waiting = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true
+  });
+  assert.equal(waiting.status, 'activation-pending');
+  assert.equal(waiting.activated, false);
+  assert.equal(waiting.failure.classification, 'network-transient');
+  assert.equal(waiting.externalAction, null);
+  assert.match(waiting.nextAction.command, new RegExp(proposed.commit));
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
 });
 
 test('an unprotected configuration authority requires an explicit recorded acknowledgement', async () => {
@@ -445,6 +497,52 @@ test('an externally merged proposal can append its activation audit and projecti
   assert.equal(event.eventId, activated.audit.eventId);
 });
 
+test('activation success survives a later projection failure with an exact repair command', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const first = await mapCapability(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  await mergeProposal(org.platform, first);
+  await publishOrganisationCapabilityMap(org.platform);
+
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection', parent: 'commerce'
+  });
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  const counter = path.join(org.platform, 'hooks', 'state-push-count');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/state" ]; then
+    count=0
+    if [ -f "${counter}" ]; then count=$(cat "${counter}"); fi
+    count=$((count + 1))
+    echo "$count" > "${counter}"
+    if [ "$count" -ge 2 ]; then
+      echo "state projection temporarily unavailable" >&2
+      exit 1
+    fi
+  fi
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true
+  });
+  assert.equal(activated.activated, true);
+  assert.equal(activated.status, 'activation-complete-projection-pending');
+  assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.projection.published, false);
+  assert.equal(activated.projection.pending, true);
+  assert.match(activated.nextAction.command, /capability publish/);
+  assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
+    cwd: org.platform
+  }).stdout, /calculator/);
+});
+
 test('mapping leaves nothing behind: the lead is borrowed, not checked out', async () => {
   // Nobody chose a folder, so nothing may be left in one. The temporary clone is the whole point of
   // this being callable from a window with no repository open.
@@ -455,6 +553,55 @@ test('mapping leaves nothing behind: the lead is borrowed, not checked out', asy
   await mapCapability(org.platform, { capabilityId: 'commerce', kind: 'collection' });
 
   assert.deepEqual((await readdir(org.base)).sort(), before.sort());
+});
+
+test('a repeated mapping points to the preserved proposal instead of becoming a dead end', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'commerce', kind: 'collection'
+  });
+
+  await assert.rejects(mapCapability(org.platform, {
+    capabilityId: 'commerce', kind: 'collection'
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_PROPOSAL_ALREADY_EXISTS');
+    assert.equal(error.details.state, 'proposal-already-exists');
+    assert.equal(error.details.proposalBranch, proposed.branch);
+    assert.match(error.details.nextAction.command, /capability proposal/);
+    return true;
+  });
+  assert.equal((await listCapabilityProposals(org.platform)).length, 1);
+});
+
+test('one unreadable proposal remains visible without hiding healthy proposals', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const healthy = await mapCapability(org.platform, {
+    capabilityId: 'commerce', kind: 'collection'
+  });
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-proposal-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, checkout]);
+    run('git', ['config', 'user.email', 'a@b.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'A B'], { cwd: checkout });
+    run('git', ['switch', '-q', '--orphan', 'sflow/config-change/capability/invalid-review'], { cwd: checkout });
+    await writeFile(path.join(checkout, 'README.md'), '# not governed configuration\n');
+    run('git', ['add', 'README.md'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Invalid proposal fixture'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD'], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+
+  const proposals = await listCapabilityProposals(org.platform);
+  assert.equal(proposals.length, 2);
+  assert.equal(proposals.find((entry) => entry.branch === healthy.branch)?.valid, true);
+  const invalid = proposals.find((entry) => entry.branch.endsWith('/invalid-review'));
+  assert.equal(invalid.valid, false);
+  assert.equal(invalid.status, 'unreadable');
+  assert.match(invalid.failure.message, /does not share history|rev-parse|unknown revision/i);
+  assert.match(invalid.failure.nextAction.command, /capability proposal/);
 });
 
 test('mapping succeeds against a protected default branch and preserves existing singularity files', async () => {

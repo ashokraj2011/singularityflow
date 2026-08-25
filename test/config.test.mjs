@@ -28,6 +28,7 @@ import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
+import { normalizeTokenEconomy } from '../src/token-economy.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -79,6 +80,33 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
+});
+
+test('the shipped workflow schema stays in parity with token economy and code-delivery runtime fields', async () => {
+  const schema = JSON.parse(await readFile(path.join(process.cwd(), 'schemas/workflow-definition.schema.json'), 'utf8'));
+  const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));
+  assert.equal(schema.properties.tokenEconomy.$ref, '#/$defs/tokenEconomy');
+  assert.ok(schema.properties.codeDelivery.properties.tests.properties.minimumPassed);
+  assert.doesNotThrow(() => validateDefinition(structuredClone(template)));
+
+  const tokenSchema = schema.$defs.tokenEconomy.properties;
+  const normalized = normalizeTokenEconomy(template.tokenEconomy);
+  assert.deepEqual(Object.keys(normalized).sort(), Object.keys(tokenSchema).sort());
+  const profileSchema = schema.$defs.tokenEconomyProfile.properties;
+  assert.deepEqual(
+    Object.keys(normalized.profiles.standard).sort(),
+    Object.keys(profileSchema).filter((key) => key !== 'maxInputTokens').sort()
+  );
+  for (const mode of tokenSchema.mode.enum) {
+    const candidate = structuredClone(template.tokenEconomy);
+    candidate.mode = mode;
+    assert.doesNotThrow(() => normalizeTokenEconomy(candidate), `runtime rejected schema mode ${mode}`);
+  }
+  const legacyProfile = structuredClone(template.tokenEconomy);
+  delete legacyProfile.profiles.standard.maximumEstimatedPromptTokens;
+  legacyProfile.profiles.standard.maxInputTokens = 18000;
+  assert.doesNotThrow(() => normalizeTokenEconomy(legacyProfile));
+  assert.equal(template.codeDelivery.tests.minimumPassed, 1);
 });
 
 test('every shipped workflow profile resolves an explicit safe code-delivery contract', async () => {

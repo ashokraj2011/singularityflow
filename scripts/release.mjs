@@ -124,12 +124,23 @@ async function main() {
     });
   }
 
-  step('Building the VS Code extension');
+  const vsix = path.join(extension, `${extensionManifest.name}-${version}.vsix`);
+  step(!dryRun && existsSync(vsix)
+    ? 'Using the exact VSIX bound by the signed verification receipt'
+    : 'Building the VS Code extension');
   // Through the staging script, never `vsce` directly: `vsce package` on its own produces a .vsix
   // with no engine inside it, which installs cleanly and then fails to do anything.
-  must('node', [path.join(root, 'scripts', 'vscode-dev.mjs'), '--package']);
-  const vsix = path.join(extension, `${extensionManifest.name}-${version}.vsix`);
+  if (dryRun || !existsSync(vsix)) must('node', [path.join(root, 'scripts', 'vscode-dev.mjs'), '--package']);
   if (!existsSync(vsix)) throw new Error(`The extension package was not produced at ${vsix}.`);
+  if (!dryRun) {
+    verifyVerificationReceipt(verificationReceipt, {
+      trustedPublicKeyPem: trustedVerificationKey,
+      expectedCommit: commit,
+      expectedTree: tree,
+      expectedPackageSha256: `sha256:${await sha256(tarball)}`,
+      expectedVsixSha256: `sha256:${await sha256(vsix)}`
+    });
+  }
 
   if (dryRun) {
     step('Dry run: nothing written to dist/');

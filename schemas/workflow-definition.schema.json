@@ -40,6 +40,7 @@
           "properties": {
             "requireExecutableSource": { "const": true },
             "minimumDiscovered": { "type": "integer", "minimum": 1 },
+            "minimumPassed": { "type": "integer", "minimum": 1 },
             "executionAssurance": { "enum": ["module", "testcase-exact"] },
             "stringCommands": { "const": "reject" },
             "unknownModelPolicy": { "const": "block" },
@@ -240,6 +241,7 @@
       },
       "additionalProperties": false
     },
+    "tokenEconomy": { "$ref": "#/$defs/tokenEconomy" },
     "documents": {
       "type": "object",
       "properties": {
@@ -510,6 +512,39 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "tokenEconomy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "mode": { "enum": ["off", "observe", "assist", "enforce"], "default": "observe" },
+        "profile": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "default": "standard" },
+        "profiles": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "additionalProperties": { "$ref": "#/$defs/tokenEconomyProfile" }
+        },
+        "observationFirewall": { "type": "boolean", "default": true },
+        "progressiveRetrieval": { "type": "boolean", "default": true },
+        "historicalMemory": { "type": "boolean", "default": false },
+        "cacheStableComposition": { "type": "boolean", "default": true },
+        "providerTelemetry": { "enum": ["off", "optional", "required"], "default": "optional" },
+        "ast": { "enum": ["off", "optional", "required"], "default": "optional" }
+      },
+      "additionalProperties": false
+    },
+    "tokenEconomyProfile": {
+      "type": "object",
+      "properties": {
+        "maximumEstimatedPromptTokens": { "type": "integer", "minimum": 1024, "maximum": 1000000, "default": 18000 },
+        "maxInputTokens": { "type": "integer", "minimum": 1024, "maximum": 1000000 },
+        "reservedOutputTokens": { "type": "integer", "minimum": 0, "maximum": 1000000, "default": 6000 },
+        "maxExpansionTokens": { "type": "integer", "minimum": 0, "maximum": 1000000, "default": 8000 },
+        "observationCapsuleTokens": { "type": "integer", "minimum": 0, "maximum": 1000000, "default": 3000 },
+        "policyOnBudgetBreach": { "enum": ["refuse", "partial"], "default": "refuse" }
+      },
+      "additionalProperties": false
+    },
     "autoCeilings": {
       "type": "object",
       "properties": {

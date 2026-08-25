@@ -16,12 +16,13 @@ function keys() {
 
 function evidence() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commit: 'a'.repeat(40), tree: 'b'.repeat(40), cleanCheckout: true,
     npmCi: 'passed', npmRunCheck: { passed: true, checks: 880 },
     npmTest: { passed: 2654, failed: 0 },
     platforms: ['darwin'], nodeVersions: ['22.18.0'],
-    vscodeBuild: 'passed', packageSha256: `sha256:${'c'.repeat(64)}`
+    vscodeBuild: 'passed', packageSha256: `sha256:${'c'.repeat(64)}`,
+    vsixSha256: `sha256:${'d'.repeat(64)}`
   };
 }
 
@@ -32,11 +33,13 @@ test('a trusted signed receipt binds the exact commit, tree, package, and observ
     trustedPublicKeyPem: pair.publicKey,
     expectedCommit: evidence().commit,
     expectedTree: evidence().tree,
-    expectedPackageSha256: evidence().packageSha256
+    expectedPackageSha256: evidence().packageSha256,
+    expectedVsixSha256: evidence().vsixSha256
   });
   assert.equal(result.valid, true);
   assert.equal(result.verifierIdentity, 'release@example.test');
   assert.match(result.publicKeySha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(result.vsixSha256, evidence().vsixSha256);
 });
 
 test('receipt tampering, an untrusted signer, and missing checks fail closed', () => {

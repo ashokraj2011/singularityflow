@@ -2686,7 +2686,9 @@ async function compose(root, options) {
   const requiredText = groundingSectionsText(mandatory, rulePaths);
   const governed = await workflowPromptContext(root, definition, workflow, phase, workItemRoot);
   const clauseCapsule = workflow && phase
-    ? await activeClauseCapsule(path.join(root, workItemRoot, workflow.workItem.id), workflow, phase, source)
+    ? await activeClauseCapsule(
+      path.join(root, workItemRoot, workflow.workItem.id), workflow, phase, source, { root }
+    )
     : { text: '', capsule: null };
   const approvedReferences = await renderApprovedReferenceContext(root, definition, workflow, phase, {
     inputRecords: governed.inputRecords

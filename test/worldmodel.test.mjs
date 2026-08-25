@@ -1055,6 +1055,7 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     selectedPacketBytes: 276,
     omittedPacketBytes: 0,
     packetSummaries: 4,
+    packetSummaryKind: 'world-model-discovery-synopsis',
     packetExpansionHandles: 4,
     admissionAssurance: 'estimated',
     safeToEnforce: false,

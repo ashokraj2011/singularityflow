@@ -1,5 +1,7 @@
 /** Bound the aggregate final world-model prompt, not merely each discovery worker packet. */
+import { createHash } from 'node:crypto';
 import { compilePromptSections } from './prompt-budget.mjs';
+import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 function utf8Prefix(value, maximumBytes) {
@@ -11,6 +13,51 @@ function utf8Prefix(value, maximumBytes) {
 }
 
 function packetId(view) { return String(view).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, ''); }
+
+function packetSynopsis(packet, maximumBytes) {
+  const content = String(packet.content ?? '');
+  const exactPacket = packet.expansionHandle ?? (packet.file ? `file:${packet.file}` : null);
+  let section = 'Preamble';
+  const candidates = [];
+  const seenSections = new Set();
+  let fenced = false;
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^```/.test(line)) { fenced = !fenced; continue; }
+    if (fenced || !line || /^<!--/.test(line)) continue;
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) { section = heading[1].trim(); continue; }
+    if (seenSections.has(section)) continue;
+    seenSections.add(section);
+    candidates.push({ section: utf8Prefix(section, 128), statement: utf8Prefix(line, 256) });
+  }
+  const payload = {
+    schemaVersion: 1, // schema-transient: bounded prompt projection, never persisted independently
+    kind: 'world-model-discovery-synopsis',
+    view: packet.view,
+    packetSha256: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+    packetBytes: Buffer.byteLength(content),
+    exactPacket,
+    sections: [],
+    coverage: { representedSections: 0, discoveredSections: candidates.length, complete: false }
+  };
+  for (const candidate of candidates) {
+    const next = structuredClone(payload);
+    next.sections.push(candidate);
+    next.coverage.representedSections = next.sections.length;
+    next.coverage.complete = next.sections.length === candidates.length;
+    if (Buffer.byteLength(canonicalJson(next), 'utf8') > maximumBytes) break;
+    payload.sections.push(candidate);
+    payload.coverage = next.coverage;
+  }
+  if (Buffer.byteLength(canonicalJson(payload), 'utf8') > maximumBytes) {
+    throw new SingularityFlowError(
+      `Typed ${packet.view} discovery synopsis cannot fit its ${maximumBytes}-byte mandatory budget.`,
+      { code: 'WORLD_MODEL_SYNTHESIS_BUDGET_EXCEEDED' }
+    );
+  }
+  return payload;
+}
 
 export function compileWorldModelSynthesisPrompt({
   basePrompt,
@@ -42,12 +89,12 @@ export function compileWorldModelSynthesisPrompt({
   ].join('\n');
   const summaries = ordered.map((packet) => {
     const handle = packet.expansionHandle ?? (packet.file ? `file:${packet.file}` : null);
+    const synopsis = packetSynopsis(packet, maximumSummaryBytes);
     return {
       id: `packet-summary-${packetId(packet.view)}`,
       text: [
-        `## ${packet.view} packet summary`, '',
-        utf8Prefix(packet.content, maximumSummaryBytes).trim(), '',
-        `Exact packet: ${handle ?? 'unavailable'}`
+        `## ${packet.view} typed packet synopsis`, '',
+        '```json', canonicalJson(synopsis).trimEnd(), '```'
       ].join('\n'),
       mandatory: true,
       priority: 5,
@@ -111,6 +158,7 @@ export function compileWorldModelSynthesisPrompt({
       selectedPacketBytes: selectedPackets.reduce((total, packet) => total + packet.bytes, 0),
       omittedPacketBytes: omittedPackets.reduce((total, packet) => total + packet.bytes, 0),
       packetSummaries: summaries.length,
+      packetSummaryKind: 'world-model-discovery-synopsis',
       packetExpansionHandles: ordered.filter((packet) => packet.expansionHandle || packet.file).length,
       admissionAssurance: compilation.admission.logicalPromptTokens.assurance,
       safeToEnforce: compilation.admission.safeToEnforce,

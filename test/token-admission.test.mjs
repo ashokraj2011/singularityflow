@@ -54,3 +54,18 @@ test('unknown history stays unknown and can never be silently admitted as zero',
   assert.equal(admission.totalAdmissionTokens.value, 120);
   assert.equal(admission.totalAdmissionTokens.assurance, 'partial');
 });
+
+test('bare numeric observations never masquerade as provider or tokenizer assurance', () => {
+  const admission = assessTokenAdmission({
+    logicalPromptBytes: 100,
+    logicalPromptTokens: 25,
+    systemAndToolReserveTokens: 10,
+    historyTokens: 0,
+    maximumInputTokens: 100
+  });
+  assert.equal(admission.logicalPromptTokens.assurance, 'estimated');
+  assert.equal(admission.systemAndToolReserveTokens.assurance, 'estimated');
+  assert.equal(admission.historyTokens.assurance, 'estimated');
+  assert.equal(admission.safeToEnforce, false);
+  assert.equal(admission.admitted, null);
+});

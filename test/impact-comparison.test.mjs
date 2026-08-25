@@ -94,6 +94,31 @@ test('guardrail regression prevents a validated delivery result', () => {
   assert.equal(result.guardrails[0].passed, false);
 });
 
+test('token comparisons expose whether every matched value is backed by exact provider economics', () => {
+  const receipts = cohort().map((item) => {
+    const value = item.study.groupId === 'baseline' ? 100 : 60;
+    return {
+      ...item,
+      metrics: {
+        ...item.metrics,
+        'input-tokens': { value, status: 'exact', assurance: 'kernel-derived' }
+      },
+      economics: {
+        models: [{ provider: 'provider', model: 'model-a', inputTokens: value }]
+      }
+    };
+  });
+  const tokenStudy = study('matched-observational', {
+    primaryMetric: { id: 'input-tokens', direction: 'lower' }
+  });
+  const verified = compareImpactReceipts(receipts, tokenStudy);
+  assert.equal(verified.measurementAssurance.primary.providerTokenEvidence, true);
+  const mismatched = structuredClone(receipts);
+  mismatched[0].economics.models[0].inputTokens += 1;
+  const unverified = compareImpactReceipts(mismatched, tokenStudy);
+  assert.equal(unverified.measurementAssurance.primary.providerTokenEvidence, false);
+});
+
 test('missing guardrails are reported as incomplete quality evidence', () => {
   const result = compareImpactReceipts(cohort(), study('matched-observational', { guardrails: [] }));
   assert.equal(result.qualityGatePassed, false);

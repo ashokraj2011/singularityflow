@@ -24,12 +24,36 @@ test('aggregate synthesis budgeting summarizes oversized packet sets with exact 
   });
   assert.ok(Buffer.byteLength(result.text) <= 6000 * 4);
   assert.equal(result.receipt.packetSummaries, 7);
+  assert.equal(result.receipt.packetSummaryKind, 'world-model-discovery-synopsis');
   assert.equal(result.receipt.packetExpansionHandles, 7);
   assert.ok(result.receipt.omittedPacketBytes > 0);
   assert.match(result.text, /Context omitted under approved policy/);
   assert.match(result.text, /file:\/trusted\/synthesis-packets\//);
+  assert.match(result.text, /"kind": "world-model-discovery-synopsis"/);
   assert.equal(result.receipt.admissionAssurance, 'estimated');
   assert.equal(result.receipt.safeToEnforce, false);
+});
+
+test('packet synopses represent semantic sections instead of copying a byte prefix', () => {
+  const packet = {
+    view: 'architecture',
+    content: [
+      '# architecture discovery packet', '',
+      'Introductory material that should not consume the entire summary.', '',
+      '## Components', '', '- PaymentService owns payment orchestration.', '',
+      '## Risks', '', '- Retry storms require bounded backoff.'
+    ].join('\n'),
+    bytes: 220,
+    expansionHandle: 'file:/trusted/architecture.md'
+  };
+  const result = compileWorldModelSynthesisPrompt({
+    basePrompt: '# Builder contract', repositoryFacts: '## Facts', packets: [packet],
+    maximumSynthesisInputTokens: 4096, maximumSummaryBytes: 1024
+  });
+  assert.match(result.text, /"section": "Components"/);
+  assert.match(result.text, /PaymentService owns payment orchestration/);
+  assert.match(result.text, /"section": "Risks"/);
+  assert.match(result.text, /Retry storms require bounded backoff/);
 });
 
 test('aggregate synthesis keeps packet details when the estimated prompt-text budget fits', () => {

@@ -53,7 +53,8 @@ export function verifyVerificationReceipt(receipt, {
   trustedPublicKeyPem,
   expectedCommit = null,
   expectedTree = null,
-  expectedPackageSha256 = null
+  expectedPackageSha256 = null,
+  expectedVsixSha256 = null
 } = {}) {
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
     throw new SingularityFlowError('Verification receipt must be an object.', { code: 'VERIFICATION_RECEIPT_INVALID' });
@@ -89,9 +90,11 @@ export function verifyVerificationReceipt(receipt, {
   if (!Array.isArray(receipt.platforms) || !receipt.platforms.length) failures.push('platforms are absent');
   if (!Array.isArray(receipt.nodeVersions) || !receipt.nodeVersions.length) failures.push('nodeVersions are absent');
   if (!/^sha256:[a-f0-9]{64}$/.test(String(receipt.packageSha256 ?? ''))) failures.push('packageSha256 is invalid');
+  if (!/^sha256:[a-f0-9]{64}$/.test(String(receipt.vsixSha256 ?? ''))) failures.push('vsixSha256 is invalid');
   if (expectedCommit && receipt.commit !== expectedCommit) failures.push('commit does not match release HEAD');
   if (expectedTree && receipt.tree !== expectedTree) failures.push('tree does not match release HEAD');
   if (expectedPackageSha256 && receipt.packageSha256 !== expectedPackageSha256) failures.push('package digest does not match release artifact');
+  if (expectedVsixSha256 && receipt.vsixSha256 !== expectedVsixSha256) failures.push('VSIX digest does not match release artifact');
   if (failures.length) {
     throw new SingularityFlowError(`Verification receipt cannot authorize release: ${failures.join('; ')}.`, {
       code: 'VERIFICATION_RECEIPT_REJECTED', details: { failures }
@@ -103,6 +106,7 @@ export function verifyVerificationReceipt(receipt, {
     publicKeySha256: signature.publicKeySha256,
     commit: receipt.commit,
     tree: receipt.tree,
-    packageSha256: receipt.packageSha256
+    packageSha256: receipt.packageSha256,
+    vsixSha256: receipt.vsixSha256
   };
 }

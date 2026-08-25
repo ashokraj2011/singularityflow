@@ -16,6 +16,7 @@ import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from '../src/bootstrap.mjs';
 
+process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Bootstrap Tester';
 
 /** A bare remote with one commit, which is what a real repository looks like before any of this. */

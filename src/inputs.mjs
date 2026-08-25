@@ -6,6 +6,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
+import { canonicalJson } from './records.mjs';
 
 export const INPUTS_START = '<!-- singularity-flow:inputs:start -->';
 export const INPUTS_END = '<!-- singularity-flow:inputs:end -->';
@@ -232,12 +233,20 @@ export async function recordInputs(root, workflow, phase, result, { itemDirector
     recordedAt: nowIso(),
     renderedSha256: rendered.sha256,
     warnings: result.warnings,
-    inputs: result.records.map(({ content, ...entry }) => entry)
+    inputs: recordedInputs(result.records)
   };
   const file = path.join(itemDirectory, 'context', `inputs-${phase.id}-gen${result.generation}.json`);
   await writeJson(file, record);
   const info = await snapshot(file);
   return { record, rendered, file, path: posix(path.relative(root, file)), sha256: info.sha256 };
+}
+
+function recordedInputs(records = []) {
+  return records.map(({ content, ...entry }) => entry);
+}
+
+function sameRecord(left, right) {
+  return canonicalJson(left) === canonicalJson(right);
 }
 
 export async function verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative } = {}) {
@@ -255,19 +264,36 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
   }
   const record = readRecord('phase-input-record', await readFile(file)).record;
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== phase.generation || record.mode !== mode) add(`${phase.id} phase-input record identity or mode does not match workflow state`);
+  const recordSnapshot = await snapshot(file);
+  const expectedRecordPath = posix(path.relative(root, file));
+  const anchor = phase.inputContext ?? null;
+  if (!anchor
+    || Number(anchor.generation) !== Number(phase.generation)
+    || anchor.path !== expectedRecordPath
+    || anchor.sha256 !== recordSnapshot.sha256
+    || anchor.renderedSha256 !== record.renderedSha256
+    || anchor.mode !== mode) {
+    add(`${phase.id} phase-input record is not bound to the current generation workflow anchor`);
+  }
   const live = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, generation: phase.generation });
   for (const message of [...live.errors, ...live.warnings]) add(message);
-  const recordedByPhase = new Map((record.inputs ?? []).map((entry) => [entry.phase, entry]));
-  for (const entry of live.records) {
-    const prior = recordedByPhase.get(entry.phase);
-    if (!prior) add(`${phase.id} phase-input record omits ${entry.phase}`);
-    else if (prior.status !== entry.status || prior.sha256 !== entry.sha256 || prior.approvedSha256 !== entry.approvedSha256
-      || JSON.stringify(prior.projection ?? null) !== JSON.stringify(entry.projection ?? null)) add(`${phase.id} phase-input record is stale for ${entry.phase}`);
+  const expectedInputs = recordedInputs(live.records);
+  if (!sameRecord(record.inputs ?? [], expectedInputs)) {
+    add(`${phase.id} phase-input record does not match the complete recomputed approved-input representation`);
+  }
+  const expected = renderInputsBlock(live);
+  if (record.renderedSha256 !== expected.sha256) {
+    add(`${phase.id} phase-input record rendered hash does not match recomputed approved inputs`);
   }
   const artifact = path.join(itemDirectory, phase.requiredArtifact.path);
   const artifactText = await readFile(artifact, 'utf8').catch(() => '');
   const block = extractInputsBlock(artifactText);
-  if (!block || sha256(block) !== record.renderedSha256) add(`${phase.id} artifact does not contain the recorded managed input block`);
+  if (block !== expected.text) {
+    add(`${phase.id} artifact managed-input block does not match recomputed approved inputs`);
+  }
+  if (block && sha256(block) !== record.renderedSha256) {
+    add(`${phase.id} artifact does not contain the recorded managed input block`);
+  }
   if (!errors.length && !warnings.length) {
     const captured = live.records.filter((entry) => entry.status === 'captured');
     passes.push(`phase inputs verified: ${phase.id} ← ${captured.map((entry) => `${entry.phase}@${entry.sha256.slice(0, 8)}`).join(', ') || 'none'}`);

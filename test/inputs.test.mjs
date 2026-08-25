@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -167,15 +168,90 @@ test('integrity verification is mode-aware and detects artifact block changes', 
   const value = await fixture('record'); const result = await collectInputs(value.root, value.workflow, value.phase, value);
   const rendered = renderInputsBlock(result); const artifactPath = path.join(value.itemDirectory, value.phase.requiredArtifact.path);
   await mkdir(path.dirname(artifactPath), { recursive: true }); await writeFile(artifactPath, applyInputsBlock('# Design\n', rendered.text, 'record'));
-  await recordInputs(value.root, value.workflow, value.phase, result, value); value.phase.generation = 1;
+  const recorded = await recordInputs(value.root, value.workflow, value.phase, result, value); value.phase.generation = 1;
+  value.phase.inputContext = {
+    generation: 1, path: recorded.path, sha256: recorded.sha256,
+    renderedSha256: recorded.record.renderedSha256, mode: result.mode
+  };
   let verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
   assert.equal(verified.errors.length, 0); assert.equal(verified.warnings.length, 0); assert.match(verified.passes[0], /design ← requirements@/);
   await writeFile(artifactPath, '# managed block removed\n');
   verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
-  assert.equal(verified.errors.length, 0); assert.match(verified.warnings[0], /managed input block/);
+  assert.equal(verified.errors.length, 0); assert.match(verified.warnings[0], /managed-input block/);
   value.workflow.resolution.inputsMode = 'enforce';
   verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
   assert.ok(verified.errors.length > 0);
+});
+
+test('integrity verification uses three-way equality for every managed-input representation field', async () => {
+  const prepare = async () => {
+    const value = await fixture('enforce');
+    const result = await collectInputs(value.root, value.workflow, value.phase, value);
+    const rendered = renderInputsBlock(result);
+    const artifactPath = path.join(value.itemDirectory, value.phase.requiredArtifact.path);
+    await mkdir(path.dirname(artifactPath), { recursive: true });
+    await writeFile(artifactPath, applyInputsBlock('# Design\n', rendered.text, 'enforce'));
+    const recorded = await recordInputs(value.root, value.workflow, value.phase, result, value);
+    value.phase.generation = 1;
+    value.phase.inputContext = {
+      generation: 1, path: recorded.path, sha256: recorded.sha256,
+      renderedSha256: recorded.record.renderedSha256, mode: result.mode
+    };
+    return { ...value, artifactPath, recordPath: recorded.file };
+  };
+  const cases = [
+    ['managed block only', async (value) => {
+      const text = await readFile(value.artifactPath, 'utf8');
+      await writeFile(value.artifactPath, text.replace('AC-001 complete behavior.', 'AC-001 weakened behavior.'));
+    }],
+    ['rendered hash only', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.renderedSha256 = '0'.repeat(64);
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }],
+    ['managed block and rendered hash', async (value) => {
+      const text = await readFile(value.artifactPath, 'utf8');
+      const altered = extractInputsBlock(text).replace('AC-001 complete behavior.', 'AC-001 weakened behavior.');
+      await writeFile(value.artifactPath, text.replace(extractInputsBlock(text), altered));
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.renderedSha256 = createHash('sha256').update(altered).digest('hex');
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+      const changed = await snapshot(value.recordPath);
+      value.phase.inputContext.sha256 = changed.sha256;
+      value.phase.inputContext.renderedSha256 = record.renderedSha256;
+    }],
+    ['summary substituted for full', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.inputs[0].projection = { kind: 'approved-summary' };
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }],
+    ['complete flag', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.inputs[0].representation.complete = false;
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }],
+    ['expansion handle', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.inputs[0].representation.expansionHandle = 'sfref_substituted';
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }],
+    ['selected clauses', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.inputs[0].selector = { kind: 'clauses', selected: ['REQ-999'], selectedSha256: '0'.repeat(64) };
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }],
+    ['same source hash with different representation', async (value) => {
+      const record = JSON.parse(await readFile(value.recordPath, 'utf8'));
+      record.inputs[0].representation.sha256 = `sha256:${'f'.repeat(64)}`;
+      await writeFile(value.recordPath, `${JSON.stringify(record, null, 2)}\n`);
+    }]
+  ];
+  for (const [name, mutate] of cases) {
+    const value = await prepare();
+    await mutate(value);
+    const verified = await verifyInputsIntegrity(value.root, value.workflow, value.phase, value);
+    assert.ok(verified.errors.length > 0, `${name} was accepted`);
+  }
 });
 
 test('approved summaries inject bounded reviewed briefs and preserve exact critical sections', async () => {

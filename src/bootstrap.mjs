@@ -14,7 +14,7 @@
  *   1. Clone the repository, or adopt a checkout that is already there.
  *   2. Write `singularity/` — workflow, portfolio, templates, agents.
  *   3. Declare the repository in the portfolio, so a capability may deliver from it.
- *   4. Name the person running this in every empty Story and Initiative approval group, so a new
+ *   4. Name the person running this in every Story and Initiative approval group, so a new
  *      repository cannot defer its first authorization failure until an approval ceremony.
  *   5. Write the capability map with the capability described.
  *   6. Commit on a review branch, establish the orphan configuration and state branches, and push.
@@ -69,17 +69,18 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
   }));
 
   // A freshly generated configuration must not defer its first authorization failure until the
-  // first approval ceremony. Name the person establishing the authority in every empty Initiative
-  // group and, below, every empty Story group. Existing memberships are governance data and remain
-  // untouched when configuration was imported from an application branch.
+  // first approval ceremony. Name the person establishing the authority in every Initiative group
+  // and, below, every Story group. Existing memberships remain intact; bootstrap only appends the
+  // current identity when it is absent.
   if (actor.email) {
     const authorities = document.getIn(['approvalAuthorities']);
     for (const item of authorities?.items ?? []) {
       const key = String(item.key?.value ?? item.key);
       const members = document.getIn(['approvalAuthorities', key, 'members']);
-      if (members?.items?.length) continue;
+      const current = members?.toJSON?.() ?? [];
+      if (current.some((member) => member?.email?.toLowerCase() === actor.email.toLowerCase())) continue;
       document.setIn(['approvalAuthorities', key, 'members'], document.createNode([
-        { name: actor.name || actor.email, email: actor.email }
+        ...current, { name: actor.name || actor.email, email: actor.email }
       ]));
     }
   }
@@ -93,9 +94,10 @@ export async function describeRepository(root, repositoryId, url, defaultBranch,
     for (const item of authorities?.items ?? []) {
       const key = String(item.key?.value ?? item.key);
       const members = workflow.getIn(['approvalAuthorities', key, 'members']);
-      if (members?.items?.length) continue;
+      const current = members?.toJSON?.() ?? [];
+      if (current.some((member) => member?.email?.toLowerCase() === actor.email.toLowerCase())) continue;
       workflow.setIn(['approvalAuthorities', key, 'members'], workflow.createNode([
-        { name: actor.name || actor.email, email: actor.email }
+        ...current, { name: actor.name || actor.email, email: actor.email }
       ]));
     }
   }

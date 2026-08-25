@@ -276,7 +276,7 @@ export function compilePromptSections(inputSections, policyValue = {}, options =
     admission = admissionFor(text, profile, options);
   }
   if (!fits(text, profile, policy.mode, options).fits) {
-    if (profile.policyOnBudgetBreach === 'refuse') {
+    if (policy.mode === 'enforce' || profile.policyOnBudgetBreach === 'refuse') {
       throw overflowError(profile, mandatory, text, admission);
     }
     return report(selected, omitted, text, [

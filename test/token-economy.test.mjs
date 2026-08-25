@@ -79,6 +79,8 @@ test('[TKN:REQ-082] ledger distinguishes delivered from digest-deduplicated uniq
 test('[TKN:AC-010] lower tokens with a regressed quality floor is cheaper-but-worse', () => {
   const comparison = {
     evidenceGrade: 'B', cohorts: { matchedBaseline: 20, matchedTreatment: 20, privacyFloor: 10 },
+    primaryMetric: { id: 'input-tokens', unit: 'tokens' },
+    measurementAssurance: { primary: { providerTokenEvidence: true } },
     result: { gainPercent: 40 }, qualityGatePassed: false,
     guardrails: [{ metric: 'verification-success', passed: false }]
   };
@@ -88,4 +90,10 @@ test('[TKN:AC-010] lower tokens with a regressed quality floor is cheaper-but-wo
   assert.equal(classifyTokenOptimization({
     ...comparison, qualityGatePassed: true, guardrails: [{ metric: 'verification-success', passed: true }]
   }).state, 'improved');
+  assert.equal(classifyTokenOptimization({
+    ...comparison,
+    measurementAssurance: { primary: { providerTokenEvidence: false } },
+    qualityGatePassed: true,
+    guardrails: [{ metric: 'verification-success', passed: true }]
+  }).releaseClaimAllowed, false);
 });

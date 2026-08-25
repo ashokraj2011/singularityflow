@@ -48,11 +48,16 @@ async function main() {
   run('npm', ['ci']);
   const checkOutput = run('npm', ['run', 'check']);
   const testOutput = run('npm', ['test']);
-  run('npm', ['run', 'vscode:build']);
+  run('npm', ['run', 'vscode:package']);
   const packed = JSON.parse(run('npm', ['pack', '--json']));
   const packageFile = path.join(root, packed[0].filename);
+  const extensionManifest = JSON.parse(await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8'));
+  const vsixFile = path.join(
+    root, 'apps', 'vscode', `${extensionManifest.name}-${extensionManifest.version}.vsix`
+  );
+  if (!existsSync(vsixFile)) throw new Error(`VSIX packaging did not produce ${vsixFile}.`);
   const receipt = signVerificationReceipt({
-    schemaVersion: 1, // schema-transient: externally signed release receipt, not a migration-registry record
+    schemaVersion: 2, // schema-transient: externally signed release receipt, not a migration-registry record
     generatedAt: new Date().toISOString(),
     commit,
     tree,
@@ -66,7 +71,8 @@ async function main() {
     platforms: [process.platform],
     nodeVersions: [process.versions.node],
     vscodeBuild: 'passed',
-    packageSha256: await digest(packageFile)
+    packageSha256: await digest(packageFile),
+    vsixSha256: await digest(vsixFile)
   }, await readFile(signingKey), identity);
   if (!Number.isInteger(receipt.npmTest.passed) || receipt.npmTest.passed < 1) {
     throw new Error('Could not extract the passing test count; no receipt was written.');
@@ -75,6 +81,7 @@ async function main() {
   await writeFile(output, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
   await rm(packageFile, { force: true });
   console.log(`\nSigned verification receipt: ${output}`);
+  console.log(`Verified VSIX retained for exact promotion: ${vsixFile}`);
 }
 
 main().catch((error) => { console.error(`\nVerification failed: ${error.message}`); process.exitCode = 1; });

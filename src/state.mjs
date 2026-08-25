@@ -1578,31 +1578,7 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
     delete phase.surgicalReopen;
   }
 
-  const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
-  if (specPolicy.mode !== 'off' && ['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) {
-    const priorSpecRecords = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-    const specIndexPath = posix(path.join(
-      workDirRelative(config, workflow.workItem.id), 'context', 'spec-indexes', `${phase.id}-gen${phase.generation}.json`
-    ));
-    const specIndex = await buildSpecIndex(root, requiredRepoPath(config, workflow, phase), {
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      generation: phase.generation,
-      outputPath: specIndexPath,
-      policy: specPolicy,
-      externalClauses: predecessorSpecClauses(priorSpecRecords, workflow, phase.id)
-    });
-    phase.specIndex = {
-      generation: phase.generation,
-      path: specIndexPath,
-      clauses: specIndex.clauses.length,
-      indexSha256: specIndex.indexSha256,
-      sourceSha256: specIndex.source.sha256
-    };
-    if (specPolicy.mode === 'enforce' && !specIndex.clauses.length) {
-      throw new SingularityFlowError(`Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`);
-    }
-  }
+  await refreshPhaseSpecificationIndex(root, config, workflow, phase);
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
@@ -2152,7 +2128,10 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // approved producer for downstream dataflow. Bind the final managed artifact bytes exactly as a
   // human approval would; otherwise an approved phase paradoxically appears "unapproved" to its
   // consumer because no artifact hash was promoted.
-  if (phase.status === 'approved') await registerApprovedSnapshot(root, config, workflow, phase);
+  if (phase.status === 'approved') {
+    await registerApprovedSnapshot(root, config, workflow, phase);
+    await refreshPhaseSpecificationIndex(root, config, workflow, phase);
+  }
   if (persist && flightPlanBoundary) {
     await persistChangeFlightPlanBoundary(root, config, workflow, flightPlanBoundary);
   }
@@ -2447,6 +2426,7 @@ export async function approvePhase(root, config, workflow, {
     if (reached) {
       await updateArtifactMetadata(root, config, workflow, phase);
       await registerApprovedSnapshot(root, config, workflow, phase);
+      await refreshPhaseSpecificationIndex(root, config, workflow, phase);
     }
     await writeDecision(root, config, workflow, phase, decision);
     await saveWorkflow(root, config, workflow);
@@ -2464,6 +2444,39 @@ export async function approvePhase(root, config, workflow, {
 async function registerApprovedSnapshot(root, config, workflow, phase) {
   const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
   if (existing) Object.assign(existing, { ...current, status: phase.status === 'approved' ? 'approved' : 'pending', approvedAt: phase.approvedAt, approvedBy: phase.approvedBy });
+}
+
+async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
+  const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
+  if (specPolicy.mode === 'off'
+      || !['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) return null;
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const priorSpecRecords = await loadActiveSpecRecords(itemDirectory, workflow);
+  const specIndexPath = posix(path.join(
+    workDirRelative(config, workflow.workItem.id), 'context', 'spec-indexes',
+    `${phase.id}-gen${phase.generation}.json`
+  ));
+  const specIndex = await buildSpecIndex(root, requiredRepoPath(config, workflow, phase), {
+    workId: workflow.workItem.id,
+    phase: phase.id,
+    generation: phase.generation,
+    outputPath: specIndexPath,
+    policy: specPolicy,
+    externalClauses: predecessorSpecClauses(priorSpecRecords, workflow, phase.id)
+  });
+  phase.specIndex = {
+    generation: phase.generation,
+    path: specIndexPath,
+    clauses: specIndex.clauses.length,
+    indexSha256: specIndex.indexSha256,
+    sourceSha256: specIndex.source.sha256
+  };
+  if (specPolicy.mode === 'enforce' && !specIndex.clauses.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`
+    );
+  }
+  return specIndex;
 }
 
 async function refreshRequiredArtifact(root, config, workflow, phase) {
@@ -3347,6 +3360,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               // This hash represents the final approved artifact, including its
               // managed approval metadata. Do not rewrite it after this point.
               await registerApprovedSnapshot(root, config, workflow, requestedPhase);
+              // The specification index was first created at publication, before approval metadata
+              // was rendered. Rebuild it against the exact final approved bytes so downstream
+              // clause context can verify source, index and workflow anchor before injection.
+              await refreshPhaseSpecificationIndex(root, config, workflow, requestedPhase);
             }
             await writeDecision(root, config, workflow, requestedPhase, approval);
             // The advancing phase's interval baseline is a durable write like the three above, and

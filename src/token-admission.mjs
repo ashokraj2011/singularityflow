@@ -25,7 +25,9 @@ function metric(value, assurance = 'unavailable', label) {
 
 function normalizedMetric(value, fallback, label) {
   if (value == null) return metric(fallback?.value ?? null, fallback?.assurance ?? 'unavailable', label);
-  if (Number.isSafeInteger(value)) return metric(value, 'provider-reported', label);
+  // A bare number has no provenance. It may be useful for observation, but it is never evidence
+  // that a provider or exact tokenizer reported the value and therefore cannot authorize enforce.
+  if (Number.isSafeInteger(value)) return metric(value, 'estimated', label);
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SingularityFlowError(`${label} must be a token metric object.`, { code: 'TKN_ADMISSION_INVALID' });
   }

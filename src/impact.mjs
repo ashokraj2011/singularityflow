@@ -931,6 +931,24 @@ function weightedEffect(strata, direction, weighting) {
   return { effects, combined: totalWeight ? effects.reduce((sum, item) => sum + item.gainPercent * item.weight, 0) / totalWeight : null };
 }
 
+const TOKEN_ECONOMICS_FIELD = Object.freeze({
+  'input-tokens': 'inputTokens',
+  'output-tokens': 'outputTokens',
+  'cached-input-tokens': 'cachedInputTokens',
+  'total-tokens': 'totalTokens'
+});
+
+function providerTokenEvidence(receipt, metricId) {
+  const field = TOKEN_ECONOMICS_FIELD[metricId];
+  if (!field) return null;
+  const metric = receipt.metrics?.[metricId];
+  const models = receipt.economics?.models;
+  if (metric?.status !== 'exact' || metric.assurance !== 'kernel-derived'
+      || !Array.isArray(models) || !models.length) return false;
+  if (models.some((entry) => !entry.provider || !entry.model || !Number.isFinite(entry[field]))) return false;
+  return models.reduce((sum, entry) => sum + entry[field], 0) === metric.value;
+}
+
 function bootstrapStratifiedGain(strata, direction, weighting, samples, level, seed) {
   const random = seeded(seed); const gains = [];
   for (let index = 0; index < samples; index += 1) {
@@ -1037,6 +1055,12 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
   const rolloutVerification = study.method === 'phased-rollout' ? verifyRolloutDesign(selected, study, floor) : null;
   const causal = study.method === 'phased-rollout' && rolloutVerification.valid;
   const randomized = study.method === 'randomized' && study.kind === 'prompt-set-randomized';
+  const matchedReceipts = matched.flatMap((pair) => [...pair.baseline, ...pair.treatment])
+    .filter((receipt) => Number.isFinite(metricValue(receipt, study.primaryMetric.id)));
+  const tokenEvidence = TOKEN_ECONOMICS_FIELD[study.primaryMetric.id]
+    ? matchedReceipts.length > 0
+      && matchedReceipts.every((receipt) => providerTokenEvidence(receipt, study.primaryMetric.id) === true)
+    : null;
   const label = !guardrails.length ? 'observed acceleration; quality validation incomplete'
     : !qualityPassed ? 'observed acceleration; quality guardrails failed'
       : causal ? 'validated causal gain'
@@ -1063,6 +1087,15 @@ export function compareImpactReceipts(receipts, study, { filters = {} } = {}) {
           : study.method === 'matched-observational' ? 'quality-gated-observed-association' : 'observed-change',
     label,
     primaryMetric: study.primaryMetric,
+    measurementAssurance: {
+      primary: {
+        metric: study.primaryMetric.id,
+        unit: study.primaryMetric.unit,
+        matchedObservations: matchedReceipts.length,
+        exactObservations: matchedReceipts.filter((receipt) => receipt.metrics?.[study.primaryMetric.id]?.status === 'exact').length,
+        providerTokenEvidence: tokenEvidence
+      }
+    },
     cohorts: {
       baseline: baselineGroup.id, treatment: treatmentGroup.id,
       eligibleBaseline: baseline.length, eligibleTreatment: treatment.length,

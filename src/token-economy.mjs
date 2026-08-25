@@ -95,6 +95,23 @@ export function normalizeTokenEconomy(value = {}) {
     return [id, normalizeProfile(definition, `tokenEconomy.profiles.${id}`)];
   }));
   if (!profiles[profile]) throw new SingularityFlowError(`tokenEconomy.profile references unknown profile '${profile}'.`);
+  if (mode === 'enforce') {
+    const unsafe = Object.entries(profiles)
+      .filter(([, definition]) => definition.policyOnBudgetBreach === 'partial')
+      .map(([id]) => id);
+    if (unsafe.length) {
+      throw new SingularityFlowError(
+        `tokenEconomy.mode enforce requires policyOnBudgetBreach refuse; partial is configured for ${unsafe.join(', ')}.`,
+        {
+          code: 'TKN_ENFORCE_PARTIAL_UNSAFE',
+          details: {
+            profiles: unsafe,
+            nextAction: 'Set policyOnBudgetBreach to refuse, or use assist mode for explicitly partial composition.'
+          }
+        }
+      );
+    }
+  }
   const normalized = {
     enabled: isEnabled,
     mode,
@@ -132,6 +149,9 @@ export function tokenEconomyDigest(policy) {
  */
 export function classifyTokenOptimization(comparison) {
   if (!comparison) return Object.freeze({ state: 'unavailable', releaseClaimAllowed: false, reason: 'comparison unavailable' });
+  if (comparison.primaryMetric?.unit !== 'tokens') {
+    return Object.freeze({ state: 'unavailable', releaseClaimAllowed: false, reason: 'the primary metric is not a provider-token metric' });
+  }
   const baseline = Number(comparison.cohorts?.matchedBaseline ?? 0);
   const treatment = Number(comparison.cohorts?.matchedTreatment ?? 0);
   const privacyFloor = Number(comparison.cohorts?.privacyFloor ?? 0);
@@ -143,6 +163,9 @@ export function classifyTokenOptimization(comparison) {
   if (baseline < privacyFloor || treatment < privacyFloor || !Number.isFinite(gain)
       || ['unavailable', 'low', 'C'].includes(assurance)) {
     return Object.freeze({ state: 'inconclusive', releaseClaimAllowed: false, reason: 'sample or assurance floor is not met' });
+  }
+  if (comparison.measurementAssurance?.primary?.providerTokenEvidence !== true) {
+    return Object.freeze({ state: 'inconclusive', releaseClaimAllowed: false, reason: 'matched exact provider-token evidence is incomplete' });
   }
   const qualityHeld = comparison.qualityGatePassed !== false
     && (comparison.guardrails ?? []).every((guardrail) => guardrail.passed !== false);

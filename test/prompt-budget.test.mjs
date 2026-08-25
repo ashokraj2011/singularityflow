@@ -76,14 +76,13 @@ test('enforce refuses estimated-only admission even when prompt text appears sma
   );
 });
 
-test('partial breach policy preserves mandatory bytes and marks them non-compliant', () => {
-  const result = compilePromptSections([
+test('enforce rejects partial breach policy before any non-compliant prompt can be transported', () => {
+  assert.throws(() => compilePromptSections([
     { id: 'contract', text: 'x'.repeat(5000), mandatory: true },
     { id: 'optional', text: 'optional context' }
-  ], policy('enforce', 1024, 'partial'), exactAdmission);
-  assert.equal(result.compliance, 'partial-non-compliant');
-  assert.match(result.text, /x{100}/);
-  assert.match(result.text, /Context omitted under approved policy/);
+  ], policy('enforce', 1024, 'partial'), exactAdmission), (error) => (
+    error.code === 'TKN_ENFORCE_PARTIAL_UNSAFE'
+  ));
 });
 
 test('assist honors refuse and partial when mandatory prompt text exceeds its estimated budget', () => {

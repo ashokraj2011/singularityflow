@@ -3337,6 +3337,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return null;
       } catch (error) { return (error as Error).message; }
     }
+    if (message.type === 'add-current-identity') {
+      const args = ['configuration', 'add-current-identity', '--target', message.target];
+      if (message.solo) args.push('--solo');
+      output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
+      try {
+        const result = await client.run<{
+          changed: boolean; pushed: boolean; commit: string;
+          groups: Array<{ id: string; scope: string }>;
+          transportIntent?: string; transportStatus?: string;
+          nextAction?: { command?: string } | null;
+        }>(args);
+        if (result.changed && !result.pushed) {
+          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${result.nextAction?.command ? `Run: ${result.nextAction.command}` : 'Open Push recovery to continue.'}`;
+        }
+        await store.refresh();
+        if (!result.changed) {
+          void vscode.window.showInformationMessage('Your current Git identity already belongs to the selected approval groups.');
+        } else {
+          void vscode.window.showInformationMessage(
+            `People & approvals updated on sflow/config (${result.commit.slice(0, 8)}). Future Stories will use it.`
+          );
+        }
+        return null;
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
 
     /**
      * A template row was clicked. Path-carrying rather than a named action, and validated against

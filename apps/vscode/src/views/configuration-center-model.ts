@@ -81,6 +81,9 @@ export interface WorldModelSettingsView {
 }
 export interface ConfigurationCenterView {
   profile: ProfileView;
+  /** The repository identity the kernel will attribute governed decisions to. */
+  gitIdentity: AuthorityMemberView | null;
+  approvalSecurityProfile: 'poc' | 'team' | 'regulated';
   /** Artifact templates with their catalog names and usage, absorbed from the sidebar. */
   fileSets: FileSetView[];
   authorities: AuthorityView[];
@@ -253,8 +256,19 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const injection = worldModel.injection ?? {};
   const phaseRows = definition.phases ?? {};
   const agentLabels = new Map((snapshot.agents ?? []).map((entry) => [entry.id, entry.id]));
+  const gitIdentity = snapshot.identities?.git;
+  const gitEmail = String(gitIdentity?.email ?? '').trim().toLowerCase();
+  const gitLogin = String(gitIdentity?.login ?? snapshot.identities?.github ?? '').trim();
+  const approvalSecurityProfile = definition.approvalSecurity?.profile;
   return {
     profile,
+    gitIdentity: gitEmail || gitLogin ? {
+      name: String(gitIdentity?.name ?? '').trim() || gitEmail || gitLogin,
+      email: gitEmail,
+      githubLogin: gitLogin
+    } : null,
+    approvalSecurityProfile: approvalSecurityProfile === 'poc' || approvalSecurityProfile === 'regulated'
+      ? approvalSecurityProfile : 'team',
     /**
      * Read straight from the snapshot the engine already annotates. The catalog join happens once,
      * server-side; recomputing "what uses this template" here would be the designer and the kernel
@@ -437,6 +451,51 @@ export function updateAuthorityYaml(text: string, draft: AuthorityDraft | null, 
       }))
     });
   }
+  return String(parsed);
+}
+
+/**
+ * Add the resolved repository identity without producing duplicate authority members.
+ *
+ * Git email is the primary identity and authenticated GitHub login is the fallback. When a group
+ * already has either one, enrich that row rather than creating a second person that could appear
+ * to satisfy a multi-reviewer threshold.
+ */
+export function authorityWithMember(
+  group: AuthorityView,
+  identity: AuthorityMemberView
+): { authority: AuthorityView; changed: boolean } {
+  const normalized = {
+    name: identity.name.trim(),
+    email: identity.email.trim().toLowerCase(),
+    githubLogin: identity.githubLogin.trim()
+  };
+  const emailKey = normalized.email.toLowerCase();
+  const loginKey = normalized.githubLogin.toLowerCase();
+  const index = group.members.findIndex((entry) => (
+    Boolean(emailKey) && entry.email.trim().toLowerCase() === emailKey
+  ) || (
+    Boolean(loginKey) && entry.githubLogin.trim().toLowerCase() === loginKey
+  ));
+  if (index < 0) return {
+    authority: { ...group, members: [...group.members, normalized] },
+    changed: true
+  };
+  const existing = group.members[index]!;
+  const merged = {
+    name: existing.name.trim() || normalized.name,
+    email: existing.email.trim().toLowerCase() || normalized.email,
+    githubLogin: existing.githubLogin.trim() || normalized.githubLogin
+  };
+  if (JSON.stringify(existing) === JSON.stringify(merged)) return { authority: group, changed: false };
+  const members = [...group.members]; members[index] = merged;
+  return { authority: { ...group, members }, changed: true };
+}
+
+/** Switch future Story snapshots to the explicit lone-developer approval profile. */
+export function updateApprovalSecurityProfileYaml(text: string, profile: 'poc' | 'team' | 'regulated'): string {
+  const parsed = document(text, 'workflow.yml');
+  parsed.setIn(['approvalSecurity', 'profile'], profile);
   return String(parsed);
 }
 

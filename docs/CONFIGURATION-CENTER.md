@@ -57,6 +57,15 @@ machine-local VS Code configuration and is not committed to the workspace or lea
 
 An approval authority is a named group of real identities. Story authorities may deliberately allow any configured Git identity. Initiative authorities require named members because Initiative gates must not silently become open to every local identity. Existing authority scope is fixed in the editor; create a separate group when both Story and Initiative workflows need an equivalent authority.
 
+The **Add my current Git identity** card reads the same repository Git/GitHub identity that the
+approval kernel will use. Choose one authority, every Story authority, every Initiative authority,
+or all configured authorities. Existing matches are enriched rather than duplicated. **Add, commit
+& push** updates an isolated checkout of the approved `sflow/config` authority, validates the
+complete workflow and portfolio, retains the exact commit for push recovery, and publishes it. It
+never edits, stages, or commits the active Story/Initiative checkout. Lone developers may explicitly
+enable the `poc` approval-security profile so future Stories can record self-approval. Published
+changes never rewrite the immutable configuration snapshot of an existing Story.
+
 ## MCP tools
 
 Add a governed server policy with:

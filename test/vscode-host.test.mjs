@@ -47,6 +47,7 @@ process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY ??= path.join(machineState, 'reg
 process.env.SINGULARITY_FLOW_LEAD_REGISTRY ??= path.join(machineState, 'leads.json');
 process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER = path.join(machineState, 'vscode-fresh-reset-pending.json');
 process.env.SINGULARITY_FLOW_AST_PREFERENCE_FILE = path.join(machineState, 'ast-preference.json');
+process.env.SINGULARITY_FLOW_TRANSPORT_OUTBOX = path.join(machineState, 'transport-outbox');
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs');
@@ -170,7 +171,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -303,7 +304,7 @@ function stubVscode() {
   api.window.showWarningMessage = async (message, ...rest) => {
     registered.warnings.push(message);
     registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
-    return registered.selfApprovalAnswer;
+    return registered.warningAnswers.length ? registered.warningAnswers.shift() : registered.selfApprovalAnswer;
   };
   api.window.createWebviewPanel = (id, title, column, options) => {
     // The handler is kept, not discarded: a panel that is only ever rendered is half-tested. Driving
@@ -2039,6 +2040,43 @@ test('starting work before any approver is named says so first, and offers the f
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked before the precondition was checked');
   assert.ok(registered.warnings.some((message) => /No approval authority has a member/.test(message)));
   assert.deepEqual(registered.errors, [], 'a missing precondition is not an error dialog');
+});
+
+test('People & approvals adds the current Git identity to every Story group and publishes it', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
+  await registered.commands.get('singularityFlow.configurePeople')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(panel, 'People & approvals opens in the Configuration Center');
+  assert.match(panel.webview.html, /Add my current Git identity/);
+  assert.match(panel.webview.html, new RegExp(EMAIL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(panel.webview.html, /All Story approval groups/);
+  assert.match(panel.webview.html, /Add, commit &amp; push/);
+
+  const before = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
+  registered.warningAnswers.push('Add, commit & push');
+  await panel.post({
+    type: 'add-current-identity', target: 'story:*', enableSolo: true
+  });
+
+  const pinnedWorkflow = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.equal(pinnedWorkflow.approvalSecurity.profile, 'team', 'the active lifecycle snapshot stays immutable');
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const workflow = YAML.parse(run('git', [
+    `--git-dir=${remote}`, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  assert.equal(workflow.approvalSecurity.profile, 'poc');
+  for (const [authority, value] of Object.entries(workflow.approvalAuthorities)) {
+    assert.ok(value.members.some((member) => member.email === EMAIL), `${authority} contains the current Git identity`);
+  }
+  const after = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  assert.equal(after, before, 'the guided action never advances the active lifecycle branch');
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus,
+    'the guided action never changes the active worktree or index');
+  assert.ok(registered.infos.some((message) => /People & approvals updated on sflow\/config/.test(message)));
+  assert.deepEqual(registered.errors, []);
 });
 
 test('creating a workspace is possible before any repository is open', async (t) => {

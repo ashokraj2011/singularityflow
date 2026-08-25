@@ -258,10 +258,34 @@ function memberText(group: AuthorityView): string {
   return group.members.map((entry) => [entry.name, entry.email, entry.githubLogin].filter(Boolean).join(' | ')).join('\n');
 }
 
+function currentIdentityCard(view: ConfigurationCenterView): string {
+  const identity = view.gitIdentity;
+  if (!identity) return `<div class="editor-card"><h2>${icon('approval')}Add my Git identity</h2>
+    <p class="notice warning">No Git email or GitHub login is available for this repository. Configure <code>git user.name</code> and <code>git user.email</code>, then refresh this screen.</p></div>`;
+  const story = view.authorities.filter((entry) => entry.scope === 'story');
+  const initiative = view.authorities.filter((entry) => entry.scope === 'initiative');
+  const choices = [
+    ...(story.length ? [`<option value="story:*">All Story approval groups (${story.length})</option>`] : []),
+    ...(initiative.length ? [`<option value="initiative:*">All Initiative approval groups (${initiative.length})</option>`] : []),
+    ...(story.length && initiative.length ? [`<option value="*">All Story and Initiative groups (${story.length + initiative.length})</option>`] : []),
+    ...(story.length ? [`<optgroup label="Individual Story groups">${story.map((group) => `<option value="story:${escape(group.id)}">${escape(group.label)}</option>`).join('')}</optgroup>`] : []),
+    ...(initiative.length ? [`<optgroup label="Individual Initiative groups">${initiative.map((group) => `<option value="initiative:${escape(group.id)}">${escape(group.label)}</option>`).join('')}</optgroup>`] : [])
+  ].join('');
+  return `<form id="current-identity-authority-form" class="editor-card">
+    <div class="section-heading"><div><h2>${icon('approval')}Add my current Git identity</h2><p class="muted">Choose one group or apply the identity to every group in a scope. Existing matching members are enriched, never duplicated.</p></div></div>
+    <div class="summary-grid"><div class="summary-card"><strong>${escape(identity.name)}</strong><span>Git name</span></div><div class="summary-card"><strong>${escape(identity.email || 'not configured')}</strong><span>Git email</span></div><div class="summary-card"><strong>${escape(identity.githubLogin || 'not resolved')}</strong><span>GitHub login</span></div></div>
+    <div class="form-grid"><label class="span-2"><span>Apply identity to</span><select name="target">${choices}</select><small>Authority is granted only to the selected governed groups.</small></label></div>
+    <label class="check"><input name="enableSolo" type="checkbox"${view.approvalSecurityProfile === 'poc' ? ' checked' : ''}>Solo developer mode — allow future Stories to record self-approval</label>
+    <small>Current profile: <code>${escape(view.approvalSecurityProfile)}</code>. Solo mode is an explicit governance choice and does not rewrite active Story snapshots.</small>
+    <div class="card-foot"><button type="submit">Add, commit &amp; push</button></div>
+  </form>`;
+}
+
 function people(view: ConfigurationCenterView, selected: AuthorityView | null): string {
   return `<section class="plain"><h2>${icon('agent')}My local profile</h2>
     <p class="muted">This profile changes guidance only. Governed decisions use the Git and GitHub identities shown in approval records.</p>
     <form id="profile-form" class="editor-card"><div class="form-grid"><label><span>Name</span><input name="name" type="text" value="${escape(view.profile.name)}"></label><label><span>Menu persona</span><select name="role">${PROFILE_PERSONAS.map((persona) => `<option value="${persona.id}"${persona.id === view.profile.role ? ' selected' : ''}>${escape(persona.label)}</option>`).join('')}</select><small>Changes menu order and suggestions only.</small></label></div><div class="card-foot"><button type="submit">Save local profile</button></div></form>
+    ${currentIdentityCard(view)}
     <div class="section-heading"><h2>${icon('team')}Human approval authorities</h2><button class="secondary" data-action="new-authority">Add authority</button></div>
     <p class="muted">People are not agents. These groups match real Git email or authenticated GitHub login when somebody approves or rejects.</p>
     <div class="configuration-list">${view.authorities.map((group) => `<button class="configuration-row secondary" data-authority="${escape(`${group.scope}:${group.id}`)}"><span>${icon('approval')}</span><strong>${escape(group.label)}</strong><small>${group.scope === 'story' ? 'Story workflow' : 'Initiative workflow'} · ${group.allowAnyGitIdentity ? 'any Git identity' : `${group.members.length} member${group.members.length === 1 ? '' : 's'}`}</small></button>`).join('') || '<p class="empty">No approval groups are configured.</p>'}</div>
@@ -350,6 +374,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   document.addEventListener('submit', (event) => {
     event.preventDefault(); const form = event.target; const data = new FormData(form);
     if (form.id === 'profile-form') vscode.postMessage({ type: 'save-profile', name: data.get('name'), role: data.get('role') });
+    if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), enableSolo: data.get('enableSolo') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
     if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });

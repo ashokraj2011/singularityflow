@@ -75,6 +75,7 @@ import { generateDesignInventory } from './design-inventory.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
+import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
@@ -7617,6 +7618,10 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   else if (subcommand === 'delete-file') result = await deleteConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'));
   else if (subcommand === 'delete-template') result = await deleteConfigurationTemplate(root, requirePositional(positionals, 2, 'template path'));
   else if (subcommand === 'publish') result = await publishEditorConfiguration(root, optionString(options, 'message'));
+  else if (subcommand === 'add-current-identity') result = await publishCurrentIdentityToConfiguration(root, {
+    target: optionString(options, 'target', 'story:*'),
+    solo: optionBoolean(options, 'solo')
+  });
   else if (subcommand === 'portfolio-bootstrap') {
     let input = {};
     const text = await stdinText();

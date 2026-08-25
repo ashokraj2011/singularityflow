@@ -554,6 +554,7 @@ export interface RepositorySnapshot {
    * offer the lenses this repository declares, not a list this extension keeps.
    */
   definition?: {
+    approvalSecurity?: { profile?: 'poc' | 'team' | 'regulated' };
     approvalAuthorities?: Record<string, {
       label?: string; allowAnyGitIdentity?: boolean;
       members?: Array<{ name?: string; email?: string; githubLogin?: string; login?: string }>;

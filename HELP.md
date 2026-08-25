@@ -2234,12 +2234,13 @@ singularity-flow agents status architecture
 
 Copilot custom-agent names may be different from Flow agent IDs. Commit
 the differences in `singularity/agent-mappings.yml`; omitted agents retain the
-same-name fallback:
+same-name fallback. Human-readable Copilot display names, including spaces, are
+valid mapping keys; governed Flow agent IDs remain lower-case kebab-case:
 
 ```yaml
 version: 1
 mappings:
-  enterprise-architect: architecture
+  "Playwright Test Engineer": playwright-test-engineer
 ```
 
 The mapping selects prompt context only. It never selects a governed agent,

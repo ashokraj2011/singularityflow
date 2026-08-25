@@ -32,7 +32,18 @@ for (const [network, prefix] of [
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function idPattern(value) { return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
-function copilotAgentPattern(value) { return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value); }
+function displayNameId(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return idPattern(normalized) ? normalized : null;
+}
+function copilotAgentPattern(value) {
+  return typeof value === 'string' && value === value.trim()
+    && /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/.test(value);
+}
 function splitList(value) { return !value || value === '*' || value === '-' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean); }
 function parseBoolean(value, label) {
   if (!value || value === '-') return false;
@@ -185,7 +196,21 @@ function rowsForHeading(text, heading, expected) {
 
 export function parseAgentDependencies(text, { source = 'agent.md', agentId = null } = {}) {
   const { frontmatter, body } = parseAgentDocument(text, source);
-  const id = agentId ?? frontmatter.name ?? path.basename(source).replace(/\.agent\.md$|\.md$/i, '');
+  const declaredName = frontmatter.name;
+  if (declaredName != null && (typeof declaredName !== 'string' || !declaredName.trim()
+      || declaredName.length > 128 || /[\u0000-\u001f\u007f]/.test(declaredName))) {
+    throw new SingularityFlowError(`Agent name in ${source} must be non-empty display text of at most 128 characters.`);
+  }
+  const sourceId = path.basename(source).replace(/\.agent\.md$|\.md$/i, '');
+  // Existing governed agents historically placed their kebab-case ID in `name`; preserve that
+  // contract. Native Copilot Agent Markdown also permits a human display name in the same field.
+  // In that shape the stable governed ID is the kebab-case filename, keeping display text out of
+  // workflow identity and allowing capability review to validate the shared `.github/agents` tree.
+  // Some native-agent editors also preserve the display name in the filename. Normalize that
+  // legacy shape deterministically so Windows checkouts do not become unable to review otherwise
+  // valid capability configuration. New files should still use the explicit kebab-case filename.
+  const id = agentId ?? (idPattern(declaredName) ? declaredName
+    : idPattern(sourceId) ? sourceId : displayNameId(declaredName) ?? sourceId);
   if (!idPattern(id)) throw new SingularityFlowError(`Agent '${id}' must use lower-case kebab-case.`);
   if (typeof frontmatter.description !== 'string' || !frontmatter.description.trim()) throw new SingularityFlowError(`Agent '${id}' requires a non-empty description.`);
   if (!body.trim()) throw new SingularityFlowError(`Agent '${id}' requires a non-empty prompt body.`);
@@ -225,7 +250,8 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   return {
     id,
     source,
-    label: metadata['sflow-label'] ?? id,
+    displayName: declaredName?.trim() ?? id,
+    label: metadata['sflow-label'] ?? declaredName?.trim() ?? id,
     description: frontmatter.description.trim(),
     frontmatter,
     metadata,
@@ -316,7 +342,7 @@ export function validateAgentMappings(value, { agentIds = null } = {}) {
   const known = agentIds ? new Set(agentIds) : null;
   const normalized = {};
   for (const [copilotAgent, agentId] of Object.entries(mappings)) {
-    if (!copilotAgentPattern(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must use letters, numbers, '.', '_' or '-' and be at most 128 characters.`);
+    if (!copilotAgentPattern(copilotAgent)) throw new SingularityFlowError(`Copilot agent mapping key '${copilotAgent}' must be trimmed display text using letters, numbers, spaces, '.', '_' or '-' and be at most 128 characters.`);
     if (typeof agentId !== 'string' || !idPattern(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' must map to a lower-case kebab-case governed agent ID.`);
     if (known && !known.has(agentId)) throw new SingularityFlowError(`Copilot agent '${copilotAgent}' maps to unknown governed agent '${agentId}'.`);
     normalized[copilotAgent] = agentId;
@@ -341,11 +367,19 @@ export async function resolveCopilotAgent(root, copilotAgent, { agents = null } 
   const discovered = agents ?? await discoverAgents(root);
   const configured = await loadAgentMappings(root, { agents: discovered });
   const explicit = Object.hasOwn(configured.mappings, copilotAgent);
-  const agentId = explicit ? configured.mappings[copilotAgent] : copilotAgent;
+  const exact = discovered.find((candidate) => candidate.id === copilotAgent) ?? null;
+  const displayMatches = exact ? [] : discovered.filter((candidate) => candidate.displayName === copilotAgent);
+  if (!explicit && displayMatches.length > 1) {
+    throw new SingularityFlowError(
+      `Copilot agent display name '${copilotAgent}' matches multiple governed agents. Add an exact mapping in ${AGENT_MAPPING_PATH}.`
+    );
+  }
+  const automatic = exact ?? displayMatches[0] ?? null;
+  const agentId = explicit ? configured.mappings[copilotAgent] : automatic?.id ?? copilotAgent;
   return {
     copilotAgent,
     agentId,
-    source: explicit ? 'configured' : 'same-name',
+    source: explicit ? 'configured' : exact ? 'same-name' : automatic ? 'display-name' : 'same-name',
     mappingPath: configured.path,
     agent: discovered.find((candidate) => candidate.id === agentId) ?? null
   };
@@ -357,9 +391,17 @@ export async function agentMappingStatus(root) {
   const rows = Object.entries(configured.mappings).map(([copilotAgent, agentId]) => ({
     copilotAgent, agentId, source: 'configured'
   }));
+  const displayCounts = new Map();
+  for (const agent of agents) {
+    displayCounts.set(agent.displayName, (displayCounts.get(agent.displayName) ?? 0) + 1);
+  }
   for (const agent of agents) {
     if (Object.hasOwn(configured.mappings, agent.id)) continue;
     rows.push({ copilotAgent: agent.id, agentId: agent.id, source: 'same-name fallback' });
+    if (agent.displayName !== agent.id && displayCounts.get(agent.displayName) === 1
+        && !Object.hasOwn(configured.mappings, agent.displayName)) {
+      rows.push({ copilotAgent: agent.displayName, agentId: agent.id, source: 'display-name fallback' });
+    }
   }
   return { ...configured, rows: rows.sort((left, right) => left.copilotAgent.localeCompare(right.copilotAgent)) };
 }

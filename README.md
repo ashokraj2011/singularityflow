@@ -1831,7 +1831,11 @@ agents under `.github/agents` or the plugin's `agents/` directory may declare pu
 
 Create an agent Markdown file in the lead repository at
 `.github/agents/<agent-id>.agent.md`. Agent and dependency IDs must use
-lower-case kebab-case.
+lower-case kebab-case. Native Copilot files may keep a human-readable frontmatter
+`name`; when it is not an ID, Singularity Flow uses the kebab-case filename as the
+governed identity and retains `name` only as a display label. Legacy native files
+that also use the display name as their filename are normalized deterministically;
+new governed files should use the explicit kebab-case filename.
 
 For example, create `.github/agents/architecture.agent.md`:
 
@@ -1921,7 +1925,7 @@ agents:
 ```yaml
 version: 1
 mappings:
-  enterprise-architect: architecture
+  "Playwright Test Engineer": playwright-test-engineer
   mobile-delivery-agent: mobile-delivery
 ```
 

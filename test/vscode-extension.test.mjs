@@ -3693,6 +3693,15 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.doesNotMatch(renderAgent(parsed), /\| Personas \|/);
   assert.deepEqual(validateAgentMappingsDraft([{ copilotAgent: 'architecture', agentId: 'architect' }], ['architect']), []);
   assert.match(renderAgentMappings([{ copilotAgent: 'architecture', agentId: 'architect' }]), /"architecture": "architect"/);
+  assert.deepEqual(validateAgentMappingsDraft([
+    { copilotAgent: 'Playwright Test Engineer', agentId: 'architect' }
+  ], ['architect']), []);
+  assert.match(renderAgentMappings([
+    { copilotAgent: 'Playwright Test Engineer', agentId: 'architect' }
+  ]), /"Playwright Test Engineer": "architect"/);
+  assert.match(validateAgentMappingsDraft([
+    { copilotAgent: 'bad\/agent', agentId: 'architect' }
+  ], ['architect']).join(' '), /invalid/);
 
   const skill = parseSkill(instructionSnapshot.repositorySkills[0].content, 'sf-review');
   assert.deepEqual(validateSkill(skill), []);

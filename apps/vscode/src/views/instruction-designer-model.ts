@@ -314,7 +314,10 @@ export function renderAgentMappings(rows: Array<{ copilotAgent: string; agentId:
 export function validateAgentMappingsDraft(rows: Array<{ copilotAgent: string; agentId: string }>, agentIds: string[]): string[] {
   const errors: string[] = []; const seen = new Set<string>(); const known = new Set(agentIds);
   for (const row of rows) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(row.copilotAgent)) errors.push(`Copilot agent '${row.copilotAgent || '(empty)'}' is invalid.`);
+    if (row.copilotAgent !== row.copilotAgent.trim()
+        || !/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/.test(row.copilotAgent)) {
+      errors.push(`Copilot agent '${row.copilotAgent || '(empty)'}' is invalid.`);
+    }
     if (seen.has(row.copilotAgent)) errors.push(`Copilot agent '${row.copilotAgent}' is mapped more than once.`);
     seen.add(row.copilotAgent);
     if (!known.has(row.agentId)) errors.push(`Flow agent '${row.agentId || '(empty)'}' is not available.`);

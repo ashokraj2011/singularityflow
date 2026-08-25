@@ -104,6 +104,33 @@ test('agent Markdown frontmatter accepts Windows CRLF and a UTF-8 BOM', () => {
   assert.equal(withBom.description, 'Architecture delivery');
 });
 
+test('a native Copilot display name uses the kebab-case filename as governed identity', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-display-name-'));
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
+  await mkdir(path.join(root, '.git/singularity-flow'), { recursive: true });
+  const content = agentMarkdown.replace('name: architecture', 'name: Playwright Test Engineer');
+  await writeFile(path.join(root, '.github/agents/playwright-test-engineer.agent.md'), content);
+
+  const parsed = parseAgentDependencies(content, {
+    source: '.github/agents/playwright-test-engineer.agent.md'
+  });
+  assert.equal(parsed.id, 'playwright-test-engineer');
+  assert.equal(parsed.displayName, 'Playwright Test Engineer');
+  assert.equal(parsed.label, 'Playwright Test Engineer');
+  const windowsNamedFile = parseAgentDependencies(content, {
+    source: '.github/agents/Playwright Test Engineer.agent.md'
+  });
+  assert.equal(windowsNamedFile.id, 'playwright-test-engineer');
+
+  const resolved = await resolveCopilotAgent(root, 'Playwright Test Engineer');
+  assert.equal(resolved.agentId, 'playwright-test-engineer');
+  assert.equal(resolved.source, 'display-name');
+  assert.equal(resolved.agent.id, 'playwright-test-engineer');
+  const status = await agentMappingStatus(root);
+  assert.ok(status.rows.some((row) => row.copilotAgent === 'Playwright Test Engineer'
+    && row.agentId === 'playwright-test-engineer' && row.source === 'display-name fallback'));
+});
+
 function response(content, { status = 200, location = null } = {}) {
   const bytes = Buffer.from(content);
   return { ok: status >= 200 && status < 300, status, headers: { get: (name) => name.toLowerCase() === 'location' ? location : null }, arrayBuffer: async () => bytes };
@@ -159,6 +186,14 @@ test('agent mappings resolve different Copilot names before same-name fallback',
   const status = await agentMappingStatus(root);
   assert.ok(status.rows.some((row) => row.copilotAgent === 'enterprise-architect' && row.source === 'configured'));
   assert.ok(status.rows.some((row) => row.copilotAgent === 'architecture' && row.source === 'same-name fallback'));
+
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), YAML.stringify({
+    version: 1,
+    mappings: { 'Playwright Test Engineer': 'architecture' }
+  }));
+  const displayMapping = await resolveCopilotAgent(root, 'Playwright Test Engineer');
+  assert.equal(displayMapping.agentId, 'architecture');
+  assert.equal(displayMapping.source, 'configured');
 });
 
 test('agent mapping validation rejects malformed names and unknown agents', async () => {
@@ -166,8 +201,8 @@ test('agent mapping validation rejects malformed names and unknown agents', asyn
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  enterprise-architect: missing-pack\n');
   await assert.rejects(() => loadAgentMappings(root), /unknown governed agent 'missing-pack'/);
-  await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  "bad agent": architecture\n');
-  await assert.rejects(() => loadAgentMappings(root), /mapping key 'bad agent'/);
+  await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  "bad\/agent": architecture\n');
+  await assert.rejects(() => loadAgentMappings(root), /mapping key 'bad\/agent'/);
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 2\nmappings: {}\n');
   await assert.rejects(() => loadAgentMappings(root), /version must be 1/);
 });

@@ -104,6 +104,23 @@ async function recordDefaultBranchAs(remote, repositoryId, branch) {
   }
 }
 
+async function recordNativeAgentDisplayName(remote, agentId, displayName) {
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-display-'));
+  try {
+    run('git', ['clone', '-q', '--branch', 'sflow/config', remote, checkout]);
+    run('git', ['config', 'user.email', 'a@b.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'A B'], { cwd: checkout });
+    const file = path.join(checkout, '.github', 'agents', `${agentId}.agent.md`);
+    const content = await readFile(file, 'utf8');
+    await writeFile(file, content.replace(/^name:\s*.*$/m, `name: ${displayName}`));
+    run('git', ['add', '.github/agents'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Use native Copilot agent display name'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+}
+
 test('the branch a capability is mapped on is not recorded as the repository default branch', async () => {
   /**
    * `withLeadCheckout` borrows the lead on the configuration authority branch, so the base branch it
@@ -262,6 +279,28 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   const history = await listCapabilityProposals(org.platform, { includeMerged: true });
   assert.equal(history[0].merged, true);
   assert.match(history[0].diff, /calculator/, 'an activated proposal retains a reviewable exact diff');
+});
+
+test('capability activation accepts a native Copilot display name without changing governed identity', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'commerce', name: 'Commerce', kind: 'collection'
+  });
+  await recordNativeAgentDisplayName(org.platform, 'poc-test-developer', 'Playwright Test Engineer');
+
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'testing', name: 'Testing', kind: 'collection', parent: 'commerce'
+  });
+  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true
+  });
+  assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.projection.published, true);
+  assert.match(run('git', [
+    'show', 'sflow/config:.github/agents/poc-test-developer.agent.md'
+  ], { cwd: org.platform }).stdout, /^name: Playwright Test Engineer$/m);
 });
 
 test('capability review and activation do not negotiate unrelated monorepo history', async () => {

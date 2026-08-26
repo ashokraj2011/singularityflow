@@ -38,6 +38,9 @@ Then, on a repository you care about:
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
 The full documentation map is in [docs/README.md](./docs/README.md).
+For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT
+semantic AST, VS Code visualization, and measured reuse, follow the
+[Java/Maven world-model and semantic AST demo](./README-JAVA-MAVEN-WORLD-MODEL-DEMO.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
 The shared Home routing, readiness evidence, compact submission receipt, and cross-clone return

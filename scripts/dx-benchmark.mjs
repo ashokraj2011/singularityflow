@@ -56,12 +56,18 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-async function createFixture() {
+/**
+ * The reference repository, at whatever size the caller's topology declares.
+ *
+ * Parameterised rather than hard-wired to `fixtureManifest.topology`, because one size cannot show a
+ * growth rate. A single point says a command took 102 ms; two say whether that number follows the
+ * repository, and following the repository is the property this benchmark exists to defend.
+ */
+async function createFixture(topology = fixtureManifest.topology) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-dx-'));
   git(root, ['init', '-q', '-b', 'main']);
   git(root, ['config', 'user.name', 'DX Benchmark']);
   git(root, ['config', 'user.email', 'dx@example.invalid']);
-  await mkdir(path.join(root, 'singularity/work-items/DX-001/artifacts/intake'), { recursive: true });
   await mkdir(path.join(root, 'singularity/templates/chore'), { recursive: true });
   await writeFile(path.join(root, 'singularity/templates/chore/intake.md'), '# Intake\n\nWhat is being asked for.\n', 'utf8');
   /**
@@ -104,9 +110,9 @@ async function createFixture() {
    * because the only benchmarked snapshot shape never loaded a Story. Everything `normalizeCurrentWorkflow`
    * fills in with `??=` is left out; what remains is exactly the seven keys it refuses to default.
    */
-  const workflow = {
+  const storyRecord = (id) => ({
     schemaVersion: 2,
-    workItem: { id: 'DX-001', title: 'Reference Story', branch: 'DX-001', workType: 'chore' },
+    workItem: { id, title: 'Reference Story', branch: id, workType: 'chore' },
     status: 'active', currentPhase: 'intake', phaseOrder: ['intake'],
     // `requiredArtifact` is one of the few phase fields `normalizeCurrentWorkflow` does not default,
     // and `createReviewBundle` dereferences it unguarded.
@@ -122,14 +128,30 @@ async function createFixture() {
       collaboration: { assignmentMode: 'off' },
       session: {}, contextPolicy: {}, sequenceGates: {}
     },
-    lineage: { canonicalBranch: 'DX-001', childBranches: [], requiredChecks: [] },
+    lineage: { canonicalBranch: id, childBranches: [], requiredChecks: [] },
     usage: {}, telemetry: {},
     history: []
-  };
-  await writeFile(path.join(root, 'singularity/work-items/DX-001/workflow.json'), `${JSON.stringify(workflow, null, 2)}\n`, 'utf8');
-  // Three governed files now exist — the definition, the Story, and the one template the definition
-  // references — so the filler stops three short of the declared total rather than two.
-  for (let index = 0; index < fixtureManifest.topology.trackedFiles - 3; index += 1) {
+  });
+
+  /**
+   * `DX-001` first, because it is the Story the fixture ends up checked out on.
+   *
+   * The rest exist to be walked. `buildRepositorySubjectIndex` reads every `workflow.json` on every
+   * ref, so the cost of a read is branches × Stories — and a fixture holding one Story measures the
+   * first factor only, which is how a read path that spawns two subprocesses per pair stayed
+   * invisible for as long as it has.
+   */
+  for (let index = 0; index < topology.stories; index += 1) {
+    const id = `DX-${String(index + 1).padStart(3, '0')}`;
+    await mkdir(path.join(root, `singularity/work-items/${id}/artifacts/intake`), { recursive: true });
+    await writeFile(path.join(root, `singularity/work-items/${id}/workflow.json`),
+      `${JSON.stringify(storyRecord(id), null, 2)}\n`, 'utf8');
+  }
+
+  // The definition, the one template it references, and one `workflow.json` per Story are governed
+  // files that already count against the declared total, so the filler stops short of them.
+  const governed = 2 + topology.stories;
+  for (let index = 0; index < topology.trackedFiles - governed; index += 1) {
     const directory = path.join(root, 'src', String(Math.floor(index / 100)));
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, `file-${index}.txt`), `fixture ${index}\n`, 'utf8');
@@ -137,9 +159,9 @@ async function createFixture() {
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', 'Reference fixture']);
   git(root, ['branch', 'DX-001']);
-  for (let index = 1; index < fixtureManifest.topology.localBranches - 1; index += 1) git(root, ['branch', `fixture-${index}`]);
+  for (let index = 1; index < topology.localBranches - 1; index += 1) git(root, ['branch', `fixture-${index}`]);
   git(root, ['switch', '-q', 'DX-001']);
-  for (let index = 0; index < fixtureManifest.topology.untrackedFiles; index += 1) await writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8');
+  for (let index = 0; index < topology.untrackedFiles; index += 1) await writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8');
   return root;
 }
 
@@ -308,7 +330,7 @@ function verifyConnectedTopology(root) {
  * large: Stories and Initiatives are what the subject index walks per ref, and a benchmark that
  * cannot say how many of them the fixture holds cannot claim to have measured a read path.
  */
-function verifyTopology(root) {
+function verifyTopology(root, declared = fixtureManifest.topology) {
   const tracked = git(root, ['ls-files', '-z']).split('\0').filter(Boolean);
   const under = (pattern) => tracked.filter((file) => pattern.test(file)).length;
   const actual = {
@@ -333,7 +355,7 @@ function verifyTopology(root) {
      */
     localSubjectIndex: existsSync(path.join(root, '.git', 'singularity-flow')) ? 'present' : 'absent'
   };
-  for (const [key, expected] of Object.entries(fixtureManifest.topology)) {
+  for (const [key, expected] of Object.entries(declared)) {
     if (actual[key] === undefined) throw new Error(`Reference fixture declares ${key}, which nothing counts.`);
     if (actual[key] !== expected) throw new Error(`Reference fixture ${key} is ${actual[key]}; expected ${expected}.`);
   }
@@ -408,6 +430,23 @@ function countProbeRows(stderr, patterns) {
 const countNetworkCalls = (stderr) => countProbeRows(stderr, NETWORK_VERBS);
 const countMutatingCalls = (stderr) => countProbeRows(stderr, MUTATING_VERBS);
 
+/**
+ * How many subprocesses a command ran, which is the one number that means the same on every host.
+ *
+ * A time budget is met by a fast machine and blown by a loaded one, so it cannot state a complexity
+ * claim: "this read does not get more expensive as the repository grows" is about the count, not the
+ * clock. The read path spawns two Git processes per (branch × Story) pair, and on a fixture with one
+ * Story and four branches that is invisible in both the count and the time.
+ */
+function countSubprocesses(stderr) {
+  const match = /^subprocesses:\s+(\d+)\s+calls/m.exec(stderr);
+  if (!match) {
+    throw new Error('The subprocess probe produced no summary, so nothing counted the spawns this'
+      + ' tier exists to count. SINGULARITY_FLOW_SUBPROCESS_PROBE was set and not honoured.');
+  }
+  return Number(match[1]);
+}
+
 const commands = {
   about: ['about'],
   status: ['status', 'DX-001', '--json'],
@@ -452,10 +491,13 @@ try {
     && acceptedBaseline.runtime.nodeMajor === Number(process.versions.node.split('.')[0])
     && acceptedBaseline.runtime.platform === process.platform
     && acceptedBaseline.runtime.architecture === process.arch;
+  const referenceSubprocesses = {};
   for (const [name, args] of Object.entries(commands)) {
     timed(fixture, args); // discarded warm-up
     const values = Array.from({ length: samples }, () => timed(fixture, args));
     commandResults[name] = summarizeSamples(values);
+    // One probed run per command, so the scale tier below has something to compare a count against.
+    referenceSubprocesses[name] = countSubprocesses(invoke(fixture, args, { probe: true }).stderr);
     failures.push(...evaluateLatency(name, commandResults[name], fixtureManifest.budgets[name], comparableBaseline ? acceptedBaseline.commands[name] : null));
   }
   /**
@@ -498,10 +540,57 @@ try {
     await rm(connected.remote, { recursive: true, force: true });
   }
 
+  /**
+   * The growth tier: the same commands on a repository forty times the size. `[UXH:REQ-120]`
+   *
+   * Every tier above measures one point. A point says `snapshot --include repository` took 102 ms;
+   * it cannot say whether that is 102 ms on any repository or 102 ms on a five-hundred-file one, and
+   * those are different products. The reference fixture holds one Story and four branches, so a read
+   * path that costs branches × Stories reads as constant here and as minutes on a real portfolio.
+   *
+   * Enforced on the **subprocess count**, not the clock. A count is the same on a fast runner and a
+   * loaded one, so it can carry a complexity claim that a time budget cannot: a read whose spawn
+   * count follows the repository is superlinear by construction, whatever the wall clock says on the
+   * day. Times are still reported, because a growth rate is worth reading even when it passes.
+   */
+  const scale = fixtureManifest.scale;
+  let scaleResults = null;
+  if (scale && !process.argv.includes('--skip-scale')) {
+    const scaleRoot = await createFixture(scale.topology);
+    try {
+      const scaleTopology = verifyTopology(scaleRoot, scale.topology);
+      const scaled = {};
+      for (const name of scale.commands) {
+        const args = commands[name];
+        timed(scaleRoot, args); // discarded warm-up
+        const values = Array.from({ length: Math.min(samples, 5) }, () => timed(scaleRoot, args));
+        const subprocesses = countSubprocesses(invoke(scaleRoot, args, { probe: true }).stderr);
+        const reference = referenceSubprocesses[name];
+        const growth = reference ? subprocesses / reference : null;
+        scaled[name] = { ...summarizeSamples(values), subprocesses, referenceSubprocesses: reference, subprocessGrowth: growth };
+
+        const allowed = scale.subprocessGrowth?.[name];
+        if (allowed !== undefined && growth !== null && growth > allowed) {
+          failures.push(`scale.${name} ran ${subprocesses} subprocesses against ${reference} on the`
+            + ` reference fixture (${growth.toFixed(2)}x, allowed ${allowed}x) while the repository grew`
+            + ` ${(scale.topology.trackedFiles / fixtureManifest.topology.trackedFiles).toFixed(0)}x.`
+            + ' A read whose subprocess count follows the repository is superlinear.');
+        }
+        if (scale.budgets?.[name]) {
+          failures.push(...evaluateLatency(`scale.${name}`, scaled[name], scale.budgets[name], null));
+        }
+      }
+      scaleResults = { topology: scaleTopology, commands: scaled };
+    } finally {
+      await rm(scaleRoot, { recursive: true, force: true });
+    }
+  }
+
   const report = {
     schemaVersion: 1,
     recordedAt: new Date().toISOString(),
     connected: connectedResults,
+    scale: scaleResults,
     runtime: { node: process.version, nodeMajor: Number(process.versions.node.split('.')[0]), platform: process.platform, architecture: process.arch },
     protocol: { ...fixtureManifest.protocol, samples }, topology,
     commands: commandResults,
@@ -522,6 +611,18 @@ try {
       console.log(`\nconnected tier · remote + ledger · ${connectedTopology.remoteBranches} remote branches`);
       console.log(`snapshotFull p50 ${connectedSnapshot.p50Ms.toFixed(1)}ms · p95 ${connectedSnapshot.p95Ms.toFixed(1)}ms`
         + ` · network calls: ${networkCalls} · repository writes: ${connectedResults.repositoryWrites}`);
+    }
+    if (scaleResults) {
+      const { topology: scaleTopology, commands: scaled } = scaleResults;
+      const factor = (scaleTopology.trackedFiles / topology.trackedFiles).toFixed(0);
+      console.log(`\nscale tier · ${scaleTopology.trackedFiles} files · ${scaleTopology.stories} Stories`
+        + ` · ${scaleTopology.localBranches} branches · ${factor}x the reference repository`);
+      for (const [name, result] of Object.entries(scaled)) {
+        // The growth rates, not the absolutes: the question is what follows the repository.
+        console.log(`${name.padEnd(12)} p50 ${result.p50Ms.toFixed(1)}ms · p95 ${result.p95Ms.toFixed(1)}ms`
+          + ` · subprocesses ${result.subprocesses} vs ${result.referenceSubprocesses}`
+          + ` (${result.subprocessGrowth === null ? 'n/a' : `${result.subprocessGrowth.toFixed(2)}x`})`);
+      }
     }
     if (failures.length) console.error(`\n${failures.join('\n')}`);
     if (!comparableBaseline) console.warn('\nWarning: no accepted baseline matches this Node/platform/architecture; absolute budgets were still evaluated.');

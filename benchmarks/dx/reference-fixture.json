@@ -45,6 +45,64 @@
       "p95Ms": 1100
     }
   },
+  "scale": {
+    "why": [
+      "Every other tier measures one point. A point says snapshot --include repository took 102ms;",
+      "it cannot say whether that is 102ms on any repository or 102ms on a five-hundred-file one.",
+      "The reference fixture holds one Story and four branches, so a read path costing",
+      "branches x Stories reads as constant there and as minutes on a real portfolio -- and the",
+      "read model does spawn two Git processes per pair.",
+      "Twenty times the files, forty times the Stories, three times the branches. Sized by what it",
+      "has to show rather than by how large it can be: the subject-index cost follows branches x",
+      "Stories and not the file count, so twenty thousand files cost forty more seconds per run and",
+      "reported the same 14.21x. Ten thousand still grows the sliced snapshot's own time, which is",
+      "the other thing this tier is watching.",
+      "Enforced on the subprocess count rather than the clock: a count means the same on a fast",
+      "runner and a loaded one, so it can carry a complexity claim that a time budget cannot."
+    ],
+    "topology": {
+      "trackedFiles": 10000,
+      "untrackedFiles": 4,
+      "localBranches": 12,
+      "stories": 40,
+      "initiatives": 0,
+      "specifications": 0,
+      "knowledgeDocuments": 0,
+      "localSubjectIndex": "absent"
+    },
+    "commands": [
+      "status",
+      "nextsteps",
+      "snapshot",
+      "snapshotFull"
+    ],
+    "subprocessGrowth": {
+      "why": [
+        "How many times more subprocesses a command may run on the larger repository.",
+        "1.0 is the property worth having: the read answered the same question, so it should not",
+        "have needed more processes to answer it. status, nextsteps and snapshot already hold it.",
+        "snapshotFull does not, and 15 records what is true rather than what would be nice -- a",
+        "budget nothing meets is a budget everyone learns to ignore. Measured: 966 subprocesses",
+        "against 68, a 14.21x growth. buildRepositorySubjectIndex",
+        "spawns two Git processes per branch x Story pair (git show for the record, git rev-parse",
+        "for a ref head that does not vary per file), so the cost is 2 x 12 x 40 = 960 of the 966.",
+        "That is the same shape as the 975 subprocesses the connected tier's note describes on a",
+        "real repository, reproduced here for the first time. Lower this number when the index",
+        "reads one tree per ref instead; never raise it."
+      ],
+      "status": 1.2,
+      "nextsteps": 1.2,
+      "snapshot": 1.2,
+      "snapshotFull": 15
+    },
+    "budgets": {
+      "why": [
+        "Deliberately absent. This tier is enforced on subprocess counts, which mean the same on",
+        "every host; a wall-clock budget over a ten-thousand-file fixture on an unpinned runner",
+        "would fail for load rather than for regression. Times are reported, not gated."
+      ]
+    }
+  },
   "connected": {
     "why": [
       "The tier above has no remote, no ledger and one Story, so the entire cost centre that made",

@@ -45,7 +45,9 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   // a separate, serial benchmark job (`npm run benchmark:dx:enforce`): node:test executes files in
   // parallel, where unrelated CPU-heavy integration tests would turn scheduler contention into a
   // product regression.
-  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--samples=3', '--json'], {
+  // `--skip-scale`: the growth tier builds a twenty-thousand-file repository and is measured by the
+  // test below, which budgets for it. This one is about the reference fixture and its harness.
+  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--samples=3', '--json', '--skip-scale'], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
@@ -59,6 +61,56 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
     assert.equal(result.samples, 3);
     assert.ok(result.p50Ms > 0);
     assert.ok(result.p95Ms >= result.p50Ms);
+  }
+});
+
+test('the growth tier measures what follows the repository', { timeout: 600_000 }, () => {
+  /**
+   * A benchmark of one repository size cannot make a complexity claim.
+   *
+   * The reference fixture is five hundred files, one Story and four branches, so a read path costing
+   * branches × Stories is indistinguishable there from one costing nothing. This tier runs the same
+   * commands on a much larger repository and gates on the **subprocess count**, which means the
+   * same on a fast runner and a loaded one — a wall clock cannot say "this does not get more
+   * expensive as the repository grows", and that is the sentence worth defending.
+   *
+   * It found the defect on its first run: `snapshot --json` went from 68 subprocesses to 966, the
+   * same shape as the 975 that `connected.why` describes on a real repository and that no tier could
+   * see. `status`, `nextsteps` and the sliced `snapshot` were and are exactly flat.
+   */
+  assert.ok(manifest.scale.topology.trackedFiles > manifest.topology.trackedFiles * 10,
+    'a growth tier that is barely larger than the reference measures no growth');
+  assert.ok(manifest.scale.topology.stories > manifest.topology.stories,
+    'Stories are one of the two factors the read path multiplies; the tier must vary them');
+
+  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--samples=1', '--json'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const scale = JSON.parse(run.stdout).scale;
+  assert.ok(scale, 'the report carries no growth tier');
+  assert.equal(scale.topology.stories, manifest.scale.topology.stories);
+
+  for (const name of manifest.scale.commands) {
+    const result = scale.commands[name];
+    assert.ok(result, `the growth tier did not measure ${name}`);
+    assert.ok(Number.isInteger(result.subprocesses) && result.subprocesses > 0,
+      `${name} reported no subprocess count, so nothing was gated`);
+    assert.ok(result.subprocessGrowth <= manifest.scale.subprocessGrowth[name],
+      `${name} grew ${result.subprocessGrowth}x, past the declared ${manifest.scale.subprocessGrowth[name]}x`);
+  }
+
+  /**
+   * The three that already hold the property hold it exactly, not approximately.
+   *
+   * Pinned at 1.0 rather than the declared allowance: these read paths answer the same question on
+   * both fixtures, so any additional process at all is the beginning of the shape `snapshotFull`
+   * already has, and the cheapest moment to see it is the first one.
+   */
+  for (const name of ['status', 'nextsteps', 'snapshot']) {
+    assert.equal(scale.commands[name].subprocessGrowth, 1,
+      `${name} spawned ${scale.commands[name].subprocesses} subprocesses against`
+      + ` ${scale.commands[name].referenceSubprocesses} on a repository it answers identically`);
   }
 });
 

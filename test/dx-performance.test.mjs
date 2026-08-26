@@ -235,6 +235,37 @@ test('an accepted baseline cannot be written from the wrong runtime', () => {
   assert.match(run.stderr, /--write-baseline is restricted/);
 });
 
+test('the report counts every topology dimension the fixture declares', { timeout: 300_000 }, () => {
+  /**
+   * The gate this unblocks had never run once.
+   *
+   * `assertBaselineCandidate` loops over all of `fixtureManifest.topology` and requires
+   * `report.topology[key]` to match. `verifyTopology` returned three keys — `trackedFiles`,
+   * `untrackedFiles`, `localBranches` — and that return value *is* `report.topology`. So `stories`
+   * compared `undefined` against `1` and threw, `--write-baseline` and `--accept-report` could never
+   * succeed, `accepted-baseline.json` stayed `"unestablished"`, and the twenty-percent
+   * comparable-baseline regression check in `docs/DX-PERFORMANCE.md` was unreachable code. Absolute
+   * budgets were the only thing ever evaluated.
+   *
+   * One sample: the property under test is what the report says it measured, not how fast it was.
+   */
+  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--json', '--samples=1'], {
+    cwd: root, encoding: 'utf8'
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(run.stdout);
+
+  for (const [key, expected] of Object.entries(manifest.topology)) {
+    assert.notEqual(report.topology?.[key], undefined,
+      `the manifest declares topology.${key} and the report does not carry it`);
+    assert.equal(report.topology[key], expected, `topology.${key}`);
+  }
+  // The two that make a repository expensive rather than merely large, named explicitly: they are
+  // what the subject index walks per ref, and they were both unmeasured.
+  assert.equal(report.topology.stories, 1);
+  assert.equal(report.topology.initiatives, 0);
+});
+
 test('baseline report import validates runtime, protocol, topology, and outcome', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-baseline-'));
   try {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -293,14 +294,48 @@ function verifyConnectedTopology(root) {
   return { remoteBranches, durableIntents: intents, ledgerEntries: ledger.verification.entries ?? 0 };
 }
 
+/**
+ * Every dimension the manifest declares, counted rather than assumed.
+ *
+ * This returned three keys while the manifest declared eight, and `report.topology` is exactly this
+ * return value — so `assertBaselineCandidate`, which loops over all eight, compared `undefined`
+ * against `1` for `stories` and threw. `--write-baseline` and `--accept-report` could therefore
+ * never succeed, `accepted-baseline.json` stayed `"unestablished"` for as long as it has existed,
+ * and the twenty-percent comparable-baseline gate that `docs/DX-PERFORMANCE.md` documents has never
+ * once run. Only absolute budgets were ever evaluated.
+ *
+ * The five that were missing are the ones that make a repository expensive rather than merely
+ * large: Stories and Initiatives are what the subject index walks per ref, and a benchmark that
+ * cannot say how many of them the fixture holds cannot claim to have measured a read path.
+ */
 function verifyTopology(root) {
+  const tracked = git(root, ['ls-files', '-z']).split('\0').filter(Boolean);
+  const under = (pattern) => tracked.filter((file) => pattern.test(file)).length;
   const actual = {
-    trackedFiles: Number(git(root, ['ls-files']).split('\n').filter(Boolean).length),
+    trackedFiles: tracked.length,
     untrackedFiles: Number(git(root, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean).length),
-    localBranches: Number(git(root, ['for-each-ref', '--format=%(refname)', 'refs/heads']).split('\n').filter(Boolean).length)
+    localBranches: Number(git(root, ['for-each-ref', '--format=%(refname)', 'refs/heads']).split('\n').filter(Boolean).length),
+    // What `buildRepositorySubjectIndex` scans: one `workflow.json` per Story, one `state.json` per
+    // Initiative. Counted from the index rather than the working tree, so a fixture cannot declare a
+    // Story it never committed.
+    stories: under(/^singularity\/work-items\/[^/]+\/workflow\.json$/),
+    initiatives: under(/^singularity\/initiatives\/[^/]+\/state\.json$/),
+    specifications: under(/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/),
+    knowledgeDocuments: under(/^singularity\/knowledge\/.+/),
+    /**
+     * Whether this repository already carries machine-local Singularity Flow state.
+     *
+     * `docs/DX-PERFORMANCE.md` calls the fixture's condition "no prebuilt local subject index", and
+     * nothing persists that index — it is rebuilt from refs and the working tree on every read. What
+     * the phrase names is the state under the Git directory that would make a first read behave like
+     * a warm one. Verified before any command runs, so a benchmark cannot warm its own fixture and
+     * then describe it as cold.
+     */
+    localSubjectIndex: existsSync(path.join(root, '.git', 'singularity-flow')) ? 'present' : 'absent'
   };
-  for (const [key, value] of Object.entries(actual)) {
-    if (value !== fixtureManifest.topology[key]) throw new Error(`Reference fixture ${key} is ${value}; expected ${fixtureManifest.topology[key]}.`);
+  for (const [key, expected] of Object.entries(fixtureManifest.topology)) {
+    if (actual[key] === undefined) throw new Error(`Reference fixture declares ${key}, which nothing counts.`);
+    if (actual[key] !== expected) throw new Error(`Reference fixture ${key} is ${actual[key]}; expected ${expected}.`);
   }
   return actual;
 }

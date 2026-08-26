@@ -17,9 +17,11 @@ const {
   updateWorldModelYaml,
   validateAuthorityDraft,
   validateMcpDraft,
-  validateWorldModelDraft
+  validateWorldModelDraft,
+  worldModelWorkflowUsage
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
+const { worldModelWorkflowViewUsage } = await import(path.join(root, 'src', 'world-model-views.mjs'));
 
 const snapshot = {
   identities: {
@@ -141,6 +143,63 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Disabled — no automatic materialization; explicit builds remain available/);
   assert.match(html, /Prompt injection/);
   assert.match(html, /Save world-model settings/);
+});
+
+test('world-model explorer joins views to phases across workflows and respects overrides and off mode', () => {
+  const scopedDefinition = {
+    ...snapshot.definition,
+    phases: {
+      intake: { label: 'Intake', worldModel: { views: ['business'], depth: 'quick' } },
+      implementation: { label: 'Implementation', worldModel: { views: ['development', 'testing'], depth: 'standard' } }
+    },
+    workTypes: {
+      feature: { label: 'Feature', phases: ['intake', 'implementation'] },
+      secure: {
+        label: 'Secure change', phases: ['intake', 'implementation'],
+        phaseOverrides: {
+          intake: { worldModel: { views: [] } },
+          implementation: { worldModel: { views: ['security'], depth: 'deep' } }
+        }
+      },
+      generic: {
+        label: 'Generic context', phases: ['intake', 'implementation'],
+        intelligence: { worldModel: 'off' }
+      }
+    }
+  };
+  const scoped = {
+    ...snapshot,
+    definition: scopedDefinition,
+    worldModel: {
+      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z', rebuildReason: null,
+      views: [
+        { id: 'business', references: ["phase 'intake'"] },
+        { id: 'development', references: ["phase 'implementation'"] },
+        { id: 'testing', references: ["phase 'implementation'"] },
+        { id: 'security', references: ["workflow 'secure' phase 'implementation' override"] }
+      ],
+      workflows: worldModelWorkflowViewUsage(scopedDefinition)
+    }
+  };
+  const workflows = worldModelWorkflowUsage(scoped);
+  assert.deepEqual(workflows.find((entry) => entry.id === 'feature').phases.map((phase) => phase.views), [
+    ['business'], ['development', 'testing']
+  ]);
+  assert.deepEqual(workflows.find((entry) => entry.id === 'secure').phases.map((phase) => phase.views), [[], ['security']]);
+  assert.equal(workflows.find((entry) => entry.id === 'secure').phases[1].source, 'workflow-override');
+  assert.deepEqual(workflows.find((entry) => entry.id === 'generic').phases.map((phase) => phase.views), [[], []]);
+
+  const view = configurationCenterView(scoped, { name: 'Ashok', role: 'architect' });
+  assert.equal(view.worldModelStatus.views.find((entry) => entry.id === 'security').workflowCount, 1);
+  assert.equal(view.worldModelStatus.views.find((entry) => entry.id === 'development').phaseCount, 1);
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /World Model Explorer/);
+  assert.match(html, /Workflow coverage/);
+  assert.match(html, /Secure change/);
+  assert.match(html, /title="Implementation · deep depth · workflow override"/);
+  assert.match(html, /Behavior &amp; generation settings/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /applyWorldModelFilters/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /data-wm-view-column/);
 });
 
 test('configuration refresh preserves dirty forms and detects repository conflicts', () => {

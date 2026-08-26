@@ -11,7 +11,8 @@ import {
   markdownWorldModelViews,
   removeWorldModelView,
   structuredWorldModelViewReferences,
-  worldModelViewCatalog
+  worldModelViewCatalog,
+  worldModelWorkflowViewUsage
 } from '../src/world-model-views.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,6 +44,34 @@ test('world-model view designer adds unused views and protects referenced views'
   assert.deepEqual(removeWorldModelView(added, 'data-governance').worldModel.views, workflow.worldModel.views);
   assert.throws(() => removeWorldModelView(workflow, 'architecture'), /still used by/);
   assert.throws(() => removeWorldModelView(added, 'data-governance', ["Markdown 'singularity/prompts/worldmodel-builder.md'"]), /Markdown/);
+});
+
+test('world-model workflow usage resolves inherited, overridden, empty, and disabled view routes', () => {
+  const usage = worldModelWorkflowViewUsage({
+    phases: {
+      intake: { label: 'Intake', worldModel: { views: ['business'], depth: 'quick' } },
+      implementation: { label: 'Implementation', worldModel: { views: ['development'], depth: 'standard' } }
+    },
+    workTypes: {
+      feature: { label: 'Feature', phases: ['intake', 'implementation'] },
+      secure: {
+        label: 'Secure', phases: ['intake', 'implementation'],
+        phaseOverrides: {
+          intake: { worldModel: { views: [] } },
+          implementation: { worldModel: { views: ['security'], depth: 'deep' } }
+        }
+      },
+      generic: { label: 'Generic', phases: ['intake'], intelligence: { worldModel: 'off' } }
+    }
+  });
+  assert.deepEqual(usage.find((workflow) => workflow.id === 'feature').phases.map((phase) => phase.views), [
+    ['business'], ['development']
+  ]);
+  assert.deepEqual(usage.find((workflow) => workflow.id === 'secure').phases.map((phase) => phase.views), [[], ['security']]);
+  assert.equal(usage.find((workflow) => workflow.id === 'secure').phases[1].source, 'workflow-override');
+  assert.equal(usage.find((workflow) => workflow.id === 'secure').phases[1].depth, 'deep');
+  assert.deepEqual(usage.find((workflow) => workflow.id === 'generic').phases[0].views, []);
+  assert.equal(usage.find((workflow) => workflow.id === 'generic').phases[0].source, 'disabled');
 });
 
 test('workflow validation rejects undeclared structured world-model views', async () => {

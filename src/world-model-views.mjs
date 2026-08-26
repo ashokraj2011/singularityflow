@@ -45,6 +45,37 @@ export function worldModelViewReferences(definition, view, promptReferences = []
   return [...(structuredWorldModelViewReferences(definition).get(view) ?? []), ...promptReferences];
 }
 
+/**
+ * Effective workflow → phase → view routing for human and machine readers.
+ *
+ * The resolver already treats a phase declaration as the default, a work-type view list as a full
+ * replacement (including `[]`), and an intelligence profile set to `off` as authoritative. Project
+ * that join once in the engine so UI clients never have to reproduce workflow semantics.
+ */
+export function worldModelWorkflowViewUsage(definition) {
+  const phases = definition?.phases ?? {};
+  return Object.entries(definition?.workTypes ?? {}).map(([workTypeId, workType]) => {
+    const disabled = workType?.intelligence?.worldModel === 'off';
+    return {
+      id: workTypeId,
+      label: workType?.label ?? workTypeId,
+      mode: disabled ? 'off' : String(workType?.intelligence?.worldModel ?? 'inherit'),
+      phases: (workType?.phases ?? []).map((phaseId) => {
+        const base = phases[phaseId] ?? {};
+        const override = workType?.phaseOverrides?.[phaseId]?.worldModel;
+        const overridden = Array.isArray(override?.views);
+        return {
+          id: phaseId,
+          label: base.label ?? phaseId,
+          views: disabled ? [] : [...(overridden ? override.views : base.worldModel?.views ?? [])],
+          depth: String(override?.depth ?? base.worldModel?.depth ?? 'standard'),
+          source: disabled ? 'disabled' : overridden ? 'workflow-override' : 'shared-phase'
+        };
+      })
+    };
+  }).sort((left, right) => left.label.localeCompare(right.label));
+}
+
 export function addWorldModelView(definition, view) {
   const id = String(view ?? '').trim();
   if (!WORLD_MODEL_VIEW_ID.test(id)) throw new Error('World-model view ID must be lower-case kebab-case.');

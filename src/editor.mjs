@@ -45,7 +45,9 @@ import {
   loadAgentMappings,
   validateAgentMappings
 } from './agents.mjs';
-import { structuredWorldModelViewReferences, worldModelViewCatalog } from './world-model-views.mjs';
+import {
+  structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
+} from './world-model-views.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
@@ -674,6 +676,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
           ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
         ]
       })),
+      workflows: worldModelWorkflowViewUsage(definition),
       files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
     },
     agents: agents.map((agent) => ({
@@ -1047,6 +1050,7 @@ async function configurationSlice(root) {
           ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
         ]
       })),
+      workflows: worldModelWorkflowViewUsage(definition),
       files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
     },
     mcp: await mcpConfigurationStatus(root, definition)

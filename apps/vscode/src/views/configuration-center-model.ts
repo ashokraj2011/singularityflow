@@ -79,6 +79,19 @@ export interface WorldModelSettingsView {
   staleness: 'warn' | 'fail' | 'ignore';
   injection: { placeholder: string; mode: 'replace' | 'append' | 'off'; maxBytes: number; rulesCount: number };
 }
+export interface WorldModelPhaseUsage {
+  id: string;
+  label: string;
+  views: string[];
+  depth: string;
+  source: 'shared-phase' | 'workflow-override' | 'disabled';
+}
+export interface WorldModelWorkflowUsage {
+  id: string;
+  label: string;
+  mode: string;
+  phases: WorldModelPhaseUsage[];
+}
 export interface ConfigurationCenterView {
   profile: ProfileView;
   /** The repository identity the kernel will attribute governed decisions to. */
@@ -104,9 +117,14 @@ export interface ConfigurationCenterView {
   worldModelStatus: {
     built: boolean;
     root: string;
+    generatedAt: string | null;
     rebuildReason: string | null;
     readiness: NonNullable<RepositorySnapshot['worldModel']>['readiness'];
-    views: Array<{ id: string; path: string; references: number }>;
+    views: Array<{
+      id: string; path: string; references: string[]; generated: boolean;
+      workflowCount: number; phaseCount: number;
+    }>;
+    workflows: WorldModelWorkflowUsage[];
   };
   /** Validated configuration edits waiting to be published, and anything blocking that. */
   publish: { changes: string[]; unrelated: string[]; branch: string };
@@ -250,6 +268,14 @@ function fileSets(snapshot: RepositorySnapshot): FileSetView[] {
   ];
 }
 
+/** Read the engine's effective workflow routing; the VS Code surface never re-resolves policy. */
+export function worldModelWorkflowUsage(snapshot: RepositorySnapshot): WorldModelWorkflowUsage[] {
+  return (snapshot.worldModel?.workflows ?? []).map((workflow) => ({
+    ...workflow,
+    phases: workflow.phases.map((phase) => ({ ...phase, views: [...phase.views] }))
+  }));
+}
+
 export function configurationCenterView(snapshot: RepositorySnapshot, profile: ProfileView): ConfigurationCenterView {
   const definition = snapshot.definition ?? {};
   const worldModel = definition.worldModel ?? {};
@@ -265,6 +291,17 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const normalizedApprovalSecurityProfile = approvalSecurityProfile === 'poc' || approvalSecurityProfile === 'regulated'
     ? approvalSecurityProfile : 'team';
   const approvalSecurityDefault = normalizedApprovalSecurityProfile !== 'regulated';
+  const workflowUsage = worldModelWorkflowUsage(snapshot);
+  const built = Boolean(snapshot.worldModel?.generatedAt || snapshot.worldModel?.readiness?.ready);
+  const modelRoot = snapshot.worldModel?.root ?? 'singularity/world-model';
+  const catalog = [
+    ...(worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security']),
+    ...(snapshot.worldModel?.views ?? []).map((view) => view.id),
+    ...workflowUsage.flatMap((workflow) => workflow.phases.flatMap((phase) => phase.views))
+  ].filter((id, index, all) => all.indexOf(id) === index);
+  const snapshotViews = new Map((snapshot.worldModel?.views ?? []).map((view) => [view.id, view]));
+  const fileInventory = snapshot.worldModel?.files;
+  const generatedPaths = new Set((fileInventory ?? []).map((file) => file.path));
   return {
     profile,
     gitIdentity: gitEmail || gitLogin ? {
@@ -281,15 +318,26 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
      * holding two opinions about whether a file is safe to delete.
      */
     worldModelStatus: {
-      built: Boolean(snapshot.worldModel?.generatedAt || snapshot.worldModel?.readiness?.ready),
-      root: snapshot.worldModel?.root ?? 'singularity/world-model',
+      built,
+      root: modelRoot,
+      generatedAt: snapshot.worldModel?.generatedAt ?? null,
       rebuildReason: snapshot.worldModel?.rebuildReason ?? null,
       readiness: snapshot.worldModel?.readiness ?? null,
-      views: (snapshot.worldModel?.views ?? []).map((view) => ({
-        id: view.id,
-        path: `${snapshot.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`,
-        references: view.references.length
-      }))
+      views: catalog.map((id) => {
+        const path = `${modelRoot}/views/${id}.md`;
+        const workflowMatches = workflowUsage.filter((workflow) =>
+          workflow.phases.some((phase) => phase.views.includes(id)));
+        const phaseCount = workflowMatches.reduce((count, workflow) =>
+          count + workflow.phases.filter((phase) => phase.views.includes(id)).length, 0);
+        return {
+          id, path,
+          references: [...(snapshotViews.get(id)?.references ?? [])],
+          generated: built && (fileInventory === undefined || generatedPaths.has(path)),
+          workflowCount: workflowMatches.length,
+          phaseCount
+        };
+      }),
+      workflows: workflowUsage
     },
     ledger: ledgerStatus(snapshot),
     publish: {

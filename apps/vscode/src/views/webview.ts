@@ -340,6 +340,43 @@ export const STYLE = `
   .configuration-advanced-tools { margin-top: var(--sf-space-4); }
   .configuration-advanced-tools > summary { width: fit-content; min-height: 2rem; display: flex; align-items: center; }
   .configuration-advanced-tools[open] > summary { margin-bottom: var(--sf-space-3); }
+  .wm-explorer > .section-heading { align-items: flex-start; }
+  .wm-explorer > .section-heading h2 { margin: .15rem 0; font-size: 1.15rem; }
+  .wm-summary { margin-bottom: var(--sf-space-4); }
+  .wm-summary .summary-card strong { font-size: 1.25rem; }
+  .wm-provenance { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 0 var(--sf-space-5); overflow: hidden; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-border-color); }
+  .wm-provenance div { display: grid; gap: .2rem; min-width: 0; padding: .65rem .8rem; background: var(--sf-surface); }
+  .wm-provenance dt { color: var(--sf-dim); font-size: .72rem; }
+  .wm-provenance dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 600; }
+  .wm-catalog-wrap, .wm-matrix-wrap { width: 100%; overflow-x: auto; }
+  .wm-catalog { min-width: 46rem; }
+  .wm-catalog td small { display: block; color: var(--sf-dim); }
+  .wm-state { display: inline-flex; align-items: center; min-height: 1.35rem; padding: .08rem .42rem; border: 1px solid var(--sf-border-color); border-radius: 999px; color: var(--sf-dim); font-size: .7rem; font-weight: 650; white-space: nowrap; }
+  .wm-state.ready { border-color: color-mix(in srgb, var(--sf-ok) 55%, transparent); color: var(--sf-ok); }
+  .wm-state.missing, .wm-state.off { color: var(--sf-dim); }
+  .wm-references { max-width: 18rem; }
+  .wm-references summary { width: fit-content; color: var(--sf-link); cursor: pointer; }
+  .wm-references ul { margin: .35rem 0 0; padding-left: 1.1rem; color: var(--sf-dim); font-size: .74rem; }
+  .wm-coverage { margin-top: var(--sf-space-5); }
+  .wm-filter-bar { display: flex; align-items: end; gap: .65rem 1rem; flex-wrap: wrap; margin: .75rem 0; padding: .65rem .75rem; border: var(--sf-border); border-radius: var(--sf-radius); background: var(--sf-surface); }
+  .wm-filter-bar label { display: grid; gap: .2rem; min-width: 12rem; color: var(--sf-dim); font-size: .72rem; }
+  .wm-filter-bar select { width: 100%; }
+  .wm-map-legend { display: inline-flex; align-items: center; gap: .35rem; margin-left: auto; color: var(--sf-dim); font-size: .72rem; }
+  .wm-dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--sf-accent); }
+  .wm-dot.overridden { background: var(--sf-wait); }
+  .wm-matrix { min-width: max(52rem, 100%); border: var(--sf-border); }
+  .wm-matrix th, .wm-matrix td { min-width: 8.5rem; padding: .55rem; border-right: var(--sf-border); }
+  .wm-matrix th:first-child, .wm-matrix td:first-child { min-width: 13rem; }
+  .wm-matrix th:nth-child(2), .wm-matrix td:nth-child(2) { min-width: 6rem; }
+  .wm-matrix td:first-child small { display: block; margin-top: .15rem; color: var(--sf-dim); }
+  .wm-matrix tr.wm-disabled { opacity: .66; }
+  .wm-phase-use { display: grid; gap: .05rem; margin: .15rem 0; padding: .28rem .4rem; border-left: 2px solid var(--sf-accent); background: var(--sf-accent-quiet); font-size: .72rem; }
+  .wm-phase-use.overridden { border-left-color: var(--sf-wait); background: var(--vscode-inputValidation-warningBackground, transparent); }
+  .wm-phase-use strong { font-size: .72rem; line-height: 1.3; }
+  .wm-phase-use small { color: var(--sf-dim); }
+  .wm-none { color: var(--sf-dim); }
+  .wm-settings { margin-top: var(--sf-space-6); padding-top: var(--sf-space-3); border-top: var(--sf-border); }
+  .wm-settings > summary { font-weight: 650; }
   .configuration-list { display: grid; gap: .4rem; margin: .7rem 0; }
   button.configuration-row { display: grid; grid-template-columns: 1.4rem minmax(10rem, .55fr) 1fr; gap: .55rem; justify-content: start; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
   button.configuration-row small { color: var(--sf-dim); font-weight: 400; }
@@ -362,6 +399,8 @@ export const STYLE = `
     .editor-card label.span-2 { grid-column: auto; }
     button.configuration-row { grid-template-columns: 1.4rem 1fr; }
     button.configuration-row small { grid-column: 2; }
+    .wm-provenance { grid-template-columns: 1fr; }
+    .wm-map-legend { width: 100%; margin-left: 0; }
   }
 
   /* Forms use a quiet two-column rhythm rather than prose paragraphs containing unrelated controls.

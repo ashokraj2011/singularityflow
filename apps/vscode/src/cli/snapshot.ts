@@ -523,6 +523,13 @@ export interface RepositorySnapshot {
       command: string;
     } | null;
     views: Array<{ id: string; references: string[] }>;
+    workflows?: Array<{
+      id: string; label: string; mode: string;
+      phases: Array<{
+        id: string; label: string; views: string[]; depth: string;
+        source: 'shared-phase' | 'workflow-override' | 'disabled';
+      }>;
+    }>;
     files?: Array<{ path: string; content?: string }>;
   };
   /**
@@ -567,7 +574,15 @@ export interface RepositorySnapshot {
     phases?: Record<string, {
       label?: string;
       agents?: string[];
-      worldModel?: { views?: string[] };
+      worldModel?: { views?: string[]; depth?: string; evidence?: boolean };
+    }>;
+    workTypes?: Record<string, {
+      label?: string;
+      phases?: string[];
+      intelligence?: { worldModel?: string };
+      phaseOverrides?: Record<string, {
+        worldModel?: { views?: string[]; depth?: string; evidence?: boolean };
+      }>;
     }>;
     planning?: { promptSource?: string };
     ast?: {

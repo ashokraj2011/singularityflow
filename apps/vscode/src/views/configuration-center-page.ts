@@ -178,24 +178,64 @@ function modelRouting(view: ConfigurationCenterView): string {
     </div></section>`;
 }
 
+function worldModelExplorer(view: ConfigurationCenterView): string {
+  const status = view.worldModelStatus;
+  const workflowsUsingGrounding = status.workflows.filter((workflow) =>
+    workflow.mode !== 'off' && workflow.phases.some((phase) => phase.views.length));
+  const phaseUses = workflowsUsingGrounding.reduce((count, workflow) =>
+    count + workflow.phases.reduce((total, phase) => total + phase.views.length, 0), 0);
+  const availableViews = status.views.filter((entry) => entry.generated).length;
+  const readiness = status.rebuildReason ? 'Needs refresh' : status.built ? 'Ready' : 'Not built';
+  const source = status.readiness?.source ?? (status.generatedAt ? 'repository' : 'not available');
+  const generatedDate = status.generatedAt ? new Date(status.generatedAt) : null;
+  const generated = generatedDate && Number.isFinite(generatedDate.valueOf())
+    ? `${generatedDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+    : status.generatedAt ?? (status.built ? 'governed state branch' : 'never');
+
+  const catalogRows = status.views.map((entry) => `<tr>
+    <td><strong>${escape(entry.id)}</strong></td>
+    <td><span class="wm-state ${entry.generated ? 'ready' : 'missing'}">${entry.generated ? 'Available' : 'Declared'}</span></td>
+    <td><strong>${entry.workflowCount}</strong> workflow${entry.workflowCount === 1 ? '' : 's'}<small>${entry.phaseCount} phase assignment${entry.phaseCount === 1 ? '' : 's'}</small></td>
+    <td>${entry.references.length ? `<details class="wm-references"><summary>${entry.references.length} reference${entry.references.length === 1 ? '' : 's'}</summary><ul>${entry.references.map((reference) => `<li>${escape(reference)}</li>`).join('')}</ul></details>` : '<small class="muted">no references</small>'}</td>
+    <td>${entry.generated ? `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>` : `<code>${escape(entry.path)}</code>`}</td>
+  </tr>`).join('');
+
+  const matrix = status.workflows.length && status.views.length ? `<section class="wm-coverage" aria-labelledby="wm-coverage-title">
+    <div class="section-heading"><div><h2 id="wm-coverage-title">${icon('workflow')}Workflow coverage</h2><p class="muted">Each cell names the phases that receive that view. Empty cells mean the view is not injected for that workflow phase.</p></div></div>
+    <div class="wm-filter-bar" role="group" aria-label="World model coverage filters">
+      <label><span>Workflow</span><select id="wm-workflow-filter"><option value="all">All workflows</option>${status.workflows.map((workflow) => `<option value="${escape(workflow.id)}">${escape(workflow.label)}</option>`).join('')}</select></label>
+      <label><span>View</span><select id="wm-view-filter"><option value="all">All views</option>${status.views.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.id)}</option>`).join('')}</select></label>
+      <span class="wm-map-legend"><i class="wm-dot inherited"></i>shared phase <i class="wm-dot overridden"></i>workflow override</span>
+    </div>
+    <div class="wm-matrix-wrap"><table class="wm-matrix"><thead><tr><th>Workflow</th><th>Mode</th>${status.views.map((entry) => `<th data-wm-view-column="${escape(entry.id)}">${escape(entry.id)}</th>`).join('')}</tr></thead><tbody>
+      ${status.workflows.map((workflow) => `<tr data-wm-workflow-row="${escape(workflow.id)}"${workflow.mode === 'off' ? ' class="wm-disabled"' : ''}><td><strong>${escape(workflow.label)}</strong><small><code>${escape(workflow.id)}</code></small></td><td><span class="wm-state ${workflow.mode === 'off' ? 'off' : 'ready'}">${escape(workflow.mode)}</span></td>${status.views.map((entry) => {
+        const phases = workflow.phases.filter((phase) => phase.views.includes(entry.id));
+        return `<td data-wm-view-column="${escape(entry.id)}">${phases.length ? phases.map((phase) => `<span class="wm-phase-use ${phase.source === 'workflow-override' ? 'overridden' : 'inherited'}" title="${escape(`${phase.label} · ${phase.depth} depth · ${phase.source === 'workflow-override' ? 'workflow override' : 'shared phase policy'}`)}"><strong>${escape(phase.label)}</strong><small>${escape(phase.depth)}</small></span>`).join('') : '<span class="wm-none">—</span>'}</td>`;
+      }).join('')}</tr>`).join('')}
+    </tbody></table></div>
+  </section>` : '<p class="empty">No workflow-to-view assignments are declared.</p>';
+
+  return `<div class="wm-explorer">
+    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div></div>
+    <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${workflowsUsingGrounding.length}</strong><span>workflows using grounding</span></div><div class="summary-card"><strong>${phaseUses}</strong><span>view-to-phase assignments</span></div></div>
+    <dl class="wm-provenance"><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div></dl>
+    <h2>${icon('book')}View catalog</h2>
+    ${status.views.length ? `<div class="wm-catalog-wrap"><table class="configuration-table wm-catalog"><thead><tr><th>View</th><th>Status</th><th>Workflow use</th><th>Policy references</th><th>Content</th></tr></thead><tbody>${catalogRows}</tbody></table></div>` : '<p class="empty">No world-model views are declared.</p>'}
+    ${matrix}
+  </div>`;
+}
+
 function worldModel(view: ConfigurationCenterView): string {
   const model = view.worldModel;
   return `<section class="plain world-model-settings">
-    <h2>${icon('worldModel')}Current grounding</h2>
+    ${worldModelExplorer(view)}
     ${view.worldModelStatus.rebuildReason
     ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Rebuild</button></p>`
     : view.worldModelStatus.built
       ? ''
       : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Build the world model</button></p>'}
-    ${view.worldModelStatus.views.length
-    ? `<table class="configuration-table"><thead><tr><th>View</th><th>References</th><th>File</th></tr></thead><tbody>
-      ${view.worldModelStatus.views.map((entry) => `<tr><td><strong>${escape(entry.id)}</strong></td>
-        <td>${entry.references ? `${entry.references}` : '<small class="muted">no references</small>'}</td>
-        <td><button class="link" data-open-path="${escape(entry.path)}">${escape(entry.path)}</button></td></tr>`).join('')}
-    </tbody></table>`
-    : '<p class="empty">No views have been generated.</p>'}
-
-    <div class="section-heading"><div><h2>${icon('worldModel')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
+    <details class="configuration-advanced-tools wm-settings"><summary>Behavior &amp; generation settings</summary>
+    <div class="section-heading"><div><h2>${icon('configuration')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
     <form id="world-model-form">
       <div class="editor-card">
         <h2>${icon('approval')}Grounding policy</h2>
@@ -251,6 +291,7 @@ function worldModel(view: ConfigurationCenterView): string {
       </div>
       <div class="card-foot"><button type="submit">Save world-model settings</button><button class="secondary" type="button" data-action="open-workflow">Open YAML</button></div>
     </form>
+    </details>
   </section>`;
 }
 
@@ -364,6 +405,16 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   });
   document.getElementById('configuration-reload')?.addEventListener('click', () => vscode.postMessage({ type: 'reload-dirty' }));
   document.getElementById('configuration-keep')?.addEventListener('click', () => { if (runtime) runtime.hidden = true; vscode.postMessage({ type: 'keep-dirty' }); });
+  const applyWorldModelFilters = () => {
+    const workflow = document.getElementById('wm-workflow-filter')?.value || 'all';
+    const view = document.getElementById('wm-view-filter')?.value || 'all';
+    document.querySelectorAll('[data-wm-workflow-row]').forEach((row) => {
+      row.hidden = workflow !== 'all' && row.dataset.wmWorkflowRow !== workflow;
+    });
+    document.querySelectorAll('[data-wm-view-column]').forEach((cell) => {
+      cell.hidden = view !== 'all' && cell.dataset.wmViewColumn !== view;
+    });
+  };
   document.addEventListener('input', (event) => { if (event.target?.closest('form')) markDirty(); });
   document.addEventListener('click', (event) => {
     const help = event.target.closest('[data-help-topic]'); if (help) return vscode.postMessage({ type: 'open-help-topic', topic: help.dataset.helpTopic });
@@ -383,6 +434,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();
+    if (event.target?.id === 'wm-workflow-filter' || event.target?.id === 'wm-view-filter') applyWorldModelFilters();
     if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
       const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
     }

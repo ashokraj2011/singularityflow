@@ -135,6 +135,43 @@ test('--timings exposes root dispatch, module load, and execution without changi
   assert.match(run.stderr, /root-dispatch=.*module-load=.*execute=/);
 });
 
+test('the command that loads most of the codebase says so under module-load', () => {
+  /**
+   * `--timings` was blind on the path that needs it most.
+   *
+   * `commands/legacy.mjs` is the dispatch target for eighty-one of the ninety-eight registered
+   * commands, and its whole body was `await import('../cli.mjs')` — *inside* `run`, which the
+   * dispatcher does not reach until after it has closed the `module-load` stage. So every one of
+   * those commands reported `module-load=0.3ms` while roughly 110 ms of module loading sat inside
+   * `execute`, indistinguishable from the work the command actually did.
+   *
+   * Measured before this fix: `logs` reported `module-load=0.3ms execute=138.7ms` against `about`'s
+   * `module-load=0.6ms`. The command with a 264-module static closure claimed to load less than the
+   * one with three. A diagnostic that reports the opposite of the truth is worse than none, because
+   * it sends the next reader to look at execution.
+   */
+  const timings = (command) => {
+    const run = spawnSync(process.execPath, ['bin/singularity-flow.mjs', command, '--timings'], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', SINGULARITY_FLOW_NO_NETWORK: '1' }
+    });
+    const stages = Object.fromEntries([...run.stderr.matchAll(/([a-z-]+)=([\d.]+)ms/g)]
+      .map(([, name, value]) => [name, Number(value)]));
+    assert.ok(stages['module-load'] !== undefined, `no module-load stage for ${command}: ${run.stderr}`);
+    return stages;
+  };
+
+  const fast = timings('about');
+  const monolith = timings('logs');
+  assert.ok(monolith['module-load'] > fast['module-load'],
+    `a monolith-dispatched command reported ${monolith['module-load']}ms of module load against`
+    + ` ${fast['module-load']}ms for a three-module one`);
+  // Not merely larger by a rounding accident: the closure is two orders of magnitude bigger.
+  assert.ok(monolith['module-load'] > 20,
+    `module load for the 264-module closure was reported as ${monolith['module-load']}ms`);
+});
+
 test('command timing events use the privacy-safe versioned envelope', () => {
   const timer = commandTimer('status', { commandClass: 'read' });
   timer.stage('resolve');

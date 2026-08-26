@@ -266,6 +266,14 @@ export async function main(argv) {
   timer.stage('root-dispatch');
   try {
     const module = await import(definition.modulePath);
+    /**
+     * A module that defers the rest of its own graph reports that cost here, not inside `execute`.
+     *
+     * `commands/legacy.mjs` is a four-line shim in front of `cli.mjs`, so importing the shim
+     * measures nothing and the 110 ms it fronts landed in `execute` alongside the command's real
+     * work. Optional, because the other sixteen command modules have nothing deferred to declare.
+     */
+    await module.load?.();
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
     const result = await withOperationContext({

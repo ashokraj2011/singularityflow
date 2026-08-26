@@ -110,8 +110,15 @@ Do not put credentials or provider secrets in `modelTiers.yml`.
 Build the complete semantic model before the live demo. A deep build can take several minutes,
 depending on repository size, view count, and provider latency.
 
+Use the repository's declared `worldModel.views` list. The starter workflow uses the following
+seven views:
+
 ```bash
-singularity-flow wm build --depth deep --parallel --workers 4
+singularity-flow wm build \
+  --depth deep \
+  --views business,architecture,development,testing,release,operations,security \
+  --parallel \
+  --workers 4
 singularity-flow wm check
 singularity-flow wm status --json
 ```
@@ -124,8 +131,19 @@ If a build is interrupted, rerun the identical command with `--resume`. Complete
 source, prompt, model, and options still match are reused:
 
 ```bash
-singularity-flow wm build --depth deep --parallel --workers 4 --resume
+singularity-flow wm build \
+  --depth deep \
+  --views business,architecture,development,testing,release,operations,security \
+  --parallel \
+  --workers 4 \
+  --resume
 ```
+
+Without `--phase` or `--views`, a repository-level build requests only the shared core selection;
+`--depth deep` controls its tier but does not silently mean “every configured view.” Use the exact
+configured view list above when the demo must prebuild the full catalog. A phase-specific
+`wm ensure --phase <PHASE>` requests that phase's pinned view set and progressively merges it into
+the same repository model.
 
 For the active phase, verify that its exact view set is materialized:
 
@@ -151,6 +169,54 @@ views were reused. Do not add an ad-hoc task guide.
 The skill should resolve the active workspace repository first and show the command and governed
 confirmation. For a predictable live demo, perform the long build in advance and use Copilot for
 status, checking, and bounded queries.
+
+### Where publication goes when no Story is active
+
+`wm build`, `wm light`, `wm status`, `wm check`, and `wm ensure` are repository operations. They do
+not require a Story and they do not create a Story workflow. They read the existing approved
+`singularity/workflow.yml` from the selected repository.
+
+A non-local governed build uses this topology:
+
+```text
+temporary analysis checkout
+        │ validated model
+        ▼
+remote state branch (authoritative shared copy)
+        │
+        └── singularity/world-model/**
+
+current non-protected application branch (auditable branch copy)
+        │
+        └── singularity/world-model/** + world-model commit + branch push
+```
+
+The state branch is `ledger.branch` when configured and otherwise defaults to `state`. The remote
+comes from the ledger/world-model configuration or `git.remote`, normally `origin`. Readers prefer
+the state-branch copy, which is why a new Story or another laptop can reuse it.
+
+The second copy is installed at `worldModel.outputDir`, normally `singularity/world-model`, then
+committed and pushed on the branch currently checked out. With no active Story, Singularity Flow
+does not invent a work branch. It refuses a publishing build on `main`, `master`, the configured
+default branch, or the remote default branch. Prepare a dedicated non-protected branch first, for
+example:
+
+```bash
+git switch -c wm/java-maven-demo
+singularity-flow wm build \
+  --depth deep \
+  --views business,architecture,development,testing,release,operations,security \
+  --parallel \
+  --workers 4
+```
+
+`--local` skips state-branch publication and remote push, but it still records the validated model
+as a local commit on the current branch. Use a dedicated branch even for a local rehearsal if the
+local default branch must remain untouched.
+
+There is currently no `state-only` build option: governed publication writes the authoritative
+state-branch snapshot and the auditable current-branch copy. No files are created under
+`singularity/work-items/` unless a separate Story lifecycle command is run.
 
 ## 3. Prove world-model reuse
 

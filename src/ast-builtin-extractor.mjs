@@ -1,22 +1,21 @@
+import { lineNumbers } from './text-lines.mjs';
+
 export const BUILTIN_AST_EXTRACTOR = Object.freeze({
   id: 'builtin-text', version: 1, assurance: 'text', protocolVersion: 2
 });
 
 const SYMBOL_LANGUAGES = new Set(['javascript', 'typescript']);
 
-function line(text, index) {
-  return text.slice(0, index).split('\n').length;
-}
-
 function extractSymbols(text, relative) {
   const symbols = [];
+  const lineAt = lineNumbers(text);
   const declaration = /^export\s+(?:default\s+)?(?:async\s+)?(function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
   for (const match of text.matchAll(declaration)) {
     const [, keyword, name] = match;
     symbols.push({
       name,
       kind: keyword.startsWith('function') ? 'function' : keyword === 'class' ? 'class' : 'binding',
-      at: `${relative}:${line(text, match.index)}`
+      at: `${relative}:${lineAt(match.index)}`
     });
   }
   return symbols;

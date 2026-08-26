@@ -19,6 +19,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { lineNumbers } from './text-lines.mjs';
 import { mapLimit, posix, run } from './util.mjs';
 
 const READ_CONCURRENCY = 12;
@@ -52,11 +53,6 @@ const MANIFEST_READERS = new Map([
   ['pom.xml', readPomManifest],
   ['cargo.toml', readCargoManifest]
 ]);
-
-function line(text, index) {
-  // 1-indexed, because that is what an editor and a citation both mean by "line".
-  return text.slice(0, index).split('\n').length;
-}
 
 async function readNodeManifest(text, relative) {
   const parsed = JSON.parse(text);
@@ -147,13 +143,14 @@ async function readCargoManifest(text, relative) {
  */
 export function extractSymbols(text, relative) {
   const symbols = [];
+  const lineAt = lineNumbers(text);
   const declaration = /^export\s+(?:default\s+)?(?:async\s+)?(function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
   for (const match of text.matchAll(declaration)) {
     const [, keyword, name] = match;
     symbols.push({
       name,
       kind: keyword.startsWith('function') ? 'function' : keyword === 'class' ? 'class' : 'binding',
-      at: `${relative}:${line(text, match.index)}`
+      at: `${relative}:${lineAt(match.index)}`
     });
   }
   return symbols;
@@ -302,8 +299,15 @@ export async function deriveRepositoryFacts(root, sourceState, { churn = true } 
   const frameworks = [...new Set(dependencies.map((name) => FRAMEWORK_SIGNALS.get(name)).filter(Boolean))].sort();
 
   const scannable = files.filter((file) => JS_LIKE.has(path.extname(file.path)) && file.size <= MAX_SCAN_BYTES);
+  /**
+   * The complement, stated rather than searched for.
+   *
+   * This was `!scannable.includes(file)`, an array scan inside a filter over every file — so a
+   * ten-thousand-file repository with eight thousand JavaScript-like sources did eighty million
+   * object-identity comparisons to answer a question that is one size check. Same set, same order.
+   */
   const unindexed = files
-    .filter((file) => !scannable.includes(file) && JS_LIKE.has(path.extname(file.path)))
+    .filter((file) => JS_LIKE.has(path.extname(file.path)) && file.size > MAX_SCAN_BYTES)
     .map((file) => file.path);
 
   const scanned = await mapLimit(scannable, READ_CONCURRENCY, async (file) => {

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scanEntries, secretRefusal } from './secrets.mjs';
 
@@ -222,6 +223,31 @@ export function localGitDisplayName(root) {
   return git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim() || null;
 }
 
+/**
+ * The identity Git will put on a commit, without consulting GitHub or any other network service.
+ *
+ * Authoring a temporary configuration commit used to call `identity()`. Every temporary clone has
+ * a different `.git` directory, so the GitHub-account cache could never hit and one capability
+ * proposal paid for the same `gh api user` request twice. Commit authorship needs only the two Git
+ * configuration values; account membership is resolved separately at approval boundaries.
+ */
+export function gitCommitIdentity(root) {
+  if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
+    return {
+      name: process.env.SINGULARITY_FLOW_TEST_IDENTITY,
+      email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+      login: null,
+      githubLookup: GITHUB_LOOKUP.NOT_CHECKED
+    };
+  }
+  return {
+    name: localGitDisplayName(root) || process.env.USER || process.env.USERNAME || 'Singularity Flow',
+    email: git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim() || null,
+    login: null,
+    githubLookup: GITHUB_LOOKUP.NOT_CHECKED
+  };
+}
+
 export function identity(root, { offline = false } = {}) {
   if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return {
@@ -307,7 +333,9 @@ export function fetchRemote(root, remote = 'origin') {
     throw new SingularityFlowError(`Git remote '${remote}' cannot be used as a remote-tracking namespace.`);
   }
   git(['remote', 'set-branches', remote, '*'], { cwd: root });
-  git(['fetch', '--prune', remote], { cwd: root, stdio: 'inherit' });
+  runRemoteGit(['fetch', '--prune', remote], {
+    cwd: root, operation: 'remote-configuration', allowFailure: false
+  });
 }
 
 export function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
@@ -317,7 +345,9 @@ export function hasUpstream(root) {
 }
 
 export function pullFastForward(root) {
-  if (hasUpstream(root)) git(['pull', '--ff-only'], { cwd: root, stdio: 'inherit' });
+  if (hasUpstream(root)) runRemoteGit(['pull', '--ff-only'], {
+    cwd: root, operation: 'remote-configuration', allowFailure: false
+  });
 }
 
 function configureUpstream(root, name, remote) {
@@ -638,7 +668,9 @@ export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
   // Capture stderr so desktop and recovery records contain Git's real rejection reason. Callers
   // already surface their own success result, while an inherited child left error="" and reduced
   // every failure to the unhelpful generic "fix remote access" message.
-  return git(['push', '-u', remote, `HEAD:refs/heads/${branchName}`], { cwd: root, allowFailure: true });
+  return runRemoteGit(['push', '-u', remote, `HEAD:refs/heads/${branchName}`], {
+    cwd: root, operation: 'remote-push'
+  });
 }
 
 /** Publish one previously proven commit as a Story branch without depending on current HEAD. */
@@ -650,9 +682,9 @@ export function pushCommitToBranch(root, remote, commitSha, branchName) {
   if (commit.status !== 0) {
     return { ...commit, stderr: commit.stderr || `Commit '${commitSha}' is not available locally.` };
   }
-  const result = git([
+  const result = runRemoteGit([
     'push', remote, `${commit.stdout.trim()}:refs/heads/${branchName}`
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, operation: 'remote-push' });
   if (result.status === 0 && refExists(root, `refs/heads/${branchName}`)) {
     configureUpstream(root, branchName, remote);
   }
@@ -668,10 +700,10 @@ export function pushCommitToBranch(root, remote, commitSha, branchName) {
  */
 export function preflightPushBranch(root, remote, sourceRef, branchName) {
   validBranch(root, branchName);
-  return git([
+  return runRemoteGit([
     'push', '--dry-run', '--porcelain', remote,
     `${sourceRef}:refs/heads/${branchName}`
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, operation: 'remote-push' });
 }
 
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {

@@ -18,9 +18,10 @@ import {
   setDefaultBaseBranch, setGroundingMode
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
-import { identity } from './git.mjs';
+import { gitCommitIdentity } from './git.mjs';
+import { GitRemoteSession, requireRemoteObservation, runRemoteGit } from './git-execution.mjs';
 import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
-import { readWorkspace, remoteDefaultBranch, workspaceRepositoryPath } from './workspace.mjs';
+import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import { sanitizeRemote } from './git-remote-diagnostics.mjs';
 import {
@@ -214,8 +215,8 @@ async function clearScratchWorktree(root) {
   }
 }
 
-export function remoteHasConfigurationBranch(remote) {
-  const head = configurationBranchHead(remote);
+export function remoteHasConfigurationBranch(remote, options = {}) {
+  const head = configurationBranchHead(remote, options);
   return head.reachable && head.exists;
 }
 
@@ -225,17 +226,21 @@ export function remoteHasConfigurationBranch(remote) {
  * use the SHA as their durable cache validator and distinguish a missing branch from an offline
  * remote so stale data is never presented as an empty organisation.
  */
-export function configurationBranchHead(remote) {
-  const result = run('git', ['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
-    allowFailure: true
+export function configurationBranchHead(remote, {
+  session = new GitRemoteSession(), refresh = false, observation = null
+} = {}) {
+  const observed = observation ?? session.observe(remote, {
+    refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh
   });
-  const line = result.stdout.trim().split('\n').find(Boolean) ?? '';
-  const sha = line.split(/\s+/)[0] || null;
+  const sha = observed.refs?.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
   return {
-    reachable: result.status === 0,
-    exists: result.status === 0 && Boolean(sha),
+    reachable: observed.ok,
+    exists: observed.ok && Boolean(sha),
     sha,
-    error: result.status === 0 ? null : (result.stderr || result.stdout || 'remote did not answer').trim()
+    error: observed.ok
+      ? null
+      : `Git remote failed (${observed.failure?.classification ?? 'unknown'}). ${observed.failure?.advice ?? 'The remote did not answer.'}`,
+    observation: observed
   };
 }
 
@@ -294,11 +299,14 @@ async function inspectApprovedConfiguration(remote, capability = null) {
  */
 export async function ensureConfigurationBranch(remote, {
   sourceBranch = null, capability = null, grounding = null,
-  publisherRoot = null, transport = {}
+  publisherRoot = null, transport = {}, remoteSession = null, observedHead = null
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
-  if (remoteHasConfigurationBranch(url)) return await inspectApprovedConfiguration(url, capability);
+  const session = remoteSession ?? new GitRemoteSession();
+  const configurationHead = observedHead ?? configurationBranchHead(url, { session });
+  requireRemoteObservation(configurationHead.observation, 'configuration authority');
+  if (configurationHead.exists) return await inspectApprovedConfiguration(url, capability);
 
   let canonicalPublisher = null;
   if (publisherRoot) {
@@ -331,17 +339,25 @@ export async function ensureConfigurationBranch(remote, {
     }
   }
 
-  const defaultBranch = remoteDefaultBranch(
-    url, run('git', ['ls-remote', '--symref', url, 'HEAD'], { allowFailure: true }).stdout
-  );
+  const remoteHead = session.observe(url, { includeHead: true });
+  requireRemoteObservation(remoteHead, 'configuration repository');
+  let defaultBranch = remoteHead.defaultBranch;
+  if (!defaultBranch) {
+    const advertised = session.observe(url, { includeHead: true, includeAllHeads: true });
+    requireRemoteObservation(advertised, 'configuration repository');
+    defaultBranch = advertised.defaultBranch
+      ?? advertised.branches.find((item) => item === 'main' || item === 'master')
+      ?? advertised.branches[0]
+      ?? 'main';
+  }
   const importBranch = String(sourceBranch ?? defaultBranch).trim() || defaultBranch;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
-    const clone = run('git', [
+    const clone = runRemoteGit([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--filter=blob:none', '--no-checkout', '--branch', importBranch, url, scratch
-    ], { allowFailure: true });
+    ], { operation: 'remote-configuration' });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${url}': ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`);
@@ -358,14 +374,12 @@ export async function ensureConfigurationBranch(remote, {
     // fictional root. An existing map imported from the code branch is real configuration and is
     // retained.
     if (!importedCapabilityMap) await rm(path.join(scratch, 'singularity/capabilities.yml'), { force: true });
-    await describeRepository(
-      scratch, repositoryIdFromUrl(url), url, defaultBranch, identity(scratch)
-    );
+    const actor = gitCommitIdentity(scratch);
+    await describeRepository(scratch, repositoryIdFromUrl(url), url, defaultBranch, actor);
     if (grounding) await setGroundingMode(scratch, grounding);
     if (capability) await describeCapability(scratch, capability);
     await enableLedger(scratch, 'state');
     run('git', ['add', '-A'], { cwd: scratch });
-    const actor = identity(scratch);
     run('git', [
       '-c', `user.name=${actor.name || 'Singularity Flow'}`,
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
@@ -398,8 +412,8 @@ export async function ensureConfigurationBranch(remote, {
         ? { status: 0, stdout: '', stderr: '' }
         : { status: 1, stdout: '', stderr: `transport ${published.intentId} is ${published.status}` };
     } else {
-      push = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
-        cwd: scratch, allowFailure: true
+      push = runRemoteGit(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+        cwd: scratch, operation: 'remote-push'
       });
     }
     if (push.status !== 0) {
@@ -412,7 +426,8 @@ export async function ensureConfigurationBranch(remote, {
           }
         );
       }
-      if (!remoteHasConfigurationBranch(url)) {
+      session.invalidate(url);
+      if (!remoteHasConfigurationBranch(url, { session, refresh: true })) {
         throw new SingularityFlowError(
           `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
       }
@@ -431,10 +446,10 @@ export async function ensureConfigurationBranch(remote, {
 }
 
 async function cloneConfiguration(remote, target) {
-  const clone = run('git', [
+  const clone = runRemoteGit([
     'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
     '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, remote, target
-  ], { allowFailure: true });
+  ], { operation: 'remote-configuration' });
   if (clone.status !== 0) {
     throw new SingularityFlowError(
       `Cannot read approved configuration from '${remote}' branch '${CONFIGURATION_BRANCH}': `
@@ -443,22 +458,22 @@ async function cloneConfiguration(remote, target) {
   return run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim();
 }
 
-function remoteBranchHead(remote, branch) {
-  const result = run('git', ['ls-remote', '--heads', remote, `refs/heads/${branch}`], {
-    allowFailure: true
+function remoteBranchHead(remote, branch, session = new GitRemoteSession()) {
+  const observed = session.observe(remote, {
+    includeHead: false, refs: [`refs/heads/${branch}`]
   });
-  if (result.status !== 0) return null;
-  const sha = result.stdout.trim().split(/\s+/)[0] ?? '';
+  if (!observed.ok) return null;
+  const sha = observed.refs.get(`refs/heads/${branch}`) ?? '';
   return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
 }
 
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH) {
   const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-read-'));
   try {
-    const clone = run('git', [
+    const clone = runRemoteGit([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--filter=blob:none', '--no-checkout', '--branch', branch, remote, source
-    ], { allowFailure: true });
+    ], { operation: 'remote-configuration' });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read configuration recovery mirror from '${remote}' branch '${branch}': `

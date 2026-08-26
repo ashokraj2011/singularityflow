@@ -25,6 +25,7 @@ import {
   AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector
 } from './auto-policy.mjs';
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
+import { runRemoteGit } from '../git-execution.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -186,8 +187,8 @@ function workIdFor(requirement, config, explicit = null) {
 }
 
 function remoteHead(root, remote, branchName) {
-  const result = run('git', ['ls-remote', '--heads', '--', remote, `refs/heads/${branchName}`], {
-    cwd: root, allowFailure: true
+  const result = runRemoteGit(['ls-remote', '--heads', '--', remote, `refs/heads/${branchName}`], {
+    cwd: root, operation: 'remote-probe'
   });
   if (result.status !== 0) return null;
   return result.stdout.trim().split(/\s+/)[0] || null;

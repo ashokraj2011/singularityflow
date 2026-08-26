@@ -9,6 +9,7 @@ import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -70,7 +71,24 @@ export function hasLocalGovernanceAuthority(root) {
     'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
     'refs/heads/state', 'refs/remotes/*/state'
   ], { cwd: root, allowFailure: true });
-  return refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim());
+  if (refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim())) return true;
+
+  // A lifecycle branch is self-contained after Story creation. Its immutable configuration
+  // snapshot remains authoritative even when the shared configuration/state branches are
+  // temporarily unavailable. Batch-check every local branch tip in one Git process so an active
+  // workspace elsewhere on the laptop cannot redirect `resume` away from the repository that
+  // actually carries the requested Story.
+  const lifecycleRefs = run('git', [
+    'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes'
+  ], { cwd: root, allowFailure: true }).stdout
+    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  if (!lifecycleRefs.length) return false;
+  const checked = run('git', ['cat-file', '--batch-check'], {
+    cwd: root, allowFailure: true,
+    input: `${lifecycleRefs.map((ref) => `${ref}:singularity/workflow.yml`).join('\n')}\n`
+  });
+  return checked.status === 0 && checked.stdout.split(/\r?\n/)
+    .some((line) => /\sblob\s\d+$/.test(line.trim()));
 }
 
 /**
@@ -85,10 +103,10 @@ export function hasRemoteGovernanceAuthority(root) {
   const remotes = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   return remotes.some((remote) => {
-    const advertised = run('git', [
+    const advertised = runRemoteGit([
       'ls-remote', '--heads', '--', remote,
       'refs/heads/sflow/config', 'refs/heads/state'
-    ], { cwd: root, allowFailure: true });
+    ], { cwd: root, operation: 'remote-probe' });
     return advertised.status === 0 && advertised.stdout.split(/\r?\n/).some((entry) => entry.trim());
   });
 }

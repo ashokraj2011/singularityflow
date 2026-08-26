@@ -8,6 +8,7 @@ import {
 import { readStorySeed } from './pull-request.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 export const STORY_STACK_SCHEMA_VERSION = currentSchemaVersion('story-stack');
 
@@ -112,7 +113,9 @@ export async function publishedStackForStory(root, config, workflow) {
   const file = storyStackPath(initiativeId);
   const remote = config.ledger?.remote ?? config.git?.remote ?? 'origin';
   const stateBranch = config.ledger?.branch ?? 'state';
-  run('git', ['fetch', '--no-tags', remote, `+refs/heads/${stateBranch}:refs/remotes/${remote}/${stateBranch}`], { cwd: root, allowFailure: true });
+  runRemoteGit(['fetch', '--no-tags', remote, `+refs/heads/${stateBranch}:refs/remotes/${remote}/${stateBranch}`], {
+    cwd: root, operation: 'remote-configuration'
+  });
   const stored = readAtRef(root, `${remote}/${stateBranch}`, file) ?? readAtRef(root, stateBranch, file);
   const stack = stored ? readRecord('story-stack', stored).record : null;
   if (!stack) {

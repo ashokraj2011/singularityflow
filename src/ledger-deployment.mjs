@@ -3,6 +3,7 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, run, writeJson } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 function redactRemote(value) {
   if (!value) return null;
@@ -17,6 +18,12 @@ function redactRemote(value) {
 }
 
 function git(root, args) {
+  if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
+    return runRemoteGit(args, {
+      cwd: root,
+      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
+    });
+  }
   return run('git', args, { cwd: root, allowFailure: true });
 }
 

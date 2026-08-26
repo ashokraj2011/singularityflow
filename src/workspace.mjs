@@ -9,11 +9,14 @@ import { fetchRemote, localBranches, remoteBranches } from './git.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
-import { isGitRefName, SingularityFlowError, run } from './util.mjs';
+import { isGitRefName, mapLimit, SingularityFlowError, run } from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
 } from './clone-strategy.mjs';
 import { classifyGitRemoteFailure, remoteFingerprint, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import {
+  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+} from './git-execution.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -515,7 +518,7 @@ export function remoteDefaultBranch(remote, symrefOutput) {
   const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
   if (symref?.[1]) return symref[1];
 
-  const heads = run('git', ['ls-remote', '--heads', remote], { allowFailure: true });
+  const heads = runRemoteGit(['ls-remote', '--heads', remote], { operation: 'remote-probe' });
   const branches = heads.status === 0
     ? [...heads.stdout.matchAll(/^\S+\s+refs\/heads\/(\S+)$/gm)].map((match) => match[1])
     : [];
@@ -550,14 +553,20 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
     throw new SingularityFlowError(`'${remote}' is not a clone URL. Use https://, git@, ssh:// or an absolute path.`);
   }
 
-  const head = run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true });
-  if (head.status !== 0) {
-    throw new SingularityFlowError(`Cannot reach '${remote}': ${(head.stderr || head.stdout).trim().split('\n')[0]}`);
+  const session = new GitRemoteSession();
+  const stateRef = stateBranch.startsWith('refs/') ? stateBranch : `refs/heads/${stateBranch}`;
+  const observed = session.observe(remote, { includeHead: true, refs: [stateRef] });
+  requireRemoteObservation(observed, 'workspace repository');
+  let defaultBranch = observed.defaultBranch;
+  if (!defaultBranch) {
+    const fallback = session.observe(remote, { includeHead: true, includeAllHeads: true });
+    requireRemoteObservation(fallback, 'workspace repository');
+    defaultBranch = fallback.defaultBranch
+      ?? fallback.branches.find((branch) => branch === 'main' || branch === 'master')
+      ?? fallback.branches[0]
+      ?? 'main';
   }
-  const defaultBranch = remoteDefaultBranch(remote, head.stdout);
-
-  const state = run('git', ['ls-remote', '--heads', remote, stateBranch], { allowFailure: true });
-  const hasStateBranch = state.status === 0 && Boolean(state.stdout.trim());
+  const hasStateBranch = observed.refs.has(stateRef);
 
   // The last path segment, minus a .git suffix, made safe the same way a local folder name is.
   const id = remote
@@ -604,9 +613,12 @@ export async function workspaceRemoteCapabilities(url, {
     // Organisation configuration is intentionally independent of application `main`. Workspaces
     // must therefore read the approved configuration branch, never whichever application branch
     // the remote happens to advertise as HEAD.
-    const configured = run('git', ['ls-remote', '--heads', remote,
-      `refs/heads/${configurationBranch}`], { allowFailure: true });
-    if (configured.status !== 0 || !configured.stdout.trim()) {
+    const session = new GitRemoteSession();
+    const configured = session.observe(remote, {
+      includeHead: false, refs: [`refs/heads/${configurationBranch}`]
+    });
+    requireRemoteObservation(configured, 'workspace capability authority');
+    if (!configured.refs.has(`refs/heads/${configurationBranch}`)) {
       return {
         capabilities: null,
         deliveries: [],
@@ -616,9 +628,9 @@ export async function workspaceRemoteCapabilities(url, {
       };
     }
     const branch = configurationBranch;
-    const clone = (extra) => run('git', [
+    const clone = (extra) => runRemoteGit([
       'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra, remote, scratch
-    ], { allowFailure: true });
+    ], { operation: 'remote-configuration' });
     let cloned = clone(['--filter=blob:none']);
     if (cloned.status !== 0) {
       await rm(scratch, { recursive: true, force: true });
@@ -1173,10 +1185,10 @@ async function cloneIntoWorkspace(root, operation) {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
-  const cloneOnce = (selected) => run('git', [
+  const cloneOnce = (selected) => runRemoteGit([
     'clone', '--branch', operation.branch, ...cloneStrategyArguments(selected),
     '--', operation.url, staging
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, operation: 'remote-configuration' });
   let selected = strategy;
   let fallbackUsed = false;
   let result = cloneOnce(selected);
@@ -1942,22 +1954,26 @@ export async function repairWorkspace(workspacePath) {
 
 export async function fetchWorkspace(workspacePath) {
   const status = await workspaceStatus(workspacePath);
-  const results = [];
-  for (const repository of status.repositories) {
+  const workers = Math.max(1, Math.min(
+    8,
+    Number(process.env.SINGULARITY_FLOW_GIT_WORKERS ?? 4) || 4,
+    status.repositories.length || 1
+  ));
+  const results = await mapLimit(status.repositories, workers, async (repository) => {
     if (repository.state !== 'ready') {
-      results.push({ repository: repository.id, status: 'skipped', reason: repository.state });
-      continue;
+      return { repository: repository.id, status: 'skipped', reason: repository.state };
     }
     if (repository.dirty) {
-      results.push({ repository: repository.id, status: 'skipped', reason: 'dirty' });
-      continue;
+      return { repository: repository.id, status: 'skipped', reason: 'dirty' };
     }
-    const result = run('git', ['fetch', '--prune', 'origin'], { cwd: repository.absolutePath, allowFailure: true });
-    results.push({
+    const result = await runRemoteGitAsync(['fetch', '--prune', 'origin'], {
+      cwd: repository.absolutePath, operation: 'remote-configuration'
+    });
+    return {
       repository: repository.id,
       status: result.status === 0 ? 'fetched' : 'failed',
-      error: result.status === 0 ? null : (result.stderr || result.stdout).trim()
-    });
-  }
+      error: result.status === 0 ? null : result.failure?.advice ?? 'Git fetch failed.'
+    };
+  });
   return { fetchedAt: nowIso(), results, status: await workspaceStatus(workspacePath) };
 }

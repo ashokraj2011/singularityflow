@@ -1,7 +1,15 @@
 import { SingularityFlowError, run } from './util.mjs';
 import { assertClean, branch, hasRemote, head, validBranch } from './git.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 function git(root, args, { allowFailure = false } = {}) {
+  if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
+    return runRemoteGit(args, {
+      cwd: root,
+      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration',
+      allowFailure
+    });
+  }
   return run('git', args, { cwd: root, allowFailure });
 }
 

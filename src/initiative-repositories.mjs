@@ -15,6 +15,7 @@ import {
   secureRepositoryPath, SingularityFlowError, ensureDir, exists, nowIso, posix, run, snapshot, writeJson, writeText
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 function safeId(value, label) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`${label} must be a safe identifier.`);
@@ -331,7 +332,9 @@ export async function initiativeBreakdownReview(root, initiativeId, { probe = fa
   for (const story of breakdown.stories) {
     if (repositories[story.repository]) continue;
     const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
-    const probeResult = probe ? run('git', ['ls-remote', '--heads', repository.url], { cwd: root, allowFailure: true }) : null;
+    const probeResult = probe ? runRemoteGit(['ls-remote', '--heads', repository.url], {
+      cwd: root, operation: 'remote-probe'
+    }) : null;
     repositories[story.repository] = {
       ...repository,
       reachable: probe ? probeResult.status === 0 : null,
@@ -411,7 +414,9 @@ export function isLeadRepository(root, repository) {
 }
 
 function remoteBranchHead(repositoryUrl, branchName, cwd) {
-  const result = run('git', ['ls-remote', '--heads', repositoryUrl, `refs/heads/${branchName}`], { cwd, allowFailure: true });
+  const result = runRemoteGit(['ls-remote', '--heads', repositoryUrl, `refs/heads/${branchName}`], {
+    cwd, operation: 'remote-probe'
+  });
   if (result.status !== 0) throw new SingularityFlowError(`Unable to read ${repositoryUrl}: ${(result.stderr || result.stdout).trim()}`);
   return result.stdout.trim().split(/\s+/)[0] || null;
 }
@@ -584,13 +589,17 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
   const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
   const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
-    const cloned = run('git', ['clone', repository.url, target], { cwd: root, allowFailure: true });
+    const cloned = runRemoteGit(['clone', repository.url, target], {
+      cwd: root, operation: 'remote-configuration'
+    });
     if (cloned.status !== 0) throw new SingularityFlowError(`Unable to clone ${story.repository}: ${(cloned.stderr || cloned.stdout).trim()}`);
   }
   await validateManagedClone(target, story.repository);
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
   configureCloneIdentity(target, actor);
-  run('git', ['fetch', '--prune', 'origin'], { cwd: target });
+  runRemoteGit(['fetch', '--prune', 'origin'], {
+    cwd: target, operation: 'remote-configuration', allowFailure: false
+  });
   const branchName = story.workId ?? story.id;
   const remoteHead = remoteBranchHead(repository.url, branchName, target);
   if (remoteHead) {
@@ -639,7 +648,9 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
       await writeText(seedPath.absolute, YAML.stringify(refreshed));
       run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
       run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Refresh initiative linkage`], { cwd: target });
-      const pushed = run('git', ['push', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
+      const pushed = runRemoteGit(['push', 'origin', `HEAD:${branchName}`], {
+        cwd: target, operation: 'remote-push'
+      });
       if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
       return { status: 'updated', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
     }
@@ -648,7 +659,9 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
   await writeText(seedPath.absolute, YAML.stringify(seed));
   run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
   run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Link initiative`], { cwd: target });
-  const pushed = run('git', ['push', '-u', 'origin', `HEAD:${branchName}`], { cwd: target, allowFailure: true });
+  const pushed = runRemoteGit(['push', '-u', 'origin', `HEAD:${branchName}`], {
+    cwd: target, operation: 'remote-push'
+  });
   if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
   return { status: 'created', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
 }
@@ -903,11 +916,15 @@ export async function initiativeMergeState(root, initiativeId) {
     const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
     const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
-      if (run('git', ['clone', repository.url, cache], { cwd: root, allowFailure: true }).status !== 0) {
+      if (runRemoteGit(['clone', repository.url, cache], {
+        cwd: root, operation: 'remote-configuration'
+      }).status !== 0) {
         unreachable.push(story.id); continue;
       }
     }
-    if (run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true }).status !== 0) {
+    if (runRemoteGit(['fetch', '--prune', 'origin'], {
+      cwd: cache, operation: 'remote-configuration'
+    }).status !== 0) {
       unreachable.push(story.id); continue;
     }
     /**
@@ -962,7 +979,9 @@ export async function syncInitiativeRepositories(root, initiativeId) {
     const repository = portfolio.repositories[story.repository];
     const cache = await managedClonePath(root, initiativeId, story.repository);
     if (!(await exists(path.join(cache, '.git')))) {
-      const cloned = run('git', ['clone', repository.url, cache], { cwd: root, allowFailure: true });
+      const cloned = runRemoteGit(['clone', repository.url, cache], {
+        cwd: root, operation: 'remote-configuration'
+      });
       if (cloned.status !== 0) {
         results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (cloned.stderr || cloned.stdout).trim() });
         continue;
@@ -974,7 +993,9 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'invalid-cache', error: error.message });
       continue;
     }
-    const fetched = run('git', ['fetch', '--prune', 'origin'], { cwd: cache, allowFailure: true });
+    const fetched = runRemoteGit(['fetch', '--prune', 'origin'], {
+      cwd: cache, operation: 'remote-configuration'
+    });
     if (fetched.status !== 0) {
       results.push({ storyId: story.id, repository: story.repository, status: 'unreachable', error: (fetched.stderr || fetched.stdout).trim() });
       continue;

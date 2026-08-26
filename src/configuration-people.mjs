@@ -14,6 +14,7 @@ import { identity } from './git.mjs';
 import { sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
 const INDIVIDUAL_TARGET = /^(story|initiative):([a-z0-9]+(?:-[a-z0-9]+)*)$/;
@@ -146,10 +147,10 @@ export async function publishCurrentIdentityToConfiguration(root, {
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
   try {
-    const clone = run('git', [
+    const clone = runRemoteGit([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
-    ], { allowFailure: true });
+    ], { operation: 'remote-configuration' });
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read approved configuration: ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`

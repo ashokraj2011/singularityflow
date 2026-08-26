@@ -10,6 +10,7 @@ import { defaultBranchName, gitDir, hasRemote, identity, refExists } from './git
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
 export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
@@ -24,6 +25,13 @@ const HEAD_PATH = 'ledger/head.json';
 const README_PATH = 'README.md';
 
 function git(root, args, { allowFailure = false, stdio = 'pipe' } = {}) {
+  if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
+    return runRemoteGit(args, {
+      cwd: root,
+      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration',
+      allowFailure
+    });
+  }
   return run('git', args, { cwd: root, allowFailure, stdio });
 }
 

@@ -15,6 +15,7 @@ import { setAgentSession } from './session.mjs';
 import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 function workItemPath(workId) {
   return `singularity/work-items/${workId}/workflow.json`;
@@ -25,7 +26,12 @@ function reviewClone(root, initiativeId, repositoryId) {
 }
 
 function git(root, args, { allowFailure = false } = {}) {
-  const result = run('git', args, { cwd: root, allowFailure: true });
+  const result = ['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])
+    ? runRemoteGit(args, {
+      cwd: root,
+      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
+    })
+    : run('git', args, { cwd: root, allowFailure: true });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError(`Git review checkout failed: ${(result.stderr || result.stdout).trim()}`);
   }
@@ -43,7 +49,9 @@ async function prepareReviewClone(root, initiative, story) {
   const clone = reviewClone(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(clone, '.git')))) {
     await mkdir(path.dirname(clone), { recursive: true });
-    const result = run('git', ['clone', '--no-checkout', repository.url, clone], { cwd: root, allowFailure: true });
+    const result = runRemoteGit(['clone', '--no-checkout', repository.url, clone], {
+      cwd: root, operation: 'remote-configuration'
+    });
     if (result.status !== 0) throw new SingularityFlowError(`Unable to create isolated review checkout for '${story.repository}': ${(result.stderr || result.stdout).trim()}`);
   }
   validateCloneRemote(clone, repository.url);

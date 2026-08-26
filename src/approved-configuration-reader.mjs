@@ -7,6 +7,7 @@ import {
   isConfigurationReadPath, withConfigurationReadRoot
 } from './configuration-read-scope.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
@@ -82,10 +83,10 @@ function refreshApprovedConfigurationAuthority(root) {
     .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
       || left.localeCompare(right));
   for (const remote of remotes) {
-    const advertised = run('git', [
+    const advertised = runRemoteGit([
       'ls-remote', '--heads', '--', remote,
       `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
-    ], { cwd: root, allowFailure: true });
+    ], { cwd: root, operation: 'remote-probe' });
     if (advertised.status !== 0) continue;
     const branches = new Set(advertised.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[1])
       .filter(Boolean));
@@ -94,10 +95,10 @@ function refreshApprovedConfigurationAuthority(root) {
       const destination = `refs/remotes/${remote}/${branch}`;
       const validRef = run('git', ['check-ref-format', destination], { cwd: root, allowFailure: true });
       if (validRef.status !== 0) continue;
-      const fetched = run('git', [
+      const fetched = runRemoteGit([
         'fetch', '--quiet', '--no-tags', '--force', '--', remote,
         `+refs/heads/${branch}:${destination}`
-      ], { cwd: root, allowFailure: true });
+      ], { cwd: root, operation: 'remote-configuration' });
       if (fetched.status !== 0) continue;
       const authority = approvedConfigurationAuthority(root);
       if (authority) return authority;

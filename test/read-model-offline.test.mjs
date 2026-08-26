@@ -13,7 +13,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { GITHUB_LOOKUP, identity } from '../src/git.mjs';
+import { GITHUB_LOOKUP, gitCommitIdentity, identity } from '../src/git.mjs';
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-offline-'));
@@ -38,6 +38,15 @@ test('a cold read declares that it did not look, rather than that nobody is sign
   // Nothing was written, because nothing was asked. A read path must not populate the cache either:
   // the cost it is avoiding is exactly the call that would fill it.
   await assert.rejects(() => readFile(cacheFile(root), 'utf8'));
+});
+
+test('commit authorship never performs or claims a GitHub account lookup', async () => {
+  const root = await repository();
+  const actor = gitCommitIdentity(root);
+  assert.deepEqual(actor, {
+    name: 'Read Model', email: 'read@example.invalid', login: null,
+    githubLookup: GITHUB_LOOKUP.NOT_CHECKED
+  });
 });
 
 test('a warm read is free and still names the real account', async () => {

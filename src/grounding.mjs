@@ -14,6 +14,7 @@ import {
   tierForView, viewPath
 } from './world-model-selection.mjs';
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -540,8 +541,8 @@ export async function resolveWorldModelSource(root, config, {
   let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
   let fetchSucceeded = false;
   if (remoteConfigured && refreshRemote) {
-    const fetched = run('git', ['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
-      cwd: root, allowFailure: true, timeoutMs: stateFetchTimeoutMs
+    const fetched = runRemoteGit(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
+      cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs
     });
     const missingRemoteRef = fetched.status !== 0
       && /couldn.t find remote ref|remote ref does not exist/i.test(`${fetched.stderr}\n${fetched.stdout}`);

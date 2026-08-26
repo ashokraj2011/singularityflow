@@ -32,6 +32,7 @@ import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './cap
 import { initializeLedger } from './ledger.mjs';
 import { remoteDefaultBranch } from './workspace.mjs';
 import { identity } from './git.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 /** The repository identifier a clone URL implies: the last segment, minus `.git`. */
 export function repositoryIdFromUrl(url) {
@@ -203,7 +204,7 @@ export async function bootstrapRepository(url, {
   // then answers "HEAD" — which was recorded as the default branch and is not a branch.
   const branch = remoteDefaultBranch(
     remote,
-    run('git', ['ls-remote', '--symref', remote, 'HEAD'], { allowFailure: true }).stdout
+    runRemoteGit(['ls-remote', '--symref', remote, 'HEAD'], { operation: 'remote-probe' }).stdout
   );
 
   // Clone, or adopt a checkout that is already there. Adopting matters because the first attempt at
@@ -219,7 +220,9 @@ export async function bootstrapRepository(url, {
     // piped stdio with nothing on screen, so bootstrap looked hung at exactly the point where it is
     // doing the most obvious work.
     console.log(`Cloning ${remote} into ${root} …`);
-    const result = run('git', ['clone', '--branch', branch, remote, root], { allowFailure: true });
+    const result = runRemoteGit(['clone', '--branch', branch, remote, root], {
+      operation: 'remote-configuration'
+    });
     if (result.status !== 0) {
       throw new SingularityFlowError(`Cannot clone '${remote}': ${(result.stderr || result.stdout).trim().split('\n')[0]}`);
     }

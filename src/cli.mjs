@@ -84,6 +84,7 @@ import { verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
+import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -652,10 +653,22 @@ export async function startCommand(positionals, options) {
   const applicationRemote = run('git', ['remote', 'get-url', remote], {
     cwd: root, allowFailure: true
   }).stdout.trim();
-  const applicationDefault = applicationRemote
-    ? remoteDefaultBranch(applicationRemote,
-      run('git', ['ls-remote', '--symref', applicationRemote, 'HEAD'], { allowFailure: true }).stdout)
-    : 'main';
+  const storyRemoteSession = applicationRemote ? new GitRemoteSession() : null;
+  const advertisedStoryRef = `refs/heads/${canonicalBranch}`;
+  const storyAuthority = storyRemoteSession?.observe(applicationRemote, {
+    includeHead: true, refs: [advertisedStoryRef]
+  }) ?? null;
+  let applicationDefault = storyAuthority?.defaultBranch ?? null;
+  if (applicationRemote && !applicationDefault && storyAuthority?.ok) {
+    const fallback = storyRemoteSession.observe(applicationRemote, {
+      includeHead: true, includeAllHeads: true
+    });
+    applicationDefault = fallback.defaultBranch
+      ?? fallback.branches.find((branchName) => branchName === 'main' || branchName === 'master')
+      ?? fallback.branches[0]
+      ?? 'main';
+  }
+  applicationDefault ??= 'main';
   const storySeedRelative = posix(path.join('singularity', 'seeds', `${id}.yml`));
   const localStoryRef = `refs/heads/${canonicalBranch}`;
   const durableStoryAtRef = async (ref, branchName) => {
@@ -688,12 +701,9 @@ export async function startCommand(positionals, options) {
   // base is already pinned. A failed probe is left for storyBaseCatalog to report with the stable
   // STORY_REMOTE_UNREACHABLE refusal used by every surface.
   let remoteStoryRef = `refs/remotes/${remote}/${canonicalBranch}`;
-  const remoteStoryProbe = applicationRemote
-    ? run('git', ['ls-remote', '--heads', '--', applicationRemote, `refs/heads/${canonicalBranch}`], {
-      cwd: root, allowFailure: true
-    })
-    : { status: 1, stdout: '' };
-  if (remoteStoryProbe.status === 0 && remoteStoryProbe.stdout.trim()) {
+  const remoteStoryExists = storyAuthority?.ok === true
+    && storyAuthority.refs.has(advertisedStoryRef);
+  if (remoteStoryExists) {
     fetchRemote(root, remote);
     const remoteStory = await durableStoryAtRef(remoteStoryRef, canonicalBranch);
     if (remoteStory) {
@@ -5601,8 +5611,8 @@ function sessionRepositoryAuthority(root) {
   // A --single-branch clone may not have fetched the configuration namespace yet. The session
   // operation is remote-backed anyway, so prove the authority without changing the checkout.
   for (const remote of sessionRepositoryRemotes(root)) {
-    const available = run('git', ['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
-      cwd: root, allowFailure: true
+    const available = runRemoteGit(['ls-remote', '--heads', remote, `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: root, operation: 'remote-probe'
     });
     if (available.status === 0 && available.stdout.trim()) {
       return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };

@@ -20,7 +20,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 6
+version: 7
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -64,6 +64,18 @@ explicitly selecting every packaged value. A protected `sflow/config` push retai
 the exact candidate on the reported `sflow/config-refresh/*` review branch. Merge that proposal and
 re-run the command to complete its state mirror. Reruns are idempotent and retry incomplete
 repositories while current repositories become no-ops.
+
+Remote Git used by refresh is bounded and non-interactive. Exact ref observations are shared within
+one operation, independent repositories are prepared and published with up to four workers, and
+commit authorship reads `user.name`/`user.email` without contacting GitHub. Set
+`SINGULARITY_FLOW_GIT_WORKERS=1..8` to tune office proxy load. The operation-specific ceilings are
+`SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS` (default 30 seconds),
+`SINGULARITY_FLOW_GIT_CONFIGURATION_TIMEOUT_MS` (default 120 seconds), and
+`SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS` (default 180 seconds). Git Credential Manager, proxy, and CA
+settings are preserved, but terminal credential prompts are disabled because the installer and VS
+Code have no safe interactive terminal for them. A credential failure therefore stops with a
+classified repair message instead of appearing to hang. Ledger compare-and-swap checks, exact
+transport-intent verification, and protected-branch recovery are not skipped or cached.
 
 In VS Code, open **Workspaces**, choose a workspace, and use **SFlow configuration**. Check the
 selected workspace or every registered workspace, review each conflict in its dropdown, then apply

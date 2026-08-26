@@ -329,9 +329,9 @@ function recordSubprocessProbe(command, args, ms) {
  * held this repository's own test suite for thirty-two minutes with no output and no error.
  *
  * The bound lives here rather than at the call sites so it covers the ten that exist and the
- * eleventh nobody has written yet. `git` is deliberately not on this list: a fetch or a push against
- * a large repository legitimately takes minutes, and the fix for a slow clone is not a shorter
- * deadline. Any call may override with an explicit `timeoutMs`.
+ * eleventh nobody has written yet. Remote Git has operation-specific bounds in
+ * `git-execution.mjs`: a ref probe, configuration transfer, and push need different ceilings. Git
+ * therefore remains off this generic list; remote callers must cross that classified boundary.
  */
 const NETWORK_COMMANDS = new Set(['gh']);
 export const NETWORK_TIMEOUT_MS = Number(process.env.SINGULARITY_FLOW_NETWORK_TIMEOUT_MS ?? 15_000);

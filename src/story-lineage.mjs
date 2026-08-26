@@ -16,6 +16,7 @@ import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -551,7 +552,9 @@ export async function promoteStoryBranch(root, config, workflow, {
   if (selected === 'pr') {
     return { mode: 'pr', branch: current, canonicalBranch: canonical, requiresPullRequest: true };
   }
-  const result = run('git', ['push', config.git?.remote ?? 'origin', `HEAD:${canonical}`], { cwd: root, allowFailure: true });
+  const result = runRemoteGit(['push', config.git?.remote ?? 'origin', `HEAD:${canonical}`], {
+    cwd: root, operation: 'remote-push'
+  });
   if (result.status !== 0) throw new SingularityFlowError(`Direct promotion could not fast-forward '${canonical}': ${(result.stderr || result.stdout).trim()}. Rebase the child branch or use a pull request.`);
   return { mode: 'direct', branch: current, canonicalBranch: canonical, commit: head(root), pushed: true };
 }

@@ -18,6 +18,7 @@ import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
 } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import {
@@ -159,10 +160,10 @@ function rebaseStage(root, stage, relative, parser, fallback = undefined) {
 
 async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) {
   const remoteRef = `refs/remotes/${remote}/${initiative.initiative.branch}`;
-  const fetched = run('git', [
+  const fetched = runRemoteGit([
     'fetch', remote,
     `+refs/heads/${initiative.initiative.branch}:${remoteRef}`
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, operation: 'remote-configuration' });
   if (fetched.status !== 0) return { status: fetched.status, stdout: fetched.stdout, stderr: fetched.stderr };
 
   const unpublished = run('git', ['rev-list', '--count', `${remoteRef}..HEAD`], {

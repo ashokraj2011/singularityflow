@@ -12,6 +12,7 @@ import { workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { gitTimeouts, nonInteractiveGitEnvironment } from './git-execution.mjs';
 
 export const TRANSPORT_INTENT_SCHEMA_VERSION = currentSchemaVersion('transport-intent');
 export const TRANSPORT_INTENT_STATUSES = Object.freeze([
@@ -194,9 +195,11 @@ export async function createTransportIntent({
   });
 }
 
-export function observeRemoteTarget(intent, { runCommand = run } = {}) {
+export function observeRemoteTarget(intent, { runCommand = run, env = process.env } = {}) {
   const result = runCommand('git', ['ls-remote', '--refs', intent.remote, intent.targetRef], {
-    cwd: intent.repositoryRoot, allowFailure: true
+    cwd: intent.repositoryRoot, allowFailure: true,
+    timeoutMs: gitTimeouts(env).probe,
+    env: nonInteractiveGitEnvironment(env)
   });
   if (result.status !== 0) return { readable: false, commit: null, result };
   const line = String(result.stdout ?? '').split('\n').find((entry) => entry.trim().endsWith(`\t${intent.targetRef}`));
@@ -261,7 +264,7 @@ export async function retryTransportIntent(intentId, {
       });
     }
 
-    const observed = observeRemoteTarget(intent, { runCommand });
+    const observed = observeRemoteTarget(intent, { runCommand, env });
     if (!observed.readable) {
       return writeIntent(outbox, {
         ...intent, status: 'outcome-unknown',
@@ -313,7 +316,9 @@ export async function retryTransportIntent(intentId, {
     });
     const refspec = `${intent.sourceCommit}:${intent.targetRef}`;
     const dryRun = runCommand('git', ['push', '--dry-run', '--porcelain', intent.remote, refspec], {
-      cwd: intent.repositoryRoot, allowFailure: true
+      cwd: intent.repositoryRoot, allowFailure: true,
+      timeoutMs: gitTimeouts(env).push,
+      env: nonInteractiveGitEnvironment(env)
     });
     if (dryRun.status !== 0) {
       const failure = classified(dryRun);
@@ -328,9 +333,11 @@ export async function retryTransportIntent(intentId, {
       });
     }
     const pushed = runCommand('git', ['push', intent.remote, refspec], {
-      cwd: intent.repositoryRoot, allowFailure: true
+      cwd: intent.repositoryRoot, allowFailure: true,
+      timeoutMs: gitTimeouts(env).push,
+      env: nonInteractiveGitEnvironment(env)
     });
-    const after = observeRemoteTarget(intent, { runCommand });
+    const after = observeRemoteTarget(intent, { runCommand, env });
     if (after.readable && after.commit === intent.sourceCommit) {
       return writeIntent(outbox, {
         ...intent, status: 'succeeded', observedRemote: after.commit, fault: null,

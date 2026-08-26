@@ -9,11 +9,12 @@ import {
   configurationAssetPaths, CONFIGURATION_BRANCH, ensureConfigurationBranch, isConfigurationAsset
 } from './configuration-branch.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { identity } from './git.mjs';
+import { gitCommitIdentity } from './git.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { sanitizeRemote } from './git-remote-diagnostics.mjs';
-import { SingularityFlowError, run, writeAtomic } from './util.mjs';
+import { mapLimit, SingularityFlowError, run, writeAtomic } from './util.mjs';
+import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
 import { VERSION } from './version.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
 
@@ -453,10 +454,15 @@ export async function refreshPackagedConfiguration(root, {
   };
 }
 
-function remoteHead(remote, branch = CONFIGURATION_BRANCH) {
-  const observed = run('git', ['ls-remote', '--heads', remote, `refs/heads/${branch}`], { allowFailure: true });
+async function remoteHead(remote, branch = CONFIGURATION_BRANCH) {
+  const observed = await runRemoteGitAsync([
+    'ls-remote', '--heads', remote, `refs/heads/${branch}`
+  ], { operation: 'remote-probe' });
   if (observed.status !== 0) {
-    throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}': ${(observed.stderr || observed.stdout).trim().split('\n')[0]}`);
+    throw new SingularityFlowError(
+      `Cannot read '${sanitizeRemote(remote)}'. ${observed.failure?.advice ?? 'Git remote access failed.'}`,
+      { code: observed.failure?.code ?? 'REMOTE_UNKNOWN' }
+    );
   }
   const line = observed.stdout.split(/\r?\n/).find((entry) => entry.trim());
   return line ? line.trim().split(/\s+/)[0] : null;
@@ -464,10 +470,10 @@ function remoteHead(remote, branch = CONFIGURATION_BRANCH) {
 
 async function cloneConfiguration(remote) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-refresh-'));
-  const cloned = run('git', [
+  const cloned = await runRemoteGitAsync([
     'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
     '--branch', CONFIGURATION_BRANCH, remote, scratch
-  ], { allowFailure: true });
+  ], { operation: 'remote-configuration' });
   if (cloned.status !== 0) {
     await rm(scratch, { recursive: true, force: true });
     throw new SingularityFlowError(
@@ -522,10 +528,10 @@ function stateTree(root, ref) {
 
 function fetchStateRef(root, config) {
   const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
-  const fetched = run('git', [
+  const fetched = runRemoteGit([
     'fetch', '--no-tags', config.remote,
     `+refs/heads/${config.branch}:${remoteRef}`
-  ], { cwd: root, allowFailure: true });
+  ], { cwd: root, operation: 'remote-configuration' });
   if (fetched.status !== 0) return null;
   return run('git', ['rev-parse', remoteRef], { cwd: root }).stdout.trim();
 }
@@ -673,20 +679,20 @@ async function publishCandidate(candidate) {
     const staged = run('git', ['diff', '--cached', '--name-only'], { cwd: root }).stdout
       .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
     if (staged.length) {
-      const actor = identity(root);
+      const actor = gitCommitIdentity(root);
       run('git', [
         '-c', `user.name=${actor.name || 'Singularity Flow'}`,
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,
         'commit', '-m', `[configuration][product:${refresh.product.revision}] refresh packaged configuration`
       ], { cwd: root });
       const candidateCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-      const pushed = run('git', ['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
-        cwd: root, allowFailure: true
+      const pushed = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+        cwd: root, operation: 'remote-push'
       });
       if (pushed.status !== 0) {
         const branch = proposalBranch(candidateCommit, sourceCommit, refresh.product);
-        const retained = run('git', ['push', 'origin', `HEAD:refs/heads/${branch}`], {
-          cwd: root, allowFailure: true
+        const retained = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${branch}`], {
+          cwd: root, operation: 'remote-push'
         });
         if (retained.status !== 0) {
           throw new SingularityFlowError(
@@ -783,15 +789,19 @@ export async function refreshWorkspaceConfigurations({
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
   const targets = await registeredRepositories(registryFile, { workspace, repositories });
-  const observations = [];
-  for (const repository of targets) {
+  const workers = Math.max(1, Math.min(
+    8,
+    Number(process.env.SINGULARITY_FLOW_GIT_WORKERS ?? 4) || 4,
+    targets.length || 1
+  ));
+  const observations = await mapLimit(targets, workers, async (repository) => {
     try {
-      const commit = remoteHead(repository.remote);
-      observations.push({ repository, commit, error: null });
+      const commit = await remoteHead(repository.remote);
+      return { repository, commit, error: null };
     } catch (error) {
-      observations.push({ repository, commit: null, error });
+      return { repository, commit: null, error };
     }
-  }
+  });
   const unreachable = observations.filter((item) => item.error);
   if (unreachable.length) {
     return {
@@ -807,28 +817,24 @@ export async function refreshWorkspaceConfigurations({
   }
 
   if (dryRun) {
-    const results = [];
-    const planCandidates = [];
-    for (const observation of observations) {
+    const prepared = await mapLimit(observations, workers, async (observation) => {
       if (!observation.commit) {
-        planCandidates.push({
+        const planCandidate = {
           repository: observation.repository, sourceCommit: null,
           stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
-        });
-        results.push({
+        };
+        return { planCandidate, result: {
           status: 'would-initialize', repository: observation.repository.id,
           remote: observation.repository.displayRemote, memberships: observation.repository.memberships,
           configurationChanged: true, stateChanged: true
-        });
-        continue;
+        } };
       }
       const candidate = await prepareCandidate(observation.repository, {
         dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
       });
-      planCandidates.push(candidate);
       try {
         const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
-        results.push({
+        return { planCandidate: candidate, result: {
           status: candidate.refresh.changed || stateChanged ? 'would-update' : 'current',
           repository: observation.repository.id,
           remote: observation.repository.displayRemote,
@@ -842,11 +848,13 @@ export async function refreshWorkspaceConfigurations({
           extraStatePaths: candidate.stateBefore.extraPaths,
           files: candidate.refresh.files,
           conflicts: candidate.refresh.conflicts
-        });
+        } };
       } finally {
         await rm(candidate.root, { recursive: true, force: true });
       }
-    }
+    });
+    const planCandidates = prepared.map((entry) => entry.planCandidate);
+    const results = prepared.map((entry) => entry.result);
     return {
       status: 'preview', dryRun: true, planId: refreshPlanId(planCandidates, normalizedResolutions),
       total: targets.length, updated: 0, results
@@ -862,22 +870,27 @@ export async function refreshWorkspaceConfigurations({
   if (confirmPlan && observations.some((item) => !item.commit)) {
     const confirmationCandidates = [];
     const confirmationFailures = [];
-    for (const observation of observations) {
+    const prepared = await mapLimit(observations, workers, async (observation) => {
       if (!observation.commit) {
-        confirmationCandidates.push({
+        return { observation, candidate: {
           repository: observation.repository, sourceCommit: null,
           stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
-        });
-        continue;
+        }, retained: false, error: null };
       }
       try {
         const candidate = await prepareCandidate(observation.repository, {
           acceptBundledConflicts, resolutions: normalizedResolutions
         });
-        candidates.push(candidate);
-        confirmationCandidates.push(candidate);
+        return { observation, candidate, retained: true, error: null };
       } catch (error) {
-        confirmationFailures.push({ observation, error });
+        return { observation, candidate: null, retained: false, error };
+      }
+    });
+    for (const entry of prepared) {
+      if (entry.error) confirmationFailures.push({ observation: entry.observation, error: entry.error });
+      else {
+        confirmationCandidates.push(entry.candidate);
+        if (entry.retained) candidates.push(entry.candidate);
       }
     }
     if (confirmationFailures.length) {
@@ -912,16 +925,18 @@ export async function refreshWorkspaceConfigurations({
 
   // New workspace repositories receive the same authority as a normal bootstrap after any bound
   // preview has been validated. Existing authorities remain untouched during this step.
-  const initializationFailures = [];
-  for (const observation of observations.filter((item) => !item.commit)) {
+  const initialized = await mapLimit(
+    observations.filter((item) => !item.commit), workers, async (observation) => {
     try {
       await ensureConfigurationBranch(observation.repository.remote, {
         sourceBranch: observation.repository.defaultBranch
       });
+      return { observation, error: null };
     } catch (error) {
-      initializationFailures.push({ observation, error });
+      return { observation, error };
     }
-  }
+  });
+  const initializationFailures = initialized.filter((entry) => entry.error);
   if (initializationFailures.length) {
     await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
     return {
@@ -937,16 +952,20 @@ export async function refreshWorkspaceConfigurations({
     };
   }
 
-  const preparationFailures = [];
-  for (const observation of observations) {
-    if (previewBoundPlanId && observation.commit) continue;
+  const toPrepare = observations.filter((observation) => !(previewBoundPlanId && observation.commit));
+  const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
-      candidates.push(await prepareCandidate(observation.repository, {
+      const candidate = await prepareCandidate(observation.repository, {
         acceptBundledConflicts, resolutions: normalizedResolutions
-      }));
+      });
+      return { observation, candidate, error: null };
     } catch (error) {
-      preparationFailures.push({ observation, error });
+      return { observation, candidate: null, error };
     }
+  });
+  const preparationFailures = prepared.filter((entry) => entry.error);
+  for (const entry of prepared) {
+    if (entry.candidate) candidates.push(entry.candidate);
   }
   if (preparationFailures.length) {
     await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
@@ -977,18 +996,18 @@ export async function refreshWorkspaceConfigurations({
     };
   }
 
-  const results = [];
+  let results = [];
   try {
-    for (const candidate of candidates) {
-      try { results.push(await publishCandidate(candidate)); }
+    results = await mapLimit(candidates, workers, async (candidate) => {
+      try { return await publishCandidate(candidate); }
       catch (error) {
-        results.push({
+        return {
           status: 'failed', repository: candidate.repository.id,
           remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
           configurationChanged: false, stateChanged: false, error: error.message
-        });
+        };
       }
-    }
+    });
   } finally {
     await Promise.all(candidates.map((candidate) => rm(candidate.root, { recursive: true, force: true })));
   }

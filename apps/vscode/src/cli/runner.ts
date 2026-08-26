@@ -28,6 +28,11 @@ export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */
 const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
 
+/** Remote Git launched by the extension must never wait for an invisible credential prompt. */
+function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
+  return { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+}
+
 /*
  * Constructors assign their fields explicitly rather than using TypeScript parameter properties.
  * Parameter properties are the one common syntax that cannot be *stripped* — they emit assignments —
@@ -167,7 +172,10 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
     for (const remote of names) {
       const advertised = spawnSync('git', [
         'ls-remote', '--heads', '--', remote, 'refs/heads/sflow/config', 'refs/heads/state'
-      ], { cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 15_000 });
+      ], {
+        cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 30_000,
+        env: nonInteractiveGitEnvironment()
+      });
       if (advertised.status !== 0) continue;
       const branches = new Set(advertised.stdout.split(/\r?\n/)
         .map((line) => line.trim().split(/\s+/)[1]).filter(Boolean));
@@ -181,7 +189,10 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
         const fetched = spawnSync('git', [
           'fetch', '--quiet', '--no-tags', '--force', '--', remote,
           `+refs/heads/${authorityBranch}:${destination}`
-        ], { cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+        ], {
+          cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 120_000,
+          env: nonInteractiveGitEnvironment()
+        });
         if (fetched.status === 0
           && (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable())) return canonical;
       }

@@ -17,6 +17,7 @@ import {
 } from './publication-pending.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, run } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 export const GOVERNED_GOAL_AUTHORITY = 'governed-execution';
 export const GOVERNED_GOAL_ID = /^GEX-[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -93,7 +94,12 @@ export function governedGoalRelative(id, suffix = '') {
 }
 
 function git(root, args, { allowFailure = false } = {}) {
-  const result = run('git', args, { cwd: root, allowFailure: true });
+  const result = ['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])
+    ? runRemoteGit(args, {
+      cwd: root,
+      operation: args[0] === 'push' ? 'remote-push' : args[0] === 'ls-remote' ? 'remote-probe' : 'remote-configuration'
+    })
+    : run('git', args, { cwd: root, allowFailure: true });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError(
       `Git could not ${args[0]} the governed Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,

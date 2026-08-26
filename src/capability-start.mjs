@@ -32,6 +32,7 @@ import {
   resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 
 /**
  * Which branches each repository publishes.
@@ -45,8 +46,8 @@ export function publishedBranches(repositories, { timeoutMs = 20000 } = {}) {
   const published = {};
   const unreachable = [];
   for (const repository of repositories) {
-    const result = run('git', ['ls-remote', '--heads', '--', repository.url], {
-      allowFailure: true, timeoutMs
+    const result = runRemoteGit(['ls-remote', '--heads', '--', repository.url], {
+      operation: 'remote-probe', timeoutMs
     });
     if (result.status !== 0) {
       published[repository.id] = [];

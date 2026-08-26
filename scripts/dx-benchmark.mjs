@@ -458,7 +458,25 @@ const commands = {
    */
   snapshotUi: ['snapshot', '--include', 'repository', '--include', 'lifecycle', '--include', 'capabilities', '--json'],
   /** Compatibility/full-domain read, retained and measured because external consumers may use it. */
-  snapshotFull: ['snapshot', '--json']
+  snapshotFull: ['snapshot', '--json'],
+  /**
+   * Read-only commands a person waits on, none of which anything measured. `[UXH:REQ-120]`
+   *
+   * The four budgeted commands above are the four served by their own lazy modules. Eighty-one of
+   * the ninety-eight registered commands are not: they dispatch to `commands/legacy.mjs`, which
+   * fronts a 264-module static closure, and ten of those are reads. So the commands with a measured
+   * budget were exactly the commands that had been made fast, and the ones carrying ~120 ms of
+   * module load before doing anything were the ones nobody was allowed to notice.
+   *
+   * These four are the reads that run on this fixture without arguments or setup. `doctor` and
+   * `validate` refuse it, `choices` needs a subcommand, and `show`/`progress`/`receipt` need a
+   * handle — worth adding when the fixture can satisfy them, rather than reshaping the fixture
+   * around the benchmark.
+   */
+  help: ['help'],
+  inbox: ['inbox'],
+  guide: ['guide'],
+  logs: ['logs']
 };
 
 if (acceptedReportPath) {

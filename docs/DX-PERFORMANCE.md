@@ -12,6 +12,12 @@ four commands. Repository-only snapshot p95 must be at most 250 ms. A comparable
 baseline also rejects a p50 or p95 regression greater than 20 percent, even when the absolute
 budget still passes.
 
+`help`, `inbox`, `guide` and `logs` are measured too, and budgeted separately and much higher. They
+are reads served by the legacy dispatcher rather than by a lazy command module, so each pays about
+120 ms loading `cli.mjs` and its 264-module closure before doing anything — 166 to 231 ms in total
+against the fast four's 37 to 102 ms. The budgets record that rather than wish it away. The number
+to lower is the module load, and lowering it is what should lower these.
+
 The fixture topology and runtime are declared in
 `benchmarks/dx/reference-fixture.json`: Node 22, Linux x64 on `ubuntu-latest`, 500 tracked files,
 four untracked files, four local branches, one Story, and no prebuilt local subject index. The

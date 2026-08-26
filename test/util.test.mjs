@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { NETWORK_TIMEOUT_MS, defaultTimeoutFor, networkDisabled, run, writeJson, writeText } from '../src/util.mjs';
+import {
+  NETWORK_TIMEOUT_MS, SUBPROCESS_MAX_BUFFER_BYTES, defaultTimeoutFor, networkDisabled, run, writeJson, writeText
+} from '../src/util.mjs';
 
 test('shared atomic writers tolerate concurrent writes without temporary-file collisions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-util-concurrent-'));
@@ -77,4 +79,50 @@ test('the no-network switch actually reaches the subprocess it names', () => {
 
   // Without allowFailure the caller is told why, rather than being handed an empty answer.
   assert.throws(() => run('gh', ['api', 'user'], { env }), (error) => error.code === 'NETWORK_DISABLED');
+});
+
+test('a read big enough to matter is not a crash, and a read too big says so', () => {
+  /**
+   * Node caps `spawnSync` output at 1 MiB, and `run` left that default in place.
+   *
+   * Measured on a 16,000-file fixture: `git ls-files --stage -z` emits 1,145,928 bytes, so
+   * `snapshot --json` did not get slower on a large repository — it stopped working, with
+   * `Unable to run git: spawnSync git ENOBUFS` and nothing naming the command that overflowed or
+   * how much it produced. The threshold is roughly 14,600 tracked files, which is an ordinary
+   * repository, and the read path reaches it through `worktree-fingerprint`, `grounding` and
+   * `state` alike.
+   *
+   * Fifteen call sites had already been given an explicit ceiling, one at a time, each presumably
+   * after someone hit this. Three hundred and fifty-eight had not. The bound belongs on the
+   * primitive for the same reason the network timeout does: it covers the ones that exist and the
+   * ones nobody has written yet.
+   */
+  const twoMiB = run(process.execPath, ['-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024))']);
+  assert.equal(twoMiB.status, 0, 'a two-megabyte read was refused by the default ceiling');
+  assert.equal(twoMiB.stdout.length, 2 * 1024 * 1024);
+  assert.ok(SUBPROCESS_MAX_BUFFER_BYTES > 1024 * 1024, 'the default ceiling is still Node\'s');
+
+  /**
+   * A ceiling that is reached must name itself.
+   *
+   * `ENOBUFS` alone sends a reader to the network stack, which is where I first went: the string
+   * appears in `spawnSync`'s message with no byte count, no ceiling and no argv, and the failing
+   * Git call has to be found by elimination.
+   */
+  assert.throws(
+    () => run(process.execPath, ['-e', 'process.stdout.write("x".repeat(4096))'], { maxBuffer: 1024 }),
+    (error) => {
+      assert.equal(error.code, 'SUBPROCESS_OUTPUT_TOO_LARGE');
+      assert.match(error.message, /1024/, 'the ceiling that was reached is not in the message');
+      assert.match(error.message, new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return true;
+    }
+  );
+
+  // `allowFailure` keeps its contract: the caller asked to handle failure itself.
+  const allowed = run(process.execPath, ['-e', 'process.stdout.write("x".repeat(4096))'],
+    { maxBuffer: 1024, allowFailure: true });
+  assert.notEqual(allowed.status, 0);
+  assert.equal(allowed.blocked, false);
+  assert.equal(allowed.timedOut, false);
 });

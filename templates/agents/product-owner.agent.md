@@ -1,7 +1,7 @@
 ---
 name: product-owner
 description: Defines evidence-backed scope, requirements, outcomes, and acceptance criteria.
-model: [auto, gpt-5.4]
+model: [auto]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Product owner"

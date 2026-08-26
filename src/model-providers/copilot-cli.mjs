@@ -36,7 +36,7 @@ const RESERVED_OPTIONS = Object.freeze([
   '--allow-all-tools', '--allow-all', '--allow-all-paths', '--allow-all-urls', '--yolo',
   '--add-dir', '--deny-tool', '--excluded-tools', '--additional-mcp-config',
   '--enable-all-github-mcp-tools', '--add-github-mcp-tool', '--add-github-mcp-toolset',
-  '--plugin-dir', '--acp', '--stdio'
+  '--plugin-dir', '--acp', '--stdio', '--max-ai-credits'
 ]);
 
 const ACP_BOUNDARY_OPTIONS = Object.freeze([
@@ -159,19 +159,74 @@ function acpPermissionOutcome(tools, params) {
 }
 
 function acpUsage(value) {
-  if (!value || !Number.isFinite(value.totalTokens)
-    || !Number.isFinite(value.inputTokens) || !Number.isFinite(value.outputTokens)) {
-    return { status: 'unavailable' };
-  }
+  if (!value || typeof value !== 'object') return { status: 'unavailable' };
+  const observed = Object.fromEntries([
+    ['totalTokens', value.totalTokens], ['inputTokens', value.inputTokens],
+    ['outputTokens', value.outputTokens], ['reasoningTokens', value.thoughtTokens],
+    ['cachedInputTokens', value.cachedReadTokens], ['cacheWriteInputTokens', value.cachedWriteTokens]
+  ].filter(([, item]) => Number.isFinite(item) && item >= 0).map(([key, item]) => [key, Number(item)]));
+  const core = ['totalTokens', 'inputTokens', 'outputTokens'];
+  if (!Object.keys(observed).length) return { status: 'unavailable' };
   return {
-    status: 'exact', assurance: 'provider-reported',
-    totalTokens: Number(value.totalTokens),
-    inputTokens: Number(value.inputTokens),
-    outputTokens: Number(value.outputTokens),
-    ...(Number.isFinite(value.thoughtTokens) ? { reasoningTokens: Number(value.thoughtTokens) } : {}),
-    ...(Number.isFinite(value.cachedReadTokens) ? { cachedInputTokens: Number(value.cachedReadTokens) } : {}),
-    ...(Number.isFinite(value.cachedWriteTokens) ? { cacheWriteInputTokens: Number(value.cachedWriteTokens) } : {})
+    status: core.every((key) => observed[key] != null) ? 'exact' : 'partial',
+    assurance: 'provider-reported',
+    ...observed,
   };
+}
+
+function boundedToolName(value, fallback = 'unknown') {
+  const normalized = String(value ?? '').trim().replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 80);
+  return normalized || fallback;
+}
+
+function serializedBytes(value) {
+  if (value == null) return 0;
+  try { return Buffer.byteLength(JSON.stringify(value), 'utf8'); }
+  catch { return 0; }
+}
+
+function truncationObserved(value, seen = new Set(), depth = 0) {
+  if (value == null || depth > 8) return false;
+  if (typeof value === 'string') return /(?:\btruncated\b|output limit reached|result limit reached)/i.test(value);
+  if (typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((item) => truncationObserved(item, seen, depth + 1));
+  return Object.entries(value).some(([key, item]) => (
+    /truncat/i.test(key) && item !== false && item != null && item !== 0 && item !== 'false'
+  ) || truncationObserved(item, seen, depth + 1));
+}
+
+function acpSessionModel(session) {
+  const extensionModel = session?.models?.currentModelId;
+  if (typeof extensionModel === 'string' && extensionModel.trim()) return extensionModel.trim();
+  const option = session?.configOptions?.find((entry) => (
+    entry?.category === 'model' || entry?.id === 'model'
+  ));
+  return typeof option?.currentValue === 'string' && option.currentValue.trim()
+    ? option.currentValue.trim() : null;
+}
+
+async function acpTelemetryObservation(request) {
+  const file = request.telemetry?.rawAbsolute;
+  if (!file) return { resolvedModels: [], modelAssurance: 'unavailable', turns: null };
+  const info = await lstat(file).catch(() => null);
+  if (!info?.isFile() || info.isSymbolicLink() || info.size < 1) {
+    return { resolvedModels: [], modelAssurance: 'unavailable', turns: null };
+  }
+  try {
+    const { parseCopilotTelemetry } = await import('../telemetry.mjs');
+    const parsed = parseCopilotTelemetry(await readFile(file, 'utf8'));
+    const resolvedModels = [...new Set(parsed.spans
+      .filter((span) => span.resolvedModel && span.resolvedModelAssurance === 'provider-reported')
+      .map((span) => span.resolvedModel))];
+    return {
+      resolvedModels,
+      modelAssurance: resolvedModels.length ? 'provider-reported' : 'unavailable',
+      turns: parsed.spans.length || null
+    };
+  } catch {
+    return { resolvedModels: [], modelAssurance: 'unavailable', turns: null };
+  }
 }
 
 function inside(candidate, root) {
@@ -319,7 +374,11 @@ async function invokeCopilotAcp(request) {
     ...copilotAllowedRootArguments(request)
   ];
   args.push(...copilotToolArguments(request.tools));
-  if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
+  // `auto` is an explicit provider decision, not the contributor's last interactive selection.
+  // Passing it makes each isolated ACP session ask Copilot to choose the appropriate model.
+  const requestedModel = request.model ?? configured.model ?? 'auto';
+  args.push('--model', requestedModel);
+  args.push('--max-ai-credits', String(request.limits.maxAiCredits ?? 8));
   const outputLimit = request.limits.outputBytes;
   const protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
@@ -335,10 +394,12 @@ async function invokeCopilotAcp(request) {
   let expectedExit = false;
   let stderr = ''; let stderrBytes = 0; let output = ''; let outputBytes = 0;
   let protocolBytes = 0; let protocolVersion = null; let sessionId = null;
+  let providerSelectedModel = null; let promptResult = null;
   const stderrDecoder = new StringDecoder('utf8');
   const protocolDecoder = new StringDecoder('utf8');
   let protocolPending = '';
   let boundaryReject;
+  let boundaryStopped = false;
   const boundaryFailure = new Promise((resolve, reject) => { boundaryReject = reject; });
   child.stderr?.on('data', (chunk) => {
     stderrBytes += chunk.length;
@@ -385,36 +446,141 @@ async function invokeCopilotAcp(request) {
         }
       }
       controller.enqueue(chunk);
+    },
+    flush() {
+      protocolPending += protocolDecoder.end();
+      if (!protocolPending.trim()) return;
+      try { JSON.parse(protocolPending); }
+      catch {
+        const error = new SingularityFlowError(`${providerLabel} ended with malformed ACP NDJSON.`, {
+          code: 'MODEL_PROVIDER_PROTOCOL_FAILED'
+        });
+        boundaryReject(error);
+        throw error;
+      }
     }
   }));
   const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), guardedInput);
   const toolCalls = new Map();
+  const activeToolCalls = new Set();
+  let toolRounds = 0;
+  const maximumToolCalls = request.limits.maxToolCalls ?? 64;
+  const maximumTurns = request.limits.maxTurns ?? 16;
+  const maximumToolResultBytes = request.limits.maxToolResultBytes ?? 1024 * 1024;
+  const toolObservation = (exactTurns = null) => {
+    const calls = [...toolCalls.values()].sort((a, b) => a.sequence - b.sequence).map((entry) => ({
+      sequence: entry.sequence,
+      name: boundedToolName(entry.name, boundedToolName(entry.kind)),
+      kind: boundedToolName(entry.kind),
+      status: ['pending', 'in_progress', 'completed', 'failed'].includes(entry.status)
+        ? entry.status : 'unknown',
+      outputBytes: Number.isSafeInteger(entry.outputBytes) ? entry.outputBytes : 0,
+      truncated: entry.truncated === true,
+      preparationFailed: entry.preparationFailed === true
+    }));
+    return {
+      status: 'exact', calls,
+      totalCalls: calls.length,
+      failedCalls: calls.filter((entry) => entry.status === 'failed' || entry.preparationFailed).length,
+      incompleteCalls: calls.filter((entry) => ['pending', 'in_progress', 'unknown'].includes(entry.status)).length,
+      truncatedCalls: calls.filter((entry) => entry.truncated).length,
+      turns: exactTurns ?? Math.max(1, toolRounds + 1),
+      turnAssurance: exactTurns == null ? 'protocol-derived' : 'provider-telemetry'
+    };
+  };
+  const modelSelectionReceipt = (resolvedModels = [], assurance = 'unavailable') => ({
+    policy: requestedModel === 'auto' ? 'provider-auto' : 'sflow-selected',
+    requestedModel,
+    providerSelectedModel,
+    resolvedModels,
+    assurance: assurance !== 'unavailable'
+      ? assurance : providerSelectedModel && providerSelectedModel !== 'auto'
+        ? 'acp-session' : 'unavailable'
+  });
+  const boundaryError = (message, code, details = {}) => {
+    const error = new SingularityFlowError(message, {
+      code, details: {
+        ...details,
+        modelSelection: modelSelectionReceipt(),
+        toolObservation: toolObservation()
+      }
+    });
+    if (!boundaryStopped) {
+      boundaryStopped = true;
+      boundaryReject(error);
+    }
+    return error;
+  };
   const connection = new acp.ClientSideConnection(() => ({
     async requestPermission(params) { return { outcome: acpPermissionOutcome(request.tools, params) }; },
     async sessionUpdate(params) {
+      if (boundaryStopped) return;
       const update = params.update;
       if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
-        const prior = toolCalls.get(update.toolCallId) ?? {};
+        const isNew = !toolCalls.has(update.toolCallId);
+        if (isNew && toolCalls.size >= maximumToolCalls) {
+          boundaryError(
+            `${providerLabel} exceeded the ${maximumToolCalls}-call ACP tool budget.`,
+            'MODEL_TOOL_CALL_LIMIT', { maximumToolCalls }
+          );
+          return;
+        }
+        if (isNew && activeToolCalls.size === 0) {
+          toolRounds += 1;
+          if (toolRounds + 1 > maximumTurns) {
+            boundaryError(
+              `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
+              'MODEL_TURN_LIMIT', { maximumTurns }
+            );
+            return;
+          }
+        }
+        const prior = toolCalls.get(update.toolCallId) ?? {
+          sequence: toolCalls.size + 1, status: 'pending', outputBytes: 0,
+          truncated: false, preparationFailed: false
+        };
+        const toolOutput = update.rawOutput ?? update.content;
         const current = {
           ...prior,
           ...(update.name != null ? { name: update.name } : {}),
           ...(update.kind != null ? { kind: update.kind } : {}),
-          ...(update.rawInput != null ? { rawInput: update.rawInput } : {})
+          ...(update.status != null ? { status: update.status } : {}),
+          ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
+          ...(toolOutput != null ? {
+            outputBytes: serializedBytes(toolOutput),
+            truncated: prior.truncated || truncationObserved(toolOutput)
+          } : {})
         };
         toolCalls.set(update.toolCallId, current);
-        // A refused/unsafe target remains absent and Copilot's own tool reports the normal failure.
-        // Do not widen the path boundary or leak raw tool input into diagnostics.
-        await precreateAcpEditTarget(request, current).catch(() => {});
+        if (!['completed', 'failed'].includes(current.status)) activeToolCalls.add(update.toolCallId);
+        else activeToolCalls.delete(update.toolCallId);
+        if (current.outputBytes > maximumToolResultBytes) {
+          boundaryError(
+            `${providerLabel} ACP tool result exceeded ${maximumToolResultBytes} bytes.`,
+            'MODEL_TOOL_RESULT_LIMIT', { maximumToolResultBytes }
+          );
+          return;
+        }
+        try { await precreateAcpEditTarget(request, current); }
+        catch {
+          current.preparationFailed = true;
+          toolCalls.set(update.toolCallId, current);
+          boundaryError(
+            `${providerLabel} could not safely materialize an authorized ACP create target.`,
+            'MODEL_CREATE_TARGET_FAILED'
+          );
+          return;
+        }
       }
       if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
       const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
       outputBytes += chunkBytes;
       if (outputBytes > outputLimit) {
-        const error = new SingularityFlowError(`${providerLabel} output exceeded ${outputLimit} bytes.`, {
-          code: 'MODEL_OUTPUT_LIMIT'
-        });
-        boundaryReject(error);
-        throw error;
+        boundaryError(
+          `${providerLabel} output exceeded ${outputLimit} bytes.`,
+          'MODEL_OUTPUT_LIMIT', { outputLimit }
+        );
+        return;
       }
       output += update.content.text;
     }
@@ -448,29 +614,38 @@ async function invokeCopilotAcp(request) {
       protocolVersion = initialized.protocolVersion;
       const session = await connection.newSession({ cwd: request.cwd, mcpServers: [] });
       sessionId = session.sessionId;
+      providerSelectedModel = acpSessionModel(session);
+      if (requestedModel !== 'auto' && providerSelectedModel && providerSelectedModel !== requestedModel) {
+        const modelSelection = modelSelectionReceipt();
+        throw new SingularityFlowError(
+          `${providerLabel} selected '${providerSelectedModel}' instead of required model '${requestedModel}'.`,
+          {
+            code: 'MODEL_NOT_AVAILABLE', details: {
+              requestedModel, providerSelectedModel, modelSelection, transport: 'acp-stdio'
+            }
+          }
+        );
+      }
       const result = await connection.prompt({
         sessionId, prompt: [{ type: 'text', text: promptText }]
       });
       if (result.stopReason !== 'end_turn') {
         throw new SingularityFlowError(`Copilot ACP stopped with reason '${result.stopReason}'.`, {
-          code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED' : 'MODEL_PROVIDER_FAILED',
+          code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED'
+            : ['max_tokens', 'max_turn_requests'].includes(result.stopReason)
+              ? 'MODEL_TOKEN_BUDGET_EXCEEDED' : 'MODEL_PROVIDER_FAILED',
           details: { stopReason: result.stopReason, transport: 'acp-stdio' }
         });
       }
       return result;
     })();
-    const result = await Promise.race([operation, processFailure, boundaryFailure, timeout, cancellation]);
+    promptResult = await Promise.race([operation, processFailure, boundaryFailure, timeout, cancellation]);
     if (stderrBytes > outputLimit) {
       throw new SingularityFlowError(`${providerLabel} diagnostics exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' });
     }
-    if (!output.trim() && unavailableModelDiagnostic(stderr)) {
+    if (unavailableModelDiagnostic(stderr) && requestedModel !== 'auto') {
       throw providerExitError(providerLabel, 0, null, stderr);
     }
-    return {
-      output: output.trim(), diagnostics: stderr.trim(), status: 0, signal: null,
-      outputBytes, usage: acpUsage(result.usage),
-      promptTransport: 'acp-stdio', promptProtocolVersion: protocolVersion
-    };
   } catch (error) {
     if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
     if (error instanceof SingularityFlowError) throw error;
@@ -489,10 +664,65 @@ async function invokeCopilotAcp(request) {
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
     terminateAcpProcess(child, true);
     const ended = await Promise.race([exit, new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: 'SIGKILL' }), 1000))]);
+    // Flush a trailing split UTF-8 diagnostic in the ordinary successful-exit path too. The
+    // unexpected-exit handler already does this; StringDecoder.end() is safe to call again.
+    stderr += stderrDecoder.end();
     if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
       state: 'finished', exitCode: ended.status, signal: ended.signal
     }).catch(() => {});
   }
+
+  const telemetry = await acpTelemetryObservation(request);
+  const observation = toolObservation(telemetry.turns);
+  const modelSelection = modelSelectionReceipt(
+    telemetry.resolvedModels, telemetry.modelAssurance
+  );
+  if (requestedModel !== 'auto' && telemetry.resolvedModels.length
+      && telemetry.resolvedModels.some((model) => model !== requestedModel)) {
+    throw new SingularityFlowError(
+      `${providerLabel} executed a model different from required model '${requestedModel}'.`,
+      { code: 'MODEL_SELECTION_MISMATCH', details: { modelSelection, toolObservation: observation } }
+    );
+  }
+  const usage = acpUsage(promptResult?.usage);
+  if (Number.isFinite(usage.totalTokens) && usage.totalTokens > request.limits.maxTotalTokens) {
+    throw new SingularityFlowError(
+      `${providerLabel} exceeded the ${request.limits.maxTotalTokens}-token invocation budget.`,
+      {
+        code: 'MODEL_TOKEN_BUDGET_EXCEEDED',
+        details: { maximumTotalTokens: request.limits.maxTotalTokens, observedTotalTokens: usage.totalTokens, modelSelection, toolObservation: observation }
+      }
+    );
+  }
+  if (observation.turns > maximumTurns) {
+    throw new SingularityFlowError(
+      `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
+      { code: 'MODEL_TURN_LIMIT', details: { maximumTurns, modelSelection, toolObservation: observation } }
+    );
+  }
+  if (request.tools.requireSuccessful
+      && (observation.failedCalls || observation.incompleteCalls)) {
+    throw new SingularityFlowError(
+      `${providerLabel} completed with failed or incomplete ACP tool calls.`,
+      { code: 'MODEL_TOOL_EXECUTION_FAILED', details: { modelSelection, toolObservation: observation } }
+    );
+  }
+  if (request.tools.rejectTruncated && observation.truncatedCalls) {
+    throw new SingularityFlowError(
+      `${providerLabel} completed after one or more ACP tool results were truncated.`,
+      { code: 'MODEL_TOOL_RESULT_TRUNCATED', details: { modelSelection, toolObservation: observation } }
+    );
+  }
+  const normalizedOutput = output.trim();
+  return {
+    output: normalizedOutput, diagnostics: stderr.trim(), status: 0, signal: null,
+    outputBytes: Buffer.byteLength(normalizedOutput, 'utf8'), streamedOutputBytes: outputBytes,
+    usage, requestedModel,
+    model: telemetry.resolvedModels.length === 1
+      ? telemetry.resolvedModels[0] : providerSelectedModel ?? requestedModel,
+    modelSelection, toolObservation: observation,
+    promptTransport: 'acp-stdio', promptProtocolVersion: protocolVersion
+  };
 }
 
 async function invokeCopilotAttachment(request) {
@@ -547,7 +777,9 @@ async function invokeCopilotAttachment(request) {
     '--attachment', request.prompt.file, '-p', COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT
   ];
   args.push(...copilotToolArguments(request.tools));
-  if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
+  const requestedModel = request.model ?? configured.model ?? 'auto';
+  args.push('--model', requestedModel);
+  args.push('--max-ai-credits', String(request.limits.maxAiCredits ?? 8));
   const timeoutMs = request.limits.timeoutMs;
   const outputLimit = request.limits.outputBytes;
   // Telemetry is observational. A missing/unwritable local receipt must never prevent the
@@ -641,11 +873,20 @@ async function invokeCopilotAttachment(request) {
       // Some Copilot CLI releases report an unavailable/retired --model on stderr while exiting
       // zero. Treating that as a completed invocation caused parallel world-model discovery to fan
       // out seven empty workers and hid the only useful diagnostic.
-      if (!stdout.trim() && unavailableModelDiagnostic(stderr)) {
+      if (unavailableModelDiagnostic(stderr) && requestedModel !== 'auto') {
         return reject(providerExitError(providerLabel, status, signal, stderr));
       }
+      const normalizedOutput = stdout.trim();
       resolve({
-        output: stdout.trim(), diagnostics: stderr.trim(), status, signal, outputBytes,
+        output: normalizedOutput, diagnostics: stderr.trim(), status, signal,
+        outputBytes: Buffer.byteLength(normalizedOutput, 'utf8'), streamedOutputBytes: outputBytes,
+        usage: { status: 'unavailable' }, requestedModel, model: requestedModel,
+        modelSelection: {
+          policy: requestedModel === 'auto' ? 'provider-auto' : 'sflow-selected',
+          requestedModel, providerSelectedModel: requestedModel,
+          resolvedModels: [], assurance: 'unavailable'
+        },
+        toolObservation: { status: 'unavailable', calls: null },
         promptTransport: 'attachment', promptProtocolVersion: null
       });
     });

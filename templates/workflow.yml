@@ -198,7 +198,8 @@ ast:
 # Trusted kernel-owned model providers. Arguments are passed directly without a
 # shell; credentials remain in the provider/host environment and are never stored here.
 # The Copilot adapter owns cwd, private ACP prompt transport, model, and tool-policy flags. Keep
-# arguments free of -C, -p/--prompt, --acp, --stdio, --attachment, --model, and
+# arguments free of -C, -p/--prompt, --acp, --stdio, --attachment, --model,
+# --max-ai-credits, and
 # --allow*/--available-tools. `attachment` is explicit legacy compatibility only.
 models:
   defaultProvider: copilot-cli

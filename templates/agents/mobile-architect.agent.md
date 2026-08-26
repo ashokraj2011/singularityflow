@@ -1,7 +1,7 @@
 ---
 name: mobile-architect
 description: Maps governed design evidence to mobile architecture and implementation contracts.
-model: [gpt-5.4, auto]
+model: [auto]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Mobile architect"

@@ -40,7 +40,16 @@ for await (const line of lines) {
     }});
   } else if (message.method === 'session/new') {
     cwd = message.params.cwd;
-    send({ jsonrpc: '2.0', id: message.id, result: { sessionId: 'fixture-session' }});
+    const modelIndex = process.argv.indexOf('--model');
+    const requestedModel = modelIndex >= 0 ? process.argv[modelIndex + 1] : 'auto';
+    const selectedModel = process.argv.includes('--fixture-model-mismatch')
+      ? 'fallback-model'
+      : process.argv.includes('--fixture-auto-select') && requestedModel === 'auto'
+        ? 'provider-choice-model' : requestedModel;
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      sessionId: 'fixture-session',
+      configOptions: [{ type: 'select', id: 'model', name: 'Model', category: 'model', currentValue: selectedModel, options: [] }]
+    }});
   } else if (message.method === 'session/prompt') {
     if (process.argv.includes('--fixture-hang')) continue;
     if (process.argv.includes('--fixture-malformed')) { process.stdout.write('not-json\\n'); continue; }
@@ -51,6 +60,7 @@ for await (const line of lines) {
       argv: process.argv.slice(2),
       envLeak: Object.values(process.env).some((value) => String(value).includes('ACP_CANARY_DO_NOT_LEAK'))
     });
+    if (process.argv.includes('--fixture-large-output')) result = 'x'.repeat(2048);
     if (process.argv.includes('--fixture-create-target')) {
       send({ jsonrpc: '2.0', method: 'session/update', params: {
         sessionId: message.params.sessionId,
@@ -61,7 +71,34 @@ for await (const line of lines) {
       }});
       await new Promise((resolve) => setTimeout(resolve, 30));
       const created = await access(prompt).then(() => true, () => false);
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: message.params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update', toolCallId: 'create-target',
+          name: 'edit', kind: 'edit', status: 'completed', rawOutput: { bytes: 0 }
+        }
+      }});
       result = JSON.stringify({ created });
+    }
+    if (process.argv.includes('--fixture-tool-failure')) {
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: message.params.sessionId,
+        update: { sessionUpdate: 'tool_call', toolCallId: 'failed-read', title: 'read fixture', name: 'view', kind: 'read', status: 'failed', rawOutput: { code: 'NOT_FOUND' } }
+      }});
+    }
+    if (process.argv.includes('--fixture-tool-truncated')) {
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: message.params.sessionId,
+        update: { sessionUpdate: 'tool_call', toolCallId: 'truncated-read', title: 'read fixture', name: 'view', kind: 'read', status: 'completed', rawOutput: { truncated: true, bytes: 4096 } }
+      }});
+    }
+    if (process.argv.includes('--fixture-many-tools')) {
+      for (let index = 0; index < 4; index += 1) {
+        send({ jsonrpc: '2.0', method: 'session/update', params: {
+          sessionId: message.params.sessionId,
+          update: { sessionUpdate: 'tool_call', toolCallId: 'tool-' + index, title: 'search fixture', name: 'grep', kind: 'search', status: 'completed', rawOutput: { matches: index } }
+        }});
+      }
     }
     if (process.argv.includes('--fixture-permission')) {
       pendingPrompt = { id: message.id, sessionId: message.params.sessionId, result };
@@ -77,7 +114,9 @@ for await (const line of lines) {
     }
     send({ jsonrpc: '2.0', method: 'session/update', params: {
       sessionId: message.params.sessionId,
-      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: result }}
+      update: { sessionUpdate: 'agent_message_chunk', messageId: 'final', content: {
+        type: 'text', text: process.argv.includes('--fixture-whitespace') ? '  result  \\n' : result
+      }}
     }});
     send({ jsonrpc: '2.0', id: message.id, result: {
       stopReason: 'end_turn', usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4, thoughtTokens: 2 }
@@ -132,13 +171,88 @@ test('the Copilot provider sends verified prompt bytes over ACP stdio without ar
   assert.ok(observed.argv.includes('--no-custom-instructions'));
   assert.ok(!observed.argv.includes('--attachment'));
   assert.ok(!observed.argv.includes('-p'));
+  assert.equal(observed.argv[observed.argv.indexOf('--model') + 1], 'auto');
+  assert.equal(observed.argv[observed.argv.indexOf('--max-ai-credits') + 1], '8');
   assert.doesNotMatch(JSON.stringify(observed.argv), /ACP_CANARY_DO_NOT_LEAK/);
   assert.equal(observed.envLeak, false);
   assert.equal(result.promptTransport, 'acp-stdio');
   assert.equal(result.promptProtocolVersion, 1);
+  assert.equal(result.modelSelection.policy, 'provider-auto');
+  assert.equal(result.modelSelection.providerSelectedModel, 'auto');
   assert.deepEqual(result.usage, {
     status: 'exact', assurance: 'provider-reported', totalTokens: 12,
     inputTokens: 8, outputTokens: 4, reasoningTokens: 2
+  });
+});
+
+test('ACP records exact normalized output and fails closed on response and token budgets', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-budgets-'));
+  await t.test('normalized output receipt', async () => {
+    const result = await invokeAcp(root, { fixtureArguments: ['--fixture-whitespace'] });
+    assert.equal(result.output, 'result');
+    assert.equal(result.outputBytes, Buffer.byteLength(result.output));
+    assert.ok(result.streamedOutputBytes > result.outputBytes);
+  });
+  await t.test('assistant response overflow', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-large-output'], limits: { timeoutMs: 2000, outputBytes: 64 }
+    }), (error) => error.code === 'MODEL_OUTPUT_LIMIT');
+  });
+  await t.test('aggregate token budget', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxTotalTokens: 10 }
+    }), (error) => error.code === 'MODEL_TOKEN_BUDGET_EXCEEDED');
+  });
+});
+
+test('ACP audits tool outcomes and rejects failed, truncated, excessive-call, and excessive-turn sessions', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-tool-outcomes-'));
+  const tools = { mode: 'allowlist', names: ['read_file'], requireSuccessful: true, rejectTruncated: true };
+  await t.test('failed tool', async () => {
+    await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-tool-failure'], tools }),
+      (error) => error.code === 'MODEL_TOOL_EXECUTION_FAILED'
+        && error.details?.toolObservation?.failedCalls === 1
+        && !JSON.stringify(error.details).includes('NOT_FOUND'));
+  });
+  await t.test('truncated tool', async () => {
+    await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-tool-truncated'], tools }),
+      (error) => error.code === 'MODEL_TOOL_RESULT_TRUNCATED'
+        && error.details?.toolObservation?.truncatedCalls === 1);
+  });
+  await t.test('tool-call budget', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-many-tools'], tools,
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 2, maxTurns: 16 }
+    }), (error) => error.code === 'MODEL_TOOL_CALL_LIMIT');
+  });
+  await t.test('turn budget', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-many-tools'], tools,
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 8, maxTurns: 2 }
+    }), (error) => error.code === 'MODEL_TURN_LIMIT');
+  });
+});
+
+test('ACP refuses a concrete model substitution before sending the prompt', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-model-selection-'));
+  await assert.rejects(() => invokeAcp(root, {
+    fixtureArguments: ['--fixture-model-mismatch'], model: 'required-model'
+  }), (error) => error.code === 'MODEL_NOT_AVAILABLE'
+    && error.details?.requestedModel === 'required-model'
+    && error.details?.providerSelectedModel === 'fallback-model');
+});
+
+test('ACP accepts and records the concrete model selected by Copilot auto routing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-auto-model-'));
+  const result = await invokeAcp(root, {
+    fixtureArguments: ['--fixture-auto-select']
+  });
+  assert.equal(result.requestedModel, 'auto');
+  assert.equal(result.model, 'provider-choice-model');
+  assert.deepEqual(result.modelSelection, {
+    policy: 'provider-auto', requestedModel: 'auto',
+    providerSelectedModel: 'provider-choice-model', resolvedModels: [],
+    assurance: 'acp-session'
   });
 });
 
@@ -159,12 +273,19 @@ test('ACP supplies create_file semantics only inside admitted roots and only whe
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-'));
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-output-'));
   const target = path.join(outputRoot, 'nested', 'packet.md');
-  const created = JSON.parse((await invokeAcp(root, {
+  const createdResult = await invokeAcp(root, {
     fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: target },
     allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['create_file'] }
-  })).output);
+  });
+  const created = JSON.parse(createdResult.output);
   assert.equal(created.created, true);
   assert.equal(await readFile(target, 'utf8'), '');
+  assert.equal(createdResult.toolObservation.totalCalls, 1);
+  assert.deepEqual(createdResult.toolObservation.calls[0], {
+    sequence: 1, name: 'edit', kind: 'edit', status: 'completed',
+    outputBytes: 11, truncated: false, preparationFailed: false
+  });
+  assert.doesNotMatch(JSON.stringify(createdResult.toolObservation), /packet\.md|nested/);
 
   const editOnlyTarget = path.join(outputRoot, 'edit-only.md');
   const editOnly = JSON.parse((await invokeAcp(root, {

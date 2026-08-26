@@ -537,6 +537,18 @@ function modelInvocationAuditV3ToV4(source) {
   };
 }
 
+function modelInvocationAuditV4ToV5(source) {
+  return {
+    ...source,
+    schemaVersion: 5,
+    // Historical receipts did not distinguish the requested selector from the model that actually
+    // served the turn, and recorded only authorization rather than ACP tool outcomes.
+    requestedModel: source.requestedModel ?? source.model ?? null,
+    modelSelection: clone(source.modelSelection ?? null),
+    toolObservation: clone(source.toolObservation ?? null)
+  };
+}
+
 function observationSummaryV2ToV3(source) {
   const exitCode = source.source?.exitCode;
   const hasExitCode = Number.isInteger(exitCode);
@@ -725,11 +737,12 @@ const families = [
   family({ id: 'local-identity-reservation', currentVersion: 1, paths: [/^singularity\/identity-reservations\/[^/]+\.json$/], immutable: true }),
   family({ id: 'mcp-host-receipt', currentVersion: 1, paths: [/^\$git\/mcp\/(?:cache|receipts)\/[^/]+\.json$/] }),
   family({
-    id: 'model-invocation-audit', currentVersion: 4,
+    id: 'model-invocation-audit', currentVersion: 5,
     steps: [
       migration(1, 2, modelInvocationAuditV1ToV2),
       migration(2, 3, modelInvocationAuditV2ToV3),
-      migration(3, 4, modelInvocationAuditV3ToV4)
+      migration(3, 4, modelInvocationAuditV3ToV4),
+      migration(4, 5, modelInvocationAuditV4ToV5)
     ],
     paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
   }),

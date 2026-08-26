@@ -89,6 +89,23 @@ function positiveInteger(value, label) {
   return value;
 }
 
+const DEFAULT_MODEL_LIMITS = Object.freeze({
+  tools: Object.freeze({
+    maxToolCalls: 64,
+    maxTurns: 16,
+    maxTotalTokens: 250_000,
+    maxToolResultBytes: 1024 * 1024,
+    maxAiCredits: 8
+  }),
+  relay: Object.freeze({
+    maxToolCalls: 1,
+    maxTurns: 3,
+    maxTotalTokens: 64_000,
+    maxToolResultBytes: 64 * 1024,
+    maxAiCredits: 2
+  })
+});
+
 function observedUsage(usage, field) {
   const direct = usage?.[field];
   if (Number.isFinite(direct) && direct >= 0) return Number(direct);
@@ -172,12 +189,28 @@ async function normalizeRequest(request, context) {
   if (toolMode === 'allowlist' && !toolNames.length) {
     throw new SingularityFlowError('Model request tools.names must not be empty when tools.mode is allowlist.', { code: 'MODEL_REQUEST_INVALID' });
   }
+  for (const field of ['requireSuccessful', 'rejectTruncated']) {
+    if (request.tools?.[field] != null && typeof request.tools[field] !== 'boolean') {
+      throw new SingularityFlowError(`Model request tools.${field} must be boolean.`, { code: 'MODEL_REQUEST_INVALID' });
+    }
+  }
+  const defaultLimits = toolMode === 'none' ? DEFAULT_MODEL_LIMITS.relay : DEFAULT_MODEL_LIMITS.tools;
   const limits = {
     timeoutMs: positiveInteger(request.limits?.timeoutMs, 'limits.timeoutMs'),
     outputBytes: positiveInteger(request.limits?.outputBytes, 'limits.outputBytes'),
     promptBytes: request.limits?.promptBytes == null
       ? DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES
-      : positiveInteger(request.limits.promptBytes, 'limits.promptBytes')
+      : positiveInteger(request.limits.promptBytes, 'limits.promptBytes'),
+    maxToolCalls: request.limits?.maxToolCalls == null
+      ? defaultLimits.maxToolCalls : positiveInteger(request.limits.maxToolCalls, 'limits.maxToolCalls'),
+    maxTurns: request.limits?.maxTurns == null
+      ? defaultLimits.maxTurns : positiveInteger(request.limits.maxTurns, 'limits.maxTurns'),
+    maxTotalTokens: request.limits?.maxTotalTokens == null
+      ? defaultLimits.maxTotalTokens : positiveInteger(request.limits.maxTotalTokens, 'limits.maxTotalTokens'),
+    maxToolResultBytes: request.limits?.maxToolResultBytes == null
+      ? defaultLimits.maxToolResultBytes : positiveInteger(request.limits.maxToolResultBytes, 'limits.maxToolResultBytes'),
+    maxAiCredits: request.limits?.maxAiCredits == null
+      ? defaultLimits.maxAiCredits : positiveInteger(request.limits.maxAiCredits, 'limits.maxAiCredits')
   };
   const roots = request.allowedRoots?.length ? request.allowedRoots : [context.root].filter(Boolean);
   if (!roots.length || roots.some((root) => typeof root !== 'string' || !path.isAbsolute(root))) {
@@ -212,7 +245,11 @@ async function normalizeRequest(request, context) {
     cwd: resolvedCwd,
     allowedRoots: Object.freeze(resolvedRoots),
     channel: request.channel.trim(),
-    tools: Object.freeze({ mode: toolMode, names: Object.freeze([...toolNames]) }),
+    tools: Object.freeze({
+      mode: toolMode, names: Object.freeze([...toolNames]),
+      requireSuccessful: toolMode !== 'none' && request.tools?.requireSuccessful !== false,
+      rejectTruncated: toolMode !== 'none' && request.tools?.rejectTruncated !== false
+    }),
     limits: Object.freeze(limits)
   });
 }
@@ -382,6 +419,8 @@ export async function invokeModel(request) {
     rootOperationId: context.stack[0]?.id ?? context.operation.id,
     provider: providerId,
     model: routing?.model ?? normalized.model ?? null,
+    requestedModel: routing?.model ?? normalized.model ?? normalized.providerConfig?.model ?? 'auto',
+    modelSelection: null,
     // `[ADP:REQ-040]`: what was asked for, which mapping answered, what it resolved to, and what it
     // fell back through. Absent for a caller that named its model directly, which is how a reader
     // tells routed work from unrouted rather than having to infer it.
@@ -408,7 +447,12 @@ export async function invokeModel(request) {
     channel: normalized.channel,
     subject: normalized.subject ?? null,
     generationNonce: randomBytes(24).toString('base64url'),
-    toolPolicy: { mode: normalized.tools.mode, names: [...normalized.tools.names] },
+    toolPolicy: {
+      mode: normalized.tools.mode, names: [...normalized.tools.names],
+      requireSuccessful: normalized.tools.requireSuccessful,
+      rejectTruncated: normalized.tools.rejectTruncated
+    },
+    toolObservation: null,
     limits: normalized.limits,
     status: 'started',
     startedAt: nowIso(),
@@ -504,7 +548,7 @@ export async function invokeModel(request) {
           exitCode: result?.status ?? 0, signal: result?.signal ?? null
         });
         providerStartedAt = null;
-        resolvedModel = candidate;
+        resolvedModel = result.model ?? candidate ?? result.requestedModel ?? 'auto';
         break;
       } catch (error) {
         log.info('model.provider.failed', null, {
@@ -534,12 +578,20 @@ export async function invokeModel(request) {
       : null;
     auditModel = resolvedModel;
     auditRouting = completedRouting;
-    const outputBytes = result.outputBytes ?? Buffer.byteLength(result.output ?? '', 'utf8');
+    // Count and hash the exact normalized output returned to callers. Provider stream counters may
+    // include boundary whitespace that the transport intentionally discards.
+    const outputBytes = Buffer.byteLength(result.output ?? '', 'utf8');
     const outputSha256 = sha256(Buffer.from(result.output ?? '', 'utf8'));
     const completedAt = nowIso();
     const completedEvent = await attestAudit(resolvedAuditRoot, {
       ...event,
       model: resolvedModel,
+      requestedModel: result.requestedModel ?? event.requestedModel,
+      modelSelection: result.modelSelection ?? {
+        policy: (result.requestedModel ?? event.requestedModel) === 'auto' ? 'provider-auto' : 'sflow-selected',
+        requestedModel: result.requestedModel ?? event.requestedModel,
+        providerSelectedModel: null, resolvedModels: [], assurance: 'unavailable'
+      },
       routing: completedRouting,
       promptTransport: result.promptTransport ?? promptTransport,
       promptProtocolVersion: result.promptProtocolVersion ?? null,
@@ -548,6 +600,7 @@ export async function invokeModel(request) {
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' },
+      toolObservation: result.toolObservation ?? null,
       economics: invocationEconomics(staged.bytes, result.usage)
     });
     await writeJson(file, completedEvent);
@@ -560,6 +613,8 @@ export async function invokeModel(request) {
       // `request.model` here would hand every caller `null` for exactly the invocations whose model
       // was chosen for them — the one case where they most need to be told which model ran.
       model: resolvedModel,
+      requestedModel: completedEvent.requestedModel,
+      modelSelection: completedEvent.modelSelection,
       routing: completedRouting,
       status: 'completed',
       output: result.output,
@@ -567,6 +622,7 @@ export async function invokeModel(request) {
       outputBytes,
       outputSha256,
       usage: result.usage ?? { status: 'unavailable' },
+      toolObservation: completedEvent.toolObservation,
       tokenAdmission: admission,
       economics: completedEvent.economics,
       promptTransport: completedEvent.promptTransport,
@@ -581,6 +637,8 @@ export async function invokeModel(request) {
         ...event,
         model: auditModel,
         routing: auditRouting,
+        modelSelection: error?.details?.modelSelection ?? event.modelSelection,
+        toolObservation: error?.details?.toolObservation ?? event.toolObservation,
         status: 'failed',
         completedAt: nowIso(),
         error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }

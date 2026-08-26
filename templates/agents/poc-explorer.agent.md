@@ -1,7 +1,7 @@
 ---
 name: poc-explorer
 description: Explores only the approved POC UI target and captures governed accessibility, runtime, and visual evidence.
-model: [gpt-5.4, auto]
+model: [auto]
 tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "POC UI explorer"

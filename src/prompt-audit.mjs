@@ -395,6 +395,9 @@ function executionProjection(record, invocation) {
     operationId: null,
     provider: null,
     model: null,
+    requestedModel: null,
+    modelSelection: null,
+    routing: null,
     channel: null,
     status: 'not-observed',
     startedAt: null,
@@ -402,7 +405,10 @@ function executionProjection(record, invocation) {
     durationMs: null,
     tools: {
       policyStatus: 'unavailable', mode: null, allowed: [],
-      observedCalls: null, observation: 'Tool-call execution is not captured for this handoff.'
+      requireSuccessful: null, rejectTruncated: null,
+      observedCalls: null, totalCalls: null, failedCalls: null, incompleteCalls: null,
+      truncatedCalls: null, turns: null, turnAssurance: null,
+      observation: 'Tool-call execution is not captured for this handoff.'
     },
     tokens: {
       status: 'unavailable', assurance: 'unavailable', input: null, output: null,
@@ -434,6 +440,8 @@ function executionProjection(record, invocation) {
     operationId: invocation.operationId ?? null,
     provider: invocation.provider ?? null,
     model: invocation.model ?? invocation.routing?.resolvedModel ?? null,
+    requestedModel: invocation.requestedModel ?? invocation.modelSelection?.requestedModel ?? null,
+    modelSelection: invocation.modelSelection ?? null,
     routing: invocation.routing ?? null,
     channel: invocation.channel ?? null,
     status: invocation.status,
@@ -445,8 +453,18 @@ function executionProjection(record, invocation) {
       policyStatus: 'exact',
       mode: invocation.toolPolicy?.mode ?? null,
       allowed: [...(invocation.toolPolicy?.names ?? [])],
-      observedCalls: null,
-      observation: 'The invocation audit records tool authorization, not individual tool calls.'
+      requireSuccessful: invocation.toolPolicy?.requireSuccessful ?? null,
+      rejectTruncated: invocation.toolPolicy?.rejectTruncated ?? null,
+      observedCalls: invocation.toolObservation?.calls ?? null,
+      totalCalls: invocation.toolObservation?.totalCalls ?? null,
+      failedCalls: invocation.toolObservation?.failedCalls ?? null,
+      incompleteCalls: invocation.toolObservation?.incompleteCalls ?? null,
+      truncatedCalls: invocation.toolObservation?.truncatedCalls ?? null,
+      turns: invocation.toolObservation?.turns ?? null,
+      turnAssurance: invocation.toolObservation?.turnAssurance ?? null,
+      observation: invocation.toolObservation
+        ? 'ACP tool outcomes are recorded without arguments, paths, or result content.'
+        : 'Tool-call execution is unavailable for this invocation.'
     },
     tokens: {
       status: invocation.usage?.status ?? (total == null ? 'unavailable' : 'exact'),
@@ -572,6 +590,11 @@ export function renderPromptAudit(record) {
     `- Status: ${execution.status}`,
     `- Provider: ${display(execution.provider)}`,
     `- Model: ${display(execution.model)}`,
+    `- Requested model selector: ${display(execution.requestedModel)}`,
+    `- Model-selection policy: ${display(execution.modelSelection?.policy)}`,
+    `- Provider-selected model: ${display(execution.modelSelection?.providerSelectedModel)}`,
+    `- Provider-reported resolved models: ${(execution.modelSelection?.resolvedModels ?? []).join(', ') || 'unavailable'}`,
+    `- Model assurance: ${display(execution.modelSelection?.assurance)}`,
     `- Channel: ${display(execution.channel)}`,
     `- Operation: ${display(execution.operationId)}`,
     `- Invocation: ${display(execution.invocationId)}`,
@@ -586,7 +609,16 @@ export function renderPromptAudit(record) {
     `- Authorization evidence: ${tools.policyStatus}`,
     `- Policy: ${display(tools.mode)}`,
     `- Allowed tools: ${allowed}`,
-    '- Observed tool calls: unavailable',
+    `- Require successful calls: ${display(tools.requireSuccessful)}`,
+    `- Reject truncated results: ${display(tools.rejectTruncated)}`,
+    `- Observed tool calls: ${tools.totalCalls == null ? 'unavailable' : tools.totalCalls.toLocaleString('en-US')}`,
+    `- Failed calls: ${tools.failedCalls == null ? 'unavailable' : tools.failedCalls.toLocaleString('en-US')}`,
+    `- Incomplete calls: ${tools.incompleteCalls == null ? 'unavailable' : tools.incompleteCalls.toLocaleString('en-US')}`,
+    `- Truncated calls: ${tools.truncatedCalls == null ? 'unavailable' : tools.truncatedCalls.toLocaleString('en-US')}`,
+    `- Model turns: ${tools.turns == null ? 'unavailable' : `${tools.turns.toLocaleString('en-US')} (${tools.turnAssurance})`}`,
+    ...((tools.observedCalls ?? []).map((call) => (
+      `- Call ${call.sequence}: ${call.name} · ${call.kind} · ${call.status} · ${call.outputBytes.toLocaleString('en-US')} bytes${call.truncated ? ' · truncated' : ''}${call.preparationFailed ? ' · preparation failed' : ''}`
+    ))),
     `- Note: ${tools.observation}`,
     '',
     '## Tokens and cost',
@@ -616,6 +648,11 @@ export function renderPromptAudit(record) {
     `- Prompt encoding: ${display(execution.prompt?.encoding)}`,
     `- Timeout limit: ${execution.limits?.timeoutMs == null ? 'unavailable' : duration(execution.limits.timeoutMs)}`,
     `- Output limit: ${execution.limits?.outputBytes == null ? 'unavailable' : `${execution.limits.outputBytes.toLocaleString('en-US')} bytes`}`,
+    `- Total-token limit: ${execution.limits?.maxTotalTokens == null ? 'unavailable' : execution.limits.maxTotalTokens.toLocaleString('en-US')}`,
+    `- Model-turn limit: ${execution.limits?.maxTurns == null ? 'unavailable' : execution.limits.maxTurns.toLocaleString('en-US')}`,
+    `- Tool-call limit: ${execution.limits?.maxToolCalls == null ? 'unavailable' : execution.limits.maxToolCalls.toLocaleString('en-US')}`,
+    `- Tool-result limit: ${execution.limits?.maxToolResultBytes == null ? 'unavailable' : `${execution.limits.maxToolResultBytes.toLocaleString('en-US')} bytes`}`,
+    `- Copilot premium-request limit: ${execution.limits?.maxAiCredits == null ? 'unavailable' : execution.limits.maxAiCredits.toLocaleString('en-US')}`,
     `- Output bytes: ${execution.output?.bytes == null ? 'unavailable' : execution.output.bytes.toLocaleString('en-US')}`,
     `- Output SHA-256: ${display(execution.output?.sha256)}`,
     '',

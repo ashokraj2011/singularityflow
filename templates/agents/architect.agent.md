@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Defines boundaries, contracts, risks, security, and implementation specifications.
-model: [gpt-5.4, auto]
+model: [auto]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "Architect"

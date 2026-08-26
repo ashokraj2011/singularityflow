@@ -46,7 +46,7 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
   const [name] = await readdir(auditDirectory);
   const audit = JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'));
-  assert.equal(audit.schemaVersion, 4);
+  assert.equal(audit.schemaVersion, 5);
   assert.equal(audit.attestation.scheme, 'kernel-hmac-sha256-v1');
   assert.match(audit.generationNonce, /^[A-Za-z0-9_-]{32}$/);
   assert.equal(audit.promptTransport, 'attachment');
@@ -99,8 +99,8 @@ const lines=readline.createInterface({input:process.stdin,crlfDelay:Infinity});
 const send=(v)=>process.stdout.write(JSON.stringify(v)+'\\n');
 for await(const line of lines){const m=JSON.parse(line);
 if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:m.params.protocolVersion,agentCapabilities:{}}});
-else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'audit-session'}});
-else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ok:'+text.length}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn',usage:{totalTokens:7,inputTokens:5,outputTokens:2}}});}}
+else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'audit-session',configOptions:[{type:'select',id:'model',name:'Model',category:'model',currentValue:'auto',options:[]}]}});
+else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'agent_message_chunk',messageId:'final',content:{type:'text',text:'  ok:'+text.length+'  \\n'}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn',usage:{totalTokens:7,inputTokens:5,outputTokens:2}}});}}
 `);
   const prompt = 'ACP_AUDIT_CANARY';
   const result = await withOperationContext({
@@ -115,10 +115,18 @@ else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({js
   assert.equal(result.promptTransport, 'acp-stdio');
   assert.equal(result.promptProtocolVersion, 1);
   const [audit] = await listModelInvocations(root);
-  assert.equal(audit.schemaVersion, 4);
+  assert.equal(audit.schemaVersion, 5);
   assert.equal(audit.promptTransport, 'acp-stdio');
   assert.equal(audit.promptProtocolVersion, 1);
   assert.equal(audit.usage.totalTokens, 7);
+  assert.equal(audit.model, 'auto');
+  assert.equal(audit.requestedModel, 'auto');
+  assert.deepEqual(audit.modelSelection, {
+    policy: 'provider-auto', requestedModel: 'auto', providerSelectedModel: 'auto',
+    resolvedModels: [], assurance: 'unavailable'
+  });
+  assert.equal(audit.outputBytes, Buffer.byteLength(result.output));
+  assert.equal(audit.toolObservation.totalCalls, 0);
   assert.doesNotMatch(JSON.stringify(audit), /ACP_AUDIT_CANARY/);
 });
 

@@ -91,6 +91,17 @@ const WORLD_MODEL_REBUILD_REASONS = new Set([
   'packet-invalid', 'policy-forced', 'extension-base-unavailable',
   'legacy-record-insufficient'
 ]);
+const NON_RETRYABLE_MODEL_PROVIDER_CODES = new Set([
+  'MODEL_NOT_AVAILABLE', 'MODEL_SELECTION_MISMATCH', 'MODEL_TOOL_UNSUPPORTED',
+  'MODEL_REQUEST_INVALID', 'MODEL_PROMPT_TRANSPORT_UNSUPPORTED',
+  'MODEL_PROVIDER_UNAVAILABLE', 'MODEL_PROVIDER_NOT_EXECUTABLE',
+  'MODEL_PROVIDER_ARGUMENT_LIMIT', 'MODEL_PROVIDER_PROTOCOL_UNSUPPORTED',
+  'MODEL_PROVIDER_PROTOCOL_FAILED', 'MODEL_PROMPT_LIMIT',
+  'MODEL_PROMPT_ENCODING_INVALID', 'MODEL_CWD_FORBIDDEN', 'MODEL_OUTPUT_LIMIT',
+  'MODEL_TOKEN_BUDGET_EXCEEDED', 'MODEL_TURN_LIMIT', 'MODEL_TOOL_CALL_LIMIT',
+  'MODEL_TOOL_RESULT_LIMIT', 'MODEL_TOOL_EXECUTION_FAILED',
+  'MODEL_TOOL_RESULT_TRUNCATED', 'MODEL_CREATE_TARGET_FAILED', 'MODEL_CANCELLED'
+]);
 
 function worldModelBuildReason(options) {
   return WORLD_MODEL_REBUILD_REASONS.has(options.rebuildReason)
@@ -1563,11 +1574,16 @@ async function runParallelDiscovery(
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
     } catch (error) {
-      const retryable = !['MODEL_NOT_AVAILABLE', 'MODEL_TOOL_UNSUPPORTED', 'MODEL_REQUEST_INVALID']
-        .includes(error?.code);
+      // Retrying a deterministic ACP boundary refusal repeats spend without changing its cause.
+      // Only genuinely transient provider failures (for example a timeout or non-zero process
+      // exit) receive the existing single retry. Configuration, protocol, budget, truncation,
+      // tool-outcome, cancellation, and model-substitution failures stop at the preflight.
+      const retryable = !NON_RETRYABLE_MODEL_PROVIDER_CODES.has(error?.code);
       return outcome({
         reason: error.message, code: error?.code ?? 'MODEL_PROVIDER_FAILED',
-        retryable, result: 'provider-error'
+        retryable, result: 'provider-error',
+        modelSelection: error?.details?.modelSelection ?? null,
+        toolObservation: error?.details?.toolObservation ?? null
       });
     }
     // A commit is not recoverable by cleaning: it is already in the shared object store, and the
@@ -1685,6 +1701,8 @@ async function runParallelDiscovery(
             code: 'WORLD_MODEL_DISCOVERY_PREFLIGHT_FAILED',
             details: {
               view, failure: outcome.result, providerCode: outcome.code ?? null,
+              modelSelection: outcome.modelSelection ?? null,
+              toolObservation: outcome.toolObservation ?? null,
               nextAction: 'Correct the model routing or provider tool contract, then rerun the same build.'
             }
           }

@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 11
+version: 12
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -33,9 +33,14 @@ tokens. An unchanged ready source snapshot is reused rather than rebuilt.
 
 Semantic generation routes existing calls by task: each parallel discovery view uses `analyze`,
 and final synthesis uses `reason`, both resolved through `singularity/modelTiers.yml`. The build
-fails before discovery if neither that mapping nor a legacy configured provider model exists.
+fails before discovery if neither that mapping nor a legacy configured provider model exists. The
+bundled mapping resolves both tasks to `auto`: every isolated ACP session explicitly asks Copilot
+to select its concrete model. The model-invocation audit distinguishes the requested `auto`
+selector, the ACP session selection, and provider-reported resolved model telemetry; it never
+pretends the selector itself is a concrete model.
 `wm build --model MODEL` and `wm ensure --model MODEL` remain explicit caller-named overrides and
-are recorded as such. Build
+are recorded as such. A concrete override fails closed if ACP or provider telemetry reports a
+different model. Build
 manifests, `wm status`, `doctor`, model-invocation audits, and activity logs expose the resolved
 routing without storing prompts or generated content in diagnostics.
 

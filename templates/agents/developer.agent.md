@@ -1,7 +1,7 @@
 ---
 name: developer
 description: Implements scoped changes and tests using repository-native patterns.
-model: [gpt-5.4, auto]
+model: [auto]
 tools: [read, search, edit, bash, ask_user]
 metadata:
   sflow-label: "Developer"

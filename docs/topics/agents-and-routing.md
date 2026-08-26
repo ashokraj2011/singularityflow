@@ -13,9 +13,15 @@ related:
   - world-model
   - model-independence
   - assignments-and-watchlists
-version: 1
+version: 2
 ---
 Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
+
+The bundled model-routing policy uses the provider selector `auto`, so Copilot chooses the
+concrete model for each isolated ACP invocation. SFlow still owns the task mapping, tool boundary,
+budgets, and audit receipt. A repository may govern a concrete model in
+`singularity/modelTiers.yml`, and an explicit command override remains available where documented;
+both are recorded and fail closed if the provider substitutes another model.
 
 ## Purpose and prerequisites
 

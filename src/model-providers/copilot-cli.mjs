@@ -2,6 +2,7 @@ import * as acp from '@agentclientprotocol/sdk';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { TransformStream } from 'node:stream/web';
 import { StringDecoder } from 'node:string_decoder';
@@ -31,7 +32,15 @@ export const COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT = [
 
 const RESERVED_OPTIONS = Object.freeze([
   '-p', '--prompt', '--attachment', '-C', '--model', '--available-tools', '--allow-tool',
-  '--allow-all-tools', '--acp', '--stdio'
+  '--allow-all-tools', '--allow-all', '--allow-all-paths', '--allow-all-urls', '--yolo',
+  '--add-dir', '--deny-tool', '--excluded-tools', '--additional-mcp-config',
+  '--enable-all-github-mcp-tools', '--add-github-mcp-tool', '--add-github-mcp-toolset',
+  '--plugin-dir', '--acp', '--stdio'
+]);
+
+const ACP_BOUNDARY_OPTIONS = Object.freeze([
+  '--disable-builtin-mcps', '--no-custom-instructions', '--no-ask-user',
+  '--no-remote', '--no-remote-export', '--no-auto-update'
 ]);
 
 // The kernel uses one provider-independent tool vocabulary. Copilot CLI has its own host-native
@@ -66,6 +75,19 @@ export function copilotToolArguments(tools = { mode: 'none', names: [] }) {
     argumentsList.push('--allow-tool=write');
   }
   return argumentsList;
+}
+
+/** Give Copilot only the additional verified roots admitted by the kernel request boundary. */
+export function copilotAllowedRootArguments(request) {
+  const roots = request.allowedRoots ?? [request.cwd];
+  if (!Array.isArray(roots) || roots.some((root) => typeof root !== 'string'
+    || !root.trim() || !path.isAbsolute(root) || /[\r\n\0]/.test(root))) {
+    throw new SingularityFlowError('Model provider allowed roots must be an array of absolute paths.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  return unique(roots).filter((root) => root !== request.cwd)
+    .flatMap((root) => ['--add-dir', root]);
 }
 
 function boundedDiagnostic(value) {
@@ -219,7 +241,10 @@ async function invokeCopilotAcp(request) {
     throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }
   const promptText = await verifiedStagedPrompt(request, 'ACP stdio');
-  const args = [...(configured.arguments ?? []), '--acp'];
+  const args = [
+    ...(configured.arguments ?? []), '--acp', ...ACP_BOUNDARY_OPTIONS,
+    ...copilotAllowedRootArguments(request)
+  ];
   args.push(...copilotToolArguments(request.tools));
   if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
   const outputLimit = request.limits.outputBytes;
@@ -431,6 +456,7 @@ async function invokeCopilotAttachment(request) {
     : `Model provider '${request.provider}'`;
   const args = [
     ...(configured.arguments ?? []), '-C', request.cwd,
+    ...copilotAllowedRootArguments(request),
     '--attachment', request.prompt.file, '-p', COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT
   ];
   args.push(...copilotToolArguments(request.tools));

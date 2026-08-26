@@ -101,9 +101,11 @@ async function invokeAcp(root, overrides = {}) {
 
 test('the Copilot provider sends verified prompt bytes over ACP stdio without argv or environment leakage', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-'));
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-output-'));
   const prompt = `ACP_CANARY_DO_NOT_LEAK_${'नमस्ते'.repeat(1000)}`;
   const result = await invokeAcp(root, {
     publicPrompt: { text: prompt },
+    allowedRoots: [root, outputRoot],
     tools: { mode: 'allowlist', names: ['read_file', 'search'] }
   });
   const observed = JSON.parse(result.output);
@@ -112,6 +114,9 @@ test('the Copilot provider sends verified prompt bytes over ACP stdio without ar
   assert.equal(observed.sha256, createHash('sha256').update(prompt).digest('hex'));
   assert.ok(observed.argv.includes('--acp'));
   assert.ok(observed.argv.includes('--available-tools=view,grep'));
+  assert.equal(observed.argv[observed.argv.indexOf('--add-dir') + 1], outputRoot);
+  assert.ok(observed.argv.includes('--disable-builtin-mcps'));
+  assert.ok(observed.argv.includes('--no-custom-instructions'));
   assert.ok(!observed.argv.includes('--attachment'));
   assert.ok(!observed.argv.includes('-p'));
   assert.doesNotMatch(JSON.stringify(observed.argv), /ACP_CANARY_DO_NOT_LEAK/);
@@ -325,7 +330,11 @@ test('the attachment transport preserves larger bounded UTF-8 and file-source pr
 
 test('the Copilot provider rejects adapter-owned configured flags and unstaged prompts', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-reserved-'));
-  for (const option of ['-p', '-pother', '--prompt=value', '--attachment', '--acp', '--stdio', '-C', '-C/tmp', '--model=x', '--available-tools=x', '--allow-tool=x', '--allow-all-tools']) {
+  for (const option of [
+    '-p', '-pother', '--prompt=value', '--attachment', '--acp', '--stdio', '-C', '-C/tmp',
+    '--model=x', '--available-tools=x', '--allow-tool=x', '--allow-all-tools', '--allow-all',
+    '--allow-all-paths', '--add-dir=/tmp', '--yolo', '--additional-mcp-config={}', '--plugin-dir=/tmp'
+  ]) {
     await assert.rejects(() => invoke(root, '', {
       providerConfig: { executable: process.execPath, arguments: [option] }
     }), (error) => error.code === 'MODEL_REQUEST_INVALID' && error.details?.option != null);

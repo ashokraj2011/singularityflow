@@ -3080,7 +3080,7 @@ test('workspace configuration refresh renders per-path dropdowns and a plan-boun
       }
     }
   );
-  assert.match(html, /SFlow configuration/);
+  assert.match(html, /Upgrade capabilities & workspaces/);
   assert.match(html, /world models and other runtime state are preserved/);
   assert.match(html, /data-config-preview="selected"/);
   assert.match(html, /data-config-preview="all"/);
@@ -3091,6 +3091,38 @@ test('workspace configuration refresh renders per-path dropdowns and a plan-boun
   assert.match(html, /data-config-apply="selected"/);
   assert.doesNotMatch(html, /data-config-apply="selected"\s+disabled/);
   assert.match(html, /cfgp-123/);
+});
+
+test('a blocked workspace upgrade offers a reviewed packaged-agent repair in the UI', () => {
+  const rows = workspaceRows(REGISTRY);
+  const html = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, null, false, null, undefined,
+    {
+      scope: 'all', loading: false, applying: false, error: null, resolutions: {},
+      result: {
+        status: 'blocked', dryRun: true, total: 1, updated: 0,
+        results: [{
+          status: 'blocked', repository: 'platform', remote: '/git/platform.git',
+          configurationChanged: false, stateChanged: false,
+          error: "Phase 'testing' requires exactly one default governed agent; found 0.",
+          conflicts: [{
+            path: '.github/agents/qa.agent.md', resolution: 'preserved-local',
+            localSha256: 'a', bundledSha256: 'b'
+          }],
+          repair: {
+            kind: 'packaged-agents', label: 'Restore packaged agents',
+            paths: ['.github/agents/qa.agent.md']
+          }
+        }]
+      }
+    }
+  );
+  assert.match(html, /Upgrade capabilities & workspaces/);
+  assert.match(html, /Governed agents from an older build are blocking this upgrade/);
+  assert.match(html, /data-config-agents="packaged"/);
+  assert.match(html, /Repair missing or outdated agents/);
+  assert.doesNotMatch(html, /data-config-apply="all"\s*>/,
+    'a blocked preview has no plan that can be applied');
 });
 
 test('the selected workspace offers edit, copy and forget, and says what each costs', () => {

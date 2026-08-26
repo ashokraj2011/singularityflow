@@ -130,6 +130,12 @@ export interface WorkspaceConfigurationRefreshRepository {
   extraStatePaths?: string[];
   removedStatePaths?: string[];
   conflicts?: WorkspaceConfigurationConflict[];
+  /** A preflight-owned, still-unapplied repair that the UI may select for a new preview. */
+  repair?: {
+    kind: 'packaged-agents';
+    label: string;
+    paths: string[];
+  } | null;
   error?: string | null;
 }
 

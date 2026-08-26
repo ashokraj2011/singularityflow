@@ -234,6 +234,69 @@ test('configuration refresh refuses a cross-file-invalid preserved agent and acc
   assert.equal(await readFile(qaFile, 'utf8'), currentQa);
 });
 
+test('workspace refresh preview returns an actionable packaged-agent repair instead of losing conflicts', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-agent-repair-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote } = await repositoryFixture(root, 'agent-repair');
+
+  const publisher = path.join(root, 'agent-repair-publisher');
+  run('git', ['clone', '--quiet', '--branch', 'sflow/config', remote, publisher]);
+  git(publisher, ['config', 'user.name', 'Configuration Test']);
+  git(publisher, ['config', 'user.email', 'configuration@example.test']);
+  const currentQa = await readFile(path.join(ROOT, 'templates/agents/qa.agent.md'), 'utf8');
+  const olderQa = currentQa.replaceAll(
+    'reproduction,verify,verification,testing,visual-verification,conformance,release',
+    'reproduction,verify,verification,visual-verification,conformance,release'
+  );
+  await mkdir(path.join(publisher, '.github/agents'), { recursive: true });
+  await writeFile(path.join(publisher, '.github/agents/qa.agent.md'), olderQa);
+  git(publisher, ['add', '.github/agents/qa.agent.md']);
+  git(publisher, ['commit', '-m', 'Preserve an older QA agent']);
+  git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
+
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'agent-repair-workspace',
+    name: 'Agent repair workspace',
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'agent-repair-workspace', title: 'Agent repair workspace' },
+    leadRepository: 'agent-repair',
+    repositories: {
+      'agent-repair': {
+        id: 'agent-repair', url: remote, defaultBranch: 'main', required: true,
+        path: 'repos/agent-repair', role: 'lead', capabilities: []
+      }
+    }
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+
+  const blocked = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.planId, undefined, 'an invalid contract cannot produce an applicable plan');
+  assert.equal(blocked.results[0].status, 'blocked');
+  assert.match(blocked.results[0].error, /testing.*default governed agent/i);
+  assert.deepEqual(blocked.results[0].repair, {
+    kind: 'packaged-agents',
+    label: 'Restore packaged agents',
+    paths: ['.github/agents/qa.agent.md']
+  });
+  assert.ok(blocked.results[0].conflicts.some((entry) =>
+    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'preserved-local'));
+
+  const repaired = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    dryRun: true,
+    resolutions: { '.github/agents/qa.agent.md': 'bundled' }
+  });
+  assert.equal(repaired.status, 'preview');
+  assert.match(repaired.planId, /^cfgp-[a-f0-9]{24}$/);
+  assert.ok(repaired.results[0].conflicts.some((entry) =>
+    entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'accepted-bundled'));
+});
+
 test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-'));
   t.after(() => rm(root, { recursive: true, force: true }));

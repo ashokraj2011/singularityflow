@@ -665,6 +665,41 @@ function refreshPlanId(candidates, resolutions) {
   return `cfgp-${sha256(JSON.stringify(identity)).slice(0, 24)}`;
 }
 
+/**
+ * Preserve enough of a failed configuration preflight for an editor to offer a reviewed repair.
+ *
+ * `refreshPackagedConfiguration` validates the workflow, agents, templates, and prompts as one
+ * executable contract. A preserved older agent can therefore make the preview fail before the UI
+ * receives the conflict list it needs to repair that agent. Keep the refusal, but return only its
+ * bounded configuration conflicts and the packaged agent paths that can be selected for a second
+ * preview. No resolution is applied here.
+ */
+function refreshPreflightFailure(observation, error) {
+  const conflicts = Array.isArray(error?.details?.conflicts)
+    ? error.details.conflicts.filter((entry) => entry && typeof entry.path === 'string')
+    : [];
+  const repairPaths = conflicts
+    .filter((entry) => entry.path.startsWith('.github/agents/')
+      && (entry.resolution === 'preserved-local' || entry.resolution === 'preserved-local-deletion'))
+    .map((entry) => entry.path)
+    .sort();
+  return {
+    status: 'blocked',
+    repository: observation.repository.id,
+    remote: observation.repository.displayRemote,
+    memberships: observation.repository.memberships,
+    configurationChanged: false,
+    stateChanged: false,
+    conflicts,
+    repair: repairPaths.length ? {
+      kind: 'packaged-agents',
+      label: 'Restore packaged agents',
+      paths: repairPaths
+    } : null,
+    error: error?.message ?? 'Configuration refresh preflight failed.'
+  };
+}
+
 function proposalBranch(candidateCommit, sourceCommit, product) {
   const revision = String(product.revision).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 16);
   return `sflow/config-refresh/${revision}-${sourceCommit.slice(0, 8)}-${candidateCommit.slice(0, 8)}`;
@@ -829,9 +864,14 @@ export async function refreshWorkspaceConfigurations({
           configurationChanged: true, stateChanged: true
         } };
       }
-      const candidate = await prepareCandidate(observation.repository, {
-        dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
-      });
+      let candidate;
+      try {
+        candidate = await prepareCandidate(observation.repository, {
+          dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions
+        });
+      } catch (error) {
+        return { planCandidate: null, result: refreshPreflightFailure(observation, error) };
+      }
       try {
         const stateChanged = candidate.refresh.changed || candidate.stateBefore.changed;
         return { planCandidate: candidate, result: {
@@ -853,10 +893,12 @@ export async function refreshWorkspaceConfigurations({
         await rm(candidate.root, { recursive: true, force: true });
       }
     });
-    const planCandidates = prepared.map((entry) => entry.planCandidate);
+    const planCandidates = prepared.map((entry) => entry.planCandidate).filter(Boolean);
     const results = prepared.map((entry) => entry.result);
+    const blocked = results.some((entry) => entry.status === 'blocked');
     return {
-      status: 'preview', dryRun: true, planId: refreshPlanId(planCandidates, normalizedResolutions),
+      status: blocked ? 'blocked' : 'preview', dryRun: true,
+      ...(blocked ? {} : { planId: refreshPlanId(planCandidates, normalizedResolutions) }),
       total: targets.length, updated: 0, results
     };
   }

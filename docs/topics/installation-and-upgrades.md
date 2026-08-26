@@ -20,7 +20,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 7
+version: 8
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -77,10 +77,13 @@ Code have no safe interactive terminal for them. A credential failure therefore 
 classified repair message instead of appearing to hang. Ledger compare-and-swap checks, exact
 transport-intent verification, and protected-branch recovery are not skipped or cached.
 
-In VS Code, open **Workspaces**, choose a workspace, and use **SFlow configuration**. Check the
-selected workspace or every registered workspace, review each conflict in its dropdown, then apply
-the plan. The convenience action selects packaged templates, prompts, and agents only; it does not
-silently replace unrelated workflow policy.
+In VS Code, run **Singularity Flow: Upgrade Capabilities & Workspaces** from the Command Palette.
+It opens Workspaces and previews every registered repository. The same page can review only the
+selected workspace, exposes each conflict as a dropdown, and applies only a plan bound to that
+preview. When a preserved older agent leaves a phase without its required default, **Repair missing
+or outdated agents** selects the engine-reported packaged agent paths and previews again; it never
+publishes on the first click. The broader convenience action selects packaged templates, prompts,
+and agents only and does not silently replace unrelated workflow policy.
 
 Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. The legacy
 `--no-workspace-workflow-sync` spelling remains accepted. The separate

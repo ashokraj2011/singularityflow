@@ -96,15 +96,22 @@ export class WorkspacesPanel {
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
-    selected: string | null = null
+    selected: string | null = null,
+    upgradeScope: 'selected' | 'all' | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
       WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      const upgradeSelection = upgradeScope
+        ? selected ?? WorkspacesPanel.current.rows.find((row) => !row.archived)?.path ?? null
+        : selected;
       // The panel is retained when hidden. Revealing its original rows made an old active marker
       // look authoritative even after the Navigator and CLI had switched workspaces. Re-read the
       // machine-wide registry every time the page is opened, preferring the explicitly clicked row
       // and otherwise the workspace that is active now.
-      void WorkspacesPanel.current.refresh(selected, true);
+      void WorkspacesPanel.current.refresh(upgradeSelection, true).then(() => {
+        if (upgradeScope) return WorkspacesPanel.current?.previewConfiguration(upgradeScope);
+        return undefined;
+      });
       return WorkspacesPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -113,9 +120,16 @@ export class WorkspacesPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
+    const upgradeSelection = upgradeScope
+      ? selected ?? entries.find((entry) => !entry.archivedAt)?.path ?? null
+      : selected;
     WorkspacesPanel.current = new WorkspacesPanel(
-      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, selected
+      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, upgradeSelection
     );
+    if (upgradeScope) {
+      void WorkspacesPanel.current.refresh(upgradeSelection, true)
+        .then(() => WorkspacesPanel.current?.previewConfiguration(upgradeScope));
+    }
     return WorkspacesPanel.current;
   }
 
@@ -289,6 +303,16 @@ export class WorkspacesPanel {
       this.configuration.error = null;
       return this.previewConfiguration(this.configuration.scope);
     },
+    'configuration-packaged-agents': () => {
+      const paths = new Set(this.configuration.result?.results.flatMap((repository) =>
+        repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []) ?? []);
+      // A blocked preview owns this list. The page never supplies a path, and selecting the repair
+      // only asks the engine for another preview; publication still requires the resulting plan.
+      for (const agentPath of paths) this.configuration.resolutions[agentPath] = 'bundled';
+      if (!paths.size) return;
+      this.configuration.error = null;
+      return this.previewConfiguration(this.configuration.scope);
+    },
     'configuration-apply': () => this.applyConfiguration(),
     rename: (message) => this.withRow(message, (row) => this.rename(row, stringField(message, 'name'))),
     duplicate: (message) => this.withRow(message, (row) => this.duplicate(row, message))
@@ -326,7 +350,8 @@ export class WorkspacesPanel {
   }
 
   private async previewConfiguration(scope: 'selected' | 'all'): Promise<void> {
-    if (this.configuration.loading || this.configuration.applying || !this.selected) return;
+    if (this.configuration.loading || this.configuration.applying
+      || (scope === 'selected' && !this.selected)) return;
     if (scope !== this.configuration.scope) {
       this.configuration = { ...EMPTY_CONFIGURATION_REFRESH, scope, resolutions: {} };
     }

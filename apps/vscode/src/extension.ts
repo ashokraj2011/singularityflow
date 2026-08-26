@@ -1470,7 +1470,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Registered before any early return, like creating one: a person with no repository open is
    * exactly the person who needs to find the workspace they already have.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.openWorkspaces', async (node?: TreeNode) => {
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.openWorkspaces', async (request?: TreeNode | { upgrade?: boolean }) => {
+    const upgrade = Boolean(request && typeof request === 'object' && 'upgrade' in request && request.upgrade);
+    const node = upgrade ? undefined : request as TreeNode | undefined;
     let location;
     try {
       location = resolveCli({ extensionPath: context.extensionPath });
@@ -1622,8 +1625,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Anything that changes the registry changes the tree beside it.
       if (message.type !== 'switch') void refreshWorkspaceTree();
       return failure;
-    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null);
+    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null, upgrade ? 'all' : null);
   }));
+
+  /** One discoverable post-install entry point: open the reviewed UI and check every workspace. */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.upgradeWorkspaces',
+    () => vscode.commands.executeCommand('singularityFlow.openWorkspaces', { upgrade: true })
+  ));
 
   /**
    * The workspace tree, and the two things it offers.
@@ -1948,6 +1957,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // so a selected-but-unmaterialized workspace cannot briefly render as "No workspaces yet" (and
   // so commands/context menus are derived from the same registry revision as Lifecycle).
   await refreshWorkspaceTree();
+
+  // A new VSIX can carry a newer workflow/agent contract while every saved workspace still points
+  // at its older approved configuration. Offer one visible route per installed build; do not start
+  // remote Git reads until the contributor chooses it. The build stamp is used because development
+  // reinstalls intentionally keep the same extension version.
+  const loadedBuild = typeof __SFLOW_BUILD__ === 'string' ? __SFLOW_BUILD__ : 'unstamped';
+  const upgradeOfferKey = 'singularityFlow.workspaceUpgradeOfferedBuild';
+  if (loadedBuild !== 'unstamped' && workspaceEntries.some((entry) => !entry.archivedAt)
+    && context.globalState.get<string>(upgradeOfferKey) !== loadedBuild) {
+    await context.globalState.update(upgradeOfferKey, loadedBuild);
+    void vscode.window.showInformationMessage(
+      'A new Singularity Flow build is installed. Review capability, workspace, and governed-agent updates?',
+      'Review upgrades'
+    ).then((choice) => choice === 'Review upgrades'
+      ? vscode.commands.executeCommand('singularityFlow.upgradeWorkspaces') : undefined);
+  }
 
   /**
    * Repository-independent panel clients. Their working directory is updated from the shared

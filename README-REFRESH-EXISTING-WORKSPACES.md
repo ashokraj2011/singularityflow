@@ -31,14 +31,18 @@ configuration itself must be valid enough to load and merge.
 
 ## Recommended VS Code flow
 
-1. Open Singularity Flow **Workspaces**.
-2. Select the workspace and find **SFlow configuration**.
-3. Choose **Check _workspace_** to inspect one workspace, or **Check all workspaces**.
-4. Review every repository, file change, state-branch change, and conflict.
-5. For each conflict choose:
+1. Open the Command Palette and run **Singularity Flow: Upgrade Capabilities & Workspaces**. This
+   opens Workspaces and immediately checks every registered workspace. You can instead open
+   **Workspaces** and select **Upgrade capabilities & workspaces** for a narrower review.
+2. Choose **Review _workspace_** to inspect one workspace, or **Review all workspaces**.
+3. Review every repository, file change, state-branch change, and conflict.
+4. For each conflict choose:
    - **Keep repository** (`local`) to retain the existing value or file.
    - **Use packaged** (`bundled`) to replace it with the installed build's value or file.
    - **Merge lists** (`merge`) only when the UI offers it for compatible string lists.
+5. If the preview reports that a phase has no default governed agent, choose **Repair missing or
+   outdated agents**. This selects only the packaged agent paths reported by the engine and runs a
+   new preview; it does not publish anything.
 6. Apply the displayed plan. VS Code passes the same choices and plan ID back to the CLI.
 7. Check again. A complete refresh should become `current`.
 
@@ -206,7 +210,7 @@ singularity-flow wm check
 |---|---|---|
 | `stale-plan` | Configuration, state, product revision, or choices changed after preview. | Preview again and use the new plan ID. |
 | `preserved-local` | The repository file/value cannot be proven package-owned. | Keep it or explicitly choose `local`, `bundled`, or offered `merge`. |
-| `CONFIGURATION_REFRESH_INVALID` | Preserved files and the refreshed workflow do not form a valid executable contract. | Resolve the named paths, usually an outdated packaged agent, and preview again. |
+| `CONFIGURATION_REFRESH_INVALID` | Preserved files and the refreshed workflow do not form a valid executable contract. | In VS Code choose **Repair missing or outdated agents**, review the selected packaged files, and preview again. The CLI equivalent is `--resolve .github/agents/<name>.agent.md=bundled`. |
 | `review-required` | Branch protection rejected direct `sflow/config` publication. | Review and merge the reported `sflow/config-refresh/*` branch, then rerun. |
 | `partial` | At least one repository or state projection did not publish. | Correct the named repository failure and rerun; completed repositories are no-ops. |
 | Remote read failure | Git cannot inspect the configuration authority. | Restore normal Git authentication, proxy, certificate, and repository access; do not disable TLS checks. |

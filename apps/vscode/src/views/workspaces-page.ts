@@ -250,20 +250,24 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
   const repositories = result?.results ?? [];
   const conflicts = [...new Map(repositories.flatMap((repository) => repository.conflicts ?? [])
     .map((conflict) => [conflict.path, conflict])).values()];
+  const agentRepairPaths = [...new Set(repositories.flatMap((repository) =>
+    repository.repair?.kind === 'packaged-agents' ? repository.repair.paths : []))].sort();
   const actionable = result?.status === 'preview' && repositories.some((repository) =>
     repository.status !== 'current' && repository.status !== 'preflight-passed');
-  return `<h2>${icon('configuration')}SFlow configuration</h2>
+  return `<h2>${icon('configuration')}Upgrade capabilities & workspaces</h2>
   <div class="card${view.error ? ' blocked' : ''}">
-    <div class="card-head"><strong>Refresh approved configuration and state branches</strong>
+    <div class="card-head"><strong>Review updates from this SFlow build</strong>
       <span class="grow"></span>${result ? `<span class="pill ${result.status === 'blocked' || result.status === 'partial' ? 'bad' : 'ok'}">${escape(result.status)}</span>` : ''}</div>
-    <p class="muted">Preview packaged workflow, templates, prompts and agents before changing
-      <code>sflow/config</code>. Apply projects those same files at canonical paths on
-      <code>state</code>; world models and other runtime state are preserved.</p>
+    <p class="muted">Bring older capability maps and workspace repositories to this build's
+      approved workflow, templates, prompts and governed-agent contract. Review happens before
+      <code>sflow/config</code> changes. Apply then refreshes the canonical files on
+      <code>state</code>; world models and other runtime state are preserved, and application
+      branches are untouched.</p>
     <p class="card-foot">
       <button class="secondary" data-config-preview="selected"${view.loading || view.applying ? ' disabled' : ''}>
-        ${view.loading && view.scope === 'selected' ? 'Checking…' : `Check ${escape(row.name)}`}</button>
+        ${view.loading && view.scope === 'selected' ? 'Checking…' : `Review ${escape(row.name)}`}</button>
       <button class="secondary" data-config-preview="all"${view.loading || view.applying ? ' disabled' : ''}>
-        ${view.loading && view.scope === 'all' ? 'Checking…' : 'Check all workspaces'}</button>
+        ${view.loading && view.scope === 'all' ? 'Checking…' : 'Review all workspaces'}</button>
     </p>
     ${view.error ? `<p class="blockers">${escape(view.error)}</p>
       <button class="secondary" data-help-topic="configuration">Explain this error</button>` : ''}
@@ -298,6 +302,14 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
         </tbody></table>
         <p><button class="secondary" data-config-bundled="assets"${view.loading || view.applying ? ' disabled' : ''}>
           Use packaged templates, prompts and agents</button></p>` : ''}
+      ${agentRepairPaths.length ? `<div class="card blocked">
+        <div class="card-head"><strong>Governed agents from an older build are blocking this upgrade</strong>
+          <span class="grow"></span><span class="pill wait">repair available</span></div>
+        <p class="muted">Select this build's packaged agent files and run the preview again. This
+          only prepares the choices below; nothing is published until you review and apply the new plan.</p>
+        <p><button data-config-agents="packaged"${view.loading || view.applying ? ' disabled' : ''}>
+          Repair missing or outdated agents</button></p>
+      </div>` : ''}
       <p class="card-foot"><button data-config-apply="${escape(view.scope)}"
         ${!result.planId || !actionable || view.loading || view.applying ? 'disabled' : ''}>
         ${view.applying ? 'Applying…' : 'Apply reviewed refresh'}</button></p>
@@ -419,7 +431,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-help-topic]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-help-topic]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -435,6 +447,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
     else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
+    else if (data.configAgents !== undefined) vscode.postMessage({ type: 'configuration-packaged-agents' });
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
     else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
     else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });

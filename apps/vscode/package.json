@@ -175,6 +175,11 @@
         "icon": "$(list-unordered)"
       },
       {
+        "command": "singularityFlow.upgradeWorkspaces",
+        "title": "Singularity Flow: Upgrade Capabilities & Workspaces",
+        "icon": "$(sync)"
+      },
+      {
         "command": "singularityFlow.openWalkthrough",
         "title": "Singularity Flow: Get Started (Walkthrough)",
         "icon": "$(rocket)"

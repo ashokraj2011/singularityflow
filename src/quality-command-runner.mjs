@@ -67,6 +67,8 @@ export function runQualityCommand(command, args = [], {
     let error = null;
     let settled = false;
     let hardKillTimer = null;
+    let timer = null;
+    let timeoutDecisionTimer = null;
     let stdoutStream = null;
     let streamError = null;
     let child;
@@ -113,15 +115,30 @@ export function runQualityCommand(command, args = [], {
     child.stderr?.on('data', (chunk) => stderr.add(chunk));
     if (input != null) child.stdin?.end(Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8'));
     child.on('error', (caught) => { error = caught; });
-    const timer = timeoutMs == null ? null : setTimeout(() => {
-      timedOut = true;
-      terminate('SIGTERM');
-      hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
-      hardKillTimer.unref?.();
+    timer = timeoutMs == null ? null : setTimeout(() => {
+      timer = null;
+      // Timers are checked before child-process close callbacks. If the host event loop was
+      // suspended or starved past the deadline, an already-finished child can therefore look
+      // timed out for one turn. Give the pending exit notification one complete event-loop turn
+      // before classifying and terminating the process. A genuinely running command still gets
+      // the same bounded deadline plus only this scheduling grace turn.
+      timeoutDecisionTimer = setTimeout(() => {
+        timeoutDecisionTimer = null;
+        if (settled) return;
+        timedOut = true;
+        terminate('SIGTERM');
+        hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
+        hardKillTimer.unref?.();
+      }, 0);
+      timeoutDecisionTimer.unref?.();
     }, timeoutMs);
     timer?.unref?.();
     const onAbort = () => {
       aborted = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
+      timeoutDecisionTimer = null;
       terminate('SIGTERM');
       hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
       hardKillTimer.unref?.();
@@ -131,6 +148,7 @@ export function runQualityCommand(command, args = [], {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      if (timeoutDecisionTimer) clearTimeout(timeoutDecisionTimer);
       if (hardKillTimer) clearTimeout(hardKillTimer);
       signal?.removeEventListener?.('abort', onAbort);
       const finish = async () => {

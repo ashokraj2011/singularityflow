@@ -161,13 +161,28 @@ export async function applyAstSemanticWarm(root, plan, options = {}) {
     const absolute = command.kind === 'toolchain-version' ? plan.executables.toolchainExecutable : plan.executables.modelExecutable;
     const args = command.arguments;
     const cwd = path.resolve(root, command.cwd);
+    const timeoutMs = 60_000;
+    const startedAt = process.hrtime.bigint();
     const result = await runQualityCommand(absolute, args, {
-      cwd, env: closedEnvironment(), shell: false, timeoutMs: 60_000, captureBytes: 1024 * 1024
+      cwd, env: closedEnvironment(), shell: false, timeoutMs, captureBytes: 1024 * 1024
     });
     if (result.timedOut || result.status !== 0 || result.stdoutTruncated || result.stderrTruncated) {
       throw new SingularityFlowError(
         `AST semantic warm-up command '${command.kind}' failed safely; no binding was written.`,
-        { code: result.timedOut ? 'AST_WARM_TIMEOUT' : 'AST_WARM_COMMAND_FAILED' }
+        {
+          code: result.timedOut ? 'AST_WARM_TIMEOUT' : 'AST_WARM_COMMAND_FAILED',
+          details: {
+            command: command.kind,
+            timeoutMs,
+            elapsedMs: Math.round(Number(process.hrtime.bigint() - startedAt) / 1_000_000),
+            status: result.status,
+            signal: result.signal,
+            stdoutBytes: result.stdoutBytes,
+            stderrBytes: result.stderrBytes,
+            outputTruncated: result.stdoutTruncated || result.stderrTruncated,
+            bindingWritten: false
+          }
+        }
       );
     }
     evidence.push({

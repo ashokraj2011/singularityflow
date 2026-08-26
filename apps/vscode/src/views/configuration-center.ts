@@ -117,6 +117,10 @@ export class ConfigurationCenterPanel {
 
   private async receive(raw: unknown): Promise<void> {
     const message = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    if (message.type === 'open-help-topic' && message.topic === 'configuration') {
+      await vscode.commands.executeCommand('singularityFlow.explainError', 'configuration');
+      return;
+    }
     const view = this.view(); if (!view) return;
     this.errors = []; this.notice = null;
     if (message.type === 'form-dirty') { this.dirty = message.dirty === true; return; }

@@ -29,21 +29,16 @@ test('the extension bundle contains the gateway, not a call out to it', async ()
   assert.ok(bundle.includes('gateway.planner-unavailable'), 'the kernel is bundled');
 });
 
-test('the editor declares the planners it has and does not pretend to the docs one', async () => {
+test('the editor bundles the shared docs planner with a verified package root', async () => {
   /**
-   * `help-explain` reaches the documentation subsystem, which resolves its own path through
-   * `import.meta.url` — empty under CommonJS. The honest answer is to declare the host-safe
-   * planners explicitly and let the kernel refuse the documentation planner with
-   * `gateway.planner-unavailable`, which is a state the contract already models. Shimming
-   * `import.meta` to make the import survive would produce a planner that loads and then cannot
-   * find its own topics.
+   * `help-explain` now receives the same package-root contract as every other surface. It must be
+   * present in the CommonJS bundle rather than falling back to a second host-specific resolver.
    */
   const source = await readFile(path.join(root, 'apps', 'vscode', 'src', 'gateway-session.ts'), 'utf8');
   const imported = [...source.matchAll(/planners\/([a-z-]+)\.mjs/g)].map(([, name]) => name).sort();
-  assert.deepEqual(imported, ['ast-intelligence', 'context-brief', 'developer-next', 'governed-goal', 'home-overview', 'impact-quick', 'impact-what-if', 'problem-investigate', 'repository-explore', 'review-packet', 'work-continue', 'work-list',
+  assert.deepEqual(imported, ['ast-intelligence', 'context-brief', 'developer-next', 'governed-goal', 'help-explain', 'home-overview', 'impact-quick', 'impact-what-if', 'problem-investigate', 'repository-explore', 'review-packet', 'work-continue', 'work-list',
     'work-readiness', 'work-return', 'work-start-intake', 'workspace-list', 'workspace-reliability-surface']);
-  // `codeOnly`: this file names help-explain in the comment explaining why it excludes it.
-  assert.ok(!codeOnly(source).includes('help-explain'), 'the docs planner is not imported');
+  assert.ok(codeOnly(source).includes('help-explain'), 'the docs planner is imported');
 
   /**
    * Checked by a marker from inside the module, not by its filename.
@@ -56,7 +51,7 @@ test('the editor declares the planners it has and does not pretend to the docs o
   const topics = await readFile(path.join(root, 'src', 'docs-topics.mjs'), 'utf8');
   const marker = topics.match(/export function (\w+)/)?.[1];
   assert.ok(marker, 'docs-topics.mjs exports something to look for');
-  assert.ok(!bundle.includes(`function ${marker}(`), 'the documentation subsystem stayed out of the bundle');
+  assert.ok(bundle.includes(`function ${marker}(`), 'the shared documentation subsystem is bundled');
 });
 
 test('the host gateway refuses to start without being told which planners exist', async () => {

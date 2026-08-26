@@ -2031,6 +2031,25 @@ not captured. Kernel invocation records expose allowed-tool policy and provider 
 available, but do not claim individual tool calls. Open **Configuration → Prompt audit** in VS Code
 to toggle capture and review records.
 
+### Ask SFlow in VS Code
+
+Use `@sflow /help <question>`, `@sflow /why <blocker>`, `@sflow /how <task>`,
+`@sflow /recover <failure>`, or `@sflow /topics`. The participant and the natural-language Help
+Center use the same deterministic packaged-topic resolver as `singularity-flow explain`; no chat
+model is invoked. Suggested actions are inserted as partial `/sf-*` queries and are never submitted
+or executed automatically.
+
+The optional content-free quality log is controlled with:
+
+```bash
+singularity-flow help-metrics status --json
+singularity-flow help-metrics on
+singularity-flow help-metrics off
+singularity-flow help-metrics clear
+```
+
+It stores no raw question, answer, path, Work ID, identity, or file content.
+
 `wm status` and its `wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
 the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot,
 generates only missing selections, and requires governed state-branch publication before a shared
@@ -2889,6 +2908,7 @@ unexamined expansion blocks until `impact expansion` records its governed dispos
 candidates are never counted as evidence merely because they were generated.
 
 singularity-flow prompt-log on|off|status|list|view [ID|latest] [--agent AGENT] [--phase PHASE] [--raw]
+singularity-flow help-metrics status|on|off|clear [--json]
 singularity-flow telemetry status [--json]
 singularity-flow telemetry probe [--json]
 singularity-flow telemetry enable [--confirm "ENABLE LOCAL USAGE"] [--json]

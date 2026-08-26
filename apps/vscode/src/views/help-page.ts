@@ -16,6 +16,39 @@ export interface HelpDocument {
   selectedTopic?: string;
 }
 
+export interface HelpAnswerView {
+  status: 'resolved' | 'ambiguous' | 'not-found' | 'unavailable';
+  question: string;
+  intent: string;
+  matchedBy: string;
+  topic: { id: string; title: string; file: string } | null;
+  content: string | null;
+  citation: string | null;
+  candidates: Array<{ id: string; title: string }>;
+  related: Array<{ id: string; title: string }>;
+  handoff: { skill: string; command: string } | null;
+}
+
+export interface HelpMetricsView {
+  enabled: boolean;
+  count: number;
+  outcomes: Record<string, number>;
+  intents: Record<string, number>;
+  topics: Record<string, number>;
+  unresolvedIntents: Record<string, number>;
+  ambiguousIntents: Record<string, number>;
+  noMatchIntents: Record<string, number>;
+}
+
+const QUESTION_EXAMPLES = [
+  'Why can’t I submit?',
+  'How do I recover an interrupted phase?',
+  'How do capability onboarding and workspace creation connect?',
+  'What is project binding?',
+  'When is the world model reused?',
+  'How do prompt logging and token economy work?'
+];
+
 const START_TOPICS = [
   'quick-start',
   'low-friction-cockpit-diagnostics-and-guided-execution',
@@ -122,7 +155,51 @@ function topicButton(topic: HelpTopic, selected: string | null): string {
     <strong>${escape(topic.title)}</strong><small>${escape(topic.id)}</small></button>`;
 }
 
-export function helpCenterHtml(document: HelpDocument, requested: string | null = null): string {
+function answerHtml(answer: HelpAnswerView | null): string {
+  if (!answer) return '<section class="help-answer empty-answer"><p>Ask in ordinary language. Answers come only from reviewed offline topics.</p></section>';
+  const candidates = answer.candidates.length
+    ? `<div class="help-answer-choices">${answer.candidates.map((topic) => `<button class="secondary" data-question="${escape(topic.id)}" data-question-origin="followup">${escape(topic.title)}</button>`).join('')}</div>` : '';
+  if (answer.status !== 'resolved' || !answer.topic || !answer.content) {
+    return `<section class="help-answer ${answer.status === 'ambiguous' ? 'wait' : 'bad'}">
+      <p class="eyebrow">${escape(answer.intent)} · ${escape(answer.matchedBy)}</p>
+      <h2>${answer.status === 'ambiguous' ? 'Choose the intended topic' : 'No reviewed answer matched'}</h2>
+      <p>${answer.status === 'ambiguous'
+        ? 'The question overlaps more than one reviewed topic, so Singularity Flow did not guess.'
+        : 'Try one of the nearest reviewed topics or filter the complete manual below.'}</p>${candidates}</section>`;
+  }
+  const actions = `<div class="form-actions">
+    <button data-open-help-topic="${escape(answer.topic.id)}">Open topic</button>
+    ${answer.handoff ? `<button class="secondary" data-copy="${escape(answer.handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy command</button>
+      <button class="secondary" data-prefill-help="${escape(answer.handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(answer.handoff.skill)}</button>` : ''}
+  </div>`;
+  const related = answer.related.length
+    ? `<h3>Related questions</h3><div class="help-answer-choices">${answer.related.map((topic) => `<button class="secondary" data-question="${escape(topic.id)}" data-question-origin="followup">${escape(topic.title)}</button>`).join('')}</div>` : '';
+  return `<section class="help-answer ok">
+    <p class="eyebrow">${escape(answer.intent)} · matched by ${escape(answer.matchedBy)}</p>
+    <h2>${escape(answer.topic.title)}</h2>
+    <div class="help-answer-body">${renderHelpMarkdown(answer.content)}</div>
+    <p class="help-citation">Source: docs/topics/${escape(answer.topic.file)}<br>${escape(answer.citation ?? '')}</p>${actions}${related}</section>`;
+}
+
+function metricsHtml(metrics: HelpMetricsView | null): string {
+  if (!metrics) return '';
+  const top = Object.entries(metrics.topics).sort((left, right) => right[1] - left[1]).slice(0, 3);
+  const ambiguous = Object.entries(metrics.ambiguousIntents).sort((left, right) => right[1] - left[1]).slice(0, 3);
+  const noMatch = Object.entries(metrics.noMatchIntents).sort((left, right) => right[1] - left[1]).slice(0, 3);
+  return `<section class="help-metrics"><h2>Help routing</h2>
+    <p class="meta">${metrics.enabled ? 'Local aggregates on' : 'Local aggregates off'} · ${metrics.count} request(s)</p>
+    <p class="meta">Resolved ${metrics.outcomes.resolved ?? 0} · ambiguous ${metrics.outcomes.ambiguous ?? 0} · no match ${metrics.outcomes['no-match'] ?? 0}</p>
+    ${ambiguous.length ? `<p class="meta">Frequent ambiguous categories: ${ambiguous.map(([id, count]) => `${escape(id)} (${count})`).join(', ')}</p>` : ''}
+    ${noMatch.length ? `<p class="meta">Frequent no-match categories: ${noMatch.map(([id, count]) => `${escape(id)} (${count})`).join(', ')}</p>` : ''}
+    ${top.length ? `<p class="meta">Frequent topics: ${top.map(([id, count]) => `${escape(id)} (${count})`).join(', ')}</p>` : ''}</section>`;
+}
+
+export function helpCenterHtml(
+  document: HelpDocument,
+  requested: string | null = null,
+  answer: HelpAnswerView | null = null,
+  metrics: HelpMetricsView | null = null
+): string {
   const selected = document.topics.find((topic) => topic.id === requested)
     ?? document.topics.find((topic) => topic.id === 'quick-start')
     ?? document.topics[0] ?? null;
@@ -131,9 +208,14 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
     ${brandLockup()}
     <p class="eyebrow">Product guide and command reference</p>
     <h1>${icon('book', { size: 24 })}Help Center</h1>
-    <p class="meta">Search the complete offline manual for My Work, workspaces, configuration, agents, world model, Jira, Initiatives, commands, and recovery. The same <code>HELP.md</code> ships with the CLI.</p>
-    <input class="help-search" type="search" data-help-search placeholder="Search My Work, workspace, agent, Jira, world model…" aria-label="Search help">
+    <p class="meta">Search the complete offline manual for My Work, workspaces, configuration, agents, world model, Jira, Initiatives, commands, and recovery. Ask a natural-language question against reviewed topics; no model is called.</p>
+    <form class="help-question-form" data-help-question-form>
+      <input class="help-search" type="search" data-help-question maxlength="300" placeholder="Why can’t I submit?" aria-label="Ask Singularity Flow help">
+      <button type="submit">Ask SFlow</button>
+    </form>
+    <div class="help-question-examples">${QUESTION_EXAMPLES.map((question) => `<button class="link" data-question="${escape(question)}" data-question-origin="example">${escape(question)}</button>`).join('')}</div>
   </header>
+  ${answerHtml(answer)}
   <div class="help-layout">
     <aside class="help-nav" aria-label="Help topics">
       <h2>Start here</h2>
@@ -141,8 +223,12 @@ export function helpCenterHtml(document: HelpDocument, requested: string | null 
       <details><summary>All ${document.topics.length} topics</summary>
         <div class="help-all-topics">${document.topics.map((topic) => topicButton(topic, selected?.id ?? null)).join('')}</div>
       </details>
+      ${metricsHtml(metrics)}
     </aside>
     <main class="help-content">
+      <label class="help-filter-label">Filter text in the complete manual
+        <input class="help-search" type="search" data-help-search placeholder="Workspace, agent, Jira, world model…" aria-label="Filter manual text">
+      </label>
       <div class="help-no-results" hidden><h2>No matching help</h2><p>Try a command name, workflow concept, file name, or Jira term.</p></div>
       ${document.topics.map((topic) => `<article id="help-${escape(topic.id)}" class="help-article${topic.id === selected?.id ? ' selected' : ''}" data-topic-id="${escape(topic.id)}" data-search-text="${escape(`${topic.title} ${topic.content}`.toLowerCase())}">
         <p class="eyebrow">${escape(topic.id)}</p><h1>${escape(topic.title)}</h1>${renderHelpMarkdown(topic.content)}</article>`).join('')}
@@ -156,6 +242,7 @@ export const HELP_CENTER_SCRIPT = `
   const articles = [...document.querySelectorAll('.help-article')];
   const topicButtons = [...document.querySelectorAll('[data-topic]')];
   const search = document.querySelector('[data-help-search]');
+  const question = document.querySelector('[data-help-question]');
   const empty = document.querySelector('.help-no-results');
   let selectedId = articles.find((article) => article.classList.contains('selected'))?.dataset.topicId;
   const select = (id) => {
@@ -170,6 +257,20 @@ export const HELP_CENTER_SCRIPT = `
     article?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
   topicButtons.forEach((button) => button.addEventListener('click', () => select(button.dataset.topic)));
+  document.querySelector('[data-help-question-form]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = question?.value?.trim();
+    if (value) vscode.postMessage({ type: 'ask-question', question: value, origin: 'typed' });
+  });
+  document.querySelectorAll('[data-question]').forEach((button) => button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'ask-question', question: button.dataset.question, origin: button.dataset.questionOrigin || 'followup' });
+  }));
+  document.querySelectorAll('[data-open-help-topic]').forEach((button) => button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'open-topic', topic: button.dataset.openHelpTopic });
+  }));
+  document.querySelectorAll('[data-prefill-help]').forEach((button) => button.addEventListener('click', () => {
+    vscode.postMessage({ type: 'prefill-action', skill: button.dataset.prefillHelp, topic: button.dataset.prefillTopic });
+  }));
   document.querySelectorAll('[data-link]').forEach((link) => {
     const open = () => vscode.postMessage({ type: 'open-link', target: link.dataset.link });
     link.addEventListener('click', open);
@@ -191,6 +292,7 @@ export const HELP_CENTER_SCRIPT = `
     const target = event.target.closest('[data-copy]');
     if (!target) return;
     await navigator.clipboard.writeText(target.dataset.copy || '');
+    if (target.dataset.helpCopyTopic) vscode.postMessage({ type: 'copy-command', topic: target.dataset.helpCopyTopic });
     const previous = target.textContent; target.textContent = 'Copied';
     setTimeout(() => { target.textContent = previous; }, 1200);
   });

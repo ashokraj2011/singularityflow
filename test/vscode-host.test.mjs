@@ -171,7 +171,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
 /** Enough of the VS Code API for activation to complete and for the tree to be read. */
 function stubVscode() {
-  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
+  const registered = { commands: new Map(), trees: new Map(), webviewViews: new Map(), chatParticipants: [], clipboard: [], statusBars: [], terminals: [], errors: [], warnings: [], output: [], inputBoxes: [], panels: [], quickPicks: [], openDialogs: [], openedDocuments: [], answers: [], warningAnswers: [], infos: [], diagnostics: new Map(), saveListeners: [], watchers: [], executedCommands: [], pickedFile: null, pickedFolder: null, pickedFavorites: undefined };
 
   class EventEmitter {
     constructor() { this.listeners = new Set(); }
@@ -193,7 +193,10 @@ function stubVscode() {
     StatusBarAlignment: { Left: 1, Right: 2 },
     ConfigurationTarget: { Global: 1, Workspace: 2 },
     ProgressLocation: { Notification: 15 },
-    Uri: { file: (value) => ({ fsPath: value, scheme: 'file' }) },
+    Uri: {
+      file: (value) => ({ fsPath: value, scheme: 'file' }),
+      parse: (value) => ({ value, scheme: String(value).split(':')[0] })
+    },
     RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
     ExtensionContext: null,
     workspace: {
@@ -260,6 +263,17 @@ function stubVscode() {
         return registered.commands.get(id)?.(...args);
       },
       getCommands: async () => [...registered.commands.keys()]
+    },
+    chat: {
+      createChatParticipant: (id, handler) => {
+        const participant = { id, handler, followupProvider: null, iconPath: null, dispose() {} };
+        registered.chatParticipants.push(participant);
+        return participant;
+      }
+    },
+    env: {
+      clipboard: { writeText: async (value) => { registered.clipboard.push(value); } },
+      openExternal: async () => true
     },
     languages: {
       createDiagnosticCollection: () => ({
@@ -1023,6 +1037,59 @@ test('Help is available without a workspace and opens the canonical offline manu
   assert.match(panel.webview.html, /Story intake/);
   assert.match(panel.webview.html, /CLI command reference/);
   assert.match(panel.webview.html, /\/sf-story-start/);
+});
+
+test('@sflow and Help Center share model-free cited resolution and only prefill actions', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  assert.equal(registered.chatParticipants.length, 1, 'one explicit SFlow participant is registered');
+  const participant = registered.chatParticipants[0];
+  assert.equal(participant.id, 'singularity-flow.sflow');
+  let modelRead = false;
+  const request = {
+    command: 'help', prompt: 'What is project binding?', references: [],
+    get model() { modelRead = true; throw new Error('the help participant must not read request.model'); }
+  };
+  const response = { markdown: [], buttons: [], references: [], progress: [] };
+  const stream = {
+    markdown: (value) => response.markdown.push(String(value)),
+    button: (value) => response.buttons.push(value),
+    reference: (value) => response.references.push(value),
+    progress: (value) => response.progress.push(String(value))
+  };
+  const answer = await participant.handler(request, {}, stream, { isCancellationRequested: false });
+  assert.equal(modelRead, false, 'deterministic help never accessed the chat model');
+  assert.match(response.markdown.join(''), /AST project binding/);
+  assert.match(response.markdown.join(''), /topic project-binding v1/);
+  assert.equal(response.references.length, 1, 'the packaged source is attached as a reference');
+  assert.ok(response.buttons.some((button) => button.title === 'Open in Help Center'));
+  assert.ok(response.buttons.some((button) => button.title === 'Copy command'));
+  assert.ok(response.buttons.some((button) => /Prepare \/sf-/.test(button.title)));
+  assert.equal(answer.metadata.topicId, 'project-binding');
+  assert.equal(registered.terminals.length, 0, 'answering help executes no lifecycle command');
+
+  await registered.commands.get('singularityFlow.prefillHelpAction')('/sf-worldmodel', 'project-binding');
+  const prefill = registered.executedCommands.find((entry) => entry.id === 'workbench.action.chat.open');
+  assert.deepEqual(prefill?.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
+  assert.equal(registered.terminals.length, 0, 'prefill still executes no lifecycle command');
+
+  await registered.commands.get('singularityFlow.openHelp')({ id: 'help:all' });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.helpCenter');
+  assert.ok(panel, 'the natural-language Help Center opened');
+  await panel.post({ type: 'ask-question', question: 'What is project binding?', origin: 'typed' });
+  await until(() => panel.webview.html.includes('matched by authored-question') ? panel.webview.html : null);
+  assert.match(panel.webview.html, /AST project binding/);
+  assert.match(panel.webview.html, /topic project-binding v1/);
+  assert.match(panel.webview.html, /Filter text in the complete manual/,
+    'literal manual filtering remains a separate secondary control');
+  await panel.post({ type: 'prefill-action', skill: '/sf-worldmodel', topic: 'project-binding' });
+  await until(() => registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').length >= 2);
+  const latest = registered.executedCommands.filter((entry) => entry.id === 'workbench.action.chat.open').at(-1);
+  assert.deepEqual(latest.args, [{ query: '/sf-worldmodel ', isPartialQuery: true }]);
 });
 
 test('clicking an offline topic renders the engine-served bytes inside Help Center', async (t) => {

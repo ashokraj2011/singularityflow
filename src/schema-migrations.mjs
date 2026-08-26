@@ -858,6 +858,14 @@ const families = [
     paths: [/^\$local\/work-journal\/settings\.json$/, /^\$local\/work-journal\/events\/.+\.jsonl$/]
   }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
+  family({
+    id: 'help-metrics-settings', currentVersion: 1,
+    paths: [/^(?:\$git|\$workspace)\/help-metrics\/settings\.json$/]
+  }),
+  family({
+    id: 'help-metrics-event', currentVersion: 1,
+    paths: [/^(?:\$git|\$workspace)\/help-metrics\/events\.jsonl$/], immutable: true
+  }),
   family({ id: 'active-workspace', currentVersion: 1, paths: [/^\$local\/active-workspace\.json$/] }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({

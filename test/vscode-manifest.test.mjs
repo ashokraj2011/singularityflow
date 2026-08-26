@@ -42,6 +42,20 @@ const views = contributedViews.map((view) => view.id);
 const commands = manifest.contributes.commands.map((command) => command.command);
 const activation = manifest.activationEvents ?? [];
 
+test('the explicit SFlow participant is sticky, focused, and pinned to the declared API baseline', () => {
+  assert.equal(manifest.engines.vscode, '^1.90.0');
+  assert.equal(manifest.devDependencies['@types/vscode'], '1.90.0');
+  assert.equal(manifest.contributes.chatParticipants.length, 1);
+  const participant = manifest.contributes.chatParticipants[0];
+  assert.equal(participant.id, 'singularity-flow.sflow');
+  assert.equal(participant.name, 'sflow');
+  assert.equal(participant.fullName, 'Singularity Flow');
+  assert.equal(participant.isSticky, true);
+  assert.equal(Object.hasOwn(participant, 'disambiguation'), false,
+    'automatic participant detection is intentionally excluded from the first release');
+  assert.deepEqual(participant.commands.map((entry) => entry.name), ['help', 'why', 'how', 'recover', 'topics']);
+});
+
 test('the activity view opens as one compact enterprise navigation surface', () => {
   assert.equal(viewContainer.title, 'SINGULARITY FLOW');
   assert.equal(manifest.contributes.views.singularityFlow, undefined,

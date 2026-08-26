@@ -21,7 +21,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 3
+version: 4
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -32,6 +32,11 @@ a weak match is refused and a close tie returns choices. This classification sel
 never a lifecycle operation. Questions about current blockers remain on the durable Home/readiness
 path, and action-shaped prose still requires the normal explicit governed selection.
 
+VS Code also contributes the explicit `@sflow` participant. Use `@sflow /help`, `/why`, `/how`,
+`/recover`, or `/topics`. It uses the same resolver and never calls the chat model. Its action
+buttons open a partial `/sf-*` query for review; they do not submit the query or execute a lifecycle
+command.
+
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **help and docs**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
@@ -39,7 +44,7 @@ Use this topic when the current goal matches **help and docs**. Start in a gover
 ## Use it from each surface
 
 - **Shell:** `sflow nextsteps`, `sflow doctor`, `sflow about`, `sflow help`, `sflow explain`. Quote a natural question as one argument, for example `sflow explain "What is project binding?"`. Add `--here` when the concept should be paired with the current Story snapshot. Run `singularity-flow nextsteps --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, `/sf-help "What is project binding?"`. The help skill relays bounded cited documentation and never mutates state.
+- **Copilot:** `@sflow /why Why can’t I submit?`, `@sflow /help What is project binding?`, or the existing `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, and `/sf-help` skills. Help relays bounded cited documentation and never mutates state.
 - **VS Code:** open Singularity Flow **Help Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

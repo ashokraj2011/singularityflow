@@ -8,11 +8,12 @@ aliases:
 commands:
   - logs
   - prompt-log
+  - help-metrics
 related:
   - evidence-and-ledger
   - telemetry-and-cost
   - copilot-and-surfaces
-version: 3
+version: 4
 ---
 Activity logs report lifecycle and operational events without exposing secrets. Prompt audit is optional, workspace-local evidence of composed governed prompts and does not replace lifecycle state.
 
@@ -22,7 +23,7 @@ Use this topic when the current goal matches **activity and prompt audit**. Star
 
 ## Use it from each surface
 
-- **Shell:** `sflow logs`, `sflow prompt-log`. Run `singularity-flow logs --help` for the exact forms supported by this build.
+- **Shell:** `sflow logs`, `sflow prompt-log`, `sflow help-metrics status`. Run `singularity-flow logs --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-logs`, `/sf-prompt-log`. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:** open Singularity Flow **Flow Impact, Analytics, and Activity**. The extension renders engine results; it does not independently decide lifecycle state.
 
@@ -45,6 +46,12 @@ machine-local HMAC chain. Configure it with `sflow prompt-log retention --retent
 Use `sflow prompt-log repair --confirm "REPAIR PROMPT AUDIT"` to quarantine malformed or unsafe
 history and reseal valid records. Use `sflow prompt-log clear --confirm "DELETE PROMPT AUDIT"` to
 permanently remove both active history and recovery copies.
+
+Help-quality metrics are a different, content-free local record. They contain only the classified
+intent, resolution outcome, topic, matching method, latency, answer size, surface, and selected
+action category. They never contain the question, answer, path, Work ID, Git identity, or file
+content. Inspect or control them with `sflow help-metrics status --json`, `sflow help-metrics on`,
+`sflow help-metrics off`, and `sflow help-metrics clear`.
 
 ## State and safety
 

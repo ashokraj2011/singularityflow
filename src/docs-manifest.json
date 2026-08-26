@@ -1,16 +1,16 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "63d2a186125f4871508b5c215affc188625e9d40",
+  "sourceCommit": "5360d1feed83957aefb5904b91b44e784539621a",
   "topicCount": 57,
-  "contentSha256": "d5b3e7edf382220a43e867c6dba27aaf1ec4da4194c4f7ddd8aba86d7f88bf7d",
+  "contentSha256": "4d93d2f2b0a8c8cf55f9728c907f6f84ad17e454315dfe1a4eb5951453dab26d",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
       "title": "Activity logs, prompt audit, and operational trace",
-      "version": 3,
-      "sha256": "28959e2a4e1bc773bd5b764a66a3162dab3695db90a0595563a04f9fb180fec2",
-      "routingSha256": "a207ec65fc942fe9c93f12e061cf22fe7496c209e98ce8eea8a1d14e0de5ee36",
+      "version": 4,
+      "sha256": "e800344e0642badfaae0e823d0202e32c6c70f8e8b943eb0ae70ec16930897a6",
+      "routingSha256": "332bbcacb673289aa488c06c3253ec7d7d7f3c33677660afb5b2a93336e066fa",
       "file": "activity-and-prompt-audit.md"
     },
     {
@@ -48,9 +48,9 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 1,
+      "version": 2,
       "sha256": "f4f6697973752630fc3879dbf2143930e10fd78d7d2a3af635661244c6c805e1",
-      "routingSha256": "ab7ddcc80270f6d39e8c158549d9a4de0cb22bec299f5c3345550238a13efc29",
+      "routingSha256": "3016d3adbd38eb780767a2e9ce375d72bc738db4017440d5ef4096ddefd66f60",
       "file": "ast-intelligence.md"
     },
     {
@@ -184,8 +184,8 @@
     {
       "id": "help-and-docs",
       "title": "Getting help",
-      "version": 3,
-      "sha256": "4abe0ba81d45433c251fb28c9919ec3610c6c023126a53802ced15fd2fb497f6",
+      "version": 4,
+      "sha256": "3647cb9c6ca1e40000e066e9d6466ce9ce3f8fed1d930f0b2dac68aaf88eed3c",
       "routingSha256": "1ccccb5ccfaf7c105a2c911929eade75bc4232056e1aa57b56ec97a7de9b38e9",
       "file": "help-and-docs.md"
     },
@@ -216,9 +216,9 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 5,
+      "version": 6,
       "sha256": "8b64c5ba91931c4c6a3af52ffb423151c18068cff57897222acf32985b468e52",
-      "routingSha256": "21fb997bee7abc1f114c068be02f7c692de49d4b2d60baec75ac905307e2fb51",
+      "routingSha256": "e14411de12d0ae9a5018c0cca4a1477dce09b0d4c9e4e65355b9b83af8b84068",
       "file": "installation-and-upgrades.md"
     },
     {
@@ -320,9 +320,9 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 4,
+      "version": 5,
       "sha256": "ac11a610cb28aa4677e53ba9be28ebeba749fe1a9703b9027c145a40cd3dac9d",
-      "routingSha256": "22e3fa9e6c1b4d5a6f78c25572a05c1513333edc1da65abdee410fb9e42969f2",
+      "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
     {

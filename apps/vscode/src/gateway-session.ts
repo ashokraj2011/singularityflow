@@ -13,12 +13,10 @@
  *
  * ## Host-safe planners, declared explicitly
  *
- * `help-explain` reaches the documentation subsystem, which resolves its own location through
- * `import.meta.url` — correct under ESM and empty in the CommonJS bundle a VS Code extension loads.
- * Rather than shimming it, this host declares only the planners it can bundle safely. The kernel's
- * registry-versus-map distinction covers the rest: `help.explain` resolves, finds no planner, and returns
- * `gateway.planner-unavailable`, which renders as "this build cannot answer that yet" and points at
- * the CLI. A capability the host genuinely lacks, reported as one.
+ * Planners are still declared explicitly, but documentation now resolves through the shared
+ * package-root boundary that esbuild replaces for CommonJS. That makes `help-explain` a real host
+ * planner instead of a CLI fallback while preserving the registry-versus-map refusal for anything
+ * this build genuinely does not contain.
  */
 import { createActionExecutor } from '../../../src/gateway/executor.mjs';
 import { createHostGateway } from '../../../src/gateway/host.mjs';
@@ -27,6 +25,7 @@ import {
 } from '../../../src/gateway/planners/ast-intelligence.mjs';
 import { developerNext } from '../../../src/gateway/planners/developer-next.mjs';
 import { contextBrief } from '../../../src/gateway/planners/context-brief.mjs';
+import { helpExplain } from '../../../src/gateway/planners/help-explain.mjs';
 import {
   governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner
@@ -63,6 +62,7 @@ export function editorPlanners(): Map<string, unknown> {
     ['goal-next', governedGoalNextPlanner],
     ['goal-trace', governedGoalTracePlanner],
     ['home-overview', homeOverview],
+    ['help-explain', helpExplain],
     ['work-list', workList],
     ['work-continue', workContinue],
     ['work-readiness', workReadiness],

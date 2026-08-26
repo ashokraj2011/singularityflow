@@ -83,6 +83,9 @@ test('VS Code command audit classification follows mixed read and mutation subco
   assert.equal(commandClass(['review', 'intake', '--out', 'review.md']), 'mutation');
   assert.equal(commandClass(['telemetry', 'status']), 'read');
   assert.equal(commandClass(['telemetry', 'reconcile', 'design']), 'mutation');
+  assert.equal(commandClass(['help-metrics', 'status', '--json']), 'read');
+  assert.equal(commandClass(['help-metrics', 'off']), 'mutation');
+  assert.equal(commandClass(['help-metrics', 'clear']), 'mutation');
   assert.equal(commandClass(['inputs', 'design']), 'mutation');
   assert.equal(commandClass(['inputs', 'design', '--dry-run']), 'read');
   assert.equal(commandClass(['inputs', 'design', '--dry-run=true']), 'read');

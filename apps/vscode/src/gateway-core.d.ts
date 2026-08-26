@@ -92,6 +92,7 @@ declare module '*/gateway/planners/ast-intelligence.mjs' {
 }
 declare module '*/gateway/planners/developer-next.mjs' { export const developerNext: unknown; }
 declare module '*/gateway/planners/context-brief.mjs' { export const contextBrief: unknown; }
+declare module '*/gateway/planners/help-explain.mjs' { export const helpExplain: unknown; }
 declare module '*/gateway/planners/governed-goal.mjs' {
   export const governedGoalImpactPlanner: unknown;
   export const governedGoalInspectPlanner: unknown;
@@ -139,6 +140,72 @@ declare module '*/gateway/conversation.mjs' {
   export function planDeveloperConversation(request: string): {
     readonly route: { readonly operationId: string; readonly automatic: boolean } | null;
   };
+}
+
+interface HelpTopicContract {
+  readonly id: string;
+  readonly title: string;
+  readonly version: number;
+  readonly sha256: string;
+  readonly file: string;
+  readonly commands: readonly string[];
+  readonly related: readonly string[];
+  readonly aliases: readonly string[];
+  readonly questions: readonly string[];
+}
+
+interface HelpResolutionContract {
+  readonly status: 'index' | 'resolved' | 'ambiguous' | 'not-found';
+  readonly query: string;
+  readonly helpIntent: 'concept' | 'procedure' | 'diagnose' | 'compare' | 'command-discovery' | 'recover';
+  readonly matchedBy: string;
+  readonly topic?: HelpTopicContract;
+  readonly candidates: readonly HelpTopicContract[];
+  readonly topics: readonly HelpTopicContract[];
+  readonly related?: readonly HelpTopicContract[];
+  readonly served?: {
+    readonly text: string; readonly bytes: number; readonly sha256: string;
+    readonly truncated: boolean; readonly handle: string | null; readonly sections: readonly string[];
+  };
+  readonly citation?: string;
+  readonly handoff?: { readonly skill: string; readonly command: string } | null;
+  readonly latencyMs: number;
+}
+
+declare module '*/help-service.mjs' {
+  export function resolveHelp(question: string, options?: {
+    maxBytes?: number; section?: string; topicsDirectory?: string; manifest?: unknown;
+  }): Promise<HelpResolutionContract>;
+}
+
+declare module '*/help-metrics.mjs' {
+  export function recordHelpMetric(root: string, input: {
+    surface: 'chat' | 'help-center' | 'cli' | 'error-link';
+    intent: 'concept' | 'procedure' | 'diagnose' | 'compare' | 'command-discovery' | 'recover';
+    outcome: 'resolved' | 'ambiguous' | 'no-match' | 'unavailable';
+    topicId: string | null;
+    matchedBy: string;
+    latencyMs: number;
+    answerBytes: number;
+    actionCategory: 'followup-opened' | 'command-copied' | 'command-prefilled' | 'topic-opened' | 'error-explained' | null;
+  }): Promise<unknown>;
+  export function helpMetricsStatus(root: string): Promise<{
+    enabled: boolean; count: number; outcomes: Record<string, number>;
+    intents: Record<string, number>; topics: Record<string, number>;
+    unresolvedIntents: Record<string, number>;
+    ambiguousIntents: Record<string, number>; noMatchIntents: Record<string, number>;
+  }>;
+}
+
+declare module '*/help-errors.mjs' {
+  export function helpTopicForError(input?: {
+    code?: string | null; messageId?: string | null;
+    operation?: string | null; message?: string | null;
+  }): string | null;
+}
+
+declare module '*/package-root.mjs' {
+  export const PACKAGE_ROOT: string;
 }
 
 /**

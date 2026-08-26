@@ -19,13 +19,13 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { nearestNames, SingularityFlowError } from './util.mjs';
 
 /** Where the compiled topics live in the installed package. */
-export const TOPICS_DIRECTORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'topics');
+export const TOPICS_DIRECTORY = path.join(PACKAGE_ROOT, 'docs', 'topics');
 
 /**
  * The preview ceiling, deliberately the same numbers governed evidence uses.

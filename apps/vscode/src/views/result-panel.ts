@@ -21,6 +21,7 @@ import { navigateTo } from './navigate.ts';
 import { contentSecurityPolicy, escape, navigationTarget, nonce, page } from './webview.ts';
 import { fidelityNote, refusalFor, type Refusal } from './refusal.ts';
 import type { ResultCardView } from './result-card-model.ts';
+import { helpTopicForError } from '../../../../src/help-errors.mjs';
 
 /**
  * Where a card's facts came from, and therefore whether its handles are live.
@@ -46,7 +47,8 @@ let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
 let currentOrigin: ResultOrigin = 'cli';
 let currentNote: string | null = null;
-type ResultHistoryEntry = { view: ResultCardView; origin: ResultOrigin; note: string | null };
+let currentHelpTopic: string | null = null;
+type ResultHistoryEntry = { view: ResultCardView; origin: ResultOrigin; note: string | null; helpTopic: string | null };
 let history: ResultHistoryEntry[] = [];
 
 /**
@@ -68,7 +70,7 @@ export function onHomeRequest(handler: (request: HomeRequest) => void | Promise<
   dispatchHomeRequest = handler;
 }
 
-function render(target: vscode.WebviewPanel, view: ResultCardView, note: string | null): void {
+function render(target: vscode.WebviewPanel, view: ResultCardView, note: string | null, helpTopic: string | null): void {
   const token = nonce();
   const csp = contentSecurityPolicy(target.webview, token);
   /**
@@ -96,6 +98,7 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
     ${history.length ? '<button type="button" data-result-nav="back">← Back</button>' : ''}
     ${isHome ? '<span aria-current="page">My Work</span>' : '<button type="button" data-result-nav="home">My Work</button>'}
     <button type="button" data-result-nav="journal">Local Journal</button>
+    ${helpTopic ? '<button type="button" data-result-nav="help">Explain this error</button>' : ''}
   </nav>`;
   const body = `<style nonce="${token}">${RESULT_CARD_STYLE}
 .sf-fidelity { margin: 12px 2px 0; color: var(--vscode-descriptionForeground); font-size: .92em; }
@@ -121,16 +124,24 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 
 /** Show a result card, creating the panel on first use and reusing it after. */
 export function showResultCard(view: ResultCardView,
-  { note = null, origin = 'cli', historyMode = 'reset' }: {
+  { note = null, origin = 'cli', historyMode = 'reset', helpTopic = null }: {
     note?: string | null;
     origin?: ResultOrigin;
     historyMode?: 'reset' | 'push' | 'replace';
+    helpTopic?: string | null;
   } = {}): void {
-  if (historyMode === 'push' && current) history.push({ view: current, origin: currentOrigin, note: currentNote });
+  if (historyMode === 'push' && current) history.push({
+    view: current, origin: currentOrigin, note: currentNote, helpTopic: currentHelpTopic
+  });
   if (historyMode === 'reset') history = [];
   current = view;
   currentOrigin = origin;
   currentNote = note;
+  currentHelpTopic = helpTopic ?? (view.tone === 'refusal' ? helpTopicForError({
+    messageId: view.details.message ?? null,
+    operation: view.details.operation ?? null,
+    message: view.headline
+  }) : null);
   if (!panel) {
     panel = vscode.window.createWebviewPanel(
       'singularityFlow.result',
@@ -158,10 +169,14 @@ export function showResultCard(view: ResultCardView,
         current = previous.view;
         currentOrigin = previous.origin;
         currentNote = previous.note;
-        render(panel, current, currentNote);
+        currentHelpTopic = previous.helpTopic;
+        render(panel, current, currentNote, currentHelpTopic);
       },
       'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
       'result.journal': () => { void vscode.commands.executeCommand('singularityFlow.openJournal'); },
+      'result.help': () => {
+        if (currentHelpTopic) void vscode.commands.executeCommand('singularityFlow.explainError', currentHelpTopic);
+      },
       'result.faults': () => { void vscode.commands.executeCommand('singularityFlow.openFaultRepairs'); },
       'home.request': (message) => {
         const request = stringField(message, 'request')?.trim() ?? '';
@@ -206,7 +221,7 @@ export function showResultCard(view: ResultCardView,
   } else {
     panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, true);
   }
-  render(panel, view, note);
+  render(panel, view, note, currentHelpTopic);
 }
 
 /**
@@ -224,7 +239,13 @@ export function showRefusal(error: unknown, { headline }: { headline?: string } 
     void vscode.window.showErrorMessage(String((error as { message?: string })?.message ?? error));
     return;
   }
-  showResultCard(refusal.view, { note: fidelityNote(refusal.fidelity) });
+  const helpTopic = helpTopicForError({
+    code: (error as { code?: string })?.code ?? null,
+    messageId: refusal.view.details.message ?? null,
+    operation: refusal.view.details.operation ?? null,
+    message: (error as { message?: string })?.message ?? null
+  });
+  showResultCard(refusal.view, { note: fidelityNote(refusal.fidelity), helpTopic });
 }
 
 /** Test seam: the panel is module state, and a test that ran before must not leak into the next. */
@@ -233,6 +254,7 @@ export function resetResultPanel(): void {
   panel = null;
   current = null;
   currentNote = null;
+  currentHelpTopic = null;
   history = [];
   dispatch = null;
   dispatchHomeRequest = null;

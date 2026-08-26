@@ -91,10 +91,9 @@ export function createHostGateway({
   /**
    * Which planners this host has, supplied rather than defaulted. `[INT:CON-032]`
    *
-   * It defaulted to `gatewayPlanners()`, which made this module statically import all seven — and
-   * `help-explain` reaches the documentation subsystem, which resolves its own path through
-   * `import.meta.url`. Harmless in the CLI and fatal in a CommonJS bundle, so the default quietly
-   * decided that this module could only ever run in one kind of host.
+   * It defaulted to `gatewayPlanners()`, which made every host statically import every planner.
+   * Hosts still declare their available planners explicitly: packaging support is now shared, but
+   * a small host must not acquire unrelated capabilities merely because another host contains them.
    *
    * Which planners a build actually has was already the kernel's own distinction: the registry says
    * which planner an operation *names*, the map says which ones exist, and an operation whose

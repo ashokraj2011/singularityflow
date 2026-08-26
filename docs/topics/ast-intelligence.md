@@ -9,6 +9,7 @@ questions:
   - How do I enable AST intelligence?
   - How do I disable AST intelligence?
   - What happens when AST is unavailable?
+  - Compare AST and text access
 keywords:
   - parser
   - semantic facts
@@ -20,7 +21,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 1
+version: 2
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,

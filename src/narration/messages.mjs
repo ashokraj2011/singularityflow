@@ -74,6 +74,18 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `'${slot(s.query)}' matches ${slot(s.count)} topics.`,
     preserves: true
   },
+  'help-metrics.reported': {
+    headline: (s) => `Help metrics are ${slot(s.enabled)} with ${slot(s.count, '0')} local record(s).`,
+    preserves: true
+  },
+  'help-metrics.updated': {
+    headline: (s) => `Help metrics are now ${slot(s.enabled)}.`,
+    preserves: false
+  },
+  'help-metrics.cleared': {
+    headline: (s) => `Cleared ${slot(s.removed, '0')} local help-metrics record(s).`,
+    preserves: false
+  },
   'sequence.refused': {
     headline: (s) => `Cannot ${slot(s.action, 'do that')}${s.phase ? ` for ${slot(s.phase)}` : ''} yet.`,
     preserves: true

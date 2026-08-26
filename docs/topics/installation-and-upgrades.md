@@ -5,6 +5,9 @@ aliases:
   - upgrade
   - bootstrap
   - reinstall
+questions:
+  - How do I reinstall SFlow on Windows?
+  - How do I install SFlow on macOS?
 commands:
   - init
   - bootstrap
@@ -17,7 +20,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 5
+version: 6
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 

@@ -56,7 +56,8 @@ function repositoryDetails(repository: WorkspaceRepositoryStatus, leadId: string
 
 function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, detailError: string | null): string {
   if (loading) return `<div class="card"><p>${icon('wait')} Reading workspace configuration and repository state…</p></div>`;
-  if (detailError) return `<div class="card blocked"><p class="blockers">${escape(detailError)}</p></div>`;
+  if (detailError) return `<div class="card blocked"><p class="blockers">${escape(detailError)}</p>
+    <button class="secondary" data-help-topic="workspaces-and-sessions">Explain this error</button></div>`;
   if (!status) return '<p class="muted">Workspace details are unavailable.</p>';
 
   const capabilities = status.workspace.capabilities ?? [];
@@ -264,7 +265,8 @@ function configurationRefreshHtml(row: WorkspaceRow, view: WorkspaceConfiguratio
       <button class="secondary" data-config-preview="all"${view.loading || view.applying ? ' disabled' : ''}>
         ${view.loading && view.scope === 'all' ? 'Checking…' : 'Check all workspaces'}</button>
     </p>
-    ${view.error ? `<p class="blockers">${escape(view.error)}</p>` : ''}
+    ${view.error ? `<p class="blockers">${escape(view.error)}</p>
+      <button class="secondary" data-help-topic="configuration">Explain this error</button>` : ''}
     ${result ? `<p><strong>${view.scope === 'all' ? 'All registered workspaces' : row.name}</strong>
       · ${escape(result.total)} ${result.total === 1 ? 'repository' : 'repositories'}
       ${result.planId ? `· plan <code>${escape(result.planId)}</code>` : ''}</p>
@@ -386,7 +388,8 @@ export function workspacesHtml(
       copyable — no two may share a directory.</p>
   </header>
 
-  ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
+  ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p>
+    <button class="secondary" data-help-topic="workspaces-and-sessions">Explain this error</button></section>` : ''}
   ${collisions.length ? `
   <section class="plain">
     <p class="blockers">${collisions.length} workspaces share a working directory. Two sets of
@@ -416,12 +419,13 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-help-topic]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
     const value = (field) => document.querySelector('[data-field="' + field + '"]')?.value ?? '';
-    if (data.select !== undefined) vscode.postMessage({ type: 'select', path: data.select });
+    if (data.helpTopic !== undefined) vscode.postMessage({ type: 'open-help-topic', topic: data.helpTopic });
+    else if (data.select !== undefined) vscode.postMessage({ type: 'select', path: data.select });
     else if (data.switch !== undefined) vscode.postMessage({ type: 'switch', path: data.switch });
     else if (data.create !== undefined) vscode.postMessage({ type: 'create' });
     else if (data.adopt !== undefined) vscode.postMessage({ type: 'adopt' });

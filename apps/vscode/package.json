@@ -22,6 +22,22 @@
     "workspaceContains:workspace.json"
   ],
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "singularity-flow.sflow",
+        "name": "sflow",
+        "fullName": "Singularity Flow",
+        "description": "Ask about Singularity Flow workflows, blockers, recovery, commands, AST, and workspaces.",
+        "isSticky": true,
+        "commands": [
+          { "name": "help", "description": "Answer from reviewed Singularity Flow documentation" },
+          { "name": "why", "description": "Explain a blocker or refusal" },
+          { "name": "how", "description": "Show the reviewed procedure for a task" },
+          { "name": "recover", "description": "Find the safe recovery path for a failure" },
+          { "name": "topics", "description": "List reviewed offline help topics" }
+        ]
+      }
+    ],
     "configuration": {
       "title": "Singularity Flow",
       "properties": {
@@ -570,6 +586,26 @@
         "command": "singularityFlow.openHelp",
         "title": "Singularity Flow: Help Center",
         "icon": "$(question)"
+      },
+      {
+        "command": "singularityFlow.explainTopic",
+        "title": "Singularity Flow: Explain Help Topic"
+      },
+      {
+        "command": "singularityFlow.explainError",
+        "title": "Singularity Flow: Explain Error"
+      },
+      {
+        "command": "singularityFlow.copyHelpCommand",
+        "title": "Singularity Flow: Copy Help Command"
+      },
+      {
+        "command": "singularityFlow.prefillHelpAction",
+        "title": "Singularity Flow: Prepare Help Action"
+      },
+      {
+        "command": "singularityFlow.openHelpTopicFromChat",
+        "title": "Singularity Flow: Open Chat Help Topic"
       }
     ],
     "menus": {
@@ -581,6 +617,26 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "singularityFlow.explainTopic",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.explainError",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.copyHelpCommand",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.prefillHelpAction",
+          "when": "false"
+        },
+        {
+          "command": "singularityFlow.openHelpTopicFromChat",
+          "when": "false"
+        },
         {
           "command": "singularityFlow.openDeveloperHome",
           "when": "false"
@@ -607,7 +663,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "1.90.0",
     "esbuild": "^0.25.12",
     "typescript": "^5.6.0"
   }

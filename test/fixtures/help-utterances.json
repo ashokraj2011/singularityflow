@@ -1,0 +1,34 @@
+{
+  "cases": [
+    { "question": "How do approvals work?", "status": "resolved", "topic": "approvals", "intent": "procedure" },
+    { "question": "Why is my approval stale?", "status": "resolved", "topic": "approvals", "intent": "diagnose" },
+    { "question": "What command approves a phase?", "status": "resolved", "topic": "approvals", "intent": "command-discovery" },
+    { "question": "How can I recover after a crash?", "status": "resolved", "topic": "recovery", "intent": "recover" },
+    { "question": "Recover interrupted implementation", "status": "resolved", "topic": "recovery", "intent": "recover" },
+    { "question": "What is capability mapping?", "status": "resolved", "topic": "capability-management", "intent": "concept" },
+    { "question": "How do I switch workspace?", "status": "resolved", "topic": "workspaces-and-sessions", "intent": "procedure" },
+    { "question": "How do I enable AST intelligence?", "status": "resolved", "topic": "ast-intelligence", "intent": "procedure" },
+    { "question": "What happens when AST is unavailable?", "status": "resolved", "topic": "ast-intelligence", "intent": "concept" },
+    { "question": "Compare AST and text access", "status": "resolved", "topic": "ast-intelligence", "intent": "compare" },
+    { "question": "What is project binding?", "status": "resolved", "topic": "project-binding", "intent": "concept" },
+    { "question": "Why is semantic assurance degraded?", "status": "resolved", "topic": "project-binding", "intent": "diagnose" },
+    { "question": "When is the world model reused?", "status": "resolved", "topic": "world-model", "intent": "concept" },
+    { "question": "How are prompts logged?", "status": "resolved", "topic": "activity-and-prompt-audit", "intent": "concept" },
+    { "question": "Where can I see token cost?", "status": "resolved", "topic": "telemetry-and-cost", "intent": "concept" },
+    { "question": "How do Story phases work?", "status": "resolved", "topic": "story-lifecycle", "intent": "procedure" },
+    { "question": "Why can’t I submit?", "status": "resolved", "topic": "sequence-gates", "intent": "diagnose" },
+    { "question": "How do I reinstall SFlow on Windows?", "status": "resolved", "topic": "installation-and-upgrades", "intent": "procedure" },
+    { "question": "How do I recover after a failed phase on macOS?", "status": "resolved", "topic": "recovery", "intent": "recover" },
+    { "question": "ast", "status": "resolved", "topic": "ast-intelligence", "intent": "concept" },
+    { "question": "grounding", "status": "resolved", "topic": "world-model", "intent": "concept" },
+    { "question": "crash", "status": "resolved", "topic": "recovery", "intent": "concept" },
+    { "question": "Explain approval review", "status": "ambiguous", "intent": "concept", "candidate": "approvals" },
+    { "question": "aproovals", "status": "not-found", "intent": "concept", "candidate": "approvals" },
+    { "question": "How do I file my taxes?", "status": "not-found", "intent": "procedure" }
+  ],
+  "actionImperatives": [
+    "Submit this phase",
+    "Approve it now",
+    "Start a new story"
+  ]
+}

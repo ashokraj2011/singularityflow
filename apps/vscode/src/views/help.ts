@@ -4,7 +4,12 @@ import path from 'node:path';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField } from './messages.ts';
-import { HELP_CENTER_SCRIPT, helpCenterHtml, type HelpDocument } from './help-page.ts';
+import {
+  HELP_CENTER_SCRIPT, helpCenterHtml, type HelpAnswerView, type HelpDocument, type HelpMetricsView
+} from './help-page.ts';
+import { resolveHelp } from '../../../../src/help-service.mjs';
+import { helpMetricsStatus, recordHelpMetric } from '../../../../src/help-metrics.mjs';
+import { activeRepositoryContext } from '../gateway-session.ts';
 
 export class HelpPanel {
   private static current: HelpPanel | null = null;
@@ -13,7 +18,9 @@ export class HelpPanel {
     private readonly panel: vscode.WebviewPanel,
     private document: HelpDocument,
     private requested: string | null,
-    private manualRoot: string
+    private manualRoot: string,
+    private answer: HelpAnswerView | null = null,
+    private metrics: HelpMetricsView | null = null
   ) {
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -24,6 +31,7 @@ export class HelpPanel {
     });
     panel.onDidDispose(() => { HelpPanel.current = null; });
     this.render();
+    void this.refreshMetrics();
   }
 
   static show(
@@ -36,7 +44,9 @@ export class HelpPanel {
       HelpPanel.current.document = document;
       HelpPanel.current.requested = requested;
       HelpPanel.current.manualRoot = manualRoot;
+      HelpPanel.current.answer = null;
       HelpPanel.current.render();
+      void HelpPanel.current.refreshMetrics();
       HelpPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return HelpPanel.current;
     }
@@ -66,8 +76,105 @@ export class HelpPanel {
    * being inside `…/manual`.
    */
   private router = registerMessageRouter('singularityFlow.help', {
-    'open-link': (message) => { void this.openLink(stringField(message, 'target')); }
+    'open-link': (message) => { void this.openLink(stringField(message, 'target')); },
+    'ask-question': (message) => { void this.askQuestion(
+      stringField(message, 'question'), stringField(message, 'origin')
+    ); },
+    'open-topic': (message) => { void this.openTopic(stringField(message, 'topic')); },
+    'copy-command': (message) => { void this.commandCopied(stringField(message, 'topic')); },
+    'prefill-action': (message) => { void this.prefillAction(
+      stringField(message, 'skill'), stringField(message, 'topic')
+    ); }
   });
+
+  private async recordMetric(input: Parameters<typeof recordHelpMetric>[1]): Promise<void> {
+    const root = activeRepositoryContext()?.root;
+    if (!root) return;
+    await recordHelpMetric(root, input).catch(() => {});
+    await this.refreshMetrics();
+  }
+
+  private async askQuestion(question: string | null, origin: string | null): Promise<void> {
+    const query = question?.trim() ?? '';
+    if (!query || query.length > 300) return;
+    try {
+      const result = await resolveHelp(query, { maxBytes: 4000 });
+      this.answer = {
+        status: result.status === 'resolved' ? 'resolved'
+          : result.status === 'ambiguous' ? 'ambiguous'
+            : result.status === 'not-found' ? 'not-found' : 'unavailable',
+        question: query,
+        intent: result.helpIntent,
+        matchedBy: result.matchedBy,
+        topic: result.topic ? { id: result.topic.id, title: result.topic.title, file: result.topic.file } : null,
+        content: result.served?.text ?? null,
+        citation: result.citation ?? null,
+        candidates: result.candidates.map((topic) => ({ id: topic.id, title: topic.title })),
+        related: (result.related ?? []).map((topic) => ({ id: topic.id, title: topic.title })),
+        handoff: result.handoff ?? null
+      };
+      this.render();
+      await this.recordMetric({
+        surface: 'help-center', intent: result.helpIntent,
+        outcome: result.status === 'resolved' || result.status === 'index' ? 'resolved'
+          : result.status === 'ambiguous' ? 'ambiguous' : result.status === 'not-found' ? 'no-match' : 'unavailable',
+        topicId: result.topic?.id ?? null, matchedBy: result.matchedBy,
+        latencyMs: result.latencyMs, answerBytes: result.served?.bytes ?? 0,
+        actionCategory: origin === 'followup' ? 'followup-opened' : null
+      });
+    } catch {
+      this.answer = {
+        status: 'unavailable', question: query, intent: 'concept', matchedBy: 'unavailable',
+        topic: null, content: null, citation: null, candidates: [], related: [], handoff: null
+      };
+      this.render();
+    }
+  }
+
+  private async openTopic(topic: string | null): Promise<void> {
+    if (!topic || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(topic)) return;
+    await vscode.commands.executeCommand('singularityFlow.explainTopic', { id: `help:topic:${topic}` });
+    await this.recordMetric({
+      surface: 'help-center', intent: 'concept', outcome: 'resolved', topicId: topic,
+      matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'topic-opened'
+    });
+  }
+
+  private async prefillAction(skill: string | null, topic: string | null): Promise<void> {
+    if (!skill || !/^\/sf-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill)
+        || !topic || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(topic)) return;
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+      query: `${skill} `,
+      isPartialQuery: true
+    });
+    await this.recordMetric({
+      surface: 'help-center', intent: 'procedure', outcome: 'resolved', topicId: topic,
+      matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-prefilled'
+    });
+  }
+
+  private async commandCopied(topic: string | null): Promise<void> {
+    if (!topic || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(topic)) return;
+    await this.recordMetric({
+      surface: 'help-center', intent: 'command-discovery', outcome: 'resolved', topicId: topic,
+      matchedBy: 'action', latencyMs: 0, answerBytes: 0, actionCategory: 'command-copied'
+    });
+  }
+
+  private async refreshMetrics(): Promise<void> {
+    const root = activeRepositoryContext()?.root;
+    if (!root) return;
+    const status = await helpMetricsStatus(root).catch(() => null);
+    if (!status) return;
+    this.metrics = {
+      enabled: status.enabled, count: status.count,
+      outcomes: status.outcomes, intents: status.intents, topics: status.topics,
+      unresolvedIntents: status.unresolvedIntents,
+      ambiguousIntents: status.ambiguousIntents,
+      noMatchIntents: status.noMatchIntents
+    };
+    this.render();
+  }
 
   private async openLink(target: string | null): Promise<void> {
     if (!target) return;
@@ -85,7 +192,9 @@ export class HelpPanel {
 
   private render(): void {
     const token = nonce();
-    this.panel.webview.html = page('Singularity Flow Help', helpCenterHtml(this.document, this.requested),
+    this.panel.webview.html = page('Singularity Flow Help', helpCenterHtml(
+      this.document, this.requested, this.answer, this.metrics
+    ),
       contentSecurityPolicy(this.panel.webview, token), token, HELP_CENTER_SCRIPT, { nav: 'help' });
   }
 }

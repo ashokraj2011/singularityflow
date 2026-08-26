@@ -8,16 +8,16 @@
  * says `unstamped`, which is the truthful thing to say about a tree whose manifest was never built.
  * Refusing to answer would punish the reader for a build-time omission they cannot fix.
  */
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { PACKAGE_ROOT } from './package-root.mjs';
 
 let cached;
 
 export function docsManifest() {
   if (cached !== undefined) return cached;
   try {
-    cached = require('./docs-manifest.json');
+    cached = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'src', 'docs-manifest.json'), 'utf8'));
   } catch {
     cached = null;
   }

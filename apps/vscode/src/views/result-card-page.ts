@@ -587,7 +587,11 @@ document.addEventListener('click', (event) => {
   const navigation = event.target instanceof Element ? event.target.closest('[data-result-nav]') : null;
   if (navigation) {
     const destination = navigation.getAttribute('data-result-nav');
-    vscode.postMessage({ type: destination === 'back' ? 'result.back' : destination === 'journal' ? 'result.journal' : destination === 'faults' ? 'result.faults' : 'result.home' });
+    vscode.postMessage({ type: destination === 'back' ? 'result.back'
+      : destination === 'journal' ? 'result.journal'
+      : destination === 'faults' ? 'result.faults'
+      : destination === 'help' ? 'result.help'
+      : 'result.home' });
     return;
   }
   const button = event.target instanceof Element ? event.target.closest('[data-action-id]') : null;

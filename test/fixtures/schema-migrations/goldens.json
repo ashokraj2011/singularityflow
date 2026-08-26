@@ -102,6 +102,8 @@
   "workspace-bootstrap-index": [{ "schemaVersion": 1 }],
   "prompt-audit-settings": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "retentionDays": 30, "lastPrunedAt": null, "headMac": null, "tailMac": null, "logBytes": null, "logMtimeMs": null, "maximumBytes": 67108864 }],
   "prompt-audit-record": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "integrity": null, "handoffSha256": null, "handoffBytes": null }],
+  "help-metrics-settings": [{ "schemaVersion": 1 }],
+  "help-metrics-event": [{ "schemaVersion": 1 }],
   "dx-command-timing": [{ "schemaVersion": 1, "command": "status", "recordedAt": "2025-01-02T03:04:05.000Z", "durationMs": 12, "stages": [{ "name": "load", "durationMs": 4 }] }, { "schemaVersion": 2 }],
   "vscode-reset-marker": [{ "schemaVersion": 1, "requestedAt": "2025-01-02T03:04:05.000Z", "reset": ["credentials"] }, { "schemaVersion": 2, "mode": "forget-only", "reset": [] }],
   "constitution-record": [{ "schemaVersion": 1 }],

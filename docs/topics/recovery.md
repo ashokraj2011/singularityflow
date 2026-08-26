@@ -3,9 +3,15 @@ id: recovery
 title: Recovery — nothing is ever lost
 aliases:
   - sync
+  - recover
   - pending-publication
   - crash
   - lost-laptop
+questions:
+  - Recover interrupted implementation
+  - How do I recover after a failed phase on macOS?
+  - How do I recover interrupted work?
+  - Why was work interrupted before its governed commit completed?
 commands:
   - sync
   - recover
@@ -14,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 4
+version: 5
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 

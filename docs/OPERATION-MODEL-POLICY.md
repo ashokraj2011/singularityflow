@@ -85,6 +85,10 @@ Every public operation is classified before its implementation module is importe
 | guide | read | never | — | — |
 | harness | mutation | never | — | — |
 | help | read | never | — | — |
+| help-metrics.clear | mutation | never | — | — |
+| help-metrics.off | mutation | never | — | — |
+| help-metrics.on | mutation | never | — | — |
+| help-metrics.status | read | never | — | — |
 | help.root | read | never | — | — |
 | home | read | never | — | — |
 | hook | mutation | never | — | — |

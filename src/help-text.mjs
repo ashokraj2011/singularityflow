@@ -151,6 +151,10 @@ Usage:
   singularity-flow prompt-log retention --retention-days 1..365
   singularity-flow prompt-log repair --confirm "REPAIR PROMPT AUDIT"
   singularity-flow prompt-log clear --confirm "DELETE PROMPT AUDIT"
+  singularity-flow help-metrics status [--json]
+  singularity-flow help-metrics on [--json]
+  singularity-flow help-metrics off [--json]
+  singularity-flow help-metrics clear [--json]
   singularity-flow ledger init [--json]
   singularity-flow ledger doctor [--json]
   singularity-flow ledger status [--json]

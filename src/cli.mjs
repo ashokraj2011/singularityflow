@@ -37,6 +37,7 @@ import {
   clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit,
   repairPromptAudits, setPromptAudit, setPromptAuditRetention
 } from './prompt-audit.mjs';
+import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
 import { assertPhaseSequence, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
@@ -7999,6 +8000,38 @@ async function promptLogCommand(positionals, options) {
   if (action === 'on') console.log('Future governed prompts composed for Copilot will be captured. Existing prompts are not backfilled.');
 }
 
+async function helpMetricsCommand(positionals, options) {
+  const root = repoRoot();
+  const action = positionals[1] ?? 'status';
+  let result;
+  if (action === 'status') result = await helpMetricsStatus(root);
+  else if (action === 'on' || action === 'off') result = await setHelpMetrics(root, action === 'on');
+  else if (action === 'clear') result = await clearHelpMetrics(root);
+  else throw new SingularityFlowError(`Unknown help-metrics action '${action}'. Use status, on, off, or clear.`);
+
+  const json = optionBoolean(options, 'json');
+  if (!json) {
+    console.log(`Help metrics: ${result.enabled ? 'on' : 'off'} · ${result.count} record(s) · ${result.scope} scope`);
+    console.log(`Retention: ${result.retentionDays} day(s) · ${result.bytes} of ${result.maximumBytes} bytes`);
+    console.log(`Outcomes: ${Object.entries(result.outcomes).map(([key, value]) => `${key} ${value}`).join(' · ') || 'none'}`);
+    console.log(`File: ${result.logFile}`);
+    for (const warning of result.warnings) console.log(`Warning: ${warning}`);
+  }
+  const operation = operationById(`help-metrics.${action}`);
+  const changed = action !== 'status';
+  return emitCommandResult(commandResult({
+    operation,
+    outcome: action === 'status'
+      ? noop('help-metrics.reported', { enabled: result.enabled ? 'on' : 'off', count: result.count })
+      : action === 'clear'
+        ? succeeded('help-metrics.cleared', { removed: result.removed })
+        : succeeded('help-metrics.updated', { enabled: result.enabled ? 'on' : 'off' }),
+    effects: changed ? effects({ stateChanged: true, filesChanged: true }) : noEffects(),
+    restState: 'informational',
+    data: result
+  }), { json });
+}
+
 async function snapshotCommand(positionals, options) {
   const root = repoRoot();
   const included = optionStrings(options, 'include');
@@ -10658,6 +10691,7 @@ async function dispatch(command, positionals, options) {
     context: () => contextCommand(positionals, options),
     tokens: () => tokensCommand(positionals, options),
     'prompt-log': () => promptLogCommand(positionals, options),
+    'help-metrics': () => helpMetricsCommand(positionals, options),
     guide: () => guideCommand(positionals, options),
     // The front door to the first-run walkthrough. `guide --first-run` still works and does the same
     // thing; this is the name someone can guess.

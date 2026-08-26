@@ -47,6 +47,7 @@ const entries = {
   context: ['sf-telemetry'],
   tokens: ['sf-telemetry'],
   'prompt-log': ['sf-prompt-log'],
+  'help-metrics': ['sf-help'],
   guide: ['sf-help'],
   'refresh-branch': ['sf-refresh-branch'],
   next: ['sf-next'],

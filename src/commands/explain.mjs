@@ -14,76 +14,38 @@
  * own namespace instead, `sfdoc:v1:<topic>:<sha12>`, resolved from the package. Same verb for the
  * reader, no confusion about what is governed evidence and what is documentation.
  */
-import {
-  buildManifest, loadTopics, nearestTopicIds, previewTopic, resolveTopic, sectionOf, sectionsOf
-} from '../docs-topics.mjs';
-import { docsManifest } from '../docs-manifest.mjs';
-import { classifyHelpIntent } from '../help-intents.mjs';
+import { resolveHelp } from '../help-service.mjs';
+export { citationLine, docsHandle, parseDocsHandle, servedBody } from '../help-service.mjs';
+import { citationLine, docsHandle, servedBody } from '../help-service.mjs';
 import {
   action, because, commandResult, noEffects, refused, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { operationById } from '../command-registry.mjs';
-import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionNumber, optionString } from '../util.mjs';
 
 const OPERATION = 'explain';
 
-/** The handle namespace for documentation. Deliberately not `sfref:`. */
-export function docsHandle(topic) {
-  return `sfdoc:v1:${topic.id}:${topic.sha256.slice(0, 12)}`;
-}
-
-const HANDLE_PATTERN = /^sfdoc:v1:([a-z0-9]+(?:-[a-z0-9]+)*):([a-f0-9]{12})$/;
-
-/** Parse a documentation handle, or return null so `show` can try the evidence plane instead. */
-export function parseDocsHandle(value) {
-  const match = HANDLE_PATTERN.exec(String(value ?? '').trim());
-  return match ? { topicId: match[1], shaPrefix: match[2] } : null;
-}
-
-/**
- * Provenance, on every response without exception `[DOC:REQ-014]`.
- *
- * `manifestMatch` is the honest field here: it says whether the topics being served are the ones
- * this build stamped. A citation that quietly came from edited bytes would be worse than no
- * citation, because it looks like evidence.
- */
-function provenanceOf(topic, manifest, topics) {
-  return {
-    topic: topic.id,
-    topicVersion: topic.version,
-    topicSha256: topic.sha256,
-    docsSourceCommit: manifest?.sourceCommit ?? null,
-    docsContentSha256: manifest?.contentSha256 ?? null,
-    manifestMatch: manifest ? manifest.contentSha256 === buildManifest(topics).contentSha256 : false
-  };
-}
-
-/** One line a reader can act on, and a machine can parse out of the text form. */
-export function citationLine(provenance) {
-  const commit = provenance.docsSourceCommit ? provenance.docsSourceCommit.slice(0, 7) : 'unstamped';
-  return `— topic ${provenance.topic} v${provenance.topicVersion}, docs ${commit}`;
-}
-
-/** Serve the body, or a bounded preview plus a handle when it is over the ceiling. */
-export function servedBody(topic, { maxBytes, section } = {}) {
-  let body = topic.body;
-  if (section) {
-    body = sectionOf(topic.body, section);
-    if (body === null) {
-      throw new SingularityFlowError(
-        `Topic '${topic.id}' has no section '${section}'. It offers: ${sectionsOf(topic.body).join(', ') || 'none'}.`,
-        { exitCode: 5, code: 'handle.expansion_invalid' }
-      );
-    }
+async function recordResolutionMetric(resolution) {
+  try {
+    const [{ repoRoot }, { recordHelpMetric }] = await Promise.all([
+      import('../git.mjs'), import('../help-metrics.mjs')
+    ]);
+    const root = repoRoot();
+    await recordHelpMetric(root, {
+      surface: 'cli',
+      intent: resolution.helpIntent,
+      outcome: resolution.status === 'resolved' || resolution.status === 'index'
+        ? 'resolved' : resolution.status === 'not-found' ? 'no-match' : resolution.status,
+      topicId: resolution.topic?.id ?? null,
+      matchedBy: resolution.matchedBy,
+      latencyMs: resolution.latencyMs,
+      answerBytes: resolution.served?.bytes ?? 0,
+      actionCategory: null
+    });
+  } catch {
+    // Help remains available outside a repository and when observational storage is unavailable.
   }
-  const preview = previewTopic(body, maxBytes === undefined || maxBytes === null ? {} : { maxBytes });
-  return {
-    ...preview,
-    // A handle is only useful when there is more to fetch, so it appears exactly when truncation did.
-    handle: preview.truncated ? docsHandle(topic) : null,
-    sections: preview.truncated ? sectionsOf(topic.body) : []
-  };
 }
 
 /**
@@ -150,29 +112,19 @@ async function situationHere() {
   }
 }
 
-/** Related topics become NEXT actions, so a served topic is never a dead end (NCL-006). */
-function relatedActions(topic, topics) {
-  const known = new Set(topics.map((entry) => entry.id));
-  return topic.related.filter((id) => known.has(id)).slice(0, 3).map((id) => action({
-    id: `explain.${id}`,
-    label: `Read ${id}`,
-    command: `sflow explain ${id}`,
-    rank: 'LATER',
-    kind: 'informational'
-  }));
-}
-
 export async function run(argv, { positionals, options } = { positionals: [], options: new Map() }) {
   const operation = operationById(OPERATION);
   const json = optionBoolean(options, 'json');
-  const topics = await loadTopics();
-  const manifest = docsManifest();
   const query = positionals[1];
+  const resolution = await resolveHelp(query, {
+    maxBytes: optionNumber(options, 'max-bytes'),
+    section: optionString(options, 'section')
+  });
+  await recordResolutionMetric(resolution);
 
-  if (!query) return emitList(topics, manifest, { json, operation });
+  if (resolution.status === 'index') return emitList(resolution.topics, resolution, { json, operation });
 
-  const resolution = resolveTopic(topics, query);
-  const helpIntent = classifyHelpIntent(query) ?? 'concept';
+  const helpIntent = resolution.helpIntent;
 
   if (resolution.status === 'ambiguous') {
     // Never a guess `[DOC:CON-006]`. The candidates are the answer.
@@ -182,10 +134,10 @@ export async function run(argv, { positionals, options } = { positionals: [], op
       effects: noEffects(),
       why: [because('docs.prefix-ambiguous', 'docs',
         { ref: 'docs/topics', slots: { query: resolution.query, count: resolution.candidates.length } })],
-      next: resolution.candidates.slice(0, 5).map((id) => action({
-        id: `explain.${id}`, label: `Read ${id}`, command: `sflow explain ${id}`, kind: 'informational'
+      next: resolution.candidates.slice(0, 5).map((topic) => action({
+        id: `explain.${topic.id}`, label: `Read ${topic.id}`, command: `sflow explain ${topic.id}`, kind: 'informational'
       })),
-      data: { query: resolution.query, candidates: resolution.candidates, helpIntent }
+      data: { query: resolution.query, candidates: resolution.candidates.map((topic) => topic.id), helpIntent }
     });
     emitCommandResult(result, { json, restStateWhenIdle: null });
     // A refusal is a refusal at the shell too: a script that pipes `explain` must be able to tell
@@ -197,8 +149,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
   if (resolution.status === 'not-found') {
     // The no-dead-ends rule binds here as everywhere `[DOC:REQ-013]`: even "I don't have that" has
     // to leave the reader somewhere they can go.
-    const nearest = resolution.candidates.length ? resolution.candidates : nearestTopicIds(topics, query, 3);
-    const fallback = nearest.length ? nearest : topics.slice(0, 3).map((topic) => topic.id);
+    const fallback = resolution.candidates.map((topic) => topic.id);
     const result = commandResult({
       operation,
       outcome: refused('docs.topic-not-found', { query: resolution.query }),
@@ -221,11 +172,8 @@ export async function run(argv, { positionals, options } = { positionals: [], op
   }
 
   const topic = resolution.topic;
-  const provenance = provenanceOf(topic, manifest, topics);
-  const served = servedBody(topic, {
-    maxBytes: optionNumber(options, 'max-bytes'),
-    section: optionString(options, 'section')
-  });
+  const provenance = resolution.provenance;
+  const served = resolution.served;
 
   const wantsHere = optionBoolean(options, 'here');
   const situation = wantsHere ? await situationHere() : null;
@@ -233,7 +181,13 @@ export async function run(argv, { positionals, options } = { positionals: [], op
 
   // A topic that names no related reading is a genuine rest state, not a dead end: the reader asked
   // a question and got the whole answer.
-  const related = relatedActions(topic, topics);
+  const related = resolution.related.map((entry) => action({
+    id: `explain.${entry.id}`,
+    label: `Read ${entry.id}`,
+    command: `sflow explain ${entry.id}`,
+    rank: 'LATER',
+    kind: 'informational'
+  }));
   const result = commandResult({
     operation,
     outcome: here
@@ -249,7 +203,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
     next: related,
     restState: related.length ? null : 'informational',
     data: {
-      resolvedBy: resolution.how,
+      resolvedBy: resolution.matchedBy,
       helpIntent,
       provenance,
       citation: citationLine(provenance),
@@ -305,7 +259,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
 }
 
 /** With no argument, `explain` is the table of contents. */
-function emitList(topics, manifest, { json, operation }) {
+function emitList(topics, resolution, { json, operation }) {
   const result = commandResult({
     operation,
     outcome: succeeded('docs.served', { topic: 'index', title: 'Documentation topics', version: 1 }),
@@ -316,8 +270,8 @@ function emitList(topics, manifest, { json, operation }) {
     data: {
       provenance: {
         topic: 'index', topicVersion: 1,
-        docsSourceCommit: manifest?.sourceCommit ?? null,
-        docsContentSha256: manifest?.contentSha256 ?? null
+        docsSourceCommit: resolution.provenance?.docsSourceCommit ?? null,
+        docsContentSha256: resolution.provenance?.docsContentSha256 ?? null
       },
       topics: topics.map((topic) => ({ id: topic.id, title: topic.title, version: topic.version }))
     }

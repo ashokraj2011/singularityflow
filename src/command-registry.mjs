@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'auto']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -64,7 +64,7 @@ function command([name, aliases = []]) {
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
-  ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['guide'], ['refresh-branch'],
+  ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
@@ -154,6 +154,9 @@ const WORKSPACE_BOOTSTRAP_ACTIONS = new Set([
 const TELEMETRY_READ_SUBCOMMANDS = Object.freeze(['status', 'probe']);
 const TELEMETRY_MUTATION_SUBCOMMANDS = Object.freeze(['reconcile', 'enable', 'disable']);
 const TELEMETRY_SUBCOMMANDS = Object.freeze([...TELEMETRY_READ_SUBCOMMANDS, ...TELEMETRY_MUTATION_SUBCOMMANDS]);
+const HELP_METRICS_READ_SUBCOMMANDS = Object.freeze(['status']);
+const HELP_METRICS_MUTATION_SUBCOMMANDS = Object.freeze(['on', 'off', 'clear']);
+const HELP_METRICS_SUBCOMMANDS = Object.freeze([...HELP_METRICS_READ_SUBCOMMANDS, ...HELP_METRICS_MUTATION_SUBCOMMANDS]);
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
@@ -254,6 +257,13 @@ function resolveTelemetryOperation(definition, positionals) {
   if (TELEMETRY_READ_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'read');
   if (TELEMETRY_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`telemetry.${subcommand}`, definition, 'mutation');
   return unknownSubcommand('telemetry', subcommand, TELEMETRY_SUBCOMMANDS);
+}
+
+function resolveHelpMetricsOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (HELP_METRICS_READ_SUBCOMMANDS.includes(subcommand)) return never(`help-metrics.${subcommand}`, definition, 'read');
+  if (HELP_METRICS_MUTATION_SUBCOMMANDS.includes(subcommand)) return never(`help-metrics.${subcommand}`, definition, 'mutation');
+  return unknownSubcommand('help-metrics', subcommand, HELP_METRICS_SUBCOMMANDS);
 }
 
 function resolveContextOperation(definition, positionals) {
@@ -648,6 +658,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'report' || definition.name === 'review') return resolveOptionalOutputOperation(definition, options);
   if (definition.name === 'secrets') return resolveSecretsOperation(definition, positionals);
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
+  if (definition.name === 'help-metrics') return resolveHelpMetricsOperation(definition, positionals);
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
@@ -709,6 +720,7 @@ export function operationCatalog() {
     optional('pr.describe.polish', 'pr.describe', prDefinition)
   ];
   const telemetryDefinition = commandDefinition('telemetry');
+  const helpMetricsDefinition = commandDefinition('help-metrics');
   const doctorDefinition = commandDefinition('doctor');
   const reportDefinition = commandDefinition('report');
   const reviewDefinition = commandDefinition('review');
@@ -750,6 +762,8 @@ export function operationCatalog() {
     never('report.write', reportDefinition, 'mutation'),
     ...TELEMETRY_READ_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'read')),
     ...TELEMETRY_MUTATION_SUBCOMMANDS.map((name) => never(`telemetry.${name}`, telemetryDefinition, 'mutation')),
+    ...HELP_METRICS_READ_SUBCOMMANDS.map((name) => never(`help-metrics.${name}`, helpMetricsDefinition, 'read')),
+    ...HELP_METRICS_MUTATION_SUBCOMMANDS.map((name) => never(`help-metrics.${name}`, helpMetricsDefinition, 'mutation')),
     never('doctor.inspect', doctorDefinition, 'read'),
     never('doctor.fix.telemetry', doctorDefinition, 'mutation'),
     never('review.render', reviewDefinition, 'read'),

@@ -203,6 +203,11 @@ export class WorkspacesPanel {
    * a completed refresh into a race — the failure `evidence-manager` had for one commit.
    */
   private router = registerMessageRouter('singularityFlow.workspaces', {
+    'open-help-topic': (message) => {
+      const topic = stringField(message, 'topic');
+      if (!topic || !['configuration', 'workspaces-and-sessions'].includes(topic)) return;
+      return vscode.commands.executeCommand('singularityFlow.explainError', topic);
+    },
     select: (message) => {
       const path = stringField(message, 'path');
       return path ? this.select(path) : undefined;

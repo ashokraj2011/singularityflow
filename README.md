@@ -1036,7 +1036,7 @@ payload. `pr describe` generates deterministic Markdown locally; it may copy the
 text to the clipboard or update an existing PR only when those actions are
 explicitly requested. It never creates a PR implicitly.
 
-In Copilot, `/sf-help` loads the manual for general questions; `/sf-help WORK-123` loads the selected work item's immutable workflow guide. VS Code includes the same manual in the always-available **Help** view and searchable **Help Center**, bundled for offline use. It has focused entries for capabilities, workspaces, Story intake, workflow state, agents, prompts, world-model composition, troubleshooting, every `/sf-*` skill, and every top-level CLI command.
+In Copilot, `/sf-help` loads the manual for general questions; `/sf-help WORK-123` loads the selected work item's immutable workflow guide. VS Code also provides the explicit, model-free `@sflow` participant with `/help`, `/why`, `/how`, `/recover`, and `/topics`. It resolves only reviewed packaged topics, cites the selected topic, and opens guarded `/sf-*` actions as partial queries that the user must review and submit. VS Code includes the same resolver in the always-available **Help** view and searchable **Help Center**, bundled for offline use. It has focused entries for capabilities, workspaces, Story intake, workflow state, agents, prompts, world-model composition, troubleshooting, every `/sf-*` skill, and every top-level CLI command.
 
 Copilot start, resume, approval, rejection, and governed-agent flows use its
 interactive question facility to show the YAML-configured choices. Choose a
@@ -1985,6 +1985,12 @@ is 30 days with a 64 MiB storage ceiling; change the duration with
 JSONL tail is quarantined before the next capture. Use `prompt-log repair --confirm "REPAIR PROMPT AUDIT"`
 for an explicit integrity recovery, or `prompt-log clear --confirm "DELETE PROMPT AUDIT"` to remove
 active history and all recovery copies.
+
+Help-routing quality uses a separate content-free local log under
+`<workspace>/.singularity-flow/help-metrics/events.jsonl`. It stores classifications, outcomes,
+topic IDs, matching methods, latency, answer size, and selected action categories—never questions,
+answers, paths, Work IDs, Git identities, or file content. Use `singularity-flow help-metrics
+status --json`, `on`, `off`, or `clear`; nothing is transmitted off the laptop.
 
 `wm compose` compiles named prompt sections under the Story's pinned `tokenEconomy` profile. `off`
 and `observe` preserve compatibility (`observe` reports an overflow); `assist` removes lowest-priority

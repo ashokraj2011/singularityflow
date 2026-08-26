@@ -67,6 +67,8 @@ import { primaryAction } from '../../../src/gateway/result.mjs';
 import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 import { readRecord } from '../../../src/schema-migrations.mjs';
+import { registerSflowChat } from './sflow-chat.ts';
+import { recordHelpMetric } from '../../../src/help-metrics.mjs';
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -219,6 +221,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Home and its conversational answer share one generation. A slower read from a previous
   // workspace/request must never replace a newer projection in the full-width panel.
   let homeRequestGeneration = 0;
+  let currentHelpWork: () => { id: string; kind?: string | null } | null = () => null;
 
   /**
    * Hand the gateway the one fact only this host has. `[DHR:REQ-024]`
@@ -897,6 +900,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       showRefusal(error, { headline: `Could not read topic ${id}` });
     }
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.explainError', async (topicId: string) => {
+    const id = String(topicId ?? '').trim();
+    // Error cards only carry a reviewed topic identifier. They never carry a path, transcript, or
+    // terminal command across this boundary.
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) return;
+    await vscode.commands.executeCommand('singularityFlow.explainTopic', { id: `help:topic:${id}` });
+    const root = activeRepositoryContext()?.root;
+    if (root) {
+      await recordHelpMetric(root, {
+        surface: 'error-link', intent: 'diagnose', outcome: 'resolved', topicId: id,
+        matchedBy: 'stable-error-code', latencyMs: 0, answerBytes: 0, actionCategory: 'error-explained'
+      }).catch(() => {});
+    }
+  }));
+  registerSflowChat(context, { getCurrentWork: () => currentHelpWork() });
 
   const handlers = new Map<string, (...args: never[]) => unknown>();
   let unavailableReason = 'Open the repository that contains singularity/workflow.yml.';
@@ -2306,6 +2324,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const store = new WorkspaceStore(client, snapshotCache);
+  currentHelpWork = () => {
+    const item = store.current.snapshot?.workflow?.workItem;
+    return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
+  };
   context.subscriptions.push(store);
   // Only two states are worth a line of UI. `stale` is the one that matters — content restored from
   // the last session and not yet confirmed. A plain refresh over content already known to be current

@@ -10,10 +10,7 @@
  * question becomes a clarification with the nearest topic IDs, never the closest topic served as if
  * it were the answer.
  */
-import { docsHandle, servedBody } from '../../commands/explain.mjs';
-import { docsManifest } from '../../docs-manifest.mjs';
-import { loadTopics, nearestTopicIds, resolveTopic } from '../../docs-topics.mjs';
-import { classifyHelpIntent } from '../../help-intents.mjs';
+import { resolveHelp } from '../../help-service.mjs';
 import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 
 /** The ceiling on a served body. Beyond it the reader gets a preview and a handle `[INT:CON-037]`. */
@@ -52,14 +49,12 @@ function ask(messageSlots, topicIds, reasonCode, why, helpIntent) {
 }
 
 export async function helpExplain({ arguments: args = {}, subject = null } = {}) {
-  const topics = await loadTopics();
-  const manifest = docsManifest();
   const query = args.topic ?? args.question ?? '';
-  const helpIntent = classifyHelpIntent(args.question ?? query) ?? 'concept';
-  const resolved = resolveTopic(topics, query);
+  const resolved = await resolveHelp(query, { maxBytes: EXPLAIN_PREVIEW_BYTES });
+  const helpIntent = resolved.helpIntent;
 
   if (resolved.status === 'ambiguous') {
-    return ask({ query }, resolved.candidates, 'explain.ambiguous', [
+    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.ambiguous', [
       { code: 'explain.ambiguous', source: 'registry', slots: { count: resolved.candidates.length } }
     ], helpIntent);
   }
@@ -72,28 +67,18 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
      * one: a cited answer to a question nobody asked reads exactly like a cited answer to the
      * question they did ask.
      */
-    const nearest = nearestTopicIds(topics, query, 3);
-    return ask({ query }, nearest.length ? nearest : topics.slice(0, 3).map((topic) => topic.id), 'explain.no-match', [
+    return ask({ query }, resolved.candidates.map((topic) => topic.id), 'explain.no-match', [
       { code: 'explain.no-match', source: 'unavailable', slots: { query } }
     ], helpIntent);
   }
 
   const topic = resolved.topic;
-  const served = servedBody(topic, { maxBytes: EXPLAIN_PREVIEW_BYTES });
-  const handle = docsHandle(topic);
+  const served = resolved.served;
+  const handle = resolved.handle;
 
-  /**
-   * `manifestMatch` is the honest field, carried through as a warning rather than dropped.
-   *
-   * It says whether the bytes being served are the ones this build stamped. A citation from edited
-   * bytes is worse than no citation, because it looks like evidence.
-   */
-  const stamped = manifest ? manifest.contentSha256 : null;
-  const warnings = stamped ? [] : [{
-    code: 'explain.unstamped-docs',
-    source: 'unavailable',
-    slots: { topic: topic.id }
-  }];
+  // The shared resolver refuses before returning if the topic tree and stamped manifest differ.
+  // Reaching this line therefore means the citation is bound to this packaged catalog.
+  const stamped = resolved.provenance.docsContentSha256;
 
   return sflowResult({
     kind: 'read',
@@ -105,16 +90,15 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
       code: 'explain.cited',
       source: 'evidence',
       reference: handle,
-      slots: { topic: topic.id, version: String(topic.version), matchedBy: resolved.how }
+      slots: { topic: topic.id, version: String(topic.version), matchedBy: resolved.matchedBy }
     }],
-    warnings,
     next: [suggestion(topic.id, 0, 'explain.cited')],
     restState: 'informational',
     data: {
       topic: topic.id,
       title: topic.title,
       handle,
-      matchedBy: resolved.how,
+      matchedBy: resolved.matchedBy,
       helpIntent,
       // Bounded by construction: a truncated body says so, and the handle expands it on request.
       body: served.text,
@@ -124,8 +108,11 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
       // Only present when there is more to fetch, which is when the preview stopped short.
       expandHandle: served.handle ?? null,
       sections: Object.freeze([...served.sections]),
-      docsSourceCommit: manifest?.sourceCommit ?? null,
-      docsContentSha256: stamped
+      docsSourceCommit: resolved.provenance.docsSourceCommit,
+      docsContentSha256: stamped,
+      citation: resolved.citation,
+      related: resolved.related,
+      handoff: resolved.handoff
     }
   });
 }

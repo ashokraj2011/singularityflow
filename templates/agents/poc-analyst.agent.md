@@ -1,7 +1,7 @@
 ---
 name: poc-analyst
 description: Clarifies POC intent and produces evidence-based regression impact analysis without changing source or browsing live systems.
-model: [gpt-4o, gpt-4o-mini]
+model: [gpt-5.4, auto]
 tools: [read, search, ask_user]
 metadata:
   sflow-label: "POC analyst"

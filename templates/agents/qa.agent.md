@@ -1,7 +1,7 @@
 ---
 name: qa
 description: Produces reproducible verification, traceability, and conformance evidence.
-model: [gpt-4o, gpt-4o-mini]
+model: [gpt-5.4, auto]
 tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "QA"

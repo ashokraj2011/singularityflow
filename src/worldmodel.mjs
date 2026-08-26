@@ -1,4 +1,4 @@
-import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -61,6 +61,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { astCommand } from './ast-intelligence.mjs';
 import { resolveImpactPromptOverride } from './impact.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
+import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import {
   resolveWorldModelGenerationRouting, worldModelInvocationAttribution
 } from './world-model-generation-routing.mjs';
@@ -1508,7 +1509,12 @@ async function runParallelDiscovery(
         limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
       });
     } catch (error) {
-      return outcome({ reason: error.message, retryable: true, result: 'provider-error' });
+      const retryable = !['MODEL_NOT_AVAILABLE', 'MODEL_TOOL_UNSUPPORTED', 'MODEL_REQUEST_INVALID']
+        .includes(error?.code);
+      return outcome({
+        reason: error.message, code: error?.code ?? 'MODEL_PROVIDER_FAILED',
+        retryable, result: 'provider-error'
+      });
     }
     // A commit is not recoverable by cleaning: it is already in the shared object store, and the
     // world model would describe a tree that is not the one it records. That still fails the build.
@@ -1562,7 +1568,17 @@ async function runParallelDiscovery(
     // A successful provider process that ignored its one required output is a contract failure,
     // not a transient transport error. Repeating the same prompt spends another model call without
     // adding evidence, so degrade once and let the caller decide whether synthesis is meaningful.
-    if (!packet.trim()) return outcome({ reason: 'did not create its analysis packet', retryable: false, result: 'no-packet' });
+    if (!packet.trim()) {
+      const diagnostic = redactDiagnosticText(result.diagnostics ?? '').trim()
+        .replace(/\s+/g, ' ').slice(0, 1024);
+      return outcome({
+        reason: diagnostic
+          ? `did not create its analysis packet; provider diagnostic: ${diagnostic}`
+          : 'did not create its analysis packet',
+        retryable: false,
+        result: 'no-packet'
+      });
+    }
     // An oversized packet will not shrink on a re-run, so degrade it without spending another attempt.
     if (bytes > generation.maximumDiscoveryPacketBytes) {
       return outcome({
@@ -1579,54 +1595,85 @@ async function runParallelDiscovery(
   };
 
   const maxAttempts = 2; // one retry: a transient no-write is common and cheap to recover from
-  let cursor = 0;
   const packets = new Map(resumedPackets.map((packet) => [packet.view, packet]));
   const degradedViews = [];
   let checkpointWrite = Promise.resolve();
+  const processView = async (view, { preflight = false } = {}) => {
+    const packetFile = path.join(packetStagingDirectory, checkpointPacketName(view));
+    const promptFile = path.join(promptRoot, `${view}.md`);
+    await writeFile(promptFile, parallelWorkerPrompt({
+      repository: analysisRoot, packetFile, view, task, focus, depth, metadata,
+      maximumPacketBytes: generation.maximumDiscoveryPacketBytes
+    }));
+    let outcome;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      outcome = await attemptView(view, packetFile, promptFile);
+      if (outcome.content || !outcome.retryable || attempt === maxAttempts) break;
+      console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; retrying once.`);
+      log.warn('worldmodel.discovery.retry', null, { view, attempt, reason: outcome.reason });
+    }
+    if (outcome.fatal) {
+      // Reserved for the two things cleaning cannot undo: a commit in the shared object store, and
+      // a worktree that will not go back to its source commit. Everything else degrades.
+      log.error('worldmodel.discovery.fatal', outcome.reason, { view });
+      throw new SingularityFlowError(`World-model ${view} discovery worker ${outcome.reason}.`);
+    }
+    if (!outcome.content) {
+      if (preflight) {
+        log.error('worldmodel.discovery.preflight.failed', outcome.reason, {
+          view, code: outcome.code ?? null, result: outcome.result
+        });
+        throw new SingularityFlowError(
+          `World-model discovery preflight failed for '${view}': ${outcome.reason}. `
+          + 'Remaining discovery workers were not started.',
+          {
+            code: 'WORLD_MODEL_DISCOVERY_PREFLIGHT_FAILED',
+            details: {
+              view, failure: outcome.result, providerCode: outcome.code ?? null,
+              nextAction: 'Correct the model routing or provider tool contract, then rerun the same build.'
+            }
+          }
+        );
+      }
+      degradedViews.push({ view, reason: outcome.reason });
+      console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; final synthesis will inspect this view directly.`);
+      log.warn('worldmodel.discovery.degraded', null, { view, reason: outcome.reason });
+      return;
+    }
+    packets.set(view, {
+      view, content: outcome.content, bytes: outcome.bytes, origin: 'generated',
+      attribution: outcome.attribution
+    });
+    checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(
+      checkpoint, view, packetFile, outcome.attribution
+    ));
+    await checkpointWrite;
+    console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
+    log.info('worldmodel.discovery.packet', null, { view, bytes: outcome.bytes });
+  };
+
+  // Prove one end-to-end model/tool/file packet before fanning out. A retired model or mismatched
+  // tool vocabulary used to spend seven calls in parallel before reporting that every packet was
+  // empty. A resumed checkpoint already proves this contract for the same immutable build key.
+  let remainingViews = pendingViews;
+  if (!resumedPackets.length && pendingViews.length) {
+    const preflightView = pendingViews[0];
+    console.error(`World-model discovery preflight: ${preflightView}.`);
+    log.info('worldmodel.discovery.preflight', null, { view: preflightView });
+    await processView(preflightView, { preflight: true });
+    remainingViews = pendingViews.slice(1);
+  }
+
+  let cursor = 0;
   const worker = async () => {
-    while (cursor < pendingViews.length) {
+    while (cursor < remainingViews.length) {
       const index = cursor;
       cursor += 1;
-      const view = pendingViews[index];
-      const packetFile = path.join(packetStagingDirectory, checkpointPacketName(view));
-      const promptFile = path.join(promptRoot, `${view}.md`);
-      await writeFile(promptFile, parallelWorkerPrompt({
-        repository: analysisRoot, packetFile, view, task, focus, depth, metadata,
-        maximumPacketBytes: generation.maximumDiscoveryPacketBytes
-      }));
-      let outcome;
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        outcome = await attemptView(view, packetFile, promptFile);
-        if (outcome.content || !outcome.retryable || attempt === maxAttempts) break;
-        console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; retrying once.`);
-        log.warn('worldmodel.discovery.retry', null, { view, attempt, reason: outcome.reason });
-      }
-      if (outcome.fatal) {
-        // Reserved for the two things cleaning cannot undo: a commit in the shared object store, and
-        // a worktree that will not go back to its source commit. Everything else degrades.
-        log.error('worldmodel.discovery.fatal', outcome.reason, { view });
-        throw new SingularityFlowError(`World-model ${view} discovery worker ${outcome.reason}.`);
-      }
-      if (!outcome.content) {
-        degradedViews.push({ view, reason: outcome.reason });
-        console.warn(`Warning: world-model ${view} discovery worker ${outcome.reason}; final synthesis will inspect this view directly.`);
-        log.warn('worldmodel.discovery.degraded', null, { view, reason: outcome.reason });
-        continue;
-      }
-      packets.set(view, {
-        view, content: outcome.content, bytes: outcome.bytes, origin: 'generated',
-        attribution: outcome.attribution
-      });
-      checkpointWrite = checkpointWrite.then(() => recordDiscoveryCheckpoint(
-        checkpoint, view, packetFile, outcome.attribution
-      ));
-      await checkpointWrite;
-      console.error(`World-model discovery complete: ${view} (${outcome.bytes} bytes).`);
-      log.info('worldmodel.discovery.packet', null, { view, bytes: outcome.bytes });
+      await processView(remainingViews[index]);
     }
   };
 
-  const workerCount = Math.min(generation.maxWorkers, pendingViews.length);
+  const workerCount = Math.min(generation.maxWorkers, remainingViews.length);
   const settled = await Promise.allSettled(Array.from({ length: workerCount }, () => worker()));
   const failure = settled.find((entry) => entry.status === 'rejected');
   if (failure) throw failure.reason;
@@ -1728,7 +1775,7 @@ export function checkpointRetainedNote(checkpoint) {
   if (!checkpoint) return 'Rerun the build to try again.';
   const completed = Object.values(checkpoint.state?.views ?? {})
     .filter((entry) => entry?.status === 'completed').length;
-  if (!completed) return 'Rerun the same wm build command to resume.';
+  if (!completed) return 'No completed view packet is available to resume; correct the reported failure before retrying.';
   return completed === 1
     ? '1 completed view packet was kept; rerun the same wm build command to resume the rest.'
     : `${completed} completed view packets were kept; rerun the same wm build command to resume the rest.`;
@@ -2289,10 +2336,26 @@ ${repositoryFactsDigest}`;
     if (checkpoint) {
       const completed = views.filter((view) => checkpoint.state.views[view]?.status === 'completed');
       const pending = views.filter((view) => checkpoint.state.views[view]?.status !== 'completed');
-      console.error(
-        `World-model checkpoint retained in the repository: ${completed.length} completed, ${pending.length} pending. `
-        + 'Rerun the same wm build command to resume only pending views.'
-      );
+      if (!completed.length) {
+        const emptyCheckpoint = checkpoint.directory;
+        await rm(emptyCheckpoint, { recursive: true, force: true });
+        // The root is not itself resumable state. Remove it when this was its last build key, while
+        // safely preserving a concurrently-created checkpoint through rmdir's ENOTEMPTY refusal.
+        await rmdir(path.dirname(emptyCheckpoint)).catch((cleanupError) => {
+          if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(cleanupError?.code)) throw cleanupError;
+        });
+        checkpoint = null;
+        console.error(
+          'No world-model checkpoint was retained because discovery completed zero views. '
+          + 'Correct the reported model/provider problem before retrying.'
+        );
+        log.info('worldmodel.checkpoint.empty-cleared', null, { directory: emptyCheckpoint });
+      } else {
+        console.error(
+          `World-model checkpoint retained in the repository: ${completed.length} completed, ${pending.length} pending. `
+          + 'Rerun the same wm build command to resume only pending views.'
+        );
+      }
     }
     throw error;
   } finally {

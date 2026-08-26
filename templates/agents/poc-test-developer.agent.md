@@ -1,7 +1,7 @@
 ---
 name: poc-test-developer
 description: Implements repository-native Playwright Page Objects and tests on the isolated Story branch.
-model: [gpt-4o, gpt-4o-mini]
+model: [gpt-5.4, auto]
 tools: [read, search, edit, bash, ask_user]
 metadata:
   sflow-label: "POC test developer"

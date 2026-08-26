@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -89,6 +89,48 @@ test('unknown providers fail before audit creation', async () => {
     operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
   }, () => invokeModel(request(root, { provider: 'unknown-provider', providerConfig: undefined }))), (error) => error.code === 'MODEL_PROVIDER_UNKNOWN');
   await assert.rejects(access(path.join(root, '.git', 'singularity-flow', 'model-invocations')));
+});
+
+test('task routing uses the reviewed fallback when the preferred model is unavailable', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-fallback-'));
+  run('git', ['init', '-q'], { cwd: root });
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'modelTiers.yml'), [
+    'modelTiers:',
+    '  relay:',
+    '    model: relay-model',
+    '  reason:',
+    '    model: retired-model',
+    '    fallback: [working-model]',
+    '  clarify: relay',
+    '  summarize: relay',
+    '  code: reason',
+    '  analyze: reason',
+    ''
+  ].join('\n'));
+  const script = [
+    'const argv=process.argv.slice(1)',
+    'const model=argv[argv.indexOf("--model")+1]',
+    'if(model==="retired-model"){process.stderr.write(\'Error: Model "retired-model" from --model flag is not available.\');process.exit(1)}',
+    'process.stdout.write(`ok:${model}`)'
+  ].join(';');
+  const result = await withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    task: 'analyze',
+    providerConfig: { executable: process.execPath, arguments: ['-e', script, '--'] }
+  })));
+
+  assert.equal(result.output, 'ok:working-model');
+  assert.equal(result.model, 'working-model');
+  assert.equal(result.invocation.model, 'working-model');
+  assert.equal(result.routing.resolvedModel, 'working-model');
+  assert.deepEqual(result.routing.available, ['retired-model', 'working-model']);
+  assert.deepEqual(result.routing.fallbackHops, ['retired-model']);
+  const [audit] = await listModelInvocations(root, { task: 'analyze' });
+  assert.equal(audit.model, 'working-model');
+  assert.equal(audit.routing.resolvedModel, 'working-model');
+  assert.deepEqual(audit.routing.fallbackHops, ['retired-model']);
 });
 
 test('an invocation cannot redirect its audit record outside the trusted operation root', async () => {

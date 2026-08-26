@@ -332,6 +332,12 @@ async function captureInvocationPrompt(root, staged, event) {
   });
 }
 
+function canTryMappedFallback(error) {
+  // A fallback is an approved substitute for a retired/unavailable model, not a way around auth,
+  // policy, network, tool, timeout, cancellation, or malformed-output failures.
+  return error?.code === 'MODEL_NOT_AVAILABLE';
+}
+
 export async function invokeModel(request) {
   const context = assertModelInvocationAllowed();
   const normalized = await normalizeRequest(request, context);
@@ -420,6 +426,8 @@ export async function invokeModel(request) {
    */
   let auditStarted = false;
   let providerStartedAt = null;
+  let auditModel = event.model;
+  let auditRouting = event.routing;
   try {
     // Audit is fail-closed: if this write fails, the provider is never started. Staged material is
     // still removed by the outer finally.
@@ -446,38 +454,86 @@ export async function invokeModel(request) {
     const telemetryHost = normalized.channel.includes('vscode')
       ? 'vscode-terminal'
       : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
-    const telemetry = adapterId === 'copilot-cli'
-      ? await prepareTelemetryLaunch({
-        root: resolvedAuditRoot,
-        story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
-        phase: normalized.subject?.phase ?? null,
-        provider: 'github-copilot', runtime: 'copilot-cli', host: telemetryHost,
-        surface: normalized.channel, baseEnv: process.env
-      })
-      : null;
-    const invocation = Object.freeze({
-      ...normalized,
-      prompt: Object.freeze({
-        file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
-        encoding: staged.encoding, staged: true
-      }),
-      promptTransport: 'attachment',
-      ...(routing ? { model: routing.model } : {}),
-      ...(telemetry ? { telemetry } : {})
-    });
-    providerStartedAt = Date.now();
-    log.info('model.provider.started', null, {
-      provider: providerId, transport: 'attachment', promptBytes: staged.bytes
-    });
-    const result = await provider(invocation);
+    const candidates = routing?.available?.length
+      ? [...routing.available]
+      : [normalized.model ?? normalized.providerConfig?.model ?? null];
+    const fallbackHops = [];
+    let result = null;
+    let resolvedModel = candidates[0] ?? null;
+    let completedRouting = event.routing;
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      auditModel = candidate;
+      const telemetry = adapterId === 'copilot-cli'
+        ? await prepareTelemetryLaunch({
+          root: resolvedAuditRoot,
+          story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
+          phase: normalized.subject?.phase ?? null,
+          provider: 'github-copilot', runtime: 'copilot-cli', host: telemetryHost,
+          surface: normalized.channel, baseEnv: process.env
+        })
+        : null;
+      const invocation = Object.freeze({
+        ...normalized,
+        prompt: Object.freeze({
+          file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
+          encoding: staged.encoding, staged: true
+        }),
+        promptTransport: 'attachment',
+        ...(candidate ? { model: candidate } : {}),
+        ...(telemetry ? { telemetry } : {})
+      });
+      providerStartedAt = Date.now();
+      log.info('model.provider.started', null, {
+        provider: providerId, model: candidate, attempt: index + 1,
+        transport: 'attachment', promptBytes: staged.bytes
+      });
+      try {
+        result = await provider(invocation);
+        log.info('model.provider.completed', null, {
+          provider: providerId, model: candidate, attempt: index + 1,
+          transport: 'attachment', promptBytes: staged.bytes,
+          durationMs: Date.now() - providerStartedAt,
+          exitCode: result?.status ?? 0, signal: result?.signal ?? null
+        });
+        providerStartedAt = null;
+        resolvedModel = candidate;
+        break;
+      } catch (error) {
+        log.info('model.provider.failed', null, {
+          provider: providerId, model: candidate, attempt: index + 1,
+          transport: 'attachment', promptBytes: staged.bytes,
+          durationMs: Date.now() - providerStartedAt,
+          exitCode: error?.details?.status ?? null, signal: error?.details?.signal ?? null,
+          errorCode: error?.code ?? 'MODEL_PROVIDER_FAILED'
+        });
+        providerStartedAt = null;
+        const hasFallback = Boolean(routing && index + 1 < candidates.length);
+        if (!hasFallback || !canTryMappedFallback(error)) throw error;
+        fallbackHops.push(candidate);
+        completedRouting = { ...event.routing, fallbackHops: [...fallbackHops] };
+        auditRouting = completedRouting;
+        log.warn('model.provider.fallback', error.message, {
+          provider: providerId, from: candidate, to: candidates[index + 1],
+          task: routing.task, fallbackHops: [...fallbackHops]
+        });
+      }
+    }
     if (!result || typeof result !== 'object' || typeof result.output !== 'string') {
       throw new SingularityFlowError(`Model provider '${providerId}' returned an invalid result.`, { code: 'MODEL_PROVIDER_FAILED' });
     }
+    completedRouting = routing
+      ? { ...event.routing, resolvedModel, fallbackHops: [...fallbackHops] }
+      : null;
+    auditModel = resolvedModel;
+    auditRouting = completedRouting;
     const outputBytes = result.outputBytes ?? Buffer.byteLength(result.output ?? '', 'utf8');
     const outputSha256 = sha256(Buffer.from(result.output ?? '', 'utf8'));
     const completedAt = nowIso();
     const completedEvent = await attestAudit(resolvedAuditRoot, {
       ...event,
+      model: resolvedModel,
+      routing: completedRouting,
       status: 'completed',
       completedAt,
       outputBytes,
@@ -486,10 +542,6 @@ export async function invokeModel(request) {
       economics: invocationEconomics(staged.bytes, result.usage)
     });
     await writeJson(file, completedEvent);
-    log.info('model.provider.completed', null, {
-      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
-      durationMs: Date.now() - providerStartedAt, exitCode: result.status ?? 0, signal: result.signal ?? null
-    });
     return {
       schemaVersion: 1, // schema-transient: provider result envelope, never persisted
       invocationId: id,
@@ -498,8 +550,8 @@ export async function invokeModel(request) {
       // The resolved model, not the requested one. A routed request names no model, so reporting
       // `request.model` here would hand every caller `null` for exactly the invocations whose model
       // was chosen for them — the one case where they most need to be told which model ran.
-      model: event.model,
-      routing: event.routing,
+      model: resolvedModel,
+      routing: completedRouting,
       status: 'completed',
       output: result.output,
       diagnostics: result.diagnostics ?? '',
@@ -510,12 +562,14 @@ export async function invokeModel(request) {
       economics: completedEvent.economics,
       startedAt: event.startedAt,
       completedAt,
-      invocation: { id, path: file, provider: providerId, model: event.model }
+      invocation: { id, path: file, provider: providerId, model: resolvedModel }
     };
   } catch (error) {
     if (auditStarted) {
       const failedEvent = await attestAudit(resolvedAuditRoot, {
         ...event,
+        model: auditModel,
+        routing: auditRouting,
         status: 'failed',
         completedAt: nowIso(),
         error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }

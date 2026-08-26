@@ -45,13 +45,23 @@ test('the Copilot provider enforces none, allowlist, and all tool policies in ar
   const allowlist = JSON.parse((await invoke(root, argvScript, {
     tools: { mode: 'allowlist', names: ['read_file', 'search'] }
   })).output);
-  assert.ok(allowlist.includes('--available-tools=read_file,search'));
-  assert.ok(allowlist.includes('--allow-tool=read_file,search'));
+  assert.ok(allowlist.includes('--available-tools=view,grep'));
+  assert.ok(!allowlist.some((entry) => entry.startsWith('--allow-tool=')));
+
+  const writable = JSON.parse((await invoke(root, argvScript, {
+    tools: { mode: 'allowlist', names: ['read_file', 'search', 'edit_file', 'create_file'] }
+  })).output);
+  assert.ok(writable.includes('--available-tools=view,grep,edit'));
+  assert.ok(writable.includes('--allow-tool=write'));
 
   const all = JSON.parse((await invoke(root, argvScript, {
     tools: { mode: 'all', names: [] }
   })).output);
   assert.ok(all.includes('--allow-all-tools'));
+
+  await assert.rejects(() => invoke(root, argvScript, {
+    tools: { mode: 'allowlist', names: ['unreviewed_tool'] }
+  }), (error) => error.code === 'MODEL_TOOL_UNSUPPORTED');
 });
 
 test('the Copilot provider accepts only trusted metadata-only telemetry injection', async () => {
@@ -111,6 +121,18 @@ test('the Copilot provider reports unavailable executable, timeout, output limit
     await assert.rejects(() => invoke(root, 'process.stdout.write("x".repeat(2048))', {
       limits: { timeoutMs: 1000, outputBytes: 64 }
     }), (error) => error.code === 'MODEL_OUTPUT_LIMIT');
+  });
+  await t.test('unavailable model retains a bounded provider diagnostic', async () => {
+    await assert.rejects(() => invoke(root, 'process.stderr.write(\'Error: Model "retired-model" from --model flag is not available.\'); process.exit(1)', {
+      model: 'retired-model'
+    }), (error) => error.code === 'MODEL_NOT_AVAILABLE'
+      && /retired-model.*not available/i.test(error.message)
+      && error.details?.diagnostic === 'Error: Model "retired-model" from --model flag is not available.');
+  });
+  await t.test('zero-exit unavailable model diagnostics are not accepted as empty success', async () => {
+    await assert.rejects(() => invoke(root, 'process.stderr.write(\'Error: Model "retired-model" from --model flag is not available.\')', {
+      model: 'retired-model'
+    }), (error) => error.code === 'MODEL_NOT_AVAILABLE');
   });
   await t.test('cancellation', async () => {
     const controller = new AbortController();

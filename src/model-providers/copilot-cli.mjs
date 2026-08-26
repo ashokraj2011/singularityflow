@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { lstat } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
+import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
@@ -27,6 +28,61 @@ const RESERVED_OPTIONS = Object.freeze([
   '-p', '--prompt', '--attachment', '-C', '--model', '--available-tools', '--allow-tool',
   '--allow-all-tools'
 ]);
+
+// The kernel uses one provider-independent tool vocabulary. Copilot CLI has its own host-native
+// names, and --allow-tool accepts permission patterns rather than those tool names. Passing the
+// canonical names through unchanged makes the model print tool-call markup while no tool actually
+// runs. Keep the policy/audit vocabulary stable and translate only at this adapter boundary.
+const COPILOT_TOOL_NAMES = Object.freeze({
+  read_file: Object.freeze(['view']),
+  search: Object.freeze(['grep']),
+  edit_file: Object.freeze(['edit']),
+  create_file: Object.freeze(['edit'])
+});
+
+function unique(values) { return [...new Set(values)]; }
+
+export function copilotToolArguments(tools = { mode: 'none', names: [] }) {
+  if (tools.mode === 'none') return ['--available-tools='];
+  if (tools.mode === 'all') return ['--allow-all-tools'];
+  const unsupported = tools.names.filter((name) => !COPILOT_TOOL_NAMES[name]);
+  if (unsupported.length) {
+    throw new SingularityFlowError(
+      `Copilot CLI has no reviewed tool translation for: ${unsupported.join(', ')}.`,
+      { code: 'MODEL_TOOL_UNSUPPORTED', details: { tools: unsupported } }
+    );
+  }
+  const available = unique(tools.names.flatMap((name) => COPILOT_TOOL_NAMES[name]));
+  const argumentsList = [`--available-tools=${available.join(',')}`];
+  if (tools.names.some((name) => name === 'edit_file' || name === 'create_file')) {
+    // Copilot's permission grammar authorizes file mutations as `write(...)`; `edit` is the
+    // availability name, not a valid permission pattern. The request still has a bounded cwd,
+    // allowed roots, an exact output contract, and the caller's post-run isolation check.
+    argumentsList.push('--allow-tool=write');
+  }
+  return argumentsList;
+}
+
+function boundedDiagnostic(value) {
+  return redactDiagnosticText(value).trim().replace(/\s+/g, ' ').slice(0, 1024);
+}
+
+function unavailableModelDiagnostic(value) {
+  return /(?:model\s+["'`]?.+?["'`]?\s+(?:is\s+)?not available|unknown model|unsupported model|model .+ has been (?:retired|disabled))/i.test(value);
+}
+
+function providerExitError(providerLabel, status, signal, diagnostics) {
+  const diagnostic = boundedDiagnostic(diagnostics);
+  const unavailable = unavailableModelDiagnostic(diagnostic);
+  const exit = `${providerLabel} exited with status ${status}${signal ? ` (${signal})` : ''}`;
+  return new SingularityFlowError(
+    diagnostic ? `${exit}: ${diagnostic}` : `${exit}.`,
+    {
+      code: unavailable ? 'MODEL_NOT_AVAILABLE' : 'MODEL_EXIT_NONZERO',
+      details: { status, signal, diagnostic: diagnostic || null }
+    }
+  );
+}
 
 function reservedOption(argument) {
   if (argument.startsWith('-p') && !argument.startsWith('--')) return '-p';
@@ -111,12 +167,7 @@ export async function invokeCopilotCli(request) {
     ...(configured.arguments ?? []), '-C', request.cwd,
     '--attachment', request.prompt.file, '-p', COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT
   ];
-  if (request.tools?.mode === 'none') args.push('--available-tools=');
-  if (request.tools?.mode === 'allowlist') {
-    const tools = request.tools.names.join(',');
-    args.push(`--available-tools=${tools}`, `--allow-tool=${tools}`);
-  }
-  if (request.tools?.mode === 'all') args.push('--allow-all-tools');
+  args.push(...copilotToolArguments(request.tools));
   if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
   const timeoutMs = request.limits.timeoutMs;
   const outputLimit = request.limits.outputBytes;
@@ -206,9 +257,13 @@ export async function invokeCopilotCli(request) {
       }).catch(() => {});
       if (failure) return reject(failure);
       if (status !== 0) {
-        return reject(new SingularityFlowError(`${providerLabel} exited with status ${status}${signal ? ` (${signal})` : ''}.`, {
-          code: 'MODEL_EXIT_NONZERO', details: { status, signal }
-        }));
+        return reject(providerExitError(providerLabel, status, signal, stderr));
+      }
+      // Some Copilot CLI releases report an unavailable/retired --model on stderr while exiting
+      // zero. Treating that as a completed invocation caused parallel world-model discovery to fan
+      // out seven empty workers and hid the only useful diagnostic.
+      if (!stdout.trim() && unavailableModelDiagnostic(stderr)) {
+        return reject(providerExitError(providerLabel, status, signal, stderr));
       }
       resolve({ output: stdout.trim(), diagnostics: stderr.trim(), status, signal, outputBytes });
     });

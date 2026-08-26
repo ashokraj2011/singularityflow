@@ -1129,7 +1129,8 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   );
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   const firstEnd = events.findIndex((event) => event.event === 'end');
-  assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 2);
+  assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 1,
+    'one discovery packet must prove the provider contract before parallel fanout');
   assert.equal(events.filter((event) => event.event === 'start').length, 4);
   assert.equal(events.filter((event) => event.event === 'end').length, 4);
 });
@@ -1159,7 +1160,7 @@ test('wm build checkpoints completed discovery and resumes only pending views af
     ...process.env,
     SFLOW_PARALLEL_TEST_LOG: activityLog,
     SFLOW_MOCK_FAIL_SYNTHESIS: '1',
-    SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture'
+    SFLOW_MOCK_SKIP_PACKET_VIEW: 'security'
   });
   assert.notEqual(first.status, 0);
   assert.match(`${first.stdout}${first.stderr}`, /Model provider 'mock-world-model' exited with status 9/);
@@ -1167,7 +1168,7 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   assert.equal((await lstat(path.join(root, 'singularity/world-model/.checkpoints'))).isDirectory(), true);
   const firstEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   assert.equal(firstEvents.filter((event) => event.event === 'start').length, 2);
-  assert.equal(firstEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
+  assert.equal(firstEvents.filter((event) => event.event === 'start' && event.view === 'architecture').length, 1);
 
   const second = result(process.execPath, args, root, {
     ...process.env,
@@ -1177,11 +1178,12 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   assert.match(second.stderr, /World-model resume: 1 completed view packet reused; 1 pending/);
   const allEvents = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   assert.equal(allEvents.filter((event) => event.event === 'start').length, 3);
-  assert.equal(allEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 1);
+  assert.equal(allEvents.filter((event) => event.event === 'start' && event.view === 'architecture').length, 1);
+  assert.equal(allEvents.filter((event) => event.event === 'start' && event.view === 'security').length, 2);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
-  assert.deepEqual(manifest.generation.resumed_views, ['security']);
-  assert.deepEqual(manifest.generation.pending_views_at_start, ['architecture']);
+  assert.deepEqual(manifest.generation.resumed_views, ['architecture']);
+  assert.deepEqual(manifest.generation.pending_views_at_start, ['security']);
   await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
 });
 
@@ -1204,14 +1206,14 @@ test('wm build falls back to final synthesis when an optional discovery worker o
 
   const execution = result(process.execPath, [
     bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2'
-  ], root, { ...process.env, SFLOW_MOCK_SKIP_PACKET_VIEW: 'architecture' });
+  ], root, { ...process.env, SFLOW_MOCK_SKIP_PACKET_VIEW: 'security' });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
-  assert.match(execution.stderr, /architecture discovery worker did not create its analysis packet/);
+  assert.match(execution.stderr, /security discovery worker did not create its analysis packet/);
   assert.match(execution.stderr, /final synthesis will inspect this view directly/);
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
-  assert.deepEqual(manifest.generation.discovery_views, ['security']);
-  assert.deepEqual(manifest.generation.degraded_views, ['architecture']);
-  assert.ok(manifest.views.architecture);
+  assert.deepEqual(manifest.generation.discovery_views, ['architecture']);
+  assert.deepEqual(manifest.generation.degraded_views, ['security']);
+  assert.ok(manifest.views.security);
 });
 
 test('wm build does not synthesize when every discovery worker omits its packet', async () => {
@@ -1238,19 +1240,22 @@ test('wm build does not synthesize when every discovery worker omits its packet'
     ...process.env, SFLOW_MOCK_SKIP_ALL_PACKETS: '1', SFLOW_PARALLEL_TEST_LOG: activityLog
   });
   assert.notEqual(execution.status, 0);
-  assert.match(execution.stderr, /discovery produced no usable packets; final synthesis was not started/);
+  assert.match(execution.stderr, /discovery preflight failed for 'architecture'/);
+  assert.match(execution.stderr, /Remaining discovery workers were not started/);
+  assert.match(execution.stderr, /No world-model checkpoint was retained because discovery completed zero views/);
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
-  assert.equal(events.filter((event) => event.event === 'start').length, 2);
+  assert.equal(events.filter((event) => event.event === 'start').length, 1);
   assert.equal(events.filter((event) => event.event === 'synthesis').length, 0);
   const audits = (await readdir(path.join(root, '.git/singularity-flow/model-invocations')))
     .filter((name) => name.endsWith('.json'));
-  assert.equal(audits.length, 2);
+  assert.equal(audits.length, 1);
   for (const name of audits) {
     const audit = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/model-invocations', name), 'utf8'));
     assert.deepEqual(audit.toolPolicy, {
       mode: 'allowlist', names: ['read_file', 'search', 'create_file']
     });
   }
+  await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
 });
 
 test('wm build fails fast when the builder omits manifest.json', async () => {
@@ -1774,7 +1779,8 @@ test('wm cleanup removes a worktree whose recorded builder process is dead', asy
   run('git', ['config', 'user.email', 'wm@example.com'], root);
   run('git', ['config', 'user.name', 'World Model'], root);
   await writeFile(path.join(root, 'README.md'), '# cleanup\n');
-  run('git', ['add', 'README.md'], root);
+  await initializeDefinition(root);
+  run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'init'], root);
 
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-'));

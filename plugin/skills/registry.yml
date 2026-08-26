@@ -213,4 +213,4 @@ skills:
   sflow-workspace-impact: { class: generative, kernelModelPolicy: conditional }
   sflow-workspace-session: { class: interactive }
   sflow-workspaces: { class: echo }
-  sflow-worldmodel: { class: generative, kernelModelPolicy: conditional }
+  sflow-worldmodel: { class: interactive, kernelModelPolicy: conditional }

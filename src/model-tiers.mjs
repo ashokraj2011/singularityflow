@@ -210,8 +210,11 @@ export function tierLadder(mapping, task) {
 export function mappedModelNames(mapping) {
   const names = new Set();
   for (const tier of mapping?.tiers?.values() ?? []) {
-    if (tier.model) names.add(tier.model);
-    for (const entry of tier.fallback) names.add(entry);
+    // `auto` is a provider routing instruction, not a concrete vendor model identifier. Including
+    // it in the model-name lint makes ordinary prose such as "automatic" look like a direct model
+    // pin and defeats the purpose of a narrow, reviewable check.
+    if (tier.model && tier.model !== 'auto') names.add(tier.model);
+    for (const entry of tier.fallback) if (entry !== 'auto') names.add(entry);
   }
   return Object.freeze([...names].sort());
 }

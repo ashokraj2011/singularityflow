@@ -20,14 +20,14 @@ modelTiers:
   # Dispatch and faithful narration. Cheap, fast, and asked only to not editorialise — the tier that
   # should stay small even when the others grow.
   relay:
-    model: gpt-4o-mini
-    fallback: [gpt-4o]
+    model: auto
+    fallback: [gpt-5.4]
 
   # Design, planning, trade-off analysis. The tier that most visibly rewards a stronger model, and
   # the one whose thinking budget is worth stating rather than inheriting.
   reason:
-    model: gpt-4o
-    fallback: [gpt-4o-mini]
+    model: gpt-5.4
+    fallback: [auto]
     params:
       effort: high
 

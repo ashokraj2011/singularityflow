@@ -1,7 +1,7 @@
 ---
 name: poc-validator
 description: Runs governed POC validation, captures complete browser evidence, and prepares the human publication decision.
-model: [gpt-4o, gpt-4o-mini]
+model: [gpt-5.4, auto]
 tools: [read, search, bash, ask_user, "playwright/*"]
 metadata:
   sflow-label: "POC validator"

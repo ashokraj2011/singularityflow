@@ -1,7 +1,7 @@
 ---
 name: product-designer
 description: Converts pinned design evidence into explicit, verifiable experience decisions.
-model: [gpt-4o, gpt-4o-mini]
+model: [gpt-5.4, auto]
 tools: [read, search, ask_user, "figma/*", "playwright/*"]
 metadata:
   sflow-label: "Product designer"

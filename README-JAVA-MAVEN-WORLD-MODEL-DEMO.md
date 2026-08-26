@@ -105,6 +105,11 @@ singularity-flow wm build --depth deep --parallel --workers 4 --model <MODEL>
 
 Do not put credentials or provider secrets in `modelTiers.yml`.
 
+The shipped mapping uses current Copilot selection (`gpt-5.4` and the provider's `auto` selector).
+If a preferred model is unavailable, the runner tries only that task's reviewed fallback and records
+the failed hop plus the model that actually ran. Authentication, timeout, tool-policy, and malformed
+output failures never trigger a model substitution.
+
 ## 2. Build the full world model
 
 Build the complete semantic model before the live demo. A deep build can take several minutes,
@@ -123,9 +128,10 @@ singularity-flow wm check
 singularity-flow wm status --json
 ```
 
-The build runs view-scoped discovery in parallel, checkpoints completed views, performs one final
-synthesis, validates the manifest, and follows the configured publication policy. It never writes
-model output into the application source tree.
+The build first proves one view packet end to end, then runs the remaining discovery views in
+parallel, checkpoints completed views, performs one final synthesis, validates the manifest, and
+follows the configured publication policy. A zero-packet preflight starts no remaining workers and
+retains no empty checkpoint. It never writes model output into the application source tree.
 
 If a build is interrupted, rerun the identical command with `--resume`. Completed packets whose
 source, prompt, model, and options still match are reused:

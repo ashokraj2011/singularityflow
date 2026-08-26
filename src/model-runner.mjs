@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
+import { COPILOT_MINIMUM_AI_CREDITS } from './model-limits.mjs';
 import { resolveModelPromptTransport } from './model-provider-capability.mjs';
 import {
   DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES, stageModelPrompt
@@ -95,14 +96,14 @@ const DEFAULT_MODEL_LIMITS = Object.freeze({
     maxTurns: 16,
     maxTotalTokens: 250_000,
     maxToolResultBytes: 1024 * 1024,
-    maxAiCredits: 8
+    maxAiCredits: COPILOT_MINIMUM_AI_CREDITS
   }),
   relay: Object.freeze({
     maxToolCalls: 1,
     maxTurns: 3,
     maxTotalTokens: 64_000,
     maxToolResultBytes: 64 * 1024,
-    maxAiCredits: 2
+    maxAiCredits: COPILOT_MINIMUM_AI_CREDITS
   })
 });
 

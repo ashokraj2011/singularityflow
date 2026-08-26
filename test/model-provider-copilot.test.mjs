@@ -172,7 +172,7 @@ test('the Copilot provider sends verified prompt bytes over ACP stdio without ar
   assert.ok(!observed.argv.includes('--attachment'));
   assert.ok(!observed.argv.includes('-p'));
   assert.equal(observed.argv[observed.argv.indexOf('--model') + 1], 'auto');
-  assert.equal(observed.argv[observed.argv.indexOf('--max-ai-credits') + 1], '8');
+  assert.equal(observed.argv[observed.argv.indexOf('--max-ai-credits') + 1], '30');
   assert.doesNotMatch(JSON.stringify(observed.argv), /ACP_CANARY_DO_NOT_LEAK/);
   assert.equal(observed.envLeak, false);
   assert.equal(result.promptTransport, 'acp-stdio');
@@ -183,6 +183,15 @@ test('the Copilot provider sends verified prompt bytes over ACP stdio without ar
     status: 'exact', assurance: 'provider-reported', totalTokens: 12,
     inputTokens: 8, outputTokens: 4, reasoningTokens: 2
   });
+});
+
+test('the Copilot provider enforces its current minimum AI-credit limit before process start', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-credits-'));
+  await assert.rejects(() => invokeAcp(root, {
+    limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxAiCredits: 8 }
+  }), (error) => error.code === 'MODEL_AI_CREDIT_LIMIT_UNSUPPORTED'
+    && error.details?.minimum === 30
+    && error.details?.requested === 8);
 });
 
 test('ACP records exact normalized output and fails closed on response and token budgets', async (t) => {

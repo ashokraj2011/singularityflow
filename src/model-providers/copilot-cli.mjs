@@ -7,6 +7,7 @@ import { Readable, Writable } from 'node:stream';
 import { TransformStream } from 'node:stream/web';
 import { StringDecoder } from 'node:string_decoder';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
+import { COPILOT_MINIMUM_AI_CREDITS } from '../model-limits.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { VERSION } from '../version.mjs';
@@ -89,6 +90,20 @@ export function copilotAllowedRootArguments(request) {
   }
   return unique(roots).filter((root) => root !== request.cwd)
     .flatMap((root) => ['--add-dir', root]);
+}
+
+function copilotAiCreditArguments(limits = {}) {
+  const credits = limits.maxAiCredits ?? COPILOT_MINIMUM_AI_CREDITS;
+  if (!Number.isSafeInteger(credits) || credits < COPILOT_MINIMUM_AI_CREDITS) {
+    throw new SingularityFlowError(
+      `Copilot CLI requires a model invocation limit of at least ${COPILOT_MINIMUM_AI_CREDITS} AI credits; received ${credits}.`,
+      {
+        code: 'MODEL_AI_CREDIT_LIMIT_UNSUPPORTED',
+        details: { minimum: COPILOT_MINIMUM_AI_CREDITS, requested: credits }
+      }
+    );
+  }
+  return ['--max-ai-credits', String(credits)];
 }
 
 function boundedDiagnostic(value) {
@@ -378,7 +393,7 @@ async function invokeCopilotAcp(request) {
   // Passing it makes each isolated ACP session ask Copilot to choose the appropriate model.
   const requestedModel = request.model ?? configured.model ?? 'auto';
   args.push('--model', requestedModel);
-  args.push('--max-ai-credits', String(request.limits.maxAiCredits ?? 8));
+  args.push(...copilotAiCreditArguments(request.limits));
   const outputLimit = request.limits.outputBytes;
   const protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
@@ -779,7 +794,7 @@ async function invokeCopilotAttachment(request) {
   args.push(...copilotToolArguments(request.tools));
   const requestedModel = request.model ?? configured.model ?? 'auto';
   args.push('--model', requestedModel);
-  args.push('--max-ai-credits', String(request.limits.maxAiCredits ?? 8));
+  args.push(...copilotAiCreditArguments(request.limits));
   const timeoutMs = request.limits.timeoutMs;
   const outputLimit = request.limits.outputBytes;
   // Telemetry is observational. A missing/unwritable local receipt must never prevent the

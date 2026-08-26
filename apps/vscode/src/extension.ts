@@ -9,7 +9,8 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import os from 'node:os';
 import { constants as fsConstants } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { access, lstat, readFile, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
@@ -156,10 +157,33 @@ type FirstRunCheck = { id: string; status: 'healthy' | 'blocked'; detail: string
 async function firstRunChecks(extensionPath: string, location: { executable: string; cli: string },
   repository: string | null): Promise<FirstRunCheck[]> {
   const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
-  const git = spawnSync('git', ['--version'], { encoding: 'utf8', timeout: 5_000, windowsHide: true });
-  const cli = spawnSync(location.executable, [location.cli, 'about'], {
-    cwd: repository ?? os.tmpdir(), encoding: 'utf8', timeout: 10_000, windowsHide: true
-  });
+  /**
+   * Two probes, neither of which may stop the extension host.
+   *
+   * These were `spawnSync` with 5- and 10-second timeouts, inside a function that is already `async`
+   * and already awaits four filesystem checks. Nothing needed the synchrony, and the cost of it is
+   * paid at the worst possible moment: `activate` runs these on a first run, so a slow or missing
+   * Git and a bundled CLI that will not start could freeze the whole window for fifteen seconds
+   * before anything had been drawn.
+   *
+   * Run together rather than in sequence for the same reason — they do not depend on each other, so
+   * the worst case is the slower of the two rather than the sum.
+   */
+  const probe = async (command: string, args: string[], options: { cwd?: string; timeout: number }) => {
+    try {
+      const { stdout } = await promisify(execFile)(command, args, {
+        ...options, encoding: 'utf8', windowsHide: true
+      });
+      return { ok: true, stdout: String(stdout) };
+    } catch {
+      // A non-zero exit, a timeout and a missing executable are the same answer here: not healthy.
+      return { ok: false, stdout: '' };
+    }
+  };
+  const [git, cli] = await Promise.all([
+    probe('git', ['--version'], { timeout: 5_000 }),
+    probe(location.executable, [location.cli, 'about'], { cwd: repository ?? os.tmpdir(), timeout: 10_000 })
+  ]);
   const bundle = await lstat(path.join(extensionPath, 'dist', 'extension.cjs')).catch(() => null);
   const machineDirectory = path.resolve(process.env.SINGULARITY_FLOW_HOME
     || path.join(os.homedir(), '.singularity-flow'));
@@ -173,8 +197,8 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
   return [
     { id: 'extension', status: bundle?.isFile() ? 'healthy' : 'blocked', detail: 'packaged extension bundle' },
     { id: 'runtime', status: nodeMajor >= 20 ? 'healthy' : 'blocked', detail: `Node ${process.versions.node} (minimum 20)` },
-    { id: 'git', status: git.status === 0 ? 'healthy' : 'blocked', detail: git.status === 0 ? git.stdout.trim() : 'Git is unavailable' },
-    { id: 'cli', status: cli.status === 0 ? 'healthy' : 'blocked', detail: cli.status === 0 ? 'bundled CLI executes' : 'bundled CLI did not execute' },
+    { id: 'git', status: git.ok ? 'healthy' : 'blocked', detail: git.ok ? git.stdout.trim() : 'Git is unavailable' },
+    { id: 'cli', status: cli.ok ? 'healthy' : 'blocked', detail: cli.ok ? 'bundled CLI executes' : 'bundled CLI did not execute' },
     { id: 'machine-state', status: writable ? 'healthy' : 'blocked', detail: 'machine-local SFlow state location is writable' },
     { id: 'repository', status: 'healthy', detail: repositoryKind }
   ];

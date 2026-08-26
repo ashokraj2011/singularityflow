@@ -1,7 +1,7 @@
 import * as acp from '@agentclientprotocol/sdk';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { TransformStream } from 'node:stream/web';
@@ -22,7 +22,8 @@ const SAFE_ENVIRONMENT = [
 
 const SAFE_ENVIRONMENT_SET = new Set(SAFE_ENVIRONMENT);
 const TEST_ENVIRONMENT = ['SFLOW_PARALLEL_TEST_LOG', 'SFLOW_MOCK_SKIP_PACKET_VIEW', 'SFLOW_MOCK_SKIP_ALL_PACKETS', 'SFLOW_MOCK_FAIL_SYNTHESIS',
-  'SFLOW_MOCK_MANIFEST_RETRY_MARKER', 'SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER', 'SFLOW_MOCK_SHORT_SHA'];
+  'SFLOW_MOCK_MANIFEST_RETRY_MARKER', 'SFLOW_MOCK_DIRECTORY_VIEW_RETRY_MARKER', 'SFLOW_MOCK_SHORT_SHA',
+  'SFLOW_MOCK_REQUIRE_PRECREATED_OUTPUTS'];
 
 export const COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT = [
   'The attached UTF-8 Markdown file is the complete Singularity Flow request.',
@@ -173,6 +174,78 @@ function acpUsage(value) {
   };
 }
 
+function inside(candidate, root) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function acpEditPath(rawInput) {
+  if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) return null;
+  const value = rawInput.path ?? rawInput.filePath ?? rawInput.file_path;
+  return typeof value === 'string' && value.trim() && !/[\r\n\0]/.test(value) ? value : null;
+}
+
+/**
+ * Copilot CLI 1.0.80 exposes one `edit` tool for both provider-independent `edit_file` and
+ * `create_file`, but that tool opens the target before applying its patch. A new path therefore
+ * fails with ENOENT even when the normalized SFlow policy explicitly authorized `create_file`.
+ *
+ * ACP streams the tool call (including its path) before executing it. Materialize only an empty
+ * regular target, only for a reviewed create policy, and only below the kernel's canonical allowed
+ * roots. Copilot still supplies every content byte through its ordinary edit tool and all caller
+ * post-run isolation and validation remains in force.
+ */
+async function precreateAcpEditTarget(request, toolCall) {
+  const mayCreate = request.tools?.mode === 'all'
+    || request.tools?.names?.includes('create_file');
+  if (!mayCreate || (toolCall.name !== 'edit' && toolCall.kind !== 'edit')) return;
+  const requestedPath = acpEditPath(toolCall.rawInput);
+  if (!requestedPath) return;
+  const candidate = path.resolve(request.cwd, requestedPath);
+  const basename = path.basename(candidate);
+  if (!basename || basename === '.' || basename === path.parse(candidate).root) return;
+
+  // Resolve the closest existing ancestor first. This handles macOS /var -> /private/var without
+  // trusting a lexical prefix, and prevents mkdir from following an unreviewed symlink outside an
+  // admitted root.
+  let ancestor = path.dirname(candidate);
+  const missing = [];
+  while (!await lstat(ancestor).catch(() => null)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) return;
+    missing.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+  const canonicalAncestor = await realpath(ancestor).catch(() => null);
+  if (!canonicalAncestor) return;
+  const canonicalRoots = (await Promise.all(
+    request.allowedRoots.map((root) => realpath(root).catch(() => null))
+  )).filter(Boolean);
+  const allowedRoot = canonicalRoots.find((root) => inside(canonicalAncestor, root));
+  if (!allowedRoot) return;
+
+  let parent = canonicalAncestor;
+  for (const segment of missing) {
+    const next = path.join(parent, segment);
+    if (!inside(next, allowedRoot)) return;
+    await mkdir(next, { mode: 0o700 }).catch((error) => {
+      if (error?.code !== 'EEXIST') throw error;
+    });
+    const info = await lstat(next).catch(() => null);
+    if (!info?.isDirectory() || info.isSymbolicLink()) return;
+    parent = next;
+  }
+  const target = path.join(parent, basename);
+  if (!inside(target, allowedRoot)) return;
+  const existing = await lstat(target).catch(() => null);
+  if (existing) return;
+  const handle = await open(target, 'wx', 0o600).catch((error) => {
+    if (error?.code === 'EEXIST') return null;
+    throw error;
+  });
+  await handle?.close();
+}
+
 function providerIdentity(request) {
   const configured = request.providerConfig ?? {};
   const executable = configured.executable ?? 'copilot';
@@ -315,10 +388,24 @@ async function invokeCopilotAcp(request) {
     }
   }));
   const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), guardedInput);
+  const toolCalls = new Map();
   const connection = new acp.ClientSideConnection(() => ({
     async requestPermission(params) { return { outcome: acpPermissionOutcome(request.tools, params) }; },
     async sessionUpdate(params) {
       const update = params.update;
+      if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
+        const prior = toolCalls.get(update.toolCallId) ?? {};
+        const current = {
+          ...prior,
+          ...(update.name != null ? { name: update.name } : {}),
+          ...(update.kind != null ? { kind: update.kind } : {}),
+          ...(update.rawInput != null ? { rawInput: update.rawInput } : {})
+        };
+        toolCalls.set(update.toolCallId, current);
+        // A refused/unsafe target remains absent and Copilot's own tool reports the normal failure.
+        // Do not widen the path boundary or leak raw tool input into diagnostics.
+        await precreateAcpEditTarget(request, current).catch(() => {});
+      }
       if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
       const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
       outputBytes += chunkBytes;

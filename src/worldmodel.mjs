@@ -76,6 +76,8 @@ const DEFAULT_MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
 const DEFAULT_MAX_SYNTHESIS_INPUT_TOKENS = 24_000;
 const WORLD_MODEL_DISCOVERY_TOOLS = Object.freeze(['read_file', 'search', 'create_file']);
 const WORLD_MODEL_SYNTHESIS_TOOLS = Object.freeze(['read_file', 'search', 'edit_file', 'create_file']);
+const MODEL_OUTPUT_PLACEHOLDER = 'SINGULARITY_FLOW_MODEL_OUTPUT_PLACEHOLDER\n';
+const DISCOVERY_PACKET_PLACEHOLDER = 'SINGULARITY_FLOW_DISCOVERY_PACKET_PLACEHOLDER\n';
 const WORLD_MODEL_TEMP_PREFIXES = [
   'singularity-flow-world-model-',
   'singularity-flow-world-model-branch-'
@@ -690,6 +692,13 @@ export function specializeBuiltinWorldModelPrompt(template, {
     },
     anchors: []
   }]));
+  const normalizedTask = String(task ?? '').trim();
+  const taskDigest = normalizedTask ? sha256(normalizedTask) : null;
+  const taskGuide = normalizedTask ? {
+    id: `task-${taskDigest.slice(0, 12)}`,
+    path: `task-guides/${taskDigest.slice(0, 16)}.md`,
+    task: normalizedTask
+  } : null;
   const manifestShape = {
     schema_version: '3.0',
     repository_commit: '<exact full inspected commit>',
@@ -704,9 +713,7 @@ export function specializeBuiltinWorldModelPrompt(template, {
     views: manifestViews,
     path_index: { path: 'index/path-map.json' },
     domains: [],
-    task_guides: String(task ?? '').trim()
-      ? [{ id: '<stable task id>', path: 'task-guides/<stable task id>.md', task: String(task).trim() }]
-      : [],
+    task_guides: taskGuide ? [taskGuide] : [],
     evidence: { path: 'evidence/evidence.jsonl' }
   };
   text = text.replace(
@@ -725,6 +732,17 @@ export function specializeBuiltinWorldModelPrompt(template, {
     text = text.replace(/\n# Cross-view consistency[\s\S]*?(?=\n# Validation)/, '');
   }
   return text.replace(/\n{3,}/g, '\n\n');
+}
+
+async function prepareSynthesisOutputScaffold(staging) {
+  // The manifest is the one universal synthesis target. Other paths are manifest-controlled and
+  // may vary across legacy/custom builders; the ACP create-file shim creates them on the first
+  // authorized edit instead of guessing a topology and accidentally installing placeholders.
+  await writeFile(path.join(staging, 'manifest.json'), MODEL_OUTPUT_PLACEHOLDER, { mode: 0o600 });
+  for (const directory of ['core', 'views', 'domains', 'task-guides', 'evidence', 'index']) {
+    await mkdir(path.join(staging, directory), { recursive: true });
+  }
+  return ['manifest.json'];
 }
 
 async function init(root) {
@@ -1295,11 +1313,11 @@ Packet file: ${packetFile}
 
 Treat the repository as read-only: do not modify source files, Git state, the existing world model, or governed work-item/initiative state. "Read-only" describes the repository under analysis — it does NOT describe your deliverable.
 
-Your single required deliverable is to CREATE ONE FILE using your file-writing tool: a UTF-8 Markdown analysis packet at exactly this path:
+Your single required deliverable is to REPLACE THE CONTENTS of one pre-created UTF-8 Markdown file using your file-writing tool: an analysis packet at exactly this path:
 
   ${packetFile}
 
-This file is the only thing the parent process reads. Do not print the packet to the console, do not return it as your final message, and do not merely describe it — output that is not written to that exact path is discarded and this worker is treated as failed. Write the packet to the path with your file-creation tool, confirm the file exists, then stop.
+The file initially contains only \`SINGULARITY_FLOW_DISCOVERY_PACKET_PLACEHOLDER\`. Replace that marker completely. This file is the only thing the parent process reads. Do not print the packet to the console, do not return it as your final message, and do not merely describe it — output that is not written to that exact path is discarded and this worker is treated as failed. Write the packet to the path with your file-writing tool, confirm the marker is gone, then stop.
 
 Write nothing else anywhere. If you want to test your file-writing tool first, test it by writing the packet itself — a scratch file such as \`test.md\` created inside the repository is detected, this attempt is discarded, and the repository is reset before the retry. Do not create scratch, temporary, notes, or test files.
 
@@ -1511,7 +1529,9 @@ async function runParallelDiscovery(
   // when the agent printed it instead of writing. Returns { content, bytes } on success, or
   // { reason, retryable } to describe why this view has no usable packet yet.
   const attemptView = async (view, packetFile, promptFile) => {
-    await rm(packetFile, { force: true }); // never accept a stale packet from an earlier attempt
+    // Copilot ACP's `edit` tool cannot open a path that does not exist. Seed a private, bounded
+    // target for every attempt; the marker also proves the model actually replaced stale output.
+    await writeFile(packetFile, DISCOVERY_PACKET_PLACEHOLDER, { mode: 0o600 });
     // Snapshot per attempt, not once for the whole of discovery.
     //
     // A real failure: a worker wrote `testfile.md` into the analysis worktree instead of its packet.
@@ -1589,6 +1609,7 @@ async function runParallelDiscovery(
       });
     }
     let packet = existsSync(packetFile) ? await readFile(packetFile, 'utf8') : '';
+    if (packet === DISCOVERY_PACKET_PLACEHOLDER) packet = '';
     if (!packet.trim()) {
       const recovered = recoverPacketFromOutput(result.output, view);
       if (recovered) {
@@ -2120,7 +2141,17 @@ ${repositoryFactsDigest}`;
       maximumSynthesisInputTokens: discovery.maximumSynthesisInputTokens,
       synthesisOverflow: discovery.synthesisOverflow
     });
-    const synthesisPrompt = synthesisComposition.text;
+    const synthesisTargets = await prepareSynthesisOutputScaffold(staging);
+    const synthesisPrompt = `${synthesisComposition.text}
+
+# Pre-created output targets
+
+The CLI has pre-created \`manifest.json\` below the Output directory; it contains only
+\`SINGULARITY_FLOW_MODEL_OUTPUT_PLACEHOLDER\`. Replace that marker completely using the
+file-editing tool. Create the other manifest-controlled files in the pre-created output
+directories. Do not leave the marker in any output. No application-repository path is writable
+output.
+`;
     await writeFile(promptFile, synthesisPrompt);
     if (optionString(options, 'runner')) throw new SingularityFlowError('--runner is no longer supported. Configure a trusted model provider instead.');
     const invokeSynthesis = () => invokeModel({
@@ -2203,6 +2234,17 @@ ${repositoryFactsDigest}`;
       }
     };
     const validateDraft = async () => {
+      const unresolved = [];
+      for (const relative of synthesisTargets) {
+        const content = await readFile(path.join(staging, relative), 'utf8').catch(() => '');
+        if (!content || content === MODEL_OUTPUT_PLACEHOLDER) unresolved.push(relative);
+      }
+      if (unresolved.includes('manifest.json')) {
+        throw new SingularityFlowError('World-model builder did not create manifest.json.');
+      }
+      if (unresolved.length) {
+        throw new SingularityFlowError(`World-model builder did not populate: ${unresolved.join(', ')}.`);
+      }
       await canonicalizeDraftManifest();
       return validateWorldModelDirectory(staging, {
         expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections,
@@ -2230,6 +2272,7 @@ ${repositoryFactsDigest}`;
       console.warn(`Warning: world-model final synthesis ${reason}; retrying final synthesis once without repeating discovery.`);
       await rm(staging, { recursive: true, force: true });
       await mkdir(staging, { recursive: true });
+      await prepareSynthesisOutputScaffold(staging);
       const recoveryPrompt = synthesisRecoveryPrompt(synthesisPrompt, error.message);
       if (Buffer.byteLength(recoveryPrompt, 'utf8') > discovery.maximumSynthesisInputTokens * 4) {
         throw new SingularityFlowError(

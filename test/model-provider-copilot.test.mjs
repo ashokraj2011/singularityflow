@@ -25,6 +25,7 @@ async function invoke(root, script, overrides = {}) {
 
 const fakeAcpSource = `
 import { createHash } from 'node:crypto';
+import { access } from 'node:fs/promises';
 import readline from 'node:readline';
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
@@ -44,12 +45,24 @@ for await (const line of lines) {
     if (process.argv.includes('--fixture-hang')) continue;
     if (process.argv.includes('--fixture-malformed')) { process.stdout.write('not-json\\n'); continue; }
     const prompt = message.params.prompt.map((item) => item.type === 'text' ? item.text : '').join('');
-    const result = JSON.stringify({
+    let result = JSON.stringify({
       cwd, bytes: Buffer.byteLength(prompt),
       sha256: createHash('sha256').update(prompt).digest('hex'),
       argv: process.argv.slice(2),
       envLeak: Object.values(process.env).some((value) => String(value).includes('ACP_CANARY_DO_NOT_LEAK'))
     });
+    if (process.argv.includes('--fixture-create-target')) {
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: message.params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call', toolCallId: 'create-target', title: 'create output',
+          name: 'edit', kind: 'edit', status: 'in_progress', rawInput: { path: prompt }
+        }
+      }});
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const created = await access(prompt).then(() => true, () => false);
+      result = JSON.stringify({ created });
+    }
     if (process.argv.includes('--fixture-permission')) {
       pendingPrompt = { id: message.id, sessionId: message.params.sessionId, result };
       send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: {
@@ -140,6 +153,32 @@ test('ACP permission requests are bounded by the normalized SFlow tool policy', 
     fixtureArguments: ['--fixture-permission'], tools: { mode: 'none', names: [] }
   })).output);
   assert.deepEqual(denied.permission, { outcome: { outcome: 'cancelled' } });
+});
+
+test('ACP supplies create_file semantics only inside admitted roots and only when authorized', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-'));
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-output-'));
+  const target = path.join(outputRoot, 'nested', 'packet.md');
+  const created = JSON.parse((await invokeAcp(root, {
+    fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: target },
+    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['create_file'] }
+  })).output);
+  assert.equal(created.created, true);
+  assert.equal(await readFile(target, 'utf8'), '');
+
+  const editOnlyTarget = path.join(outputRoot, 'edit-only.md');
+  const editOnly = JSON.parse((await invokeAcp(root, {
+    fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: editOnlyTarget },
+    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['edit_file'] }
+  })).output);
+  assert.equal(editOnly.created, false);
+
+  const outsideTarget = path.join(os.tmpdir(), `sflow-provider-acp-outside-${Date.now()}.md`);
+  const outside = JSON.parse((await invokeAcp(root, {
+    fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: outsideTarget },
+    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['create_file'] }
+  })).output);
+  assert.equal(outside.created, false);
 });
 
 test('ACP fails closed on unsupported protocol, malformed NDJSON, timeout, and cancellation', async (t) => {

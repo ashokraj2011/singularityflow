@@ -84,6 +84,10 @@ const assignedView = prompt.match(/Assigned view:\\s+([^\\n]+)/)?.[1].trim();
 if (packet) {
   const startedAt = Date.now();
   if (process.env.SFLOW_PARALLEL_TEST_LOG) await appendFile(process.env.SFLOW_PARALLEL_TEST_LOG, JSON.stringify({ event: 'start', view: assignedView, at: startedAt }) + '\\n');
+  if (process.env.SFLOW_MOCK_REQUIRE_PRECREATED_OUTPUTS === '1') {
+    const initial = await readFile(packet, 'utf8');
+    if (initial !== 'SINGULARITY_FLOW_DISCOVERY_PACKET_PLACEHOLDER\\n') throw new Error('discovery packet was not pre-created');
+  }
   await new Promise((resolve) => setTimeout(resolve, 200));
   if (process.env.SFLOW_MOCK_SKIP_ALL_PACKETS === '1' || process.env.SFLOW_MOCK_SKIP_PACKET_VIEW === assignedView) process.exit(0);
   await mkdir(path.dirname(packet), { recursive: true });
@@ -108,6 +112,10 @@ const output = prompt.match(/Output directory:\\s+([^\\n]+)/)?.[1].trim();
 const requested = prompt.match(/Requested views:\\s+([^\\n]+)/)?.[1].trim().split(/,\\s*/).filter(Boolean) ?? [];
 const task = prompt.match(/Optional task:\\s+([^\\n]+)/)?.[1].trim();
 if (!output) throw new Error('output directory was not rendered');
+if (process.env.SFLOW_MOCK_REQUIRE_PRECREATED_OUTPUTS === '1') {
+  const initial = await readFile(path.join(output, 'manifest.json'), 'utf8');
+  if (initial !== 'SINGULARITY_FLOW_MODEL_OUTPUT_PLACEHOLDER\\n') throw new Error('synthesis manifest was not pre-created');
+}
 if (process.argv.includes('--mutate')) await writeFile(path.join(process.cwd(), 'MUTATED.txt'), 'unexpected');
 if (process.env.SFLOW_MOCK_MANIFEST_RETRY_MARKER) {
   try {
@@ -387,6 +395,14 @@ test('the packaged builder prompt contains only requested view and tier instruct
   assert.doesNotMatch(specialized, /## Business view/, 'brief tiers use the bounded generic brief contract');
   assert.doesNotMatch(specialized, /Create task-specific guides|Create domain models/);
   assert.ok(Buffer.byteLength(specialized) < 18_000, 'fixed one-view prompt remains compact');
+
+  const tasked = specializeBuiltinWorldModelPrompt(template, {
+    selections: [{ kind: 'core', tier: 'brief' }], views: [], depth: 'standard',
+    task: 'Explain payment recovery'
+  });
+  const taskDigest = createHash('sha256').update('Explain payment recovery').digest('hex');
+  assert.match(tasked, new RegExp(`task-guides/${taskDigest.slice(0, 16)}\\.md`));
+  assert.doesNotMatch(tasked, /<stable task id>/);
 });
 
 test('wm build isolates the generator, commits a validated model, and tracks source-tree freshness', async () => {
@@ -1060,7 +1076,11 @@ test('storyless wm build expands --views all before concurrent discovery and syn
 
   const execution = result(process.execPath, [
     bin, 'wm', 'build', '--views', 'all', '--parallel', '--workers', '2'
-  ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: activityLog });
+  ], root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog,
+    SFLOW_MOCK_REQUIRE_PRECREATED_OUTPUTS: '1'
+  });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
   assert.match(execution.stderr, /7 pending view workers, up to 2 concurrent/);
 

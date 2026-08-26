@@ -90,6 +90,12 @@ function positiveInteger(value, label) {
   return value;
 }
 
+function modelTurnLimit(value, fallback) {
+  if (value == null) return fallback;
+  if (value === 'auto') return value;
+  return positiveInteger(value, 'limits.maxTurns');
+}
+
 const DEFAULT_MODEL_LIMITS = Object.freeze({
   tools: Object.freeze({
     maxToolCalls: 64,
@@ -204,8 +210,7 @@ async function normalizeRequest(request, context) {
       : positiveInteger(request.limits.promptBytes, 'limits.promptBytes'),
     maxToolCalls: request.limits?.maxToolCalls == null
       ? defaultLimits.maxToolCalls : positiveInteger(request.limits.maxToolCalls, 'limits.maxToolCalls'),
-    maxTurns: request.limits?.maxTurns == null
-      ? defaultLimits.maxTurns : positiveInteger(request.limits.maxTurns, 'limits.maxTurns'),
+    maxTurns: modelTurnLimit(request.limits?.maxTurns, defaultLimits.maxTurns),
     maxTotalTokens: request.limits?.maxTotalTokens == null
       ? defaultLimits.maxTotalTokens : positiveInteger(request.limits.maxTotalTokens, 'limits.maxTotalTokens'),
     maxToolResultBytes: request.limits?.maxToolResultBytes == null

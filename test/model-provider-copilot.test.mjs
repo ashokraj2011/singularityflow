@@ -240,6 +240,14 @@ test('ACP audits tool outcomes and rejects failed, truncated, excessive-call, an
       limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 8, maxTurns: 2 }
     }), (error) => error.code === 'MODEL_TURN_LIMIT');
   });
+  await t.test('automatic turns allow the provider to finish within the independent tool budget', async () => {
+    const completed = await invokeAcp(root, {
+      fixtureArguments: ['--fixture-many-tools'], tools,
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 8, maxTurns: 'auto' }
+    });
+    assert.equal(completed.toolObservation.totalCalls, 4);
+    assert.ok(completed.toolObservation.turns > 2);
+  });
 });
 
 test('ACP refuses a concrete model substitution before sending the prompt', async () => {

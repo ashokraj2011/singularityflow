@@ -480,7 +480,12 @@ async function invokeCopilotAcp(request) {
   const activeToolCalls = new Set();
   let toolRounds = 0;
   const maximumToolCalls = request.limits.maxToolCalls ?? 64;
+  // `auto` delegates conversation completion to the ACP agent. It is intentionally not the
+  // provider-wide default: callers must opt in for operations, such as final world-model
+  // synthesis, whose number of tool rounds depends on the generated output graph. Independent
+  // timeout, output, token, tool-call, tool-result, and cancellation guards remain in force.
   const maximumTurns = request.limits.maxTurns ?? 16;
+  const turnsAreAutomatic = maximumTurns === 'auto';
   const maximumToolResultBytes = request.limits.maxToolResultBytes ?? 1024 * 1024;
   const toolObservation = (exactTurns = null) => {
     const calls = [...toolCalls.values()].sort((a, b) => a.sequence - b.sequence).map((entry) => ({
@@ -542,7 +547,7 @@ async function invokeCopilotAcp(request) {
         }
         if (isNew && activeToolCalls.size === 0) {
           toolRounds += 1;
-          if (toolRounds + 1 > maximumTurns) {
+          if (!turnsAreAutomatic && toolRounds + 1 > maximumTurns) {
             boundaryError(
               `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
               'MODEL_TURN_LIMIT', { maximumTurns }
@@ -709,7 +714,7 @@ async function invokeCopilotAcp(request) {
       }
     );
   }
-  if (observation.turns > maximumTurns) {
+  if (!turnsAreAutomatic && observation.turns > maximumTurns) {
     throw new SingularityFlowError(
       `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
       { code: 'MODEL_TURN_LIMIT', details: { maximumTurns, modelSelection, toolObservation: observation } }

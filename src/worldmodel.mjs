@@ -2269,7 +2269,15 @@ output.
         channel: 'world-model-synthesis',
         subject: { kind: 'repository-world-model' },
         tools: { mode: 'allowlist', names: [...WORLD_MODEL_SYNTHESIS_TOOLS] },
-        limits: { timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
+        // Seven-view synthesis can require a variable number of sequential ACP tool rounds to
+        // inspect, write, and verify the manifest-controlled output graph. Let ACP finish that
+        // conversation instead of imposing the generic 16-round ceiling. The independent
+        // timeout, output, token, tool-call, tool-result, and cancellation limits still apply.
+        limits: {
+          timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000),
+          outputBytes: 8 * 1024 * 1024,
+          maxTurns: 'auto'
+        }
       });
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the
     // command shows nothing at all while it does the most interesting thing it does.

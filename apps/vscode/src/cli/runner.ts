@@ -10,7 +10,8 @@
  * Deliberately kept dependency-free and free of any `vscode` import, so it can be unit-tested in a
  * plain Node process against a fake spawn.
  */
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -31,6 +32,40 @@ const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
 /** Remote Git launched by the extension must never wait for an invisible credential prompt. */
 function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
   return { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+}
+
+/**
+ * Remote Git that does not stop the extension host.
+ *
+ * The two network calls on the repository-resolution path — an `ls-remote` bounded at 30 seconds and
+ * a `fetch` bounded at 120 — were `spawnSync`, so their bounds described how long VS Code could be
+ * frozen rather than how long the operation could take. A slow or unreachable remote is exactly when
+ * this path runs: it is the narrow-clone recovery, reached only after both local authorities are
+ * missing. `validateRepositoryDirectory` is already `async` and already awaits its filesystem checks,
+ * so nothing here needed the synchrony.
+ *
+ * The local Git calls around it are deliberately left synchronous. They read refs and blobs from
+ * this repository, cost milliseconds, and rewriting them would mean rewriting the two closures they
+ * live inside for no measurable gain.
+ *
+ * Shaped like a `spawnSync` result so the calling code reads the same: a timeout, a non-zero exit and
+ * a missing executable are all "this remote did not answer", which is what the caller already does
+ * with `status !== 0`.
+ */
+async function remoteGit(args: string[], options: { cwd: string; timeout: number }):
+  Promise<{ status: number; stdout: string }> {
+  try {
+    const { stdout } = await promisify(execFile)('git', args, {
+      cwd: options.cwd,
+      timeout: options.timeout,
+      encoding: 'utf8',
+      windowsHide: true,
+      env: nonInteractiveGitEnvironment()
+    });
+    return { status: 0, stdout: String(stdout) };
+  } catch {
+    return { status: 1, stdout: '' };
+  }
 }
 
 /*
@@ -170,12 +205,9 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
       .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
         || left.localeCompare(right)) : [];
     for (const remote of names) {
-      const advertised = spawnSync('git', [
+      const advertised = await remoteGit([
         'ls-remote', '--heads', '--', remote, 'refs/heads/sflow/config', 'refs/heads/state'
-      ], {
-        cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 30_000,
-        env: nonInteractiveGitEnvironment()
-      });
+      ], { cwd: canonical, timeout: 30_000 });
       if (advertised.status !== 0) continue;
       const branches = new Set(advertised.stdout.split(/\r?\n/)
         .map((line) => line.trim().split(/\s+/)[1]).filter(Boolean));
@@ -186,13 +218,10 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
           cwd: canonical, encoding: 'utf8', windowsHide: true
         });
         if (valid.status !== 0) continue;
-        const fetched = spawnSync('git', [
+        const fetched = await remoteGit([
           'fetch', '--quiet', '--no-tags', '--force', '--', remote,
           `+refs/heads/${authorityBranch}:${destination}`
-        ], {
-          cwd: canonical, encoding: 'utf8', windowsHide: true, timeout: 120_000,
-          env: nonInteractiveGitEnvironment()
-        });
+        ], { cwd: canonical, timeout: 120_000 });
         if (fetched.status === 0
           && (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable())) return canonical;
       }

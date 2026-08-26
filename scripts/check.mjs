@@ -1,7 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { validateDefinition } from '../src/config.mjs';
@@ -179,10 +181,45 @@ const hostedAutomation = allFiles.map((file) => path.relative(root, file).split(
 if (hostedAutomation.length) {
   fail(`Hosted GitHub workflow assets are unsupported: ${hostedAutomation.join(', ')}`);
 } else checked.push('hosted GitHub workflow absence');
-for (const file of allFiles.filter((candidate) => candidate.endsWith('.mjs'))) {
-  const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-  if (result.status !== 0) fail(`${path.relative(root, file)}: JavaScript syntax check failed\n${result.stderr}`);
-  checked.push(path.relative(root, file));
+/**
+ * One process per file is right; one process *at a time* is not.
+ *
+ * `node --check` is the correct tool — it is the same parser that will load the file — but this ran
+ * it serially over every tracked `.mjs`. Measured: 704 files at ~19.8 ms each, so roughly fourteen
+ * seconds of the check, spent almost entirely waiting for interpreter startup rather than parsing.
+ * `install.sh` runs `npm run check` even under `--skip-tests`, so every install paid it.
+ *
+ * Concurrency rather than a different parser: an in-process ESM parse needs
+ * `--experimental-vm-modules` and would be a *second* opinion about what parses, which is precisely
+ * what this check exists not to be. Same tool, same verdict, at the width of the machine.
+ *
+ * Results are collected in order and failures reported in order, so the output does not depend on
+ * which worker finished first.
+ */
+{
+  const execFileAsync = promisify(execFile);
+  const sources = allFiles.filter((candidate) => candidate.endsWith('.mjs'));
+  const width = Math.max(1, Math.min(availableParallelism(), 16));
+  const outcomes = new Array(sources.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < sources.length) {
+      const index = next;
+      next += 1;
+      try {
+        await execFileAsync(process.execPath, ['--check', sources[index]], { encoding: 'utf8' });
+        outcomes[index] = null;
+      } catch (error) {
+        outcomes[index] = String(error?.stderr ?? error?.message ?? error);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: width }, () => worker()));
+  for (const [index, stderr] of outcomes.entries()) {
+    const relative = path.relative(root, sources[index]);
+    if (stderr) fail(`${relative}: JavaScript syntax check failed\n${stderr}`);
+    checked.push(relative);
+  }
 }
 
 // The boolean-flag declaration must keep matching how the code actually reads each flag. A flag that

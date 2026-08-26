@@ -20,6 +20,7 @@
   "design-source-provenance": [{ "schemaVersion": 1 }],
   "work-interval-baseline": [{ "schemaVersion": 1 }],
   "work-interval-state": [{ "schemaVersion": 1 }],
+  "generation-publication": [{ "schemaVersion": 1 }],
   "generation-start": [{ "schemaVersion": 1 }],
   "repository-change-set": [{ "schemaVersion": 1 }],
   "test-execution": [{ "schemaVersion": 1 }],

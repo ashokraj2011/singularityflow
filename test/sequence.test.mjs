@@ -230,9 +230,16 @@ test('submitted work blocks generation mutations and rejection requires regenera
   const artifact = path.join(workDir, workflow.phases.intake.requiredArtifact.path);
   await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete and measurable intake evidence for strict lifecycle sequencing.'));
   flow(root, ['phase', 'publish', 'intake']);
+  const exactGenerationCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  await writeFile(path.join(root, 'unrelated.txt'), 'A later commit cannot impersonate the generation by reusing its subject.\n');
+  execute('git', ['add', 'unrelated.txt'], root);
+  execute('git', ['commit', '-m', '[SEQ-1][phase:intake][generated:1] decoy subject'], root);
 
   assertSequenceFailure(flow(root, ['approve', '--yes'], { allowFailure: true, agent: 'architect' }), /submit intake/);
   flow(root, ['submit']);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.phases.intake.generationCommit, exactGenerationCommit,
+    'a later commit with the same generation subject replaced the transaction-bound generation commit');
 
   const submittedWorkflow = await readFile(workflowFile, 'utf8');
   const submittedHead = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();

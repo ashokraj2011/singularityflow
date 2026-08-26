@@ -412,12 +412,13 @@ test('generation begin is idempotent and refuses source mutated before its bound
   );
 });
 
-test('a later generation uses the prior generated commit and permits digest-confirmed rollover', async () => {
+test('a generation-looking commit message cannot establish the prior generation boundary', async () => {
   const root = await repository('rollover');
   const intervalBaseline = git(root, ['rev-parse', 'HEAD']);
   const phase = {
     id: 'implementation', generation: 1, generationPolicy: { task: 'code' },
-    sourceBoundary: 'unrestricted'
+    sourceBoundary: 'unrestricted',
+    artifacts: [{ path: 'singularity/work-items/CGA-ROLL/artifacts/implementation/implementation-summary.md' }]
   };
   const workflow = {
     workItem: { id: 'CGA-ROLL' },
@@ -427,50 +428,12 @@ test('a later generation uses the prior generated commit and permits digest-conf
   await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
   git(root, ['add', '.']);
   git(root, ['commit', '-m', '[CGA-ROLL][phase:implementation][generated:1] publish artifacts']);
-  const published = git(root, ['rev-parse', 'HEAD']);
   await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "repaired";\n');
-  let confirmedDigest = null;
   await assert.rejects(
     () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false }),
-    (error) => {
-      confirmedDigest = error.message.match(/sha256:[a-f0-9]{64}/)?.[0] ?? null;
-      return error.code === 'GENERATION_DIRTY_START' && Boolean(confirmedDigest);
-    }
+    (error) => error.code === 'GENERATION_PUBLICATION_MIGRATION_REQUIRED'
+      && /Commit-message matching is not authority/.test(error.message)
   );
-  const generatedContext = path.join(root, 'singularity', 'work-items', 'CGA-ROLL', 'context', 'attempt.json');
-  await mkdir(path.dirname(generatedContext), { recursive: true });
-  await writeFile(generatedContext, '{"generatedBy":"singularity-flow"}\n');
-  git(root, ['add', 'singularity/work-items/CGA-ROLL/context/attempt.json']);
-  git(root, ['commit', '-m', 'record governance-only recovery context']);
-  await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
-  await writeFile(path.join(root, '.sflow', 'results', 'tests.json'), '{"status":"passed"}\n');
-  let stableDigest = null;
-  await assert.rejects(
-    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, { persist: false }),
-    (error) => {
-      stableDigest = error.message.match(/sha256:[a-f0-9]{64}/)?.[0] ?? null;
-      return error.code === 'GENERATION_DIRTY_START' && Boolean(stableDigest);
-    }
-  );
-  assert.equal(stableDigest, confirmedDigest,
-    'governance commits or generated test results changed the application adoption digest');
-  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "changed-after-review";\n');
-  await assert.rejects(
-    () => beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, {
-      adoptExisting: true, confirm: confirmedDigest, persist: false
-    }),
-    (error) => error.code === 'GENERATION_DIRTY_START'
-      && /current application change-set digest/.test(error.message)
-      && !error.message.includes(confirmedDigest)
-  );
-  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "repaired";\n');
-  const intent = await beginCodeGeneration(root, { workItemRoot: 'singularity/work-items' }, workflow, phase, {
-    adoptExisting: true, confirm: confirmedDigest, persist: false
-  });
-  assert.equal(intent.baseline.commit, published);
-  assert.equal(intent.baseline.previousGenerationCommit, published);
-  assert.equal(intent.baseline.mode, 'adopted');
-  assert.equal(intent.baseline.initialChangeSetDigest, confirmedDigest);
 });
 
 test('generation-start verification binds the entire durable receipt', async () => {

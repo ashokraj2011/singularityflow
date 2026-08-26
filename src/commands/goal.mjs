@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { head, localBranches, remoteBranches, repoRoot } from '../git.mjs';
 import {
-  RepositorySubjectIndex, buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
+  RepositorySubjectIndex, buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from '../repository-subject-index.mjs';
 import { loadConfig } from '../state-stores.mjs';
 import {
@@ -24,6 +24,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import {
   SingularityFlowError, optionBoolean, optionString, optionStrings
 } from '../util.mjs';
+import { recordSha256 } from '../records.mjs';
 import { workspaceRepositoryPath } from '../workspace.mjs';
 
 function terminalStatus(state) {
@@ -55,6 +56,7 @@ function combinedIndex(working, references) {
       }
     }
     index.unreadable.push(...source.unreadable);
+    index.conflicts.push(...(source.conflicts ?? []));
   }
   return index;
 }
@@ -89,6 +91,21 @@ export async function resolveGovernedWork(context, {
   const index = await indexed;
   const matches = index.matches(reference, { kind });
   if (!matches.length) {
+    const diagnostics = [...index.unreadable, ...(index.conflicts ?? [])]
+      .filter((entry) => entry.claimedId === String(reference)
+        || (!entry.path && entry.code !== 'REF_TREE_REF_MISSING'));
+    if (diagnostics.length) {
+      const unavailable = {
+        kind, id: String(reference), repositoryId: repository.id, availability: 'unavailable',
+        status: 'unknown', terminal: false, branch: null, title: String(reference), commit: null,
+        diagnostics
+      };
+      if (!required) return unavailable;
+      throw new SingularityFlowError(
+        `Governed ${kind} '${reference}' may exist, but its state authority is unreadable or conflicting.`,
+        { code: 'GOAL_SUBJECT_STATE_UNAVAILABLE', details: unavailable }
+      );
+    }
     if (!required) return {
       kind, id: String(reference), repositoryId: repository.id, availability: 'missing', status: 'unknown',
       terminal: false, branch: null, title: String(reference), commit: null
@@ -106,7 +123,24 @@ export async function resolveGovernedWork(context, {
       code: 'GOAL_SUBJECT_AMBIGUOUS', details: { kind, reference, candidates: ids }
     });
   }
-  const selected = matches.find((item) => item.location?.source === 'working-tree') ?? matches[0];
+  const selected = resolveContext(index, { reference, kind });
+  const diagnostics = [...index.unreadable, ...(index.conflicts ?? [])]
+    .filter((entry) => entry.claimedId === selected.id
+      || (entry.path && entry.path === selected.location?.path)
+      || (!entry.path && entry.ref === selected.location?.ref));
+  if (diagnostics.length) {
+    const unavailable = {
+      kind, id: selected.id, repositoryId: repository.id, availability: 'unavailable',
+      status: 'unknown', terminal: false, branch: selected.canonicalBranch,
+      title: selected.id, phase: null, commit: selected.location?.commit ?? null,
+      diagnostics
+    };
+    if (!required) return unavailable;
+    throw new SingularityFlowError(
+      `Governed ${kind} '${selected.id}' has conflicting or unreadable state and cannot satisfy a Goal oracle.`,
+      { code: 'GOAL_SUBJECT_STATE_UNAVAILABLE', details: unavailable }
+    );
+  }
   const state = selected.state;
   const status = state?.status ?? 'unknown';
   const work = kind === 'story' ? state?.workItem : state?.initiative;
@@ -120,7 +154,14 @@ export async function resolveGovernedWork(context, {
     branch: selected.canonicalBranch,
     title: work?.title ?? selected.id,
     phase: state?.currentPhase ?? null,
-    commit: selected.location?.commit ?? (selected.location?.source === 'working-tree' ? head(repository.root) : null)
+    commit: selected.location?.commit ?? (selected.location?.source === 'working-tree' ? head(repository.root) : null),
+    observation: {
+      ref: selected.location?.ref ?? null,
+      commit: selected.location?.commit ?? (selected.location?.source === 'working-tree' ? head(repository.root) : null),
+      path: selected.location?.path ?? null,
+      stateSha256: `sha256:${recordSha256(state)}`,
+      schemaVersion: state?.schemaVersion ?? null
+    }
   };
 }
 

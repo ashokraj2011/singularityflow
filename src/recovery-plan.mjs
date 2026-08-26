@@ -51,7 +51,13 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
   let command = `singularity-flow phase begin ${phase.id}`;
   let mode = 'guided';
   let changeSetDigest = null;
-  const previousGenerationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
+  let previousGenerationCommit = null;
+  let publicationAuthorityError = null;
+  try {
+    previousGenerationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation);
+  } catch (error) {
+    publicationAuthorityError = error;
+  }
   const baseCommit = previousGenerationCommit
     ?? workflow.workIntervals?.current?.sourceBaseCommit ?? null;
   if (baseCommit) {
@@ -88,13 +94,19 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
         generationIntentId: phase.generationIntent.id,
         publishedResultDigest: phase.generationIntent.publication?.resultDigest ?? null,
         currentResultDigest: digest,
-        changeSetDigest
+        changeSetDigest,
+        publicationAuthority: publicationAuthorityError ? {
+          code: publicationAuthorityError.code ?? 'GENERATION_PUBLICATION_UNAVAILABLE',
+          message: publicationAuthorityError.message
+        } : null
       }
     },
     action: action({
       id: `begin-new-generation:${phase.id}`, mode,
       detail: mode === 'manual'
-        ? 'Published bytes changed, but Story policy forbids adopting the existing application changes. Preserve the work and obtain a policy decision before beginning another generation.'
+        ? publicationAuthorityError
+          ? 'Published bytes changed, but the exact prior generation commit could not be authenticated. Preserve the work and repair or migrate publication authority before beginning another generation.'
+          : 'Published bytes changed, but Story policy forbids adopting the existing application changes. Preserve the work and obtain a policy decision before beginning another generation.'
         : 'Begin a new generation intent bound to the current bytes. The published generation remains preserved.',
       command, skill: mode === 'manual' ? null : '/sf-code',
       evidence: { path: phase.generationIntent.path ?? null, line: null }

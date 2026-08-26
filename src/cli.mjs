@@ -3579,7 +3579,7 @@ async function phaseCommand(positionals, options) {
     `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
     [...new Set([...requestedPhase.artifacts.map((item) => item.path), targetRelative])],
     {
-      beforeStateWrite: async () => {
+      beforeStateWrite: async (publicationEvent, transactionContext) => {
         const source = sourcePath
           ? await importManualArtifact({
               sourcePath: path.resolve(sourcePath), targetPath,
@@ -3597,7 +3597,17 @@ async function phaseCommand(positionals, options) {
           generation
         });
         await scanArtifacts(root, config, workflow, phaseId);
-        phase = await publishGeneration(root, config, workflow, { phaseId, usage, authorship, persist: false });
+        phase = await publishGeneration(root, config, workflow, {
+          phaseId,
+          usage,
+          authorship,
+          persist: false,
+          publicationTransaction: {
+            publicationEvent,
+            transactionId: transactionContext.transactionId,
+            expectedHead: transactionContext.expectedHead
+          }
+        });
       }
     }
   );

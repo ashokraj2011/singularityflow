@@ -24,7 +24,10 @@ import { run } from '../src/util.mjs';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
-const { invokeCli, CliError, validateRepositoryDirectory, UninitializedRepositoryError } =
+const {
+  invokeCli, CliError, validateRepositoryDirectory, UninitializedRepositoryError,
+  RepositoryAuthorityUnavailableError
+} =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
@@ -288,6 +291,67 @@ test('a Git repository without Singularity Flow is refused, naming the remedy', 
     assert.match(error.message, /singularity-flow init/);
     return true;
   });
+});
+
+test('an unreadable governed remote is unavailable, never misreported as uninitialized', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-authority-unavailable-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], { cwd: root });
+  const calls = [];
+  const remoteRunner = async (args, options) => {
+    calls.push({ args, signal: options.signal });
+    return { status: null, stdout: '', failure: 'timeout' };
+  };
+  await assert.rejects(
+    validateRepositoryDirectory(root, { remoteRunner }),
+    (error) => {
+      assert.ok(error instanceof RepositoryAuthorityUnavailableError);
+      assert.equal(error.code, 'SINGULARITY_FLOW_AUTHORITY_UNAVAILABLE');
+      assert.match(error.message, /network and Git credentials/);
+      assert.equal(error.failures[0].operation, 'ls-remote');
+      assert.equal(error.failures[0].reason, 'timeout');
+      return true;
+    }
+  );
+  assert.equal(calls.length, 1);
+});
+
+test('an advertised authority that cannot be fetched remains unavailable', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-authority-fetch-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], { cwd: root });
+  let calls = 0;
+  const remoteRunner = async (args) => {
+    calls += 1;
+    if (args[0] === 'ls-remote') {
+      return { status: 0, stdout: `${'a'.repeat(40)}\trefs/heads/sflow/config\n`, failure: null };
+    }
+    return { status: null, stdout: '', failure: 'output-overflow' };
+  };
+  await assert.rejects(validateRepositoryDirectory(root, { remoteRunner }), (error) => {
+    assert.ok(error instanceof RepositoryAuthorityUnavailableError);
+    assert.ok(error.failures.some((entry) => entry.operation === 'fetch' && entry.reason === 'output-overflow'));
+    return true;
+  });
+  assert.equal(calls, 2);
+});
+
+test('responsive remotes that advertise no governed authority remain truly uninitialized', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-no-authority-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], { cwd: root });
+  await assert.rejects(
+    validateRepositoryDirectory(root, {
+      remoteRunner: async () => ({ status: 0, stdout: '', failure: null })
+    }),
+    (error) => error instanceof UninitializedRepositoryError
+  );
 });
 
 test('a configuration-free application branch validates through a hash-bound state mirror', async () => {

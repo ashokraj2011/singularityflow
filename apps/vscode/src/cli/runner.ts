@@ -10,8 +10,7 @@
  * Deliberately kept dependency-free and free of any `vscode` import, so it can be unit-tested in a
  * plain Node process against a fake spawn.
  */
-import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -52,21 +51,99 @@ function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
  * a missing executable are all "this remote did not answer", which is what the caller already does
  * with `status !== 0`.
  */
-async function remoteGit(args: string[], options: { cwd: string; timeout: number }):
-  Promise<{ status: number; stdout: string }> {
+export type RemoteGitFailure = 'ref-absent' | 'timeout' | 'network-unavailable'
+  | 'authentication-required' | 'git-unavailable' | 'fetch-failed' | 'cancelled' | 'output-overflow';
+export interface RemoteGitResult {
+  status: number | null;
+  stdout: string;
+  failure: RemoteGitFailure | null;
+}
+export type RemoteGitRunner = (
+  args: string[],
+  options: { cwd: string; timeout: number; signal?: AbortSignal }
+) => Promise<RemoteGitResult>;
+
+function terminateProcessTree(child: ChildProcess): void {
+  if (child.pid && process.platform !== 'win32') {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+    const force = setTimeout(() => {
+      try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
+    }, 1_000);
+    force.unref();
+    return;
+  }
+  if (child.pid && process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      windowsHide: true, stdio: 'ignore'
+    });
+    killer.unref();
+    return;
+  }
+  child.kill('SIGTERM');
+}
+
+/** A bounded, cancellable, non-interactive remote Git boundary for the extension host. */
+export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((resolve) => {
+  const outputLimit = 1024 * 1024;
+  let stdout = '';
+  let stderr = '';
+  let outputBytes = 0;
+  let settled = false;
+  let child: ChildProcess;
+  const finish = (result: RemoteGitResult) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', cancel);
+    resolve(result);
+  };
+  const stop = (failure: RemoteGitFailure) => {
+    if (settled) return;
+    terminateProcessTree(child);
+    finish({ status: null, stdout: '', failure });
+  };
+  const cancel = () => stop('cancelled');
+  const timer = setTimeout(() => stop('timeout'), options.timeout);
+  timer.unref();
   try {
-    const { stdout } = await promisify(execFile)('git', args, {
+    child = spawn('git', args, {
       cwd: options.cwd,
-      timeout: options.timeout,
-      encoding: 'utf8',
       windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: nonInteractiveGitEnvironment()
     });
-    return { status: 0, stdout: String(stdout) };
   } catch {
-    return { status: 1, stdout: '' };
+    clearTimeout(timer);
+    return resolve({ status: null, stdout: '', failure: 'git-unavailable' });
   }
-}
+  if (options.signal?.aborted) return cancel();
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  child.stdout?.on('data', (chunk: Buffer) => {
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) return stop('output-overflow');
+    stdout += chunk.toString('utf8');
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) stop('output-overflow');
+    else stderr += chunk.toString('utf8');
+  });
+  child.once('error', () => finish({ status: null, stdout: '', failure: 'git-unavailable' }));
+  child.once('close', (code) => {
+    let failure: RemoteGitFailure | null = null;
+    if (code !== 0) {
+      failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
+        ? 'authentication-required'
+        : /could not resolve host|connection (?:timed out|refused)|network is unreachable|unable to access/i.test(stderr)
+          ? 'network-unavailable'
+          : /couldn't find remote ref|remote ref does not exist/i.test(stderr)
+            ? 'ref-absent'
+            : 'fetch-failed';
+    }
+    finish({ status: code, stdout: code === 0 ? stdout : '', failure });
+  });
+});
 
 /*
  * Constructors assign their fields explicitly rather than using TypeScript parameter properties.
@@ -96,6 +173,18 @@ export class UninitializedRepositoryError extends Error {
   }
 }
 
+export class RepositoryAuthorityUnavailableError extends Error {
+  readonly code = 'SINGULARITY_FLOW_AUTHORITY_UNAVAILABLE';
+  readonly repository: string;
+  readonly failures: ReadonlyArray<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>;
+  constructor(repository: string, failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }>) {
+    super('Singularity Flow configuration may exist on a governed remote branch, but its authority could not be read or verified. Check network and Git credentials, then retry; do not initialize over the existing authority.');
+    this.name = 'RepositoryAuthorityUnavailableError';
+    this.repository = repository;
+    this.failures = Object.freeze(failures.map((entry) => Object.freeze({ ...entry })));
+  }
+}
+
 /** A non-zero exit carrying the CLI's own message, so callers can show it verbatim. */
 export class CliError extends Error {
   readonly code = 'SINGULARITY_FLOW_CLI_ERROR';
@@ -119,7 +208,10 @@ export class CliError extends Error {
  * this root, and a symlinked control directory is how a path inside the workspace comes to point
  * outside it. Ported unchanged in intent from the desktop, which had the same exposure.
  */
-export async function validateRepositoryDirectory(repository: string): Promise<string> {
+export async function validateRepositoryDirectory(
+  repository: string,
+  options: { remoteRunner?: RemoteGitRunner; signal?: AbortSignal } = {}
+): Promise<string> {
   const resolved = path.resolve(repository || '');
   const canonical = await realpath(resolved).catch(() => null);
   const root = canonical ? await lstat(canonical).catch(() => null) : null;
@@ -204,27 +296,50 @@ export async function validateRepositoryDirectory(repository: string): Promise<s
       .map((entry) => entry.trim()).filter(Boolean)
       .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
         || left.localeCompare(right)) : [];
+    const runRemote = options.remoteRunner ?? remoteGit;
+    const failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }> = [];
+    let responsiveRemotes = 0;
+    let authorityAdvertised = false;
     for (const remote of names) {
-      const advertised = await remoteGit([
+      const advertised = await runRemote([
         'ls-remote', '--heads', '--', remote, 'refs/heads/sflow/config', 'refs/heads/state'
-      ], { cwd: canonical, timeout: 30_000 });
-      if (advertised.status !== 0) continue;
+      ], { cwd: canonical, timeout: 30_000, signal: options.signal });
+      if (advertised.status !== 0) {
+        failures.push({ remote, operation: 'ls-remote', reason: advertised.failure ?? `exit-${advertised.status}` });
+        if (advertised.failure === 'cancelled') break;
+        continue;
+      }
+      responsiveRemotes += 1;
       const branches = new Set(advertised.stdout.split(/\r?\n/)
         .map((line) => line.trim().split(/\s+/)[1]).filter(Boolean));
       for (const authorityBranch of ['sflow/config', 'state']) {
         if (!branches.has(`refs/heads/${authorityBranch}`)) continue;
+        authorityAdvertised = true;
         const destination = `refs/remotes/${remote}/${authorityBranch}`;
         const valid = spawnSync('git', ['check-ref-format', destination], {
           cwd: canonical, encoding: 'utf8', windowsHide: true
         });
-        if (valid.status !== 0) continue;
-        const fetched = await remoteGit([
+        if (valid.status !== 0) {
+          failures.push({ remote, operation: 'verify', reason: `invalid-ref-${authorityBranch}` });
+          continue;
+        }
+        const fetched = await runRemote([
           'fetch', '--quiet', '--no-tags', '--force', '--', remote,
           `+refs/heads/${authorityBranch}:${destination}`
-        ], { cwd: canonical, timeout: 120_000 });
+        ], { cwd: canonical, timeout: 120_000, signal: options.signal });
         if (fetched.status === 0
           && (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable())) return canonical;
+        failures.push({
+          remote,
+          operation: fetched.status === 0 ? 'verify' : 'fetch',
+          reason: fetched.status === 0 ? `invalid-${authorityBranch}-authority` : fetched.failure ?? `exit-${fetched.status}`
+        });
+        if (fetched.failure === 'cancelled') break;
       }
+      if (options.signal?.aborted) break;
+    }
+    if (failures.length && (responsiveRemotes < names.length || authorityAdvertised)) {
+      throw new RepositoryAuthorityUnavailableError(canonical, failures);
     }
     throw new UninitializedRepositoryError(canonical);
   }

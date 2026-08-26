@@ -340,6 +340,17 @@ async function workItems(root, definition) {
       subject.location.ref ?? subject.location.branch ?? 'git-ref'
     ));
   }
+  for (const diagnostic of [...refIndex.unreadable, ...(refIndex.conflicts ?? [])]) {
+    if (!diagnostic.claimedId) continue;
+    results.set(diagnostic.claimedId, {
+      id: diagnostic.claimedId,
+      title: diagnostic.claimedId,
+      status: 'invalid',
+      source: diagnostic.ref ?? diagnostic.branch ?? 'git-ref',
+      code: diagnostic.code,
+      error: diagnostic.reason
+    });
+  }
 
   // The working tree wins for the checked-out Story, including governed edits not yet committed.
   if (await exists(base)) {

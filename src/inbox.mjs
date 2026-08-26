@@ -36,7 +36,10 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
   const items = [];
   const refs = remoteBranches(root, remote).map((branch) => ({ branch, ref: `${remote}/${branch}` }));
   const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
+  const unavailable = [...index.unreadable, ...(index.conflicts ?? [])];
+  const unavailableSubjects = new Set(unavailable.map((entry) => entry.claimedId).filter(Boolean));
   for (const subject of index.list('story')) {
+    if (unavailableSubjects.has(subject.id)) continue;
     try {
       const workflow = subject.state;
       const ref = subject.location.ref;
@@ -80,11 +83,18 @@ export async function approvalInbox(root, definition, { fetch = true, now = new 
     } catch { /* Malformed or mismatched remote branches never enter the reviewer inbox. */ }
   }
   items.sort((left, right) => String(left.submittedAt ?? '').localeCompare(String(right.submittedAt ?? '')) || left.id.localeCompare(right.id));
-  return { remote, fetched: fetch, generatedAt: now.toISOString(), count: items.length, items };
+  return {
+    remote, fetched: fetch, generatedAt: now.toISOString(), count: items.length, items,
+    unavailableCount: unavailable.length,
+    unavailable
+  };
 }
 
 export function approvalInboxText(snapshot) {
-  if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval on committed remote work-item branches.\n`;
+  const warning = snapshot.unavailableCount
+    ? `\nWarning: ${snapshot.unavailableCount} governed state record(s) are unavailable or conflicting; they were not treated as absent. Run singularity-flow doctor.\n`
+    : '';
+  if (!snapshot.items.length) return `Pending approval inbox — ${snapshot.remote}\n\nNo phases are awaiting approval on readable committed remote work-item branches.${warning}\n`;
   const rows = snapshot.items.map((item) => ({
     id: item.id,
     title: item.title,
@@ -104,5 +114,5 @@ export function approvalInboxText(snapshot) {
     { key: 'waiting', label: 'WAITING' },
     { key: 'authorities', label: 'AUTHORITY GROUPS' },
     { key: 'commit', label: 'REMOTE COMMIT' }
-  ])}\n\nChoose an item in Copilot with /sf-inbox. Run: singularity-flow session attach <WORK/JIRA-ID>.\n`;
+  ])}${warning}\nChoose an item in Copilot with /sf-inbox. Run: singularity-flow session attach <WORK/JIRA-ID>.\n`;
 }

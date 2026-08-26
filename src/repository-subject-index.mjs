@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
-import { fileAtRef, refHead } from './git.mjs';
-import { readRefTree } from './git-ref-tree.mjs';
-import { SingularityFlowError, exists, readJson } from './util.mjs';
+import { refHead } from './git.mjs';
+import { readRefTreeResult } from './git-ref-tree.mjs';
+import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 
 function unique(values) {
@@ -48,11 +48,28 @@ function initiativeEntry(state, location) {
 }
 
 function parseEntry(relative, content, location) {
-  let state;
-  try { state = typeof content === 'string' ? JSON.parse(content) : content; } catch { return null; }
+  const state = typeof content === 'string' ? JSON.parse(content) : content;
   if (relative.endsWith('/workflow.json')) return storyEntry(readRecord('story-workflow', state).record, { ...location, path: relative });
   if (relative.endsWith('/state.json')) return initiativeEntry(readRecord('initiative-state', state).record, { ...location, path: relative });
   return null;
+}
+
+function stateDiagnostic({ code = 'SUBJECT_STATE_UNREADABLE', path: relative, location = {}, reason, candidate = null }) {
+  return Object.freeze({
+    code,
+    path: relative,
+    ref: location.ref ?? null,
+    branch: location.branch ?? null,
+    commit: location.commit ?? null,
+    family: relative?.endsWith('/workflow.json') ? 'story-workflow'
+      : relative?.endsWith('/state.json') ? 'initiative-state' : null,
+    claimedId: candidate?.id ?? (relative ? canonicalDirectory(relative) : null),
+    reason
+  });
+}
+
+function canonicalDirectory(relative) {
+  return path.posix.basename(path.posix.dirname(relative));
 }
 
 function preferredLocation(entry, location) {
@@ -83,6 +100,8 @@ export class RepositorySubjectIndex {
     this.subjects = [];
     /** State files that exist but could not be read, so a lookup miss can say why. */
     this.unreadable = [];
+    /** Identity conflicts are retained even when one valid canonical record can still be shown. */
+    this.conflicts = [];
   }
 
   add(candidate) {
@@ -127,9 +146,18 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
     if (!(await exists(absolute))) continue;
     const relative = path.relative(root, absolute).split(path.sep).join('/');
     try {
-      index.add(parser(readRecord(family, await readJson(absolute)).record, {
+      const candidate = parser(readRecord(family, await readJson(absolute)).record, {
         source: 'working-tree', path: relative, directory: entry.name, branch: null, ref: null, commit: null
-      }));
+      });
+      if (candidate?.id !== entry.name) {
+        index.unreadable.push(stateDiagnostic({
+          code: 'SUBJECT_STATE_NONCANONICAL', path: relative, location: candidate?.location,
+          candidate,
+          reason: `${candidate?.kind ?? 'subject'} '${candidate?.id ?? 'unknown'}' is stored in directory '${entry.name}' instead of its canonical directory.`
+        }));
+        continue;
+      }
+      index.add(candidate);
     } catch (error) {
       /*
        * Recorded rather than discarded. The comment here said governance reports invalid state, and
@@ -138,7 +166,7 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
        * "skip" because it could not associate the branch with any work item. The one command written
        * to find broken state silently declined to look at it.
        */
-      index.unreadable.push({ path: relative, reason: error.message });
+      index.unreadable.push(stateDiagnostic({ path: relative, reason: error.message }));
     }
   }
 }
@@ -170,15 +198,46 @@ function safeRefRoot(value, fallback) {
  * exact definition it was created under, so discovery reads only these two path settings from that
  * ref and still falls back to the caller's definition for legacy branches without a snapshot.
  */
-function rootsForRef(root, ref, { workRoot, initiativeRoot }) {
-  let definition = null;
-  try { definition = YAML.parse(fileAtRef(root, ref, 'singularity/workflow.yml') ?? ''); } catch {}
-  let portfolio = null;
-  try { portfolio = YAML.parse(fileAtRef(root, ref, 'singularity/portfolio.yml') ?? ''); } catch {}
+function localConfigurationAtRef(root, ref, relative) {
+  const observed = run('git', ['show', `${ref}:${relative}`], {
+    cwd: root,
+    allowFailure: true,
+    env: {
+      ...process.env,
+      GIT_NO_LAZY_FETCH: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'Never'
+    }
+  });
+  if (observed.status === 0) return { status: 'ok', content: observed.stdout };
+  if (/path .* does not exist|exists on disk, but not in|not exist in/i.test(observed.stderr ?? '')) {
+    return { status: 'missing', content: null };
+  }
   return {
-    workRoot: safeRefRoot(definition?.workItemRoot, workRoot),
-    initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot)
+    status: 'unavailable',
+    content: null,
+    reason: observed.timedOut ? 'local configuration read timed out'
+      : observed.error?.code === 'ENOBUFS' ? 'local configuration output exceeded its bound'
+        : 'required configuration object is unavailable locally'
   };
+}
+
+function rootsForRef(root, ref, { workRoot, initiativeRoot }) {
+  const definitionSource = localConfigurationAtRef(root, ref, 'singularity/workflow.yml');
+  const portfolioSource = localConfigurationAtRef(root, ref, 'singularity/portfolio.yml');
+  const unavailable = [definitionSource, portfolioSource].find((entry) => entry.status === 'unavailable');
+  if (unavailable) return { status: 'unavailable', reason: unavailable.reason };
+  try {
+    const definition = definitionSource.content ? YAML.parse(definitionSource.content) : null;
+    const portfolio = portfolioSource.content ? YAML.parse(portfolioSource.content) : null;
+    return {
+      status: 'ok',
+      workRoot: safeRefRoot(definition?.workItemRoot, workRoot),
+      initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot)
+    };
+  } catch (error) {
+    return { status: 'unavailable', reason: `configuration root could not be parsed: ${error.message}` };
+  }
 }
 
 export async function buildRepositorySubjectIndexFromRefs(root, {
@@ -193,6 +252,14 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
     const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
+    if (roots.status !== 'ok') {
+      index.unreadable.push(stateDiagnostic({
+        code: 'SUBJECT_STATE_UNAVAILABLE', path: null,
+        location: { ref, branch, commit: refHead(root, ref) },
+        reason: roots.reason
+      }));
+      continue;
+    }
     /**
      * Two subprocesses per ref, where this was two per subject **per** ref.
      *
@@ -204,9 +271,44 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
      * the same reason.
      */
     const commit = refHead(root, ref);
-    const files = readRefTree(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord });
-    for (const [relative, content] of files) {
-      const candidate = content && parseEntry(relative, content, { source: 'ref', ref, branch, commit });
+    const observed = readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord });
+    if (observed.status !== 'ok') {
+      index.unreadable.push(stateDiagnostic({
+        code: observed.status === 'partial' ? 'SUBJECT_STATE_PARTIAL' : 'SUBJECT_STATE_UNAVAILABLE',
+        path: null,
+        location: { ref, branch, commit },
+        reason: observed.errors.map((error) => error.message).join(' ') || `State at '${ref}' is ${observed.status}.`
+      }));
+      continue;
+    }
+    const claims = new Map();
+    for (const [relative, content] of observed.contents) {
+      const location = {
+        source: 'ref', ref, branch, commit, path: relative, directory: canonicalDirectory(relative)
+      };
+      let candidate;
+      try {
+        candidate = content && parseEntry(relative, content, location);
+      } catch (error) {
+        index.unreadable.push(stateDiagnostic({ path: relative, location, reason: error.message }));
+        continue;
+      }
+      if (!candidate) continue;
+      const claim = `${candidate.kind}:${candidate.id}`;
+      const previous = claims.get(claim);
+      if (previous && previous !== relative) {
+        index.conflicts.push(stateDiagnostic({
+          code: 'SUBJECT_STATE_DUPLICATE', path: relative, location, candidate,
+          reason: `${candidate.kind} '${candidate.id}' is claimed by both '${previous}' and '${relative}' on '${ref}'.`
+        }));
+      } else claims.set(claim, relative);
+      if (candidate.location.directory !== candidate.id) {
+        index.unreadable.push(stateDiagnostic({
+          code: 'SUBJECT_STATE_NONCANONICAL', path: relative, location, candidate,
+          reason: `${candidate.kind} '${candidate.id}' is stored in directory '${candidate.location.directory}' instead of its canonical directory.`
+        }));
+        continue;
+      }
       index.add(candidate);
     }
   }
@@ -239,8 +341,12 @@ export function resolveContext(index, {
   }
   const resolved = candidates[0];
   const selectedBranch = resolved.branches.includes(requested) ? requested : resolved.canonicalBranch;
-  const selectedLocation = resolved.locations.find((location) => location.branch === selectedBranch)
-    ?? resolved.locations.find((location) => location.branch === resolved.canonicalBranch)
+  const preferred = (locations) => locations.reduce((selected, location) => {
+    if (!selected) return location;
+    return preferredLocation({ ...resolved, location: selected }, location);
+  }, null);
+  const selectedLocation = preferred(resolved.locations.filter((location) => location.branch === selectedBranch))
+    ?? preferred(resolved.locations.filter((location) => location.branch === resolved.canonicalBranch))
     ?? resolved.location;
   return {
     ...resolved,

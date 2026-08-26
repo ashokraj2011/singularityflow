@@ -25,7 +25,9 @@ import { setAgentSession } from '../src/session.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { evaluateApprovalChecklist, priorChecklistExceptions } from '../src/specification-gate.mjs';
 import { STARTER_CHECKLIST } from '../src/specification-quality.mjs';
-import { approvePhase, createWorkflow, loadConfig, publishGeneration, scanArtifacts, submitPhase } from '../src/state.mjs';
+import {
+  approvePhase, commitAndPublish, createWorkflow, loadConfig, publishGeneration, scanArtifacts, submitPhase
+} from '../src/state.mjs';
 
 const ACTOR = { name: 'Gate Driver', email: 'gate@example.invalid', login: null };
 
@@ -113,6 +115,29 @@ async function begin(root, config, resolved) {
     agent: 'product-owner',
     resolved
   });
+}
+
+async function publishGoverned(root, config, workflow, phaseId, authorship) {
+  const phase = workflow.phases[phaseId];
+  const generation = Number(phase.generation) + 1;
+  return commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId, generation },
+    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish`,
+    (phase.artifacts ?? []).map((entry) => entry.path),
+    {
+      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+        phaseId, authorship, persist: false,
+        publicationTransaction: {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead
+        }
+      })
+    }
+  );
 }
 
 async function author(root, workflow, markdown) {
@@ -265,9 +290,7 @@ test('submission re-reads the artifact, so a policy tightened after publication 
     const workflow = await begin(root, config, resolved);
     await author(root, workflow, spec({ marker: true }));
     await scanArtifacts(root, config, workflow, 'specification');
-    await publishGeneration(root, config, workflow, { phaseId: 'specification', authorship: AUTHORSHIP });
-    git(root, 'add', '.');
-    git(root, 'commit', '-m', '[DRIVE-1][phase:specification][generated:1] publish');
+    await publishGoverned(root, config, workflow, 'specification', AUTHORSHIP);
 
     // The Story now pins `block`. The published generation was legal when it was made; asking other
     // people to review it is a separate decision, and this is where that decision is taken.
@@ -291,9 +314,7 @@ test('an approval without its checklist is not an approval', async () => {
     const workflow = await begin(root, config, resolved);
     await author(root, workflow, spec({}));
     await scanArtifacts(root, config, workflow, 'specification');
-    await publishGeneration(root, config, workflow, { phaseId: 'specification', authorship: AUTHORSHIP });
-    git(root, 'add', '.');
-    git(root, 'commit', '-m', '[DRIVE-1][phase:specification][generated:1] publish');
+    await publishGoverned(root, config, workflow, 'specification', AUTHORSHIP);
     await submitPhase(root, config, workflow, { phaseId: 'specification', runChecks: false });
     assert.equal(workflow.phases.specification.status, 'awaiting_approval');
     await createStoryReviewPacket(root, config, workflow, workflow.phases.specification);

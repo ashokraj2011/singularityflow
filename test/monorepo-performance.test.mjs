@@ -4,13 +4,13 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   cloneStrategyArguments, normalizeCloneStrategy, REQUIRED_SPARSE_ROOTS
 } from '../src/clone-strategy.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
-import { repositoryPerformanceSnapshot } from '../src/performance-doctor.mjs';
+import { porcelainV2RecordCount, repositoryPerformanceSnapshot } from '../src/performance-doctor.mjs';
 import { run } from '../src/util.mjs';
 import { createWorkspaceConfiguration } from '../src/workspace.mjs';
 
@@ -34,6 +34,13 @@ async function repository() {
 const scoped = {
   worldModel: { sourceRoots: ['apps/payments'], sharedRoots: ['packages/shared'] }
 };
+
+test('porcelain-v2 counts a rename as one logical status entry', () => {
+  const rename = '2 R. N... 100644 100644 100644 aaaaaaa bbbbbbb R100 new-name.js\0old-name.js\0';
+  const ordinary = '1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb source.js\0';
+  const untracked = '? new-file.js\0';
+  assert.equal(porcelainV2RecordCount(`${rename}${ordinary}${untracked}`), 3);
+});
 
 function looseObjects(root) {
   const line = run('git', ['count-objects', '-v'], { cwd: root }).stdout
@@ -204,7 +211,7 @@ test('the performance report measures the AST read twice, so a cache that never 
 
   // The recommendation exists and is reachable: it is what turns the ratio into advice a person can
   // act on, and it names the command that fills the store.
-  const source = await readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '../src/performance-doctor.mjs'), 'utf8');
+  const source = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/performance-doctor.mjs'), 'utf8');
   assert.match(source, /id: 'ast-cache-cold'/);
   assert.match(source, /wm ast build/, 'the advice does not name the command that warms the store');
 });

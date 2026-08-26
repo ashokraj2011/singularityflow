@@ -10,7 +10,7 @@ import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
-import { createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
+import { commitAndPublish, createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
 import { verifyAstLifecycleReceipt } from '../src/ast-lifecycle.mjs';
 import { setAstPreference } from '../src/ast-mode.mjs';
 
@@ -93,6 +93,30 @@ function inContext(root, run) {
   }, run);
 }
 
+async function publishGoverned(root, config, workflow, phase, authorship) {
+  const generation = Number(phase.generation) + 1;
+  return commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId: phase.id, generation },
+    `[${workflow.workItem.id}][phase:${phase.id}][generated:${generation}] publish`,
+    (phase.artifacts ?? []).map((artifact) => artifact.path),
+    {
+      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+        phaseId: phase.id,
+        authorship,
+        persist: false,
+        publicationTransaction: {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead
+        }
+      })
+    }
+  );
+}
+
 test('a required AST predicate remains an optional diagnostic during publication', async () => {
   const { root, config, workflow, phase, authorship } = await fixture({ predicatePath: 'missing.ts' });
   await inContext(root, async () => {
@@ -147,12 +171,10 @@ test('advisory AST predicates never become lifecycle blockers', async () => {
 test('publication and submission never require an AST receipt', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
-    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
+    await publishGoverned(root, config, workflow, phase, authorship);
     assert.equal(phase.generation, 1);
     assert.equal(phase.astGates, undefined);
 
-    git(root, 'add', 'singularity');
-    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] publish without AST');
     const committed = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
       generation: phase.generation, revalidate: false, sourceCommit: git(root, 'rev-parse', 'HEAD')
     });
@@ -176,9 +198,7 @@ test('unavailable required syntax assurance cannot block publication', async () 
 test('source changes do not create an AST receipt prerequisite at submission', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
-    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
-    git(root, 'add', 'singularity');
-    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] publish AST receipt');
+    await publishGoverned(root, config, workflow, phase, authorship);
     await writeFile(path.join(root, 'README.md'), '# Relevant bytes changed after publication\n');
     const historical = await verifyAstLifecycleReceipt(root, config, workflow, phase, {
       generation: phase.generation, revalidate: false
@@ -193,14 +213,12 @@ test('source changes do not create an AST receipt prerequisite at submission', a
 test('legacy or corrupt AST receipt summaries are ignored by lifecycle submission', async () => {
   const { root, config, workflow, phase, authorship } = await fixture();
   await inContext(root, async () => {
-    await publishGeneration(root, config, workflow, { phaseId: phase.id, authorship });
     phase.astGates = [{ generation: 1, path: '../invalid', sha256: 'f'.repeat(64) }];
+    await publishGoverned(root, config, workflow, phase, authorship);
 
     const verification = await verifyAstLifecycleReceipt(root, config, workflow, phase);
     assert.equal(verification.applies, false);
     assert.deepEqual(verification.errors, []);
-    git(root, 'add', 'singularity');
-    git(root, 'commit', '-m', '[AST-1][phase:intake][generated:1] optional legacy AST summary');
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
     assert.equal(workflow.status, 'complete');
   });

@@ -9,7 +9,9 @@ import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { assertSourceBoundary, isTestAutomationPath } from '../src/source-boundary.mjs';
 import { storyPullRequestPlan } from '../src/pull-request.mjs';
 import { setAgentSession } from '../src/session.mjs';
-import { approvePhase, createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
+import {
+  approvePhase, commitAndPublish, createWorkflow, loadConfig, publishGeneration, submitPhase
+} from '../src/state.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { run } from '../src/util.mjs';
 
@@ -122,9 +124,25 @@ The fixture changes no product source. Removing the temporary repository restore
 
 Quality review must decide first and engineering review must decide independently. One identity cannot satisfy both required authority groups.
 `);
-  await publishGeneration(root, config, workflow, { phaseId: publication.id });
-  run('git', ['add', '.'], { cwd: root });
-  run('git', ['commit', '-m', '[POC-AUTH-1][phase:poc-publication-review][generated:1] publish review generation'], { cwd: root });
+  await commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId: publication.id, generation: 1 },
+    '[POC-AUTH-1][phase:poc-publication-review][generated:1] publish review generation',
+    [path.relative(root, artifact).replaceAll(path.sep, '/')],
+    {
+      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+        phaseId: publication.id,
+        persist: false,
+        publicationTransaction: {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead
+        }
+      })
+    }
+  );
   const submitted = await submitPhase(root, config, workflow, { phaseId: publication.id, runChecks: false });
   await createStoryReviewPacket(root, config, workflow, submitted);
   run('git', ['add', '.'], { cwd: root });

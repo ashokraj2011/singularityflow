@@ -14,7 +14,9 @@ import { promisify } from 'node:util';
 import { access, lstat, readFile, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
-import { validateRepositoryDirectory } from './cli/runner.ts';
+import {
+  RepositoryAuthorityUnavailableError, validateRepositoryDirectory
+} from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
 import { ConfigurationValidator } from './validation.ts';
@@ -70,6 +72,8 @@ import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 import { readRecord } from '../../../src/schema-migrations.mjs';
 import { registerSflowChat } from './sflow-chat.ts';
 import { recordHelpMetric } from '../../../src/help-metrics.mjs';
+
+let extensionLifetime = new AbortController();
 
 /** Injected by esbuild: the commit and time this bundle was built from. */
 declare const __SFLOW_BUILD__: string;
@@ -205,6 +209,8 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  extensionLifetime.abort();
+  extensionLifetime = new AbortController();
   // Module state can survive a deactivate/reactivate cycle in the same extension host. Until this
   // activation validates a workspace or folder, no command may inherit the previous routing choice.
   setActiveRepositoryContext(null);
@@ -2648,7 +2654,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   workspaceSelected.push(async (selected) => {
     const target = path.resolve(selected.repositoryPath);
     try {
-      await validateRepositoryDirectory(target);
+      await validateRepositoryDirectory(target, { signal: extensionLifetime.signal });
     } catch (error) {
       void vscode.window.showWarningMessage(
         `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
@@ -4147,30 +4153,37 @@ async function resolveGovernedRepository(
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (folder) {
     try {
-      const repository = await validateRepositoryDirectory(folder.uri.fsPath);
+      const repository = await validateRepositoryDirectory(folder.uri.fsPath, { signal: extensionLifetime.signal });
       return {
         repository, root: repository, origin: 'the open folder', workspaceId: null,
         workspaceName: null, repositoryId: null
       };
     } catch (error) {
+      let repositoryError = error as Error;
       // A workspace directory holds repos/, documents/ and workspace.json — it is not itself a
       // repository, but opening it is the obvious thing to do from a file manager, and it knows
       // exactly where the repository someone wanted is. Now it is used rather than described.
       const lead = await workspaceLeadDirectory(folder.uri.fsPath);
       if (lead) {
         try {
-          const repository = await validateRepositoryDirectory(lead);
+          const repository = await validateRepositoryDirectory(lead, { signal: extensionLifetime.signal });
           return {
             repository, root: repository,
             origin: 'the lead repository of the workspace directory you have open',
             workspaceId: null, workspaceName: null, repositoryId: null
           };
-        } catch { /* falls through to the explanation below */ }
+        } catch (leadError) {
+          if (leadError instanceof RepositoryAuthorityUnavailableError) repositoryError = leadError;
+        }
       }
       return {
-        label: 'Not a Singularity Flow repository',
-        reason: (error as Error).message,
-        contextValue: 'sflow.uninitialized'
+        label: repositoryError instanceof RepositoryAuthorityUnavailableError
+          ? 'Singularity Flow authority is unavailable'
+          : 'Not a Singularity Flow repository',
+        reason: repositoryError.message,
+        contextValue: repositoryError instanceof RepositoryAuthorityUnavailableError
+          ? 'sflow.authorityUnavailable'
+          : 'sflow.uninitialized'
       };
     }
   }
@@ -4245,7 +4258,7 @@ async function activeWorkspaceRepository(
     };
   }
   try {
-    const repository = await validateRepositoryDirectory(selectedRepository);
+    const repository = await validateRepositoryDirectory(selectedRepository, { signal: extensionLifetime.signal });
     return {
       repository,
       root: repository,
@@ -4283,4 +4296,6 @@ async function workspaceLeadDirectory(folder: string): Promise<string | null> {
   }
 }
 
-export function deactivate(): void { /* Every disposable is registered on the context. */ }
+export function deactivate(): void {
+  extensionLifetime.abort();
+}

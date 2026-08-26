@@ -14,8 +14,9 @@ import {
   inspectRequiredArtifactContent
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
+import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import {
-  createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts
+  commitAndPublish, createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
@@ -131,11 +132,16 @@ async function codeFixture(name, { acceptance = true } = {}) {
     await mkdir(path.dirname(requirementsPath), { recursive: true });
     await writeFile(requirementsPath, '# Requirements\n\nThe delivery is covered by [DELIVERY-1:AC-001].\n');
     workflow.phases.requirements = {
-      id: 'requirements', status: 'approved', generation: 1,
+      id: 'requirements', label: 'Requirements', order: 0, status: 'approved', generation: 1,
       requiredArtifact: { path: 'artifacts/requirements/requirements.md', kind: 'requirements' },
-      artifacts: [], approvals: [], qualityCommands: []
+      artifacts: [], approvals: [], usage: [], qualityCommands: []
     };
+    phase.order = 1;
     workflow.phaseOrder = ['requirements', 'implementation'];
+    workflow.resolution.phases = [
+      { id: 'requirements', order: 0 },
+      ...workflow.resolution.phases.map((entry) => ({ ...entry, order: Number(entry.order) + 1 }))
+    ];
   }
   return { root, config, workflow, phase, target };
 }
@@ -155,6 +161,31 @@ const AUTHORSHIP = buildGenerationAuthorship({
   governedAgentContext: 'product-owner',
   source: null
 });
+
+async function publishCodeGoverned(root, config, workflow, phaseId) {
+  await scanArtifacts(root, config, workflow, phaseId);
+  const phase = workflow.phases[phaseId];
+  const generation = Number(phase.generation) + 1;
+  const payload = await generationStartPublicationBinding(root, workflow, phase);
+  return commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId, generation, payload },
+    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
+    (phase.artifacts ?? []).map((entry) => entry.path),
+    {
+      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+        phaseId, authorship: AUTHORSHIP, persist: false,
+        publicationTransaction: {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead
+        }
+      })
+    }
+  );
+}
 
 test('artifact preflight reports every authored placeholder and excludes approved managed inputs', () => {
   const findings = artifactPlaceholderFindings([
@@ -442,11 +473,9 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
   await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'), '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
-  await inContext(context.root, async () => {
-    await publishGeneration(context.root, context.config, context.workflow, {
-      phaseId: 'implementation', authorship: AUTHORSHIP, persist: false
-    });
-  });
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
   assert.equal(context.phase.generation, 1);
   assert.equal(context.phase.deliveryEvidence.sourcePaths.length, 1);
   assert.equal(context.phase.deliveryEvidence.testPaths.length, 1);
@@ -469,14 +498,11 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   const unavailableBaseline = await recoveryPlan(context.root, context.config, context.workflow, {
     phaseId: 'implementation'
   });
-  const manual = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
-  assert.equal(manual.mode, 'manual');
-  assert.equal(manual.command, null);
-  assert.equal(manual.skill, null, 'a commandless policy blocker advertised an executable code skill');
+  const bounded = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
+  assert.equal(bounded.mode, 'guided');
+  assert.match(bounded.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+  assert.equal(bounded.skill, '/sf-code');
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
-
-  git(context.root, 'add', '.');
-  git(context.root, 'commit', '-m', '[DELIVERY-1][phase:implementation][generated:1] publish artifacts');
 
   await writeFile(
     path.join(context.root, context.phase.deliveryEvidence.receiptPath),

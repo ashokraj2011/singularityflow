@@ -87,12 +87,41 @@ test('the manifest is read for what it declares, not just its name', async () =>
 
   // `bin` mapped two command names onto one file. That is one entry point.
   assert.deepEqual(facts.entryPoints.map((entry) => entry.path).sort(), ['bin/run.js', 'src/index.js']);
+  assert.equal(facts.manifests[0].assurance, 'exact-json');
   // Every command cites its own line, so a citation is worth following.
   const lines = facts.commands.map((command) => command.declaredAt);
   assert.equal(new Set(lines).size, lines.length, 'commands share a citation');
   assert.deepEqual(facts.commands.map((command) => command.command).sort(), ['npm run build', 'npm run test']);
   // Frameworks come from declared dependencies — there was no detection of any kind before.
   assert.deepEqual(facts.frameworks, ['Express', 'React', 'Vitest']);
+});
+
+test('heuristic manifest facts disclose assurance and stay inside their declaration sections', async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'pom.xml'), [
+    '<project>',
+    '  <parent><artifactId>parent-bom</artifactId></parent>',
+    '  <artifactId>application-core</artifactId>',
+    '  <dependencies><dependency><artifactId>runtime-api</artifactId></dependency></dependencies>',
+    '</project>'
+  ].join('\n'));
+  await writeFile(path.join(root, 'Cargo.toml'), [
+    '[package]', 'name = "application-core"', '', '[dependencies]', 'serde = "1"', '',
+    '[dev-dependencies]', 'criterion = "1"', ''
+  ].join('\n'));
+  spawnSync('git', ['add', '-A'], { cwd: root });
+  spawnSync('git', ['-c', 'user.email=f@e.com', '-c', 'user.name=F', 'commit', '-m', 'polyglot manifests'], { cwd: root });
+
+  const facts = await deriveRepositoryFacts(root, await worldModelSourceSnapshot(root, {}), { churn: false });
+  const maven = facts.manifests.find((entry) => entry.kind === 'maven');
+  const rust = facts.manifests.find((entry) => entry.kind === 'rust');
+  assert.deepEqual({ name: maven.name, assurance: maven.assurance }, {
+    name: 'application-core', assurance: 'heuristic'
+  });
+  assert.deepEqual({ name: rust.name, assurance: rust.assurance }, {
+    name: 'application-core', assurance: 'heuristic'
+  });
+  assert.ok(!facts.frameworks.includes('criterion'), 'a dev dependency escaped the Cargo dependencies section');
 });
 
 test('the import graph names what the repository actually depends on', async () => {

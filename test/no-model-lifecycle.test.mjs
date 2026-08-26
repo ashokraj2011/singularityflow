@@ -8,7 +8,7 @@ import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
-import { createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
+import { commitAndPublish, createWorkflow, loadConfig, publishGeneration, submitPhase } from '../src/state.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -65,9 +65,24 @@ test('a Story can complete through manual authorship with model mode disabled', 
       governedAgentContext: 'developer',
       source: imported
     });
-    await publishGeneration(root, config, workflow, { phaseId: 'intake', authorship });
-    git(root, 'add', 'singularity');
-    git(root, 'commit', '-m', '[MANUAL-1][phase:intake][generated:1] publish manual artifact');
+    await commitAndPublish(
+      root,
+      config,
+      workflow,
+      { type: 'artifact-generated', phaseId: 'intake', generation: 1 },
+      '[MANUAL-1][phase:intake][generated:1] publish manual artifact',
+      [path.relative(root, target).replaceAll(path.sep, '/')],
+      {
+        beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+          phaseId: 'intake', authorship, persist: false,
+          publicationTransaction: {
+            publicationEvent,
+            transactionId: transactionContext.transactionId,
+            expectedHead: transactionContext.expectedHead
+          }
+        })
+      }
+    );
     await submitPhase(root, config, workflow, { phaseId: 'intake', runChecks: false });
 
     assert.equal(workflow.status, 'complete');

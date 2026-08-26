@@ -48,7 +48,8 @@ import {
 } from './delivery-evidence.mjs';
 import { pinCodeDeliveryTask } from './code-delivery-policy.mjs';
 import {
-  beginCodeGeneration, consumeGenerationIntent, publishedGenerationCommit, verifyOpenGenerationIntent
+  beginCodeGeneration, consumeGenerationIntent, persistGenerationPublicationRecord,
+  publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
@@ -1166,7 +1167,9 @@ function assertRequiredAssignment(workflow, phase) {
   }
 }
 
-export async function publishGeneration(root, config, workflow, { phaseId, usage: rawUsage, authorship = null, persist = true } = {}) {
+export async function publishGeneration(root, config, workflow, {
+  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'publish a generation');
   const phase = await assertPhaseSequence(root, workflow, 'publish a generation', { requestedPhase: phaseId }); const session = await loadSession(root);
   if (phaseRequiresCodeDelivery(phase)
@@ -1603,11 +1606,30 @@ export async function publishGeneration(root, config, workflow, { phaseId, usage
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   if (generationIntent) {
+    const resultDigest = await generationResultDigest(root, config, workflow, phase);
     await consumeGenerationIntent(root, phase, {
       generation: phase.generation,
       publishedAt,
       changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
-      resultDigest: await generationResultDigest(root, config, workflow, phase)
+      resultDigest
+    });
+  }
+  const generationPublication = {
+    generation: phase.generation,
+    publishedAt,
+    changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
+    resultDigest: generationIntent?.publication?.resultDigest
+      ?? await generationResultDigest(root, config, workflow, phase),
+    record: null
+  };
+  phase.generationPublications = [
+    ...(phase.generationPublications ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
+    generationPublication
+  ].sort((left, right) => Number(left.generation) - Number(right.generation));
+  if (publicationTransaction) {
+    await persistGenerationPublicationRecord(root, workflow, phase, {
+      ...publicationTransaction,
+      workDirectory: workDirRelative(config, workflow.workItem.id)
     });
   }
   normalizedUsage.forEach((usage) => addUsageAggregate(workflow, phase, usage));
@@ -3370,12 +3392,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     event: envelope,
     commit: { message },
     state: {
-      write: async (publicationEvent) => {
+      write: async (publicationEvent, transactionContext) => {
         // Mutations which create or advance governed lifecycle state must run
         // after the publication unit has acquired the subject lock and opened
         // its recovery journal. Callers may prepare an in-memory decision before
         // this point, but may not persist governed files outside this callback.
-        const transitionResult = beforeStateWrite ? await beforeStateWrite() : undefined;
+        const transitionResult = beforeStateWrite
+          ? await beforeStateWrite(publicationEvent, transactionContext)
+          : undefined;
         if (eventFromResult) {
           const derived = await eventFromResult(transitionResult, workflow, publicationEvent);
           if (derived) {

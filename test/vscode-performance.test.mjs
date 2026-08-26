@@ -69,10 +69,10 @@ test('nothing on the activation path stops the extension host with a synchronous
 
   const runner = await readFile(path.join(root, 'apps/vscode/src/cli/runner.ts'), 'utf8');
   for (const [verb, bound] of [['ls-remote', '30_000'], ['fetch', '120_000']]) {
-    const call = new RegExp(`(spawnSync|await remoteGit)\\((?:'git', )?\\[[^\\]]*'${verb}'`, 's');
+    const call = new RegExp(`(spawnSync|await (?:remoteGit|runRemote))\\((?:'git', )?\\[[^\\]]*'${verb}'`, 's');
     const matched = call.exec(runner);
     assert.ok(matched, `the ${verb} call on the resolution path is no longer recognisable`);
-    assert.equal(matched[1], 'await remoteGit',
+    assert.match(matched[1], /^await (?:remoteGit|runRemote)$/,
       `remote Git \`${verb}\` is synchronous again, so a slow remote freezes the host for ${bound}ms`);
   }
 });

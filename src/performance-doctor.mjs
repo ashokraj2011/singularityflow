@@ -9,6 +9,19 @@ function nullCount(value) {
   return String(value ?? '').split('\0').filter(Boolean).length;
 }
 
+/** Count porcelain-v2 logical records; a rename/copy carries one extra NUL path field. */
+export function porcelainV2RecordCount(value) {
+  const fields = String(value ?? '').split('\0');
+  let count = 0;
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (!field) continue;
+    count += 1;
+    if (field.startsWith('2 ') && index + 1 < fields.length) index += 1;
+  }
+  return count;
+}
+
 function milliseconds(started) {
   return Math.round((performance.now() - started) * 10) / 10;
 }
@@ -34,7 +47,7 @@ function timedStatus(root) {
   const result = run('git', withoutConfiguredFilters(root, [
     'status', '--porcelain=v2', '-z', '--untracked-files=all', '--ignore-submodules=none'
   ]), { cwd: root, allowFailure: true });
-  return { milliseconds: milliseconds(started), status: result.status, entries: nullCount(result.stdout) };
+  return { milliseconds: milliseconds(started), status: result.status, entries: porcelainV2RecordCount(result.stdout) };
 }
 
 /**

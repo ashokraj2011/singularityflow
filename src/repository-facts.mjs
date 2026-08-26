@@ -81,6 +81,7 @@ async function readNodeManifest(text, relative) {
   }
   return {
     kind: 'node',
+    assurance: 'exact-json',
     path: relative,
     name: typeof parsed.name === 'string' ? parsed.name : null,
     workspaces: Array.isArray(parsed.workspaces) ? parsed.workspaces : (parsed.workspaces?.packages ?? []),
@@ -101,13 +102,13 @@ async function readGoManifest(text, relative) {
   const module = text.match(/^module\s+(\S+)/m);
   const goVersion = text.match(/^go\s+(\S+)/m);
   const requires = [...text.matchAll(/^\s*([\w./-]+)\s+v\S+/gm)].map((match) => match[1]);
-  return { kind: 'go', path: relative, name: module?.[1] ?? null, toolchain: goVersion?.[1] ?? null, dependencies: [...new Set(requires)].sort(), entries: [], commands: [], workspaces: [] };
+  return { kind: 'go', assurance: 'lexical', path: relative, name: module?.[1] ?? null, toolchain: goVersion?.[1] ?? null, dependencies: [...new Set(requires)].sort(), entries: [], commands: [], workspaces: [] };
 }
 
 async function readPyprojectManifest(text, relative) {
   const name = text.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
   const deps = [...text.matchAll(/^\s*["']([A-Za-z0-9][\w.-]*)\s*[><=~!]/gm)].map((match) => match[1]);
-  return { kind: 'python', path: relative, name: name?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
+  return { kind: 'python', assurance: 'heuristic', path: relative, name: name?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
 }
 
 async function readRequirementsManifest(text, relative) {
@@ -116,20 +117,22 @@ async function readRequirementsManifest(text, relative) {
     .filter((row) => row && !row.startsWith('#') && !row.startsWith('-'))
     .map((row) => row.split(/[><=~!\[;]/)[0].trim())
     .filter(Boolean);
-  return { kind: 'python', path: relative, name: null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
+  return { kind: 'python', assurance: 'lexical', path: relative, name: null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
 }
 
 async function readPomManifest(text, relative) {
-  const artifact = text.match(/<artifactId>([^<]+)<\/artifactId>/);
+  const projectDeclarations = text.split(/<dependencies\b/i)[0]
+    .replace(/<parent\b[\s\S]*?<\/parent>/gi, '');
+  const artifact = projectDeclarations.match(/<artifactId>([^<]+)<\/artifactId>/);
   const deps = [...text.matchAll(/<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>/g)].map((match) => match[1]);
-  return { kind: 'maven', path: relative, name: artifact?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
+  return { kind: 'maven', assurance: 'heuristic', path: relative, name: artifact?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
 }
 
 async function readCargoManifest(text, relative) {
   const name = text.match(/^\s*name\s*=\s*["']([^"']+)["']/m);
-  const section = text.split(/^\[dependencies\]/m)[1] ?? '';
+  const section = (text.split(/^\[dependencies\]/m)[1] ?? '').split(/^\[[^\]]+\]/m)[0];
   const deps = [...section.matchAll(/^\s*([A-Za-z0-9_-]+)\s*=/gm)].map((match) => match[1]);
-  return { kind: 'rust', path: relative, name: name?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
+  return { kind: 'rust', assurance: 'heuristic', path: relative, name: name?.[1] ?? null, dependencies: [...new Set(deps)].sort(), entries: [], commands: [], workspaces: [] };
 }
 
 /**
@@ -291,7 +294,7 @@ export async function deriveRepositoryFacts(root, sourceState, { churn = true } 
     } catch {
       // A manifest that will not parse is still evidence the build system exists; it is listed
       // without its contents rather than guessed at.
-      manifests.push({ kind: 'unreadable', path: file.path, name: null, dependencies: [], entries: [], commands: [], workspaces: [] });
+      manifests.push({ kind: 'unreadable', assurance: 'unavailable', path: file.path, name: null, dependencies: [], entries: [], commands: [], workspaces: [] });
     }
   }
 

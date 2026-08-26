@@ -5,9 +5,12 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
+import {
+  persistGenerationPublicationRecord, publishedGenerationCommit
+} from './generation-publication-store.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
 import { applicationChangeSetProjection } from './work-intervals.mjs';
-import { nowIso, posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
+import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
   return posix(path.join(
@@ -21,16 +24,7 @@ function generationStartSha256(record) {
   return `sha256:${createHash('sha256').update(canonicalJson(content)).digest('hex')}`;
 }
 
-export function publishedGenerationCommit(root, workflow, phase, number = phase.generation) {
-  if (!Number.isInteger(Number(number)) || Number(number) < 1) return null;
-  const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${number}]`;
-  const result = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], {
-    cwd: root, allowFailure: true
-  });
-  if (result.status !== 0) return null;
-  return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t'))
-    .find(([, message]) => message.startsWith(subject))?.[0] ?? null;
-}
+export { persistGenerationPublicationRecord, publishedGenerationCommit };
 
 async function verifiedIntentRecord(root, workflow, phase, intent) {
   if (!intent?.path) {

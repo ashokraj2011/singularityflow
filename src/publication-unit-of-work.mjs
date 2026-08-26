@@ -165,7 +165,11 @@ export class GitPublicationUnitOfWork {
       // started yet is harmless: it restores the state that is already on disk.
       if (state?.write) {
         wroteState = true;
-        const writeResult = await state.write(envelope);
+        const writeResult = await state.write(envelope, {
+          transactionId: journal.transactionId,
+          expectedHead: publicationHead,
+          branch: publication.branch
+        });
         // A transition may allocate its authoritative actor, decision, or evidence identifiers only
         // while it owns the transaction lock. In that case state.write finalizes the same envelope
         // object before returning. Re-hash and persist it before validation or commit so recovery

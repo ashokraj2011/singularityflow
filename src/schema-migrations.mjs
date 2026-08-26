@@ -692,6 +692,11 @@ const families = [
   family({ id: 'work-interval-baseline', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/work-intervals\/[^/]+-gen\d+-baseline\.json$/] }),
   family({ id: 'work-interval-state', currentVersion: 1 }),
   family({
+    id: 'generation-publication', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/generation-publications\/[^/]+-gen\d+\.json$/],
+    immutable: true
+  }),
+  family({
     id: 'generation-start', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/generation-start\/[^/]+-gen\d+\.json$/]
   }),

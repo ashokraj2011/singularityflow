@@ -1082,6 +1082,11 @@ repository must be clean, and the resulting configuration changes are deliberate
 uncommitted for review and publication. Use `--no-workspace-workflow-sync` to skip this step. The
 fingerprint-bound `--clean-reinstall` path never reads or changes a workspace.
 
+For existing workspaces created by older builds, follow the standalone
+[configuration refresh guide](README-REFRESH-EXISTING-WORKSPACES.md). It covers the VS Code and CLI
+preview/apply flow, plan IDs, conflict choices, protected configuration branches, state projection,
+and reuse of completed world-model packets during bundled routing upgrades.
+
 On Windows, open **Git Bash** in the Singularity Flow checkout and use the Windows wrapper. It
 checks Node.js 20+, updates the checkout safely, confirms that the CRLF Agent Markdown fix is
 present, and delegates to the same validated installer:

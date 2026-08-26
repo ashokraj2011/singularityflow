@@ -26,6 +26,7 @@ is not part of the current product.
 | Track a personal outcome across Stories or Initiatives | [Goals, outcomes, and governed work](topics/goals-and-outcomes.md) |
 | Rehearse the first run and use bounded DX diagnostics | [Developer Experience Layer](DEVELOPER-EXPERIENCE-LAYER.md) |
 | Create and manage workspaces | [Workspaces](../WORKSPACES.md) |
+| Refresh configuration and state branches in older workspaces | [Existing-workspace configuration refresh](../README-REFRESH-EXISTING-WORKSPACES.md) |
 | Configure workflows, agents, prompts, skills, and templates | [Framework guide](../FRAMEWORK-GUIDE.md) |
 | Look up commands and configuration keys | [Help reference](../HELP.md) |
 | Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |

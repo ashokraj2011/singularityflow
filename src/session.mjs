@@ -43,7 +43,19 @@ async function writeLocalJson(file, family, value) {
  */
 async function choose(label, entries, { selection = null, nonInteractiveHint = null } = {}) {
   if (selection != null) {
-    if (!entries.some(([id]) => id === selection)) throw new SingularityFlowError(`Unknown ${label} '${selection}'.`);
+    if (!entries.some(([id]) => id === selection)) {
+      if (label === 'workflow template') {
+        throw new SingularityFlowError(
+          `Workflow template '${selection}' is not installed in the approved configuration. `
+          + `Choose an installed workflow (${entries.map(([id]) => id).join(', ') || 'none'}), or review the packaged workflow choices in Singularity Flow: Upgrade Capabilities & Workspaces.`,
+          {
+            code: 'WORKFLOW_TEMPLATE_NOT_INSTALLED',
+            details: { requested: selection, installed: entries.map(([id]) => id) }
+          }
+        );
+      }
+      throw new SingularityFlowError(`Unknown ${label} '${selection}'.`);
+    }
     return selection;
   }
   if (label === 'agent' && process.env.SINGULARITY_FLOW_GITHUB_AGENT) {

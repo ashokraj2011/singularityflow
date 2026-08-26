@@ -1659,6 +1659,13 @@ test('an Epic can be started and its first source pinned entirely from the edito
   await writeFile(portfolioFile, (await readFile(portfolioFile, 'utf8'))
     .replace(/^  publish: \w+$/m, '  publish: off')
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
+  // The engine catalog also reports packaged workflows that this approved configuration could add.
+  // Intake must never present one of those `available` rows as runnable: Story start resolves only
+  // installed work types, and used to fail with "Unknown workflow template" after the form chose it.
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  delete workflow.workTypes['spec-driven-standard'];
+  await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
 
@@ -1696,6 +1703,8 @@ test('an Epic can be started and its first source pinned entirely from the edito
     (intakePanel.webview.html.includes('data-work-type="feature"') ? intakePanel.webview.html : null));
   assert.match(storyForm, /Story workflow/);
   assert.match(storyForm, /data-work-type="feature"[^>]*checked/);
+  assert.doesNotMatch(storyForm, /data-work-type="spec-driven-standard"/,
+    'an available but uninstalled packaged workflow was offered as a runnable Story profile');
   assert.match(storyForm, /implementation/);
 
   await intakePanel.post({ type: 'shape', value: 'epic' });

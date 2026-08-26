@@ -741,6 +741,13 @@ export async function startCommand(positionals, options) {
   }
 
   const preselectedWorkType = receipt?.answers['workflow-template'] ?? optionString(options, 'work-type');
+  // Refuse an unavailable catalog choice before choosing a base, checking out a Story branch, or
+  // creating a managed worktree. `workflow list` includes packaged profiles that can be installed;
+  // callers must not be able to mistake those catalog rows for profiles present in this approved
+  // definition and discover the mismatch only after Story state has begun to materialize.
+  if (preselectedWorkType && config) {
+    await selectWorkType(config, { selection: preselectedWorkType });
+  }
   if (preselectedWorkType === 'poc-workflow') {
     normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
       required: true,

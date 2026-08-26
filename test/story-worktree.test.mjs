@@ -111,7 +111,8 @@ test('a failed isolated start removes its disposable checkout and branch', async
     '--title', 'Fail safely', '--description', 'Exercise rollback.'
   ], root, { allowFailure: true });
   assert.notEqual(failed.status, 0);
-  assert.match(failed.stderr, /Unknown workflow template/);
+  assert.match(failed.stderr, /Workflow template 'does-not-exist' is not installed in the approved configuration/);
+  assert.match(failed.stderr, /Upgrade Capabilities & Workspaces/);
   assert.equal(git(root, ['worktree', 'list', '--porcelain']), before);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/ISO-FAIL-1'], root, {
     allowFailure: true

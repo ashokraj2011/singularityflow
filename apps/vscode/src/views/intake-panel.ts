@@ -227,9 +227,17 @@ export class IntakePanel {
     try {
       const listed = await this.client.run<{
         id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
+        installed?: boolean;
       }[]>(['workflow', 'list', '--json']);
       return {
-        workflows: listed.filter((entry) => entry.id && entry.governs === 'story').map((entry) => ({
+        // `workflow list` is intentionally a catalog: it includes packaged workflows that could be
+        // installed as well as workflows present in the approved repository definition. Intake is
+        // different. It may offer only profiles that Story start can pin. Treating an `available`
+        // catalog row as selectable let the form submit (for example) `spec-driven-standard`, then
+        // fail after Story start materialized the approved configuration because that profile did
+        // not exist there.
+        workflows: listed.filter((entry) =>
+          entry.id && entry.governs === 'story' && entry.installed !== false).map((entry) => ({
           id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
           phases: entry.phases ?? []
         })),

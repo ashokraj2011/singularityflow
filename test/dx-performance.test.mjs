@@ -56,11 +56,44 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   const report = JSON.parse(run.stdout);
   assert.equal(report.protocol.samples, 3);
   assert.equal(report.topology.trackedFiles, manifest.topology.trackedFiles);
-  assert.deepEqual(Object.keys(report.commands), ['about', 'status', 'nextsteps', 'snapshot', 'snapshotUi', 'snapshotFull']);
+  assert.deepEqual(Object.keys(report.commands), [
+    'about', 'status', 'nextsteps', 'snapshot', 'snapshotUi', 'snapshotFull',
+    // Reads served by the legacy dispatcher rather than their own lazy module. Measured last
+    // because they were measured never: the budgeted set was exactly the set already made fast.
+    'help', 'inbox', 'guide', 'logs'
+  ]);
   for (const result of Object.values(report.commands)) {
     assert.equal(result.samples, 3);
     assert.ok(result.p50Ms > 0);
     assert.ok(result.p95Ms >= result.p50Ms);
+  }
+});
+
+test('every command the benchmark runs carries a budget, including the ones nobody made fast', async () => {
+  /**
+   * The budgeted set was the set that had already been optimised.
+   *
+   * `about`, `status`, `nextsteps` and `snapshot` are the four commands served by their own lazy
+   * modules, and they were also the only four with a budget — so the measurement confirmed work that
+   * was already done and could not see anything else. Eighty-one of the ninety-eight registered
+   * commands dispatch to `commands/legacy.mjs` instead, and ten of those are reads a person waits
+   * on. Measured on the reference fixture: 166-231 ms against the fast four's 37-102 ms, with about
+   * 120 ms of `cli.mjs` module load inside each.
+   *
+   * A budget is required for every measured command because `evaluateLatency` dereferences one; an
+   * unbudgeted command added to the table is a crash, not a silent pass. This asserts the intent
+   * rather than that mechanism: whatever the benchmark measures, it also judges.
+   */
+  const benchmark = await readFile(path.join(root, 'scripts/dx-benchmark.mjs'), 'utf8');
+  const table = /^const commands = \{$([^]*?)^\};$/m.exec(benchmark);
+  assert.ok(table, 'the benchmark no longer declares a command table this test can read');
+  const measured = [...table[1].matchAll(/^\s{2}([a-zA-Z]+):\s*\[/gm)].map(([, name]) => name);
+  assert.ok(measured.length > 6, 'the command table never grew past the four commands already made fast');
+  for (const name of measured) {
+    assert.ok(manifest.budgets[name]?.p50Ms > 0, `${name} is measured with no budget to judge it by`);
+  }
+  for (const legacyRead of ['help', 'inbox', 'guide', 'logs']) {
+    assert.ok(measured.includes(legacyRead), `${legacyRead} is a read on the legacy dispatcher and is unmeasured`);
   }
 });
 

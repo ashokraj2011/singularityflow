@@ -43,6 +43,25 @@
     "snapshotFull": {
       "p50Ms": 850,
       "p95Ms": 1100
+    },
+    "legacyReadsNote": [
+      "Four read-only commands served by the legacy dispatcher rather than their own lazy module.",
+      "Measured 148-218ms on the reference fixture, of which ~120ms is loading cli.mjs and its",
+      "264-module static closure -- 58 to 82 percent of each, before the command does anything.",
+      "They are budgeted well above the 150ms the fast four hold to, because that is what is true;",
+      "the number to lower is the module load, and lowering it is what should lower these."
+    ],
+    "help": {
+      "p50Ms": 400
+    },
+    "inbox": {
+      "p50Ms": 450
+    },
+    "guide": {
+      "p50Ms": 450
+    },
+    "logs": {
+      "p50Ms": 350
     }
   },
   "scale": {

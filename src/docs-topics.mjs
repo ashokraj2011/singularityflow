@@ -42,6 +42,13 @@ const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
+/** Words that describe the question rather than its subject. */
+const QUESTION_STOP_WORDS = new Set([
+  'a', 'about', 'an', 'and', 'are', 'can', 'could', 'do', 'does', 'explain', 'for', 'help', 'how', 'i', 'in', 'is',
+  'file', 'files', 'it', 'me', 'my', 'of', 'on', 'please', 'should', 'tell', 'the', 'this', 'to', 'understand', 'use', 'what',
+  'when', 'where', 'which', 'who', 'why', 'will', 'with', 'work', 'works', 'would', 'you'
+]);
+
 function digest(value) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -86,6 +93,8 @@ export function parseTopic(source, file = '<memory>') {
     aliases: Object.freeze(list(front.aliases, 'aliases', file)),
     commands: Object.freeze(list(front.commands, 'commands', file)),
     related: Object.freeze(list(front.related, 'related', file)),
+    questions: Object.freeze(list(front.questions, 'questions', file)),
+    keywords: Object.freeze(list(front.keywords, 'keywords', file)),
     body,
     sha256: digest(body),
     file: path.basename(file)
@@ -123,10 +132,27 @@ export async function loadTopics(directory = TOPICS_DIRECTORY) {
   const aliases = new Map();
   for (const topic of topics) {
     for (const alias of topic.aliases) {
-      if (seen.has(alias)) throw new SingularityFlowError(`Alias '${alias}' in '${topic.file}' collides with a topic id.`);
-      const owner = aliases.get(alias);
+      const normalized = normalizeQuestion(alias);
+      if (seen.has(normalized.replace(/ /g, '-'))) {
+        throw new SingularityFlowError(`Alias '${alias}' in '${topic.file}' collides with a topic id.`);
+      }
+      const owner = aliases.get(normalized);
       if (owner) throw new SingularityFlowError(`Alias '${alias}' is claimed by both '${owner}' and '${topic.id}'.`);
-      aliases.set(alias, topic.id);
+      aliases.set(normalized, topic.id);
+    }
+  }
+  const questions = new Map();
+  for (const topic of topics) {
+    for (const question of topic.questions) {
+      const normalized = normalizeQuestion(question);
+      if (!normalized) throw new SingularityFlowError(`Topic '${topic.file}' contains a blank normalized question.`);
+      const owner = questions.get(normalized);
+      if (owner) {
+        throw new SingularityFlowError(
+          `Question '${question}' is claimed by both '${owner}' and '${topic.id}'.`
+        );
+      }
+      questions.set(normalized, topic.id);
     }
   }
   return topics.sort((left, right) => left.id.localeCompare(right.id));
@@ -141,8 +167,83 @@ export async function loadTopics(directory = TOPICS_DIRECTORY) {
  */
 export function aliasTable(topics) {
   const table = new Map();
-  for (const topic of topics) for (const alias of topic.aliases) table.set(alias, topic.id);
+  for (const topic of topics) for (const alias of topic.aliases) table.set(normalizeQuestion(alias), topic.id);
   return table;
+}
+
+function normalizeQuestion(value) {
+  return String(value ?? '')
+    .normalize('NFKD')
+    .toLocaleLowerCase('en-US')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stem(token) {
+  if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
+  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss')) return token.slice(0, -1);
+  return token;
+}
+
+function meaningfulTokens(value) {
+  return [...new Set(normalizeQuestion(value).split(' ')
+    .map(stem)
+    .filter((token) => token.length > 1 && !QUESTION_STOP_WORDS.has(token)))];
+}
+
+function addSignals(weights, values, weight) {
+  for (const value of values) {
+    for (const token of meaningfulTokens(value)) {
+      weights.set(token, Math.max(weights.get(token) ?? 0, weight));
+    }
+  }
+}
+
+function topicQuestionScore(topic, queryTokens) {
+  const weights = new Map();
+  addSignals(weights, [topic.id, topic.title, ...topic.aliases], 5);
+  addSignals(weights, topic.keywords, 4);
+  addSignals(weights, topic.commands, 3);
+  addSignals(weights, topic.questions, 2);
+  const matched = queryTokens.filter((token) => weights.has(token));
+  return {
+    topic,
+    matched,
+    score: matched.reduce((total, token) => total + weights.get(token), 0)
+  };
+}
+
+/**
+ * Resolve ordinary question wording without fuzzy guessing.
+ *
+ * Exact authored questions win. Otherwise a topic needs at least one strong metadata token and a
+ * clear lead over the runner-up. Ties are surfaced as ambiguity; unrelated prose remains a miss.
+ */
+function resolveQuestion(topics, query) {
+  const normalized = normalizeQuestion(query);
+  const authored = topics.filter((topic) => topic.questions
+    .some((question) => normalizeQuestion(question) === normalized));
+  if (authored.length === 1) return { status: 'resolved', topic: authored[0], how: 'authored-question' };
+  if (authored.length > 1) {
+    return { status: 'ambiguous', query: normalized, candidates: authored.map((topic) => topic.id) };
+  }
+
+  const queryTokens = meaningfulTokens(query);
+  if (!queryTokens.length) return null;
+  const ranked = topics.map((topic) => topicQuestionScore(topic, queryTokens))
+    .filter((entry) => entry.score >= 5)
+    .sort((left, right) => right.score - left.score || right.matched.length - left.matched.length
+      || left.topic.id.localeCompare(right.topic.id));
+  if (!ranked.length) return null;
+
+  const best = ranked[0];
+  const close = ranked.filter((entry) => entry.score >= best.score - 1);
+  if (close.length > 1) {
+    return { status: 'ambiguous', query: normalized, candidates: close.map((entry) => entry.topic.id) };
+  }
+  return { status: 'resolved', topic: best.topic, how: 'question-metadata' };
 }
 
 /**
@@ -153,18 +254,21 @@ export function aliasTable(topics) {
  * the bytes came from the topic they asked for.
  */
 export function resolveTopic(topics, query) {
-  const needle = String(query ?? '').trim().toLowerCase();
+  const needle = normalizeQuestion(query).replace(/ /g, '-');
   if (!needle) return { status: 'not-found', query: '', candidates: [] };
 
   const exact = topics.find((topic) => topic.id === needle);
   if (exact) return { status: 'resolved', topic: exact, how: 'id' };
 
-  const alias = aliasTable(topics).get(needle);
+  const alias = aliasTable(topics).get(normalizeQuestion(query));
   if (alias) return { status: 'resolved', topic: topics.find((topic) => topic.id === alias), how: 'alias' };
 
   const prefixed = topics.filter((topic) => topic.id.startsWith(needle));
   if (prefixed.length === 1) return { status: 'resolved', topic: prefixed[0], how: 'prefix' };
   if (prefixed.length > 1) return { status: 'ambiguous', query: needle, candidates: prefixed.map((topic) => topic.id) };
+
+  const question = resolveQuestion(topics, query);
+  if (question) return question;
 
   return { status: 'not-found', query: needle, candidates: nearestTopicIds(topics, needle) };
 }
@@ -195,16 +299,25 @@ export function nearestTopicIds(topics, query, limit = 3) {
  */
 export function buildManifest(topics, { sourceCommit = null, generatedFrom = 'docs/topics' } = {}) {
   const entries = topics.map((topic) => ({
-    id: topic.id, title: topic.title, version: topic.version, sha256: topic.sha256, file: topic.file
+    id: topic.id,
+    title: topic.title,
+    version: topic.version,
+    sha256: topic.sha256,
+    routingSha256: digest(JSON.stringify({
+      aliases: [...topic.aliases], commands: [...topic.commands], related: [...topic.related],
+      questions: [...topic.questions], keywords: [...topic.keywords]
+    })),
+    file: topic.file
   }));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedFrom,
     sourceCommit,
     topicCount: entries.length,
     // One hash over the whole set, so a single comparison answers "is this the documentation this
-    // build shipped with?" without walking 29 entries.
-    contentSha256: digest(entries.map((entry) => `${entry.id}:${entry.version}:${entry.sha256}`).join('\n')),
+    // build shipped with?" without walking the whole topic set.
+    contentSha256: digest(entries
+      .map((entry) => `${entry.id}:${entry.version}:${entry.sha256}:${entry.routingSha256}`).join('\n')),
     topics: entries
   };
 }

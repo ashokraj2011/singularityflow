@@ -23,7 +23,7 @@ Use this for questions about current work, blockers, next actions, and recovery;
    - **Next** — the one routed read or proposed governed action, including its `/sf-*` route.
    - **I need from you** — nothing for a read; otherwise the exact required input or decision.
    - **This will change** — “Nothing” for reads; otherwise name file, lifecycle, Git, publication, and external effects.
-4. Intents are `orient`, `continue`, `start`, `inspect`, `act`, and `recover`. For `none` or `ambiguous` confidence, render returned choices and use `ask_user`; never guess.
+4. Intents are `orient`, `continue`, `start`, `inspect`, `act`, `recover`, and `help`. Help relays cited packaged documentation and never executes a displayed command. For `none` or `ambiguous` confidence, render returned choices and use `ask_user`; never guess.
 5. Safe reads may run immediately. For `continue`, `start`, or `act`, show the proposal and use `ask_user`. Follow only the selected direct route: `/sf-recommend`, `/sf-resume`, `/sf-start`, `/sf-phase`, `/sf-submit`, or `/sf-next`.
 6. Decisions, resets, destructive operations, and ceremonies require an explicit `/sf-*` invocation.
 7. Preserve all CLI refusals, warnings, ordered actions, and recovery commands. After a selected flow completes, run `singularity-flow home` and show the refreshed state.

@@ -14,9 +14,9 @@ related:
   - developer-home
   - help-and-docs
   - governed-execution
-version: 4
+version: 5
 ---
-CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for six closed intents: orient, continue, start, inspect, act, and recover.
+CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Copilot accepts ordinary developer language for seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
 ## Purpose and prerequisites
 
@@ -25,7 +25,7 @@ Use this topic when the current goal matches **copilot and surfaces**. Start in 
 ## Use it from each surface
 
 - **Shell:** `sflow about`, `sflow help`, `sflow plugin`. Use `sflow home --request "What is blocking this Story?" --json` to inspect the conversational plan. Run `singularity-flow about --help` for the exact forms supported by this build.
-- **Copilot:** ask “What am I working on?”, “Continue my Story”, “Start a new bug fix”, “What is blocking this?”, “Generate the active phase”, or “The publication push is stuck.” `/sf-home`, `/sf-start`, and the other `/sf-*` skills remain explicit escape hatches.
+- **Copilot:** ask “What am I working on?”, “Continue my Story”, “Start a new bug fix”, “What is blocking this?”, “Generate the active phase”, “The publication push is stuck”, or “What is project binding?” `/sf-home`, `/sf-help`, `/sf-start`, and the other `/sf-*` skills remain explicit escape hatches.
 - **VS Code:** open the Singularity Flow Navigator. My Work, Start intake, and Inbox are suggested as first-use Favorites; use **Favorites → Choose favorites** to change them or pin Approvals, Workspaces, Configuration, impact, logs, audit, or Help. Favorites and Lifecycle start expanded while supporting sections stay collapsed, and the extension preserves later choices. It renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

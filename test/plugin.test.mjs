@@ -371,12 +371,15 @@ test('submit skill presents generated documents before approval', async () => {
   assert.match(content, /show them before offering approval or rejection/);
 });
 
-test('help skill is read-only and delegates to the workflow guide', async () => {
+test('help skill serves natural questions from cited docs and delegates work IDs to the guide', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-help', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow help <topic>/);
+  assert.match(content, /singularity-flow explain "\$ARGUMENTS" --json/);
   assert.match(content, /singularity-flow guide <WORK-ID>/);
   assert.match(content, /HELP\.md.*canonical product manual/);
-  assert.match(content, /Do not generate, submit, approve, reject, upload, commit, or push anything/);
+  assert.match(content, /Never answer product behavior from model memory/);
+  assert.match(content, /ambiguous.*topic choices/is);
+  assert.match(content, /not found.*no grounded answer/is);
+  assert.match(content, /Do not generate, submit, approve, reject, upload, commit, push/);
 });
 
 test('about skill explains the brand and remains read-only', async () => {

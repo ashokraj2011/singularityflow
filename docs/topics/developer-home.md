@@ -1,7 +1,7 @@
 ---
 id: developer-home
 title: Developer Home and returning to work
-version: 7
+version: 8
 aliases:
   - home
   - return-to-work
@@ -17,7 +17,7 @@ related:
   - goals-and-outcomes
   - local-work-journal
 ---
-`sflow home` is the read-only front door for a developer. It resolves the active workspace and repository, reports the current Story and repository freshness, and offers no more than six deterministic next choices. `sflow home --request "<ordinary developer request>"` also returns a versioned plan for orient, continue, start, inspect, act, or recover. `--lens` changes presentation ordering only; it never grants authority. Home reads the local Git identity's display name and uses it to personalize human replies in the shell, My Work, and Copilot. The presentation name never participates in authority, handle binding, lifecycle state, or telemetry. It never fetches, checks out a branch, mutates lifecycle state, or invokes a model. In VS Code, **My Work** is the visible home and may join the private machine-local Today and **Yesterday — where you stopped** journal projections at read time. **Talk to SFlow** remains only as a hidden compatibility command for old links and opens that same My Work surface.
+`sflow home` is the read-only front door for a developer. It resolves the active workspace and repository, reports the current Story and repository freshness, and offers no more than six deterministic next choices. `sflow home --request "<ordinary developer request>"` also returns a versioned plan for orient, continue, start, inspect, act, recover, or help. Help is served from cited packaged topics and does not authorize an action. `--lens` changes presentation ordering only; it never grants authority. Home reads the local Git identity's display name and uses it to personalize human replies in the shell, My Work, and Copilot. The presentation name never participates in authority, handle binding, lifecycle state, or telemetry. It never fetches, checks out a branch, mutates lifecycle state, or invokes a model. In VS Code, **My Work** is the visible home and may join the private machine-local Today and **Yesterday — where you stopped** journal projections at read time. **Talk to SFlow** remains only as a hidden compatibility command for old links and opens that same My Work surface.
 
 ## Purpose and prerequisites
 

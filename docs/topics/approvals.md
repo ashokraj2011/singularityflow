@@ -5,6 +5,14 @@ aliases:
   - approve
   - approval-ceremony
   - stale-approval
+questions:
+  - How do approvals work?
+  - Why is my approval stale?
+  - What command approves a phase?
+keywords:
+  - reviewer authority
+  - self approval
+  - product approvers
 commands:
   - approvals
   - approve
@@ -14,7 +22,7 @@ related:
   - waivers
   - inbox-and-review
   - sequence-gates
-version: 5
+version: 6
 ---
 Approval is an authorization event, never an agent utterance. Authority comes from `approvalAuthorities` groups in pinned configuration; the ceremony shows the exact artifact and its SHA-256, then requires typing the exact confirmation — nothing auto-fills it. The record binds identity, authority group, and artifact hash, verifiable offline. If artifact bytes change afterward, the approval goes stale automatically; the old signature remains in history attached to the bytes it actually covered. Agents cannot approve. Normal team configuration defaults self-approval and first-use identity enrollment on; both are explicit `approvalSecurity` switches in **People & approvals**, while the regulated profile defaults them off. Rejections require reasons — which become pinned context the next generation literally reads.
 

@@ -171,7 +171,7 @@ test('the Copilot home skill explicitly routes every home goal and refreshes aft
   ]) assert.match(skill, new RegExp(goal.replaceAll('.', '\\.')));
   assert.match(skill, /ask_user/);
   assert.match(skill, /singularity-flow home --json --request "\$ARGUMENTS"/);
-  for (const intent of ['orient', 'continue', 'start', 'inspect', 'act', 'recover']) {
+  for (const intent of ['orient', 'continue', 'start', 'inspect', 'act', 'recover', 'help']) {
     assert.match(skill, new RegExp(`\\b${intent}\\b`));
   }
   for (const heading of ['I found', 'Next', 'I need from you', 'This will change']) {

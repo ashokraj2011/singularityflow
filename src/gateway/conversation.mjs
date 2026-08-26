@@ -1,16 +1,18 @@
 /**
  * A small, deterministic vocabulary for ordinary developer requests.
  *
- * This is deliberately not a command parser. It identifies one of six user-facing intents and
+ * This is deliberately not a command parser. It identifies one of seven user-facing intents and
  * routes it to a read planner that can reconstruct current state. A request such as "submit this"
  * therefore reaches `work.continue`, where the kernel can show whether submission is legal; it
  * never becomes a submit operation merely because those words appeared in conversation.
  */
 
-export const CONVERSATION_SCHEMA_VERSION = 2;
+import { classifyHelpIntent } from '../help-intents.mjs';
+
+export const CONVERSATION_SCHEMA_VERSION = 3;
 
 export const DEVELOPER_INTENTS = Object.freeze([
-  'orient', 'continue', 'start', 'inspect', 'act', 'recover'
+  'orient', 'continue', 'start', 'inspect', 'act', 'recover', 'help'
 ]);
 
 /** The five stable product goals shown on Home. Legacy intent detail remains for compatibility. */
@@ -107,7 +109,11 @@ const ROUTES = Object.freeze([
   route({
     id: 'inspect-progress', intent: 'inspect', label: 'Show progress and governed artifacts',
     operationId: 'work.list', skill: '/sf-progress', automatic: true, confirmation: 'none',
-    patterns: [/\b(progress|artifacts?|approvals?|what phase|which phase|show (?:the|my) work)\b/]
+    patterns: [
+      /\b(progress|what phase|which phase|show (?:the|my) work)\b/,
+      /\b(show|list|current|my|pending)\b.{0,24}\b(artifacts?|approvals?)\b/,
+      /\b(artifacts?|approvals?)\b.{0,24}\b(status|for this|for my)\b/
+    ]
   }),
   route({
     id: 'act-ceremony', intent: 'act', label: 'Open the governed review decision',
@@ -204,10 +210,49 @@ function publicRoute(entry, normalized) {
  */
 export function planDeveloperConversation(utterance) {
   const normalized = normalize(utterance);
-  const matched = normalized
+  let matched = normalized
     ? ROUTES.filter((entry) => entry.patterns.some((pattern) => pattern.test(normalized)))
     : [];
+  // "Why can't I submit?" asks for diagnosis, not submission. Preserve ambiguity for genuinely
+  // combined actions ("generate and submit"), but do not make a refusal-shaped question look like
+  // mutation intent merely because it names the blocked action.
+  if (matched.some((entry) => entry.id === 'inspect-readiness')
+    && /\b(why|cannot|can't|blocked|blocking|not ready)\b/.test(normalized)) {
+    matched = matched.filter((entry) => !entry.id.startsWith('act-'));
+  }
+  const helpIntent = classifyHelpIntent(utterance);
+  // "How do I submit?" asks for a procedure. "Submit this" asks for an action. When question
+  // wording collided only with action names, prefer cited help; state-specific read routes still
+  // retain priority and imperative wording has no help intent.
+  if (helpIntent && matched.length && matched.every((entry) => entry.id.startsWith('act-'))) matched = [];
   const unique = [...new Map(matched.map((entry) => [entry.id, entry])).values()];
+
+  // Help is a fallback, not a competing route. A state-specific question such as "why can't I
+  // submit?" must keep reaching readiness; only otherwise-unmatched question wording reaches the
+  // cited documentation planner.
+  if (!unique.length) {
+    if (helpIntent) {
+      const selected = Object.freeze({
+        id: 'help-explain',
+        intent: 'help',
+        helpIntent,
+        label: 'Answer from cited Singularity Flow documentation',
+        operationId: 'help.explain',
+        recommendedSkill: '/sf-help',
+        automatic: true,
+        confirmation: 'none'
+      });
+      return Object.freeze({
+        schemaVersion: CONVERSATION_SCHEMA_VERSION,
+        intent: 'help',
+        confidence: 'strong',
+        route: selected,
+        choices: Object.freeze([]),
+        stateSource: 'packaged-documentation',
+        effects: EFFECTS_NONE
+      });
+    }
+  }
 
   if (unique.length > 1) {
     return Object.freeze({

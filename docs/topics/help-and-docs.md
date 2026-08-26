@@ -5,6 +5,13 @@ aliases:
   - help
   - explain
   - docs
+questions:
+  - How can I ask Singularity Flow a natural-language question?
+  - What can sf-help answer?
+keywords:
+  - natural language
+  - cited answer
+  - help intent
 commands:
   - nextsteps
   - doctor
@@ -14,9 +21,16 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 2
+version: 3
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
+
+`/sf-help` accepts a topic ID or an ordinary question. The model-free router first classifies the
+answer shape as concept, procedure, diagnosis, comparison, command discovery, or recovery. It then
+matches only authored topic metadata and returns the cited topic bytes. Exact IDs and aliases win;
+a weak match is refused and a close tie returns choices. This classification selects help content,
+never a lifecycle operation. Questions about current blockers remain on the durable Home/readiness
+path, and action-shaped prose still requires the normal explicit governed selection.
 
 ## Purpose and prerequisites
 
@@ -24,8 +38,8 @@ Use this topic when the current goal matches **help and docs**. Start in a gover
 
 ## Use it from each surface
 
-- **Shell:** `sflow nextsteps`, `sflow doctor`, `sflow about`, `sflow help`, `sflow explain`. Run `singularity-flow nextsteps --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, `/sf-help`. The skill must preserve the CLI result and ask before any governed mutation.
+- **Shell:** `sflow nextsteps`, `sflow doctor`, `sflow about`, `sflow help`, `sflow explain`. Quote a natural question as one argument, for example `sflow explain "What is project binding?"`. Add `--here` when the concept should be paired with the current Story snapshot. Run `singularity-flow nextsteps --help` for the exact forms supported by this build.
+- **Copilot:** `/sf-nextsteps`, `/sf-doctor`, `/sf-about`, `/sf-help "What is project binding?"`. The help skill relays bounded cited documentation and never mutates state.
 - **VS Code:** open Singularity Flow **Help Center**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

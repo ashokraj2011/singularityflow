@@ -18,6 +18,7 @@ import {
   buildManifest, loadTopics, nearestTopicIds, previewTopic, resolveTopic, sectionOf, sectionsOf
 } from '../docs-topics.mjs';
 import { docsManifest } from '../docs-manifest.mjs';
+import { classifyHelpIntent } from '../help-intents.mjs';
 import {
   action, because, commandResult, noEffects, refused, succeeded
 } from '../narration/command-result.mjs';
@@ -171,6 +172,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
   if (!query) return emitList(topics, manifest, { json, operation });
 
   const resolution = resolveTopic(topics, query);
+  const helpIntent = classifyHelpIntent(query) ?? 'concept';
 
   if (resolution.status === 'ambiguous') {
     // Never a guess `[DOC:CON-006]`. The candidates are the answer.
@@ -183,7 +185,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
       next: resolution.candidates.slice(0, 5).map((id) => action({
         id: `explain.${id}`, label: `Read ${id}`, command: `sflow explain ${id}`, kind: 'informational'
       })),
-      data: { query: resolution.query, candidates: resolution.candidates }
+      data: { query: resolution.query, candidates: resolution.candidates, helpIntent }
     });
     emitCommandResult(result, { json, restStateWhenIdle: null });
     // A refusal is a refusal at the shell too: a script that pipes `explain` must be able to tell
@@ -209,7 +211,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
         })),
         action({ id: 'explain.list', label: 'List every topic', command: 'sflow explain', rank: 'LATER', kind: 'informational' })
       ],
-      data: { query: resolution.query, nearest: fallback }
+      data: { query: resolution.query, nearest: fallback, helpIntent }
     });
     emitCommandResult(result, { json, restStateWhenIdle: null });
     // A refusal is a refusal at the shell too: a script that pipes `explain` must be able to tell
@@ -248,6 +250,7 @@ export async function run(argv, { positionals, options } = { positionals: [], op
     restState: related.length ? null : 'informational',
     data: {
       resolvedBy: resolution.how,
+      helpIntent,
       provenance,
       citation: citationLine(provenance),
       topic: {

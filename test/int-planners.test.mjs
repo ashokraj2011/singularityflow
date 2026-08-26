@@ -240,12 +240,22 @@ test('explain answers from a compiled topic and cites it with a resolvable handl
   assert.ok(result.data.docsContentSha256, 'a stamped build cites its docs digest');
 });
 
+test('explain resolves an ordinary question and reports its closed help intent', async () => {
+  const result = await helpExplain({ arguments: { question: 'What is project binding?' } });
+  validateSflowResult(result);
+  assert.equal(result.kind, 'read');
+  assert.equal(result.data.topic, 'project-binding');
+  assert.equal(result.data.matchedBy, 'authored-question');
+  assert.equal(result.data.helpIntent, 'concept');
+});
+
 test('a question the documentation cannot answer is not answered by the nearest topic', async () => {
   const result = await helpExplain({ arguments: { question: 'how do I file my taxes' } });
   validateSflowResult(result);
   assert.equal(result.kind, 'clarification');
   assert.equal(result.why[0].code, 'explain.no-match');
   assert.equal(result.why[0].source, 'unavailable');
+  assert.equal(result.data.helpIntent, 'procedure');
   assert.ok(result.next.length, 'a dead end is not an acceptable answer');
   assert.equal(result.next.every((entry) => entry.executable === false), true);
   // Suggestions are offered, never served: no body came back.

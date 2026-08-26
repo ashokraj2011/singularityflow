@@ -72,6 +72,15 @@ test('ordinary language selects a read planner without executing a mutation', ()
   assert.equal(generate.kind, 'read');
   assert.equal(generate.operation.id, 'work.continue');
   assert.deepEqual({ ...generate.effects }, noEffects());
+
+  const helpContext = setup();
+  const help = resolveIntent({ utterance: 'What is project binding?' }, helpContext);
+  assert.equal(help.kind, 'read');
+  assert.equal(help.operation.id, 'help.explain');
+  const helpHandle = helpContext.handles.verify(
+    { id: help.next[0].handle }, { kind: 'read', binding: helpContext.binding }
+  );
+  assert.equal(helpHandle.arguments.question, 'What is project binding?');
 });
 
 test('ambiguous conversational actions require clarification', () => {

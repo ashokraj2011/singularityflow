@@ -13,6 +13,7 @@
 import { docsHandle, servedBody } from '../../commands/explain.mjs';
 import { docsManifest } from '../../docs-manifest.mjs';
 import { loadTopics, nearestTopicIds, resolveTopic } from '../../docs-topics.mjs';
+import { classifyHelpIntent } from '../../help-intents.mjs';
 import { noEffects, plannerNavigation, sflowResult } from '../result.mjs';
 
 /** The ceiling on a served body. Beyond it the reader gets a preview and a handle `[INT:CON-037]`. */
@@ -37,7 +38,7 @@ function suggestion(topicId, index, reasonCode) {
   }, 'help.explain', { question: topicId, topic: topicId });
 }
 
-function ask(messageSlots, topicIds, reasonCode, why) {
+function ask(messageSlots, topicIds, reasonCode, why, helpIntent) {
   return sflowResult({
     kind: 'clarification',
     operation: { id: 'help.explain', classification: 'read' },
@@ -45,7 +46,8 @@ function ask(messageSlots, topicIds, reasonCode, why) {
     effects: noEffects(),
     why,
     next: topicIds.map((topicId, index) => suggestion(topicId, index, reasonCode)),
-    restState: topicIds.length ? null : 'informational'
+    restState: topicIds.length ? null : 'informational',
+    data: { helpIntent }
   });
 }
 
@@ -53,12 +55,13 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
   const topics = await loadTopics();
   const manifest = docsManifest();
   const query = args.topic ?? args.question ?? '';
+  const helpIntent = classifyHelpIntent(args.question ?? query) ?? 'concept';
   const resolved = resolveTopic(topics, query);
 
   if (resolved.status === 'ambiguous') {
     return ask({ query }, resolved.candidates, 'explain.ambiguous', [
       { code: 'explain.ambiguous', source: 'registry', slots: { count: resolved.candidates.length } }
-    ]);
+    ], helpIntent);
   }
 
   if (resolved.status !== 'resolved') {
@@ -72,7 +75,7 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
     const nearest = nearestTopicIds(topics, query, 3);
     return ask({ query }, nearest.length ? nearest : topics.slice(0, 3).map((topic) => topic.id), 'explain.no-match', [
       { code: 'explain.no-match', source: 'unavailable', slots: { query } }
-    ]);
+    ], helpIntent);
   }
 
   const topic = resolved.topic;
@@ -112,6 +115,7 @@ export async function helpExplain({ arguments: args = {}, subject = null } = {})
       title: topic.title,
       handle,
       matchedBy: resolved.how,
+      helpIntent,
       // Bounded by construction: a truncated body says so, and the handle expands it on request.
       body: served.text,
       bytes: served.bytes,

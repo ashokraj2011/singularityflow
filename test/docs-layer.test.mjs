@@ -97,6 +97,35 @@ test('not-found-lists-nearest-and-next: a miss is never a dead end', async () =>
   assert.equal(payload.why[0].topic, 'help-and-docs');
 });
 
+test('natural questions resolve only with strong authored metadata', async () => {
+  const topics = await loadTopics();
+  const binding = resolveTopic(topics, 'What is project binding?');
+  assert.equal(binding.status, 'resolved');
+  assert.equal(binding.topic.id, 'project-binding');
+  assert.equal(binding.how, 'authored-question');
+
+  const approvals = resolveTopic(topics, 'Could you explain how approvals work?');
+  assert.equal(approvals.status, 'resolved');
+  assert.equal(approvals.topic.id, 'approvals');
+  assert.equal(approvals.how, 'question-metadata');
+
+  const unrelated = resolveTopic(topics, 'How do I file my taxes?');
+  assert.equal(unrelated.status, 'not-found');
+
+  const ambiguous = resolveTopic(topics, 'Explain approval review');
+  assert.equal(ambiguous.status, 'ambiguous');
+  assert.ok(ambiguous.candidates.includes('approvals'));
+  assert.ok(ambiguous.candidates.includes('inbox-and-review'));
+
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-docs-question-'));
+  const result = runOutsideRepository(['explain', 'What is project binding?', '--json'], directory);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.data.topic.id, 'project-binding');
+  assert.equal(payload.data.helpIntent, 'concept');
+  assert.match(payload.data.citation, /^— topic project-binding v1, docs /);
+});
+
 test('grounded-checker-flags-uncited-reply: memory answers do not pass as retrieval', async () => {
   const topics = await loadTopics();
   const topic = topics.find((entry) => entry.id === 'approvals');
@@ -345,11 +374,13 @@ test('the stamped manifest describes the topics on disk', async () => {
   const stamped = JSON.parse(await readFile(path.join(packageRoot, 'src', 'docs-manifest.json'), 'utf8'));
   assert.equal(stamped.contentSha256, buildManifest(topics).contentSha256,
     'the manifest is stale — run node scripts/build-docs-manifest.mjs');
+  assert.equal(stamped.schemaVersion, 2);
   assert.equal(stamped.topicCount, topics.length);
   for (const entry of stamped.topics) {
     const topic = topics.find((item) => item.id === entry.id);
     assert.ok(topic, `manifest names a topic that is not installed: ${entry.id}`);
     assert.equal(topic.sha256, entry.sha256);
+    assert.match(entry.routingSha256, /^[a-f0-9]{64}$/);
   }
 });
 
@@ -368,6 +399,8 @@ test('the sflow-docs skill contracts to relay, not to recall', async () => {
   // The three promises that make the surface grounded rather than merely helpful.
   assert.match(skill, /must come from the served bytes/);
   assert.match(skill, /Do not answer the question from memory/);
+  assert.match(skill, /singularity-flow explain "\$ARGUMENTS" --json/);
+  assert.match(skill, /Do not map the question to a topic from model memory/);
   assert.match(skill, /nextsteps/, 'judgment questions are not redirected');
   assert.match(skill, /concise-relay/, 'the skill is not held to the relay output contract');
 
@@ -399,4 +432,9 @@ test('a topic edited without a version bump is caught by the gate, not shipped',
   assert.equal(before.version, after.version, 'this fixture is meant to leave the version alone');
   // Which is exactly the condition scripts/check.mjs refuses: same version, different bytes.
   assert.notEqual(buildManifest([before]).contentSha256, buildManifest([after]).contentSha256);
+
+  const rerouted = parseTopic(original.replace('aliases:', 'questions: [What is a pin?]\naliases:'), 'pins.md');
+  assert.equal(before.sha256, rerouted.sha256, 'frontmatter must not masquerade as body content');
+  assert.notEqual(buildManifest([before]).contentSha256, buildManifest([rerouted]).contentSha256,
+    'question routing metadata is not bound into the manifest');
 });

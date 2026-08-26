@@ -22,11 +22,17 @@ exact trust/sync command and let the contributor decide.
 
 ## Conversational developer requests
 
-For ordinary language about current work, classify only the six supported intents:
-`orient`, `continue`, `start`, `inspect`, `act`, and `recover`. Run
+For ordinary language, classify only the seven supported intents:
+`orient`, `continue`, `start`, `inspect`, `act`, `recover`, and `help`. Run
 `singularity-flow home --json --request "<exact request>"` and use its
 `data.conversation` plan; do not infer lifecycle state from earlier chat. Re-read durable workspace,
 repository, and lifecycle records on every turn.
+
+The `help` route is a model-free retrieval request. Relay the bounded cited topic returned by
+`help.explain`; do not answer from memory or execute commands shown in documentation. Its closed
+answer shapes are concept, procedure, diagnose, compare, command-discovery, and recover. A weak
+match says no grounded answer exists; an ambiguous match presents choices. Current Story blockers
+still route to readiness rather than generic documentation.
 
 Read-only orientation, inspection, and diagnosis may run immediately. For Start, Continue, Generate,
 Submit, or Next, present **I found**, **Next**, **I need from you**, and **This will change**, name the

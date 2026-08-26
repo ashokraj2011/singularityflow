@@ -132,7 +132,7 @@ operation completes; journal failure cannot fail or replay that operation. On a 
 Home and `/sf-home` can show **Yesterday — where you stopped** from the same machine-local facts,
 without depending on the previous Copilot model or conversation.
 
-The conversational router recognizes six closed intents. It is deliberately not a free-form command
+The conversational router recognizes seven closed intents. It is deliberately not a free-form command
 parser:
 
 | Intent | Example request | Result |
@@ -143,6 +143,7 @@ parser:
 | Inspect | “What is blocking this Story?” or “What changed while I was away?” | Shows readiness, blockers, progress, or return reconciliation from durable state. |
 | Act | “Generate the active phase.” or “Submit this.” | Previews the governed action and requires explicit authorization before mutation. |
 | Recover | “The publication push is stuck.” | Prioritizes diagnosis, synchronization, and retained-publication recovery. |
+| Help | “What is project binding?” | Retrieves a bounded cited topic using a closed help-answer shape; it never executes commands shown in the answer. |
 
 A recommendation names the active context, explains why the action is next, summarizes recorded
 artifacts, checks, and approvals, and reports the workspace, repository, identity, worktree, and
@@ -154,7 +155,9 @@ All conversational routes resolve to read operations first. Read-only questions 
 immediately, but Continue, Start, Generate, Submit, Next, pull-request creation, and every review or
 approval ceremony require an explicit governed selection. Ambiguous wording asks for clarification,
 the displayed command is only a preview, and raw developer prose is not retained in the routing
-result. Use `singularity-flow nextsteps [WORK-ID]` when you want the full ordered `NOW`, `THEN`, and
+result. Help questions are classified model-free as concept, procedure, diagnosis, comparison,
+command discovery, or recovery; weak matches say no grounded answer exists and close matches return
+choices. Use `singularity-flow nextsteps [WORK-ID]` when you want the full ordered `NOW`, `THEN`, and
 `ALTERNATIVE` plan instead of one recommendation.
 
 For an outcome that spans several Stories or sessions, use `/sf-goal`. A Goal requires observable

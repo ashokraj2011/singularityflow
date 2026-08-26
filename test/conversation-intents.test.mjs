@@ -7,6 +7,7 @@ import {
   planDeveloperConversation
 } from '../src/gateway/conversation.mjs';
 import { gatewayRegistry } from '../src/gateway/operations.mjs';
+import { HELP_INTENTS, classifyHelpIntent } from '../src/help-intents.mjs';
 
 const examples = [
   ['Could you tell me what I am working on today?', 'orient', 'developer.next', true],
@@ -15,21 +16,44 @@ const examples = [
   ['What is blocking this Story?', 'inspect', 'work.readiness', true],
   ['Where did I stop yesterday?', 'inspect', 'work.return', true],
   ['Generate the active phase', 'act', 'work.continue', false],
-  ['The publication push is stuck', 'recover', 'work.continue', true]
+  ['The publication push is stuck', 'recover', 'work.continue', true],
+  ['What is project binding?', 'help', 'help.explain', true]
 ];
 
-test('ordinary developer language maps to the six closed intents', () => {
-  assert.equal(CONVERSATION_SCHEMA_VERSION, 2);
-  assert.deepEqual(DEVELOPER_INTENTS, ['orient', 'continue', 'start', 'inspect', 'act', 'recover']);
+test('ordinary developer language maps to the seven closed intents', () => {
+  assert.equal(CONVERSATION_SCHEMA_VERSION, 3);
+  assert.deepEqual(DEVELOPER_INTENTS, ['orient', 'continue', 'start', 'inspect', 'act', 'recover', 'help']);
   for (const [utterance, intent, operationId, automatic] of examples) {
     const result = planDeveloperConversation(utterance);
     assert.equal(result.intent, intent, utterance);
     assert.equal(result.route.operationId, operationId, utterance);
     assert.equal(result.route.automatic, automatic, utterance);
-    assert.equal(result.stateSource, 'durable-records');
+    assert.equal(result.stateSource, intent === 'help' ? 'packaged-documentation' : 'durable-records');
     assert.equal(Object.values(result.effects).every((value) => value === false), true);
     assert.equal(Object.hasOwn(result, 'utterance'), false, 'raw developer prose is not retained');
   }
+});
+
+test('help classifies answer shape without selecting an action', () => {
+  assert.deepEqual(HELP_INTENTS, [
+    'concept', 'procedure', 'diagnose', 'compare', 'command-discovery', 'recover'
+  ]);
+  assert.equal(classifyHelpIntent('What is a project binding?'), 'concept');
+  assert.equal(classifyHelpIntent('How do I enable AST?'), 'procedure');
+  assert.equal(classifyHelpIntent('Why is approval failing?'), 'diagnose');
+  assert.equal(classifyHelpIntent('Compare auto mode versus manual mode'), 'compare');
+  assert.equal(classifyHelpIntent('Which command shows prompt logs?'), 'command-discovery');
+  assert.equal(classifyHelpIntent('How can I recover a failed publication?'), 'recover');
+  assert.equal(classifyHelpIntent('Please just sort it out somehow'), null);
+
+  const planned = planDeveloperConversation('What is project binding?');
+  assert.equal(planned.route.helpIntent, 'concept');
+  assert.equal(planned.route.confirmation, 'none');
+  assert.equal(planned.stateSource, 'packaged-documentation');
+
+  assert.equal(planDeveloperConversation('How do approvals work?').route.operationId, 'help.explain');
+  assert.equal(planDeveloperConversation('How do I submit a phase?').route.operationId, 'help.explain');
+  assert.equal(planDeveloperConversation('Submit this phase').route.operationId, 'work.continue');
 });
 
 test('start language infers only a bounded work shape and category', () => {
@@ -63,4 +87,8 @@ test('ambiguous and unknown language never silently selects an action', () => {
   assert.equal(unknown.confidence, 'none');
   assert.equal(unknown.route, null);
   assert.deepEqual(unknown.choices, []);
+
+  const blocked = planDeveloperConversation("Why can't I submit?");
+  assert.equal(blocked.route.id, 'inspect-readiness');
+  assert.equal(blocked.route.operationId, 'work.readiness');
 });

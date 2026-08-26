@@ -412,6 +412,9 @@ export function resolveIntent(request = {}, {
         if (conversation.route.operationId === 'problem.investigate') {
           context.arguments = { ...context.arguments, symptom: utterance };
         }
+        if (conversation.route.operationId === 'help.explain') {
+          context.arguments = { ...context.arguments, question: utterance };
+        }
         why.push(reason('resolution.matched.conversation', {
           reference: conversation.route.id,
           slots: { intent: conversation.intent, skill: conversation.route.recommendedSkill }

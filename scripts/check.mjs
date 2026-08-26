@@ -519,14 +519,18 @@ checked.push('templates/portfolio.yml');
       let baseline = null;
       try { baseline = JSON.parse(previous.stdout); } catch { baseline = null; }
       const before = new Map((baseline?.topics ?? []).map((entry) => [entry.id, entry]));
+      const current = new Map(buildManifest(topics).topics.map((entry) => [entry.id, entry]));
       const unbumped = topics
         .filter((topic) => {
           const prior = before.get(topic.id);
-          return prior && prior.sha256 !== topic.sha256 && prior.version === topic.version;
+          const now = current.get(topic.id);
+          return prior && now && prior.version === topic.version
+            && (prior.sha256 !== now.sha256
+              || (prior.routingSha256 && prior.routingSha256 !== now.routingSha256));
         })
         .map((topic) => `${topic.file} (still v${topic.version})`);
       if (unbumped.length) {
-        fail(`Topic content changed without a version bump: ${unbumped.join(', ')}. Raise 'version:' in the frontmatter, then rebuild the manifest.`);
+        fail(`Topic content or routing metadata changed without a version bump: ${unbumped.join(', ')}. Raise 'version:' in the frontmatter, then rebuild the manifest.`);
       }
     }
 

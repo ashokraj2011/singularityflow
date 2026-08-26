@@ -194,6 +194,19 @@ test('the Copilot provider enforces its current minimum AI-credit limit before p
     && error.details?.requested === 8);
 });
 
+test('ACP automatic planning omits the SFlow credit ceiling and accepts provider token usage', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-auto-planning-'));
+  const result = await invokeAcp(root, {
+    limits: {
+      timeoutMs: 2000, outputBytes: 64 * 1024,
+      maxAiCredits: 'auto', maxTotalTokens: 'auto'
+    }
+  });
+  const observed = JSON.parse(result.output);
+  assert.equal(observed.argv.includes('--max-ai-credits'), false);
+  assert.equal(result.usage.totalTokens, 12);
+});
+
 test('ACP records exact normalized output and fails closed on response and token budgets', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-budgets-'));
   await t.test('normalized output receipt', async () => {
@@ -240,10 +253,13 @@ test('ACP audits tool outcomes and rejects failed, truncated, excessive-call, an
       limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 8, maxTurns: 2 }
     }), (error) => error.code === 'MODEL_TURN_LIMIT');
   });
-  await t.test('automatic turns allow the provider to finish within the independent tool budget', async () => {
+  await t.test('automatic planning allows the provider to finish its tool work', async () => {
     const completed = await invokeAcp(root, {
       fixtureArguments: ['--fixture-many-tools'], tools,
-      limits: { timeoutMs: 2000, outputBytes: 64 * 1024, maxToolCalls: 8, maxTurns: 'auto' }
+      limits: {
+        timeoutMs: 2000, outputBytes: 64 * 1024,
+        maxToolCalls: 'auto', maxTurns: 'auto'
+      }
     });
     assert.equal(completed.toolObservation.totalCalls, 4);
     assert.ok(completed.toolObservation.turns > 2);

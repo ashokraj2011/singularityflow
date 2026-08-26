@@ -94,6 +94,9 @@ export function copilotAllowedRootArguments(request) {
 
 function copilotAiCreditArguments(limits = {}) {
   const credits = limits.maxAiCredits ?? COPILOT_MINIMUM_AI_CREDITS;
+  // `auto` means that SFlow does not impose a provider credit ceiling. Copilot remains responsible
+  // for the account's own entitlement, policy, and consent boundaries.
+  if (credits === 'auto') return [];
   if (!Number.isSafeInteger(credits) || credits < COPILOT_MINIMUM_AI_CREDITS) {
     throw new SingularityFlowError(
       `Copilot CLI requires a model invocation limit of at least ${COPILOT_MINIMUM_AI_CREDITS} AI credits; received ${credits}.`,
@@ -480,6 +483,7 @@ async function invokeCopilotAcp(request) {
   const activeToolCalls = new Set();
   let toolRounds = 0;
   const maximumToolCalls = request.limits.maxToolCalls ?? 64;
+  const toolCallsAreAutomatic = maximumToolCalls === 'auto';
   // `auto` delegates conversation completion to the ACP agent. It is intentionally not the
   // provider-wide default: callers must opt in for operations, such as world-model discovery and
   // synthesis, whose number of tool rounds depends on repository size and the output graph. Independent
@@ -538,7 +542,7 @@ async function invokeCopilotAcp(request) {
       const update = params.update;
       if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
         const isNew = !toolCalls.has(update.toolCallId);
-        if (isNew && toolCalls.size >= maximumToolCalls) {
+        if (isNew && !toolCallsAreAutomatic && toolCalls.size >= maximumToolCalls) {
           boundaryError(
             `${providerLabel} exceeded the ${maximumToolCalls}-call ACP tool budget.`,
             'MODEL_TOOL_CALL_LIMIT', { maximumToolCalls }
@@ -705,7 +709,9 @@ async function invokeCopilotAcp(request) {
     );
   }
   const usage = acpUsage(promptResult?.usage);
-  if (Number.isFinite(usage.totalTokens) && usage.totalTokens > request.limits.maxTotalTokens) {
+  const tokensAreAutomatic = request.limits.maxTotalTokens === 'auto';
+  if (!tokensAreAutomatic && Number.isFinite(usage.totalTokens)
+      && usage.totalTokens > request.limits.maxTotalTokens) {
     throw new SingularityFlowError(
       `${providerLabel} exceeded the ${request.limits.maxTotalTokens}-token invocation budget.`,
       {

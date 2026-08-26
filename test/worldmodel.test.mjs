@@ -1121,10 +1121,12 @@ test('storyless wm build expands --views all before concurrent discovery and syn
   assert.equal(invocations.filter((entry) => entry.routing?.task === 'analyze').length, 7);
   assert.equal(invocations.filter((entry) => entry.routing?.task === 'reason').length, 1);
   assert.ok(invocations.filter((entry) => entry.routing?.task === 'analyze')
-    .every((entry) => entry.limits.maxTurns === 'auto'),
-  'every discovery view uses provider-completion turn routing');
-  assert.equal(invocations.find((entry) => entry.routing?.task === 'reason').limits.maxTurns, 'auto',
-    'final synthesis uses provider-completion turn routing');
+    .every((entry) => ['maxTurns', 'maxToolCalls', 'maxTotalTokens', 'maxAiCredits']
+      .every((field) => entry.limits[field] === 'auto')),
+  'every discovery view uses automatic provider planning');
+  assert.ok(['maxTurns', 'maxToolCalls', 'maxTotalTokens', 'maxAiCredits']
+    .every((field) => invocations.find((entry) => entry.routing?.task === 'reason').limits[field] === 'auto'),
+  'final synthesis uses automatic provider planning');
   const status = JSON.parse(run(process.execPath, [
     bin, 'wm', 'status', '--views', 'all', '--json'
   ], root));

@@ -92,6 +92,23 @@ const WORLD_MODEL_REBUILD_REASONS = new Set([
   'packet-invalid', 'policy-forced', 'extension-base-unavailable',
   'legacy-record-insufficient'
 ]);
+
+/**
+ * Repository size and output shape determine model planning work; one reviewed helper keeps every
+ * world-model stage from accidentally inheriting the generic relay/agent ceilings again. Transport
+ * safety remains bounded by time, output bytes, prompt bytes, individual tool-result bytes, and
+ * cancellation. Provider/account policy remains authoritative for entitlement and consent.
+ */
+function worldModelPlanningLimits(options, defaultTimeoutMs) {
+  return {
+    timeoutMs: optionNumber(options, 'timeout-ms', defaultTimeoutMs),
+    outputBytes: 8 * 1024 * 1024,
+    maxTurns: 'auto',
+    maxToolCalls: 'auto',
+    maxTotalTokens: 'auto',
+    maxAiCredits: 'auto'
+  };
+}
 const NON_RETRYABLE_MODEL_PROVIDER_CODES = new Set([
   'MODEL_NOT_AVAILABLE', 'MODEL_SELECTION_MISMATCH', 'MODEL_TOOL_UNSUPPORTED',
   'MODEL_REQUEST_INVALID', 'MODEL_PROMPT_TRANSPORT_UNSUPPORTED',
@@ -1658,14 +1675,7 @@ async function runParallelDiscovery(
         channel: 'world-model-discovery',
         subject: { kind: 'repository-world-model', view },
         tools: { mode: 'allowlist', names: [...WORLD_MODEL_DISCOVERY_TOOLS] },
-        // Repository size determines how many ACP inspection rounds a view needs. Discovery and
-        // final synthesis therefore share provider-completion turn routing; independent timeout,
-        // output, token, tool-call, tool-result, and cancellation limits remain enforced.
-        limits: {
-          timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000),
-          outputBytes: 8 * 1024 * 1024,
-          maxTurns: 'auto'
-        }
+        limits: worldModelPlanningLimits(options, 15 * 60 * 1000)
       });
     } catch (error) {
       // Retrying a deterministic ACP boundary refusal repeats spend without changing its cause.
@@ -2276,15 +2286,7 @@ output.
         channel: 'world-model-synthesis',
         subject: { kind: 'repository-world-model' },
         tools: { mode: 'allowlist', names: [...WORLD_MODEL_SYNTHESIS_TOOLS] },
-        // Seven-view synthesis can require a variable number of sequential ACP tool rounds to
-        // inspect, write, and verify the manifest-controlled output graph. Let ACP finish that
-        // conversation instead of imposing the generic 16-round ceiling. The independent
-        // timeout, output, token, tool-call, tool-result, and cancellation limits still apply.
-        limits: {
-          timeoutMs: optionNumber(options, 'timeout-ms', 20 * 60 * 1000),
-          outputBytes: 8 * 1024 * 1024,
-          maxTurns: 'auto'
-        }
+        limits: worldModelPlanningLimits(options, 20 * 60 * 1000)
       });
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the
     // command shows nothing at all while it does the most interesting thing it does.

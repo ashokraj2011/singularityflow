@@ -90,10 +90,10 @@ function positiveInteger(value, label) {
   return value;
 }
 
-function modelTurnLimit(value, fallback) {
+function automaticPositiveInteger(value, fallback, label) {
   if (value == null) return fallback;
   if (value === 'auto') return value;
-  return positiveInteger(value, 'limits.maxTurns');
+  return positiveInteger(value, label);
 }
 
 const DEFAULT_MODEL_LIMITS = Object.freeze({
@@ -208,15 +208,20 @@ async function normalizeRequest(request, context) {
     promptBytes: request.limits?.promptBytes == null
       ? DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES
       : positiveInteger(request.limits.promptBytes, 'limits.promptBytes'),
-    maxToolCalls: request.limits?.maxToolCalls == null
-      ? defaultLimits.maxToolCalls : positiveInteger(request.limits.maxToolCalls, 'limits.maxToolCalls'),
-    maxTurns: modelTurnLimit(request.limits?.maxTurns, defaultLimits.maxTurns),
-    maxTotalTokens: request.limits?.maxTotalTokens == null
-      ? defaultLimits.maxTotalTokens : positiveInteger(request.limits.maxTotalTokens, 'limits.maxTotalTokens'),
+    maxToolCalls: automaticPositiveInteger(
+      request.limits?.maxToolCalls, defaultLimits.maxToolCalls, 'limits.maxToolCalls'
+    ),
+    maxTurns: automaticPositiveInteger(
+      request.limits?.maxTurns, defaultLimits.maxTurns, 'limits.maxTurns'
+    ),
+    maxTotalTokens: automaticPositiveInteger(
+      request.limits?.maxTotalTokens, defaultLimits.maxTotalTokens, 'limits.maxTotalTokens'
+    ),
     maxToolResultBytes: request.limits?.maxToolResultBytes == null
       ? defaultLimits.maxToolResultBytes : positiveInteger(request.limits.maxToolResultBytes, 'limits.maxToolResultBytes'),
-    maxAiCredits: request.limits?.maxAiCredits == null
-      ? defaultLimits.maxAiCredits : positiveInteger(request.limits.maxAiCredits, 'limits.maxAiCredits')
+    maxAiCredits: automaticPositiveInteger(
+      request.limits?.maxAiCredits, defaultLimits.maxAiCredits, 'limits.maxAiCredits'
+    )
   };
   const roots = request.allowedRoots?.length ? request.allowedRoots : [context.root].filter(Boolean);
   if (!roots.length || roots.some((root) => typeof root !== 'string' || !path.isAbsolute(root))) {

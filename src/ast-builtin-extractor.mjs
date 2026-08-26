@@ -1,10 +1,38 @@
-import { lineNumbers } from './text-lines.mjs';
-
 export const BUILTIN_AST_EXTRACTOR = Object.freeze({
   id: 'builtin-text', version: 1, assurance: 'text', protocolVersion: 2
 });
 
 const SYMBOL_LANGUAGES = new Set(['javascript', 'typescript']);
+
+/**
+ * A copy of `text-lines.mjs`, and deliberately a copy.
+ *
+ * This module is bundled for evidence replay: `ast-evidence.mjs` declares the exact file set that is
+ * hashed for engine identity and base64-copied into a replay bundle, and `ast-replay.mjs` checks the
+ * restored bundle against a fixed expected set of the same size. Importing a shared helper here made
+ * the extractor unloadable inside a replayed bundle — `ERR_MODULE_NOT_FOUND` on a file nothing had
+ * been told to copy — and adding it to those three lists widens what every recorded piece of
+ * evidence has to carry, to save an import of forty lines.
+ *
+ * So the sharing stops at the boundary of the replay bundle. Editing this file is fine; growing its
+ * import graph is not, and that is the rule worth writing down rather than the duplication.
+ */
+function lineNumbers(text) {
+  const starts = [0];
+  for (let index = text.indexOf('\n'); index >= 0; index = text.indexOf('\n', index + 1)) {
+    starts.push(index + 1);
+  }
+  return (offset) => {
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= offset) low = middle;
+      else high = middle - 1;
+    }
+    return low + 1;
+  };
+}
 
 function extractSymbols(text, relative) {
   const symbols = [];

@@ -4,7 +4,6 @@ import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import { commandTimer, recordCommandTiming, writeCommandTimings } from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
-import { withReadScope } from './read-scope.mjs';
 import { parseArgs, run, SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
@@ -277,21 +276,6 @@ export async function main(argv) {
     await module.load?.();
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
-    const invoke = () => module.run(effectiveArgv, { positionals: [definition.name, ...positionals.slice(1)], options, definition, operation, requestedOperation, modelMode });
-    /**
-     * A read-only operation may compute an expensive fact once. `[UXH:REQ-120]`
-     *
-     * `read-scope.mjs` exists for this and was opened in two places — `kernel.read` on the gateway,
-     * and one helper in `config.mjs`. So every `scopedRead`/`scopedReadSync` in the codebase
-     * degraded to a passthrough for `status`, `next`, `doctor`, `inputs` and `nextsteps`: the
-     * branch name was asked seven times in one `next`, and the definition parsed repeatedly.
-     *
-     * Opening the scope is a claim that this operation does not write, and the claim is exactly what
-     * `operation.classification` already records — resolved per *operation* rather than per command,
-     * so `report`, `review`, `inputs`, `spec` and `visual` open one for their read subcommands and
-     * not for their mutating ones. Writers never open a scope, so they cannot be handed a value from
-     * before their own write; that is the property the module is built on and this does not widen it.
-     */
     const result = await withOperationContext({
       operation,
       modelMode,
@@ -301,7 +285,7 @@ export async function main(argv) {
       fallbackFrom: operation.id === requestedOperation.id ? null : requestedOperation.id,
       command: definition.name,
       startedAt
-    }, operation.classification === 'read' ? () => withReadScope(invoke) : invoke);
+    }, () => module.run(effectiveArgv, { positionals: [definition.name, ...positionals.slice(1)], options, definition, operation, requestedOperation, modelMode }));
     timer.stage('execute');
     /**
      * Private return memory is downstream of authority, never inside its transaction.

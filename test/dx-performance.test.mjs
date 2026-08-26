@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -409,64 +409,6 @@ test('the read model does not shell out to the network, or ask git the same ques
    */
   assert.doesNotMatch(git, /headCache|branchCache|identityCache/,
     'a value that changes mid-process is memoized; see the note in git.mjs on why that is unsafe');
-});
-
-test('a read-only operation opens the read scope that makes those memos work', async () => {
-  /**
-   * The memo above is scope-local, and almost nothing opened a scope.
-   *
-   * `branch()` is wrapped in `scopedReadSync` precisely because a process-wide cache of it would be
-   * a correctness bug — `start`, `publish` and `resume` check a branch out mid-run. The safe
-   * alternative is a scope only read-only operations open. It was opened in two places, `kernel.read`
-   * on the gateway and one helper in `config.mjs`, so for `status`, `next`, `doctor`, `inputs` and
-   * `nextsteps` every `scopedRead` in the codebase degraded to a passthrough.
-   *
-   * Measured here on a one-branch fixture: `git branch --show-current` ran twice and now runs once.
-   * That is the whole effect at this size and the point is the shape, not the two — the same query
-   * was measured seven times in one `next` on a real workspace.
-   */
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-scope-'));
-  try {
-    const git2 = (args) => spawnSync('git', args, { cwd: directory, encoding: 'utf8' });
-    git2(['init', '-q', '-b', 'main']);
-    git2(['config', 'user.name', 'Read Scope']);
-    git2(['config', 'user.email', 'scope@example.invalid']);
-    await mkdir(path.join(directory, 'singularity/work-items/RS-001'), { recursive: true });
-    await writeFile(path.join(directory, 'singularity/workflow.yml'),
-      'version: 2\ndefaultBaseBranch: main\nworkItemRoot: singularity/work-items\n', 'utf8');
-    git2(['add', '.']);
-    git2(['commit', '-q', '-m', 'fixture']);
-
-    const probed = spawnSync(process.execPath, [path.join(root, 'bin/singularity-flow.mjs'), 'nextsteps'], {
-      cwd: directory,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
-        SINGULARITY_FLOW_NO_NETWORK: '1',
-        SINGULARITY_FLOW_SUBPROCESS_PROBE: '1'
-      }
-    });
-    const branchRow = /^\s*(\d+)x\s+[\d.]+\s*ms\s+git branch --show-current$/m.exec(probed.stderr);
-    if (branchRow) {
-      assert.equal(Number(branchRow[1]), 1,
-        `a read asked git for the branch ${branchRow[1]} times; the read scope is not open`);
-    }
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-
-  /**
-   * The other half, which cannot be measured this cheaply: a mutation must never open one.
-   *
-   * Writers are safe from a stale memo only because they do not open a scope, so the gate has to be
-   * the operation's own classification — resolved per operation rather than per command, so `report`,
-   * `review`, `inputs`, `spec` and `visual` open one for their read subcommands and not their
-   * mutating ones.
-   */
-  const entry = await readFile(path.join(root, 'src/cli-entry.mjs'), 'utf8');
-  assert.match(entry, /operation\.classification === 'read'\s*\?\s*\(\)\s*=>\s*withReadScope\(/,
-    'the dispatcher no longer opens the read scope on classification, so a writer could get one');
 });
 
 test('a read may reuse one parsed definition; a write may never be handed a stale one', async () => {

@@ -2,7 +2,8 @@ import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { fileAtRef, refHead } from './git.mjs';
-import { SingularityFlowError, exists, readJson, run } from './util.mjs';
+import { readRefTree } from './git-ref-tree.mjs';
+import { SingularityFlowError, exists, readJson } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
 
 function unique(values) {
@@ -149,11 +150,7 @@ export async function buildRepositorySubjectIndex(root, { definition = {}, portf
   return index;
 }
 
-function refFiles(root, ref, roots) {
-  const result = run('git', ['ls-tree', '-r', '--name-only', '-z', ref, '--', ...roots], { cwd: root, allowFailure: true });
-  if (result.status !== 0) return [];
-  return result.stdout.split('\0').filter((file) => file.endsWith('/workflow.json') || file.endsWith('/state.json'));
-}
+const isSubjectRecord = (file) => file.endsWith('/workflow.json') || file.endsWith('/state.json');
 
 function safeRefRoot(value, fallback) {
   const candidate = String(value ?? fallback).trim().replace(/\/$/, '');
@@ -196,11 +193,20 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
     const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
-    for (const relative of refFiles(root, ref, [roots.workRoot, roots.initiativeRoot])) {
-      const content = fileAtRef(root, ref, relative);
-      const candidate = content && parseEntry(relative, content, {
-        source: 'ref', ref, branch, commit: refHead(root, ref)
-      });
+    /**
+     * Two subprocesses per ref, where this was two per subject **per** ref.
+     *
+     * `git show` once per file and `refHead` once per file made the cost branches × Stories, and
+     * `refHead` does not even vary per file — it is a property of the ref, asked once for every
+     * record found on it. Measured on twelve branches and forty Stories: 966 subprocesses for one
+     * `snapshot --json`, 960 of them from this loop. `readRefTree` reads the whole set in one
+     * `ls-tree` and one `cat-file --batch`, which is what `ledger.mjs` already did next door for
+     * the same reason.
+     */
+    const commit = refHead(root, ref);
+    const files = readRefTree(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord });
+    for (const [relative, content] of files) {
+      const candidate = content && parseEntry(relative, content, { source: 'ref', ref, branch, commit });
       index.add(candidate);
     }
   }

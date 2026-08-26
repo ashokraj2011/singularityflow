@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   SingularityFlowError, ensureDir, exists, nowIso, readJson, run, writeAtomic, writeJson
 } from './util.mjs';
+import { readRefTree as readRefTreeShared } from './git-ref-tree.mjs';
 import { scopedRead } from './read-scope.mjs';
 import { defaultBranchName, gitDir, hasRemote, identity, refExists } from './git.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
@@ -1004,40 +1005,13 @@ export async function reconcileLedger(root, rawConfig, { workId = null } = {}) {
  * arrives on stdin, which is why `run()` grew an `input` option. Output is taken as **bytes**: the
  * format is a header line followed by exactly `size` bytes of content, and walking that as a string
  * is right only until an entry contains a character outside ASCII.
+ *
+ * The implementation now lives in `git-ref-tree.mjs`, because the subject index needed the same two
+ * subprocesses for the same reason — it was running `git show` once per work item per ref — and a
+ * second copy of a byte-offset walk is a second place for it to be subtly wrong. This wrapper keeps
+ * the single-prefix call shape the queries below already use.
  */
-function readRefTree(root, ref, prefix) {
-  const listed = git(root, ['ls-tree', '-r', '-z', '--format=%(objectname) %(path)', ref, '--', prefix], { allowFailure: true });
-  if (listed.status !== 0) return new Map();
-  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
-    const separator = line.indexOf(' ');
-    return { oid: line.slice(0, separator), file: line.slice(separator + 1) };
-  });
-  if (!entries.length) return new Map();
-
-  const batch = run('git', ['cat-file', '--batch'], {
-    cwd: root,
-    allowFailure: true,
-    encoding: 'buffer',
-    input: `${entries.map((entry) => entry.oid).join('\n')}\n`
-  });
-  if (batch.status !== 0) return new Map();
-
-  const contents = new Map();
-  const buffer = batch.stdout;
-  let cursor = 0;
-  for (const entry of entries) {
-    const newline = buffer.indexOf(0x0a, cursor);
-    if (newline < 0) break;
-    // `<oid> <type> <size>` — the size is in bytes and is what makes this walk exact.
-    const size = Number(buffer.toString('utf8', cursor, newline).trim().split(' ')[2]);
-    if (!Number.isFinite(size)) break;
-    const start = newline + 1;
-    contents.set(entry.file, buffer.toString('utf8', start, start + size));
-    // Git writes a newline after each object's contents, so the next header starts one byte later.
-    cursor = start + size + 1;
-  }
-  return contents;
-}
+const readRefTree = (root, ref, prefix) => readRefTreeShared(root, ref, [prefix]);
 
 /** One file from a ref, or null when the ref does not carry it. */
 function readRefFile(root, ref, file) {

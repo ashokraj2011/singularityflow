@@ -34,9 +34,13 @@ branches, and gates each on **how many subprocesses it ran relative to the refer
 A count is used rather than a clock deliberately: it is the same on a fast runner and a loaded one,
 so it can carry a complexity claim. `status`, `nextsteps` and the sliced `snapshot` are pinned at
 exactly 1.0 — they answer the same question on both fixtures and must not need more processes to do
-it. `snapshot --json` is pinned at 15, which records what is true rather than what would be nice: it
-runs 966 subprocesses against 68, because `buildRepositorySubjectIndex` spawns two Git processes per
-branch × Story pair. Lower that number when the index reads one tree per ref; never raise it.
+it.
+
+`snapshot --json` is pinned at 2.0. It first measured 966 subprocesses against 68 — a 14.21× growth —
+because `buildRepositorySubjectIndexFromRefs` spawned two Git processes per branch × Story pair.
+Reading one tree per ref instead (`src/git-ref-tree.mjs`) took that to 108, a 1.59× growth. What
+remains is linear in refs and not in Stories, which is correct: twelve branches genuinely hold twelve
+trees to read. Never raise it.
 
 Pass `--skip-scale` to leave the tier out of a quick local run.
 

@@ -170,3 +170,41 @@ test('workspace materialization honors blobless sparse checkout without touching
   assert.equal(run('git', ['rev-parse', 'refs/heads/main'], { cwd: bare }).stdout.trim(), original,
     'workspace creation is read-only with respect to the selected base branch');
 });
+
+test('the performance report measures the AST read twice, so a cache that never fills is visible', async () => {
+  /**
+   * Everything else in this report is measured cold and warm, and the AST index was not measured at
+   * all — which is how a store that is read and never written stayed a code fact rather than a
+   * number. `buildOrContext` passes `persist: operation === 'build'`, so `ast context` and
+   * `ast query` consult the content-addressed skeleton store and never fill it; on a repository
+   * whose `ast build` has never run, every call re-derives every skeleton.
+   *
+   * Measured on this repository's own checkout: `status` warmed to 63% of its cold cost and the
+   * world-model fingerprint to 51%, while a repeated AST read cost 86% — the shape of no cache at
+   * all, next to two that work.
+   *
+   * The assertion is on the measurement, not on the ratio. A three-file fixture is too small and too
+   * fast for a warm/cold ratio to mean anything, and pinning one here would be a test of scheduler
+   * noise. What must not regress is that the number is taken and reported.
+   */
+  const root = await repository();
+  const report = await repositoryPerformanceSnapshot(root, {});
+
+  const ast = report.timings.astContext;
+  assert.ok(ast, 'the report no longer measures the AST read');
+  if (ast.unavailable) {
+    // A disabled extractor is a legitimate answer, but it has to say so rather than report a zero.
+    assert.ok(ast.unavailable.length > 0);
+    assert.equal(ast.coldMs, null);
+  } else {
+    assert.ok(Number.isFinite(ast.coldMs) && ast.coldMs >= 0, 'no cold AST measurement');
+    assert.ok(Number.isFinite(ast.warmMs) && ast.warmMs >= 0, 'no warm AST measurement');
+    assert.ok(Number.isInteger(ast.facts), 'the report does not say how much the AST read returned');
+  }
+
+  // The recommendation exists and is reachable: it is what turns the ratio into advice a person can
+  // act on, and it names the command that fills the store.
+  const source = await readFile(path.join(path.dirname(new URL(import.meta.url).pathname), '../src/performance-doctor.mjs'), 'utf8');
+  assert.match(source, /id: 'ast-cache-cold'/);
+  assert.match(source, /wm ast build/, 'the advice does not name the command that warms the store');
+});

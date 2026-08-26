@@ -59,6 +59,34 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
   const warmFingerprint = await worldModelSourceSnapshot(root, definition);
   const warmFingerprintMs = milliseconds(warmFingerprintStarted);
 
+  /**
+   * The AST index, measured the same way as everything else here: twice.
+   *
+   * Its cache is per-file and content-addressed, so a second identical call should be most of a
+   * cache hit and cost visibly less than the first. When the two numbers are the same, nothing was
+   * kept — and nothing is, on this path: `buildOrContext` persists only when the operation is
+   * `build`, so `ast context` and `ast query` read the store and never write it. A repository whose
+   * `ast build` has never been run therefore re-derives every skeleton on every call, for ever.
+   *
+   * Imported lazily because this whole module is an explicit benchmark rather than part of any read,
+   * and `ast-intelligence.mjs` is 2,300 lines nothing else here needs.
+   */
+  const astTimings = await (async () => {
+    try {
+      const { astContext } = await import('./ast-intelligence.mjs');
+      const options = { all: true, 'max-facts': 50, 'max-output-bytes': 256 * 1024 };
+      const coldStarted = performance.now();
+      const cold = await astContext(root, { ...options });
+      const coldMs = milliseconds(coldStarted);
+      const warmStarted = performance.now();
+      const warm = await astContext(root, { ...options });
+      return { coldMs, warmMs: milliseconds(warmStarted), facts: warm.facts?.length ?? cold.facts?.length ?? 0 };
+    } catch (error) {
+      // A repository with the extractor disabled, or no indexable source, is not a failed benchmark.
+      return { coldMs: null, warmMs: null, facts: 0, unavailable: String(error?.message ?? error).slice(0, 200) };
+    }
+  })();
+
   const sparse = config(root, 'core.sparseCheckout') === 'true';
   const partialFilter = config(root, 'remote.origin.partialclonefilter');
   const recommendations = [];
@@ -97,6 +125,22 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
       message: `Warm scoped fingerprinting took ${warmFingerprintMs} ms. Narrow capability sourceRoots/sharedRoots or its sparse cone.`
     });
   }
+  /**
+   * A cache that costs the same warm as cold is not a cache.
+   *
+   * Four fifths rather than a strict comparison: the second call legitimately shares an OS page
+   * cache and a warm Git object store, so some improvement is free and does not prove the content
+   * store was written. Anything above that is the store failing to fill, which on this path is by
+   * construction — `context` and `query` are handed `persist: false`.
+   */
+  if (astTimings.coldMs !== null && astTimings.coldMs > 50 && astTimings.warmMs > astTimings.coldMs * 0.8) {
+    recommendations.push({
+      id: 'ast-cache-cold',
+      severity: 'medium',
+      message: `A repeated AST read cost ${astTimings.warmMs} ms against the first call's ${astTimings.coldMs} ms, so the`
+        + ' content-addressed skeleton store is not being filled. Run `singularity-flow wm ast build` to warm it.'
+    });
+  }
   if (coldFingerprint.sha256 !== warmFingerprint.sha256) {
     recommendations.unshift({
       id: 'unstable-fingerprint',
@@ -118,7 +162,8 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
     },
     timings: {
       status: { coldMs: coldStatus.milliseconds, warmMs: warmStatus.milliseconds, entries: warmStatus.entries },
-      worldModelFingerprint: { coldMs: coldFingerprintMs, warmMs: warmFingerprintMs }
+      worldModelFingerprint: { coldMs: coldFingerprintMs, warmMs: warmFingerprintMs },
+      astContext: astTimings
     },
     fingerprint: warmFingerprint.sha256,
     recommendations

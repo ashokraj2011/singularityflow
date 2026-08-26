@@ -31,6 +31,17 @@ const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ]);
 
+// Exact bytes of model maps shipped by earlier SFlow packages. Repositories with no recorded
+// package baseline used to preserve these as if they were local customizations, leaving retired
+// model pins active forever. Exact hashes let refresh advance product-owned bytes while continuing
+// to preserve even a one-byte repository customization.
+const RETIRED_PACKAGE_ASSET_HASHES = Object.freeze({
+  'singularity/modelTiers.yml': Object.freeze([
+    '9a6b011b1033b205981d7dd1e87a215a3de53f81c2e422a85d9f8d6438d36faf',
+    '68f5da2150926169e8316944b9f11a33271d46127abdadcd88a233d2b4e2860a'
+  ])
+});
+
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -333,7 +344,9 @@ export async function refreshPackagedConfiguration(root, {
     const currentHash = currentBytes ? sha256(currentBytes) : null;
     const bundledHash = sha256(bundled);
     const priorHash = priorAssets[relative]?.sha256 ?? null;
-    const safeToWrite = !info || currentHash === bundledHash || (priorHash && currentHash === priorHash);
+    const retiredPackagedAsset = RETIRED_PACKAGE_ASSET_HASHES[relative]?.includes(currentHash) === true;
+    const safeToWrite = !info || currentHash === bundledHash
+      || (priorHash && currentHash === priorHash) || retiredPackagedAsset;
     if (currentHash === bundledHash) continue;
     const resolution = resolutions[relative] ?? (acceptBundledConflicts ? 'bundled' : 'local');
     if (resolution === 'merge') {

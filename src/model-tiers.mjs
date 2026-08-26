@@ -24,6 +24,19 @@ import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const MODEL_TIERS_PATH = 'singularity/modelTiers.yml';
 
+// Semantic revisions of model maps previously shipped by SFlow itself. They are not general
+// compatibility aliases: they identify the two historical bundled ladders that predated provider
+// auto-routing. Configuration refresh uses exact asset hashes; checkpoint recovery uses these
+// normalized revisions so completed discovery packets survive that reviewed package migration.
+export const RETIRED_BUNDLED_MODEL_TIER_REVISIONS = Object.freeze([
+  'e6c626eb0d6d591074bbd86b11ea61527cc12d326a9f9ae12fe72c6273b6e5e6',
+  '256cd44e73e8b0134bb80e29a17be1d093fbdb17fbe097a9df466305b79337d4'
+]);
+
+export function isRetiredBundledModelTierRevision(value) {
+  return RETIRED_BUNDLED_MODEL_TIER_REVISIONS.includes(value);
+}
+
 /** Parameters a tier may carry. Anything else is refused rather than passed to a provider unread. */
 const ALLOWED_PARAMS = Object.freeze(['effort', 'temperature', 'maxOutputTokens', 'thinkingBudget']);
 

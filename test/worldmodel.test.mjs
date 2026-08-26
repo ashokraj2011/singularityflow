@@ -1203,6 +1203,61 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
 });
 
+test('wm build reuses completed discovery when bundled routing upgrades from retired pins to provider auto', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-routing-upgrade-'));
+  const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-routing-upgrade-${process.pid}-${Date.now()}.jsonl`);
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Routing Upgrade Tester'], root);
+  run('git', ['config', 'user.email', 'routing-upgrade@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
+  await writeFile(
+    path.join(root, 'singularity/modelTiers.yml'),
+    await readFile(path.join(packageRoot, 'test/fixtures/legacy-modelTiers-gpt4o.yml'))
+  );
+  await writeFile(path.join(root, 'README.md'), '# Routing-upgrade world-model test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize with retired bundled routing'], root);
+
+  const args = [bin, 'wm', 'build', '--phase', 'design', '--parallel', '--workers', '2'];
+  const first = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog,
+    SFLOW_MOCK_FAIL_SYNTHESIS: '1'
+  });
+  assert.notEqual(first.status, 0);
+  assert.match(first.stderr, /checkpoint retained in the repository: 2 completed, 0 pending/);
+
+  await writeFile(
+    path.join(root, 'singularity/modelTiers.yml'),
+    await readFile(path.join(packageRoot, 'templates/modelTiers.yml'))
+  );
+  const second = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog
+  });
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+  assert.match(second.stderr, /2 completed discovery packets reused across the bundled model-routing upgrade/);
+  assert.match(second.stderr, /World-model resume: 2 completed view packets reused; 0 pending/);
+  const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(events.filter((event) => event.event === 'start').length, 2,
+    'the provider-auto synthesis retry must not regenerate completed discovery packets');
+
+  const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(manifest.generation.resumed_views, ['architecture', 'security']);
+  assert.equal(manifest.generation.routing.synthesis.resolved_model, 'auto');
+  assert.ok(manifest.generation.routing.discovery.every((entry) => (
+    entry.origin === 'checkpoint'
+      && entry.mapping_revision === 'e6c626eb0d6d591074bbd86b11ea61527cc12d326a9f9ae12fe72c6273b6e5e6'
+  )));
+});
+
 test('wm build falls back to final synthesis when an optional discovery worker omits its packet', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-discovery-fallback-'));
   run('git', ['init', '-b', 'main'], root);

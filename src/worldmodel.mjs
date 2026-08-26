@@ -65,6 +65,7 @@ import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import {
   resolveWorldModelGenerationRouting, worldModelInvocationAttribution
 } from './world-model-generation-routing.mjs';
+import { isRetiredBundledModelTierRevision } from './model-tiers.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { compilePromptSections } from './prompt-budget.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
@@ -1369,6 +1370,77 @@ async function ensureCheckpointDirectory(directory, label) {
   }
 }
 
+function checkpointIdentityWithoutRouting(identity) {
+  if (!identity || typeof identity !== 'object') return null;
+  const copy = structuredClone(identity);
+  delete copy.generationRouting;
+  return copy;
+}
+
+function providerAutoRouting(plan) {
+  return [plan?.discovery, plan?.synthesis].every((stage) => (
+    stage?.planned?.preferredModel === 'auto'
+      && stage?.planned?.availableModels?.length === 1
+      && stage.planned.availableModels[0] === 'auto'
+  ));
+}
+
+/**
+ * Completed discovery evidence remains valid when the only changed input is SFlow's migration
+ * from one of its own retired model maps to provider-auto selection. User-authored routing changes
+ * remain strict checkpoint boundaries.
+ */
+export function canReuseRetiredRoutingCheckpoint(previousIdentity, currentIdentity, generationRouting) {
+  const previous = previousIdentity?.generationRouting;
+  const current = currentIdentity?.generationRouting;
+  return JSON.stringify(checkpointIdentityWithoutRouting(previousIdentity))
+      === JSON.stringify(checkpointIdentityWithoutRouting(currentIdentity))
+    && previous?.mode === 'task-routed'
+    && current?.mode === 'task-routed'
+    && previous.discoveryTask === current.discoveryTask
+    && previous.synthesisTask === current.synthesisTask
+    && isRetiredBundledModelTierRevision(previous.mappingRevision)
+    && previous.mappingRevision !== current.mappingRevision
+    && providerAutoRouting(generationRouting);
+}
+
+async function retiredRoutingCheckpoint(checkpointRoot, currentDirectory, identity, generationRouting) {
+  const candidates = [];
+  for (const entry of await readdir(checkpointRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const directory = path.join(checkpointRoot, entry.name);
+    if (directory === currentDirectory) continue;
+    const stateFile = path.join(directory, 'state.json');
+    if (!await regularFile(stateFile)) continue;
+    try {
+      const state = readRecord('worldmodel-checkpoint', await readFile(stateFile)).record;
+      if (!canReuseRetiredRoutingCheckpoint(state?.identity, identity, generationRouting)) continue;
+      const completed = Object.values(state.views ?? {}).filter((view) => view?.status === 'completed').length;
+      if (completed) candidates.push({ directory, state, completed });
+    } catch {
+      // Another checkpoint is untrusted input until its schema and packet receipts validate.
+    }
+  }
+  candidates.sort((left, right) => right.completed - left.completed
+    || String(right.state.updatedAt ?? '').localeCompare(String(left.state.updatedAt ?? ''))
+    || left.directory.localeCompare(right.directory));
+  return candidates[0] ?? null;
+}
+
+async function seedRetiredRoutingCheckpoint(checkpoint, packetDirectory, views) {
+  const seededViews = {};
+  for (const view of views) {
+    const record = checkpoint.state.views?.[view];
+    const expected = `packets/${checkpointPacketName(view)}`;
+    if (record?.status !== 'completed' || record.packet !== expected) continue;
+    const source = path.join(checkpoint.directory, expected);
+    if (!await regularFile(source)) continue;
+    await copyFile(source, path.join(packetDirectory, checkpointPacketName(view)));
+    seededViews[view] = structuredClone(record);
+  }
+  return seededViews;
+}
+
 async function prepareDiscoveryCheckpoint(root, config, options, views, metadata, sourceState, generationRouting) {
   const maximumPacketBytes = config.generation?.maximumDiscoveryPacketBytes
     ?? DEFAULT_MAX_DISCOVERY_PACKET_BYTES;
@@ -1412,6 +1484,21 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
     } catch (error) {
       if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
       // A malformed internal checkpoint is never trusted.
+    }
+  }
+  if (resume && !state) {
+    const compatible = await retiredRoutingCheckpoint(
+      checkpointRoot, directory, identity, generationRouting
+    );
+    if (compatible) {
+      const seededViews = await seedRetiredRoutingCheckpoint(compatible, packetDirectory, views);
+      const completed = Object.keys(seededViews).length;
+      if (completed) {
+        state = { ...compatible.state, views: seededViews };
+        console.warn(
+          `World-model resume: ${completed} completed discovery packet${completed === 1 ? '' : 's'} reused across the bundled model-routing upgrade; synthesis will use provider auto selection.`
+        );
+      }
     }
   }
   state = {

@@ -191,6 +191,20 @@ test('repository refresh restores additive policy and missing assets without ove
   assert.deepEqual(repeated.files, []);
 });
 
+test('configuration refresh upgrades an exact retired bundled model map without treating it as customization', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-model-map-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const target = path.join(root, 'singularity/modelTiers.yml');
+  const retired = await readFile(path.join(ROOT, 'test/fixtures/legacy-modelTiers-gpt4o.yml'));
+  await writeFile(target, retired);
+
+  const result = await refreshPackagedConfiguration(root);
+  assert.equal(await readFile(target, 'utf8'), await readFile(path.join(ROOT, 'templates/modelTiers.yml'), 'utf8'));
+  assert.ok(result.files.includes('singularity/modelTiers.yml'));
+  assert.ok(!result.conflicts.some((entry) => entry.path === 'singularity/modelTiers.yml'));
+});
+
 test('configuration refresh refuses a cross-file-invalid preserved agent and accepts an explicit repair', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-contract-'));
   t.after(() => rm(root, { recursive: true, force: true }));

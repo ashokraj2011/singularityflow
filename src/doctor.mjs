@@ -19,7 +19,7 @@ import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
-import { probePromptAttachmentCapability } from './model-provider-capability.mjs';
+import { probeModelPromptTransport } from './model-provider-capability.mjs';
 import { resolveWorldModelGenerationRouting } from './world-model-generation-routing.mjs';
 import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostics.mjs';
 import { listStoryStartJournals } from './story-start-journal.mjs';
@@ -159,37 +159,44 @@ export async function doctorSnapshot(root, {
     const providerType = configuredProvider.providerConfig?.type ?? configuredProvider.provider;
     const providerExecutable = configuredProvider.providerConfig?.executable
       ?? (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
-    const attachment = probePromptAttachmentCapability({ type: providerType, executable: providerExecutable });
+    const transport = probeModelPromptTransport({
+      type: providerType,
+      executable: providerExecutable,
+      promptTransport: configuredProvider.providerConfig?.promptTransport ?? 'auto'
+    });
     // A missing optional provider disables only model-backed generation. The phase contract still
     // permits human/model-free production, so turning the whole repository unhealthy here makes a
     // capability that is not required a show-stopper. An installed Copilot adapter that cannot use
-    // the required private attachment transport remains a failure: attempting to fall back to
-    // command-line prompt text would cross the security boundary this probe protects.
-    const providerUnavailable = attachment.code === 'MODEL_PROVIDER_UNAVAILABLE';
-    const attachmentReady = attachment.state === 'ready' || attachment.state === 'not-applicable';
+    // the required private text transport remains a failure: attempting to fall back to command-
+    // line prompt text would cross the security boundary this probe protects.
+    const providerUnavailable = transport.code === 'MODEL_PROVIDER_UNAVAILABLE';
+    const transportReady = transport.state === 'ready' || transport.state === 'not-applicable';
     checks.push(check(
-      'model-provider-prompt-attachment',
-      attachmentReady ? 'pass' : providerUnavailable ? 'warn' : 'fail',
-      attachment.state === 'ready'
-        ? `Model provider '${configuredProvider.provider}' supports private prompt attachments.`
-        : attachment.state === 'not-applicable'
+      'model-provider-prompt-transport',
+      transportReady ? 'pass' : providerUnavailable ? 'warn' : 'fail',
+      transport.state === 'ready'
+        ? `Model provider '${configuredProvider.provider}' supports private ${transport.transport} prompt transport.`
+        : transport.state === 'not-applicable'
           ? `Model provider '${configuredProvider.provider}' owns its prompt transport outside the Copilot adapter.`
           : providerUnavailable
             ? `Model provider '${configuredProvider.provider}' is not installed; model-backed generation is unavailable, while model-free work remains available.`
-            : `Model provider '${configuredProvider.provider}' cannot provide the required prompt-attachment capability.`,
-      attachment.state === 'blocked'
+            : `Model provider '${configuredProvider.provider}' cannot provide a supported private text prompt transport.`,
+      transport.state === 'blocked'
         ? providerUnavailable
           ? 'Install or configure the provider only before running model-backed generation.'
-          : 'Update or replace the configured Copilot-compatible executable before running model-backed generation.'
+          : 'Upgrade Copilot CLI to a release that advertises --acp before running model-backed generation.'
         : null,
-      { state: attachment.state, code: attachment.code, capability: attachment.capability }
+      {
+        state: transport.state, code: transport.code, capability: transport.capability,
+        transport: transport.transport, protocolVersion: transport.protocolVersion
+      }
     ));
   } else {
     checks.push(check(
-      'model-provider-prompt-attachment', 'skip',
-      'Prompt-attachment capability is checked only by the explicit doctor command to keep repository snapshots fast.',
+      'model-provider-prompt-transport', 'skip',
+      'Private prompt transport is checked only by the explicit doctor command to keep repository snapshots fast.',
       'Run singularity-flow doctor before model-backed generation.',
-      { state: 'not-checked', code: null, capability: 'prompt-attachment' }
+      { state: 'not-checked', code: null, capability: 'model-prompt-transport', transport: null, protocolVersion: null }
     ));
   }
   try {

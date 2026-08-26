@@ -612,7 +612,25 @@ export async function stageCli({ rootDir = root, extensionDir = extension } = {}
   for (const entry of CLI_PAYLOAD) {
     await cp(path.join(rootDir, entry), path.join(staged, entry), { recursive: true });
   }
-  await cp(path.join(rootDir, 'node_modules', 'yaml'), path.join(staged, 'node_modules', 'yaml'), { recursive: true });
+  // The CLI now has more than one runtime dependency. Copying a hand-maintained package name made
+  // the source checkout pass while the VSIX failed only after installation. The lockfile is the
+  // authoritative production closure; preserve its node_modules-relative layout verbatim.
+  const lock = JSON.parse(await readFile(path.join(rootDir, 'package-lock.json'), 'utf8'));
+  const production = Object.entries(lock.packages ?? {})
+    // npm records local workspaces beneath node_modules as link entries. They are development
+    // topology, not installable production packages, and copying the symlink makes VSCE try to
+    // archive a path that points back outside the staged CLI. Only real locked packages belong in
+    // the standalone runtime closure.
+    .filter(([relative, metadata]) => relative.startsWith('node_modules/')
+      && metadata?.dev !== true
+      && metadata?.link !== true)
+    .map(([relative]) => relative)
+    .sort((left, right) => left.split('/').length - right.split('/').length || left.localeCompare(right));
+  for (const relative of production) {
+    const source = path.join(rootDir, relative);
+    if (!existsSync(source)) throw new Error(`Locked production dependency is not installed: ${relative}`);
+    await cp(source, path.join(staged, relative), { recursive: true });
+  }
   return staged;
 }
 

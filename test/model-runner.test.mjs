@@ -10,10 +10,15 @@ import { listPromptAudits, setPromptAudit } from '../src/prompt-audit.mjs';
 import { run } from '../src/util.mjs';
 
 function request(root, overrides = {}) {
+  const providerConfig = {
+    executable: process.execPath, arguments: ['-e', 'process.stdout.write("ok")', '--'],
+    promptTransport: 'attachment', ...(overrides.providerConfig ?? {})
+  };
   return {
-    provider: 'copilot-cli', providerConfig: { executable: process.execPath, arguments: ['-e', 'process.stdout.write("ok")', '--'] },
+    provider: 'copilot-cli', providerConfig,
     cwd: root, allowedRoots: [root], auditRoot: root, channel: 'test', prompt: { text: 'test' },
-    tools: { mode: 'none', names: [] }, limits: { timeoutMs: 1000, outputBytes: 1024 }, ...overrides
+    tools: { mode: 'none', names: [] }, limits: { timeoutMs: 1000, outputBytes: 1024 },
+    ...overrides, providerConfig
   };
 }
 
@@ -41,10 +46,11 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
   const [name] = await readdir(auditDirectory);
   const audit = JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'));
-  assert.equal(audit.schemaVersion, 3);
+  assert.equal(audit.schemaVersion, 4);
   assert.equal(audit.attestation.scheme, 'kernel-hmac-sha256-v1');
   assert.match(audit.generationNonce, /^[A-Za-z0-9_-]{32}$/);
   assert.equal(audit.promptTransport, 'attachment');
+  assert.equal(audit.promptProtocolVersion, null);
   assert.equal(audit.promptEncoding, 'utf-8');
   assert.equal(audit.promptBytes, Buffer.byteLength(prompt));
   assert.equal(audit.promptSha256, createHash('sha256').update(prompt).digest('hex'));
@@ -81,6 +87,39 @@ test('the model runner audits and cleans the exact staged attachment bytes', asy
   assert.equal(prompts.records[0].execution.tools.observedCalls, null);
   assert.equal(prompts.records[0].execution.tokens.status, 'unavailable');
   assert.equal(prompts.records[0].execution.tokens.total, null, 'missing provider usage is never rendered as zero');
+});
+
+test('the model runner negotiates ACP and records the protocol without exposing prompt content', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-acp-audit-'));
+  run('git', ['init', '-q'], { cwd: root });
+  const fixture = path.join(root, 'fake-acp.mjs');
+  await writeFile(fixture, `
+import readline from 'node:readline';
+const lines=readline.createInterface({input:process.stdin,crlfDelay:Infinity});
+const send=(v)=>process.stdout.write(JSON.stringify(v)+'\\n');
+for await(const line of lines){const m=JSON.parse(line);
+if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:m.params.protocolVersion,agentCapabilities:{}}});
+else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'audit-session'}});
+else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'ok:'+text.length}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn',usage:{totalTokens:7,inputTokens:5,outputTokens:2}}});}}
+`);
+  const prompt = 'ACP_AUDIT_CANARY';
+  const result = await withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    providerConfig: {
+      executable: process.execPath, arguments: [fixture], promptTransport: 'acp-stdio'
+    },
+    prompt: { text: prompt }
+  })));
+  assert.equal(result.output, `ok:${prompt.length}`);
+  assert.equal(result.promptTransport, 'acp-stdio');
+  assert.equal(result.promptProtocolVersion, 1);
+  const [audit] = await listModelInvocations(root);
+  assert.equal(audit.schemaVersion, 4);
+  assert.equal(audit.promptTransport, 'acp-stdio');
+  assert.equal(audit.promptProtocolVersion, 1);
+  assert.equal(audit.usage.totalTokens, 7);
+  assert.doesNotMatch(JSON.stringify(audit), /ACP_AUDIT_CANARY/);
 });
 
 test('unknown providers fail before audit creation', async () => {

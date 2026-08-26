@@ -527,6 +527,16 @@ function modelInvocationAuditV2ToV3(source) {
   };
 }
 
+function modelInvocationAuditV3ToV4(source) {
+  return {
+    ...source,
+    schemaVersion: 4,
+    // Historical attachment/argv receipts cannot prove an ACP negotiation. Preserve that absence
+    // instead of manufacturing a protocol claim during migration.
+    promptProtocolVersion: source.promptProtocolVersion ?? null
+  };
+}
+
 function observationSummaryV2ToV3(source) {
   const exitCode = source.source?.exitCode;
   const hasExitCode = Number.isInteger(exitCode);
@@ -715,8 +725,12 @@ const families = [
   family({ id: 'local-identity-reservation', currentVersion: 1, paths: [/^singularity\/identity-reservations\/[^/]+\.json$/], immutable: true }),
   family({ id: 'mcp-host-receipt', currentVersion: 1, paths: [/^\$git\/mcp\/(?:cache|receipts)\/[^/]+\.json$/] }),
   family({
-    id: 'model-invocation-audit', currentVersion: 3,
-    steps: [migration(1, 2, modelInvocationAuditV1ToV2), migration(2, 3, modelInvocationAuditV2ToV3)],
+    id: 'model-invocation-audit', currentVersion: 4,
+    steps: [
+      migration(1, 2, modelInvocationAuditV1ToV2),
+      migration(2, 3, modelInvocationAuditV2ToV3),
+      migration(3, 4, modelInvocationAuditV3ToV4)
+    ],
     paths: [/^\$git\/model-invocations\/[^/]+\.json$/]
   }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),

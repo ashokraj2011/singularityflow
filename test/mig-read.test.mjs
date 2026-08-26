@@ -120,10 +120,11 @@ test('v1 model invocation audits identify their historical argv transport', () =
   const migrated = readRecord('model-invocation-audit', {
     schemaVersion: 1, promptSha256: 'a'.repeat(64), promptBytes: 204800
   }).record;
-  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migrated.schemaVersion, 4);
   assert.equal(migrated.promptTransport, 'legacy-argv');
   assert.equal(migrated.promptEncoding, 'utf-8');
   assert.equal(migrated.attestation, null);
+  assert.equal(migrated.promptProtocolVersion, null);
 });
 
 test('readRecord migrates in memory without changing stored bytes', () => {

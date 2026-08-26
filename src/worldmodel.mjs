@@ -378,6 +378,50 @@ function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
 }
 
+const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function configuredWorldModelViews(config) {
+  const declared = Array.isArray(config.definition?.worldModel?.views)
+    ? config.definition.worldModel.views : [];
+  const phaseViews = Object.values(config.phases ?? {}).flatMap((entry) => [
+    ...(Array.isArray(entry.declaredViews) ? entry.declaredViews : []),
+    ...(Array.isArray(entry.views) ? entry.views : []),
+    ...(Array.isArray(entry.agentViews) ? entry.agentViews : [])
+  ]);
+  const concreteDeclared = [...new Set(declared)]
+    .filter((view) => !['all', 'auto', 'core'].includes(view))
+    .sort();
+  if (concreteDeclared.length) return concreteDeclared;
+  return [...new Set(phaseViews)]
+    .filter((view) => !['all', 'auto', 'core'].includes(view))
+    .sort();
+}
+
+/** Resolve command/config sentinels once; every downstream identity receives concrete view IDs. */
+export function resolveWorldModelViewIds(config, values, { label = 'World-model views' } = {}) {
+  const requested = Array.isArray(values) ? values : [];
+  const catalog = configuredWorldModelViews(config);
+  const expanded = requested.includes('all')
+    ? requested.flatMap((view) => view === 'all' ? catalog : [view])
+    : requested;
+  if (requested.includes('all') && catalog.length === 0) {
+    throw new SingularityFlowError(
+      "--views all cannot be resolved because the approved workflow declares no concrete world-model views. Configure worldModel.views or phase views first.",
+      { code: 'WORLD_MODEL_VIEWS_UNRESOLVED' }
+    );
+  }
+  const concrete = [...new Set(expanded)]
+    .filter((view) => !['auto', 'core'].includes(view))
+    .sort();
+  const invalid = concrete.filter((view) => view === 'all' || !WORLD_MODEL_VIEW_ID.test(view));
+  if (invalid.length) {
+    throw new SingularityFlowError(`${label} must contain concrete lower-case kebab-case IDs: ${invalid.join(', ')}.`, {
+      code: 'WORLD_MODEL_VIEW_INVALID', details: { views: invalid }
+    });
+  }
+  return concrete;
+}
+
 function requireTemplate(name) {
   const file = path.join(PACKAGE_ROOT, 'templates', name);
   if (!existsSync(file)) throw new SingularityFlowError(`Packaged world-model template is missing: ${name}`);
@@ -482,11 +526,19 @@ function groundingPlan(config, options, requestedPhase = null) {
   const phaseConfig = phase ? config.phases[phase] : null;
   const explicitView = optionString(options, 'view');
   const explicitViews = optionString(options, 'views');
-  let phaseViews = phaseConfig?.declaredViews ?? phaseConfig?.views ?? [];
-  let agentViews = phaseConfig?.agentViews ?? [];
+  let phaseViews = resolveWorldModelViewIds(
+    config, phaseConfig?.declaredViews ?? phaseConfig?.views ?? [], { label: 'Phase world-model views' }
+  );
+  let agentViews = resolveWorldModelViewIds(
+    config, phaseConfig?.agentViews ?? [], { label: 'Agent world-model views' }
+  );
   let agentViewMode = phaseConfig?.agentViewMode ?? 'fallback';
   if (explicitView || explicitViews) {
-    const requested = explicitView ? [explicitView] : String(explicitViews).split(',').map((value) => value.trim()).filter(Boolean);
+    const requested = resolveWorldModelViewIds(
+      config,
+      explicitView ? [explicitView] : String(explicitViews).split(',').map((value) => value.trim()).filter(Boolean),
+      { label: 'Requested world-model views' }
+    );
     // A focused view may add to a phase contract, but it may not silently remove the phase's own
     // required views. Outside a phase it remains an exact single-purpose request.
     phaseViews = phase ? [...new Set([...phaseViews, ...requested])] : requested;
@@ -1198,24 +1250,6 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
   } finally {
     for (const retryRoot of retryRoots) await rm(retryRoot, { recursive: true, force: true });
   }
-}
-
-function requestedViews(config, options) {
-  const phase = optionString(options, 'phase');
-  if (phase && !config.phases[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
-  const phaseViews = phase ? config.phases[phase].views ?? [] : [];
-  const explicit = optionString(options, 'views');
-  const parsed = explicit == null
-    ? phaseViews
-    : String(explicit).split(',').map((view) => view.trim()).filter(Boolean);
-  const expanded = parsed.includes('all')
-    ? config.definition?.worldModel?.views ?? Object.values(config.phases).flatMap((entry) => entry.views ?? [])
-    : parsed;
-  // An explicit --views list can add focused perspectives, but it cannot remove the views
-  // required by an active phase (including the selected governed agent).
-  return [...new Set([...phaseViews, ...expanded])]
-    .filter((view) => !['auto', 'core'].includes(view))
-    .sort();
 }
 
 function parallelGeneration(config, options, views) {

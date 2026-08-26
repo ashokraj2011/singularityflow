@@ -132,7 +132,7 @@ export async function stageModelPrompt(prompt, {
   } catch (error) {
     if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
     if (error?.code === 'MODEL_PROMPT_STAGE_FAILED') throw error;
-    throw new SingularityFlowError('Unable to create the private model prompt attachment.', {
+    throw new SingularityFlowError('Unable to stage the private model prompt.', {
       code: 'MODEL_PROMPT_STAGE_FAILED', cause: error,
       details: { nativeCode: error?.code ?? null }
     });

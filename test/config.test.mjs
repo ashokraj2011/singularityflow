@@ -87,6 +87,10 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));
   assert.equal(schema.properties.tokenEconomy.$ref, '#/$defs/tokenEconomy');
   assert.ok(schema.properties.codeDelivery.properties.tests.properties.minimumPassed);
+  assert.deepEqual(
+    schema.properties.models.properties.providers.additionalProperties.properties.promptTransport,
+    { enum: ['auto', 'acp-stdio', 'attachment'], default: 'auto' }
+  );
   assert.doesNotThrow(() => validateDefinition(structuredClone(template)));
 
   const tokenSchema = schema.$defs.tokenEconomy.properties;

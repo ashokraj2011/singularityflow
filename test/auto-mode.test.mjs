@@ -43,7 +43,7 @@ async function repository() {
   // not install Copilot, while Node itself is the harmless executable used by the later pilot
   // fixture as well. Tests that actually author replace the arguments in executableRepository.
   workflow.models.providers['copilot-cli'] = {
-    type: 'copilot-cli', executable: process.execPath, arguments: []
+    type: 'copilot-cli', executable: process.execPath, promptTransport: 'attachment', arguments: []
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.workTypes.feature.auto = {
@@ -75,7 +75,7 @@ async function executableRepository({ authorDelayMs = 0 } = {}) {
     ? `setTimeout(()=>{${authorBody}},${authorDelayMs})`
     : authorBody;
   workflow.models.providers['copilot-cli'] = {
-    type: 'copilot-cli', executable: process.execPath, arguments: ['-e', authorScript, '--']
+    type: 'copilot-cli', executable: process.execPath, promptTransport: 'attachment', arguments: ['-e', authorScript, '--']
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.workTypes['quick-fix'].auto = {

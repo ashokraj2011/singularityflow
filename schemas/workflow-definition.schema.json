@@ -86,7 +86,11 @@
               "type": { "enum": ["copilot-cli"] },
               "executable": { "type": "string", "minLength": 1 },
               "arguments": { "type": "array", "items": { "type": "string" } },
-              "model": { "type": "string", "minLength": 1 }
+              "model": { "type": "string", "minLength": 1 },
+              "promptTransport": {
+                "enum": ["auto", "acp-stdio", "attachment"],
+                "default": "auto"
+              }
             },
             "additionalProperties": false
           }

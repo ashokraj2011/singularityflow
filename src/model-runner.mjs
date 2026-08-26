@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
 import { modelProvider } from './model-provider-registry.mjs';
+import { resolveModelPromptTransport } from './model-provider-capability.mjs';
 import {
   DEFAULT_MODEL_PROMPT_MAXIMUM_BYTES, stageModelPrompt
 } from './model-prompt-transport.mjs';
@@ -346,6 +347,11 @@ export async function invokeModel(request) {
   const adapterId = normalized.providerConfig?.type ?? providerId;
   // Unknown providers are rejected before audit directory creation or process start.
   const provider = modelProvider(adapterId);
+  // Resolve the confidential prompt transport before creating an invocation receipt, staging a
+  // prompt, or starting any provider worker. In particular, the presence of --attachment is not
+  // treated as proof that current Copilot releases accept text files.
+  const transportResolution = resolveModelPromptTransport(normalized.providerConfig, adapterId);
+  const promptTransport = transportResolution.transport;
   const id = randomUUID();
   if (!context.root) throw new SingularityFlowError('Model invocation requires a trusted operation audit root.', { code: 'MODEL_AUDIT_ROOT_MISSING' });
   const trustedAuditRoot = await realpath(context.root).catch(() => null);
@@ -365,7 +371,7 @@ export async function invokeModel(request) {
     logicalPromptBytes: staged.bytes
   });
   log.info('model.prompt.staged', null, {
-    provider: providerId, transport: 'attachment', promptBytes: staged.bytes
+    provider: providerId, transport: promptTransport, promptBytes: staged.bytes
   });
   const event = {
     schemaVersion: currentSchemaVersion('model-invocation-audit'),
@@ -392,7 +398,8 @@ export async function invokeModel(request) {
       : null,
     promptSha256: staged.sha256,
     promptBytes: staged.bytes,
-    promptTransport: 'attachment',
+    promptTransport,
+    promptProtocolVersion: null,
     promptEncoding: staged.encoding,
     promptLayout: boundaryPromptLayout(staged),
     tokenAdmission: admission,
@@ -479,20 +486,20 @@ export async function invokeModel(request) {
           file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
           encoding: staged.encoding, staged: true
         }),
-        promptTransport: 'attachment',
+        promptTransport,
         ...(candidate ? { model: candidate } : {}),
         ...(telemetry ? { telemetry } : {})
       });
       providerStartedAt = Date.now();
       log.info('model.provider.started', null, {
         provider: providerId, model: candidate, attempt: index + 1,
-        transport: 'attachment', promptBytes: staged.bytes
+        transport: promptTransport, promptBytes: staged.bytes
       });
       try {
         result = await provider(invocation);
         log.info('model.provider.completed', null, {
           provider: providerId, model: candidate, attempt: index + 1,
-          transport: 'attachment', promptBytes: staged.bytes,
+          transport: promptTransport, promptBytes: staged.bytes,
           durationMs: Date.now() - providerStartedAt,
           exitCode: result?.status ?? 0, signal: result?.signal ?? null
         });
@@ -502,7 +509,7 @@ export async function invokeModel(request) {
       } catch (error) {
         log.info('model.provider.failed', null, {
           provider: providerId, model: candidate, attempt: index + 1,
-          transport: 'attachment', promptBytes: staged.bytes,
+          transport: promptTransport, promptBytes: staged.bytes,
           durationMs: Date.now() - providerStartedAt,
           exitCode: error?.details?.status ?? null, signal: error?.details?.signal ?? null,
           errorCode: error?.code ?? 'MODEL_PROVIDER_FAILED'
@@ -534,6 +541,8 @@ export async function invokeModel(request) {
       ...event,
       model: resolvedModel,
       routing: completedRouting,
+      promptTransport: result.promptTransport ?? promptTransport,
+      promptProtocolVersion: result.promptProtocolVersion ?? null,
       status: 'completed',
       completedAt,
       outputBytes,
@@ -560,6 +569,8 @@ export async function invokeModel(request) {
       usage: result.usage ?? { status: 'unavailable' },
       tokenAdmission: admission,
       economics: completedEvent.economics,
+      promptTransport: completedEvent.promptTransport,
+      promptProtocolVersion: completedEvent.promptProtocolVersion,
       startedAt: event.startedAt,
       completedAt,
       invocation: { id, path: file, provider: providerId, model: resolvedModel }
@@ -577,7 +588,7 @@ export async function invokeModel(request) {
       await writeJson(file, failedEvent).catch(() => {});
     }
     if (providerStartedAt != null) log.info('model.provider.failed', null, {
-      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
+      provider: providerId, transport: promptTransport, promptBytes: staged.bytes,
       durationMs: Date.now() - providerStartedAt, exitCode: error?.details?.status ?? null,
       signal: error?.details?.signal ?? null, errorCode: error?.code ?? 'MODEL_PROVIDER_FAILED'
     });
@@ -587,7 +598,7 @@ export async function invokeModel(request) {
     let cleanupError = null;
     await staged.cleanup().catch((error) => { cleanupError = error; });
     log.info('model.prompt.cleaned', null, {
-      provider: providerId, transport: 'attachment', promptBytes: staged.bytes,
+      provider: providerId, transport: promptTransport, promptBytes: staged.bytes,
       errorCode: cleanupError?.code ?? null
     });
   }

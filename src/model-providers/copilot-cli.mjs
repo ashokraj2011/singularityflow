@@ -1,9 +1,14 @@
+import * as acp from '@agentclientprotocol/sdk';
 import { spawn, spawnSync } from 'node:child_process';
-import { lstat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, readFile } from 'node:fs/promises';
+import { Readable, Writable } from 'node:stream';
+import { TransformStream } from 'node:stream/web';
 import { StringDecoder } from 'node:string_decoder';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { VERSION } from '../version.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 const TERMINATION_GRACE_MS = 250;
@@ -26,7 +31,7 @@ export const COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT = [
 
 const RESERVED_OPTIONS = Object.freeze([
   '-p', '--prompt', '--attachment', '-C', '--model', '--available-tools', '--allow-tool',
-  '--allow-all-tools'
+  '--allow-all-tools', '--acp', '--stdio'
 ]);
 
 // The kernel uses one provider-independent tool vocabulary. Copilot CLI has its own host-native
@@ -117,7 +122,268 @@ function providerEnvironment(overrides = {}, telemetry = null) {
   ]);
 }
 
-export async function invokeCopilotCli(request) {
+function acpPermissionOutcome(tools, params) {
+  if (tools?.mode === 'none') return { outcome: 'cancelled' };
+  const option = params.options?.find((entry) => entry.kind === 'allow_once');
+  if (!option) return { outcome: 'cancelled' };
+  if (tools?.mode === 'all') return { outcome: 'selected', optionId: option.optionId };
+  const allowed = new Set((tools?.names ?? []).flatMap((name) => COPILOT_TOOL_NAMES[name] ?? []));
+  const byKind = Object.freeze({ read: 'view', search: 'grep', edit: 'edit', delete: 'edit', move: 'edit' });
+  const requested = params.toolCall?.name ?? byKind[params.toolCall?.kind] ?? null;
+  return requested && allowed.has(requested)
+    ? { outcome: 'selected', optionId: option.optionId }
+    : { outcome: 'cancelled' };
+}
+
+function acpUsage(value) {
+  if (!value || !Number.isFinite(value.totalTokens)
+    || !Number.isFinite(value.inputTokens) || !Number.isFinite(value.outputTokens)) {
+    return { status: 'unavailable' };
+  }
+  return {
+    status: 'exact', assurance: 'provider-reported',
+    totalTokens: Number(value.totalTokens),
+    inputTokens: Number(value.inputTokens),
+    outputTokens: Number(value.outputTokens),
+    ...(Number.isFinite(value.thoughtTokens) ? { reasoningTokens: Number(value.thoughtTokens) } : {}),
+    ...(Number.isFinite(value.cachedReadTokens) ? { cachedInputTokens: Number(value.cachedReadTokens) } : {}),
+    ...(Number.isFinite(value.cachedWriteTokens) ? { cacheWriteInputTokens: Number(value.cachedWriteTokens) } : {})
+  };
+}
+
+function providerIdentity(request) {
+  const configured = request.providerConfig ?? {};
+  const executable = configured.executable ?? 'copilot';
+  if (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/.test(executable)) {
+    throw new SingularityFlowError('Model provider executable must be a non-empty command or path.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  if (configured.arguments != null && (!Array.isArray(configured.arguments) || configured.arguments.some((item) => typeof item !== 'string'))) {
+    throw new SingularityFlowError('Model provider arguments must be an array of strings.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  const conflict = (configured.arguments ?? []).map(reservedOption).find(Boolean);
+  if (conflict) {
+    throw new SingularityFlowError(`Model provider arguments cannot override adapter-owned option '${conflict}'.`, {
+      code: 'MODEL_REQUEST_INVALID', details: { option: conflict }
+    });
+  }
+  const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
+  const configuredExecutable = configured.executable != null && command !== 'copilot' && command !== 'copilot.cmd';
+  const providerLabel = request.provider === 'copilot-cli'
+    ? (configuredExecutable ? `Model provider '${command}'` : 'Copilot CLI')
+    : `Model provider '${request.provider}'`;
+  return { configured, command, providerLabel };
+}
+
+async function verifiedStagedPrompt(request, transport) {
+  if (request.prompt?.text != null || !request.prompt?.staged || !request.prompt?.file
+    || request.prompt?.encoding !== 'utf-8' || !Number.isSafeInteger(request.prompt?.bytes)
+    || !/^[a-f0-9]{64}$/.test(String(request.prompt?.sha256 ?? ''))) {
+    throw new SingularityFlowError(`Copilot ${transport} transport requires a trusted staged prompt.`, {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const promptInfo = await lstat(request.prompt.file).catch(() => null);
+  if (!promptInfo?.isFile() || promptInfo.isSymbolicLink()) {
+    throw new SingularityFlowError(`Copilot ${transport} transport requires a regular staged prompt file.`, {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const bytes = await readFile(request.prompt.file);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  if (bytes.length !== request.prompt.bytes || digest !== request.prompt.sha256) {
+    throw new SingularityFlowError('The staged model prompt changed after admission.', {
+      code: 'MODEL_REQUEST_INVALID', details: { transport }
+    });
+  }
+  return bytes.toString('utf8');
+}
+
+function terminateAcpProcess(child, force = false) {
+  if (!child.pid || child.exitCode != null || child.signalCode != null) return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], {
+      stdio: 'ignore', windowsHide: true, timeout: 5000
+    });
+    return;
+  }
+  try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
+  catch { child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
+}
+
+async function invokeCopilotAcp(request) {
+  const { configured, command, providerLabel } = providerIdentity(request);
+  if (request.promptTransport !== 'acp-stdio') {
+    throw new SingularityFlowError('Copilot ACP adapter received the wrong prompt transport.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  if (request.signal?.aborted) {
+    throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
+  }
+  const promptText = await verifiedStagedPrompt(request, 'ACP stdio');
+  const args = [...(configured.arguments ?? []), '--acp'];
+  args.push(...copilotToolArguments(request.tools));
+  if (request.model ?? configured.model) args.push('--model', request.model ?? configured.model);
+  const outputLimit = request.limits.outputBytes;
+  const protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
+  if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
+
+  const child = spawn(command, args, {
+    cwd: request.cwd,
+    env: providerEnvironment(request.env, request.telemetry),
+    shell: false,
+    detached: process.platform !== 'win32',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+  let expectedExit = false;
+  let stderr = ''; let stderrBytes = 0; let output = ''; let outputBytes = 0;
+  let protocolBytes = 0; let protocolVersion = null; let sessionId = null;
+  const stderrDecoder = new StringDecoder('utf8');
+  const protocolDecoder = new StringDecoder('utf8');
+  let protocolPending = '';
+  let boundaryReject;
+  const boundaryFailure = new Promise((resolve, reject) => { boundaryReject = reject; });
+  child.stderr?.on('data', (chunk) => {
+    stderrBytes += chunk.length;
+    if (stderrBytes <= outputLimit) stderr += stderrDecoder.write(chunk);
+  });
+  const exit = new Promise((resolve) => child.once('close', (status, signal) => resolve({ status, signal })));
+  const processFailure = new Promise((resolve, reject) => {
+    child.once('error', (error) => reject(new SingularityFlowError(`Unable to start ${providerLabel} (${error.code ?? 'unknown startup error'}).`, {
+      code: modelProviderStartErrorCode(error.code),
+      details: { nativeCode: error.code ?? null, transport: 'acp-stdio', promptBytes: request.prompt.bytes }
+    })));
+    child.once('close', (status, signal) => {
+      if (expectedExit) return resolve();
+      stderr += stderrDecoder.end();
+      reject(status !== 0
+        ? providerExitError(providerLabel, status, signal, stderr)
+        : new SingularityFlowError(`${providerLabel} ACP server stopped before completing the prompt.`, {
+          code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { status, signal, transport: 'acp-stdio' }
+        }));
+    });
+  });
+  const guardedInput = Readable.toWeb(child.stdout).pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      protocolBytes += chunk.byteLength;
+      if (protocolBytes > protocolLimit) {
+        const error = new SingularityFlowError(`${providerLabel} ACP protocol stream exceeded ${protocolLimit} bytes.`, {
+          code: 'MODEL_OUTPUT_LIMIT'
+        });
+        boundaryReject(error);
+        throw error;
+      }
+      protocolPending += protocolDecoder.write(Buffer.from(chunk));
+      const lines = protocolPending.split('\n');
+      protocolPending = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try { JSON.parse(line); }
+        catch {
+          const error = new SingularityFlowError(`${providerLabel} emitted malformed ACP NDJSON.`, {
+            code: 'MODEL_PROVIDER_PROTOCOL_FAILED'
+          });
+          boundaryReject(error);
+          throw error;
+        }
+      }
+      controller.enqueue(chunk);
+    }
+  }));
+  const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), guardedInput);
+  const connection = new acp.ClientSideConnection(() => ({
+    async requestPermission(params) { return { outcome: acpPermissionOutcome(request.tools, params) }; },
+    async sessionUpdate(params) {
+      const update = params.update;
+      if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
+      const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
+      outputBytes += chunkBytes;
+      if (outputBytes > outputLimit) {
+        const error = new SingularityFlowError(`${providerLabel} output exceeded ${outputLimit} bytes.`, {
+          code: 'MODEL_OUTPUT_LIMIT'
+        });
+        boundaryReject(error);
+        throw error;
+      }
+      output += update.content.text;
+    }
+  }), stream);
+  let timer;
+  let abortListener;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new SingularityFlowError(`${providerLabel} invocation exceeded ${request.limits.timeoutMs}ms.`, {
+      code: 'MODEL_TIMEOUT'
+    })), request.limits.timeoutMs);
+    timer.unref?.();
+  });
+  const cancellation = new Promise((resolve, reject) => {
+    abortListener = () => reject(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
+    request.signal?.addEventListener('abort', abortListener, { once: true });
+  });
+
+  try {
+    const operation = (async () => {
+      const initialized = await connection.initialize({
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {},
+        clientInfo: { name: 'singularity-flow', version: VERSION }
+      });
+      if (!Number.isInteger(initialized.protocolVersion)
+        || initialized.protocolVersion !== acp.PROTOCOL_VERSION) {
+        throw new SingularityFlowError(`Copilot ACP negotiated unsupported protocol version '${initialized.protocolVersion}'.`, {
+          code: 'MODEL_PROVIDER_PROTOCOL_UNSUPPORTED'
+        });
+      }
+      protocolVersion = initialized.protocolVersion;
+      const session = await connection.newSession({ cwd: request.cwd, mcpServers: [] });
+      sessionId = session.sessionId;
+      const result = await connection.prompt({
+        sessionId, prompt: [{ type: 'text', text: promptText }]
+      });
+      if (result.stopReason !== 'end_turn') {
+        throw new SingularityFlowError(`Copilot ACP stopped with reason '${result.stopReason}'.`, {
+          code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED' : 'MODEL_PROVIDER_FAILED',
+          details: { stopReason: result.stopReason, transport: 'acp-stdio' }
+        });
+      }
+      return result;
+    })();
+    const result = await Promise.race([operation, processFailure, boundaryFailure, timeout, cancellation]);
+    if (stderrBytes > outputLimit) {
+      throw new SingularityFlowError(`${providerLabel} diagnostics exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' });
+    }
+    if (!output.trim() && unavailableModelDiagnostic(stderr)) {
+      throw providerExitError(providerLabel, 0, null, stderr);
+    }
+    return {
+      output: output.trim(), diagnostics: stderr.trim(), status: 0, signal: null,
+      outputBytes, usage: acpUsage(result.usage),
+      promptTransport: 'acp-stdio', promptProtocolVersion: protocolVersion
+    };
+  } catch (error) {
+    if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
+    if (error instanceof SingularityFlowError) throw error;
+    const diagnostic = boundedDiagnostic(stderr);
+    throw new SingularityFlowError(
+      diagnostic ? `${providerLabel} ACP prompt transport failed: ${diagnostic}` : `${providerLabel} ACP prompt transport failed.`,
+      { code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { transport: 'acp-stdio', diagnostic: diagnostic || null } }
+    );
+  } finally {
+    clearTimeout(timer);
+    request.signal?.removeEventListener('abort', abortListener);
+    expectedExit = true;
+    child.stdin?.end();
+    await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
+    terminateAcpProcess(child, false);
+    await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
+    terminateAcpProcess(child, true);
+    const ended = await Promise.race([exit, new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: 'SIGKILL' }), 1000))]);
+    if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
+      state: 'finished', exitCode: ended.status, signal: ended.signal
+    }).catch(() => {});
+  }
+}
+
+async function invokeCopilotAttachment(request) {
   const configured = request.providerConfig ?? {};
   const executable = configured.executable ?? 'copilot';
   if (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/.test(executable)) {
@@ -265,7 +531,18 @@ export async function invokeCopilotCli(request) {
       if (!stdout.trim() && unavailableModelDiagnostic(stderr)) {
         return reject(providerExitError(providerLabel, status, signal, stderr));
       }
-      resolve({ output: stdout.trim(), diagnostics: stderr.trim(), status, signal, outputBytes });
+      resolve({
+        output: stdout.trim(), diagnostics: stderr.trim(), status, signal, outputBytes,
+        promptTransport: 'attachment', promptProtocolVersion: null
+      });
     });
+  });
+}
+
+export async function invokeCopilotCli(request) {
+  if (request.promptTransport === 'acp-stdio') return invokeCopilotAcp(request);
+  if (request.promptTransport === 'attachment') return invokeCopilotAttachment(request);
+  throw new SingularityFlowError(`Copilot CLI does not support prompt transport '${request.promptTransport ?? 'unset'}'.`, {
+    code: 'MODEL_REQUEST_INVALID'
   });
 }

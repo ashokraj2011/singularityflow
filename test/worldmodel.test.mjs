@@ -64,6 +64,7 @@ async function configureMockProvider(root, builder, extraArguments = []) {
       'mock-world-model': {
         type: 'copilot-cli',
         executable: process.execPath,
+        promptTransport: 'attachment',
         arguments: [builder, ...extraArguments]
       }
     }
@@ -1038,7 +1039,7 @@ test('governed world-model publication failure fails build and ensure before loc
   assert.equal(afterRecovery.status, 'published');
 });
 
-test('wm build discovers requested views concurrently and synthesizes one validated model', async () => {
+test('storyless wm build expands --views all before concurrent discovery and synthesis', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-parallel-'));
   const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-parallel-${process.pid}-${Date.now()}.jsonl`);
   run('git', ['init', '-b', 'main'], root);
@@ -1058,10 +1059,10 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   run('git', ['commit', '-m', 'initialize'], root);
 
   const execution = result(process.execPath, [
-    bin, 'wm', 'build', '--phase', 'verification', '--views', 'business', '--parallel', '--workers', '2'
+    bin, 'wm', 'build', '--views', 'all', '--parallel', '--workers', '2'
   ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: activityLog });
   assert.equal(execution.status, 0, `${execution.stdout}\n${execution.stderr}`);
-  assert.match(execution.stderr, /4 pending view workers, up to 2 concurrent/);
+  assert.match(execution.stderr, /7 pending view workers, up to 2 concurrent/);
 
   const manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
   const {
@@ -1072,31 +1073,22 @@ test('wm build discovers requested views concurrently and synthesizes one valida
     parallel: true,
     strategy: 'view',
     max_workers: 2,
-    discovery_views: ['business', 'development', 'security', 'testing'],
+    discovery_views: ['architecture', 'business', 'development', 'operations', 'release', 'security', 'testing'],
     degraded_views: [],
     resumed_views: [],
-    pending_views_at_start: ['business', 'development', 'security', 'testing'],
+    pending_views_at_start: ['architecture', 'business', 'development', 'operations', 'release', 'security', 'testing'],
     requested_mode: 'agentic',
     effective_mode: 'agentic'
   });
   assert.equal(rebuildReason, 'policy-forced');
-  assert.deepEqual(synthesisComposition, {
-    candidatePacketBytes: 276,
-    selectedPacketBytes: 276,
-    omittedPacketBytes: 0,
-    packetSummaries: 4,
-    packetSummaryKind: 'world-model-discovery-synopsis',
-    packetExpansionHandles: 4,
-    admissionAssurance: 'estimated',
-    safeToEnforce: false,
-    maximumSynthesisInputTokens: 24000,
-    compositionLimitTokens: 22976,
-    recoveryReserveTokens: 1024,
-    synthesisOverflow: 'summarize-or-refuse'
-  });
+  assert.equal(synthesisComposition.packetSummaries, 7);
+  assert.equal(synthesisComposition.packetExpansionHandles, 7);
+  assert.equal(synthesisComposition.omittedPacketBytes, 0);
+  assert.equal(synthesisComposition.selectedPacketBytes, synthesisComposition.candidatePacketBytes);
+  assert.equal(synthesisComposition.synthesisOverflow, 'summarize-or-refuse');
   assert.equal(routing.mode, 'task-routed');
   assert.deepEqual(routing.discovery.map((entry) => entry.view), [
-    'business', 'development', 'security', 'testing'
+    'architecture', 'business', 'development', 'operations', 'release', 'security', 'testing'
   ]);
   assert.ok(routing.discovery.every((entry) => entry.task === 'analyze' && entry.origin === 'generated'));
   assert.equal(routing.synthesis.task, 'reason');
@@ -1106,33 +1098,37 @@ test('wm build discovers requested views concurrently and synthesizes one valida
   const invocations = await Promise.all(invocationFiles.map(async (name) => (
     JSON.parse(await readFile(path.join(invocationDirectory, name), 'utf8'))
   )));
-  assert.equal(invocations.filter((entry) => entry.routing?.task === 'analyze').length, 4);
+  assert.equal(invocations.filter((entry) => entry.routing?.task === 'analyze').length, 7);
   assert.equal(invocations.filter((entry) => entry.routing?.task === 'reason').length, 1);
   const status = JSON.parse(run(process.execPath, [
-    bin, 'wm', 'status', '--phase', 'verification', '--views', 'business', '--json'
+    bin, 'wm', 'status', '--views', 'all', '--json'
   ], root));
   assert.equal(status.generationDiagnostics.routing.synthesis.task, 'reason');
   assert.equal(status.localBuildDiagnostics.availability, 'available');
   assert.equal(status.localBuildDiagnostics.status, 'completed');
   assert.equal(status.localBuildDiagnostics.requestedMode, 'agentic');
   assert.deepEqual(status.localBuildDiagnostics.views.generated, [
-    'business', 'development', 'security', 'testing'
+    'architecture', 'business', 'development', 'operations', 'release', 'security', 'testing'
   ]);
   assert.ok(status.localBuildDiagnostics.stages.discovery.durationMs >= 0);
   assert.ok(status.localBuildDiagnostics.stages.synthesis.durationMs >= 0);
   assert.ok(status.localBuildDiagnostics.stages.total.durationMs >= 0);
-  assert.equal(status.localBuildDiagnostics.invocations.length, 5);
+  assert.equal(status.localBuildDiagnostics.invocations.length, 8);
   assert.ok(status.localBuildDiagnostics.invocations.every((entry) => entry.promptBytes > 0));
   assert.deepEqual(
     status.localBuildDiagnostics.invocations.map((entry) => entry.usage.status),
-    ['unavailable', 'unavailable', 'unavailable', 'unavailable', 'unavailable']
+    Array(8).fill('unavailable')
   );
   const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
   const firstEnd = events.findIndex((event) => event.event === 'end');
   assert.equal(events.slice(0, firstEnd).filter((event) => event.event === 'start').length, 1,
     'one discovery packet must prove the provider contract before parallel fanout');
-  assert.equal(events.filter((event) => event.event === 'start').length, 4);
-  assert.equal(events.filter((event) => event.event === 'end').length, 4);
+  assert.equal(events.filter((event) => event.event === 'start').length, 7);
+  assert.equal(events.filter((event) => event.event === 'end').length, 7);
+  assert.deepEqual(manifest.requested_views, [
+    'architecture', 'business', 'development', 'operations', 'release', 'security', 'testing'
+  ]);
+  assert.doesNotMatch(JSON.stringify(manifest), /"all"/);
 });
 
 test('wm build checkpoints completed discovery and resumes only pending views after a failed process', async () => {

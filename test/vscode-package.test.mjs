@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,6 +27,13 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.equal(manual.title, 'Singularity Flow Help');
   assert.ok(manual.topics.some((topic) => topic.id === 'story-intake'));
   assert.ok(manual.topics.some((topic) => topic.id === 'workspaces-and-capabilities'));
+  const providerImport = spawnSync(process.execPath, [
+    '--input-type=module', '-e', 'await import("./src/model-providers/copilot-cli.mjs")'
+  ], { cwd: staged, encoding: 'utf8' });
+  assert.equal(providerImport.status, 0,
+    `the staged CLI cannot load its locked ACP production dependency closure: ${providerImport.stderr}`);
+  assert.equal(existsSync(path.join(staged, 'node_modules', 'singularity-flow-vscode')), false,
+    'the staged production closure must exclude npm workspace links');
 });
 
 test('the CommonJS extension build uses a host-safe package root without import.meta warnings', () => {

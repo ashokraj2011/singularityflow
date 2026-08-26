@@ -468,6 +468,7 @@ function executionProjection(record, invocation) {
       bytes: invocation.promptBytes ?? null,
       sha256: invocation.promptSha256 ?? null,
       transport: invocation.promptTransport ?? null,
+      protocolVersion: invocation.promptProtocolVersion ?? null,
       encoding: invocation.promptEncoding ?? null
     },
     output: invocation.outputBytes == null ? null : {
@@ -611,6 +612,7 @@ export function renderPromptAudit(record) {
     `- Sent prompt bytes: ${execution.prompt?.bytes == null ? 'unavailable' : execution.prompt.bytes.toLocaleString('en-US')}`,
     `- Sent prompt SHA-256: ${display(execution.prompt?.sha256)}`,
     `- Prompt transport: ${display(execution.prompt?.transport)}`,
+    `- Prompt protocol version: ${display(execution.prompt?.protocolVersion)}`,
     `- Prompt encoding: ${display(execution.prompt?.encoding)}`,
     `- Timeout limit: ${execution.limits?.timeoutMs == null ? 'unavailable' : duration(execution.limits.timeoutMs)}`,
     `- Output limit: ${execution.limits?.outputBytes == null ? 'unavailable' : `${execution.limits.outputBytes.toLocaleString('en-US')} bytes`}`,

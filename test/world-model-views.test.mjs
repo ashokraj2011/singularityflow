@@ -14,6 +14,7 @@ import {
   worldModelViewCatalog,
   worldModelWorkflowViewUsage
 } from '../src/world-model-views.mjs';
+import { resolveWorldModelViewIds } from '../src/worldmodel.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -78,6 +79,25 @@ test('workflow validation rejects undeclared structured world-model views', asyn
   const workflow = await definition();
   workflow.worldModel.views = workflow.worldModel.views.filter((view) => view !== 'architecture');
   assert.throws(() => validateDefinition(workflow), /architecture.*not declared/);
+});
+
+test('the command sentinel all resolves once to concrete approved view IDs', () => {
+  const config = {
+    definition: { worldModel: { views: ['business', 'architecture', 'testing'] } },
+    phases: { implementation: { views: ['development', 'testing'] } }
+  };
+  assert.deepEqual(resolveWorldModelViewIds(config, ['all']), ['architecture', 'business', 'testing']);
+  assert.deepEqual(resolveWorldModelViewIds({
+    phases: { implementation: { views: ['development'] }, verification: { views: ['testing'] } }
+  }, ['all']), ['development', 'testing'], 'legacy/state-backed configs derive a catalog from phase views');
+  assert.throws(
+    () => resolveWorldModelViewIds({ definition: { worldModel: { views: [] } }, phases: {} }, ['all']),
+    (error) => error.code === 'WORLD_MODEL_VIEWS_UNRESOLVED'
+  );
+  assert.throws(
+    () => resolveWorldModelViewIds(config, ['Not A View']),
+    (error) => error.code === 'WORLD_MODEL_VIEW_INVALID'
+  );
 });
 
 test('the builder manifest declares nothing nobody reads', async () => {

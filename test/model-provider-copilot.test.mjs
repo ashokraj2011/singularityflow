@@ -23,6 +23,144 @@ async function invoke(root, script, overrides = {}) {
   }); } finally { await staged.cleanup(); }
 }
 
+const fakeAcpSource = `
+import { createHash } from 'node:crypto';
+import readline from 'node:readline';
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+let cwd = null;
+let pendingPrompt = null;
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      protocolVersion: process.argv.includes('--fixture-wrong-version') ? 99 : message.params.protocolVersion,
+      agentCapabilities: {}, agentInfo: { name: 'fake-copilot-acp', version: '1' }
+    }});
+  } else if (message.method === 'session/new') {
+    cwd = message.params.cwd;
+    send({ jsonrpc: '2.0', id: message.id, result: { sessionId: 'fixture-session' }});
+  } else if (message.method === 'session/prompt') {
+    if (process.argv.includes('--fixture-hang')) continue;
+    if (process.argv.includes('--fixture-malformed')) { process.stdout.write('not-json\\n'); continue; }
+    const prompt = message.params.prompt.map((item) => item.type === 'text' ? item.text : '').join('');
+    const result = JSON.stringify({
+      cwd, bytes: Buffer.byteLength(prompt),
+      sha256: createHash('sha256').update(prompt).digest('hex'),
+      argv: process.argv.slice(2),
+      envLeak: Object.values(process.env).some((value) => String(value).includes('ACP_CANARY_DO_NOT_LEAK'))
+    });
+    if (process.argv.includes('--fixture-permission')) {
+      pendingPrompt = { id: message.id, sessionId: message.params.sessionId, result };
+      send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: {
+        sessionId: message.params.sessionId,
+        toolCall: { toolCallId: 'tool-1', name: 'edit', kind: 'edit', title: 'edit file' },
+        options: [
+          { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'reject', name: 'Reject once', kind: 'reject_once' }
+        ]
+      }});
+      continue;
+    }
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: message.params.sessionId,
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: result }}
+    }});
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      stopReason: 'end_turn', usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4, thoughtTokens: 2 }
+    }});
+  } else if (message.id === 900 && pendingPrompt) {
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: pendingPrompt.sessionId,
+      update: { sessionUpdate: 'agent_message_chunk', content: {
+        type: 'text', text: JSON.stringify({ permission: message.result, prompt: JSON.parse(pendingPrompt.result) })
+      }}
+    }});
+    send({ jsonrpc: '2.0', id: pendingPrompt.id, result: { stopReason: 'end_turn' }});
+    pendingPrompt = null;
+  }
+}
+`;
+
+async function invokeAcp(root, overrides = {}) {
+  const { publicPrompt = { text: 'ACP prompt' }, fixtureArguments = [], ...requestOverrides } = overrides;
+  const fixture = path.join(root, `fake-acp-${Math.random().toString(16).slice(2)}.mjs`);
+  await writeFile(fixture, fakeAcpSource);
+  const staged = await stageModelPrompt(publicPrompt, { tempRoot: root });
+  try {
+    return await invokeCopilotCli({
+      provider: 'copilot-cli',
+      providerConfig: { executable: process.execPath, arguments: [fixture, ...fixtureArguments] },
+      cwd: root,
+      prompt: { file: staged.file, sha256: staged.sha256, bytes: staged.bytes, encoding: staged.encoding, staged: true },
+      promptTransport: 'acp-stdio', tools: { mode: 'none', names: [] },
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024 }, ...requestOverrides
+    });
+  } finally { await staged.cleanup(); }
+}
+
+test('the Copilot provider sends verified prompt bytes over ACP stdio without argv or environment leakage', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-'));
+  const prompt = `ACP_CANARY_DO_NOT_LEAK_${'नमस्ते'.repeat(1000)}`;
+  const result = await invokeAcp(root, {
+    publicPrompt: { text: prompt },
+    tools: { mode: 'allowlist', names: ['read_file', 'search'] }
+  });
+  const observed = JSON.parse(result.output);
+  assert.equal(observed.cwd, root);
+  assert.equal(observed.bytes, Buffer.byteLength(prompt));
+  assert.equal(observed.sha256, createHash('sha256').update(prompt).digest('hex'));
+  assert.ok(observed.argv.includes('--acp'));
+  assert.ok(observed.argv.includes('--available-tools=view,grep'));
+  assert.ok(!observed.argv.includes('--attachment'));
+  assert.ok(!observed.argv.includes('-p'));
+  assert.doesNotMatch(JSON.stringify(observed.argv), /ACP_CANARY_DO_NOT_LEAK/);
+  assert.equal(observed.envLeak, false);
+  assert.equal(result.promptTransport, 'acp-stdio');
+  assert.equal(result.promptProtocolVersion, 1);
+  assert.deepEqual(result.usage, {
+    status: 'exact', assurance: 'provider-reported', totalTokens: 12,
+    inputTokens: 8, outputTokens: 4, reasoningTokens: 2
+  });
+});
+
+test('ACP permission requests are bounded by the normalized SFlow tool policy', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-permission-'));
+  const allowed = JSON.parse((await invokeAcp(root, {
+    fixtureArguments: ['--fixture-permission'],
+    tools: { mode: 'allowlist', names: ['edit_file'] }
+  })).output);
+  assert.deepEqual(allowed.permission, { outcome: { outcome: 'selected', optionId: 'allow' } });
+  const denied = JSON.parse((await invokeAcp(root, {
+    fixtureArguments: ['--fixture-permission'], tools: { mode: 'none', names: [] }
+  })).output);
+  assert.deepEqual(denied.permission, { outcome: { outcome: 'cancelled' } });
+});
+
+test('ACP fails closed on unsupported protocol, malformed NDJSON, timeout, and cancellation', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-failures-'));
+  await t.test('protocol', async () => {
+    await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-wrong-version'] }),
+      (error) => error.code === 'MODEL_PROVIDER_PROTOCOL_UNSUPPORTED');
+  });
+  await t.test('malformed', async () => {
+    await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-malformed'] }),
+      (error) => error.code === 'MODEL_PROVIDER_PROTOCOL_FAILED');
+  });
+  await t.test('timeout', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-hang'], limits: { timeoutMs: 50, outputBytes: 1024 }
+    }), (error) => error.code === 'MODEL_TIMEOUT');
+  });
+  await t.test('cancellation', async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-hang'], signal: controller.signal
+    }), (error) => error.code === 'MODEL_CANCELLED');
+  });
+});
+
 test('the Copilot provider uses structured argv and captures bounded output', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-'));
   const result = await invoke(root, 'process.stdout.write("provider output")');
@@ -187,7 +325,7 @@ test('the attachment transport preserves larger bounded UTF-8 and file-source pr
 
 test('the Copilot provider rejects adapter-owned configured flags and unstaged prompts', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-reserved-'));
-  for (const option of ['-p', '-pother', '--prompt=value', '--attachment', '-C', '-C/tmp', '--model=x', '--available-tools=x', '--allow-tool=x', '--allow-all-tools']) {
+  for (const option of ['-p', '-pother', '--prompt=value', '--attachment', '--acp', '--stdio', '-C', '-C/tmp', '--model=x', '--available-tools=x', '--allow-tool=x', '--allow-all-tools']) {
     await assert.rejects(() => invoke(root, '', {
       providerConfig: { executable: process.execPath, arguments: [option] }
     }), (error) => error.code === 'MODEL_REQUEST_INVALID' && error.details?.option != null);

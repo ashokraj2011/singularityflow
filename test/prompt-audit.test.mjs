@@ -130,6 +130,7 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
   assert.match(rendered, /AST structural facts selected: 12/);
   assert.match(rendered, /Sent prompt bytes: 48/);
   assert.match(rendered, /Prompt transport: attachment/);
+  assert.match(rendered, /Prompt protocol version: unavailable/);
   assert.match(rendered, /--- BEGIN CAPTURED GOVERNED PROMPT ---/);
   const cliView = run(process.execPath, [cli, 'prompt-log', 'view', record.id], { cwd: root }).stdout;
   assert.match(cliView, /## Tokens and cost/);

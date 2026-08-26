@@ -377,16 +377,20 @@ export function normalizeModelProviders(value = {}) {
   for (const [id, provider] of Object.entries(providers)) {
     assertId(id, 'Model provider');
     if (!provider || typeof provider !== 'object' || Array.isArray(provider)) throw new SingularityFlowError(`models.providers.${id} must be an object.`);
-    for (const key of Object.keys(provider)) if (!['type', 'executable', 'arguments', 'model'].includes(key)) throw new SingularityFlowError(`models.providers.${id} contains unknown field '${key}'.`);
+    for (const key of Object.keys(provider)) if (!['type', 'executable', 'arguments', 'model', 'promptTransport'].includes(key)) throw new SingularityFlowError(`models.providers.${id} contains unknown field '${key}'.`);
     if (provider.type !== 'copilot-cli') throw new SingularityFlowError(`models.providers.${id}.type '${provider.type}' is not supported.`);
     if (provider.executable != null && (typeof provider.executable !== 'string' || !provider.executable.trim())) throw new SingularityFlowError(`models.providers.${id}.executable must be a non-empty string.`);
     if (provider.arguments != null && (!Array.isArray(provider.arguments) || provider.arguments.some((item) => typeof item !== 'string'))) throw new SingularityFlowError(`models.providers.${id}.arguments must be an array of strings.`);
     if (provider.model != null && (typeof provider.model !== 'string' || !provider.model.trim())) throw new SingularityFlowError(`models.providers.${id}.model must be a non-empty string.`);
+    if (provider.promptTransport != null && !['auto', 'acp-stdio', 'attachment'].includes(provider.promptTransport)) {
+      throw new SingularityFlowError(`models.providers.${id}.promptTransport must be auto, acp-stdio, or attachment.`);
+    }
     normalized[id] = {
       type: provider.type,
       ...(provider.executable ? { executable: provider.executable.trim() } : {}),
       arguments: [...(provider.arguments ?? [])],
-      ...(provider.model ? { model: provider.model.trim() } : {})
+      ...(provider.model ? { model: provider.model.trim() } : {}),
+      ...(provider.promptTransport ? { promptTransport: provider.promptTransport } : {})
     };
   }
   const defaultProvider = value.defaultProvider ?? Object.keys(normalized)[0];

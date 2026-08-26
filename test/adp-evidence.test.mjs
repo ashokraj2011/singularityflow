@@ -55,7 +55,7 @@ async function repository({ mapping = MAPPING } = {}) {
 function request(root, overrides = {}) {
   return {
     provider: 'copilot-cli',
-    providerConfig: { executable: process.execPath, arguments: [path.join(root, 'fake-provider.mjs')] },
+    providerConfig: { executable: process.execPath, promptTransport: 'attachment', arguments: [path.join(root, 'fake-provider.mjs')] },
     cwd: root, allowedRoots: [root], auditRoot: root, channel: 'test', prompt: { text: 'test' },
     tools: { mode: 'none', names: [] }, limits: { timeoutMs: 10_000, outputBytes: 1024 }, ...overrides
   };

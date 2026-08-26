@@ -84,7 +84,7 @@ test('doctor keeps model-free work healthy when the optional provider is not ins
   run('git', ['commit', '-m', 'initialize without optional provider'], root);
 
   const report = await doctorSnapshot(root, { offline: true });
-  const provider = report.checks.find((entry) => entry.id === 'model-provider-prompt-attachment');
+  const provider = report.checks.find((entry) => entry.id === 'model-provider-prompt-transport');
   assert.equal(provider.status, 'warn');
   assert.equal(provider.code, 'MODEL_PROVIDER_UNAVAILABLE');
   assert.match(provider.message, /model-free work remains available/);

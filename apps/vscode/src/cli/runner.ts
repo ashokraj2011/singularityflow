@@ -104,7 +104,6 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   };
   const cancel = () => stop('cancelled');
   const timer = setTimeout(() => stop('timeout'), options.timeout);
-  timer.unref();
   try {
     child = spawn('git', args, {
       cwd: options.cwd,
@@ -490,7 +489,6 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       pendingFailure = { error, outcome, cancelled };
       signalTree('SIGTERM');
       hardKillTimer = setTimeout(() => signalTree('SIGKILL'), 2_000);
-      hardKillTimer.unref?.();
     };
     function onAbort() {
       terminate(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
@@ -525,7 +523,6 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     timer = setTimeout(() => {
       terminate(new Error(`The Singularity Flow CLI did not finish within ${Math.ceil(timeoutMs / 1000)} seconds. Run the same command in a terminal to see what it is waiting on.`), 'error');
     }, timeoutMs);
-    timer.unref?.();
     signal?.addEventListener('abort', onAbort, { once: true });
 
     child.stdout?.on('data', (chunk: Buffer) => { stdout = collect(stdout, chunk, 'stdout'); });

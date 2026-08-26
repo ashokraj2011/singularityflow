@@ -78,7 +78,6 @@ function childLifecycle(root, args, { signal = null, timeoutMs = 30 * 60 * 1000 
         }
         try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       }, 2_000);
-      hardKillTimer.unref?.();
     };
     const onAbort = () => terminate();
     const timeout = setTimeout(terminate, timeoutMs);

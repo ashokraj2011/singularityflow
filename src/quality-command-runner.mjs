@@ -128,11 +128,8 @@ export function runQualityCommand(command, args = [], {
         timedOut = true;
         terminate('SIGTERM');
         hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
-        hardKillTimer.unref?.();
       }, 0);
-      timeoutDecisionTimer.unref?.();
     }, timeoutMs);
-    timer?.unref?.();
     const onAbort = () => {
       aborted = true;
       if (timer) clearTimeout(timer);
@@ -141,7 +138,6 @@ export function runQualityCommand(command, args = [], {
       timeoutDecisionTimer = null;
       terminate('SIGTERM');
       hardKillTimer = setTimeout(() => terminate('SIGKILL'), 2_000);
-      hardKillTimer.unref?.();
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     child.on('close', (code, terminationSignal) => {

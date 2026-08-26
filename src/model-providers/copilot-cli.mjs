@@ -615,7 +615,6 @@ async function invokeCopilotAcp(request) {
     timer = setTimeout(() => reject(new SingularityFlowError(`${providerLabel} invocation exceeded ${request.limits.timeoutMs}ms.`, {
       code: 'MODEL_TIMEOUT'
     })), request.limits.timeoutMs);
-    timer.unref?.();
   });
   const cancellation = new Promise((resolve, reject) => {
     abortListener = () => reject(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
@@ -851,7 +850,6 @@ async function invokeCopilotAttachment(request) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }
       }, TERMINATION_GRACE_MS);
-      terminationTimer.unref?.();
     };
     const append = (current, chunk, decoder) => {
       outputBytes += chunk.length;

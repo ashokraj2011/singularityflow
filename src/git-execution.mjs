@@ -141,7 +141,6 @@ export async function runRemoteGitAsync(args, {
     const terminate = () => {
       child.kill('SIGTERM');
       forceTimer ??= setTimeout(() => child.kill('SIGKILL'), 1_000);
-      forceTimer.unref?.();
     };
     const append = (channel, chunk) => {
       const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
@@ -161,7 +160,10 @@ export async function runRemoteGitAsync(args, {
       timedOut = true;
       terminate();
     }, timeoutMs);
-    timer.unref?.();
+    // These timers are part of the promise's completion machinery. Unreferencing the deadline (or
+    // the forced-kill grace timer) lets Node conclude that the event loop is empty while callers are
+    // still awaiting this operation. `node:test` then reports a pending promise instead of the
+    // classified timeout result. Keep both referenced until `close` settles the operation.
     child.on('close', (code, signal) => {
       clearTimeout(timer);
       if (forceTimer) clearTimeout(forceTimer);

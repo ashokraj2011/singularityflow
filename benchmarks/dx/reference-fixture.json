@@ -99,20 +99,21 @@
       "why": [
         "How many times more subprocesses a command may run on the larger repository.",
         "1.0 is the property worth having: the read answered the same question, so it should not",
-        "have needed more processes to answer it. status, nextsteps and snapshot already hold it.",
-        "snapshotFull does not, and 15 records what is true rather than what would be nice -- a",
-        "budget nothing meets is a budget everyone learns to ignore. Measured: 966 subprocesses",
-        "against 68, a 14.21x growth. buildRepositorySubjectIndex",
-        "spawns two Git processes per branch x Story pair (git show for the record, git rev-parse",
-        "for a ref head that does not vary per file), so the cost is 2 x 12 x 40 = 960 of the 966.",
-        "That is the same shape as the 975 subprocesses the connected tier's note describes on a",
-        "real repository, reproduced here for the first time. Lower this number when the index",
-        "reads one tree per ref instead; never raise it."
+        "have needed more processes to answer it. status, nextsteps and snapshot hold it exactly.",
+        "snapshotFull first measured 966 subprocesses against 68 -- a 14.21x growth -- because",
+        "buildRepositorySubjectIndexFromRefs spawned two Git processes per branch x Story pair:",
+        "git show for each record, and git rev-parse for a ref head that does not vary per file.",
+        "That was 960 of the 966, and the same shape as the 975 the connected tier's note describes",
+        "on a real repository. Reading one tree per ref instead (git-ref-tree.mjs) took it to 108,",
+        "a 1.59x growth, and the scale tier's own wall clock from 6,151ms to 1,855ms.",
+        "What remains is linear in refs and not in Stories, which is correct: twelve branches",
+        "genuinely hold twelve trees to read. 2.0 locks that in with room for one more per-ref call",
+        "and refuses any return to per-Story work. Never raise it."
       ],
       "status": 1.2,
       "nextsteps": 1.2,
       "snapshot": 1.2,
-      "snapshotFull": 15
+      "snapshotFull": 2.0
     },
     "budgets": {
       "why": [

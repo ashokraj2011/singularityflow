@@ -481,8 +481,8 @@ async function invokeCopilotAcp(request) {
   let toolRounds = 0;
   const maximumToolCalls = request.limits.maxToolCalls ?? 64;
   // `auto` delegates conversation completion to the ACP agent. It is intentionally not the
-  // provider-wide default: callers must opt in for operations, such as final world-model
-  // synthesis, whose number of tool rounds depends on the generated output graph. Independent
+  // provider-wide default: callers must opt in for operations, such as world-model discovery and
+  // synthesis, whose number of tool rounds depends on repository size and the output graph. Independent
   // timeout, output, token, tool-call, tool-result, and cancellation guards remain in force.
   const maximumTurns = request.limits.maxTurns ?? 16;
   const turnsAreAutomatic = maximumTurns === 'auto';

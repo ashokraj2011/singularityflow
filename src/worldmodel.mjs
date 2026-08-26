@@ -1658,7 +1658,14 @@ async function runParallelDiscovery(
         channel: 'world-model-discovery',
         subject: { kind: 'repository-world-model', view },
         tools: { mode: 'allowlist', names: [...WORLD_MODEL_DISCOVERY_TOOLS] },
-        limits: { timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000), outputBytes: 8 * 1024 * 1024 }
+        // Repository size determines how many ACP inspection rounds a view needs. Discovery and
+        // final synthesis therefore share provider-completion turn routing; independent timeout,
+        // output, token, tool-call, tool-result, and cancellation limits remain enforced.
+        limits: {
+          timeoutMs: optionNumber(options, 'timeout-ms', 15 * 60 * 1000),
+          outputBytes: 8 * 1024 * 1024,
+          maxTurns: 'auto'
+        }
       });
     } catch (error) {
       // Retrying a deterministic ACP boundary refusal repeats spend without changing its cause.

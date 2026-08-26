@@ -1121,8 +1121,8 @@ test('storyless wm build expands --views all before concurrent discovery and syn
   assert.equal(invocations.filter((entry) => entry.routing?.task === 'analyze').length, 7);
   assert.equal(invocations.filter((entry) => entry.routing?.task === 'reason').length, 1);
   assert.ok(invocations.filter((entry) => entry.routing?.task === 'analyze')
-    .every((entry) => entry.limits.maxTurns === 16),
-  'discovery keeps the ordinary bounded model-turn default');
+    .every((entry) => entry.limits.maxTurns === 'auto'),
+  'every discovery view uses provider-completion turn routing');
   assert.equal(invocations.find((entry) => entry.routing?.task === 'reason').limits.maxTurns, 'auto',
     'final synthesis uses provider-completion turn routing');
   const status = JSON.parse(run(process.execPath, [

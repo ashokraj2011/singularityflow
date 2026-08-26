@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import { commandTimer, recordCommandTiming, writeCommandTimings } from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
-import { parseArgs, SingularityFlowError } from './util.mjs';
+import { parseArgs, run, SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
@@ -44,6 +46,51 @@ export function excludesActiveWorkspaceRouting(command, subcommand = null) {
 
 function rootIfAvailable(cwd = process.cwd()) {
   try { return repoRoot(cwd); } catch { return null; }
+}
+
+/**
+ * A Git root is not automatically the repository a workspace command should govern.
+ *
+ * Copilot can be rooted in the extension source, a workspace shell repository, or another nested
+ * Git checkout. Only a working-tree workflow is an unambiguous claim that this checkout should
+ * override the explicitly selected workspace. State/configuration branch authority is still
+ * consumed by commands after routing; this narrow test prevents an unrelated Git root from
+ * shadowing the selected repository before those readers can run.
+ */
+export function hasWorkingTreeGovernance(root) {
+  return Boolean(root && existsSync(path.join(root, 'singularity', 'workflow.yml')));
+}
+
+/** A production application branch may be configuration-free while these exact refs govern it. */
+export function hasLocalGovernanceAuthority(root) {
+  if (hasWorkingTreeGovernance(root)) return true;
+  if (!root) return false;
+  const refs = run('git', [
+    'for-each-ref', '--format=%(refname)',
+    'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
+    'refs/heads/state', 'refs/remotes/*/state'
+  ], { cwd: root, allowFailure: true });
+  return refs.status === 0 && refs.stdout.split(/\r?\n/).some((entry) => entry.trim());
+}
+
+/**
+ * Resolve the last ambiguous case without treating every Git remote as SFlow authority.
+ *
+ * Fresh production clones may intentionally fetch only `main`, so the configuration refs are not
+ * local yet. Probe only the two exact governance branches, and only when a different active
+ * workspace would otherwise replace the caller's current Git root.
+ */
+export function hasRemoteGovernanceAuthority(root) {
+  if (!root) return false;
+  const remotes = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
+    .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  return remotes.some((remote) => {
+    const advertised = run('git', [
+      'ls-remote', '--heads', '--', remote,
+      'refs/heads/sflow/config', 'refs/heads/state'
+    ], { cwd: root, allowFailure: true });
+    return advertised.status === 0 && advertised.stdout.split(/\r?\n/).some((entry) => entry.trim());
+  });
 }
 
 /**
@@ -158,22 +205,25 @@ export async function main(argv) {
       modelMode, root, argvSha256, argvHash: `sha256:${argvSha256}`, command: 'help', startedAt: new Date().toISOString()
     }, () => console.log(renderCommandHelp(definition.name)));
   }
-  if (!root) {
-    const subcommand = positionals[1] ?? null;
-    const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand);
+  const subcommand = positionals[1] ?? null;
+  const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand);
+  if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
     const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand });
-    if (selectedRoot) {
+    const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
+    const currentClaimsAuthority = selectedDiffers && root ? hasRemoteGovernanceAuthority(root) : false;
+    if (selectedRoot && !currentClaimsAuthority) {
       // All existing repository services resolve relative paths from process.cwd(). Moving this
       // short-lived CLI process is the compatibility bridge that makes the selected workspace
       // authoritative without teaching dozens of commands about machine-local workspace state.
       process.chdir(selectedRoot);
       root = selectedRoot;
-    } else if (!routingExcluded) {
-      throw new SingularityFlowError(
-        "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
-        { code: 'REPOSITORY_CONTEXT_REQUIRED' }
-      );
     }
+  }
+  if (!root && !routingExcluded) {
+    throw new SingularityFlowError(
+      "Run Singularity Flow from inside a Git repository, or select one with 'singularity-flow workspace use <WORKSPACE>'.",
+      { code: 'REPOSITORY_CONTEXT_REQUIRED' }
+    );
   }
   const requestedOperation = resolveOperation({ requestedCommand: requested, positionals: [definition.name, ...positionals.slice(1)], options });
   const operation = requestedOperation.modelPolicy === 'optional' && !modelMode.enabled

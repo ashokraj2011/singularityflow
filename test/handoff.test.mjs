@@ -83,6 +83,41 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   assert.ok(candidates.some((item) => item.id === 'HAND-101' && item.phase === 'requirements'));
   assert.match(flow(second, ['session', 'attach', 'HAND-101']).stdout, /Attached to HAND-101 from origin\/story\/HAND-101-delivery/);
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'story/HAND-101-delivery');
+
+  // Copilot may itself be rooted in another Git checkout. An unrelated .git directory must not
+  // shadow the explicitly selected workspace repository after session attachment.
+  const unrelatedGit = path.join(base, 'copilot-host-repository');
+  const activeWorkspace = path.join(base, 'active-workspace.json');
+  const workspaceRegistry = path.join(base, 'workspaces.json');
+  run('git', ['init', '-b', 'main', unrelatedGit], base);
+  await writeFile(activeWorkspace, `${JSON.stringify({
+    schemaVersion: 1,
+    workspaceId: 'handoff-workspace',
+    workspaceName: 'Handoff workspace',
+    workspacePath: base,
+    repositoryId: 'application',
+    repositoryPath: second,
+    repositoryState: 'ready',
+    branch: 'story/HAND-101-delivery',
+    capabilities: [],
+    repositoryCapabilities: [],
+    storyId: 'HAND-101',
+    selectedAt: '2026-08-26T00:00:00.000Z'
+  }, null, 2)}\n`);
+  const routed = spawnSync(process.execPath, [bin, 'progress', 'HAND-101', '--markdown'], {
+    cwd: unrelatedGit,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Second Contributor',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: activeWorkspace,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: workspaceRegistry
+    }
+  });
+  assert.equal(routed.status, 0, routed.stderr);
+  assert.match(routed.stdout, /# Workflow progress — HAND-101/);
+
   let session = JSON.parse(flow(second, ['session', 'status', '--json']).stdout);
   assert.equal(session.workItemSelectionRequired, false);
   assert.equal(session.selectionRequired, false);

@@ -18,6 +18,22 @@ four untracked files, four local branches, one Story, and no prebuilt local subj
 protocol discards one warm-up and measures at least 30 fresh processes. Network and model calls
 are disabled.
 
+## The growth tier
+
+A budget on one repository size cannot say a command does not get more expensive as the repository
+grows, and that is the more useful sentence. The `scale` tier in the same manifest runs `status`,
+`nextsteps`, `snapshot` and `snapshot --json` again on 10,000 tracked files, 40 Stories and 12
+branches, and gates each on **how many subprocesses it ran relative to the reference fixture**.
+
+A count is used rather than a clock deliberately: it is the same on a fast runner and a loaded one,
+so it can carry a complexity claim. `status`, `nextsteps` and the sliced `snapshot` are pinned at
+exactly 1.0 — they answer the same question on both fixtures and must not need more processes to do
+it. `snapshot --json` is pinned at 15, which records what is true rather than what would be nice: it
+runs 966 subprocesses against 68, because `buildRepositorySubjectIndex` spawns two Git processes per
+branch × Story pair. Lower that number when the index reads one tree per ref; never raise it.
+
+Pass `--skip-scale` to leave the tier out of a quick local run.
+
 ## Run the benchmark
 
 ```bash

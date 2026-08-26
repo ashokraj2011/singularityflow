@@ -8631,7 +8631,18 @@ async function workspaceCommand(positionals, options) {
         if (item.proposalBranch) console.log(`    Review branch: ${item.proposalBranch}`);
         if (item.error) console.log(`    ${item.error}`);
       }
-      if (!result.dryRun) console.log('Re-run the same command to retry only incomplete publications; current repositories become no-ops.');
+      if (!result.dryRun) {
+        const stalePlan = result.results.some((item) => item.status === 'stale-plan');
+        if (stalePlan) {
+          console.log('Do not repeat the apply command with the stale plan ID. Remove --confirm-plan, add --dry-run, review the refreshed preview, then apply its new plan ID.');
+        } else if (result.status === 'partial') {
+          console.log('Re-run the same command to retry only incomplete publications; current repositories become no-ops.');
+        } else if (result.status === 'blocked') {
+          console.log('Correct the reported blocker, then create a fresh --dry-run preview before applying.');
+        } else {
+          console.log('Configuration and state projections verified.');
+        }
+      }
     }
     if (['blocked', 'partial'].includes(result.status)) process.exitCode = 2;
     return result;

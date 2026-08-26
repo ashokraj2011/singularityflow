@@ -336,6 +336,25 @@ function recordSubprocessProbe(command, args, ms) {
 const NETWORK_COMMANDS = new Set(['gh']);
 export const NETWORK_TIMEOUT_MS = Number(process.env.SINGULARITY_FLOW_NETWORK_TIMEOUT_MS ?? 15_000);
 
+/**
+ * How much a subprocess may write before this is a failure rather than a large answer.
+ *
+ * Node's `spawnSync` default is 1 MiB, and leaving it there made repository size a correctness
+ * boundary rather than a performance one. Measured on a 16,000-file fixture: `git ls-files --stage
+ * -z` emits 1,145,928 bytes, so `snapshot --json` did not slow down on a large repository, it
+ * failed — at roughly 14,600 tracked files, which is an ordinary repository. Fifteen call sites had
+ * been given an explicit ceiling one at a time; three hundred and fifty-eight had not, including
+ * the read path's own `worktree-fingerprint`, `grounding` and `state` listings.
+ *
+ * Here rather than at the call sites, for the same reason the network timeout is: a default that is
+ * only safe where somebody remembered it is not a default. Generous — a listing is text and this is
+ * a ceiling, not an allocation — but still bounded, because "read until memory runs out" is not an
+ * improvement on "read one megabyte". Callers that genuinely stream more still name their own.
+ */
+export const SUBPROCESS_MAX_BUFFER_BYTES = Number(
+  process.env.SINGULARITY_FLOW_SUBPROCESS_MAX_BUFFER_BYTES ?? 64 * 1024 * 1024
+);
+
 /** The bound a command gets when the caller does not name one. Exported so it can be asserted. */
 export function defaultTimeoutFor(command) {
   return NETWORK_COMMANDS.has(command) ? NETWORK_TIMEOUT_MS : undefined;
@@ -365,8 +384,8 @@ export function run(command, args = [], {
   shell = false,
   stdio = 'pipe',
   timeoutMs = defaultTimeoutFor(command),
-  /** Override Node's small spawnSync output ceiling for deliberately bounded batch readers. */
-  maxBuffer = undefined,
+  /** The output ceiling. Defaults to `SUBPROCESS_MAX_BUFFER_BYTES`, not Node's 1 MiB. */
+  maxBuffer = SUBPROCESS_MAX_BUFFER_BYTES,
   /**
    * Text to write to the child's stdin.
    *
@@ -435,6 +454,21 @@ export function run(command, args = [], {
    * indistinguishable from a signed-out account in every disclosure downstream.
    */
   const timedOut = result.error?.code === 'ETIMEDOUT';
+  /**
+   * A command that wrote more than the ceiling answered; we refused to hold the answer.
+   *
+   * Node surfaces this as a bare `ENOBUFS` inside `spawnSync`'s message, which names neither the
+   * ceiling, nor how much was produced, nor which of a read path's ninety-five Git calls hit it.
+   * `Unable to run git: spawnSync git ENOBUFS` sends a reader to the network stack; the actual
+   * cause is a repository that grew past a number nobody wrote down.
+   */
+  if (result.error?.code === 'ENOBUFS' && !allowFailure) {
+    throw new SingularityFlowError(
+      `${command} ${args.join(' ')} produced more than the ${maxBuffer}-byte output ceiling.`
+      + ' Raise SINGULARITY_FLOW_SUBPROCESS_MAX_BUFFER_BYTES, or give this call site its own maxBuffer.',
+      { code: 'SUBPROCESS_OUTPUT_TOO_LARGE' }
+    );
+  }
   if (result.error && !allowFailure && !timedOut) throw new SingularityFlowError(`Unable to run ${command}: ${result.error.message}`);
   if (timedOut && !allowFailure) {
     throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });

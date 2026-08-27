@@ -14,6 +14,11 @@ export const AUTHORSHIP_CHANNELS = Object.freeze([
   'manual-in-place', 'manual-import', 'copilot-host', 'kernel-model', 'kernel-generator', 'external-tool', 'legacy'
 ]);
 
+export const CHANGE_ORIGINS = Object.freeze([
+  'human', 'copilot', 'mixed', 'formatter', 'compiler', 'migration-tool',
+  'test-generator', 'code-generator', 'external-tool'
+]);
+
 const CHANNELS_BY_PRODUCER = Object.freeze({
   human: new Set(['manual-in-place', 'manual-import']),
   'governed-agent': new Set(['copilot-host', 'kernel-model']),
@@ -72,7 +77,17 @@ export function phasePublicationCommand(phase, executable = 'singularity-flow') 
   return `${executable} phase publish ${phase?.id ?? '<phase>'} --authored ${producer} --channel ${channel}`;
 }
 
-export function normalizeAuthorshipOptions({ producer, channel, imported = false, externalAiUse = null } = {}) {
+function defaultChangeOrigins(producer) {
+  if (producer === 'human') return ['human'];
+  if (producer === 'governed-agent') return ['copilot'];
+  if (producer === 'deterministic') return ['code-generator'];
+  if (producer === 'external-tool') return ['external-tool'];
+  return [];
+}
+
+export function normalizeAuthorshipOptions({
+  producer, channel, imported = false, externalAiUse = null, changeOrigins = null
+} = {}) {
   const normalizedProducer = producer ?? 'legacy-unspecified';
   if (!AUTHORSHIP_PRODUCERS.includes(normalizedProducer)) {
     throw new SingularityFlowError(`Unknown authorship producer '${normalizedProducer}'. Expected ${AUTHORSHIP_PRODUCERS.join(', ')}.`, { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
@@ -84,7 +99,19 @@ export function normalizeAuthorshipOptions({ producer, channel, imported = false
   if (externalAiUse != null && !['none', 'assisted'].includes(externalAiUse)) {
     throw new SingularityFlowError('--external-ai must be none or assisted when supplied.');
   }
-  return Object.freeze({ producer: normalizedProducer, channel: normalizedChannel, externalAiUse });
+  const origins = [...new Set((changeOrigins ?? defaultChangeOrigins(normalizedProducer))
+    .map((value) => String(value).trim()).filter(Boolean))];
+  const unknownOrigins = origins.filter((value) => !CHANGE_ORIGINS.includes(value));
+  if (unknownOrigins.length) {
+    throw new SingularityFlowError(
+      `Unknown change origin '${unknownOrigins[0]}'. Expected ${CHANGE_ORIGINS.join(', ')}.`,
+      { code: 'MANUAL_AUTHORSHIP_REQUIRED' }
+    );
+  }
+  return Object.freeze({
+    producer: normalizedProducer, channel: normalizedChannel, externalAiUse,
+    changeOrigins: Object.freeze(origins)
+  });
 }
 
 export function assertProducerAllowed(phase, producer) {
@@ -214,6 +241,7 @@ export function buildGenerationAuthorship({
     externalAiUse: options.externalAiUse == null
       ? { value: 'unknown', status: 'unavailable' }
       : { value: options.externalAiUse, status: 'self-reported' },
+    changeOrigins: [...(options.changeOrigins ?? [])],
     source: structuredClone(source)
   });
 }

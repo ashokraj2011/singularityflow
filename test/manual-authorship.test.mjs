@@ -14,8 +14,28 @@ test('human authorship records exact provenance without pretending a kernel mode
   });
   assert.equal(record.producer, 'human');
   assert.equal(record.channel, 'manual-in-place');
+  assert.deepEqual(record.changeOrigins, ['human']);
   assert.deepEqual(record.kernelModel, { invoked: false, status: 'exact', invocationIds: [] });
   assert.deepEqual(record.externalAiUse, { value: 'none', status: 'self-reported' });
+});
+
+test('authorship records reviewed change origins and refuses unknown labels', () => {
+  const options = normalizeAuthorshipOptions({
+    producer: 'governed-agent', channel: 'copilot-host',
+    changeOrigins: ['copilot', 'formatter', 'copilot']
+  });
+  assert.deepEqual(options.changeOrigins, ['copilot', 'formatter']);
+  const record = buildGenerationAuthorship({
+    options,
+    actor: { name: 'Governed Agent', email: 'agent@example.invalid' },
+    governedAgentContext: 'developer',
+    source: { kind: 'in-place', filename: 'implementation.md', mediaType: 'text/markdown', sha256: 'b'.repeat(64), bytes: 512 }
+  });
+  assert.deepEqual(record.changeOrigins, ['copilot', 'formatter']);
+  assert.throws(
+    () => normalizeAuthorshipOptions({ producer: 'human', changeOrigins: ['unknown-writer'] }),
+    /Unknown change origin/
+  );
 });
 
 test('authorship rejects incompatible producer/channel combinations', () => {

@@ -72,6 +72,7 @@ import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 import { readRecord } from '../../../src/schema-migrations.mjs';
 import { registerSflowChat } from './sflow-chat.ts';
 import { recordHelpMetric } from '../../../src/help-metrics.mjs';
+import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -2815,6 +2816,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // name — a failure that says nothing about what was actually wanted.
     const argv = await resolvePlaceholders(node.command, repository);
     if (!argv) return;
+    if (argv[0] === 'phase' && argv[1] === 'publish') {
+      const workflow = store.current.snapshot?.workflow;
+      const checkoutIssue = storyCheckoutIssue(repository, store.current.snapshot, workflow);
+      if (checkoutIssue) {
+        const choice = await vscode.window.showWarningMessage(
+          `Cannot publish ${checkoutIssue.workId} from this checkout.`,
+          {
+            modal: true,
+            detail: `${checkoutIssue.message}\n\nRegistered branch(es): ${checkoutIssue.allowedBranches.join(', ') || 'none'}.`
+          },
+          'Open Story checkout'
+        );
+        if (choice === 'Open Story checkout') {
+          await runNode({
+            kind: 'action', id: `story:${checkoutIssue.workId}:attach`,
+            label: `Open ${checkoutIssue.workId}`,
+            command: ['session', 'attach', checkoutIssue.workId]
+          });
+        }
+        return;
+      }
+      const unsaved = unsavedRepositoryPaths(vscode.workspace.textDocuments ?? [], repository);
+      if (unsaved.length) {
+        const choice = await vscode.window.showWarningMessage(
+          `Save ${unsaved.length} edited file${unsaved.length === 1 ? '' : 's'} before publishing this generation.`,
+          {
+            modal: true,
+            detail: `${unsaved.slice(0, 20).join('\n')}${unsaved.length > 20 ? `\n… and ${unsaved.length - 20} more` : ''}\n\nGit and Singularity Flow can bind only saved bytes.`
+          },
+          'Save all and continue'
+        );
+        if (choice !== 'Save all and continue') return;
+        await vscode.commands.executeCommand('workbench.action.files.saveAll');
+        const remaining = unsavedRepositoryPaths(vscode.workspace.textDocuments ?? [], repository);
+        if (remaining.length) {
+          void vscode.window.showWarningMessage(
+            `Publication stopped because ${remaining.length} repository file${remaining.length === 1 ? ' is' : 's are'} still unsaved.`
+          );
+          return;
+        }
+      }
+    }
     // Session attachment can resolve to a managed Story worktree. Refreshing the launch clone after
     // that succeeds leaves every view on the previous Story and discards the most important field
     // in the command result: `repositoryPath`. Run this one selection operation as JSON, then move

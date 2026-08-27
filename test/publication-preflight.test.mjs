@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
@@ -20,11 +21,24 @@ import {
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
+}
+
+function flow(root, args, { allowFailure = false } = {}) {
+  const result = spawnSync(process.execPath, [bin, ...args], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: ACTOR.name }
+  });
+  if (!allowFailure && result.status !== 0) {
+    throw new Error(`${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  }
+  return result;
 }
 
 async function fixture(name) {
@@ -487,6 +501,14 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.equal(receipt.status, 'pending-tests');
   assert.equal(receipt.generationIntentId, context.phase.generationIntent.id);
   assert.equal(receipt.changeSet.digest, context.phase.deliveryEvidence.changeSet.digest);
+  assert.deepEqual(receipt.changeClassification.declaredOrigins, ['human']);
+  assert.equal(receipt.changeClassification.inference, 'path-policy');
+  assert.equal(receipt.changeClassification.counts['product-source'], 1);
+  assert.equal(receipt.changeClassification.counts['test-source'], 1);
+  assert.deepEqual(
+    receipt.changeClassification.entries.map((entry) => [entry.newPath, entry.role]),
+    [['src/app.java', 'product-source'], ['src/test/AppTest.java', 'test-source']]
+  );
 
   const retried = await inContext(context.root, () => publishGeneration(
     context.root, context.config, context.workflow,
@@ -500,7 +522,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   });
   const bounded = unavailableBaseline.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.equal(bounded.mode, 'guided');
-  assert.match(bounded.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+  assert.match(bounded.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
   assert.equal(bounded.skill, '/sf-code');
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
 
@@ -523,7 +545,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   const renewal = recovery.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.ok(renewal, 'recovery did not offer a new generation boundary');
   assert.equal(renewal.mode, 'guided');
-  assert.match(renewal.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+  assert.match(renewal.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
   assert.equal(renewal.skill, '/sf-code');
 
   const generatedContext = path.join(
@@ -545,7 +567,7 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
     phaseId: 'implementation'
   });
   const adoption = adoptable.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
-  assert.match(adoption.command, /^singularity-flow phase begin implementation --adopt-existing --confirm sha256:/);
+  assert.match(adoption.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
 });
 
 test('prepare refuses a consumed code generation before writing next-generation state', async () => {
@@ -577,4 +599,47 @@ test('prepare refuses a consumed code generation before writing next-generation 
   assert.equal(JSON.stringify(context.phase), phaseBefore,
     'prepare mutated phase state before rejecting the consumed generation');
   await assert.rejects(() => readFile(nextReceipt), (error) => error.code === 'ENOENT');
+});
+
+test('phase rollover previews exact current bytes and opens one successor without erasing publication', async () => {
+  const context = await codeFixture('rollover-command');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  const publishedHead = git(context.root, 'rev-parse', 'HEAD');
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App { int next = 2; }\n');
+
+  const preview = JSON.parse(flow(context.root, [
+    'phase', 'rollover', 'implementation', '--json'
+  ]).stdout);
+  assert.equal(preview.fromGeneration, 1);
+  assert.equal(preview.toGeneration, 2);
+  assert.match(preview.confirmation, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(preview.mutates, false);
+  let stored = JSON.parse(await readFile(path.join(
+    context.root, 'singularity', 'work-items', 'DELIVERY-1', 'workflow.json'
+  ), 'utf8'));
+  assert.equal(stored.phases.implementation.generationIntent.status, 'consumed');
+
+  const stale = flow(context.root, [
+    'phase', 'rollover', 'implementation', '--confirm', `sha256:${'0'.repeat(64)}`
+  ], { allowFailure: true });
+  assert.equal(stale.status, 1);
+  assert.match(stale.stderr, /confirmation must equal the current digest/i);
+
+  flow(context.root, [
+    'phase', 'rollover', 'implementation', '--confirm', preview.confirmation
+  ]);
+  stored = JSON.parse(await readFile(path.join(
+    context.root, 'singularity', 'work-items', 'DELIVERY-1', 'workflow.json'
+  ), 'utf8'));
+  assert.equal(stored.phases.implementation.generation, 1);
+  assert.equal(stored.phases.implementation.generationIntent.generation, 2);
+  assert.equal(stored.phases.implementation.generationIntent.status, 'open');
+  assert.equal(git(context.root, 'rev-parse', 'HEAD'), publishedHead,
+    'rollover created a commit instead of a local authoring boundary');
 });

@@ -17,16 +17,26 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 4
+version: 5
 ---
 Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Inputs and reference documents are added with `sflow inputs add` / `sflow documents upload` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
 For code phases, run `sflow phase begin <phase>` before changing source. Begin creates or returns a
 local, hash-bound generation-start receipt; it does not create a lifecycle event, commit, push, or
 ledger entry. Publication verifies that exact receipt and binds it into the normal
-`artifact-generated` event. If a prior generation was consumed and bytes now differ, begin a new
-generation. When those bytes predate the boundary, use `--adopt-existing --confirm <digest>` only
-after reviewing the exact change set and only when the Story policy permits adoption.
+`artifact-generated` event. Publication snapshots the artifact, source, and tests immediately before
+the isolated commit; an editor, formatter, generator, or test-watcher write during that boundary
+causes a safe refusal without advancing the branch. VS Code saves and rechecks repository buffers
+before asking the kernel to publish.
+
+If a prior generation was consumed and bytes now differ, run
+`sflow phase rollover <phase>` first. It is a read-only preview that returns an exact confirmation
+bound to the current change set. Run only the returned `--confirm` command; a stale digest is refused,
+the previous generation stays preserved, and no source is discarded or stashed. When those bytes
+predate the boundary, adoption is allowed only after reviewing the exact change set and only when the
+Story policy permits it. Use repeated `--change-origin` values on publication when humans, Copilot,
+formatters, compilers, migrations, or generators contributed; the delivery receipt separately records
+declared provenance and deterministic path-based classification.
 
 Large upstream artifacts can use `projection: approved-summary`. The producer authors a concise
 `Agent brief` section and the kernel copies it deterministically at phase publication, adding
@@ -80,6 +90,8 @@ mode because exact expansion must remain content-addressed.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If a generation is already consumed, preview `sflow phase rollover <phase>` and use its exact
+  confirmation. Do not repeatedly copy a digest from an earlier refusal; repository bytes may move.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
 - If a brief is missing or stale, do not edit `context/briefs/`. Reopen and republish the producer
   generation so the kernel can create a new review-bound record.

@@ -567,6 +567,7 @@ export async function commitIsolated(root, message, paths, {
   sign = false,
   signingKey = null,
   fault = null,
+  stabilityGuard = null,
   transaction = null,
   onCommitCreated = null,
   onRefAdvanced = null
@@ -589,6 +590,12 @@ export async function commitIsolated(root, message, paths, {
     );
   }
 
+  // A publisher may perform slow validation before staging while an editor, formatter, or test
+  // watcher is still capable of writing the worktree. Capture its content-aware guard immediately
+  // before staging and compare it immediately afterwards. A later edit cannot alter the temporary
+  // index/tree already built; it remains ordinary uncommitted work for the next generation.
+  const stabilityBefore = stabilityGuard ? await stabilityGuard() : null;
+
   // Before the temporary index is built, so a refusal leaves no scratch directory behind.
   assertNoSecrets(root, scope, { label: 'Governed publication' });
 
@@ -604,6 +611,38 @@ export async function commitIsolated(root, message, paths, {
     if (fault) await fault('before-staging', { expectedHead, paths: scope });
     git(['add', '-A', '--', ...scope], { cwd: root, env });
     if (fault) await fault('after-staging', { expectedHead, paths: scope });
+    const trackedWorktreeDrift = git(['diff', '--quiet', '--', ...scope], {
+      cwd: root, env, allowFailure: true
+    });
+    const untrackedWorktreeDrift = git(['ls-files', '--others', '--exclude-standard', '-z', '--', ...scope], {
+      cwd: root, env, allowFailure: true
+    });
+    if (trackedWorktreeDrift.status > 1 || untrackedWorktreeDrift.status !== 0) {
+      throw new SingularityFlowError(
+        'Git could not verify the governed publication snapshot after staging.',
+        { code: 'PUBLICATION_SNAPSHOT_UNVERIFIED' }
+      );
+    }
+    if (trackedWorktreeDrift.status === 1 || untrackedWorktreeDrift.stdout) {
+      throw new SingularityFlowError(
+        'Repository bytes changed while the governed publication snapshot was being staged. '
+        + 'The commit was not created; wait for editor, formatter, generator, and test writes to finish, then retry.',
+        { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
+      );
+    }
+    if (stabilityGuard) {
+      const stabilityAfter = await stabilityGuard();
+      if (stabilityAfter !== stabilityBefore) {
+        throw new SingularityFlowError(
+          'Repository bytes changed while the governed publication snapshot was being staged. '
+          + 'The commit was not created; wait for editor, formatter, generator, and test writes to finish, then retry.',
+          {
+            code: 'PUBLICATION_SNAPSHOT_CHANGED',
+            details: { before: stabilityBefore, after: stabilityAfter }
+          }
+        );
+      }
+    }
 
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
     const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root }).stdout.trim();

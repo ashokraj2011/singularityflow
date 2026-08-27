@@ -783,6 +783,29 @@ test('governed publication rejects a pre-staged governed path without changing H
   assert.equal(git(['diff', '--cached', '--binary'], root), stagedBefore);
 });
 
+test('governed publication rejects an editor write during snapshot staging without advancing HEAD', async () => {
+  const root = await repository('sflow-publication-snapshot-race-');
+  const governedPath = path.join(root, 'governed.json');
+  await writeFile(governedPath, '{"status":"ready"}\n');
+  const before = git(['rev-parse', 'HEAD'], root);
+  const guard = async () => readFile(governedPath, 'utf8');
+
+  await assert.rejects(
+    () => commitIsolated(root, 'must retain changing bytes', ['governed.json'], {
+      expectedHead: before,
+      stabilityGuard: guard,
+      fault: async (stage) => {
+        if (stage === 'after-staging') await writeFile(governedPath, '{"status":"editor-write"}\n');
+      }
+    }),
+    (error) => error.code === 'PUBLICATION_SNAPSHOT_CHANGED'
+  );
+
+  assert.equal(git(['rev-parse', 'HEAD'], root), before);
+  assert.equal(await readFile(governedPath, 'utf8'), '{"status":"editor-write"}\n');
+  assert.match(git(['status', '--porcelain'], root), /\?\? governed\.json/);
+});
+
 test('temporary-index faults before ref update leave no commit or index mutation', async (t) => {
   for (const stage of ['before-staging', 'after-staging', 'after-commit-object']) {
     await t.test(stage, async () => {

@@ -17,10 +17,60 @@ import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
 import {
-  isApplicationChangeEntry, verifyWorkIntervalBaseline
+  isApplicationChangeEntry, isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+
+function pathInside(candidate, root) {
+  const value = posix(candidate ?? '');
+  const prefix = posix(root ?? '').replace(/\/$/, '');
+  return Boolean(value && prefix && (value === prefix || value.startsWith(`${prefix}/`)));
+}
+
+/**
+ * Describe what each changed path is for without pretending path names prove who authored bytes.
+ * Explicit authorship/change-origin declarations live on the generation receipt; this projection
+ * only supplies deterministic repository roles and clearly labels its path-policy inference.
+ */
+export function classifyDeliveryChanges(changeSet, {
+  generatedRoots = [], declaredOrigins = []
+} = {}) {
+  const roots = [...new Set(generatedRoots.map(posix).filter(Boolean))];
+  const entries = (changeSet?.entries ?? []).filter(isApplicationChangeEntry).map((entry) => {
+    const candidate = entry.newPath ?? entry.oldPath;
+    const configuredGenerated = roots.some((root) => pathInside(candidate, root));
+    const testOutput = /(?:^|\/)(?:\.sflow\/results|coverage|test-results|surefire-reports)(?:\/|$)/i.test(candidate ?? '');
+    const compilerOutput = /(?:^|\/)(?:target|build|dist|out)(?:\/(?:classes|generated|resources))?(?:\/|$)/i.test(candidate ?? '');
+    const migration = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/i.test(candidate ?? '');
+    const test = isAllowedTestAutomationPath(candidate ?? '');
+    const tooling = /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?|package\.json|pyproject\.toml|go\.mod|Cargo\.toml)$/i.test(candidate ?? '');
+    const generated = configuredGenerated || isGeneratedOutputPath(candidate ?? '');
+    const role = configuredGenerated ? 'generated-source'
+      : testOutput ? 'test-output'
+        : compilerOutput ? 'compiler-output'
+          : migration ? 'migration'
+            : test ? 'test-source'
+              : tooling ? 'build-configuration'
+                : generated ? 'generated-output' : 'product-source';
+    const likelyOrigin = configuredGenerated ? 'code-generator'
+      : testOutput ? 'test-runner'
+        : compilerOutput ? 'compiler'
+          : migration ? 'migration-tool-or-human'
+            : 'authorship-declared';
+    return {
+      changeId: entry.changeId, status: entry.status,
+      oldPath: entry.oldPath, newPath: entry.newPath,
+      role, generated, likelyOrigin, inference: 'path-policy'
+    };
+  });
+  const counts = Object.fromEntries([...new Set(entries.map((entry) => entry.role))]
+    .sort().map((role) => [role, entries.filter((entry) => entry.role === role).length]));
+  return {
+    schemaVersion: 1, inference: 'path-policy', declaredOrigins: [...declaredOrigins],
+    generatedRoots: roots, counts, entries
+  };
+}
 
 function legacySpecificationText(text) {
   return text
@@ -348,6 +398,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     baselineCommit,
     generationIntentId: phase.generationIntent?.id ?? null,
     changeSet,
+    changeClassification: classifyDeliveryChanges(changeSet, {
+      generatedRoots: workflow.resolution?.ast?.generatedRoots ?? config.ast?.generatedRoots ?? []
+    }),
     paths: await pathEvidence(root, [...new Set([
       ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths
     ])].sort(), { changeSet }),

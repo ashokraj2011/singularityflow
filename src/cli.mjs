@@ -14,9 +14,11 @@ import YAML from 'yaml';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
+import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { applicationChangeSetProjection } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
@@ -89,6 +91,7 @@ import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
+import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
 import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
@@ -3504,6 +3507,65 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
   const root = repoRoot(); const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
+  if (subcommand === 'rollover') {
+    const phaseId = positionals[2] ?? workflow.currentPhase;
+    const phase = workflow.phases[phaseId];
+    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+    const plan = await generationRecovery(
+      root, workflow, phase,
+      (repositoryRoot, selectedPhase) => generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
+    );
+    if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
+      throw new SingularityFlowError(
+        plan?.action.detail ?? `Phase '${phaseId}' has no changed consumed generation to roll over.`,
+        { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: plan ?? null }
+      );
+    }
+    const expected = plan.blocker.details.rolloverConfirmation;
+    const supplied = optionString(options, 'confirm');
+    const preview = {
+      schemaVersion: 1,
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      fromGeneration: phase.generation,
+      toGeneration: Number(phase.generation) + 1,
+      confirmation: expected,
+      changeSetDigest: plan.blocker.details.changeSetDigest,
+      currentResultDigest: plan.blocker.details.currentResultDigest,
+      command: plan.action.command,
+      mutates: Boolean(supplied)
+    };
+    if (!supplied) {
+      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
+      else {
+        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${phase.generation + 1}.`);
+        console.log(`Confirm exact current bytes: ${expected}`);
+        console.log(`Run: ${plan.action.command}`);
+        console.log('Nothing was changed.');
+      }
+      return;
+    }
+    if (supplied !== expected) {
+      throw new SingularityFlowError(
+        `Generation rollover confirmation must equal the current digest ${expected}. Re-run the preview if files are still changing.`,
+        { code: 'GENERATION_ROLLOVER_STALE', details: preview }
+      );
+    }
+    const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phaseId}`, async () => {
+      const opened = await beginPhaseGeneration(root, config, workflow, {
+        phaseId,
+        adoptExisting: Boolean(plan.blocker.details.changeSetDigest),
+        confirm: plan.blocker.details.changeSetDigest
+      });
+      await saveStoryDraft(root, config, workflow);
+      await verifyOpenGenerationIntent(root, workflow, phase);
+      return opened;
+    });
+    const result = { ...preview, mutates: true, generationIntent: intent };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
+    return;
+  }
   if (subcommand === 'begin') {
     const phaseId = positionals[2] ?? workflow.currentPhase;
     const phase = workflow.phases[phaseId];
@@ -3553,7 +3615,7 @@ async function phaseCommand(positionals, options) {
     const digest = await generationResultDigest(root, config, workflow, requestedPhase);
     if (digest !== requestedPhase.generationIntent.publication?.resultDigest) {
       throw new SingularityFlowError(
-        `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase begin ${phaseId} before publishing a new generation.`,
+        `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
         { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
       );
     }
@@ -3563,11 +3625,13 @@ async function phaseCommand(positionals, options) {
   }
   const sourcePath = optionString(options, 'from');
   const authored = optionString(options, 'authored');
+  const requestedChangeOrigins = optionStrings(options, 'change-origin');
   const authorshipOptions = normalizeAuthorshipOptions({
     producer: authored,
     channel: optionString(options, 'channel'),
     imported: Boolean(sourcePath),
-    externalAiUse: optionString(options, 'external-ai')
+    externalAiUse: optionString(options, 'external-ai'),
+    changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
   });
   if (!authored) console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
   if (sourcePath && !['human', 'external-tool'].includes(authorshipOptions.producer)) {
@@ -3615,6 +3679,7 @@ async function phaseCommand(positionals, options) {
   const kernelInvocationIds = kernelInvocations.map((record) => record.id);
   const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
   let phase = requestedPhase;
+  let publicationStabilityGuard = null;
   const result = await commitAndPublish(
     root,
     config,
@@ -3657,6 +3722,61 @@ async function phaseCommand(positionals, options) {
             expectedHead: transactionContext.expectedHead
           }
         });
+        // Deterministic phases may legitimately replace their prepared scaffold during
+        // `publishGeneration`; all phases also receive engine-owned metadata. The stability
+        // boundary therefore begins from the validated post-transition artifact, not from the
+        // pre-transition author/import source.
+        const expectedArtifactSha256 = (await inspectInPlaceArtifact(
+          targetPath, publicationArtifactContract, publicationAuthoringOptions
+        )).sha256;
+        const deliveryBaseline = phase.deliveryEvidence?.baselineCommit ?? null;
+        const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
+          ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet).digest
+          : null;
+        publicationStabilityGuard = async () => {
+          const artifact = await inspectInPlaceArtifact(
+            targetPath, publicationArtifactContract, publicationAuthoringOptions
+          );
+          if (artifact.sha256 !== expectedArtifactSha256) {
+            throw new SingularityFlowError(
+              `The authored ${phase.id} artifact changed while publication was running. Nothing was committed; retry after the editor is stable.`,
+              {
+                code: 'PUBLICATION_SNAPSHOT_CHANGED',
+                details: { expectedArtifactSha256, currentArtifactSha256: artifact.sha256 }
+              }
+            );
+          }
+          let applicationDigest = null;
+          if (deliveryBaseline && expectedApplicationDigest) {
+            const current = await buildRepositoryChangeSet(root, {
+              baseCommit: deliveryBaseline,
+              subject: {
+                workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+                generationIntentId: phase.generationIntent?.id ?? null
+              }
+            });
+            applicationDigest = applicationChangeSetProjection(current).digest;
+            if (applicationDigest !== expectedApplicationDigest) {
+              throw new SingularityFlowError(
+                'Application source or test bytes changed after validation and before the governed commit. '
+                + 'Nothing was committed; wait for editor, formatter, generator, and test writes to finish, then retry.',
+                {
+                  code: 'PUBLICATION_SNAPSHOT_CHANGED',
+                  details: { expectedApplicationDigest, currentApplicationDigest: applicationDigest }
+                }
+              );
+            }
+          }
+          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}`;
+        };
+      },
+      worktreeGuard: async () => {
+        if (!publicationStabilityGuard) {
+          throw new SingularityFlowError('Publication stability guard was not initialized.', {
+            code: 'PUBLICATION_SNAPSHOT_CHANGED'
+          });
+        }
+        return publicationStabilityGuard();
       }
     }
   );

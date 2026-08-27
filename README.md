@@ -2319,6 +2319,7 @@ evidence workflow.
 | `singularity-flow initiative phase [PHASE]` | Compose the governed prompt and prepare text outputs; report exact upload paths for template-less binary bundles. |
 | `singularity-flow prepare [PHASE]` | Materialize the resolved artifact template. |
 | `singularity-flow phase show [PHASE]` | Display every generated phase document, its review metadata, and text content. |
+| `singularity-flow phase rollover [PHASE]` | Preview an exact digest, then safely open a successor to changed consumed bytes without discarding the published generation. |
 | `singularity-flow phase publish [PHASE]` | Validate, annotate, commit, and push one generation. |
 | `singularity-flow submit [PHASE]` | Run checks and publish an approval request. |
 | `singularity-flow approve [PHASE] --work-id ID --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. Omit `--work-id` for the active Story. |

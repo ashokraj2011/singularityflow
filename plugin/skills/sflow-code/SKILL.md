@@ -13,11 +13,11 @@ argument-hint: "[code-generation focus]"
 **Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow status --json`; use the governed workflow as Story context. Stop unless the active phase's normalized `generation.task` is `code`. Never hard-code `implementation`.
-2. Before composition or file access, run `singularity-flow recover <WORK-ID> --phase <phase> --json`. Review and run its exact new-generation command first. Stop on a manual action or unchanged plan fingerprint.
-3. Use the exact governed prompt already delivered in this turn. Otherwise run `singularity-flow wm compose --phase <phase>` once, only with an open intent. Never compose the same phase/generation twice in one turn. Use its approved grounding and inputs. Materialize missing context only with the contributor's requested authorization.
+2. Run `singularity-flow recover <WORK-ID> --phase <phase> --json` before file access. Execute its exact new-generation command first. For a consumed generation, use `phase rollover <phase>` and that preview's confirmation; never replay a stale digest. Stop on manual action or an unchanged plan.
+3. Use the governed prompt delivered this turn, or run `singularity-flow wm compose --phase <phase>` once with an open intent. Use approved grounding and materialize missing context only with authorization.
 4. Complete Human clarification before mutation: `ask_user`, wait, write only `{"responses":[{"question":"...","answer":"..."}]}` to a private temporary `.json` file, then run `singularity-flow clarification record <phase> --response-file <file.json>`. Never pass Markdown. Stop before authoring if required clarification remains unresolved.
-5. Run `singularity-flow prepare <phase>`, then `singularity-flow phase begin <phase> --json`. Never change source without an open intent. Adopt existing work only through Flow's exact digest confirmation.
-6. Inspect only grounded, approved scope. Implement behavior and executable tests. Fixtures, snapshots, configuration, reports, documentation, deleted tests, and symlinks do not independently satisfy test delivery.
+5. Run `singularity-flow prepare <phase>`, then `singularity-flow phase begin <phase> --json`. Never change source without an open intent. Adopt only through exact digest confirmation. Save all buffers before publication and honor snapshot-change refusals.
+6. Implement the approved scope and executable tests. Fixtures, reports, documentation, deleted tests, and symlinks do not satisfy test delivery.
 7. Tag tests with full pinned clauses such as `@ac:ORDER:AC-001`; bare identities are refused when ambiguous.
 8. Run affected modules' configured quality commands. Tests require argv-form `kind: test`, cwd, affected roots, and a structured adapter. Never add skip, dry-run, collection/list-only, or pass-with-no-tests flags.
 9. Complete the phase artifact without placeholders; record changes, decisions, deviations, tests, limitations, and operations.

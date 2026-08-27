@@ -1202,7 +1202,7 @@ export async function publishGeneration(root, config, workflow, {
     const digest = await generationResultDigest(root, config, workflow, phase);
     if (digest === phase.generationIntent.publication?.resultDigest) return phase;
     throw new SingularityFlowError(
-      `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Begin a new generation intent before publishing again.`,
+      `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
       { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
     );
   }
@@ -1451,6 +1451,10 @@ export async function publishGeneration(root, config, workflow, {
         executableTestPaths: deliveryPreflight.testPaths,
         supportingTestPaths: deliveryPreflight.supportingTestPaths
       },
+      changeClassification: {
+        ...deliveryPreflight.changeClassification,
+        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
+      },
       traceability: {
         required: deliveryPreflight.acceptanceCriteria.required,
         bound: deliveryPreflight.acceptanceCriteria.tagged,
@@ -1483,6 +1487,10 @@ export async function publishGeneration(root, config, workflow, {
     await writeJson(path.join(root, receiptPath), receipt);
     phase.deliveryEvidence = {
       ...deliveryPreflight,
+      changeClassification: {
+        ...deliveryPreflight.changeClassification,
+        declaredOrigins: [...(effectiveAuthorship.changeOrigins ?? [])]
+      },
       generation: phase.generation,
       receiptPath,
       changeSetPath,
@@ -3351,6 +3359,7 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
   eventFromResult = null,
+  worktreeGuard = null,
   transactionId = null,
   rollbackWorkflow = null,
   recoveryPreimage = null
@@ -3547,6 +3556,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     pendingRecord: () => ({ workId: workflow.workItem.id }),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
     recoveryPreimage,
+    stabilityGuard: worktreeGuard,
     transactionId
   });
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {

@@ -42,14 +42,14 @@ function artifactActions(workflow, phase, findings) {
   })];
 }
 
-async function generationRecovery(root, workflow, phase, generationDigest) {
+export async function generationRecovery(root, workflow, phase, generationDigest) {
   if (!phaseRequiresCodeDelivery(phase)
       || phase.generationIntent?.status !== 'consumed'
       || Number(phase.generationIntent.generation) !== Number(phase.generation)) return null;
   const digest = await generationDigest(root, phase);
   if (digest === phase.generationIntent.publication?.resultDigest) return null;
 
-  let command = `singularity-flow phase begin ${phase.id}`;
+  let command = null;
   let mode = 'guided';
   let changeSetDigest = null;
   let previousGenerationCommit = null;
@@ -73,18 +73,19 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
       const applicationChangeSet = applicationChangeSetProjection(changeSet);
       if (applicationChangeSet.entries.length) {
         changeSetDigest = applicationChangeSet.digest;
-        if (previousGenerationCommit
-            || (workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') === 'allow-explicit-adoption') {
-          command += ` --adopt-existing --confirm ${applicationChangeSet.digest}`;
-        } else {
+        if (!previousGenerationCommit
+            && (workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block') !== 'allow-explicit-adoption') {
           mode = 'manual';
-          command = null;
         }
       }
     } catch {
       // The recovery finding remains valid. The ordinary phase-begin command will perform the same
       // fail-closed change-set inspection and return a more specific repository error.
     }
+  }
+  const rolloverConfirmation = changeSetDigest ?? digest;
+  if (mode !== 'manual') {
+    command = `singularity-flow phase rollover ${phase.id} --confirm ${rolloverConfirmation}`;
   }
   return {
     blocker: {
@@ -96,6 +97,7 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
         publishedResultDigest: phase.generationIntent.publication?.resultDigest ?? null,
         currentResultDigest: digest,
         changeSetDigest,
+        rolloverConfirmation,
         publicationAuthority: publicationAuthorityError ? {
           code: publicationAuthorityError.code ?? 'GENERATION_PUBLICATION_UNAVAILABLE',
           message: publicationAuthorityError.message
@@ -108,7 +110,7 @@ async function generationRecovery(root, workflow, phase, generationDigest) {
         ? publicationAuthorityError
           ? 'Published bytes changed, but the exact prior generation commit could not be authenticated. Preserve the work and repair or migrate publication authority before beginning another generation.'
           : 'Published bytes changed, but Story policy forbids adopting the existing application changes. Preserve the work and obtain a policy decision before beginning another generation.'
-        : 'Begin a new generation intent bound to the current bytes. The published generation remains preserved.',
+        : 'Begin a new generation intent bound to the exact current artifact and application bytes. The published generation remains preserved.',
       command, skill: mode === 'manual' ? null : '/sf-code',
       evidence: { path: phase.generationIntent.path ?? null, line: null }
     })

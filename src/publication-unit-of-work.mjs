@@ -34,6 +34,7 @@ export class GitPublicationUnitOfWork {
   conflictStrategy = null,
   state = null,
   beforeCommit = null,
+  stabilityGuard = null,
   fault = null,
   transactionId = null,
   recoveryPreimage: suppliedRecoveryPreimage = null
@@ -211,6 +212,7 @@ export class GitPublicationUnitOfWork {
         sign: commitSpec.sign === true,
         signingKey: commitSpec.signingKey ?? null,
         fault,
+        stabilityGuard,
         transaction: {
           id: journal.transactionId,
           eventSha256: transactionEventSha256,

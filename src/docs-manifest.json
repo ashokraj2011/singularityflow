@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9d712c851d6ee1f0c6ce9f001dfb49d3974cd1a7",
+  "sourceCommit": "565471a6c4deaf12ea236a2de3b29ffdbd8d30e7",
   "topicCount": 57,
-  "contentSha256": "aaf951dfba5a0e55ff3e450e0917bc82478481a0f99535dc304d6e8d13c6b80f",
+  "contentSha256": "26a0db385adff40f02b377780428cb23fe9f4fc3e979ff8565fd0d13de065c84",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -32,8 +32,8 @@
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 4,
-      "sha256": "b23e7ae283852707f533fef3361512136fcb5ba0c0ce6a2debf10545feeeb0a3",
+      "version": 5,
+      "sha256": "255b14f25bdca312c91613b15664945b0060bc63f837df2fa64f1d4a37e0c5b3",
       "routingSha256": "dd716dda63734db0f89e1995d31e40d3f25400815b1a17e57d2f0d758e7c58b7",
       "file": "artifacts-and-generation.md"
     },
@@ -248,8 +248,8 @@
     {
       "id": "manual-authorship",
       "title": "Manual authorship and working without AI",
-      "version": 2,
-      "sha256": "56a7a085b5d53a774978a62c5272d49dfb464289be9d859832681155af43b466",
+      "version": 3,
+      "sha256": "409fafa4ff60135e8b8380dff96f94d4b1bc37246e2b42d296168036424bc98a",
       "routingSha256": "a6c40596c5731d416c827727275c68cd65c23106f22739a055dfb8c34e7a4a47",
       "file": "manual-authorship.md"
     },
@@ -320,8 +320,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 5,
-      "sha256": "ac11a610cb28aa4677e53ba9be28ebeba749fe1a9703b9027c145a40cd3dac9d",
+      "version": 6,
+      "sha256": "d9e3a9e3e53918fc4e539dd822bc276711501a80460de29936e81ab30c3e74c3",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },

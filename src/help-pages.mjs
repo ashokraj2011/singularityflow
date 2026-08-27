@@ -371,26 +371,31 @@ const PAGES = Object.freeze({
     seeAlso: ['phase', 'artifact', 'nextsteps']
   },
   phase: {
-    summary: 'Begin, inspect, or publish a governed phase generation.',
+    summary: 'Begin, inspect, safely roll over, or publish a governed phase generation.',
     description: [
       '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
       'records a new generation: it registers the artifacts, captures authorship and model usage,',
       'and commits the result as one governed transition.',
       'Begin is local and idempotent: it creates no lifecycle event, commit, push, or ledger entry.',
       'Publish verifies and binds the exact generation-start receipt into artifact-generated.',
+      '`phase rollover` previews an exact digest before opening a successor to changed consumed bytes.',
       '',
       'Publication refuses when the phase is not ready — a missing artifact, an unmet world-model',
       'grounding policy, or a phase out of sequence. Nothing is written when it refuses.'
     ],
     options: [
       ['--adopt-existing --confirm DIGEST', 'Explicitly adopt reviewed source that predates begin when Story policy permits it.'],
+      ['rollover PHASE [--confirm DIGEST]', 'Preview, then open, a successor generation without discarding the published generation.'],
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
+      ['--change-origin ORIGIN', 'Repeat to attest human, Copilot, formatter, compiler, migration, or generator contributions.'],
       ['--from FILE', 'Import the artifact from a file authored elsewhere.'],
       ['--usage-json FILE', 'Attach model usage for a governed-agent generation.']
     ],
     examples: [
       ['singularity-flow phase begin implementation',
         'Creates or returns the open generation intent before implementation source changes.'],
+      ['singularity-flow phase rollover implementation',
+        'Previews the exact confirmation for changed bytes after a consumed generation.'],
       ['singularity-flow phase publish intake --authored human',
         'Publishes generation N+1 of the intake artifact.']
     ],

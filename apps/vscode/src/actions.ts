@@ -145,6 +145,13 @@ function softSequenceGate(error: unknown): string | null {
   return error.message.match(/Soft sequence warning \[([^\]]+)\]/)?.[1] ?? null;
 }
 
+function generationRolloverPhase(error: unknown, args: string[]): string | null {
+  if (!(error instanceof CliError)
+      || !/generation intent .* already consumed/i.test(error.message)
+      || args[0] !== 'phase' || args[1] !== 'publish') return null;
+  return args[2] ?? null;
+}
+
 /**
  * Run one governed action, answering only what a human has actually answered.
  *
@@ -180,6 +187,30 @@ export async function runGovernedAction(
   try {
     return await run(args);
   } catch (error) {
+    const rolloverPhase = generationRolloverPhase(error, args);
+    if (rolloverPhase) {
+      try {
+        const preview = await client.run<{
+          confirmation: string; command: string; fromGeneration: number; toGeneration: number;
+        }>(['phase', 'rollover', rolloverPhase, '--json']);
+        const confirmed = await vscode.window.showWarningMessage(
+          `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
+          {
+            modal: true,
+            detail: `${preview.command}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+          },
+          'Start new generation'
+        );
+        if (confirmed !== 'Start new generation') return false;
+        return await run([
+          'phase', 'rollover', rolloverPhase, '--confirm', preview.confirmation
+        ]);
+      } catch (rolloverError) {
+        output.appendLine(`  rollover refused: ${(rolloverError as Error).message}`);
+        showRefusal(rolloverError);
+        return false;
+      }
+    }
     const gate = softSequenceGate(error);
     if (gate) {
       const expected = `continue:${gate}`;

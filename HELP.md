@@ -1939,7 +1939,12 @@ singularity-flow wm ast preference set off
 The effective mode is the most restrictive repository, machine, environment, and operation value.
 `off` returns a valid disabled envelope before repository enumeration and writes no AST cache.
 Derived per-blob records and cone manifests live under the Git common directory and never contain
-source bodies. They are disposable: durable diagnostic and recorded-prompt evidence may commit an
+source bodies. Successful context, query, and diagnostic-gate reads best-effort warm immutable
+Git-backed skeletons there; dirty/untracked bytes remain memory-only, and an unavailable cache
+produces `AST_CACHE_WARM_FAILED` without blocking the read. Long-lived VS Code and gateway hosts
+reuse bounded, content-addressed in-memory indexes for symbol, path, source-ID, and target lookups.
+`wm ast build` remains the explicit fail-closed cache/manifest build. Cache records are disposable:
+durable diagnostic and recorded-prompt evidence may commit an
 immutable derivation bound to exact Git objects and content-addressed toolchain artifacts. Dirty or
 untracked in-cone bytes produce partial results without durable capture; out-of-cone edits do not
 affect it. `wm ast evidence replay` recomputes from the recorded commit with the ordinary cache

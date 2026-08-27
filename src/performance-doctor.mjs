@@ -75,11 +75,10 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
   /**
    * The AST index, measured the same way as everything else here: twice.
    *
-   * Its cache is per-file and content-addressed, so a second identical call should be most of a
-   * cache hit and cost visibly less than the first. When the two numbers are the same, nothing was
-   * kept — and nothing is, on this path: `buildOrContext` persists only when the operation is
-   * `build`, so `ast context` and `ast query` read the store and never write it. A repository whose
-   * `ast build` has never been run therefore re-derives every skeleton on every call, for ever.
+   * Its disk cache is per-file and content-addressed, and successful reads now warm immutable Git
+   * skeletons automatically. A second identical call should therefore be mostly cache hits and
+   * visibly cheaper than the first; a long-lived host can additionally reuse the bounded in-memory
+   * fact index. Dirty/untracked inputs remain memory-only and cache write failures are non-blocking.
    *
    * Imported lazily because this whole module is an explicit benchmark rather than part of any read,
    * and `ast-intelligence.mjs` is 2,300 lines nothing else here needs.
@@ -139,19 +138,19 @@ export async function repositoryPerformanceSnapshot(root, definition = {}) {
     });
   }
   /**
-   * A cache that costs the same warm as cold is not a cache.
+   * A cache that costs the same warm as cold needs diagnosis.
    *
    * Four fifths rather than a strict comparison: the second call legitimately shares an OS page
    * cache and a warm Git object store, so some improvement is free and does not prove the content
-   * store was written. Anything above that is the store failing to fill, which on this path is by
-   * construction — `context` and `query` are handed `persist: false`.
+   * store was written. Anything above that means automatic warming was unavailable, the selected
+   * inputs were not immutable Git blobs, or cache read cost dominates extraction.
    */
   if (astTimings.coldMs !== null && astTimings.coldMs > 50 && astTimings.warmMs > astTimings.coldMs * 0.8) {
     recommendations.push({
       id: 'ast-cache-cold',
       severity: 'medium',
       message: `A repeated AST read cost ${astTimings.warmMs} ms against the first call's ${astTimings.coldMs} ms, so the`
-        + ' content-addressed skeleton store is not being filled. Run `singularity-flow wm ast build` to warm it.'
+        + ' automatic cache warm did not materially reduce latency. Inspect `wm ast doctor`; use `wm ast build` for an explicit fail-closed rebuild.'
     });
   }
   if (coldFingerprint.sha256 !== warmFingerprint.sha256) {

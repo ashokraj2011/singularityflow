@@ -21,7 +21,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 2
+version: 3
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -66,14 +66,17 @@ submission, readiness, or governance gate.
 
 Start with a small query such as `sflow wm ast query --predicate symbol --value Payment --paths src
 --max-facts 50 --max-output-bytes 32768 --json`; follow its opaque cursor only if the question is
-unanswered. Cache population occurs only through the explicit `wm ast build` command.
+unanswered. Successful reads automatically warm immutable Git-backed skeletons in the disposable
+Git-common cache. Dirty and untracked bytes remain memory-only. `wm ast build` remains the explicit,
+fail-closed way to build a cone manifest or surface cache write failures.
 
 ## State and safety
 
 Context and query reads are bounded by selected paths, files, facts, and output bytes. Start with a
 small scope and widen it deliberately. AST results contain facts and provenance rather than source
-bodies. Cache writes, semantic warm-up, pruning, and clearing remain explicit operations with their
-documented confirmation boundaries. No AST outcome grants lifecycle authority.
+bodies. Automatic warming writes only disposable content-addressed cache entries and never governed
+state; a write failure produces a warning and the read continues. Semantic warm-up, explicit builds,
+pruning, and clearing retain their documented boundaries. No AST outcome grants lifecycle authority.
 
 ## Troubleshooting
 

@@ -178,13 +178,11 @@ test('workspace materialization honors blobless sparse checkout without touching
     'workspace creation is read-only with respect to the selected base branch');
 });
 
-test('the performance report measures the AST read twice, so a cache that never fills is visible', async () => {
+test('the performance report measures the AST read twice, so failed automatic warming is visible', async () => {
   /**
-   * Everything else in this report is measured cold and warm, and the AST index was not measured at
-   * all — which is how a store that is read and never written stayed a code fact rather than a
-   * number. `buildOrContext` passes `persist: operation === 'build'`, so `ast context` and
-   * `ast query` consult the content-addressed skeleton store and never fill it; on a repository
-   * whose `ast build` has never run, every call re-derives every skeleton.
+   * Everything else in this report is measured cold and warm. AST reads now warm immutable
+   * content-addressed skeletons automatically, so measuring twice exposes a cache path that is
+   * unavailable, ineffective, or dominated by repository census and cache-read cost.
    *
    * Measured on this repository's own checkout: `status` warmed to 63% of its cold cost and the
    * world-model fingerprint to 51%, while a repeated AST read cost 86% — the shape of no cache at
@@ -209,8 +207,8 @@ test('the performance report measures the AST read twice, so a cache that never 
     assert.ok(Number.isInteger(ast.facts), 'the report does not say how much the AST read returned');
   }
 
-  // The recommendation exists and is reachable: it is what turns the ratio into advice a person can
-  // act on, and it names the command that fills the store.
+  // The recommendation exists and is reachable: it turns the ratio into an explicit diagnostic and
+  // retains the fail-closed build command for a deliberate rebuild.
   const source = await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/performance-doctor.mjs'), 'utf8');
   assert.match(source, /id: 'ast-cache-cold'/);
   assert.match(source, /wm ast build/, 'the advice does not name the command that warms the store');

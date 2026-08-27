@@ -40,7 +40,7 @@ const AST_RESUME_JOB_SCHEMA_VERSION = currentSchemaVersion('ast-resume-job');
 const STORE_DIR = 'singularity-flow/ast/v2';
 const LEGACY_STORE_DIR = 'singularity-flow/ast/v1';
 const BUILTIN_EXTRACTOR = BUILTIN_AST_EXTRACTOR;
-const AST_ENGINE = Object.freeze({ id: 'singularity-flow-ast-broker', version: 3 });
+const AST_ENGINE = Object.freeze({ id: 'singularity-flow-ast-broker', version: 4 });
 const AST_READ_CURSOR_VERSION = 1;
 const DEFAULT_MAX_FACTS = 200;
 const DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024;
@@ -50,6 +50,16 @@ const ASSURANCE = new Set(['text', 'syntax', 'semantic']);
 const STATUSES = new Set(['complete', 'partial', 'disabled', 'unsupported', 'stale', 'failed']);
 const OPERATIONS = new Set(['context', 'query', 'gate', 'build', 'transform']);
 const GIT_LIST_MAX_BUFFER = 128 * 1024 * 1024;
+const AST_CACHE_WRITE_CONCURRENCY = 8;
+const FACT_INDEX_CACHE_MAX_ENTRIES = 8;
+const FACT_INDEX_CACHE_MAX_FACTS = 250_000;
+
+// Process-local acceleration for long-lived VS Code/gateway hosts. Entries are keyed by the
+// repository plus content-addressed skeleton identities, bounded by both count and total facts,
+// and are never authoritative: every new request still binds its selection to current Git/worktree
+// bytes before this cache can be consulted.
+const factIndexCache = new Map();
+let factIndexCacheFacts = 0;
 
 const EVIDENCE_CLASSES = new Set(['preview', 'recorded-context', 'gate']);
 const LOCAL_AST_EVIDENCE_PREFIX = '.singularity-flow/ast-evidence-store/';
@@ -65,6 +75,90 @@ function extractorKey(value) {
 function uniqueExtractors(values) {
   return [...new Map(values.filter(Boolean).map((value) => [extractorKey(value), structuredClone(value)])).values()]
     .sort((left, right) => extractorKey(left).localeCompare(extractorKey(right)));
+}
+
+function memoryRepositoryKey(root) {
+  return sha256(path.resolve(gitCommonDir(root)));
+}
+
+function factSetCacheKey(root, entries) {
+  return recordSha256({
+    repository: memoryRepositoryKey(root),
+    entries: entries.map((entry) => ({
+      path: entry.path,
+      generated: entry.generated === true,
+      cacheKey: entry.cacheKey,
+      adapters: (entry.adapters ?? []).map((adapter) => adapter.cacheKey)
+    }))
+  });
+}
+
+function addIndexedFact(map, key, fact) {
+  if (typeof key !== 'string' || !key) return;
+  const bucket = map.get(key) ?? [];
+  bucket.push(fact);
+  map.set(key, bucket);
+}
+
+function buildFactIndex(facts) {
+  const byKind = new Map();
+  const symbolsByName = new Map();
+  const symbolsById = new Map();
+  const filesByPath = new Map();
+  const filesByLanguage = new Map();
+  const relationshipsBySourceId = new Map();
+  const factsByTarget = new Map();
+  const position = new Map();
+
+  for (let index = 0; index < facts.length; index += 1) {
+    const fact = facts[index];
+    position.set(fact, index);
+    addIndexedFact(byKind, fact.kind, fact);
+    if (fact.kind === 'symbol') {
+      addIndexedFact(symbolsByName, fact.name, fact);
+      addIndexedFact(symbolsById, fact.id, fact);
+      if (fact.qualifiedName !== fact.id) addIndexedFact(symbolsById, fact.qualifiedName, fact);
+    }
+    if (fact.kind === 'file') {
+      addIndexedFact(filesByPath, fact.path, fact);
+      addIndexedFact(filesByLanguage, fact.language, fact);
+    }
+    if (fact.kind === 'relationship') addIndexedFact(relationshipsBySourceId, fact.sourceId, fact);
+    addIndexedFact(factsByTarget, fact.target, fact);
+  }
+
+  return {
+    byKind, symbolsByName, symbolsById, filesByPath, filesByLanguage,
+    relationshipsBySourceId, factsByTarget, position,
+    sortedFilePaths: [...filesByPath.keys()].sort()
+  };
+}
+
+function rememberFactIndex(root, key, facts, index) {
+  if (facts.length > FACT_INDEX_CACHE_MAX_FACTS) return;
+  const existing = factIndexCache.get(key);
+  if (existing) {
+    factIndexCacheFacts -= existing.facts.length;
+    factIndexCache.delete(key);
+  }
+  factIndexCache.set(key, { repository: memoryRepositoryKey(root), facts, index });
+  factIndexCacheFacts += facts.length;
+  while (factIndexCache.size > FACT_INDEX_CACHE_MAX_ENTRIES
+    || factIndexCacheFacts > FACT_INDEX_CACHE_MAX_FACTS) {
+    const oldestKey = factIndexCache.keys().next().value;
+    const oldest = factIndexCache.get(oldestKey);
+    factIndexCache.delete(oldestKey);
+    factIndexCacheFacts -= oldest.facts.length;
+  }
+}
+
+function clearFactIndexes(root = null) {
+  const repository = root ? memoryRepositoryKey(root) : null;
+  for (const [key, entry] of factIndexCache) {
+    if (repository && entry.repository !== repository) continue;
+    factIndexCache.delete(key);
+    factIndexCacheFacts -= entry.facts.length;
+  }
 }
 
 function outputLimits(options = {}) {
@@ -487,7 +581,8 @@ async function deriveSkeleton(root, file, key, preparedBytes = null) {
 }
 
 async function skeletonFor(root, file, {
-  persist = false, memory = new Map(), metrics = null, preparedBytes = null
+  persist = false, memory = new Map(), metrics = null, preparedBytes = null,
+  cacheWriteRequired = persist, cacheWriteFailures = []
 } = {}) {
   const key = blobKey(file);
   if (memory.has(key)) {
@@ -502,17 +597,43 @@ async function skeletonFor(root, file, {
     if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
     if (metrics) metrics.misses += 1;
     skeleton = await deriveSkeleton(root, file, key, preparedBytes);
-    if (persist && file.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key), skeleton);
+    if (persist && file.contentKey?.startsWith('git:')) {
+      await persistCacheRecords([{
+        target: blobPath(root, key), record: skeleton, path: file.path
+      }], { required: cacheWriteRequired, failures: cacheWriteFailures });
+    }
   }
   memory.set(key, skeleton);
   return skeleton;
 }
 
-async function cachedSkeleton(root, file, key) {
+async function persistCacheRecords(records, { required, failures }) {
+  if (!records.length) return;
+  let next = 0;
+  const workers = Array.from({ length: Math.min(AST_CACHE_WRITE_CONCURRENCY, records.length) }, async () => {
+    while (next < records.length) {
+      const current = records[next];
+      next += 1;
+      try {
+        await writeJson(current.target, current.record);
+      } catch (error) {
+        if (required) throw error;
+        failures.push({ path: current.path, code: error?.code ?? 'AST_CACHE_WRITE_FAILED' });
+      }
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function cachedSkeleton(root, file, key, { required = true, failures = [] } = {}) {
   try {
     return validateSkeleton(await readFile(blobPath(root, key)), file, key);
   } catch (error) {
     if (error?.code === 'ENOENT' || error?.code === 'AST_CACHE_INVALID') return null;
+    if (!required) {
+      failures.push({ path: file.path, code: error?.code ?? 'AST_CACHE_READ_FAILED' });
+      return null;
+    }
     throw error;
   }
 }
@@ -557,7 +678,15 @@ function materializeFacts(entry, skeleton, { includeFile = true } = {}) {
   ];
 }
 
-async function factsForEntries(root, entries, memory = new Map()) {
+async function factsForEntries(root, entries, memory = new Map(), { allowMemoryReuse = true } = {}) {
+  const cacheKey = factSetCacheKey(root, entries);
+  const retained = factIndexCache.get(cacheKey);
+  if (retained && allowMemoryReuse) {
+    // Map insertion order is the LRU clock.
+    factIndexCache.delete(cacheKey);
+    factIndexCache.set(cacheKey, retained);
+    return { facts: retained.facts, index: retained.index, memoryHit: true };
+  }
   const facts = [];
   for (const entry of entries) {
     let skeleton = memory.get(entry.cacheKey);
@@ -573,7 +702,9 @@ async function factsForEntries(root, entries, memory = new Map()) {
       facts.push(...materializeFacts(entry, adapterSkeleton, { includeFile: false }));
     }
   }
-  return facts;
+  const index = buildFactIndex(facts);
+  rememberFactIndex(root, cacheKey, facts, index);
+  return { facts, index, memoryHit: false };
 }
 
 function skippedKey(item) {
@@ -581,14 +712,15 @@ function skippedKey(item) {
 }
 
 async function processCandidates(root, runtime, candidates, {
-  startIndex = 0, entries: previousEntries = [], skipped: previousSkipped = [], options = {}, persist = false
+  startIndex = 0, entries: previousEntries = [], skipped: previousSkipped = [], options = {},
+  persist = false, cacheWriteRequired = persist
 } = {}) {
   const budgets = astBudgets(runtime, options);
   const entries = structuredClone(previousEntries);
   const skipped = structuredClone(previousSkipped);
   const seenSkipped = new Set(skipped.map(skippedKey));
   const memory = new Map();
-  const cache = { hits: 0, misses: 0 };
+  const cache = { hits: 0, misses: 0, writeFailures: [] };
   let index = startIndex; let pageFiles = 0; let pageBytes = 0; let minimumRequiredBytes = null;
   const page = [];
   while (index < candidates.length) {
@@ -622,7 +754,9 @@ async function processCandidates(root, runtime, candidates, {
       cache.hits += 1;
       continue;
     }
-    const cached = await cachedSkeleton(root, file, key);
+    const cached = await cachedSkeleton(root, file, key, {
+      required: cacheWriteRequired, failures: cache.writeFailures
+    });
     if (cached) {
       memory.set(key, cached);
       cache.hits += 1;
@@ -630,15 +764,19 @@ async function processCandidates(root, runtime, candidates, {
     else cache.hits += 1;
   }
   const gitBlobs = gitBlobBatch(root, [...misses.values()].filter((file) => file.contentKey?.startsWith('git:')));
+  const cacheRecords = [];
   for (const [key, file] of misses) {
     const skeleton = await deriveSkeleton(
       root, file, key,
       file.contentKey?.startsWith('git:') ? gitBlobs.get(file.object) : null
     );
-    if (persist && file.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key), skeleton);
+    if (persist && file.contentKey?.startsWith('git:')) {
+      cacheRecords.push({ target: blobPath(root, key), record: skeleton, path: file.path });
+    }
     memory.set(key, skeleton);
     cache.misses += 1;
   }
+  await persistCacheRecords(cacheRecords, { required: cacheWriteRequired, failures: cache.writeFailures });
   for (const file of page) {
     const skeleton = memory.get(blobKey(file));
     entries.push(entryFor(file, skeleton));
@@ -709,6 +847,7 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
     : { bindings: [], diagnostics: [] };
   diagnostics.push(...projectDiscovery.diagnostics.map((item) => ({ ...item, message: 'Project discovery reached its bounded metadata limit.' })));
 
+  const cacheRecords = [];
   // Syntax always runs before semantic enrichment. A failed semantic provider never discards the
   // accepted syntax skeleton, and no semantic provider runs without a complete immutable binding.
   for (const stage of ['syntax', 'semantic']) {
@@ -772,7 +911,12 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
         });
         continue;
       } catch (error) {
-        if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') throw error;
+        if (error?.code !== 'ENOENT' && error?.code !== 'AST_CACHE_INVALID') {
+          if (processed.cacheWriteRequired !== false) throw error;
+          processed.cache.writeFailures.push({
+            path: entry.path, code: error?.code ?? 'AST_CACHE_READ_FAILED'
+          });
+        }
         if (existingIndex >= 0) entry.adapters.splice(existingIndex, 1);
       }
       const groupId = `${adapter.id}\0${project?.projectModelSha256 ?? 'syntax'}`;
@@ -816,7 +960,11 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
             sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
           });
           processed.memory.set(key, skeleton);
-          if (persist && entry.contentKey?.startsWith('git:')) await writeJson(blobPath(root, key, extractor), skeleton);
+          if (persist && entry.contentKey?.startsWith('git:')) {
+            cacheRecords.push({
+              target: blobPath(root, key, extractor), record: skeleton, path: entry.path
+            });
+          }
           entry.adapters.push({ cacheKey: key, extractor });
           entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
           processed.cache.misses += 1;
@@ -840,6 +988,10 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
       }
     }
   }
+  await persistCacheRecords(cacheRecords, {
+    required: processed.cacheWriteRequired !== false,
+    failures: processed.cache.writeFailures
+  });
   return {
     diagnostics,
     degradation,
@@ -1208,11 +1360,13 @@ async function buildOrContext(root, options, operation, workBinding = null) {
     return validateAstResultEnvelope(refreshEnvelopeAccounting(disabled));
   }
   const selection = await enumerateScope(root, runtime, options);
+  const cacheWriteRequired = operation === 'build';
   const processed = await processCandidates(root, runtime, selection.candidates, {
-    options, persist: operation === 'build'
+    options, persist: true, cacheWriteRequired
   });
+  processed.cacheWriteRequired = cacheWriteRequired;
   const adapters = await applyConfiguredAdapters(root, runtime, selection, processed, {
-    persist: operation === 'build'
+    persist: true
   });
   const envelope = baseEnvelope(runtime, operation, selection.scope, mode, {
     revision: selection.repositoryRevision, fingerprint: selection.coneSha256
@@ -1222,7 +1376,12 @@ async function buildOrContext(root, options, operation, workBinding = null) {
     message: `${selection.unsupported.length} programming source path(s) have no installed AST support; they were skipped and ordinary file access remains available.`,
     paths: selection.unsupported.map((entry) => entry.path)
   });
-  envelope.facts = await factsForEntries(root, processed.entries, processed.memory);
+  const factSet = await factsForEntries(root, processed.entries, processed.memory, {
+    // A miss can represent first extraction or repair of an invalid/nondeterministic provider
+    // record. Materialize those accepted bytes again instead of trusting an older process entry.
+    allowMemoryReuse: processed.cache.misses === 0
+  });
+  envelope.facts = factSet.facts;
   const structuralFacts = structuredClone(envelope.facts);
   envelope.assurance = resultAssurance(processed.entries);
   const deferred = selection.candidates.slice(processed.nextIndex).map((file) => ({
@@ -1250,13 +1409,19 @@ async function buildOrContext(root, options, operation, workBinding = null) {
     hits: processed.cache.hits, misses: processed.cache.misses,
     entries: processed.entries.length, format: 'blob-cas-v2'
   };
+  if (processed.cache.writeFailures.length) envelope.diagnostics.push({
+    code: 'AST_CACHE_WARM_FAILED', severity: 'warn',
+    message: `${processed.cache.writeFailures.length} local AST cache operation${processed.cache.writeFailures.length === 1 ? '' : 's'} failed; this result remains available and ordinary repository access continues.`
+  });
   if (operation === 'build') {
     envelope.resumeHandle = await createResumeJob(root, runtime, selection, processed, options);
     const manifest = await writeManifest(root, runtime, selection, processed, envelope.coverage, envelope.status);
     envelope.provenance.manifest = path.relative(gitCommonDir(root), manifest.target).replaceAll(path.sep, '/');
   }
   attachEvidenceCapture(root, runtime, selection, processed, envelope, options, structuralFacts);
-  return validateAstResultEnvelope(refreshEnvelopeAccounting(envelope));
+  const validated = validateAstResultEnvelope(refreshEnvelopeAccounting(envelope));
+  envelopeFactIndexes.set(validated, factSet.index);
+  return validated;
 }
 
 async function resumeBuild(root, handle, options) {
@@ -1280,7 +1445,10 @@ async function resumeBuild(root, handle, options) {
     options: resumedOptions, persist: true
   });
   const adapters = await applyConfiguredAdapters(root, runtime, selection, processed, { persist: true });
-  const facts = await factsForEntries(root, processed.entries, processed.memory);
+  const factSet = await factsForEntries(root, processed.entries, processed.memory, {
+    allowMemoryReuse: processed.cache.misses === 0
+  });
+  const facts = factSet.facts;
   const deferred = job.candidates.slice(processed.nextIndex).map((candidate) => ({
     path: candidate.path, reason: 'operation-budget', bytes: candidate.size
   }));
@@ -1332,6 +1500,57 @@ function matchQuery(fact, predicate, value) {
   if (predicate === 'language') return fact.kind === 'file' && fact.language === value;
   if (predicate === 'path') return fact.kind === 'file' && inPrefix(fact.path, value);
   return false;
+}
+
+const envelopeFactIndexes = new WeakMap();
+
+function orderedUniqueFacts(index, groups) {
+  const seen = new Set();
+  const facts = [];
+  for (const group of groups) {
+    for (const fact of group ?? []) {
+      if (seen.has(fact)) continue;
+      seen.add(fact);
+      facts.push(fact);
+    }
+  }
+  return facts.sort((left, right) => index.position.get(left) - index.position.get(right));
+}
+
+function lowerBound(values, target) {
+  let low = 0; let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (values[middle] < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function pathCandidates(index, value) {
+  const groups = [index.filesByPath.get(value) ?? []];
+  const prefix = `${value}/`;
+  for (let cursor = lowerBound(index.sortedFilePaths, prefix);
+    cursor < index.sortedFilePaths.length && index.sortedFilePaths[cursor].startsWith(prefix);
+    cursor += 1) {
+    groups.push(index.filesByPath.get(index.sortedFilePaths[cursor]) ?? []);
+  }
+  return orderedUniqueFacts(index, groups);
+}
+
+function indexedQueryCandidates(index, predicate, value) {
+  if (predicate === 'symbol') return index.byKind.get('symbol') ?? [];
+  if (predicate === 'symbol-id') return index.symbolsById.get(value) ?? [];
+  if (predicate === 'import') return index.byKind.get('import') ?? [];
+  if (predicate === 'references' || predicate === 'hierarchy') {
+    return orderedUniqueFacts(index, [
+      index.relationshipsBySourceId.get(value), index.factsByTarget.get(value)
+    ]);
+  }
+  if (predicate === 'module') return index.byKind.get('module') ?? [];
+  if (predicate === 'language') return index.filesByLanguage.get(value) ?? [];
+  if (predicate === 'path') return pathCandidates(index, value);
+  return [];
 }
 
 function sealReadCursor(payload) {
@@ -1429,8 +1648,10 @@ function cursorOptions(payload) {
 
 function filterQueryEnvelope(envelope, predicate, value) {
   if (envelope.status !== 'disabled') {
-    const examined = envelope.facts.length;
-    envelope.facts = envelope.facts.filter((fact) => matchQuery(fact, predicate, value));
+    const index = envelopeFactIndexes.get(envelope) ?? buildFactIndex(envelope.facts);
+    const candidates = indexedQueryCandidates(index, predicate, value);
+    const examined = candidates.length;
+    envelope.facts = candidates.filter((fact) => matchQuery(fact, predicate, value));
     envelope.coverage.factsExamined = examined;
     envelope.coverage.factsMatched = envelope.facts.length;
     envelope.coverage.factsReturned = envelope.facts.length;
@@ -1736,6 +1957,7 @@ async function clearCache(root, options) {
       if (info?.isSymbolicLink()) throw new SingularityFlowError('AST cache root must not be a symbolic link.');
       await rm(target, { recursive: true, force: true });
     }
+    clearFactIndexes(root);
   }
   return { schemaVersion: 2, action: 'clear', dryRun, removed: dryRun ? 0 : before.files, bytes: before.bytes, root: before.root }; // schema-transient: command result, never persisted
 }

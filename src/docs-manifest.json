@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e4af7deb31fc2e055ff5bcc75373231ce72a8c7c",
+  "sourceCommit": "8974be115e902680b6629aa48d87e7ebd4a33426",
   "topicCount": 57,
-  "contentSha256": "b6d9e33e67d6cf4cea4ac86d2ab8646ec40d874324396abcc917867ac188c11f",
+  "contentSha256": "aa6508a1ad514a6c7eef29b8785a71db2e66e0e9d53cd77fefec21aa26487a23",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,8 +48,8 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 2,
-      "sha256": "f4f6697973752630fc3879dbf2143930e10fd78d7d2a3af635661244c6c805e1",
+      "version": 3,
+      "sha256": "3b9a77206963bf518907a0d046fc503f9f7e7e359fea5acdc03dd857ffa5ed01",
       "routingSha256": "3016d3adbd38eb780767a2e9ce375d72bc738db4017440d5ef4096ddefd66f60",
       "file": "ast-intelligence.md"
     },
@@ -456,8 +456,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 12,
-      "sha256": "d5115c3109c2f20d21b6148f1cf6bfa5ad2f93a1482edd7aeb404d7824dffe8f",
+      "version": 13,
+      "sha256": "42263c589adb4a1a9834926e9ca3eff674372884bb9f19c627ecf99c264dfb2e",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

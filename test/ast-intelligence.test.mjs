@@ -303,15 +303,18 @@ test('a bounded Git blob larger than Node spawnSync default output is read in on
 
 test('query accounting distinguishes examined facts from returned matches', async () => withPreferenceFile(async () => {
   const root = await repository();
+  const context = await astCommand(root, ['context'], { all: true });
   const result = await astCommand(root, ['query'], { all: true, predicate: 'symbol', value: 'absent-symbol' });
   assert.equal(result.facts.length, 0);
-  assert.ok(result.coverage.factsExamined > 0);
+  assert.equal(result.coverage.factsExamined, context.facts.filter((fact) => fact.kind === 'symbol').length);
+  assert.ok(result.coverage.factsExamined < context.page.available,
+    'the symbol index scanned the full mixed-kind fact collection');
   assert.equal(result.coverage.factsMatched, 0);
   assert.equal(result.coverage.factsReturned, 0);
   assert.equal(result.coverage.facts, 0);
 }));
 
-test('gateway and Copilot hosts receive bounded AST reads without gaining cache or lifecycle writes', async () => withPreferenceFile(async () => {
+test('gateway and Copilot reads warm only derived cache without gaining lifecycle writes', async () => withPreferenceFile(async () => {
   const root = await repository();
   const binding = {
     workspaceId: 'ast-test', repository: root, branch: 'main', subjectKind: 'repository', subjectId: 'ast-test',
@@ -334,7 +337,8 @@ test('gateway and Copilot hosts receive bounded AST reads without gaining cache 
   validateSflowResult(queried);
   assert.ok(queried.data.ast.facts.some((fact) => fact.name === 'one'));
   assert.equal(queried.effects.stateChanged, false);
-  assert.equal((await astCacheStatus(root)).exists, false);
+  assert.equal((await astCacheStatus(root)).exists, true,
+    'a successful committed-source read did not warm the disposable local AST cache');
 }));
 
 test('a lexical symbol match never satisfies a required symbol gate', async () => withPreferenceFile(async () => {
@@ -389,7 +393,8 @@ test('context output is fact- and byte-bounded and continues through a cone-boun
   assert.equal(first.page.hasMore, true);
   assert.match(first.nextCursor, /^astp_/);
   assert.ok(Buffer.byteLength(JSON.stringify(first, null, 2)) <= 16_384);
-  assert.equal((await astCacheStatus(root)).exists, false, 'stateless read paging does not populate the AST cache');
+  assert.equal((await astCacheStatus(root)).exists, true,
+    'the first page did not warm immutable skeletons for its continuation');
 
   const second = await astCommand(root, ['context'], { cursor: first.nextCursor });
   assert.equal(second.page.offset, 7);
@@ -442,16 +447,59 @@ test('a zero-progress page remains resumable and recommends a sufficient byte bu
   assert.equal(resumed.resumeHandle, null);
 }));
 
-test('context and query reuse built blob skeletons without re-extracting unchanged files', async () => withPreferenceFile(async () => {
+test('a first context automatically warms blob skeletons and later reads reuse them', async () => withPreferenceFile(async () => {
   const root = await repository();
-  const built = await astCommand(root, ['build'], { all: true });
-  assert.equal(built.provenance.cache.misses, 2);
   const context = await astCommand(root, ['context'], { all: true });
-  assert.equal(context.provenance.cache.hits, 2);
-  assert.equal(context.provenance.cache.misses, 0);
+  assert.equal(context.provenance.cache.misses, 2);
+  assert.equal((await astCacheStatus(root)).exists, true);
   const query = await astCommand(root, ['query'], { all: true, predicate: 'symbol', value: 'one' });
   assert.equal(query.provenance.cache.hits, 2);
+  assert.equal(query.provenance.cache.misses, 0);
   assert.ok(query.facts.some((item) => item.name === 'one'));
+}));
+
+test('automatic warming is best-effort and never turns optional AST into a blocker', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await writeFile(path.join(root, '.git', 'singularity-flow'), 'cache path intentionally unavailable\n');
+  const result = await astCommand(root, ['context'], { all: true });
+  assert.equal(result.status, 'complete');
+  assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one'));
+  assert.ok(result.diagnostics.some((item) => item.code === 'AST_CACHE_WARM_FAILED'));
+  assert.equal(await readFile(path.join(root, '.git', 'singularity-flow'), 'utf8'),
+    'cache path intentionally unavailable\n');
+}));
+
+test('path, source-id, and target indexes preserve query results while reducing candidates', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await writeFile(path.join(root, 'Hierarchy.java'), [
+    'package fixture;',
+    'public class Child extends Parent implements Contract {}',
+    ''
+  ].join('\n'));
+  git(root, ['add', 'Hierarchy.java']);
+  git(root, ['commit', '-qm', 'hierarchy fixture']);
+
+  const context = await astCommand(root, ['context'], { all: true, 'max-facts': 1000 });
+  const relationship = context.facts.find((fact) => fact.kind === 'relationship' && fact.type === 'extends');
+  assert.ok(relationship?.sourceId, 'the structural preview did not produce a source-bound hierarchy fact');
+
+  const bySource = await astCommand(root, ['query'], {
+    all: true, predicate: 'hierarchy', value: relationship.sourceId, 'max-facts': 1000
+  });
+  assert.ok(bySource.facts.some((fact) => fact.sourceId === relationship.sourceId));
+  assert.ok(bySource.coverage.factsExamined < context.page.available);
+
+  const byTarget = await astCommand(root, ['query'], {
+    all: true, predicate: 'hierarchy', value: 'Parent', 'max-facts': 1000
+  });
+  assert.ok(byTarget.facts.some((fact) => fact.target === 'Parent'));
+  assert.ok(byTarget.coverage.factsExamined < context.page.available);
+
+  const byPath = await astCommand(root, ['query'], {
+    all: true, predicate: 'path', value: 'Hierarchy.java', 'max-facts': 1000
+  });
+  assert.deepEqual(byPath.facts.map((fact) => fact.path), ['Hierarchy.java']);
+  assert.equal(byPath.coverage.factsExamined, 1);
 }));
 
 test('a damaged local skeleton is never trusted and is rebuilt in memory by a read', async () => withPreferenceFile(async () => {

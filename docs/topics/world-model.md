@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 12
+version: 13
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -68,8 +68,10 @@ Use this topic when the current goal matches **world model**. Start in a governe
 
 World-model fingerprints use Git's existing index object IDs for clean paths and read visible bytes only for changed or untracked paths. They do not write Git objects or execute configured clean filters. Sparse-checkout paths absent from disk remain represented by their index objects and are not mistaken for deletions. Semantic model generation and governed publication still mutate only through the documented `wm` commands and lifecycle checks.
 
-AST context/query/gate reads reuse content-addressed blob skeletons but never populate the cache;
-only `wm ast build` writes derived local cache records. The built-in JavaScript/TypeScript facts are
+AST context/query/gate reads reuse and best-effort warm content-addressed blob skeletons for exact
+committed Git inputs; dirty inputs remain memory-only and cache failures never block the read.
+`wm ast build` additionally writes the cone manifest and treats cache write failures as explicit
+build failures. The built-in JavaScript/TypeScript facts are
 lexical `text` assurance. Java, Python, Kotlin, and Swift receive `text`-assured declaration previews
 from the bundled, on-demand polyglot scanner unless the effective policy is `off` or `text-only`.
 That scanner is not a language parser and cannot satisfy required syntax gates. Optional reviewed

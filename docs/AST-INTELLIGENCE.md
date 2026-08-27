@@ -159,8 +159,11 @@ minimum byte budget needed for the next file. Each page adds to the same cone ma
 fails closed if configuration, repository revision, selection, or any selected-cone byte changes.
 An edit outside the selected cone does not invalidate the job or miss unchanged blob cache entries.
 
-`context`, `query`, and `gate` reuse compatible blob records but never fill the cache. Only `build`
-writes derived blobs and manifests. Context and query additionally bound model-facing output by
+`context`, `query`, and `gate` reuse compatible blob records and best-effort warm missing immutable
+Git-backed skeletons. Dirty and untracked bytes remain memory-only; an unavailable cache is reported
+as `AST_CACHE_WARM_FAILED` without changing the structural result or blocking ordinary work. `build`
+writes derived blobs plus manifests and remains fail-closed on cache write errors. Context and query
+additionally bound model-facing output by
 fact count and serialized JSON bytes. A first page includes coverage plus an opaque 24-hour
 `nextCursor`; `--cursor` continues the same operation without accepting a replacement scope,
 query, or budget. The cursor is stateless and integrity-bound to the repository, policy, revision,
@@ -226,7 +229,8 @@ needs syntax assurance to report a pass; a lexical name remains advisory evidenc
 `/sf-worldmodel` exposes the same bounded CLI operations. Gateway hosts can resolve model-free
 `wm.ast.status`, `wm.ast.context`, `wm.ast.query`, `wm.ast.symbol`, `wm.ast.references`,
 `wm.ast.hierarchy`, `wm.ast.module`, and `wm.ast.evidence.replay` reads; they return the validated
-result envelope with no source bodies and cannot build cache entries or advance lifecycle state.
+result envelope with no source bodies. Successful reads may warm disposable local cache entries but
+cannot write governed configuration/state, create manifests, or advance lifecycle state.
 The embedded VS Code gateway exposes the same planners. The workflow and developer agents direct
 symbol/import questions through these bounded reads and follow a continuation only while the
 question remains unanswered. Whole-repository scope remains explicit.

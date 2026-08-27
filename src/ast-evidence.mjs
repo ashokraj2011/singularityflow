@@ -63,7 +63,7 @@ async function currentIdentities() {
       });
     }
     return {
-      engine: { id: 'singularity-flow-ast-broker', version: 3, artifactSha256: engineArtifactSha256 },
+      engine: { id: 'singularity-flow-ast-broker', version: 4, artifactSha256: engineArtifactSha256 },
       builtin: {
         id: BUILTIN_AST_EXTRACTOR.id,
         extractorVersion: String(BUILTIN_AST_EXTRACTOR.version),

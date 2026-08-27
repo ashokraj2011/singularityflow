@@ -590,10 +590,27 @@ export async function loadStoryConfigurationDefinition(authority) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
   try {
+    let observedCommit;
     if (authority.branch === STATE_CONFIGURATION_BRANCH) {
-      await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
+      const mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
+      observedCommit = mirror.mirrorCommit;
+      if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
+        throw new SingularityFlowError(
+          `Approved configuration source moved from ${authority.sourceCommit.slice(0, 12)} to ${mirror.sourceCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+        );
+      }
     } else {
-      await cloneConfiguration(authority.remote, scratch);
+      observedCommit = await cloneConfiguration(authority.remote, scratch);
+    }
+    if (authority.commit && observedCommit !== authority.commit) {
+      throw new SingularityFlowError(
+        `Approved configuration authority moved from ${authority.commit.slice(0, 12)} to ${observedCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
+        {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: { branch: authority.branch, expectedCommit: authority.commit, actualCommit: observedCommit }
+        }
+      );
     }
     return await loadDefinition(scratch);
   } finally {
@@ -647,8 +664,32 @@ export async function materializeConfigurationSnapshot(root, {
     if (resolvedAuthority.branch === STATE_CONFIGURATION_BRANCH) {
       mirror = await copyVerifiedStateConfiguration(sourceRemote, scratch, resolvedAuthority.branch);
       commit = mirror.sourceCommit;
+      if ((resolvedAuthority.commit && mirror.mirrorCommit !== resolvedAuthority.commit)
+          || (resolvedAuthority.sourceCommit && commit !== resolvedAuthority.sourceCommit)) {
+        throw new SingularityFlowError(
+          'Approved state-backed configuration moved after Story intake selected it. Refresh the intake and retry; nothing was changed.',
+          {
+            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+            details: {
+              expectedMirrorCommit: resolvedAuthority.commit ?? null,
+              actualMirrorCommit: mirror.mirrorCommit,
+              expectedSourceCommit: resolvedAuthority.sourceCommit ?? null,
+              actualSourceCommit: commit
+            }
+          }
+        );
+      }
     } else {
       commit = await cloneConfiguration(sourceRemote, scratch);
+      if (resolvedAuthority.commit && commit !== resolvedAuthority.commit) {
+        throw new SingularityFlowError(
+          `Approved configuration authority moved from ${resolvedAuthority.commit.slice(0, 12)} to ${commit.slice(0, 12)} after Story intake selected it. Refresh the intake and retry; nothing was changed.`,
+          {
+            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+            details: { expectedCommit: resolvedAuthority.commit, actualCommit: commit }
+          }
+        );
+      }
     }
     const removed = await clearConfigurationAssets(root);
     const files = await copyAssets(scratch, root);

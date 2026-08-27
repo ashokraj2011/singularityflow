@@ -88,7 +88,16 @@ test('a phase cannot advance until every required authority group has decided', 
   }];
   const resolved = resolveWorkType(config, 'poc-workflow');
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
-  resolved.phases = [{ ...publication, order: 0, inputs: [] }];
+  const hardenedPublication = {
+    ...publication,
+    approval: {
+      ...publication.approval,
+      authorities: ['quality-reviewers', 'engineering-reviewers'],
+      requiredAuthorities: ['quality-reviewers', 'engineering-reviewers'],
+      minimum: 2
+    }
+  };
+  resolved.phases = [{ ...hardenedPublication, order: 0, inputs: [] }];
   const first = { name: 'Quality Reviewer', email: 'quality@example.com', login: null };
   const author = { name: 'POC Author', email: 'poc.author@example.com', login: null };
   await setAgentSession(root, config, author, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });

@@ -181,6 +181,65 @@ export function approvalRequirementsMet(policy, approvals = []) {
     && remainingRequiredAuthorities(policy, active).length === 0;
 }
 
+function memberIdentity(member = {}) {
+  const login = normalizedLogin(member.githubLogin ?? member.login);
+  if (login) return `github:${login}`;
+  const email = normalizedEmail(member.email);
+  return email ? `email:${email}` : null;
+}
+
+/** Prove a pinned approval policy has enough distinct eligible humans to ever complete. */
+export function approvalPolicyCapacity(authorities, policy) {
+  // Policy approvals may waive a phase only when their deterministic predicate succeeds. When it
+  // does not, they fall back to ordinary human review and therefore need the same attainable
+  // reviewer capacity as a required approval.
+  if ((policy?.mode ?? 'required') === 'none') {
+    return { attainable: true, unbounded: false, eligibleIdentities: 0, minimum: 0, missingAuthorities: [] };
+  }
+  const registry = normalizeApprovalAuthorities(authorities);
+  const configured = policy?.authorities ?? [];
+  const eligible = new Set();
+  let unbounded = false;
+  for (const authorityId of configured) {
+    const authority = registry[authorityId];
+    if (!authority) continue;
+    if (authority.allowAnyGitIdentity) unbounded = true;
+    for (const member of authority.members ?? []) {
+      const key = memberIdentity(member);
+      if (key) eligible.add(key);
+    }
+  }
+  const missingAuthorities = (policy?.requiredAuthorities ?? []).filter((authorityId) => {
+    const authority = registry[authorityId];
+    return !authority?.allowAnyGitIdentity && !(authority?.members ?? []).some(memberIdentity);
+  });
+  const minimum = policy?.minimum ?? 1;
+  return {
+    attainable: missingAuthorities.length === 0 && (unbounded || eligible.size >= minimum),
+    unbounded,
+    eligibleIdentities: eligible.size,
+    minimum,
+    missingAuthorities
+  };
+}
+
+export function assertApprovalPolicyAttainable(authorities, policy, phaseId) {
+  const capacity = approvalPolicyCapacity(authorities, policy);
+  if (capacity.attainable) return capacity;
+  const reasons = [
+    ...(!capacity.unbounded && capacity.eligibleIdentities < capacity.minimum
+      ? [`requires ${capacity.minimum} distinct approval identities but only ${capacity.eligibleIdentities} are pinned`]
+      : []),
+    ...(capacity.missingAuthorities.length
+      ? [`required authority groups have no eligible members: ${capacity.missingAuthorities.join(', ')}`]
+      : [])
+  ];
+  throw new SingularityFlowError(
+    `Phase '${phaseId}' approval policy cannot complete: ${reasons.join('; ')}. Add reviewers to the approved configuration before starting the Story.`,
+    { code: 'APPROVAL_POLICY_UNATTAINABLE', details: { phase: phaseId, ...capacity } }
+  );
+}
+
 export function matchApprovalAuthority(authorities, policy, actor, { preferredAuthorities = [] } = {}) {
   const registry = normalizeApprovalAuthorities(authorities);
   const email = normalizedEmail(actor?.email);

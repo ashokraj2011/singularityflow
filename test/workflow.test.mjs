@@ -672,7 +672,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     }
     flow(root, ['phase', 'publish', phaseId], { selection: selection('figma-mobile', agents[phaseId]) });
     flow(root, ['submit'], { selection: selection('figma-mobile', agents[phaseId]) });
-    const approvalActors = ['Mobile Reviewer One', ...(phaseId === 'visual-verification' || phaseId === 'conformance' ? ['Mobile Reviewer Two'] : [])];
+    const approvalActors = ['Mobile Reviewer One'];
     for (const actor of approvalActors) {
       flow(root, ['approve', '--yes'], { actor, selection: selection('figma-mobile', agents[phaseId]) });
     }
@@ -681,7 +681,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
   assert.equal(workflow.status, 'complete');
   assert.equal(workflow.phases['design-intake'].designSourceSets.length, 1);
   assert.equal(workflow.phases['design-intake'].approvals.at(-1).designSourceSet.records[0].fileVersion, 'v1');
-  assert.equal(workflow.phases['visual-verification'].approvals.filter((approval) => approval.decision === 'approved').length, 2);
+  assert.equal(workflow.phases['visual-verification'].approvals.filter((approval) => approval.decision === 'approved').length, 1);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);
 });
 

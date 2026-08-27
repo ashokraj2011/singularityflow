@@ -1859,6 +1859,15 @@ test('the packaged POC release candidate journey survives publication, review, C
   const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
   for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = members;
   definition.worldModel.grounding = 'off';
+  // The product default is attainable by one automatically enrolled developer. This hardened
+  // fixture opts into two independent functions and proves that stricter organization policy
+  // remains supported without making the packaged default deadlock for a lone developer.
+  definition.phases['poc-publication-review'].approval = {
+    ...definition.phases['poc-publication-review'].approval,
+    authorities: ['quality-reviewers', 'engineering-reviewers'],
+    requiredAuthorities: ['quality-reviewers', 'engineering-reviewers'],
+    minimum: 2
+  };
   // Keep this release smoke model-independent. The structural POC tests below the gate hold the
   // shipped standard/deep policy; this journey needs a deterministic repository inventory so it
   // can prove the native Copilot handoff without invoking a provider or spending tokens.
@@ -2763,7 +2772,7 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
     return result.stdout;
   };
   cli(['workspace', 'create', '--local', '--json', '--id', 'commerce', '--base', workspaces,
-    '--lead', 'platform', '--repository', `platform=${org.lead}`,
+    '--organisation', org.lead,
     '--capability', 'payments', '--confirm', 'commerce', '--no-clone']);
 
   const { api, registered } = stubVscode();
@@ -2793,7 +2802,7 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   await until(() => (existsSync(path.join(copied, 'workspace.json')) ? true : null));
   const manifest = JSON.parse(readFileSync(path.join(copied, 'workspace.json'), 'utf8'));
   assert.deepEqual(manifest.capabilities, ['payments'], 'what it is for came with it');
-  assert.equal(manifest.leadRepository, 'platform');
+  assert.equal(manifest.leadRepository, 'api');
   // Both are listed, on their own directories.
   await until(() => (panel.webview.html.includes('commerce-spike') ? true : null));
   assert.doesNotMatch(panel.webview.html, /shared directory/);
@@ -2835,7 +2844,7 @@ test('an open Workspaces panel follows the active workspace instead of retaining
   };
   for (const id of ['alpha', 'beta']) {
     cli(['workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
-      '--lead', 'platform', '--repository', `platform=${org.lead}`,
+      '--organisation', org.lead,
       '--capability', 'payments', '--confirm', id, '--no-clone']);
   }
   cli(['workspace', 'use', 'alpha', '--json']);

@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, ensureConfigurationBranch,
-  configurationAssetPaths, isConfigurationAsset, materializeConfigurationSnapshot, readConfigurationSource,
+  configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
+  materializeConfigurationSnapshot, readConfigurationSource, resolveStoryConfigurationAuthority,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
@@ -214,6 +215,40 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
       /Pinned configuration asset changed after materialization/
     );
     assert.equal(await readFile(path.join(checkout, 'README.md'), 'utf8'), '# Application\n');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('Story intake refuses an authority that moves after selection without touching the checkout', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'stale-authority-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    const authority = await resolveStoryConfigurationAuthority(checkout, 'origin');
+    assert.match(authority.commit, /^[0-9a-f]{40}$/);
+
+    const publisher = path.join(fixture.root, 'stale-authority-publisher');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, publisher], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Publisher'], { cwd: publisher });
+    run('git', ['config', 'user.email', 'publisher@example.com'], { cwd: publisher });
+    await writeFile(path.join(publisher, 'singularity', 'company-policy.md'), '# New approved policy\n');
+    run('git', ['add', 'singularity/company-policy.md'], { cwd: publisher });
+    run('git', ['commit', '-qm', 'advance approved configuration'], { cwd: publisher });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: publisher });
+
+    await assert.rejects(
+      () => loadStoryConfigurationDefinition(authority),
+      (error) => error.code === 'STORY_CONFIGURATION_AUTHORITY_STALE'
+    );
+    await assert.rejects(
+      () => materializeConfigurationSnapshot(checkout, { authority, remoteName: 'origin' }),
+      (error) => error.code === 'STORY_CONFIGURATION_AUTHORITY_STALE'
+    );
+    assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+      cwd: checkout
+    }).stdout, '', 'stale authority refusal is pre-mutation');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

@@ -38,8 +38,8 @@ import {
 import { beginTelemetryCapture, collectCopilotUsage, recordPhaseTelemetry } from './telemetry.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
-  approvalRequirementsMet, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
-  remainingRequiredAuthorities, requireApprovalAuthority
+  approvalRequirementsMet, assertApprovalPolicyAttainable, DEFAULT_APPROVAL_AUTHORITY, normalizeApprovalAuthorities,
+  normalizeApprovalSecurity, remainingRequiredAuthorities, requireApprovalAuthority
 } from './approval-authority.mjs';
 import { assertSourceBoundary, normalizeSourceBoundary } from './source-boundary.mjs';
 import {
@@ -428,6 +428,30 @@ export async function createWorkflow(root, config, {
     capability
   );
   const snapshotState = await snapshotResolution(root, config, resolution);
+  const creator = identity(root);
+  const pinnedApprovalAuthorities = structuredClone(snapshotState.approvalAuthorities
+    ?? resolution.approvalAuthorities
+    ?? normalizeApprovalAuthorities(config.approvalAuthorities));
+  if (normalizeApprovalSecurity(config.approvalSecurity ?? {}).autoEnrollNewIdentities) {
+    const email = String(creator.email ?? '').trim().toLowerCase();
+    const githubLogin = String(creator.login ?? creator.githubLogin ?? '').trim();
+    for (const authority of Object.values(pinnedApprovalAuthorities)) {
+      authority.members ??= [];
+      const enrolled = authority.members.some((member) =>
+        (email && String(member.email ?? '').trim().toLowerCase() === email)
+        || (githubLogin && String(member.githubLogin ?? '').trim().toLowerCase() === githubLogin.toLowerCase()));
+      if (!enrolled && (email || githubLogin)) {
+        authority.members.push({
+          name: String(creator.name ?? '').trim() || null,
+          email: email || null,
+          githubLogin: githubLogin || null
+        });
+      }
+    }
+  }
+  for (const phase of resolution.phases) {
+    assertApprovalPolicyAttainable(pinnedApprovalAuthorities, phase.approval, phase.id);
+  }
   snapshotState.configurationSource = await readConfigurationSource(root, { verify: true });
   // Benchmark B is an explicit generic control. A stricter capability policy must not silently
   // re-introduce world-model context into that arm; every other work type retains normal merging.
@@ -473,7 +497,7 @@ export async function createWorkflow(root, config, {
       });
     }
   }
-  const actor = identity(root);
+  const actor = creator;
   const phases = resolution.phases.map(phaseState);
   const createdAt = nowIso();
   const workflow = {
@@ -527,7 +551,7 @@ export async function createWorkflow(root, config, {
       ...snapshotState,
       workType: selectedType,
       workTypeLabel: resolution.label,
-      approvalAuthorities: structuredClone(snapshotState.approvalAuthorities ?? resolution.approvalAuthorities ?? normalizeApprovalAuthorities(config.approvalAuthorities)),
+      approvalAuthorities: structuredClone(pinnedApprovalAuthorities),
       sequenceGates: snapshotState.sequenceGates ?? resolution.sequenceGates ?? { default: 'hard' },
       documents: structuredClone(resolution.documents ?? config.documents ?? {}),
       collaboration: structuredClone(config.collaboration ?? { assignmentMode: 'off', notifications: ['terminal'] }),

@@ -196,6 +196,14 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
   safeId(manifest.id, 'Workspace ID');
   manifest.name = String(manifest.name ?? `${manifest.anchor.key} — ${manifest.anchor.title}`).trim();
   manifest.leadRepository = safeId(manifest.leadRepository, 'Lead repository ID');
+  if (manifest.capabilityAuthority != null) {
+    const authority = object(manifest.capabilityAuthority, 'Workspace capability authority');
+    const url = String(authority.url ?? '').trim();
+    if (!url || url.startsWith('-') || url.startsWith('ext::')) {
+      throw new SingularityFlowError('Workspace capability authority requires a safe repository URL.');
+    }
+    manifest.capabilityAuthority = { url };
+  } else manifest.capabilityAuthority = null;
   // What this workspace is for. A workspace is a set of capabilities and a working directory; the
   // repositories are what those capabilities deliver from. Optional, because a repository can be
   // governed before anyone has described what it builds — and because workspaces created before
@@ -314,12 +322,14 @@ function workspaceMaterializationPlan(manifest) {
       key: manifest.anchor.key
     },
     leadRepository: manifest.leadRepository,
+    capabilityAuthority: manifest.capabilityAuthority,
     repositories: Object.fromEntries(Object.entries(manifest.repositories).map(([id, repository]) => [id, {
       url: repository.url,
       defaultBranch: repository.defaultBranch,
       required: repository.required,
       metadata: repository.metadata,
       jira: repository.jira,
+      capabilities: repository.capabilities,
       path: repository.path,
       role: repository.role,
       clone: repository.clone,
@@ -348,7 +358,7 @@ function validateRepositoryPlan(repositories, leadRepository) {
 }
 
 export function previewWorkspace({
-  baseDirectory, anchor, name, repositories, leadRepository, capabilities
+  baseDirectory, anchor, name, repositories, leadRepository, capabilities, capabilityAuthority
 }) {
   if (!baseDirectory) throw new SingularityFlowError('Choose a workspace base directory.');
   const normalizedAnchor = normalizeWorkspaceAnchor(anchor);
@@ -362,6 +372,7 @@ export function previewWorkspace({
       name: name ?? `${normalizedAnchor.key} — ${normalizedAnchor.title}`,
       anchor: normalizedAnchor,
       leadRepository: lead,
+      capabilityAuthority,
       repositories: normalized,
       capabilities,
       createdAt: nowIso(),
@@ -628,6 +639,7 @@ export async function workspaceRemoteCapabilities(url, {
       };
     }
     const branch = configurationBranch;
+    const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
     const clone = (extra) => runRemoteGit([
       'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -639,6 +651,16 @@ export async function workspaceRemoteCapabilities(url, {
     }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(`Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+    }
+    const clonedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    if (clonedCommit !== authorityCommit) {
+      throw new SingularityFlowError(
+        `Approved capability configuration moved from ${authorityCommit.slice(0, 12)} to ${clonedCommit.slice(0, 12)} while it was being read. Refresh the workspace plan and retry; nothing was changed.`,
+        {
+          code: 'WORKSPACE_CAPABILITY_CATALOG_STALE',
+          details: { branch, expectedCommit: authorityCommit, actualCommit: clonedCommit }
+        }
+      );
     }
 
     const shown = run('git', ['show', `HEAD:${capabilitiesPath}`], { cwd: scratch, allowFailure: true });
@@ -675,7 +697,9 @@ export async function workspaceRemoteCapabilities(url, {
           defaultBranch: portfolio[repository]?.defaultBranch ?? 'main'
         })),
       reason: null,
-      path: capabilitiesPath
+      path: capabilitiesPath,
+      branch,
+      commit: authorityCommit
     };
   } finally {
     await rm(scratch, { recursive: true, force: true });
@@ -710,7 +734,9 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
   }
 
   const leadRepository = manifest.repositories?.[manifest.leadRepository];
-  if (!leadRepository?.url) {
+  const authorityUrl = manifest.capabilityAuthority?.url ?? leadRepository?.url;
+  const authorityLabel = manifest.capabilityAuthority?.url ? 'configured capability authority' : `lead repository '${manifest.leadRepository}'`;
+  if (!authorityUrl) {
     throw new SingularityFlowError(
       `Workspace lead repository '${manifest.leadRepository}' has no configuration authority URL. Nothing was changed.`,
       { code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE' }
@@ -719,11 +745,11 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
 
   let catalog;
   try {
-    catalog = await readCapabilities(leadRepository.url);
+    catalog = await readCapabilities(authorityUrl);
   } catch (error) {
     throw new SingularityFlowError(
-      `Cannot validate workspace capabilities against the approved catalog of lead repository `
-      + `'${manifest.leadRepository}'. Nothing was changed. ${error?.message || String(error)}`,
+      `Cannot validate workspace capabilities against the approved catalog of ${authorityLabel}. `
+      + `Nothing was changed. ${error?.message || String(error)}`,
       {
         code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE',
         details: { leadRepository: manifest.leadRepository, capabilities: requested }
@@ -732,7 +758,7 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
   }
   if (!catalog?.capabilities) {
     throw new SingularityFlowError(
-      `Workspace capabilities cannot be registered because lead repository '${manifest.leadRepository}' `
+      `Workspace capabilities cannot be registered because ${authorityLabel} `
       + `has no approved capability catalog. Nothing was changed. ${catalog?.reason ?? ''}`.trim(),
       {
         code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE',
@@ -768,17 +794,74 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
       }
     );
   }
+  // Capability IDs alone are not enough authority for a workspace plan. A stale or hand-authored
+  // manifest could otherwise attach an approved capability name to a different repository, URL,
+  // or base branch and pass validation. Recompute the delivery closure from the same exact catalog
+  // revision and require every claimed binding to agree before any workspace byte is persisted.
+  const selected = new Set(workspaceCapabilities);
+  const expectedDeliveries = (catalog.deliveries ?? []).filter((delivery) =>
+    selected.has(delivery.id) || (delivery.ancestors ?? []).some((ancestor) => selected.has(ancestor)));
+  const expectedByRepository = new Map();
+  for (const delivery of expectedDeliveries) {
+    const current = expectedByRepository.get(delivery.repository) ?? { capabilities: new Set(), delivery };
+    current.capabilities.add(delivery.id);
+    expectedByRepository.set(delivery.repository, current);
+  }
+  const bindingErrors = [];
+  for (const [repositoryId, expected] of expectedByRepository) {
+    const actual = manifest.repositories?.[repositoryId];
+    if (!actual) {
+      bindingErrors.push(`missing repository '${repositoryId}' required by ${[...expected.capabilities].sort().join(', ')}`);
+      continue;
+    }
+    if (expected.delivery.url && sanitizeRemote(actual.url) !== sanitizeRemote(expected.delivery.url)) {
+      bindingErrors.push(`repository '${repositoryId}' URL does not match the approved capability catalog`);
+    }
+    if (expected.delivery.defaultBranch
+        && String(actual.defaultBranch ?? 'main') !== String(expected.delivery.defaultBranch)) {
+      bindingErrors.push(`repository '${repositoryId}' base branch must be '${expected.delivery.defaultBranch}'`);
+    }
+    for (const capability of expected.capabilities) {
+      if (!(actual.capabilities ?? []).includes(capability)) {
+        bindingErrors.push(`repository '${repositoryId}' is missing capability binding '${capability}'`);
+      }
+    }
+  }
+  for (const [repositoryId, repository] of Object.entries(manifest.repositories ?? {})) {
+    for (const capability of repository.capabilities ?? []) {
+      const expected = expectedByRepository.get(repositoryId);
+      if (requested.includes(capability) && !expected?.capabilities.has(capability)) {
+        bindingErrors.push(`repository '${repositoryId}' claims capability '${capability}' without an approved delivery binding`);
+      }
+    }
+  }
+  if (bindingErrors.length) {
+    throw new SingularityFlowError(
+      `Workspace repository bindings do not match the approved capability catalog: ${bindingErrors.join('; ')}. Nothing was changed. Refresh the workspace plan and retry.`,
+      {
+        code: 'WORKSPACE_CAPABILITY_REPOSITORY_MISMATCH',
+        details: {
+          leadRepository: manifest.leadRepository,
+          capabilities: requested,
+          branch: catalog.branch ?? 'sflow/config',
+          commit: catalog.commit ?? null,
+          errors: bindingErrors
+        }
+      }
+    );
+  }
   return {
     checked: true,
     requested,
     known: [...known].sort(),
     branch: catalog.branch ?? 'sflow/config',
-    path: catalog.path ?? 'singularity/capabilities.yml'
+    path: catalog.path ?? 'singularity/capabilities.yml',
+    commit: catalog.commit ?? null
   };
 }
 
 export function previewWorkspaceConfiguration({
-  baseDirectory, id, name, repositories, leadRepository, capabilities
+  baseDirectory, id, name, repositories, leadRepository, capabilities, capabilityAuthority
 }) {
   const workspaceId = safeId(id, 'Workspace ID');
   const workspaceName = String(name ?? workspaceId).trim();
@@ -793,7 +876,8 @@ export function previewWorkspaceConfiguration({
     name: workspaceName,
     repositories,
     leadRepository,
-    capabilities
+    capabilities,
+    capabilityAuthority
   });
 }
 
@@ -805,7 +889,8 @@ export function createWorkspaceConfiguration(options, settings = {}) {
     name: preview.manifest.name,
     repositories: preview.manifest.repositories,
     leadRepository: preview.manifest.leadRepository,
-    capabilities: preview.manifest.capabilities
+    capabilities: preview.manifest.capabilities,
+    capabilityAuthority: preview.manifest.capabilityAuthority
   }, settings);
 }
 
@@ -991,6 +1076,7 @@ export async function duplicateWorkspaceConfiguration(sourcePath, {
     id: workspaceId,
     name: name ?? workspaceId,
     leadRepository: source.leadRepository,
+    capabilityAuthority: source.capabilityAuthority,
     capabilities: source.capabilities ?? [],
     repositories: Object.fromEntries(Object.entries(source.repositories).map(([key, repository]) => [key, {
       url: repository.url,
@@ -998,6 +1084,7 @@ export async function duplicateWorkspaceConfiguration(sourcePath, {
       required: repository.required,
       metadata: repository.metadata,
       jira: repository.jira,
+      capabilities: repository.capabilities,
       path: repository.path,
       clone: repository.clone
     }]))
@@ -1009,6 +1096,7 @@ export async function duplicateWorkspaceConfiguration(sourcePath, {
     id: workspaceId,
     name: name ?? workspaceId,
     leadRepository: source.leadRepository,
+    capabilityAuthority: source.capabilityAuthority,
     capabilities: source.capabilities ?? [],
     repositories: preview.manifest.repositories
   }, { ...settings, confirmation: workspaceId });

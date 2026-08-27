@@ -64,8 +64,8 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.equal(figmaMobile.sequenceGates.documentPhase, 'hard');
   assert.equal(figmaMobile.phases.find((item) => item.id === 'mobile-spec').template, 'figma-mobile/mobile-spec.md');
   assert.deepEqual(figmaMobile.phases.find((item) => item.id === 'implementation').inputs.map((item) => item.phase), ['component-mapping', 'mobile-spec']);
-  assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 2);
-  assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 2);
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'visual-verification').approval.minimum, 1);
+  assert.equal(figmaMobile.phases.find((item) => item.id === 'conformance').approval.minimum, 1);
   assert.deepEqual(figmaMobile.designSources, {
     capturePhase: 'design-intake',
     consumeIn: ['design-inventory', 'component-mapping', 'mobile-spec', 'visual-verification', 'conformance'],

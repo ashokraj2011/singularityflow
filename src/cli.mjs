@@ -173,6 +173,7 @@ import { consumeActionAuthorization, issueActionAuthorization } from './action-a
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
+import { retainCapabilityPublicationRecovery } from './capability-publication-recovery.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
 import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
@@ -536,33 +537,6 @@ function assertBaseCarriesGovernance(root, {
   );
 }
 
-async function retainCapabilityPublicationRecovery(root, workId, publication, entries, error, {
-  rootPublished = false
-} = {}) {
-  if (!entries?.length) return null;
-  const existing = await readPendingPublication(root, { kind: 'story', id: workId });
-  // A failure before the governed Story commit exists is fully rolled back by the publication unit;
-  // there is no root branch to recover and sibling refs must remain absent too.
-  if (!rootPublished && !existing) return null;
-  const record = existing?.record ?? {
-    schemaVersion: 2,
-    subject: { kind: 'story', id: workId },
-    branch: publication.branch,
-    remote: publication.remote,
-    commit: publication.commit,
-    event: null,
-    createdAt: nowIso()
-  };
-  const next = {
-    ...record,
-    recoveryStage: record.recoveryStage ?? 'capability-publication-pending',
-    capabilityPublications: entries,
-    error: error?.message ?? String(error ?? 'Capability Story publication is incomplete.')
-  };
-  await writePendingPublication(root, { kind: 'story', id: workId, record: next });
-  return next;
-}
-
 async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, options) {
   const {
     completeStoryWorktree, prepareStoryWorktree, rollbackStoryWorktree
@@ -880,6 +854,18 @@ export async function startCommand(positionals, options) {
         { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
       );
     }
+    if (enrollment.changed) {
+      // Enrollment advances the same authority revision selected above. Refresh the exact pin so
+      // work-type validation and materialization agree on the post-enrollment configuration rather
+      // than racing the old observation against the newly published commit.
+      configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
+      if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
+        throw new SingularityFlowError(
+          'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
+          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+        );
+      }
+    }
   }
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
@@ -900,6 +886,11 @@ export async function startCommand(positionals, options) {
     );
   }
   const baseCommitAtStart = materializedSeed?.baseCommit ?? refHead(root, remoteBaseRef);
+  // A materialized Epic Story branch already contains its governed seed commit. Its lineage base is
+  // still the parent commit recorded in the seed, but Story-start recovery must recognize the
+  // branch tip that existed before intake began or any later refusal becomes an unrecoverable
+  // "unrecognized commit" loop.
+  const recoveryBaseCommit = materializedSeed ? refHead(root, remoteStoryRef) : baseCommitAtStart;
   if (publishRequired && !capabilityPreflight) {
     const dryRun = preflightPushBranch(
       root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch
@@ -939,7 +930,7 @@ export async function startCommand(positionals, options) {
     targetBranchExisted: refExists(root, localStoryRef),
     originalBranch,
     originalHead: head(root),
-    baseCommit: baseCommitAtStart,
+    baseCommit: recoveryBaseCommit,
     originalSession,
     originalCopilotSession,
     siblingRepositories
@@ -1136,7 +1127,15 @@ export async function startCommand(positionals, options) {
   }
   await clearStoryStartJournal(root, id, startJournal.transactionId);
   // Spent once the start has landed, not before it is attempted.
-  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+  if (receiptToken) {
+    try { await consumeSelectionReceipt(root, receiptToken); }
+    catch (error) {
+      // The governed approval is already committed and may already be on the remote. Failure to
+      // clean up a machine-local one-shot receipt must not turn that success into a red refusal that
+      // sends the reviewer back into an "already approved" loop.
+      console.warn(`Warning: Story start succeeded, but selection receipt cleanup is pending: ${error.message}`);
+    }
+  }
   try {
     for (const document of supportingDocuments) {
       let records = [];
@@ -4421,7 +4420,15 @@ async function approveCommand(positionals, options) {
   // Spent once the approval has actually landed. Consuming it up front — before the confirmation
   // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
   // the reviewer's one-shot receipt, and a new one had to be issued before they could try again.
-  if (receiptToken) await consumeSelectionReceipt(root, receiptToken);
+  if (receiptToken) {
+    try { await consumeSelectionReceipt(root, receiptToken); }
+    catch (error) {
+      // The governed decision is already committed and may already be on the remote. Treat receipt
+      // cleanup as a local recovery warning so retry cannot strand the reviewer behind an
+      // "already approved" refusal after a successful gate transition.
+      console.warn(`Warning: approval succeeded, but selection receipt cleanup is pending: ${error.message}`);
+    }
+  }
   console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
@@ -8535,6 +8542,7 @@ async function workspaceBootstrapInput(source, options) {
         id,
         name: optionString(options, 'name') ?? id,
         leadRepository: derived.leadRepository,
+        capabilityAuthority: { url: source },
         capabilities: derived.capabilities,
         repositories: derived.repositories
       },
@@ -8946,6 +8954,7 @@ async function workspaceCommand(positionals, options) {
         id: workspaceId,
         name: optionString(options, 'name') ?? workspaceId,
         leadRepository: derived?.leadRepository ?? optionString(options, 'lead'),
+        capabilityAuthority: derived ? { url: organisationUrl } : null,
         capabilities: derived?.capabilities ?? chosen,
         repositories: derived?.repositories
           ?? Object.fromEntries(Object.entries(localUrls).map(([id, url]) => [id, {

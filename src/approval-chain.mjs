@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { approvalPolicyCapacity } from './approval-authority.mjs';
 
 function normalizedPath(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
@@ -100,6 +101,7 @@ export function approvalChainSnapshot(workflow) {
     }));
     const activeApprovals = decisions.filter((entry) => entry.active && entry.decision === 'approved');
     const authorities = Object.freeze((policy.authorities ?? []).map((id) => authority(workflow, id)));
+    const capacity = approvalPolicyCapacity(workflow.resolution?.approvalAuthorities, policy);
     return Object.freeze({
       order: index + 1,
       id,
@@ -113,6 +115,8 @@ export function approvalChainSnapshot(workflow) {
         minimum,
         received: activeApprovals.length,
         remaining: Math.max(0, minimum - activeApprovals.length),
+        configurationBlocked: phase.status !== 'approved' && !capacity.attainable,
+        capacity: Object.freeze(capacity),
         authorities,
         approvedBy: Object.freeze(activeApprovals.map((entry) => Object.freeze({
           name: entry.actor,
@@ -180,6 +184,9 @@ export function approvalChainText(snapshot) {
       `${phase.order}. ${phase.label} (${phase.id}) — ${phase.phaseStatus.replaceAll('_', ' ')}`,
       `   Documents: ${names(phase.documents)}`,
       `   Approvals: ${requirement(phase.approval)} · ${phase.approval.state.replaceAll('-', ' ')}`,
+      ...(phase.approval.configurationBlocked
+        ? ['   Blocker: pinned approval policy cannot reach its threshold; refresh configuration and reopen this phase.']
+        : []),
       `   Authority: ${phase.approval.authorities.map((entry) => entry.label).join(', ') || '—'}`,
       `   Approved by: ${approvedBy(phase.approval)}`,
       ''

@@ -488,7 +488,7 @@ workTypes:
       visual-verification: { inputs: [design-inventory, mobile-spec, implementation] }
       conformance:
         inputs: [mobile-spec, implementation, visual-verification]
-        approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 2, rejectTo: [design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
+        approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
     sequenceGates:
       documentPhase: hard
   quick-fix:
@@ -790,7 +790,7 @@ phases:
     worldModel: { views: [testing, development, security], depth: deep, evidence: true }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [visual tolerance, device evidence, accessibility, deviations] }
     writeScope: source-and-artifact
-    approval: { authorities: [design-reviewers, quality-reviewers], minimum: 2, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
+    approval: { authorities: [design-reviewers, quality-reviewers], minimum: 1, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
     qualityCommands: []
   conformance:
     label: Spec-to-code conformance
@@ -908,7 +908,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [publication target, evidence gaps, residual risk, rollback, reviewer decision] }
     writeScope: artifact-only
     generation: { task: summarize }
-    approval: { authorities: [quality-reviewers, engineering-reviewers], requiredAuthorities: [quality-reviewers, engineering-reviewers], minimum: 2, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
+    approval: { authorities: [quality-reviewers, engineering-reviewers], requiredAuthorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,

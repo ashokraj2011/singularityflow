@@ -63,9 +63,9 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
   assert.ok(validation.qualityCommands.some((command) => command.id === 'playwright-tests'));
   assert.equal(validation.sourceBoundary, 'test-automation');
   const publication = resolved.phases.find((phase) => phase.id === 'poc-publication-review');
-  assert.equal(publication.approval.minimum, 2);
+  assert.equal(publication.approval.minimum, 1);
   assert.deepEqual(publication.approval.authorities, ['quality-reviewers', 'engineering-reviewers']);
-  assert.deepEqual(publication.approval.requiredAuthorities, ['quality-reviewers', 'engineering-reviewers']);
+  assert.deepEqual(publication.approval.requiredAuthorities, ['quality-reviewers']);
 });
 
 test('POC browser access is allowlisted, confirmed, and evidence-capturing', async () => {

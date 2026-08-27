@@ -17,7 +17,10 @@ import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
   const source = path.join(root, 'source');
-  const remote = path.join(root, 'remote.git');
+  // Match the governed repository ID used by the workspace manifest. A differently named remote
+  // is a real catalog/manifest binding error now that bootstrap validates the complete delivery
+  // closure instead of approving a capability ID in isolation.
+  const remote = path.join(root, 'application.git');
   await mkdir(source);
   run('git', ['init', `--initial-branch=${branch}`], { cwd: source });
   run('git', ['config', 'user.name', 'Bootstrap Tester'], { cwd: source });
@@ -79,7 +82,7 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
     source: { kind: 'manifest', reference: fixture.remote },
     createInput: declaredInput
   }, { env });
-  assert.equal(withCapability.preflight.ready, true);
+  assert.equal(withCapability.preflight.ready, true, JSON.stringify(withCapability.preflight.findings));
   assert.notEqual(withCapability.planHash, withoutCapability.planHash,
     'the selected capabilities are part of the reviewed materialization plan');
 

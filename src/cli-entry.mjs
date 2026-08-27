@@ -66,6 +66,17 @@ export function hasWorkingTreeGovernance(root) {
 export function hasLocalGovernanceAuthority(root) {
   if (hasWorkingTreeGovernance(root)) return true;
   if (!root) return false;
+  // A checked-out lifecycle aggregate is itself an unambiguous repository claim. Recovery and
+  // read-only review commands must stay with it even if its configuration snapshot is damaged or
+  // absent; redirecting those commands to the machine's last selected workspace makes the Story
+  // disappear precisely when it needs repair. Use Git's tracked-file index instead of accepting an
+  // arbitrary untracked directory that merely happens to use a Singularity-looking name.
+  const governedSubjects = run('git', [
+    'ls-files', '--',
+    'singularity/work-items/*/workflow.json',
+    'singularity/initiatives/*/state.json'
+  ], { cwd: root, allowFailure: true });
+  if (governedSubjects.status === 0 && governedSubjects.stdout.trim()) return true;
   const refs = run('git', [
     'for-each-ref', '--format=%(refname)',
     'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',

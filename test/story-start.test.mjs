@@ -163,6 +163,93 @@ test('POC Story intake requires and durably pins the authorized browser origin',
   assert.deepEqual(resumed.workflow.mcpAuthorizations.playwright.origins, ['https://staging.example.test']);
 });
 
+test('desktop Story intake publishes every capability repository and returns a recoverable result', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-capability-story-'));
+  const workspaceRoot = path.join(base, 'workspace');
+  const repositoriesRoot = path.join(workspaceRoot, 'repos');
+  await mkdir(repositoriesRoot, { recursive: true });
+  const createRepository = async (id, { governed = false } = {}) => {
+    const source = path.join(repositoriesRoot, id);
+    const remote = path.join(base, `${id}.git`);
+    await mkdir(source, { recursive: true });
+    run('git', ['init', '-b', 'main'], source);
+    run('git', ['config', 'user.name', 'Desktop Story Tester'], source);
+    run('git', ['config', 'user.email', 'desktop-story@example.com'], source);
+    await writeFile(path.join(source, 'README.md'), `# ${id}\n`);
+    if (governed) run(process.execPath, [path.resolve('bin/singularity-flow.mjs'), 'init'], source);
+    run('git', ['add', '.'], source);
+    run('git', ['commit', '-m', 'initial'], source);
+    run('git', ['init', '--bare', '-b', 'main', remote], source);
+    run('git', ['remote', 'add', 'origin', remote], source);
+    run('git', ['push', '-u', 'origin', 'main'], source);
+    return { id, source, remote };
+  };
+  const lead = await createRepository('lead', { governed: true });
+  const sibling = await createRepository('sibling');
+  await writeFile(path.join(lead.source, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      payments: {
+        name: 'Payments', kind: 'delivery', parent: null,
+        repositories: ['lead', 'sibling'], leadRepository: 'lead', policy: {}
+      }
+    }
+  }));
+  const portfolioPath = path.join(lead.source, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  portfolio.repositories = {
+    lead: { url: lead.remote, defaultBranch: 'main', required: true },
+    sibling: { url: sibling.remote, defaultBranch: 'main', required: true }
+  };
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  run('git', ['add', 'singularity/capabilities.yml', 'singularity/portfolio.yml'], lead.source);
+  run('git', ['commit', '-m', 'map payments capability'], lead.source);
+  run('git', ['push', 'origin', 'main'], lead.source);
+
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify({
+    version: 1,
+    id: 'local--payments',
+    name: 'Payments workspace',
+    anchor: { provider: 'workspace', siteId: 'local', key: 'payments', title: 'Payments workspace' },
+    leadRepository: 'lead',
+    repositories: {
+      lead: { id: 'lead', url: lead.remote, defaultBranch: 'main', required: true, path: 'repos/lead', capabilities: ['payments'], clone: { mode: 'full', sparseCone: [], fallback: 'refuse' } },
+      sibling: { id: 'sibling', url: sibling.remote, defaultBranch: 'main', required: true, path: 'repos/sibling', capabilities: ['payments'], clone: { mode: 'full', sparseCone: [], fallback: 'refuse' } }
+    },
+    capabilities: ['payments'],
+    directories: { repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira' },
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  }, null, 2)}\n`);
+  const selection = path.join(base, 'active-workspace.json');
+  const registry = path.join(base, 'workspaces.json');
+  await writeFile(registry, '{"schemaVersion":1,"workspaces":[]}\n');
+  await writeFile(selection, `${JSON.stringify({
+    schemaVersion: 1, workspaceId: 'local--payments', workspaceName: 'Payments workspace',
+    workspacePath: workspaceRoot, anchorKey: 'payments', repositoryId: 'lead',
+    repositoryPath: lead.source, repositoryState: 'ready', branch: 'main',
+    capabilities: ['payments'], repositoryCapabilities: ['payments'], selectedAt: new Date().toISOString()
+  })}\n`);
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  try {
+    const started = await startStory(lead.source, {
+      id: 'WORK-CAP-1',
+      source: manualStorySource('WORK-CAP-1', { title: 'Coordinate capability change' }),
+      workType: 'feature', baseBranch: 'main', capabilityId: 'payments'
+    });
+    assert.deepEqual(started.capabilityPublication.pending, []);
+    assert.deepEqual(started.capabilityPublication.published.map((entry) => entry.repository), ['sibling']);
+    assert.match(run('git', ['ls-remote', sibling.remote, 'refs/heads/WORK-CAP-1'], sibling.source).stdout, /refs\/heads\/WORK-CAP-1/);
+  } finally {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  }
+});
+
 test('manual Story source requires only a Work ID and title while normalizing optional lists', () => {
   const source = manualStorySource('LOCAL-2', {
     title: 'Small local Story',

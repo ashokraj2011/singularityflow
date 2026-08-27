@@ -16,7 +16,9 @@ import {
   activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
   readActiveWorkspaceContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
-import { activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS } from '../src/cli-entry.mjs';
+import {
+  activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS, hasLocalGovernanceAuthority
+} from '../src/cli-entry.mjs';
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 
@@ -76,6 +78,20 @@ test('repository commands can route through the explicitly selected workspace', 
   assert.equal(routed.status, 0, routed.stderr);
   assert.equal(JSON.parse(routed.stdout).status, 'missing',
     'the repository-scoped command ran against the selected workspace repository');
+});
+
+test('a tracked lifecycle aggregate keeps recovery and approval reads in the current repository', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-lifecycle-routing-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: root });
+  const state = path.join(root, 'singularity/work-items/ROUTE-1/workflow.json');
+  await mkdir(path.dirname(state), { recursive: true });
+  await writeFile(state, JSON.stringify({ schemaVersion: 2, workItem: { id: 'ROUTE-1' }, phaseOrder: [], phases: {} }));
+  run('git', ['add', state], { cwd: root });
+  run('git', ['commit', '-m', 'tracked lifecycle state'], { cwd: root });
+
+  assert.equal(hasLocalGovernanceAuthority(root), true);
 });
 
 test('selected workspace routing reports a stale repository path before dispatch', async () => {
@@ -168,6 +184,25 @@ test('workspace capability registration is approved before any workspace byte is
   );
   assert.equal(await readFile(manifestFile, 'utf8'), before,
     'an invalid capability edit must preserve the last approved manifest exactly');
+
+  const rogue = await remoteRepository(root, 'rogue');
+  await assert.rejects(
+    () => createWorkspaceConfiguration({
+      ...input('wrong-delivery-binding', 'declared-capability'),
+      repositories: {
+        ...input('wrong-delivery-binding', 'declared-capability').repositories,
+        rogue: {
+          url: rogue,
+          defaultBranch: 'main',
+          capabilities: ['declared-capability']
+        }
+      }
+    }, { confirmation: 'wrong-delivery-binding', clone: false }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_REPOSITORY_MISMATCH'
+      && /without an approved delivery binding/.test(error.message)
+  );
+  assert.equal(await stat(path.join(baseDirectory, 'wrong-delivery-binding')).catch(() => null), null,
+    'a stale or forged repository binding must not leave a workspace shell');
 });
 
 test('the first capability can be onboarded outside every repository and without a workspace', async () => {

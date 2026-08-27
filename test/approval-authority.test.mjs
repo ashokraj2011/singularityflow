@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  approvalPolicyCapacity,
   approvalRequirementsMet,
+  assertApprovalPolicyAttainable,
   matchApprovalAuthority,
   normalizeApprovalAuthorities,
   normalizeApprovalPolicy,
@@ -152,4 +154,37 @@ test('required authority groups are allocated and covered independently', () => 
     requiredAuthorities: ['architecture-reviewers', 'git-contributors'],
     minimum: 1
   }, authorities, 'publication'), /minimum must be at least 2/);
+});
+
+test('an approval threshold cannot be pinned when too few distinct reviewers can ever satisfy it', () => {
+  const registry = {
+    'architecture-reviewers': {
+      label: 'Architecture reviewers', allowAnyGitIdentity: false,
+      members: [{ name: 'Asha', email: 'asha@example.com' }]
+    }
+  };
+  const policy = {
+    mode: 'required', authorities: ['architecture-reviewers'], requiredAuthorities: [], minimum: 2
+  };
+  assert.deepEqual(approvalPolicyCapacity(registry, policy), {
+    attainable: false, unbounded: false, eligibleIdentities: 1, minimum: 2, missingAuthorities: []
+  });
+  assert.throws(
+    () => assertApprovalPolicyAttainable(registry, policy, 'design'),
+    (error) => error?.code === 'APPROVAL_POLICY_UNATTAINABLE' && /only 1 are pinned/.test(error.message)
+  );
+  assert.equal(approvalPolicyCapacity({
+    'architecture-reviewers': { allowAnyGitIdentity: true, members: [] }
+  }, policy).attainable, true);
+});
+
+test('a policy approval still requires fallback reviewer capacity', () => {
+  const authorities = {
+    'quality-reviewers': { label: 'Quality', members: [] }
+  };
+  const capacity = approvalPolicyCapacity(authorities, {
+    mode: 'policy', authorities: ['quality-reviewers'], requiredAuthorities: [], minimum: 1
+  });
+  assert.equal(capacity.attainable, false);
+  assert.equal(capacity.eligibleIdentities, 0);
 });

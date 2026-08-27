@@ -191,6 +191,30 @@ test('repository refresh restores additive policy and missing assets without ove
   assert.deepEqual(repeated.files, []);
 });
 
+test('configuration refresh restores the standard spec-driven workflow after a prior baseline', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-standard-workflow-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+
+  // Record the current package as the prior reviewed baseline, then reproduce an approved
+  // configuration that lacks the standard profile. Generic three-way merging calls this a local
+  // deletion; product refresh must still restore the standard workflow contract.
+  await refreshPackagedConfiguration(root);
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  delete workflow.workTypes['spec-driven-standard'];
+  await writeFile(workflowFile, YAML.stringify(workflow));
+
+  const refreshed = await refreshPackagedConfiguration(root);
+  const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  assert.deepEqual(definition.workTypes['spec-driven-standard'],
+    YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'))
+      .workTypes['spec-driven-standard']);
+  assert.ok(refreshed.files.includes('singularity/workflow.yml'));
+  assert.ok(!refreshed.conflicts.some((entry) =>
+    entry.path === 'workflow.workTypes.spec-driven-standard'));
+});
+
 test('configuration refresh upgrades an exact retired bundled model map without treating it as customization', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-package-refresh-model-map-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -20,7 +20,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 8
+version: 9
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -84,6 +84,12 @@ preview. When a preserved older agent leaves a phase without its required defaul
 or outdated agents** selects the engine-reported packaged agent paths and previews again; it never
 publishes on the first click. The broader convenience action selects packaged templates, prompts,
 and agents only and does not silently replace unrelated workflow policy.
+
+`spec-driven-standard` is part of the standard product contract rather than an optional catalog
+sample. Refresh restores it when an older approved configuration does not contain it, together with
+any missing phase and approval-authority definitions it requires. Existing customizations inside an
+installed profile still use the reviewed three-way merge, and choosing a different workflow for a
+Story remains unrestricted.
 
 Use `--no-workspace-configuration-refresh` to skip this normal-install refresh. The legacy
 `--no-workspace-workflow-sync` spelling remains accepted. The separate

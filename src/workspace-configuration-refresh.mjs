@@ -23,6 +23,10 @@ export const STATE_CONFIGURATION_ROOT = 'configuration';
 export const STATE_CONFIGURATION_MANIFEST = `${STATE_CONFIGURATION_ROOT}/manifest.json`;
 const BASELINE_FORMAT = 'singularity-flow-configuration-baseline/v1';
 const MIRROR_FORMAT = 'singularity-flow-configuration-mirror/v2';
+// These profiles are part of the executable product contract, not optional catalog samples. They
+// may remain unused, but an upgraded approved configuration must keep them available so the CLI,
+// Copilot skills and VS Code all expose the same standard product surface.
+const REQUIRED_PACKAGED_WORK_TYPES = Object.freeze(['spec-driven-standard']);
 
 const FIXED_PACKAGE_ASSETS = Object.freeze([
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
@@ -69,6 +73,33 @@ function plainObject(value) {
 
 function displayPath(parts) {
   return ['workflow', ...parts].join('.');
+}
+
+/**
+ * Paths needed to restore a missing standard workflow as one valid contract.
+ *
+ * A prior package baseline normally lets the three-way merge recognize a new work type as an
+ * additive product change. If a repository later lacks that profile, however, ordinary merge
+ * semantics interpret the absence as an intentional local deletion. Standard product workflows
+ * are not optional in that sense: people may choose another workflow, but refresh must keep the
+ * standard profile and any missing phase/authority dependencies installed.
+ */
+function requiredPackagedWorkflowPaths(current, incoming) {
+  const paths = new Set();
+  for (const workTypeId of REQUIRED_PACKAGED_WORK_TYPES) {
+    const profile = incoming.workTypes?.[workTypeId];
+    if (!profile || current.workTypes?.[workTypeId]) continue;
+    paths.add(`workflow.workTypes.${workTypeId}`);
+    for (const phaseId of profile.phases ?? []) {
+      if (!current.phases?.[phaseId]) paths.add(`workflow.phases.${phaseId}`);
+      for (const authorityId of incoming.phases?.[phaseId]?.approval?.authorities ?? []) {
+        if (!current.approvalAuthorities?.[authorityId]) {
+          paths.add(`workflow.approvalAuthorities.${authorityId}`);
+        }
+      }
+    }
+  }
+  return paths;
 }
 
 /**
@@ -121,8 +152,15 @@ export function mergePackagedConfiguration(base, local, incoming, {
 
     if (!localPresent) {
       if (!basePresent) return { present: true, value: clone(incomingValue) };
-      if (equal(incomingValue, baseValue)) return { present: false, value: undefined };
       const resolution = resolutionFor(parts);
+      if (equal(incomingValue, baseValue)) {
+        // A missing local node normally represents an intentional repository deletion. An exact
+        // reviewed `bundled` resolution must still be able to restore it; previously the early
+        // return ignored both --resolve PATH=bundled and --accept-bundled-conflicts.
+        if (resolution !== 'bundled') return { present: false, value: undefined };
+        conflict(parts, undefined, incomingValue, 'accepted-bundled');
+        return { present: true, value: clone(incomingValue) };
+      }
       if (resolution === 'merge') {
         throw new SingularityFlowError(`Configuration conflict '${displayPath(parts)}' cannot be merged; choose local or bundled.`);
       }
@@ -163,11 +201,11 @@ export function mergePackagedConfiguration(base, local, incoming, {
     }
 
     if (equal(localValue, baseValue)) return { present: true, value: clone(incomingValue) };
-    if (equal(incomingValue, baseValue) || equal(localValue, incomingValue)) {
-      return { present: true, value: clone(localValue) };
-    }
     if (plainObject(baseValue) && plainObject(localValue) && plainObject(incomingValue)) {
       return { present: true, value: mergeObject(baseValue, localValue, incomingValue, parts) };
+    }
+    if (equal(incomingValue, baseValue) || equal(localValue, incomingValue)) {
+      return { present: true, value: clone(localValue) };
     }
     const resolution = resolutionFor(parts);
     if (resolution === 'merge'
@@ -318,10 +356,20 @@ export async function refreshPackagedConfiguration(root, {
   validateDefinition(structuredClone(current));
   validateDefinition(structuredClone(incoming));
 
+  const requiredWorkflowPaths = requiredPackagedWorkflowPaths(current, incoming);
   const merged = mergePackagedConfiguration(baseline?.workflow ?? {}, current, incoming, {
     acceptBundledConflicts,
-    resolutions
+    // A standard product workflow is always restored as packaged when it is absent. Repository
+    // customizations inside an installed profile continue through the normal three-way merge.
+    resolutions: {
+      ...resolutions,
+      ...Object.fromEntries([...requiredWorkflowPaths].map((entry) => [entry, 'bundled']))
+    }
   });
+  // Required restoration is an invariant, not a choice the preview can switch back to local. Keep
+  // ordinary repository customizations visible while avoiding a misleading dropdown for these
+  // product-owned missing nodes.
+  merged.conflicts = merged.conflicts.filter((entry) => !requiredWorkflowPaths.has(entry.path));
   validateDefinition(structuredClone(merged.value));
 
   const assets = await packagedAssets(merged.value.templatesRoot);

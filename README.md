@@ -2325,7 +2325,7 @@ evidence workflow.
 | `singularity-flow submit [PHASE]` | Run checks and publish an approval request. |
 | `singularity-flow approve [PHASE] --work-id ID --fetch` | Verify human authority, activate the phase agent, and record/push the exact-hash decision. Omit `--work-id` for the active Story. |
 | `singularity-flow reject [PHASE] --work-id ID --fetch --to PHASE --reason TEXT` | Record a governed change request, reopen an awaiting-approval Story, invalidate downstream state, commit, and push. Omit `--work-id` for the active Story. |
-| `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT` | Return a completed Story to an allowed phase with a governed comment, commit, and push. |
+| `singularity-flow reopen [ID] --fetch --to PHASE --reason TEXT [--gate-recovery --confirm SHA256]` | Return a completed Story to an allowed phase. `--gate-recovery` previews a content-bound exception only when the final gate assigns a blocker to a phase outside ordinary `rejectTo`; repeat it with the emitted digest to commit and push the governed reopen. |
 | `singularity-flow cancel [ID] --fetch --reason TEXT --confirm ID` | Stop active work without claiming completion; preserve all artifacts and approvals, commit and push the decision, and show the Story under Archived. |
 | `singularity-flow cancel ID --release [--apply --confirm ID]` | Preview or apply a reversible release of a cancelled checkout: preserve remaining edits in a named stash, return to the recorded base branch, and keep the archived branch intact. |
 | `singularity-flow sync` | Restore a dead pre-commit transaction from its durable preimage, or retry an existing post-commit publication without rewriting it. |

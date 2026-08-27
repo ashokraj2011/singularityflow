@@ -30,11 +30,57 @@ import { readRecord } from './schema-migrations.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import { publishedGenerationCommit } from './generation-publication-store.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
 function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
 function traceabilitySources(workflow) {
   return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
+}
+
+/**
+ * Configuration materialized by Story start is governance input, not Story output.
+ *
+ * The protected-path gate used to compare HEAD only with the branch merge-base. A repository whose
+ * approved configuration branch was newer than that base therefore failed for the exact workflow,
+ * templates, prompts, and agents that Story start had just pinned. Exemption is deliberately
+ * content-addressed: a missing, renamed, symlinked, or byte-different file remains protected.
+ */
+export function approvedConfigurationMaterializations(changeSet, workflow) {
+  const pinned = workflow?.resolution?.configurationSource?.files ?? {};
+  return new Set((changeSet?.entries ?? []).flatMap((entry) => {
+    const expected = entry.newPath ? pinned[entry.newPath] : null;
+    return expected
+      && entry.newContent?.kind === 'regular-file'
+      && entry.newContent.sha256 === `sha256:${expected}`
+      ? [entry.newPath]
+      : [];
+  }));
+}
+
+export function generationAuthorship(phase, generation) {
+  return [...(phase?.authorship ?? [])].reverse()
+    .find((record) => Number(record.generation) === Number(generation))
+    ?? { producer: 'legacy-unspecified', channel: 'legacy' };
+}
+
+/** Grounding governs a model-assisted prompt. Manual and deterministic producers sent no prompt. */
+export function generationRequiresGrounding(phase, generation) {
+  return ['governed-agent', 'legacy-unspecified'].includes(generationAuthorship(phase, generation).producer);
+}
+
+/**
+ * Submission-grade evidence is required only after a generation crossed the review boundary.
+ * A published draft that was superseded before submit remains immutable audit history, but it
+ * cannot have the test receipt that submit intentionally creates later.
+ */
+export function generationReachedReview(workflow, phase, generation) {
+  const phaseId = phase?.id;
+  if ((workflow?.lineage?.submissions ?? []).some((entry) =>
+    entry.phase === phaseId && Number(entry.generation) === Number(generation))) return true;
+  if ((phase?.approvals ?? []).some((entry) => Number(entry.generation) === Number(generation))) return true;
+  return Number(phase?.generation) === Number(generation)
+    && (Boolean(phase?.submittedAt) || ['awaiting_approval', 'approved'].includes(phase?.status));
 }
 
 export async function runGovernanceGate(root, config, workflow, { terminal = false } = {}) {
@@ -104,8 +150,17 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   if (mergeBase.status === 0) {
     const branchChangeSet = await buildRepositoryChangeSet(root, { baseCommit: mergeBase.stdout.trim() });
     const protectedResult = evaluateProtectedPaths(branchChangeSet, config.governance?.protectedPaths ?? []);
+    const approvedMaterializations = approvedConfigurationMaterializations(branchChangeSet, workflow);
+    const acceptedProtectedPaths = new Set();
     for (const violation of protectedResult.violations) {
+      if (approvedMaterializations.has(violation.path)) {
+        acceptedProtectedPaths.add(violation.path);
+        continue;
+      }
       errors.push(`protected process path changed on work branch: ${violation.path} (${violation.endpoint})`);
+    }
+    if (acceptedProtectedPaths.size) {
+      passes.push(`approved configuration materialization: ${acceptedProtectedPaths.size} protected path(s) match the pinned configuration snapshot`);
     }
   } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseBranch}`);
 
@@ -113,19 +168,42 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const phase = workflow.phases[phaseId];
     for (let generation = 1; generation <= (phase.generation ?? 0); generation += 1) {
       const subject = `[${workflow.workItem.id}][phase:${phase.id}][generated:${generation}]`;
-      const found = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject));
-      if (!found) errors.push(`${phaseId} generation ${generation} has no required Git commit`);
-      else if (config.git?.publish === 'required') {
+      const publication = (phase.generationPublications ?? [])
+        .find((entry) => Number(entry.generation) === Number(generation));
+      let found = null;
+      let publicationInvalid = false;
+      if (publication?.record?.path) {
+        try {
+          const commit = publishedGenerationCommit(root, workflow, phase, generation);
+          if (commit) {
+            found = [commit, subject];
+            passes.push(`generation publication verified: ${phaseId} generation ${generation} @ ${commit.slice(0, 12)}`);
+          }
+        } catch (error) {
+          publicationInvalid = true;
+          errors.push(`${phaseId} generation ${generation} publication record is invalid: ${error.message}`);
+        }
+      } else {
+        found = run('git', ['log', '--format=%H%x09%s', '--fixed-strings', '--grep', subject], { cwd: root, allowFailure: true }).stdout.split(/\r?\n/).filter(Boolean).map((line) => line.split('\t')).find(([, message]) => message.startsWith(subject));
+      }
+      if (!found) {
+        if (!publicationInvalid) errors.push(`${phaseId} generation ${generation} has no required Git commit`);
+      } else if (config.git?.publish === 'required') {
         const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}`;
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         if (published.status !== 0) errors.push(`${phaseId} generation ${generation} is not present on the remote branch`);
       }
-      const grounding = await verifyGroundingRecord(root, config, workflow, phase, { generation });
-      errors.push(...grounding.errors); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
-      if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
-        if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
-        else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
-        if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
+      let grounding = { errors: [], warnings: [], passes: [], record: null, path: null };
+      if (generationRequiresGrounding(phase, generation)) {
+        grounding = await verifyGroundingRecord(root, config, workflow, phase, { generation });
+        errors.push(...grounding.errors); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
+        if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
+          if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding composition was not committed with ${phaseId} generation ${generation}`);
+          else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
+          if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) errors.push(`grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`);
+        }
+      } else {
+        passes.push(`grounding not applicable: ${phaseId} generation ${generation} was ${generationAuthorship(phase, generation).producer}`);
       }
       // Historical receipts are checked as immutable evidence at their generation commit. A later
       // phase may legitimately change a previously evaluated source file; only the active
@@ -136,6 +214,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       warnings.push(...ast.errors.map((error) => `optional AST evidence: ${error}`), ...ast.warnings);
       if (found) passes.push(...ast.passes);
       if (phaseRequiresCodeDelivery(phase)) {
+        const reachedReview = generationReachedReview(workflow, phase, generation);
         const receiptPath = posix(path.join(
           config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
           'context', 'code-delivery', `${phase.id}-gen${generation}.json`
@@ -150,9 +229,15 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
             || Boolean(found && run('git', ['cat-file', '-e', `${found[0]}:${generationStartPath}`], {
               cwd: root, allowFailure: true
             }).status === 0);
-          (v2Generation ? errors : warnings).push(
-            `${phaseId} generation ${generation} has ${v2Generation ? 'no required' : 'legacy inline'} code-delivery evidence instead of a v2 receipt`
-          );
+          if (v2Generation && !reachedReview) {
+            warnings.push(`${phaseId} generation ${generation} was superseded before review and has no draft code-delivery receipt`);
+          } else {
+            (v2Generation ? errors : warnings).push(
+              `${phaseId} generation ${generation} has ${v2Generation ? 'no required' : 'legacy inline'} code-delivery evidence instead of a v2 receipt`
+            );
+          }
+        } else if (!reachedReview) {
+          passes.push(`superseded publication retained: ${phaseId} generation ${generation} did not enter review`);
         } else {
           const receipt = readRecord('code-delivery', await readFile(path.join(root, receiptPath))).record;
           if (receipt.legacyV1) {
@@ -176,7 +261,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
           }
         }
       }
-      const authorship = (phase.authorship ?? []).find((record) => record.generation === generation);
+      const authorship = generationAuthorship(phase, generation);
       if (authorship?.producer === 'governed-agent') {
         const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });
         errors.push(...clarification.errors); warnings.push(...clarification.warnings); passes.push(...clarification.passes);

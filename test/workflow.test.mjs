@@ -763,6 +763,53 @@ test('completed work can be reopened only through an authorized governed change 
   assert.equal(restored.changeRequests[0].status, 'abandoned');
 });
 
+test('a final-gate-owned phase outside rejectTo reopens only after exact recovery confirmation', async () => {
+  const root = await repository(); const workId = 'GATE-REOPEN-1';
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('chore', 'developer') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  for (const phaseId of workflow.phaseOrder) {
+    const artifact = path.join(root, 'singularity/work-items', workId, workflow.phases[phaseId].requiredArtifact.path);
+    await mkdir(path.dirname(artifact), { recursive: true });
+    if (!existsSync(artifact)) await writeFile(artifact, `# ${phaseId}\n\n${'Reviewed evidence. '.repeat(30)}\n`);
+    workflow.phases[phaseId].status = 'approved';
+  }
+  workflow.status = 'complete'; workflow.currentPhase = null;
+  const completion = workflow.phases[workflow.phaseOrder.at(-1)];
+  completion.approvalPolicy.rejectTo = completion.approvalPolicy.rejectTo.filter((phaseId) => phaseId !== 'intake');
+  await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
+  execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root);
+  execute('git', ['commit', '-m', 'simulate legacy completed story with an intake gate defect'], root);
+
+  const ordinary = flow(root, ['reopen', workId, '--to', 'intake', '--reason', 'Repair final gate evidence'], {
+    allowFailure: true, selection: selection('chore', 'developer')
+  });
+  assert.notEqual(ordinary.status, 0);
+  assert.match(ordinary.stderr, /cannot be reopened to 'intake'/);
+
+  const before = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const preview = flow(root, [
+    'reopen', workId, '--to', 'intake', '--reason', 'Repair final gate evidence', '--gate-recovery'
+  ], { allowFailure: true, selection: selection('chore', 'developer') });
+  assert.notEqual(preview.status, 0);
+  const confirmation = preview.stderr.match(/--confirm (sha256:[0-9a-f]{64})/)?.[1];
+  assert.ok(confirmation, preview.stderr);
+  assert.equal(execute('git', ['rev-parse', 'HEAD'], root).stdout.trim(), before, 'preview changed HEAD');
+  assert.equal(execute('git', ['status', '--porcelain'], root).stdout, '', 'preview dirtied the worktree');
+
+  const reopened = flow(root, [
+    'reopen', workId, '--to', 'intake', '--reason', 'Repair final gate evidence',
+    '--gate-recovery', '--confirm', confirmation
+  ], { selection: selection('chore', 'developer') });
+  assert.match(reopened.stdout, /Reopened GATE-REOPEN-1 at intake with CR-001/);
+  const repaired = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(repaired.currentPhase, 'intake');
+  assert.equal(repaired.status, 'in_progress');
+  assert.equal(repaired.changeRequests[0].gateRecovery.planSha256, confirmation);
+  assert.equal(repaired.changeRequests[0].gateRecovery.sourceHead, before);
+  assert.ok(repaired.changeRequests[0].gateRecovery.findings.every((finding) => finding.phase === 'intake'));
+});
+
 test('returned phase rework can be discarded and rolled forward from an exact checkpoint', async () => {
   const root = await repository(); const workId = 'ROLL-FWD-1';
   await mkdir(path.join(root, 'src'), { recursive: true });

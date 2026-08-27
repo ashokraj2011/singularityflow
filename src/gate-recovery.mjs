@@ -1,3 +1,8 @@
+import { createHash } from 'node:crypto';
+
+import { canonicalJson } from './records.mjs';
+import { run } from './util.mjs';
+
 /**
  * Deterministic gate-to-recovery classification.
  *
@@ -103,8 +108,9 @@ function storyRecovery(workflow, code, ownerPhase, path) {
       };
     }
     return {
-      mode: 'manual', ownerPhase, requiresReopen: true, command: null,
-      detail: `The completed workflow must return to ${ownerPhase}, but its pinned completion policy does not authorize that reopen target. Obtain an explicit policy/authority decision; no state was changed.`
+      mode: 'guided', ownerPhase, requiresReopen: true,
+      command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Governance gate recovery" --gate-recovery`,
+      detail: `The ordinary completion policy does not target ${ownerPhase}. Preview the content-bound final-gate recovery plan, then repeat the command with its exact --confirm digest. No state changes during preview.`
     };
   }
   if (code === 'gate.terminal.workflow-incomplete' || code === 'gate.terminal.phase-unapproved') return {
@@ -119,6 +125,74 @@ function storyRecovery(workflow, code, ownerPhase, path) {
       ? `Repair or regenerate the evidence owned by ${ownerPhase}; approvals and published generations are not edited in place.`
       : 'Inspect the governed recovery plan before changing lifecycle state.'
   };
+}
+
+function planCore(plan) {
+  return {
+    schemaVersion: plan.schemaVersion,
+    kind: plan.kind,
+    workId: plan.workId,
+    head: plan.head,
+    workflowSha256: plan.workflowSha256,
+    workflowStatus: plan.workflowStatus,
+    currentPhase: plan.currentPhase,
+    targetPhase: plan.targetPhase,
+    findings: plan.findings
+  };
+}
+
+function workflowSha256(workflow) {
+  return `sha256:${createHash('sha256').update(canonicalJson(workflow)).digest('hex')}`;
+}
+
+function planConfirmation(plan) {
+  return `sha256:${createHash('sha256').update(canonicalJson(planCore(plan))).digest('hex')}`;
+}
+
+/** Build the exact preview for a final-gate-owned reopen outside ordinary rejectTo policy. */
+export function gateRecoveryReopenPlan(root, workflow, findings, targetPhase) {
+  const target = String(targetPhase ?? '');
+  const relevant = (findings ?? []).filter((finding) => finding?.blocking === true
+    && finding.phase === target && finding.recovery?.requiresReopen === true);
+  const plan = {
+    schemaVersion: 1,
+    kind: 'gate-recovery-reopen-plan',
+    workId: workflow?.workItem?.id ?? null,
+    head: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+    workflowSha256: workflowSha256(workflow),
+    workflowStatus: workflow?.status ?? null,
+    currentPhase: workflow?.currentPhase ?? null,
+    targetPhase: target || null,
+    findings: relevant.map((finding) => ({
+      code: finding.code,
+      phase: finding.phase,
+      generation: finding.generation ?? null,
+      message: finding.details?.message ?? null
+    })).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))
+  };
+  return {
+    ...plan,
+    allowed: workflow?.status === 'complete'
+      && workflow?.currentPhase == null
+      && Boolean(workflow?.phases?.[target])
+      && relevant.length > 0,
+    confirmation: planConfirmation(plan)
+  };
+}
+
+export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
+  return Boolean(plan?.allowed === true
+    && plan.kind === 'gate-recovery-reopen-plan'
+    && plan.workId === workflow?.workItem?.id
+    && plan.workflowStatus === 'complete'
+    && plan.currentPhase == null
+    && plan.targetPhase
+    && workflow?.phases?.[plan.targetPhase]
+    && plan.head === run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim()
+    && plan.workflowSha256 === workflowSha256(workflow)
+    && (plan.findings ?? []).length > 0
+    && plan.findings.every((finding) => finding.phase === plan.targetPhase && finding.message)
+    && plan.confirmation === planConfirmation(plan));
 }
 
 export function classifyStoryGateFailures(workflow, messages) {

@@ -67,6 +67,7 @@ import {
 } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
+import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
   clearPendingPublication,
   hasPendingPublication,
@@ -3596,7 +3597,9 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
 }
 
-export async function reopenWorkflow(root, config, workflow, { target, reason, channel = 'terminal', actionContext = null } = {}) {
+export async function reopenWorkflow(root, config, workflow, {
+  target, reason, channel = 'terminal', actionContext = null, gateRecovery = null
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
   if (workflow.status !== 'complete' || workflow.currentPhase != null) {
     throw new SingularityFlowError(`Story '${workflow.workItem.id}' is not complete; use reject while a phase is awaiting approval.`);
@@ -3607,7 +3610,9 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   }
   const targetId = target ?? completionPhase.id;
   const allowed = completionPhase.approvalPolicy.rejectTo ?? [completionPhase.id];
-  if (!allowed.includes(targetId)) {
+  const gateRecoveryAuthorized = gateRecovery?.targetPhase === targetId
+    && verifyGateRecoveryReopenPlan(root, workflow, gateRecovery);
+  if (!allowed.includes(targetId) && !gateRecoveryAuthorized) {
     throw new SingularityFlowError(`Completed Story '${workflow.workItem.id}' cannot be reopened to '${targetId}'. Allowed: ${allowed.join(', ')}.`);
   }
   const targetIndex = workflow.phaseOrder.indexOf(targetId);
@@ -3640,7 +3645,14 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
     identityAssurance: authority.identityAssurance,
     sourceArtifactSha256: (completionPhase.artifacts ?? []).map((artifact) => ({ path: artifact.path, sha256: artifact.sha256 ?? null })),
     reviewPacketSha256: null,
-    resolution: null
+    resolution: null,
+    ...(gateRecoveryAuthorized ? {
+      gateRecovery: {
+        planSha256: gateRecovery.confirmation,
+        sourceHead: gateRecovery.head,
+        findings: structuredClone(gateRecovery.findings)
+      }
+    } : {})
   };
   changeRequest.forwardCheckpoint = await createReworkForwardCheckpoint(root, config, workflow, {
     changeRequestId: changeRequest.id,
@@ -3690,6 +3702,7 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
     identityAssurance: authority.identityAssurance, channel,
     generation: completionPhase.generation,
     artifactSha256: changeRequest.sourceArtifactSha256,
+    ...(gateRecoveryAuthorized ? { gateRecoveryPlanSha256: gateRecovery.confirmation } : {}),
     ...(actionContext ? { actionContext } : {})
   };
   completionPhase.approvals.push(decision);

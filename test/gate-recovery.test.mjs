@@ -68,6 +68,20 @@ test('a completed Story maps terminal gate defects to governed reopen or configu
   assert.ok(actions.every((entry) => entry.stableState === 'unchanged'));
 });
 
+test('a completed Story previews a hash-bound gate recovery when ordinary rejectTo omits the owner', () => {
+  const workflow = story(['specification', 'implementation', 'convergence', 'release'], { complete: true });
+  workflow.phases.release.approvalPolicy.rejectTo = ['implementation', 'release'];
+  const [finding] = classifyStoryGateFailures(workflow, [
+    'convergence phase-input record rendered hash does not match recomputed approved inputs'
+  ]);
+  assert.equal(finding.phase, 'convergence');
+  assert.equal(finding.recovery.mode, 'guided');
+  assert.equal(finding.recovery.requiresReopen, true);
+  assert.match(finding.recovery.command, /reopen REC-1 --to convergence/);
+  assert.match(finding.recovery.command, /--gate-recovery/);
+  assert.match(finding.recovery.detail, /exact --confirm digest/);
+});
+
 test('every packaged Initiative phase has an explicit recovery owner without model routing', async () => {
   const portfolio = YAML.parse(await readFile(new URL('../templates/portfolio.yml', import.meta.url), 'utf8'));
   for (const [profile, entry] of Object.entries(portfolio.initiativeProfiles)) {

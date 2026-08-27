@@ -45,6 +45,7 @@ import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHier
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
+import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
 import { inspectWorkflowGrounding, worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import { effectiveMaterializationPolicy } from './world-model-materialization.mjs';
@@ -4663,6 +4664,30 @@ async function reopenCommand(positionals, options) {
   }
   config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, requestedId);
+  let gateRecovery = null;
+  if (optionBoolean(options, 'gate-recovery')) {
+    const target = optionString(options, 'to');
+    if (!target) throw new SingularityFlowError('Gate recovery requires --to <PHASE>.', {
+      code: 'GATE_RECOVERY_TARGET_REQUIRED'
+    });
+    const gate = await runGovernanceGate(root, config, workflow, { terminal: true });
+    gateRecovery = gateRecoveryReopenPlan(root, workflow, gate.findings, target);
+    if (!gateRecovery.allowed) {
+      throw new SingularityFlowError(
+        `The current final gate has no blocking reopen finding owned by phase '${target}'. No state was changed.`,
+        { code: 'GATE_RECOVERY_NOT_APPLICABLE', details: { plan: gateRecovery } }
+      );
+    }
+    if (optionString(options, 'confirm') !== gateRecovery.confirmation) {
+      throw new SingularityFlowError([
+        `Review the ${gateRecovery.findings.length} blocking final-gate finding(s) owned by '${target}'.`,
+        `Re-run with --gate-recovery --confirm ${gateRecovery.confirmation}.`,
+        'The confirmation is bound to the current HEAD, workflow state, target phase, and exact findings.'
+      ].join(' '), {
+        code: 'GATE_RECOVERY_CONFIRMATION_REQUIRED', details: { plan: gateRecovery }
+      });
+    }
+  }
   // Inside the transaction, like reject and cancel. Reopening used to invalidate every downstream
   // approval, write a durable `reopened` decision, invalidate the impact receipt and save
   // workflow.json *before* publishing — so a refusal in the publication preflight (an unreconciled
@@ -4691,14 +4716,18 @@ async function reopenCommand(positionals, options) {
       actor: session.actor,
       agent: session.agent,
       authorityGroup: authority.authorityGroup,
-      payload: { targetPhaseId: optionString(options, 'to') ?? completionPhase.id }
+      payload: {
+        targetPhaseId: optionString(options, 'to') ?? completionPhase.id,
+        gateRecoveryPlanSha256: gateRecovery?.confirmation ?? null
+      }
     },
     `[${workflow.workItem.id}][reopen:${optionString(options, 'to') ?? completionPhase.id}] change request`,
     (aggregate) => reopenWorkflow(root, config, aggregate, {
       target: optionString(options, 'to'),
       reason: optionString(options, 'reason'),
       channel: 'terminal',
-      actionContext: activeActionContext()
+      actionContext: activeActionContext(),
+      gateRecovery
     }),
     {
       eventFromResult: (transition) => ({
@@ -4707,7 +4736,8 @@ async function reopenCommand(positionals, options) {
         authorityGroup: transition.changeRequest?.authorityGroup ?? authority.authorityGroup,
         payload: {
           targetPhaseId: transition.phase.id,
-          changeRequestId: transition.changeRequest.id
+          changeRequestId: transition.changeRequest.id,
+          gateRecoveryPlanSha256: gateRecovery?.confirmation ?? null
         }
       })
     }

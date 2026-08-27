@@ -920,11 +920,22 @@ const PAGES = Object.freeze({
   },
   reopen: {
     summary: 'Reopen completed work and return it to an earlier phase.',
+    description: [
+      'Ordinary reopen targets remain limited by the final phase policy. When the final governance',
+      'gate proves that an earlier phase owns corrupt or missing evidence, --gate-recovery previews',
+      'a content-bound exception. Repeat it with the emitted --confirm digest; it never changes',
+      'application files and is invalidated by any HEAD, workflow, target, or finding change.'
+    ],
     options: [
       ['--reason TEXT', 'Why it is being reopened. Required.'],
-      ['--to PHASE', 'Which phase to return to.']
+      ['--to PHASE', 'Which phase to return to.'],
+      ['--gate-recovery', 'Allow a phase outside ordinary rejectTo only when the current final gate assigns it a blocking finding.'],
+      ['--confirm SHA256', 'Confirm the exact gate-recovery plan shown by the preview refusal.']
     ],
-    examples: [['singularity-flow reopen PAY-1 --to implementation --reason "Regression found"', '']],
+    examples: [
+      ['singularity-flow reopen PAY-1 --to implementation --reason "Regression found"', ''],
+      ['singularity-flow reopen PAY-1 --to convergence --reason "Repair final gate evidence" --gate-recovery', 'Preview and obtain the exact confirmation digest.']
+    ],
     seeAlso: ['reject', 'cancel', 'approve']
   },
   sync: {

@@ -16,6 +16,7 @@ version: 1
 # a step into a decision, and a decision is precisely what a phrasing of a question must not start.
 # "What is waiting on me?" is answered well enough by status and nextsteps.
 automaticInvocationAllowlist:
+  - sflow-advise
   - sflow-docs
   - sflow-doctor
   - sflow-help
@@ -83,6 +84,7 @@ classes:
 # budget so catalog growth cannot hide behind per-skill exceptions.
 skills:
   sflow-about: { class: echo }
+  sflow-advise: { class: conversational }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo }
   sflow-admin: { class: conversational }

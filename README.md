@@ -123,6 +123,7 @@ Use the surface that is already open:
 | Shell | `singularity-flow recommend` | Shows one personalized, read-only recommendation for the active developer context. |
 | Shell | `singularity-flow home --request "What is blocking this Story?"` | Routes an ordinary-language request to a bounded read planner. |
 | Copilot | `/sf-recommend` | Relays the same recommendation, evidence, required inputs, and disclosed effect. |
+| Copilot | `/sf-advise <question or error>` | Diagnoses confusion from current SFlow state, explains why, and offers grounded choices without executing them. |
 | Copilot | `/sf-home <ordinary request>` | Routes the request through Home; `/sf-home` without a request remains the explicit way back. |
 | Copilot | `/sf-goal` | Creates or navigates a personal outcome linked to existing governed work. |
 | VS Code | **My Work** | Opens the shared full-width Home projection with Needs You, active work, private Today/Yesterday return context, and local risk. |

@@ -44,6 +44,7 @@ function referencedModelOperations(body) {
 }
 
 const AUTOMATIC_DESCRIPTIONS = Object.freeze({
+  'sflow-advise': 'Guide unclear SFlow situations with grounded safe choices.',
   'sflow-help': 'Answer questions about Singularity Flow and its workflow.',
   'sflow-home': 'Guide developer requests through explicit governed choices.',
   'sflow-nextsteps': 'Show ordered next actions from the current workflow state.',

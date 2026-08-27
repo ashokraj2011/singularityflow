@@ -37,7 +37,7 @@ test('only low-risk read-only skills may trigger automatically', async () => {
   // cannot touch governed state, and "how do approvals work?" is precisely the phrasing a newcomer
   // uses. It is also the only entry whose contract forbids answering from the model's own memory.
   assert.deepEqual(policy.automaticInvocationAllowlist, [
-    'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-home', 'sflow-logs',
+    'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-help', 'sflow-home', 'sflow-logs',
     'sflow-nextsteps', 'sflow-progress', 'sflow-quickstart', 'sflow-receipt', 'sflow-recommend',
     'sflow-status'
   ]);

@@ -2411,6 +2411,7 @@ Preferred direct skills use the collision-safe `sf-` prefix. The equivalent
 | `/sf-goal` | Create and navigate a personal workspace outcome linked to governed Stories or Initiatives |
 | `/sf-inbox` | Fetch pending approvals across committed remote work-item branches and open a selected review safely |
 | `/sf-help` | Load this manual or explain the selected work-item workflow |
+| `/sf-advise` | Explain a confusing current situation and offer grounded safe choices without executing them |
 | `/sf-logs` | Read the activity log to explain what a command, hook, or world-model build did; works while a session is gated |
 | `/sf-nextsteps` | Show the ordered next, subsequent, and alternative actions at any time |
 | `/sf-next` | Execute exactly one next valid lifecycle action |

@@ -49,7 +49,7 @@ import { effectiveMaterializationPolicy } from './world-model-materialization.mj
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
-import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions } from './manual-authorship.mjs';
+import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
 import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
@@ -2398,7 +2398,7 @@ async function nextCommand(options) {
   });
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log('\nAfter authoring and validation, publish the generation:');
-  console.log(`  Run (authored by Copilot): singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`);
+  console.log(`  Run (configured producer): ${phasePublicationCommand(phase)}`);
   console.log(`  Manual alternative (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
   console.log(`  In Copilot: ${generationSkillForPhase(phase)} ${phase.id}`);
 }
@@ -2646,8 +2646,23 @@ async function clarificationCommand(positionals, options) {
   const responseFile = optionString(options, 'response-file');
   let responses;
   if (responseFile) {
-    const payload = await readJson(path.resolve(responseFile));
+    let payload;
+    try { payload = await readJson(path.resolve(responseFile)); }
+    catch (error) {
+      throw new SingularityFlowError(
+        `Clarification response file must be UTF-8 JSON, not Markdown or prose: ${responseFile}. `
+        + 'Use {"responses":[{"question":"...","answer":"..."}]}.',
+        { code: 'CLARIFICATION_RESPONSE_FILE_INVALID', cause: error }
+      );
+    }
     responses = Array.isArray(payload) ? payload : payload.responses ?? payload.questions;
+    if (!Array.isArray(responses) || !responses.length) {
+      throw new SingularityFlowError(
+        `Clarification response file contains no response array: ${responseFile}. `
+        + 'Use {"responses":[{"question":"...","answer":"..."}]}.',
+        { code: 'CLARIFICATION_RESPONSE_FILE_INVALID' }
+      );
+    }
   } else {
     // `--marker` names an artifact marker this answer resolves `[SPK:REQ-066]`. It defaults the
     // question too, because the marker text *is* the question and making someone retype it exactly
@@ -2678,7 +2693,7 @@ async function clarificationCommand(positionals, options) {
   console.log(`Recorded ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
   console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
   console.log(result.record.completed
-    ? `Next: author the phase artifact, then run singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+    ? `Next: author the phase artifact, then run ${phasePublicationCommand(phase)}`
     : 'Publication remains blocked because at least one material decision is unresolved.');
   emitCommandResult(commandResult({
     operation: { id: 'clarification.record', classification: 'mutation' },
@@ -5481,7 +5496,7 @@ async function runCommand(positionals, options) {
   if (phaseNeedsGeneration(workflow, phase)) {
     await nextCommand(options);
     console.log(`Guided run stopped at the authoring boundary. Complete ${phase.requiredArtifact.path}.`);
-    console.log(`Run: singularity-flow phase publish ${phase.id}`);
+    console.log(`Run: ${phasePublicationCommand(phase)}`);
     console.log(`In Copilot: /sf-phase ${phase.id}`);
     return;
   }

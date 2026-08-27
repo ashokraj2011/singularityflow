@@ -51,8 +51,8 @@ test('spec-driven submission binds downstream briefs to the reviewed generation 
     '## Failure and empty states', '', 'Missing or altered briefs block enforced preparation.', '',
     '## Permissions', '', 'Only configured human authorities approve the source and brief packet.', '',
     '## Boundary conditions', '', 'The rendered projection is bounded to 32768 UTF-8 bytes.', '',
-    '## Requirements', '', '- REQ-001 — Bind every brief to source, policy, generation, and consumer.', '',
-    '## Non-functional requirements', '', 'Preparation verifies integrity without a model call.', '',
+    '## Requirements', '', '- [BRIEF-1:REQ-001] Bind every brief to source, policy, generation, and consumer.', '',
+    '## Non-functional requirements', '', '- [BRIEF-1:REQ-002] Preparation verifies integrity without a model call.', '',
     '## Constitution articles', '', 'No constitution article is active in this fixture.', '',
     '## Assumptions', '', 'Harness Imports remains enabled for exact expansion.', '',
     '## Out of scope', '', 'This fixture does not approve or execute the downstream phase.'

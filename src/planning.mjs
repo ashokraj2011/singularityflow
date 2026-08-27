@@ -58,6 +58,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 
@@ -944,7 +945,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
     path: posix(path.relative(root, target)),
     sha256: current.sha256,
     publication,
-    next: `singularity-flow phase publish ${phase.id}`
+    next: phasePublicationCommand(phase)
   };
 }
 

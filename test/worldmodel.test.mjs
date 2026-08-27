@@ -1331,7 +1331,7 @@ test('wm build does not synthesize when every discovery worker omits its packet'
     const audit = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/model-invocations', name), 'utf8'));
     assert.deepEqual(audit.toolPolicy, {
       mode: 'allowlist', names: ['read_file', 'search', 'create_file'],
-      requireSuccessful: true, rejectTruncated: true
+      requireSuccessful: false, rejectTruncated: true
     });
   }
   await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
@@ -1365,8 +1365,8 @@ test('wm build fails fast when the builder omits manifest.json', async () => {
   assert.equal(audits.length, 1, 'a no-output synthesis must not spend a second model call');
   const audit = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/model-invocations', audits[0]), 'utf8'));
   assert.deepEqual(audit.toolPolicy, {
-    mode: 'allowlist', names: ['read_file', 'search', 'edit_file', 'create_file'],
-    requireSuccessful: true, rejectTruncated: true
+    mode: 'allowlist', names: ['edit_file', 'create_file'],
+    requireSuccessful: false, rejectTruncated: true
   });
   await assert.rejects(() => readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'), /ENOENT/);
 });

@@ -6,6 +6,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
 import { applicationChangeSetProjection } from './work-intervals.mjs';
 import { publishedGenerationCommit } from './generation-boundary.mjs';
+import { phasePublicationCommand } from './manual-authorship.mjs';
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
   return {
@@ -36,7 +37,7 @@ function artifactActions(workflow, phase, findings) {
       maximumAttempts: 1,
       requiresFingerprintChange: true,
       beforeRetry: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
-      command: `singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+      command: phasePublicationCommand(phase)
     }
   })];
 }

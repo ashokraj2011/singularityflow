@@ -7,6 +7,7 @@ import {
   applyCapabilityPolicyToInitiativeResolution,
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
+  isLocalCapabilityRepository,
   renderCapabilityWorldModelPack
 } from '../src/capability-context.mjs';
 import { snapshot } from '../src/util.mjs';
@@ -149,4 +150,13 @@ test('capability world-model rendering is phase scoped and hash verified', async
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('a Story worktree does not pin its own repository as sibling capability context', () => {
+  assert.equal(isLocalCapabilityRepository(
+    'calc', 'calc', '/workspace/repos/calc', '/workspace/.story-worktrees/CFA/repos/calc'
+  ), true);
+  assert.equal(isLocalCapabilityRepository(
+    'api', 'calc', '/workspace/repos/api', '/workspace/.story-worktrees/CFA/repos/calc'
+  ), false);
 });

@@ -233,5 +233,17 @@ test('Copilot cannot mutate a consumed code generation or claim human authorship
     toolArgs: { command: 'singularity-flow phase publish implementation --authored human' }
   });
   assert.equal(wrongAuthorship.permissionDecision, 'deny');
-  assert.match(wrongAuthorship.permissionDecisionReason, /cannot claim human/);
+  assert.match(wrongAuthorship.permissionDecisionReason, /configured producer/);
+
+  current.phases.implementation.generationPolicy.defaultProducer = 'deterministic';
+  assert.deepEqual(await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow phase publish implementation --authored deterministic --channel kernel-generator' }
+  }), {});
+  const wrongConfiguredProducer = await agentGuardHook(root, definition, current, {
+    toolName: 'run_in_terminal',
+    toolArgs: { command: 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host' }
+  });
+  assert.equal(wrongConfiguredProducer.permissionDecision, 'deny');
+  assert.match(wrongConfiguredProducer.permissionDecisionReason, /--authored deterministic --channel kernel-generator/);
 });

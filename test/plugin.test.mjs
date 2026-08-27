@@ -156,6 +156,11 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /wait/i);
     assert.match(content, /stop before (?:authoring|preparation)/i);
   }
+  for (const content of [phase, code]) {
+    assert.match(content, /private.*\.json/i);
+    assert.match(content, /Never pass Markdown/i);
+    assert.match(content, /"responses"/);
+  }
   assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
@@ -173,6 +178,18 @@ test('Copilot phase recovery re-authors once and never loops or pads an incomple
   }
   assert.match(phase, /Never add padding/i);
   assert.match(phase, /Stop.*second refusal/is);
+});
+
+test('generation skills use the phase-configured publication producer and channel', async () => {
+  for (const name of [
+    'sflow-code', 'sflow-design', 'sflow-next', 'sflow-phase', 'sflow-release',
+    'sflow-requirements', 'sflow-review', 'sflow-verify', 'sflow-workflow-rules'
+  ]) {
+    const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /configured-producer|configured producer/i, `${name} omits configured authorship`);
+    assert.doesNotMatch(content, /phase publish[^\n`]*--authored governed-agent[^\n`]*--channel copilot-host/,
+      `${name} hard-codes governed-agent publication`);
+  }
 });
 
 test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {

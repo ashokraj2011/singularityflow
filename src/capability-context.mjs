@@ -308,6 +308,15 @@ function modelFiles(manifest, views) {
   return [...selected].map(([relative, matchedViews]) => ({ relative, views: [...matchedViews] }));
 }
 
+export function isLocalCapabilityRepository(repositoryId, sourceRepositoryId, repositoryRoot, currentRoot) {
+  // Story worktrees have a different absolute path from the workspace checkout, but they are the
+  // same logical repository. Comparing paths alone made SFlow snapshot its own old world model as
+  // cross-repository capability context, duplicating thousands of prompt bytes and going stale as
+  // soon as implementation changed the application tree.
+  return Boolean(sourceRepositoryId && repositoryId === sourceRepositoryId)
+    || (repositoryRoot != null && path.resolve(repositoryRoot) === path.resolve(currentRoot));
+}
+
 /** Snapshot sibling-repository world models into the governed item context. */
 export async function materializeCapabilityWorldModelPack(root, capability, {
   itemDirectory,
@@ -335,7 +344,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       repositories.push({ id: repositoryId, status: 'missing' });
       continue;
     }
-    if (path.resolve(repositoryRoot) === current) {
+    if (isLocalCapabilityRepository(repositoryId, source.repositoryId, repositoryRoot, current)) {
       repositories.push({ id: repositoryId, status: 'local-grounding' });
       continue;
     }

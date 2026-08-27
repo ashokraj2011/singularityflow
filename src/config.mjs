@@ -534,6 +534,7 @@ export function validateDefinition(definition) {
     workType.verification = normalizeVerificationPolicy(workType.verification, { phases: workType.phases });
     workType.intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${id}' intelligence`);
     workType.auto = normalizeAutoWorkTypePolicy(workType.auto, `Work type '${id}' auto`, workType.phases);
+    workType.spec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
   }
   if (definition.noModel != null) {
     if (!definition.noModel || typeof definition.noModel !== 'object' || Array.isArray(definition.noModel)) throw new SingularityFlowError('noModel must be an object.');
@@ -1016,7 +1017,10 @@ export function resolveWorkType(definition, workTypeId) {
     // `[SPK:REQ-130]`: the right bound for a small service is wrong for a monorepo, so it is
     // configuration rather than a constant, and pinned per Story like every other policy.
     analysisLimits: analysisLimits(definition.analysisLimits),
-    spec: normalizeSpecPolicy(definition.spec ?? {}),
+    // A workflow can opt into stricter clause continuity without turning it on for legacy work
+    // types. In particular, a zero-clause spec-driven specification must not silently disable
+    // every downstream traceability and active-clause safeguard.
+    spec: normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) }),
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
     // acquire more authority merely because shared configuration changed later.

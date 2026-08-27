@@ -60,6 +60,18 @@ function defaultChannel(producer, imported) {
   return 'legacy';
 }
 
+/** The exact producer/channel pair pinned by a phase's generation contract. */
+export function phasePublicationAuthorship(phase) {
+  const producer = phase?.generationPolicy?.defaultProducer ?? 'governed-agent';
+  return Object.freeze({ producer, channel: defaultChannel(producer, false) });
+}
+
+/** One canonical command prevents CLI guidance, recovery, and Copilot skills from drifting. */
+export function phasePublicationCommand(phase, executable = 'singularity-flow') {
+  const { producer, channel } = phasePublicationAuthorship(phase);
+  return `${executable} phase publish ${phase?.id ?? '<phase>'} --authored ${producer} --channel ${channel}`;
+}
+
 export function normalizeAuthorshipOptions({ producer, channel, imported = false, externalAiUse = null } = {}) {
   const normalizedProducer = producer ?? 'legacy-unspecified';
   if (!AUTHORSHIP_PRODUCERS.includes(normalizedProducer)) {

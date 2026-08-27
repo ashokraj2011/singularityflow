@@ -498,6 +498,8 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
   await initializeDefinition(root);
   const definition = await loadDefinition(root);
   const specDriven = resolveWorkType(definition, 'spec-driven-standard');
+  assert.equal(specDriven.spec.mode, 'enforce');
+  assert.equal(resolveWorkType(definition, 'feature').spec.mode, 'record');
   const implementation = specDriven.phases.find((phase) => phase.id === 'implementation');
   assert.deepEqual(implementation.inputs.map((input) => [input.phase, input.projection]), [
     ['specification', 'approved-summary'], ['planning', 'approved-summary']

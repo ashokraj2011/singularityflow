@@ -100,7 +100,7 @@ const send=(v)=>process.stdout.write(JSON.stringify(v)+'\\n');
 for await(const line of lines){const m=JSON.parse(line);
 if(m.method==='initialize')send({jsonrpc:'2.0',id:m.id,result:{protocolVersion:m.params.protocolVersion,agentCapabilities:{}}});
 else if(m.method==='session/new')send({jsonrpc:'2.0',id:m.id,result:{sessionId:'audit-session',configOptions:[{type:'select',id:'model',name:'Model',category:'model',currentValue:'auto',options:[]}]}});
-else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'agent_message_chunk',messageId:'final',content:{type:'text',text:'  ok:'+text.length+'  \\n'}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn',usage:{totalTokens:7,inputTokens:5,outputTokens:2}}});}}
+else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;if(process.argv.includes('--fixture-fail'))send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'tool_call',toolCallId:'failed-read',title:'read fixture',name:'view',kind:'read',status:'failed',rawOutput:{code:'NOT_FOUND'}}}});send({jsonrpc:'2.0',method:'session/update',params:{sessionId:'audit-session',update:{sessionUpdate:'agent_message_chunk',messageId:'final',content:{type:'text',text:'  ok:'+text.length+'  \\n'}}}});send({jsonrpc:'2.0',id:m.id,result:{stopReason:'end_turn',usage:{totalTokens:7,inputTokens:5,outputTokens:2}}});}}
 `);
   const prompt = 'ACP_AUDIT_CANARY';
   const result = await withOperationContext({
@@ -128,6 +128,25 @@ else if(m.method==='session/prompt'){const text=m.params.prompt[0].text;send({js
   assert.equal(audit.outputBytes, Buffer.byteLength(result.output));
   assert.equal(audit.toolObservation.totalCalls, 0);
   assert.doesNotMatch(JSON.stringify(audit), /ACP_AUDIT_CANARY/);
+
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' }, modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    providerConfig: {
+      executable: process.execPath, arguments: [fixture, '--fixture-fail'], promptTransport: 'acp-stdio'
+    },
+    prompt: { text: 'FAILED_ACP_AUDIT_CANARY' },
+    tools: { mode: 'allowlist', names: ['read_file'], requireSuccessful: true, rejectTruncated: true }
+  }))), (error) => error.code === 'MODEL_TOOL_EXECUTION_FAILED');
+  const auditDirectory = path.join(root, '.git', 'singularity-flow', 'model-invocations');
+  const failedAudits = await Promise.all((await readdir(auditDirectory)).map(async (name) =>
+    JSON.parse(await readFile(path.join(auditDirectory, name), 'utf8'))));
+  const failed = failedAudits.find((entry) => entry.status === 'failed');
+  assert.equal(failed.promptProtocolVersion, 1);
+  assert.equal(failed.usage.totalTokens, 7);
+  assert.equal(failed.toolObservation.failedCalls, 1);
+  assert.equal(failed.economics.provider.totalTokens, 7);
+  assert.doesNotMatch(JSON.stringify(failed), /FAILED_ACP_AUDIT_CANARY|NOT_FOUND/);
 });
 
 test('unknown providers fail before audit creation', async () => {

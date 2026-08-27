@@ -76,7 +76,10 @@ const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
 const DEFAULT_MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
 const DEFAULT_MAX_SYNTHESIS_INPUT_TOKENS = 24_000;
 const WORLD_MODEL_DISCOVERY_TOOLS = Object.freeze(['read_file', 'search', 'create_file']);
-const WORLD_MODEL_SYNTHESIS_TOOLS = Object.freeze(['read_file', 'search', 'edit_file', 'create_file']);
+// Discovery owns repository inspection. Synthesis receives verified packets plus the
+// CLI-derived fact digest and therefore needs output-only tools. Keeping read/search here caused a
+// second repository crawl and made recovered exploratory reads invalidate an otherwise valid model.
+const WORLD_MODEL_SYNTHESIS_TOOLS = Object.freeze(['edit_file', 'create_file']);
 const MODEL_OUTPUT_PLACEHOLDER = 'SINGULARITY_FLOW_MODEL_OUTPUT_PLACEHOLDER\n';
 const DISCOVERY_PACKET_PLACEHOLDER = 'SINGULARITY_FLOW_DISCOVERY_PACKET_PLACEHOLDER\n';
 const WORLD_MODEL_TEMP_PREFIXES = [
@@ -117,7 +120,7 @@ const NON_RETRYABLE_MODEL_PROVIDER_CODES = new Set([
   'MODEL_PROVIDER_PROTOCOL_FAILED', 'MODEL_PROMPT_LIMIT',
   'MODEL_PROMPT_ENCODING_INVALID', 'MODEL_CWD_FORBIDDEN', 'MODEL_OUTPUT_LIMIT',
   'MODEL_TOKEN_BUDGET_EXCEEDED', 'MODEL_TURN_LIMIT', 'MODEL_TOOL_CALL_LIMIT',
-  'MODEL_TOOL_RESULT_LIMIT', 'MODEL_TOOL_EXECUTION_FAILED',
+  'MODEL_TOOL_RESULT_LIMIT', 'MODEL_TOOL_EXECUTION_FAILED', 'MODEL_TOOL_EXECUTION_INCOMPLETE',
   'MODEL_TOOL_RESULT_TRUNCATED', 'MODEL_CREATE_TARGET_FAILED', 'MODEL_CANCELLED'
 ]);
 
@@ -1327,6 +1330,7 @@ function parallelGeneration(config, options, views) {
 
 function parallelWorkerPrompt({
   repository, packetFile, view, task, focus, depth, metadata,
+  repositoryFactsDigest,
   maximumPacketBytes = DEFAULT_MAX_DISCOVERY_PACKET_BYTES
 }) {
   return `You are one read-only Repository Grounding discovery worker.
@@ -1339,6 +1343,10 @@ Analysis depth: ${depth}
 Repository commit: ${metadata.repository_commit}
 Repository branch: ${metadata.repository_branch}
 Packet file: ${packetFile}
+
+CLI-owned repository facts (computed from the exact source snapshot):
+
+${repositoryFactsDigest}
 
 Treat the repository as read-only: do not modify source files, Git state, the existing world model, or governed work-item/initiative state. "Read-only" describes the repository under analysis — it does NOT describe your deliverable.
 
@@ -1358,6 +1366,9 @@ The packet is private intermediate evidence for a final synthesizer. It must:
 - list components, entry points, important symbols, workflows, invariants, commands, risks, and tests relevant to ${view};
 - propose stable evidence records without assuming evidence IDs;
 - stay below ${maximumPacketBytes} bytes and never include secrets, personal data, generated output, dependencies, caches, or vendored content.
+
+Start from the CLI-owned facts and inspect only files needed for the assigned view. Do not recreate
+a full file inventory or reread paths whose relevant fact is already supplied above.
 
 Do not create a manifest, core model, final world-model view, commit, or summary. The parent process performs deterministic packet ordering, final synthesis, validation, and one Git publication.`;
 }
@@ -1608,7 +1619,7 @@ export function recoverPacketFromOutput(output, view) {
 
 async function runParallelDiscovery(
   _auditRoot, analysisRoot, temporary, config, options, views, metadata, checkpoint,
-  generationRouting, log = nullLogger
+  generationRouting, repositoryFactsDigest, log = nullLogger
 ) {
   const generation = parallelGeneration(config, options, views);
   if (!generation.enabled) {
@@ -1674,7 +1685,14 @@ async function runParallelDiscovery(
         prompt: { file: promptFile },
         channel: 'world-model-discovery',
         subject: { kind: 'repository-world-model', view },
-        tools: { mode: 'allowlist', names: [...WORLD_MODEL_DISCOVERY_TOOLS] },
+        // A recovered read/search miss is not a build failure when the worker still produces a
+        // bounded packet. Incomplete calls and truncated results remain fatal at the provider
+        // boundary, and the packet, worktree isolation, checkpoint, and synthesis validators still
+        // decide whether anything is publishable.
+        tools: {
+          mode: 'allowlist', names: [...WORLD_MODEL_DISCOVERY_TOOLS],
+          requireSuccessful: false, rejectTruncated: true
+        },
         limits: worldModelPlanningLimits(options, 15 * 60 * 1000)
       });
     } catch (error) {
@@ -1778,6 +1796,7 @@ async function runParallelDiscovery(
     const promptFile = path.join(promptRoot, `${view}.md`);
     await writeFile(promptFile, parallelWorkerPrompt({
       repository: analysisRoot, packetFile, view, task, focus, depth, metadata,
+      repositoryFactsDigest,
       maximumPacketBytes: generation.maximumDiscoveryPacketBytes
     }));
     let outcome;
@@ -2176,10 +2195,14 @@ async function build(root, config, options) {
         directory: checkpoint.directory, resumed: checkpoint.packets.length
       });
     }
+    // Give every view the same deterministic inventory instead of making each model rediscover
+    // modules, languages, and entry points through dozens of duplicate ACP reads.
+    const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
+    const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
     const discoveryStarted = Date.now();
     const discovery = await runParallelDiscovery(
       root, analysisRoot, temporary, config, options, views, metadata, checkpoint,
-      generationRouting, log
+      generationRouting, repositoryFactsDigest, log
     );
     const afterDiscovery = await repositoryContentSnapshot(analysisRoot);
     // The checkpoint is the builder's own scratch space and it lives under the world-model output
@@ -2224,8 +2247,6 @@ async function build(root, config, options) {
         }
       );
     }
-    const repositoryFacts = await deriveRepositoryFacts(analysisRoot, sourceState);
-    const repositoryFactsDigest = renderFactsDigest(repositoryFacts);
     const renderedBasePrompt = render(await readFile(source, 'utf8'), analysisRoot, buildConfig, renderOptions);
     const renderedPrompt = config.promptSource === 'builtin'
       ? specializeBuiltinWorldModelPrompt(renderedBasePrompt, {
@@ -2273,6 +2294,9 @@ The CLI has pre-created \`manifest.json\` below the Output directory; it contain
 file-editing tool. Create the other manifest-controlled files in the pre-created output
 directories. Do not leave the marker in any output. No application-repository path is writable
 output.
+
+Discovery is complete. Use only the supplied analysis packets and CLI-owned repository facts as
+source evidence. Do not search or reread the application repository during synthesis.
 `;
     await writeFile(promptFile, synthesisPrompt);
     if (optionString(options, 'runner')) throw new SingularityFlowError('--runner is no longer supported. Configure a trusted model provider instead.');
@@ -2285,7 +2309,13 @@ output.
         prompt: { file: promptFile },
         channel: 'world-model-synthesis',
         subject: { kind: 'repository-world-model' },
-        tools: { mode: 'allowlist', names: [...WORLD_MODEL_SYNTHESIS_TOOLS] },
+        // A model may recover from a failed edit attempt and still produce a complete valid output
+        // graph. The provider continues to refuse incomplete and truncated calls; the isolated
+        // output then passes strict manifest, path, hash, placeholder, and evidence validation.
+        tools: {
+          mode: 'allowlist', names: [...WORLD_MODEL_SYNTHESIS_TOOLS],
+          requireSuccessful: false, rejectTruncated: true
+        },
         limits: worldModelPlanningLimits(options, 20 * 60 * 1000)
       });
     // Twenty minutes is the allowance, and the provider's output is captured, so without this the

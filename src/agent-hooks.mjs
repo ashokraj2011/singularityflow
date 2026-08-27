@@ -16,6 +16,7 @@ import {
   activeWorkspaceFile, workspaceContextForRepository, workspacePromptLabel, workspaceRegistryFile
 } from './workspace-context.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
 
 // An initiative branch is a governed context in its own right: the branch name IS the initiative
 // ID, the profile and agent were pinned when it was started, and every phase output is
@@ -264,7 +265,7 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
     `^${flow} phase begin ${phase.id}(?: --adopt-existing --confirm sha256:[a-f0-9]{64})?(?: --json)?$`,
     `^${flow} phase show ${phase.id}(?: --json| --show-artifact){0,2}$`,
     `^${flow} submit ${phase.id}(?: --no-checks)?(?: --json)?$`,
-    `^${flow} phase publish ${phase.id} --authored governed-agent --channel copilot-host(?: --usage-json [A-Za-z0-9._/-]+)?(?: --json)?$`,
+    `^${flow} phase publish ${phase.id} --authored (?:governed-agent|deterministic) --channel (?:copilot-host|kernel-generator)(?: --usage-json [A-Za-z0-9._/-]+)?(?: --json)?$`,
     `^${flow} (?:doctor|logs)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+-]+)?)*$`,
     `^${flow} documents (?:list|view)(?: [A-Za-z0-9._:-]+| --[A-Za-z0-9-]+(?: [A-Za-z0-9._:+/-]+)?)*$`,
     `^${flow} choices (?:begin|answer|status)(?: [A-Za-z0-9._:/-]+)*?(?: --json)?$`,
@@ -279,11 +280,16 @@ function isConsumedGenerationTerminalCallAllowed(payload, phase) {
   ].some((pattern) => pattern.test(command));
 }
 
-function copilotPublicationAuthorshipViolation(payload) {
+function copilotPublicationAuthorshipViolation(payload, phase) {
   const command = setupCommandText(payload.toolArgs);
   if (!/^(?:singularity-flow|sflow) phase publish\s/.test(command)) return false;
-  return !/(?:^|\s)--authored governed-agent(?:\s|$)/.test(command)
-    || !/(?:^|\s)--channel copilot-host(?:\s|$)/.test(command);
+  const expected = phasePublicationAuthorship(phase);
+  // Copilot may trigger a configured kernel generator, but it can never attribute its own action
+  // to a human or external tool. The phase contract, not a hard-coded host assumption, decides
+  // whether the valid producer is governed-agent or deterministic.
+  if (!['governed-agent', 'deterministic'].includes(expected.producer)) return true;
+  return !new RegExp(`(?:^|\\s)--authored ${expected.producer}(?:\\s|$)`).test(command)
+    || !new RegExp(`(?:^|\\s)--channel ${expected.channel}(?:\\s|$)`).test(command);
 }
 
 function isAgentToolCall(payload) {
@@ -354,14 +360,13 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
     log.info('hook.guard.allow', 'governed initiative branch', { reason: 'initiative', initiativeId: initiative.initiative.id });
     return {};
   }
-  if (workflow && copilotPublicationAuthorshipViolation(payload)) {
-    const phase = currentPhase(workflow);
+  const phase = workflow ? currentPhase(workflow) : null;
+  if (workflow && copilotPublicationAuthorshipViolation(payload, phase)) {
     return {
       permissionDecision: 'deny',
-      permissionDecisionReason: `A Copilot-issued publication cannot claim human or external authorship. Run 'singularity-flow phase publish ${phase?.id ?? '<PHASE>'} --authored governed-agent --channel copilot-host'. A human may use manual authorship only from their own terminal action.`
+      permissionDecisionReason: `A Copilot-issued publication must use the phase's configured producer. Run '${phasePublicationCommand(phase)}'. A human may use manual authorship only from their own terminal action.`
     };
   }
-  const phase = workflow ? currentPhase(workflow) : null;
   const consumedCodeGeneration = phaseRequiresCodeDelivery(phase)
     && phase?.generationIntent?.status === 'consumed'
     && Number(phase.generationIntent.generation) === Number(phase.generation);

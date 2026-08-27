@@ -94,7 +94,7 @@ import {
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
-import { assertProducerAllowed } from './manual-authorship.mjs';
+import { assertProducerAllowed, phasePublicationCommand } from './manual-authorship.mjs';
 import { consumeRepairAttempt, repairBudgetPhaseForRejection } from './repair-budget.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import {
@@ -1231,7 +1231,7 @@ export async function publishGeneration(root, config, workflow, {
           fingerprint: contentFindings.find((finding) => finding.fingerprint)?.fingerprint ?? null,
           retry: {
             skill: '/sf-phase', maximumAttempts: 1, requiresFingerprintChange: true,
-            command: `singularity-flow phase publish ${phase.id} --authored governed-agent --channel copilot-host`
+            command: phasePublicationCommand(phase)
           }
         }
       }

@@ -990,8 +990,8 @@ export async function recordPromptAudit(root, input) {
       await maintainLog(target, config, { force: true });
       previous = await lastLogRecord(target.logFile);
     }
-    const key = await auditKey(target.directory, { create: true });
     if (previous?.integrity) {
+      const key = await auditKey(target.directory, { create: false });
       const verification = verifyRecordIntegrity(previous, key, null, false);
       if (verification.status !== 'verified') {
         throw new SingularityFlowError(
@@ -1008,8 +1008,25 @@ export async function recordPromptAudit(root, input) {
     }
     const handoff = String(input.prompt ?? '');
     const scrubbed = scrubPrompt(handoff);
-    const recordedAt = new Date().toISOString();
     const promptSha256 = createHash('sha256').update(scrubbed.prompt).digest('hex');
+    const source = input.source ?? 'wm-compose';
+    // A composition-cache hit is the same governed handoff, not a new model invocation. Repeating
+    // `wm compose` used to append the complete prompt again and made prompt logs look as if twice
+    // the context had been sent. Invocation records remain append-only and are never deduplicated.
+    if (input.compositionCache?.hit === true
+      && source === 'wm-compose'
+      && previous?.source === source
+      && previous.promptSha256 === promptSha256
+      && previous.workId === (input.workId ?? null)
+      && previous.phase === input.phase
+      && previous.generation === (input.generation ?? null)
+      && previous.agent === input.agent
+      && previous.task === (input.task ?? null)
+      && previous.compositionCache?.key === input.compositionCache?.key) {
+      return { ...previous, deduplicated: true, integrityVerification: { status: 'verified', findings: [] } };
+    }
+    const key = await auditKey(target.directory, { create: true });
+    const recordedAt = new Date().toISOString();
     const record = sealRecord({
       schemaVersion: PROMPT_AUDIT_SCHEMA_VERSION,
       id: `${recordedAt.replace(/[-:.TZ]/g, '')}-${randomUUID().slice(0, 8)}`,
@@ -1023,7 +1040,7 @@ export async function recordPromptAudit(root, input) {
       generation: input.generation ?? null,
       agent: input.agent,
       task: input.task ?? null,
-      source: input.source ?? 'wm-compose',
+      source,
       supportingEvidence: input.supportingEvidence ?? [],
       references: input.references ?? [],
       compositionCache: input.compositionCache ?? null,

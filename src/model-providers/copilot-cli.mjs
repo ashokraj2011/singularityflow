@@ -506,6 +506,7 @@ async function invokeCopilotAcp(request) {
       status: 'exact', calls,
       totalCalls: calls.length,
       failedCalls: calls.filter((entry) => entry.status === 'failed' || entry.preparationFailed).length,
+      preparationFailedCalls: calls.filter((entry) => entry.preparationFailed).length,
       incompleteCalls: calls.filter((entry) => ['pending', 'in_progress', 'unknown'].includes(entry.status)).length,
       truncatedCalls: calls.filter((entry) => entry.truncated).length,
       turns: exactTurns ?? Math.max(1, toolRounds + 1),
@@ -657,7 +658,13 @@ async function invokeCopilotAcp(request) {
           code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED'
             : ['max_tokens', 'max_turn_requests'].includes(result.stopReason)
               ? 'MODEL_TOKEN_BUDGET_EXCEEDED' : 'MODEL_PROVIDER_FAILED',
-          details: { stopReason: result.stopReason, transport: 'acp-stdio' }
+          details: {
+            stopReason: result.stopReason,
+            transport: 'acp-stdio',
+            promptProtocolVersion: protocolVersion,
+            usage: acpUsage(result.usage),
+            toolObservation: toolObservation()
+          }
         });
       }
       return result;
@@ -700,14 +707,21 @@ async function invokeCopilotAcp(request) {
   const modelSelection = modelSelectionReceipt(
     telemetry.resolvedModels, telemetry.modelAssurance
   );
+  const usage = acpUsage(promptResult?.usage);
+  const completedEvidence = {
+    modelSelection,
+    toolObservation: observation,
+    usage,
+    promptProtocolVersion: protocolVersion,
+    transport: 'acp-stdio'
+  };
   if (requestedModel !== 'auto' && telemetry.resolvedModels.length
       && telemetry.resolvedModels.some((model) => model !== requestedModel)) {
     throw new SingularityFlowError(
       `${providerLabel} executed a model different from required model '${requestedModel}'.`,
-      { code: 'MODEL_SELECTION_MISMATCH', details: { modelSelection, toolObservation: observation } }
+      { code: 'MODEL_SELECTION_MISMATCH', details: completedEvidence }
     );
   }
-  const usage = acpUsage(promptResult?.usage);
   const tokensAreAutomatic = request.limits.maxTotalTokens === 'auto';
   if (!tokensAreAutomatic && Number.isFinite(usage.totalTokens)
       && usage.totalTokens > request.limits.maxTotalTokens) {
@@ -715,27 +729,39 @@ async function invokeCopilotAcp(request) {
       `${providerLabel} exceeded the ${request.limits.maxTotalTokens}-token invocation budget.`,
       {
         code: 'MODEL_TOKEN_BUDGET_EXCEEDED',
-        details: { maximumTotalTokens: request.limits.maxTotalTokens, observedTotalTokens: usage.totalTokens, modelSelection, toolObservation: observation }
+        details: {
+          ...completedEvidence,
+          maximumTotalTokens: request.limits.maxTotalTokens,
+          observedTotalTokens: usage.totalTokens
+        }
       }
     );
   }
   if (!turnsAreAutomatic && observation.turns > maximumTurns) {
     throw new SingularityFlowError(
       `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
-      { code: 'MODEL_TURN_LIMIT', details: { maximumTurns, modelSelection, toolObservation: observation } }
+      { code: 'MODEL_TURN_LIMIT', details: { ...completedEvidence, maximumTurns } }
     );
   }
-  if (request.tools.requireSuccessful
-      && (observation.failedCalls || observation.incompleteCalls)) {
+  // An unfinished call means the provider stopped before its tool protocol quiesced. That is never
+  // a usable completion, even for callers that deliberately tolerate recovered exploratory
+  // failures. `requireSuccessful: false` therefore relaxes only terminal failed calls.
+  if (observation.incompleteCalls) {
     throw new SingularityFlowError(
-      `${providerLabel} completed with failed or incomplete ACP tool calls.`,
-      { code: 'MODEL_TOOL_EXECUTION_FAILED', details: { modelSelection, toolObservation: observation } }
+      `${providerLabel} completed with incomplete ACP tool calls.`,
+      { code: 'MODEL_TOOL_EXECUTION_INCOMPLETE', details: completedEvidence }
+    );
+  }
+  if (request.tools.requireSuccessful && observation.failedCalls) {
+    throw new SingularityFlowError(
+      `${providerLabel} completed with failed ACP tool calls.`,
+      { code: 'MODEL_TOOL_EXECUTION_FAILED', details: completedEvidence }
     );
   }
   if (request.tools.rejectTruncated && observation.truncatedCalls) {
     throw new SingularityFlowError(
       `${providerLabel} completed after one or more ACP tool results were truncated.`,
-      { code: 'MODEL_TOOL_RESULT_TRUNCATED', details: { modelSelection, toolObservation: observation } }
+      { code: 'MODEL_TOOL_RESULT_TRUNCATED', details: completedEvidence }
     );
   }
   const normalizedOutput = output.trim();

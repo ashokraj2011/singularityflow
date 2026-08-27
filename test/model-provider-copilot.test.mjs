@@ -86,6 +86,12 @@ for await (const line of lines) {
         update: { sessionUpdate: 'tool_call', toolCallId: 'failed-read', title: 'read fixture', name: 'view', kind: 'read', status: 'failed', rawOutput: { code: 'NOT_FOUND' } }
       }});
     }
+    if (process.argv.includes('--fixture-tool-incomplete')) {
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: message.params.sessionId,
+        update: { sessionUpdate: 'tool_call', toolCallId: 'pending-read', title: 'read fixture', name: 'view', kind: 'read', status: 'in_progress' }
+      }});
+    }
     if (process.argv.includes('--fixture-tool-truncated')) {
       send({ jsonrpc: '2.0', method: 'session/update', params: {
         sessionId: message.params.sessionId,
@@ -234,7 +240,24 @@ test('ACP audits tool outcomes and rejects failed, truncated, excessive-call, an
     await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-tool-failure'], tools }),
       (error) => error.code === 'MODEL_TOOL_EXECUTION_FAILED'
         && error.details?.toolObservation?.failedCalls === 1
+        && error.details?.usage?.totalTokens === 12
+        && error.details?.promptProtocolVersion === 1
         && !JSON.stringify(error.details).includes('NOT_FOUND'));
+  });
+  await t.test('a caller may tolerate recovered terminal failures', async () => {
+    const completed = await invokeAcp(root, {
+      fixtureArguments: ['--fixture-tool-failure'],
+      tools: { ...tools, requireSuccessful: false }
+    });
+    assert.equal(completed.toolObservation.failedCalls, 1);
+    assert.equal(completed.usage.totalTokens, 12);
+  });
+  await t.test('incomplete calls remain fatal when terminal failures are tolerated', async () => {
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: ['--fixture-tool-incomplete'],
+      tools: { ...tools, requireSuccessful: false }
+    }), (error) => error.code === 'MODEL_TOOL_EXECUTION_INCOMPLETE'
+      && error.details?.toolObservation?.incompleteCalls === 1);
   });
   await t.test('truncated tool', async () => {
     await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-tool-truncated'], tools }),

@@ -583,6 +583,9 @@ workTypes:
 
   spec-driven-standard:
     label: Spec-Driven Standard
+    # This profile promises clause-level continuity. Display-only labels such as "AC-001" must be
+    # replaced with stable [WORK-ID:AC-001] anchors before its specification can be approved.
+    spec: { mode: enforce }
     # specification -> planning -> implementation -> convergence -> verification -> release
     # [SPK:REQ-031]
     phases: [specification, planning, implementation, convergence, verification, release]

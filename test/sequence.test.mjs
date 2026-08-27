@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { acquireSubjectLock, releaseSubjectLock } from '../src/subject-lock.mjs';
+import { enforceSequenceGate, withConfirmationPort } from '../src/sequence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -187,6 +188,33 @@ test('soft gates require confirmation and audit a confirmed override with the se
   const report = flow(root, ['report']);
   assert.match(report.stdout, /Soft sequence overrides/);
   assert.match(report.stdout, /phaseStatus/);
+});
+
+test('soft-gate session audit resolves the real Git directory in a linked worktree', async () => {
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-sequence-worktree-main-'));
+  const linked = await mkdtemp(path.join(os.tmpdir(), 'sflow-sequence-worktree-linked-'));
+  execute('git', ['init', '-b', 'main'], repositoryRoot);
+  execute('git', ['config', 'user.name', 'Worktree Tester'], repositoryRoot);
+  execute('git', ['config', 'user.email', 'worktree@example.com'], repositoryRoot);
+  await writeFile(path.join(repositoryRoot, 'README.md'), '# linked worktree\n');
+  execute('git', ['add', 'README.md'], repositoryRoot);
+  execute('git', ['commit', '-m', 'initialize'], repositoryRoot);
+  execute('git', ['worktree', 'add', '-b', 'linked-story', linked], repositoryRoot);
+  const localGitDirectory = execute('git', ['rev-parse', '--absolute-git-dir'], linked).stdout.trim();
+  await mkdir(path.join(localGitDirectory, 'singularity-flow'), { recursive: true });
+  await writeFile(path.join(localGitDirectory, 'singularity-flow', 'session.json'), JSON.stringify({
+    actor: { name: 'Linked Worktree User' }, agent: 'developer'
+  }));
+  const workflow = {
+    workItem: { id: 'LINKED-1' }, currentPhase: 'implementation', status: 'active',
+    phases: { implementation: { id: 'implementation', status: 'in_progress', generation: 1 } },
+    resolution: { sequenceGates: { phaseStatus: 'soft' } }, history: []
+  };
+  await withConfirmationPort(async () => true, () => enforceSequenceGate(
+    linked, workflow, 'phaseStatus', 'test linked worktree audit', { requestedPhase: 'implementation' }
+  ));
+  assert.equal(workflow.sequenceOverrides[0].actor.name, 'Linked Worktree User');
+  assert.equal(workflow.sequenceOverrides[0].agent, 'developer');
 });
 
 test('sequence gate policy is immutable after work-item creation', async () => {

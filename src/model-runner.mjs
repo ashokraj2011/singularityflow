@@ -650,6 +650,9 @@ export async function invokeModel(request) {
         routing: auditRouting,
         modelSelection: error?.details?.modelSelection ?? event.modelSelection,
         toolObservation: error?.details?.toolObservation ?? event.toolObservation,
+        promptProtocolVersion: error?.details?.promptProtocolVersion ?? event.promptProtocolVersion,
+        usage: error?.details?.usage ?? { status: 'unavailable' },
+        economics: invocationEconomics(staged.bytes, error?.details?.usage),
         status: 'failed',
         completedAt: nowIso(),
         error: { code: error.code ?? 'MODEL_PROVIDER_FAILED' }

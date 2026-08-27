@@ -7,6 +7,8 @@ import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import { action, because, commandResult, noEffects, refused } from './narration/command-result.mjs';
 import { withCommandResult } from './narration/emit.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { gitDir } from './git.mjs';
+import { phasePublicationCommand } from './manual-authorship.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -51,7 +53,7 @@ export function sequenceGuidance(workflow) {
     summary: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
     actions: [
       copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}` }),
-      copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow phase publish ${phase.id}` })
+      copilotAction({ skill: generationSkillForPhase(phase), command: phasePublicationCommand(phase) })
     ]
   };
   if (phase.status === 'in_progress') return {
@@ -175,7 +177,8 @@ export function sequenceError(workflow, action, { gate = 'phaseStatus', requeste
 
 async function sessionAudit(root) {
   if (!root) return { actor: null, agent: null };
-  const file = path.join(root, '.git/singularity-flow/session.json');
+  // In a linked worktree `.git` is a pointer file. Resolve the actual per-worktree Git directory.
+  const file = path.join(gitDir(root), 'singularity-flow/session.json');
   if (!(await exists(file))) return { actor: null, agent: null };
   try {
     const session = JSON.parse(await readFile(file, 'utf8'));

@@ -52,6 +52,28 @@ test('enabled audit records agent, Story, phase, generation, hash, and prompt te
   assert.equal(viewed.record.task, 'Implement the approved design');
 });
 
+test('a composition-cache hit reuses the consecutive prompt record without hiding invocations', async () => {
+  const root = await repository();
+  await setPromptAudit(root, true);
+  const input = {
+    agent: 'developer', phase: 'implementation', workId: 'STORY-CACHE', generation: 1,
+    prompt: '# Same governed prompt\n', source: 'wm-compose',
+    compositionCache: { key: 'a'.repeat(64), hit: false }
+  };
+  const first = await recordPromptAudit(root, input);
+  const repeated = await recordPromptAudit(root, {
+    ...input, compositionCache: { ...input.compositionCache, hit: true }
+  });
+  assert.equal(repeated.id, first.id);
+  assert.equal(repeated.deduplicated, true);
+  assert.equal((await promptAuditStatus(root)).count, 1);
+
+  await recordPromptAudit(root, {
+    ...input, source: 'model-invocation', compositionCache: { ...input.compositionCache, hit: true }
+  });
+  assert.equal((await promptAuditStatus(root)).count, 2);
+});
+
 test('structured prompt view joins exact invocation tools, tokens, timing, and output without inventing tool calls', async () => {
   const root = await repository();
   await setPromptAudit(root, true);

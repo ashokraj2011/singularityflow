@@ -396,8 +396,8 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     'Approved intent traces to executed evidence for both requirements, through two convergence',
     'iterations and one governed rework.', '',
     '## Clause coverage', '',
-    '- E2E:REQ-001 — implemented in `src/payments/retry.ts`, verified.',
-    '- E2E:REQ-002 — implemented in `src/payments/attempts.ts`, verified.', '',
+    '- [E2E:REQ-001] — implemented in `src/payments/retry.ts`, verified.',
+    '- [E2E:REQ-002] — implemented in `src/payments/attempts.ts`, verified.', '',
     '## Deviations', '', 'None outstanding.', ''
   ].join('\n'));
   await completePhase(root, 'release');

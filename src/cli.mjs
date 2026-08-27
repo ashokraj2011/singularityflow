@@ -4697,13 +4697,19 @@ async function reopenCommand(positionals, options) {
   //
   // The event was what blocked this: it read values the mutation mints. Each one is resolvable
   // beforehand — the completion phase is the last phase in order, and the authority is a pure
-  // function of the resolved authorities, that phase's policy, and the session actor.
+  // function of the resolved authorities, that phase's policy, and the current Git actor. A
+  // completed Story has no current phase, so requiring `resume` here is an impossible recovery
+  // loop: resume cannot select a phase agent for it. A matching session may contribute execution
+  // context, but it is not authority for this human lifecycle decision.
   const completionPhase = workflow.phases[workflow.phaseOrder.at(-1)];
-  const session = await loadSession(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const session = loadedSession?.workId === workflow.workItem.id ? loadedSession : null;
+  const actor = actionActor(root);
+  const agent = session?.agent ?? completionPhase.defaultAgent ?? null;
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     completionPhase.approvalPolicy,
-    session.actor
+    actor
   );
   const { value: result, publication } = await transactStory(
     root,
@@ -4713,8 +4719,8 @@ async function reopenCommand(positionals, options) {
       type: LIFECYCLE_EVENT.WORKFLOW_REOPENED,
       phaseId: completionPhase.id,
       generation: completionPhase.generation,
-      actor: session.actor,
-      agent: session.agent,
+      actor,
+      agent,
       authorityGroup: authority.authorityGroup,
       payload: {
         targetPhaseId: optionString(options, 'to') ?? completionPhase.id,
@@ -4727,12 +4733,14 @@ async function reopenCommand(positionals, options) {
       reason: optionString(options, 'reason'),
       channel: 'terminal',
       actionContext: activeActionContext(),
-      gateRecovery
+      gateRecovery,
+      actor,
+      agent
     }),
     {
       eventFromResult: (transition) => ({
-        actor: transition.changeRequest?.actor ?? session.actor,
-        agent: transition.changeRequest?.agent ?? session.agent,
+        actor: transition.changeRequest?.actor ?? actor,
+        agent: transition.changeRequest?.agent ?? agent,
         authorityGroup: transition.changeRequest?.authorityGroup ?? authority.authorityGroup,
         payload: {
           targetPhaseId: transition.phase.id,

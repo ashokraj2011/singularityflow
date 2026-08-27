@@ -780,6 +780,7 @@ test('a final-gate-owned phase outside rejectTo reopens only after exact recover
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root);
   execute('git', ['commit', '-m', 'simulate legacy completed story with an intake gate defect'], root);
+  await unlink(path.join(root, '.git/singularity-flow/session.json'));
 
   const ordinary = flow(root, ['reopen', workId, '--to', 'intake', '--reason', 'Repair final gate evidence'], {
     allowFailure: true, selection: selection('chore', 'developer')
@@ -808,6 +809,7 @@ test('a final-gate-owned phase outside rejectTo reopens only after exact recover
   assert.equal(repaired.changeRequests[0].gateRecovery.planSha256, confirmation);
   assert.equal(repaired.changeRequests[0].gateRecovery.sourceHead, before);
   assert.ok(repaired.changeRequests[0].gateRecovery.findings.every((finding) => finding.phase === 'intake'));
+  assert.equal(repaired.changeRequests[0].requestedBy.name, 'Singularity Flow Test');
 });
 
 test('returned phase rework can be discarded and rolled forward from an exact checkpoint', async () => {

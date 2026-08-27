@@ -3598,7 +3598,8 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
 }
 
 export async function reopenWorkflow(root, config, workflow, {
-  target, reason, channel = 'terminal', actionContext = null, gateRecovery = null
+  target, reason, channel = 'terminal', actionContext = null, gateRecovery = null,
+  actor = null, agent = null
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reopen completed work');
   if (workflow.status !== 'complete' || workflow.currentPhase != null) {
@@ -3620,14 +3621,17 @@ export async function reopenWorkflow(root, config, workflow, {
   if (completionPhase.approvalPolicy.changeRequests?.commentRequired !== false && !reason?.trim()) {
     throw new SingularityFlowError('A change-request comment is required to reopen completed work.');
   }
-  const session = await loadSession(root);
+  const loadedSession = await loadSession(root, { required: false });
+  const session = loadedSession?.workId === workflow.workItem.id ? loadedSession : null;
+  const decisionActor = actor ?? identity(root);
+  const decisionAgent = agent ?? session?.agent ?? completionPhase.defaultAgent ?? null;
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     completionPhase.approvalPolicy,
-    session.actor
+    decisionActor
   );
   const timestamp = nowIso();
-  const key = actorKey(session.actor);
+  const key = actorKey(decisionActor);
   workflow.changeRequests ??= [];
   const changeRequest = {
     schemaVersion: 1,
@@ -3638,8 +3642,8 @@ export async function reopenWorkflow(root, config, workflow, {
     targetPhase: targetId,
     comment: reason?.trim() || 'Completed work reopened.',
     requestedAt: timestamp,
-    requestedBy: session.actor,
-    agent: session.agent,
+    requestedBy: decisionActor,
+    agent: decisionAgent,
     channel,
     authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance,
@@ -3691,14 +3695,14 @@ export async function reopenWorkflow(root, config, workflow, {
   await invalidateImpactReceipt(root, config, workflow, {
     reason: changeRequest.comment,
     cause: 'workflow-reopened',
-    actor: session.actor,
-    agent: session.agent
+    actor: decisionActor,
+    agent: decisionAgent
   });
   workflow.changeRequests.push(changeRequest);
   const decision = {
     decision: 'reopened', phase: completionPhase.id, target: targetId,
     reason: changeRequest.comment, changeRequestId: changeRequest.id, at: timestamp,
-    actor: session.actor, agent: session.agent, authorityGroup: authority.authorityGroup,
+    actor: decisionActor, agent: decisionAgent, authorityGroup: authority.authorityGroup,
     identityAssurance: authority.identityAssurance, channel,
     generation: completionPhase.generation,
     artifactSha256: changeRequest.sourceArtifactSha256,
@@ -3708,7 +3712,7 @@ export async function reopenWorkflow(root, config, workflow, {
   completionPhase.approvals.push(decision);
   await writeDecision(root, config, workflow, completionPhase, decision);
   workflow.history.push({
-    at: timestamp, actor: key, agent: session.agent, event: 'workflow_reopened', phase: completionPhase.id,
+    at: timestamp, actor: key, agent: decisionAgent, event: 'workflow_reopened', phase: completionPhase.id,
     detail: `${changeRequest.id} returned completed work to ${targetId}: ${changeRequest.comment}`
   });
   await saveWorkflow(root, config, workflow);

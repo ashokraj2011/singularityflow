@@ -19,6 +19,7 @@ import { validateNarrationMigrationStatus } from '../src/narration/migration-sta
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
 const checked = [];
+const execFileAsync = promisify(execFile);
 
 try {
   validateNarrationMigrationStatus();
@@ -107,22 +108,31 @@ if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
 
 const allFiles = repositoryFiles();
-const codeowners = spawnSync(process.execPath, ['scripts/generate-codeowners.mjs'], { cwd: root, encoding: 'utf8' });
-if (codeowners.status !== 0) fail(codeowners.stderr.trim() || 'Generated CODEOWNERS check failed');
-checked.push('.github/CODEOWNERS', 'scripts/generate-codeowners.mjs');
-for (const [script, label] of [
+/** Independent read-only repository audits run together and are reported in stable declaration order. */
+const externalAudits = [
+  ['scripts/generate-codeowners.mjs', 'Generated CODEOWNERS', []],
   ['scripts/audit-model-boundary.mjs', 'Model-boundary audit'],
   ['scripts/schema-migration-lint.mjs', 'Schema migration boundary'],
   ['scripts/vocabulary-lint.mjs', 'Closed vocabulary producer boundary'],
   // A stamp that drifts from the mapping is one agent quietly pinned to a model nobody
   // approved — the exact thing the indirection exists to prevent. `[ADP:CON-008]`
-  ['scripts/stamp-agent-models.mjs', 'Agent model stamps'],
+  ['scripts/stamp-agent-models.mjs', 'Agent model stamps', ['--check']],
   ['scripts/generate-operation-catalog.mjs', 'Operation model-policy catalog']
-]) {
-  const result = spawnSync(process.execPath, [script, ...(script.includes('stamp-') ? ['--check'] : [])], { cwd: root, encoding: 'utf8' });
-  if (result.status !== 0) fail(result.stderr.trim() || `${label} failed`);
+];
+const auditResults = await Promise.all(externalAudits.map(async ([script, label, args = []]) => {
+  try {
+    await execFileAsync(process.execPath, [script, ...args], { cwd: root, encoding: 'utf8' });
+    return null;
+  } catch (error) {
+    return String(error?.stderr ?? '').trim() || `${label} failed`;
+  }
+}));
+for (let index = 0; index < externalAudits.length; index += 1) {
+  const [script] = externalAudits[index];
+  if (auditResults[index]) fail(auditResults[index]);
   checked.push(script);
 }
+checked.push('.github/CODEOWNERS');
 const legacyModelReferences = [['clau', 'de'].join(''), ['anthro', 'pic'].join(''), ['calu', 'de'].join('')].join('|');
 const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyModelReferences, '--', '.'], {
   cwd: root,
@@ -197,7 +207,6 @@ if (hostedAutomation.length) {
  * which worker finished first.
  */
 {
-  const execFileAsync = promisify(execFile);
   const sources = allFiles.filter((candidate) => candidate.endsWith('.mjs'));
   const width = Math.max(1, Math.min(availableParallelism(), 16));
   const outcomes = new Array(sources.length);

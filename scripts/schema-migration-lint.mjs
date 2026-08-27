@@ -47,9 +47,10 @@ function callName(node) {
   return null;
 }
 
-function indirectWriterLiterals(file, source) {
-  const sourceFile = ts.createSourceFile(file, String(source), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const sourceLines = String(source).split(/\r?\n/);
+/** Parse and index one source once for both durable-write and durable-read checks. */
+function indexedSource(file, source) {
+  const text = String(source);
+  const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const declarations = new Map();
   const collectDeclarations = (node) => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
@@ -59,7 +60,10 @@ function indirectWriterLiterals(file, source) {
     ts.forEachChild(node, collectDeclarations);
   };
   collectDeclarations(sourceFile);
+  return { sourceFile, sourceLines: text.split(/\r?\n/), declarations };
+}
 
+function indirectWriterLiterals({ sourceFile, sourceLines, declarations }) {
   const findings = new Map();
   const inspectValue = (node, seen = new Set()) => {
     if (ts.isPropertyAssignment(node)
@@ -94,17 +98,7 @@ function indirectWriterLiterals(file, source) {
   return [...findings.values()];
 }
 
-function directDurableReads(file, source) {
-  const sourceFile = ts.createSourceFile(file, String(source), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const declarations = new Map();
-  const collect = (node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (!declarations.has(node.name.text)) declarations.set(node.name.text, []);
-      declarations.get(node.name.text).push(node.initializer);
-    }
-    ts.forEachChild(node, collect);
-  };
-  collect(sourceFile);
+function directDurableReads({ sourceFile, declarations }) {
   const containsRegisteredPath = (node, before, seen = new Set()) => {
     if (ts.isStringLiteralLike(node)) {
       return REGISTERED_DIRECT_READ_MARKERS.some((pattern) => pattern.test(node.text.replaceAll('\\', '/')));
@@ -164,14 +158,31 @@ export function schemaMigrationLint(sources) {
       });
     }
     if (file !== 'src/schema-migrations.mjs') {
-      for (const finding of indirectWriterLiterals(file, source)) violations.push({
-        file, line: finding.line,
-        message: 'durable writer schemaVersion literals must use currentSchemaVersion(family) from the migration registry; mark a proven transport-only shape schema-transient'
-      });
-      for (const finding of directDurableReads(file, source)) violations.push({
-        file, line: finding.line,
-        message: 'registered durable records must be loaded through readRecord(family) or their aggregate store'
-      });
+      // TypeScript parsing and declaration indexing dominate this repository-wide lint. Both AST
+      // rules consume the same immutable index; rebuilding it for each rule doubled that work.
+      // Most source modules contain neither a durable writer nor the one registered direct-read
+      // marker. A conservative text admission check avoids constructing a TypeScript AST for those
+      // files; the AST remains the authority whenever every token required by a finding is present.
+      const text = String(source);
+      const mayWriteLiteral = text.includes('schemaVersion')
+        && [...DURABLE_WRITE_CALLS].some((name) => text.includes(name));
+      const mayReadWorkflowDirectly = text.includes('workflow.json')
+        && text.includes('JSON') && text.includes('parse') && text.includes('readFile');
+      if (mayWriteLiteral || mayReadWorkflowDirectly) {
+        const indexed = indexedSource(file, text);
+        if (mayWriteLiteral) {
+          for (const finding of indirectWriterLiterals(indexed)) violations.push({
+            file, line: finding.line,
+            message: 'durable writer schemaVersion literals must use currentSchemaVersion(family) from the migration registry; mark a proven transport-only shape schema-transient'
+          });
+        }
+        if (mayReadWorkflowDirectly) {
+          for (const finding of directDurableReads(indexed)) violations.push({
+            file, line: finding.line,
+            message: 'registered durable records must be loaded through readRecord(family) or their aggregate store'
+          });
+        }
+      }
     }
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];

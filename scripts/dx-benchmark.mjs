@@ -17,6 +17,7 @@ const samples = Number(option('samples') ?? fixtureManifest.protocol.samples);
 const enforce = process.argv.includes('--enforce');
 const json = process.argv.includes('--json');
 const writeBaseline = process.argv.includes('--write-baseline');
+const skipConnected = process.argv.includes('--skip-connected');
 const acceptedReportPath = option('accept-report');
 
 function assertBaselineCandidate(report) {
@@ -54,6 +55,20 @@ function assertBaselineCandidate(report) {
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+/** Bounded file creation keeps large benchmark fixtures from becoming a serial filesystem test. */
+async function forEachConcurrent(count, worker, width = Math.min(8, os.availableParallelism())) {
+  if (count <= 0) return;
+  let next = 0;
+  const run = async () => {
+    while (next < count) {
+      const index = next;
+      next += 1;
+      await worker(index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(count, Math.max(1, width)) }, run));
 }
 
 /**
@@ -151,17 +166,21 @@ async function createFixture(topology = fixtureManifest.topology) {
   // The definition, the one template it references, and one `workflow.json` per Story are governed
   // files that already count against the declared total, so the filler stops short of them.
   const governed = 2 + topology.stories;
-  for (let index = 0; index < topology.trackedFiles - governed; index += 1) {
+  const fillerFiles = topology.trackedFiles - governed;
+  const fillerDirectories = Math.ceil(fillerFiles / 100);
+  await Promise.all(Array.from({ length: fillerDirectories }, (_, index) =>
+    mkdir(path.join(root, 'src', String(index)), { recursive: true })));
+  await forEachConcurrent(fillerFiles, async (index) => {
     const directory = path.join(root, 'src', String(Math.floor(index / 100)));
-    await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, `file-${index}.txt`), `fixture ${index}\n`, 'utf8');
-  }
+  });
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', 'Reference fixture']);
   git(root, ['branch', 'DX-001']);
   for (let index = 1; index < topology.localBranches - 1; index += 1) git(root, ['branch', `fixture-${index}`]);
   git(root, ['switch', '-q', 'DX-001']);
-  for (let index = 0; index < topology.untrackedFiles; index += 1) await writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8');
+  await forEachConcurrent(topology.untrackedFiles, (index) =>
+    writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8'));
   return root;
 }
 
@@ -526,40 +545,43 @@ try {
    * and no network, which is exactly what a budget could not say. `snapshot --json` fetched six
    * times per call for as long as it did partly because nothing here was in a position to notice.
    */
-  const connected = await createConnectedFixture();
   let connectedResults = null;
-  try {
-    const connectedTopology = verifyConnectedTopology(connected.root);
-    timed(connected.root, commands.snapshotFull, { network: true }); // discarded warm-up
-    const values = Array.from({ length: Math.min(samples, 5) },
-      () => timed(connected.root, commands.snapshotFull, { network: true }));
-    const summary = summarizeSamples(values);
-    const probed = invoke(connected.root, commands.snapshotFull, { network: true, probe: true });
-    const network = countNetworkCalls(probed.stderr);
-    const allowed = fixtureManifest.connected.networkCalls.snapshotFull;
-    if (network.calls > allowed) {
-      failures.push(`connected.snapshotFull made ${network.calls} network call(s) on a read path`
-        + ` (allowed ${allowed}): ${network.offenders.join(', ')}`);
+  if (!skipConnected) {
+    const connected = await createConnectedFixture();
+    try {
+      const connectedTopology = verifyConnectedTopology(connected.root);
+      timed(connected.root, commands.snapshotFull, { network: true }); // discarded warm-up
+      const values = Array.from({ length: Math.min(samples, 5) },
+        () => timed(connected.root, commands.snapshotFull, { network: true }));
+      const summary = summarizeSamples(values);
+      const probed = invoke(connected.root, commands.snapshotFull, { network: true, probe: true });
+      const network = countNetworkCalls(probed.stderr);
+      const allowed = fixtureManifest.connected.networkCalls.snapshotFull;
+      if (network.calls > allowed) {
+        failures.push(`connected.snapshotFull made ${network.calls} network call(s) on a read path`
+          + ` (allowed ${allowed}): ${network.offenders.join(', ')}`);
+      }
+      const mutating = countMutatingCalls(probed.stderr);
+      const allowedMutations = fixtureManifest.connected.repositoryWrites.snapshotFull;
+      if (mutating.calls > allowedMutations) {
+        failures.push(`connected.snapshotFull ran ${mutating.calls} repository-mutating command(s) on a`
+          + ` read path (allowed ${allowedMutations}): ${mutating.offenders.join(', ')}`);
+      }
+      failures.push(...evaluateLatency('connected.snapshotFull', summary,
+        fixtureManifest.connected.budgets.snapshotFull, null));
+      connectedResults = {
+        topology: connectedTopology, snapshotFull: summary,
+        networkCalls: network.calls, repositoryWrites: mutating.calls
+      };
+    } finally {
+      await rm(connected.root, { recursive: true, force: true });
+      await rm(connected.remote, { recursive: true, force: true });
     }
-    const mutating = countMutatingCalls(probed.stderr);
-    const allowedMutations = fixtureManifest.connected.repositoryWrites.snapshotFull;
-    if (mutating.calls > allowedMutations) {
-      failures.push(`connected.snapshotFull ran ${mutating.calls} repository-mutating command(s) on a`
-        + ` read path (allowed ${allowedMutations}): ${mutating.offenders.join(', ')}`);
-    }
-    failures.push(...evaluateLatency('connected.snapshotFull', summary,
-      fixtureManifest.connected.budgets.snapshotFull, null));
-    connectedResults = {
-      topology: connectedTopology, snapshotFull: summary,
-      networkCalls: network.calls, repositoryWrites: mutating.calls
-    };
-  } finally {
-    await rm(connected.root, { recursive: true, force: true });
-    await rm(connected.remote, { recursive: true, force: true });
   }
 
   /**
-   * The growth tier: the same commands on a repository forty times the size. `[UXH:REQ-120]`
+   * The growth tier: the same commands with twenty times the files and forty times the Stories.
+   * `[UXH:REQ-120]`
    *
    * Every tier above measures one point. A point says `snapshot --include repository` took 102 ms;
    * it cannot say whether that is 102 ms on any repository or 102 ms on a five-hundred-file one, and

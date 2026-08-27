@@ -45,9 +45,10 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   // a separate, serial benchmark job (`npm run benchmark:dx:enforce`): node:test executes files in
   // parallel, where unrelated CPU-heavy integration tests would turn scheduler contention into a
   // product regression.
-  // `--skip-scale`: the growth tier builds a twenty-thousand-file repository and is measured by the
+  // `--skip-scale`: the growth tier builds a ten-thousand-file repository and is measured by the
   // test below, which budgets for it. This one is about the reference fixture and its harness.
-  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--samples=3', '--json', '--skip-scale'], {
+  const run = spawnSync(process.execPath,
+    ['scripts/dx-benchmark.mjs', '--samples=3', '--json', '--skip-scale'], {
     cwd: root,
     encoding: 'utf8',
     env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
@@ -56,6 +57,10 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
   const report = JSON.parse(run.stdout);
   assert.equal(report.protocol.samples, 3);
   assert.equal(report.topology.trackedFiles, manifest.topology.trackedFiles);
+  assert.equal(report.connected.networkCalls, 0,
+    'the one connected benchmark run still guards the no-network read contract');
+  assert.equal(report.connected.repositoryWrites, 0,
+    'the one connected benchmark run still guards the read-only repository contract');
   assert.deepEqual(Object.keys(report.commands), [
     'about', 'status', 'nextsteps', 'snapshot', 'snapshotUi', 'snapshotFull',
     // Reads served by the legacy dispatcher rather than their own lazy module. Measured last
@@ -116,7 +121,8 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
   assert.ok(manifest.scale.topology.stories > manifest.topology.stories,
     'Stories are one of the two factors the read path multiplies; the tier must vary them');
 
-  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--samples=1', '--json'], {
+  const run = spawnSync(process.execPath,
+    ['scripts/dx-benchmark.mjs', '--samples=1', '--json', '--skip-connected'], {
     cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1' }
   });
   assert.equal(run.status, 0, run.stderr);
@@ -334,7 +340,8 @@ test('the report counts every topology dimension the fixture declares', { timeou
    *
    * One sample: the property under test is what the report says it measured, not how fast it was.
    */
-  const run = spawnSync(process.execPath, ['scripts/dx-benchmark.mjs', '--json', '--samples=1'], {
+  const run = spawnSync(process.execPath,
+    ['scripts/dx-benchmark.mjs', '--json', '--samples=1', '--skip-scale', '--skip-connected'], {
     cwd: root, encoding: 'utf8'
   });
   assert.equal(run.status, 0, run.stderr);

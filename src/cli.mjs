@@ -4120,6 +4120,7 @@ export async function submitCommand(positionals, options) {
   const phaseId = requestedPhase ?? workflow.currentPhase;
   const requested = workflow.phases[phaseId];
   if (!requested) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
+  const registrationRepairCount = requested.artifactRegistrationRepairs?.length ?? 0;
   let phase = requested;
   let reviewPacket = null;
   const publication = await commitAndPublish(
@@ -4142,6 +4143,7 @@ export async function submitCommand(positionals, options) {
     }
   );
   if (!reviewPacket) throw new SingularityFlowError('Submission review packet was not created.');
+  const registrationRepairs = (phase.artifactRegistrationRepairs ?? []).slice(registrationRepairCount);
   const evidenceReceipt = await composeEvidenceReceipt(root, config, workflow, reviewPacket.packet);
   const approvalMode = phase.approvalPolicy?.mode ?? 'required';
   const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
@@ -4149,6 +4151,9 @@ export async function submitCommand(positionals, options) {
   if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
   else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
   else console.log(`\nSubmitted ${phase.id} phase for approval.`);
+  for (const repair of registrationRepairs) {
+    console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
+  }
   console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
   console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
   console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
@@ -4168,7 +4173,8 @@ export async function submitCommand(positionals, options) {
       commit: publication.sha,
       pushed: publication.pushed,
       reviewPacket: reviewPacket.packet.packetSha256,
-      evidenceReceipt
+      evidenceReceipt,
+      registrationRepairs
     }
   }), { postState: workflow, restStateWhenIdle: advanced ? null : 'complete' });
 }

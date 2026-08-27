@@ -18,7 +18,8 @@ import { loadSession } from './session.mjs';
 import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
 import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
 import {
-  applyInputsBlock, collectInputs, recordInputs, renderInputsBlock, resolvedPhaseInputs, workflowInputsMode
+  applyInputsBlock, collectInputs, extractInputsBlock, recordInputs, renderInputsBlock, resolvedPhaseInputs,
+  verifyInputsIntegrity, workflowInputsMode
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
@@ -276,6 +277,7 @@ function phaseState(definition, index) {
     telemetry: [],
     approvals: [],
     designSourceSets: [],
+    artifactRegistrationRepairs: [],
     artifacts: [],
     checks: []
   };
@@ -679,6 +681,7 @@ function normalizeCurrentWorkflow(workflow) {
     phase.usage ??= [];
     phase.telemetry ??= [];
     phase.approvals ??= [];
+    phase.artifactRegistrationRepairs ??= [];
   }
   return workflow;
 }
@@ -974,6 +977,135 @@ export function inferKind(relativePath) {
 }
 
 function artifactFor(phase, relativePath) { return phase.artifacts.find((item) => item.path === relativePath); }
+
+const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
+
+function exactAuthoredArtifactSha256(text) {
+  return `sha256:${createHash('sha256').update(authoredArtifactText(text)).digest('hex')}`;
+}
+
+function artifactMetadataCandidate(workflow, phase, overrides = {}) {
+  const candidate = structuredClone(phase);
+  Object.assign(candidate, overrides);
+  return artifactMetadataBlock(storyArtifactMetadata(workflow, candidate));
+}
+
+/**
+ * Classify the required artifact against the immutable generation before submission mutates state.
+ *
+ * Registration is only an index. The generation commit remains the authority for author-owned
+ * bytes, while current workflow state remains the authority for engine-owned metadata. This split
+ * lets SFlow repair its own stale index without ever blessing contributor edits made after publish.
+ */
+export async function inspectRequiredArtifactRegistration(root, config, workflow, phase, {
+  generationCommit = null
+} = {}) {
+  const relativePath = requiredRepoPath(config, workflow, phase);
+  const registered = artifactFor(phase, relativePath) ?? null;
+  const current = await snapshot(path.join(root, relativePath));
+  if (Number(phase.generation) < 1) return { status: 'not-applicable', reason: 'unpublished', path: relativePath, registered, current };
+  if (phaseNeedsGeneration(workflow, phase)) {
+    return { status: 'not-applicable', reason: 'fresh-generation-required', path: relativePath, registered, current };
+  }
+  if (!current.exists) return { status: 'unsafe', reason: 'missing', path: relativePath, registered, current };
+
+  const exactCommit = generationCommit ?? publishedGenerationCommit(root, workflow, phase);
+  if (!exactCommit) return { status: 'unavailable', reason: 'generation-commit-missing', path: relativePath, registered, current };
+  const publishedResult = run('git', ['show', `${exactCommit}:${relativePath}`], { cwd: root, allowFailure: true });
+  if (publishedResult.status !== 0) return {
+    status: 'unsafe', reason: 'published-artifact-missing', path: relativePath, registered, current,
+    generationCommit: exactCommit
+  };
+
+  const currentText = await readFile(path.join(root, relativePath), 'utf8');
+  const publishedText = publishedResult.stdout;
+  const currentAuthoredSha256 = exactAuthoredArtifactSha256(currentText);
+  const publishedAuthoredSha256 = exactAuthoredArtifactSha256(publishedText);
+  const base = {
+    path: relativePath, registered, current, generationCommit: exactCommit,
+    currentAuthoredSha256, publishedAuthoredSha256
+  };
+  if (currentAuthoredSha256 !== publishedAuthoredSha256) {
+    return { ...base, status: 'unsafe', reason: 'authored-content-changed' };
+  }
+
+  const metadata = currentText.match(ARTIFACT_METADATA_PATTERN)?.[0] ?? null;
+  const canonicalMetadata = new Set([
+    artifactMetadataCandidate(workflow, phase),
+    artifactMetadataCandidate(workflow, phase, { generationCommit: exactCommit }),
+    artifactMetadataCandidate(workflow, phase, { publicationCommit: exactCommit }),
+    artifactMetadataCandidate(workflow, phase, {
+      generationCommit: exactCommit,
+      publicationCommit: exactCommit
+    })
+  ]);
+  if (!metadata || !canonicalMetadata.has(metadata)) {
+    return { ...base, status: 'unsafe', reason: 'managed-metadata-invalid' };
+  }
+
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const declarations = resolvedPhaseInputs(workflow, phase);
+  if (workflowInputsMode(workflow) === 'off' || !declarations.length) {
+    if (extractInputsBlock(currentText)) return { ...base, status: 'unsafe', reason: 'unexpected-managed-inputs' };
+  } else {
+    const integrity = await verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative });
+    if (integrity.errors.length || integrity.warnings.length) {
+      return {
+        ...base, status: 'unsafe', reason: 'managed-inputs-invalid',
+        inputFindings: [...integrity.errors, ...integrity.warnings]
+      };
+    }
+  }
+
+  const registrationCurrent = Boolean(registered)
+    && registered.exists === current.exists
+    && registered.size === current.size
+    && registered.sha256 === current.sha256;
+  return { ...base, status: registrationCurrent ? 'current' : 'repairable', reason: registrationCurrent ? null : 'managed-registration-stale' };
+}
+
+function repairRequiredArtifactRegistration(workflow, phase, inspection, session) {
+  const timestamp = nowIso();
+  const existing = inspection.registered;
+  const previousSha256 = existing?.sha256 ?? null;
+  const record = {
+    path: inspection.path,
+    kind: existing?.kind ?? phase.requiredArtifact.kind ?? inferKind(inspection.path),
+    status: existing?.status ?? 'pending',
+    exists: inspection.current.exists,
+    size: inspection.current.size,
+    sha256: inspection.current.sha256,
+    registeredAt: existing?.registeredAt ?? timestamp,
+    updatedAt: timestamp
+  };
+  if (existing) Object.assign(existing, record);
+  else phase.artifacts.push(record);
+  phase.artifacts.sort((left, right) => left.path.localeCompare(right.path));
+  const repair = {
+    generation: phase.generation,
+    path: inspection.path,
+    reason: inspection.reason,
+    previousSha256,
+    currentSha256: inspection.current.sha256,
+    authoredSha256: inspection.currentAuthoredSha256,
+    generationCommit: inspection.generationCommit,
+    repairedAt: timestamp
+  };
+  phase.artifactRegistrationRepairs ??= [];
+  phase.artifactRegistrationRepairs.push(repair);
+  phase.artifactRegistrationRepairs = phase.artifactRegistrationRepairs.slice(-25);
+  workflow.history.push({
+    at: timestamp,
+    actor: actorKey(session.actor),
+    agent: session.agent,
+    event: 'artifact_registration_repaired',
+    phase: phase.id,
+    detail: `${inspection.path}: ${repair.previousSha256 ?? 'unregistered'} → ${repair.currentSha256}`
+  });
+  return repair;
+}
+
 export async function registerArtifact(root, workflow, candidate, { phaseId, kind } = {}) {
   const phase = await assertPhaseSequence(root, workflow, 'register artifacts', { requestedPhase: phaseId });
   const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
@@ -2133,18 +2265,64 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   // submission gate below has passed.
   const flightPlanBoundary = evaluateChangeFlightPlanBoundary(root, workflow, { phaseId: phase.id });
 
-  phase.generationCommit = publishedGenerationCommit(root, workflow, phase);
-  if (!phase.generationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {
+  const exactGenerationCommit = publishedGenerationCommit(root, workflow, phase);
+  if (!exactGenerationCommit) await enforceSequenceGate(root, workflow, 'generationCommit', 'submit for approval', {
     requestedPhase: phase.id,
     reason: `Generation commit is missing for generation ${phase.generation}.`
   });
   const publicationBranch = workflowPublicationBranch(root, workflow);
   const publicationMode = workflowPublicationMode(config, workflow);
-  phase.publicationCommit = phase.generationCommit && (publicationMode === 'off' || remoteContains(root, phase.generationCommit, config.git?.remote ?? 'origin', publicationBranch)) ? phase.generationCommit : null;
-  if (publicationMode !== 'off' && !phase.publicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
+  const exactPublicationCommit = exactGenerationCommit
+    && (publicationMode === 'off' || remoteContains(root, exactGenerationCommit, config.git?.remote ?? 'origin', publicationBranch))
+    ? exactGenerationCommit
+    : null;
+  if (publicationMode !== 'off' && !exactPublicationCommit) await enforceSequenceGate(root, workflow, 'remoteGeneration', 'submit for approval', {
     requestedPhase: phase.id,
-    reason: phase.generationCommit ? `Generation commit ${phase.generationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
+    reason: exactGenerationCommit ? `Generation commit ${exactGenerationCommit.slice(0, 8)} is not published.` : 'No generation commit is available on the configured remote.'
   });
+  const registration = await inspectRequiredArtifactRegistration(root, config, workflow, phase, {
+    generationCommit: exactGenerationCommit
+  });
+  if (registration.status === 'unsafe') {
+    const digest = (value) => value ? `sha256:${String(value).replace(/^sha256:/, '')}` : 'unavailable';
+    if (registration.reason === 'authored-content-changed') {
+      throw new SingularityFlowError(
+        `Phase ${phase.id} authored content changed after its published generation. `
+        + `Published authored hash: ${digest(registration.publishedAuthoredSha256)}. `
+        + `Current authored hash: ${digest(registration.currentAuthoredSha256)}. `
+        + `The change was not registered or submitted. Begin and publish a new governed generation; inspect the safe path with: `
+        + `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}.`,
+        {
+          code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION',
+          details: {
+            path: registration.path,
+            generation: phase.generation,
+            generationCommit: registration.generationCommit,
+            publishedAuthoredSha256: registration.publishedAuthoredSha256,
+            currentAuthoredSha256: registration.currentAuthoredSha256,
+            recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}`
+          }
+        }
+      );
+    }
+    throw new SingularityFlowError(
+      `Phase ${phase.id} required artifact cannot be safely reconciled (${registration.reason}). `
+      + `SFlow did not rewrite or register it. Inspect the recovery path with: `
+      + `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}.`
+      + (registration.inputFindings?.length ? `\n- ${registration.inputFindings.join('\n- ')}` : ''),
+      {
+        code: 'ARTIFACT_MANAGED_CONTENT_INVALID',
+        details: {
+          path: registration.path,
+          reason: registration.reason,
+          recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id}`
+        }
+      }
+    );
+  }
+  if (registration.status === 'repairable') repairRequiredArtifactRegistration(workflow, phase, registration, session);
+  phase.generationCommit = exactGenerationCommit;
+  phase.publicationCommit = exactPublicationCommit;
   if (codeDeliveryRequired && !runChecks) {
     throw new SingularityFlowError(
       `Phase ${phase.id} is a code delivery and cannot skip validation commands.`,

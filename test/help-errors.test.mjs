@@ -6,6 +6,8 @@ import { helpTopicForError } from '../src/help-errors.mjs';
 
 test('stable error identifiers resolve to reviewed help without carrying transcripts or paths', () => {
   assert.equal(helpTopicForError({ code: 'AST_WARM_TIMEOUT' }), 'ast-intelligence');
+  assert.equal(helpTopicForError({ code: 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION' }), 'artifacts-and-generation');
+  assert.equal(helpTopicForError({ code: 'ARTIFACT_MANAGED_CONTENT_INVALID' }), 'artifacts-and-generation');
   assert.equal(helpTopicForError({ messageId: 'generation.intent.consumed-changed' }), 'artifacts-and-generation');
   assert.equal(helpTopicForError({ operation: 'workspace.refresh-configuration' }), 'workspaces-and-sessions');
   assert.equal(helpTopicForError({ message: 'Missing singularity/workflow.yml. Run init.' }), 'installation-and-upgrades');

@@ -6,7 +6,9 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { loadSession } from './session.mjs';
 import { VERSION } from './version.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
-import { storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate } from './state-stores.mjs';
+import {
+  inspectRequiredArtifactRegistration, storyPublicationPending, validateWorkflow, workflowPath, loadStoryAggregate
+} from './state-stores.mjs';
 import { findLegacyPendingPublications } from './publication-pending.mjs';
 import { inspectStatePlanes } from './state-planes.mjs';
 import { commandExists, platformShell, run } from './util.mjs';
@@ -324,6 +326,30 @@ export async function doctorSnapshot(root, {
       const pending = await storyPublicationPending(root, definition, selected.id, { migrate: false });
       checks.push(check('publication', pending ? 'fail' : 'pass', pending ? 'A local lifecycle commit is waiting to be pushed.' : 'No lifecycle publication is pending.', pending ? 'Run singularity-flow sync.' : null));
       const active = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
+      if (active) {
+        const registration = await inspectRequiredArtifactRegistration(root, definition, workflow, active);
+        const status = registration.status === 'unsafe' ? 'fail'
+          : registration.status === 'repairable' ? 'warn'
+            : registration.status === 'current' ? 'pass' : 'skip';
+        const message = registration.status === 'repairable'
+          ? `${active.id} has stale registration for engine-managed artifact bytes; the next submit will repair it transactionally and continue.`
+          : registration.status === 'unsafe'
+            ? `${active.id} artifact cannot be auto-repaired: ${registration.reason}.`
+            : registration.status === 'current'
+              ? `${active.id} artifact registration and published authored content agree.`
+              : `${active.id} artifact registration check is not applicable (${registration.reason}).`;
+        const fix = registration.status === 'unsafe'
+          ? `Run singularity-flow recover ${workflow.workItem.id} --phase ${active.id}.`
+          : registration.status === 'repairable'
+            ? `Run singularity-flow submit ${active.id}; SFlow will record the repair in the governed commit.`
+            : null;
+        checks.push(check('artifact-registration', status, message, fix, {
+          phase: active.id,
+          path: registration.path,
+          classification: registration.status,
+          reason: registration.reason
+        }));
+      }
       const assignmentMode = workflow.resolution?.collaboration?.assignmentMode ?? 'off';
       const assigned = active ? workflow.collaboration?.assignments?.[active.id] : null;
       if (active && assignmentMode !== 'off') checks.push(check('assignment', assigned ? 'pass' : assignmentMode === 'required' ? 'fail' : 'warn', assigned ? `${active.id} is assigned to ${assigned.assignee}.` : `${active.id} is unassigned (${assignmentMode}).`, assigned ? null : `Run singularity-flow assign ${active.id} <assignee>.`));

@@ -18,8 +18,8 @@ import {
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import {
-  commitAndPublish, createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts,
-  submitPhase
+  commitAndPublish, createWorkflow, inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
+  publishGeneration, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
@@ -208,6 +208,31 @@ async function publishCodeGoverned(root, config, workflow, phaseId) {
   );
 }
 
+async function publishGoverned(root, config, workflow, phaseId) {
+  await scanArtifacts(root, config, workflow, phaseId);
+  const phase = workflow.phases[phaseId];
+  const generation = Number(phase.generation) + 1;
+  const payload = await generationStartPublicationBinding(root, workflow, phase);
+  return commitAndPublish(
+    root,
+    config,
+    workflow,
+    { type: 'artifact-generated', phaseId, generation, payload },
+    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
+    (phase.artifacts ?? []).map((entry) => entry.path),
+    {
+      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(root, config, workflow, {
+        phaseId, authorship: AUTHORSHIP, persist: false,
+        publicationTransaction: {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead
+        }
+      })
+    }
+  );
+}
+
 test('artifact preflight reports every authored placeholder and excludes approved managed inputs', () => {
   const findings = artifactPlaceholderFindings([
     '# Implementation', '',
@@ -355,6 +380,9 @@ test('scaffold angle placeholders are rejected but immutable approved-input plac
 test('the required artifact is expected while unrelated untracked files still warn', async () => {
   const { root, config, workflow, phase, target } = await fixture('adoption');
   await inContext(root, async () => {
+    const beforePublication = await inspectRequiredArtifactRegistration(root, config, workflow, phase);
+    assert.equal(beforePublication.status, 'not-applicable');
+    assert.equal(beforePublication.reason, 'unpublished');
     await writeFile(target, [
       '# Intake', '',
       '## Requested outcome', '',
@@ -425,6 +453,87 @@ test('artifact scan repairs a stale registration even when the governed artifact
   const registeredAfter = workflowAfter.phases.intake.artifacts.find((artifact) => artifact.path === relative);
   assert.equal(registeredAfter.sha256, digest(changed));
   assert.equal(registeredAfter.size, changed.length);
+});
+
+test('submit repairs only a stale required-artifact registration and records a governed receipt', async () => {
+  const context = await fixture('submit-managed-registration-repair');
+  await writeFile(context.target, [
+    '# Intake', '',
+    '## Requested outcome', '',
+    'Submit a published artifact without making an operator repair stale engine bookkeeping.', '',
+    '## Scope and constraints', '',
+    'Only the registration digest may be repaired; author-owned bytes remain bound to the immutable generation.', '',
+    '## Evidence', '',
+    'This fixture replaces the stored digest after publication and expects submission to heal it transactionally.', ''
+  ].join('\n'));
+  await inContext(context.root, () => publishGoverned(
+    context.root, context.config, context.workflow, 'intake'
+  ));
+
+  const relative = 'singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md';
+  const registered = context.phase.artifacts.find((artifact) => artifact.path === relative);
+  const current = await readFile(context.target);
+  const currentSha256 = createHash('sha256').update(current).digest('hex');
+  registered.sha256 = '0'.repeat(64);
+  registered.size = 1;
+  const classified = await inspectRequiredArtifactRegistration(
+    context.root, context.config, context.workflow, context.phase
+  );
+  assert.equal(classified.status, 'repairable');
+  assert.equal(classified.reason, 'managed-registration-stale');
+
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'intake', runChecks: false, persist: false }
+  ));
+
+  const finalBytes = await readFile(context.target);
+  assert.equal(registered.sha256, createHash('sha256').update(finalBytes).digest('hex'));
+  assert.equal(registered.size, finalBytes.length);
+  assert.equal(context.phase.status, 'approved');
+  const repair = context.phase.artifactRegistrationRepairs.at(-1);
+  assert.equal(repair.path, relative);
+  assert.equal(repair.previousSha256, '0'.repeat(64));
+  assert.equal(repair.currentSha256, currentSha256);
+  assert.equal(repair.reason, 'managed-registration-stale');
+  assert.ok(context.workflow.history.some((entry) =>
+    entry.event === 'artifact_registration_repaired' && entry.phase === 'intake'));
+});
+
+test('artifact scan cannot bless authored changes made after the immutable generation', async () => {
+  const context = await fixture('submit-authored-change');
+  await writeFile(context.target, [
+    '# Intake', '',
+    '## Requested outcome', '',
+    'Bind the reviewed intake content to one immutable published generation.', '',
+    '## Scope and constraints', '',
+    'A later authored edit requires a new generation even when artifact scan refreshed the registration.', '',
+    '## Evidence', '',
+    'The submit gate compares authored content with the exact generation commit rather than trusting its mutable index.', ''
+  ].join('\n'));
+  await inContext(context.root, () => publishGoverned(
+    context.root, context.config, context.workflow, 'intake'
+  ));
+  await writeFile(context.target, `${await readFile(context.target, 'utf8')}\nPost-publication authored change.\n`);
+  await inContext(context.root, () => scanArtifacts(
+    context.root, context.config, context.workflow, 'intake'
+  ));
+  const classified = await inspectRequiredArtifactRegistration(
+    context.root, context.config, context.workflow, context.phase
+  );
+  assert.equal(classified.status, 'unsafe');
+  assert.equal(classified.reason, 'authored-content-changed');
+
+  await assert.rejects(
+    () => inContext(context.root, () => submitPhase(
+      context.root, context.config, context.workflow, { phaseId: 'intake', runChecks: false, persist: false }
+    )),
+    (error) => error.code === 'ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION'
+      && /Published authored hash: sha256:[a-f0-9]{64}/.test(error.message)
+      && /Current authored hash: sha256:[a-f0-9]{64}/.test(error.message)
+      && /singularity-flow recover PREFLIGHT-1 --phase intake/.test(error.message)
+  );
+  assert.equal(context.phase.artifactRegistrationRepairs.length, 0);
+  assert.equal(context.phase.status, 'in_progress');
 });
 
 test('a code phase refuses an artifact-only generation before mutating phase state', async () => {

@@ -17,7 +17,7 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 5
+version: 6
 ---
 Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Inputs and reference documents are added with `sflow inputs add` / `sflow documents upload` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
@@ -85,11 +85,23 @@ review-packet identity changes. `fallback: whole` is the compatibility option; `
 requires an authored summary. Summary projections require Harness Imports in `record` or `enforce`
 mode because exact expansion must remain content-addressed.
 
+Submission compares the author-owned portion of the required artifact with the exact published
+generation commit; a later `artifact scan` cannot authorize changed authored bytes. If only the
+engine-owned metadata changed and the current metadata and approved-input block both verify exactly,
+submission repairs the stale registration inside its governed transaction, records an
+`artifact_registration_repaired` receipt, and continues. No model is called. Authored drift,
+non-canonical metadata, or changed managed inputs remain hard refusals and do not rewrite the file.
+
 ## Troubleshooting
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If doctor reports a repairable artifact registration, submit normally; SFlow repairs the
+  engine-owned index and reports the repair in the resulting commit. Do not edit the metadata block.
+- If submission reports `ARTIFACT_AUTHORED_BYTES_CHANGED_AFTER_PUBLICATION`, use the displayed
+  `sflow recover <WORK-ID> --phase <phase>` command and publish a new generation. Running
+  `artifact scan` again cannot bypass this immutable-generation check.
 - If a generation is already consumed, preview `sflow phase rollover <phase>` and use its exact
   confirmation. Do not repeatedly copy a digest from an earlier refusal; repository bytes may move.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.

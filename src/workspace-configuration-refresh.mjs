@@ -753,6 +753,29 @@ function proposalBranch(candidateCommit, sourceCommit, product) {
   return `sflow/config-refresh/${revision}-${sourceCommit.slice(0, 8)}-${candidateCommit.slice(0, 8)}`;
 }
 
+/**
+ * Recognize the benign publication race where another refresh pushed the same configuration.
+ *
+ * Git correctly rejects the second sibling commit as non-fast-forward even when its complete tree
+ * is byte-identical. Fetch the new authority tip and compare tree objects; only exact identity may
+ * join the winner. A genuinely different remote update still takes the review-branch path.
+ */
+async function identicalConcurrentConfiguration(root, candidateCommit) {
+  const remoteRef = `refs/remotes/origin/${CONFIGURATION_BRANCH}`;
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--quiet', '--no-tags', '--force', 'origin',
+    `+refs/heads/${CONFIGURATION_BRANCH}:${remoteRef}`
+  ], { cwd: root, operation: 'remote-configuration' });
+  if (fetched.status !== 0) return null;
+  const approvedCommit = run('git', ['rev-parse', '--verify', `${remoteRef}^{commit}`], {
+    cwd: root, allowFailure: true
+  }).stdout.trim();
+  if (!/^[0-9a-f]{40,64}$/.test(approvedCommit)) return null;
+  const candidateTree = run('git', ['rev-parse', `${candidateCommit}^{tree}`], { cwd: root }).stdout.trim();
+  const approvedTree = run('git', ['rev-parse', `${approvedCommit}^{tree}`], { cwd: root }).stdout.trim();
+  return candidateTree === approvedTree ? approvedCommit : null;
+}
+
 async function publishCandidate(candidate) {
   const { root, repository, refresh, sourceCommit, desired } = candidate;
   let approvedCommit = sourceCommit;
@@ -773,31 +796,38 @@ async function publishCandidate(candidate) {
         cwd: root, operation: 'remote-push'
       });
       if (pushed.status !== 0) {
-        const branch = proposalBranch(candidateCommit, sourceCommit, refresh.product);
-        const retained = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${branch}`], {
-          cwd: root, operation: 'remote-push'
-        });
-        if (retained.status !== 0) {
-          throw new SingularityFlowError(
-            `Configuration update for '${repository.displayRemote}' was rejected and its review branch could not be retained: ${(retained.stderr || retained.stdout).trim()}`
-          );
+        const concurrentCommit = await identicalConcurrentConfiguration(root, candidateCommit);
+        if (concurrentCommit) {
+          approvedCommit = concurrentCommit;
+          configurationChanged = true;
+        } else {
+          const branch = proposalBranch(candidateCommit, sourceCommit, refresh.product);
+          const retained = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${branch}`], {
+            cwd: root, operation: 'remote-push'
+          });
+          if (retained.status !== 0) {
+            throw new SingularityFlowError(
+              `Configuration update for '${repository.displayRemote}' was rejected and its review branch could not be retained: ${(retained.stderr || retained.stdout).trim()}`
+            );
+          }
+          return {
+            status: 'review-required',
+            repository: repository.id,
+            remote: repository.displayRemote,
+            memberships: repository.memberships,
+            sourceCommit,
+            candidateCommit,
+            proposalBranch: branch,
+            conflicts: refresh.conflicts,
+            configurationChanged: false,
+            stateChanged: false,
+            error: (pushed.stderr || pushed.stdout).trim().split('\n')[0]
+          };
         }
-        return {
-          status: 'review-required',
-          repository: repository.id,
-          remote: repository.displayRemote,
-          memberships: repository.memberships,
-          sourceCommit,
-          candidateCommit,
-          proposalBranch: branch,
-          conflicts: refresh.conflicts,
-          configurationChanged: false,
-          stateChanged: false,
-          error: (pushed.stderr || pushed.stdout).trim().split('\n')[0]
-        };
+      } else {
+        approvedCommit = candidateCommit;
+        configurationChanged = true;
       }
-      approvedCommit = candidateCommit;
-      configurationChanged = true;
     }
   }
 
@@ -812,16 +842,26 @@ async function publishCandidate(candidate) {
     files: projection.hashes
   };
   mirrored[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
-  const state = await publishToStateBranch(
-    root,
-    projection.stateConfig,
-    mirrored,
-    `[configuration][source:${approvedCommit.slice(0, 12)}] mirror approved configuration`,
-    {
-      replaceRoots: [STATE_CONFIGURATION_ROOT],
-      removePaths: stateBefore.extraPaths
-    }
-  );
+  let state;
+  try {
+    state = await publishToStateBranch(
+      root,
+      projection.stateConfig,
+      mirrored,
+      `[configuration][source:${approvedCommit.slice(0, 12)}] mirror approved configuration`,
+      {
+        replaceRoots: [STATE_CONFIGURATION_ROOT],
+        removePaths: stateBefore.extraPaths
+      }
+    );
+  } catch (error) {
+    // The matching configuration race can continue into the state projection: both publishers
+    // create the same mirror and one loses the lease. Join only when a fresh fetch proves that the
+    // complete remote projection, source commit and product identity are already exact.
+    const concurrentState = observeStateProjection(root, projection, approvedCommit, refresh.product);
+    if (concurrentState.status !== 'current') throw error;
+    state = { commit: concurrentState.stateCommit, changed: false, removed: [] };
+  }
   const stateRef = state.commit
     ?? run('git', ['rev-parse', `refs/remotes/origin/${projection.stateConfig.branch}`], { cwd: root }).stdout.trim();
   const verified = run('git', ['show', `${stateRef}:${STATE_CONFIGURATION_MANIFEST}`], { cwd: root });

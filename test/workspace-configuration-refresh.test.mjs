@@ -321,6 +321,45 @@ test('workspace refresh preview returns an actionable packaged-agent repair inst
     entry.path === '.github/agents/qa.agent.md' && entry.resolution === 'accepted-bundled'));
 });
 
+test('concurrent identical configuration refreshes join the winning commit without a review branch', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-concurrent-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote } = await repositoryFixture(root, 'concurrent');
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'concurrent-refresh-workspace',
+    name: 'Concurrent refresh workspace',
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'concurrent-refresh-workspace', title: 'Concurrent refresh workspace' },
+    leadRepository: 'concurrent',
+    repositories: {
+      concurrent: {
+        id: 'concurrent', url: remote, defaultBranch: 'main', required: true,
+        path: 'repos/concurrent', role: 'lead', capabilities: []
+      }
+    }
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+
+  const results = await Promise.all([
+    refreshWorkspaceConfigurations({ registryFile: registry }),
+    refreshWorkspaceConfigurations({ registryFile: registry })
+  ]);
+  assert.ok(results.every((result) => result.status === 'complete'), JSON.stringify(results, null, 2));
+  assert.ok(results.flatMap((result) => result.results)
+    .every((result) => result.status !== 'review-required'));
+  const approved = YAML.parse(run('git', [
+    '--git-dir', remote, 'show', 'sflow/config:singularity/workflow.yml'
+  ]).stdout);
+  assert.ok(approved.workTypes['spec-driven-standard']);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads/sflow/config-refresh/'
+  ]).stdout.trim(), '');
+});
+
 test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-'));
   t.after(() => rm(root, { recursive: true, force: true }));

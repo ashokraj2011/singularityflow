@@ -1385,6 +1385,7 @@ async function choicesCommand(positionals, options) {
 async function resumeCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
+  const json = optionBoolean(options, 'json');
   const discovery = await withApprovedConfigurationRead(
     root, () => sessionDiscoveryConfiguration(root, sessionRepositoryAuthority(root))
   );
@@ -1411,10 +1412,12 @@ async function resumeCommand(positionals, options) {
   const session = await activatePhaseAgent(
     root, config, resolved.workId, currentPhase(workflow), optionString(options, 'agent') ?? null
   );
-  summary(workflow);
-  console.log(`Active governed agent: ${session.agent}`);
+  if (!json) {
+    summary(workflow);
+    console.log(`Active governed agent: ${session.agent}`);
+  }
   const active = currentPhase(workflow);
-  if (active) {
+  if (active && !json) {
     const command = active.id === 'implementation' ? 'implement' : active.id === 'verification' ? 'verify' : active.id;
     console.log(`\nRun: singularity-flow prepare ${active.id}`);
     console.log(`In Copilot: /sf-${command}`);
@@ -1425,7 +1428,7 @@ async function resumeCommand(positionals, options) {
     outcome: succeeded('resume.succeeded', { workId: workflow.workItem.id, branch: branch(root) }),
     // Resume may check out a different branch and records the local governed-agent selection.
     effects: effects({ filesChanged: true })
-  }), { postState: workflow });
+  }), { json, postState: workflow });
 }
 
 async function returnCommand(positionals, options) {

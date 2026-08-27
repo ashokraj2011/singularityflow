@@ -561,24 +561,33 @@ export async function resolveRemoteStoryConfigurationAuthority(remote) {
   }
 }
 
-/** Find a Story-readable authority in this repository or its active workspace lead. */
-export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin') {
-  const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
-  const ownAuthority = own ? await resolveRemoteStoryConfigurationAuthority(own) : null;
-  if (ownAuthority) return ownAuthority;
-
+async function activeWorkspaceForRepository(root) {
   const active = await readActiveWorkspaceContext(
     activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
   ).catch(() => null);
   if (!active?.workspacePath) return null;
   const workspace = await readWorkspace(active.workspacePath).catch(() => null);
+  if (!workspace) return null;
   const canonical = async (value) => realpath(value).catch(() => path.resolve(value));
   const repositoryRoot = await canonical(root);
-  const memberRoots = workspace
-    ? await Promise.all(Object.values(workspace.repositories).map((repository) =>
-      canonical(workspaceRepositoryPath(workspace, repository))))
-    : [];
-  if (!memberRoots.includes(repositoryRoot)) return null;
+  const memberRoots = await Promise.all(Object.values(workspace.repositories).map((repository) =>
+    canonical(workspaceRepositoryPath(workspace, repository))));
+  return memberRoots.includes(repositoryRoot) ? workspace : null;
+}
+
+/** Find a Story-readable authority in this repository or its active workspace lead. */
+export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin') {
+  const workspace = await activeWorkspaceForRepository(root);
+  // A capability-derived workspace records the organisation repository that actually owns
+  // sflow/config. It is deliberately separate from the delivery repository chosen to hold
+  // workspace/runtime state, so it must win over both the member's origin and the delivery lead.
+  const configuredAuthority = workspace?.capabilityAuthority?.url;
+  if (configuredAuthority) return resolveRemoteStoryConfigurationAuthority(configuredAuthority);
+
+  const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
+  const ownAuthority = own ? await resolveRemoteStoryConfigurationAuthority(own) : null;
+  if (ownAuthority) return ownAuthority;
+
   const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
   return lead ? resolveRemoteStoryConfigurationAuthority(lead) : null;
 }
@@ -620,25 +629,18 @@ export async function loadStoryConfigurationDefinition(authority) {
 
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
 export async function resolveConfigurationRemote(root, remoteName = 'origin') {
+  const workspace = await activeWorkspaceForRepository(root);
+  const configuredAuthority = workspace?.capabilityAuthority?.url;
+  if (configuredAuthority) {
+    return remoteHasConfigurationBranch(configuredAuthority) ? configuredAuthority : null;
+  }
+
   const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
   if (own && remoteHasConfigurationBranch(own)) return own;
 
-  const active = await readActiveWorkspaceContext(
-    activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-  ).catch(() => null);
-  if (active?.workspacePath) {
-    const workspace = await readWorkspace(active.workspacePath).catch(() => null);
+  if (workspace) {
     // A machine-wide active workspace is navigation context, not authority for every repository
-    // on the machine. Without this membership check a standalone checkout could silently import
-    // prompts, policies and publication settings from an unrelated workspace merely because that
-    // workspace was selected last in VS Code.
-    const canonical = async (value) => realpath(value).catch(() => path.resolve(value));
-    const repositoryRoot = await canonical(root);
-    const memberRoots = workspace
-      ? await Promise.all(Object.values(workspace.repositories).map((repository) =>
-        canonical(workspaceRepositoryPath(workspace, repository))))
-      : [];
-    if (!memberRoots.includes(repositoryRoot)) return null;
+    // on the machine. activeWorkspaceForRepository already proved membership before this fallback.
     const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
     if (lead && remoteHasConfigurationBranch(lead)) return lead;
   }

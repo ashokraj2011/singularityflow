@@ -10,12 +10,17 @@ import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, ensureConfigurationBranch,
   configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
-  materializeConfigurationSnapshot, readConfigurationSource, resolveStoryConfigurationAuthority,
+  materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
+  resolveStoryConfigurationAuthority,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
 import { run } from '../src/util.mjs';
+import {
+  createWorkspaceConfiguration, rememberWorkspace, workspaceRepositoryPath
+} from '../src/workspace.mjs';
+import { activateWorkspaceContext } from '../src/workspace-context.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -217,6 +222,60 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
     assert.equal(await readFile(path.join(checkout, 'README.md'), 'utf8'), '# Application\n');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a capability workspace uses its explicit organisation authority for Story intake', async () => {
+  const authority = await repositoryFixture();
+  const delivery = await repositoryFixture();
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-split-configuration-authority-'));
+  const registry = path.join(machine, 'workspaces.json');
+  const selection = path.join(machine, 'active-workspace.json');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  try {
+    await ensureConfigurationBranch(authority.remote);
+    const created = await createWorkspaceConfiguration({
+      baseDirectory: path.join(machine, 'workspaces'),
+      id: 'payments',
+      name: 'Payments',
+      leadRepository: 'delivery',
+      capabilityAuthority: { url: authority.remote },
+      capabilities: [],
+      repositories: {
+        delivery: {
+          url: delivery.remote, defaultBranch: 'main', required: true, path: 'repos/delivery'
+        }
+      }
+    }, { confirmation: 'payments', clone: true });
+    await rememberWorkspace(registry, created.workspace, created.status);
+    await activateWorkspaceContext(registry, selection, created.workspace.id, {
+      repositoryId: 'delivery', detectStory: false
+    });
+    process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+    process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+
+    const checkout = workspaceRepositoryPath(created.workspace, created.workspace.repositories.delivery);
+    const resolved = await resolveStoryConfigurationAuthority(checkout);
+    assert.equal(resolved.remote, authority.remote);
+    assert.equal(resolved.branch, CONFIGURATION_BRANCH);
+    assert.equal(await resolveConfigurationRemote(checkout), authority.remote);
+
+    run('git', ['switch', '-q', '-c', 'PAY-100'], { cwd: checkout });
+    const snapshot = await materializeConfigurationSnapshot(checkout);
+    assert.equal(snapshot.repository, authority.remote);
+    assert.equal((await readConfigurationSource(checkout, { verify: true })).repository, authority.remote);
+
+    assert.equal(await resolveStoryConfigurationAuthority(delivery.source), null,
+      'an unrelated checkout must not inherit the machine-wide active workspace authority');
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    await rm(authority.root, { recursive: true, force: true });
+    await rm(delivery.root, { recursive: true, force: true });
+    await rm(machine, { recursive: true, force: true });
   }
 });
 

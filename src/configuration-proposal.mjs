@@ -208,8 +208,8 @@ export async function proposeConfigurationChange(root, {
     ], { cwd: scratch });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
 
-    const retained = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
-      cwd: root, allowFailure: true
+    const retained = runRemoteGit(['fetch', '--no-tags', '--', scratch, commit], {
+      cwd: root, operation: 'remote-configuration'
     });
     if (retained.status !== 0) {
       throw new SingularityFlowError('The workflow proposal commit could not be retained for recoverable publication.', {

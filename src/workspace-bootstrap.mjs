@@ -410,6 +410,7 @@ function normalizeCreateInput(input) {
       name: preview.manifest.name,
       repositories,
       leadRepository: preview.manifest.leadRepository,
+      capabilityAuthority: preview.manifest.capabilityAuthority,
       capabilities: preview.manifest.capabilities
     },
     preview

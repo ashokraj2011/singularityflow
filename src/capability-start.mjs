@@ -25,7 +25,7 @@ import {
   assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch, pushCommitToBranch,
   gitCommonDir, refExists, refHead, repoRoot
 } from './git.mjs';
-import { readWorkspace } from './workspace.mjs';
+import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import {
@@ -296,7 +296,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
   const checked = [];
   for (const repository of plan.repositories) {
-    const target = path.resolve(workspaceRoot ?? '', repository.path);
+    const target = workspaceRepositoryPath({ path: workspaceRoot }, repository);
     if (!existsSync(path.join(target, '.git'))) {
       throw new SingularityFlowError(
         `Required repository '${repository.id}' is not cloned at '${target}'. Nothing was changed.`,
@@ -435,7 +435,7 @@ export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, 
   const prepared = [];
   try {
     for (const repository of plan.repositories) {
-      const target = path.resolve(workspaceRoot, repository.path);
+      const target = workspaceRepositoryPath({ path: workspaceRoot }, repository);
       const base = plan.resolution.resolved[repository.id];
       if (!existsSync(path.join(target, '.git'))) {
         prepared.push({ repository: repository.id, target, base: base.branch, action: 'absent' });

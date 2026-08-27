@@ -4044,7 +4044,9 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(panel, /--confirm', proposal\.proposalCommit/,
     'activation is bound to the complete reviewed proposal commit');
   assert.match(panel, /--acknowledge-unprotected/,
-    'VS Code passes the explicit acknowledgement obtained in its modal confirmation');
+    'VS Code can pass the acknowledgement only after the separate unprotected-branch refusal');
+  assert.match(panel, /baseArguments[\s\S]*await this\.run\(baseArguments\)[\s\S]*Acknowledge unprotected branch/,
+    'the first activation attempt preserves the CLI refuse-then-acknowledge ceremony');
   assert.match(panel, /Activation audit:/,
     'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -25,6 +26,8 @@ export const WORKSPACE_SCHEMA_VERSION = 1;
 export const MAX_RECENT_WORKSPACES = 20;
 const WORKSPACE_REGISTRY_SCHEMA_VERSION = currentSchemaVersion('workspace-registry');
 const registryMutationTails = new Map();
+const REGISTRY_LOCK_TIMEOUT_MS = 10_000;
+const REGISTRY_LOCK_STALE_MS = 15 * 60_000;
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -183,9 +186,15 @@ function normalizeRepository(id, input) {
 
 /** Resolve a repository without assuming every workspace owns its checkout bytes. */
 export function workspaceRepositoryPath(workspace, repository) {
-  return repository.adoption?.mode === 'existing-clone'
-    ? path.resolve(repository.adoption.canonicalPath)
-    : path.join(workspace.path, repository.path);
+  if (repository.adoption?.mode === 'existing-clone') {
+    return path.resolve(repository.adoption.canonicalPath);
+  }
+  // Repository-scoped branch discovery creates a synthetic repository record whose path is the
+  // already-verified checkout root and deliberately has no workspace root. Preserve that absolute
+  // path instead of asking path.join() to combine it with null. Real workspace manifests continue
+  // to store and resolve only workspace-relative repository paths.
+  if (path.isAbsolute(repository.path)) return path.resolve(repository.path);
+  return path.join(workspace.path, repository.path);
 }
 
 export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) {
@@ -281,10 +290,43 @@ export async function atomicJson(file, value) {
   }
 }
 
+async function withRegistryFileLease(file, operation) {
+  const lock = `${path.resolve(file)}.lock`;
+  await mkdir(path.dirname(lock), { recursive: true });
+  const started = Date.now();
+  let handle;
+  while (!handle) {
+    try {
+      handle = await open(lock, 'wx', 0o600);
+      await handle.writeFile(`${JSON.stringify({ pid: process.pid, createdAt: nowIso() })}\n`);
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const info = await stat(lock).catch(() => null);
+      if (info && Date.now() - info.mtimeMs > REGISTRY_LOCK_STALE_MS) {
+        await rm(lock, { force: true });
+        continue;
+      }
+      if (Date.now() - started >= REGISTRY_LOCK_TIMEOUT_MS) {
+        throw new SingularityFlowError(
+          'The local workspace registry is busy in another process. Retry the same command.',
+          { code: 'WORKSPACE_REGISTRY_BUSY' }
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 50)));
+    }
+  }
+  try {
+    return await operation();
+  } finally {
+    await handle.close().catch(() => {});
+    await rm(lock, { force: true }).catch(() => {});
+  }
+}
+
 async function withRegistryMutation(file, operation) {
   const key = path.resolve(file);
   const previous = registryMutationTails.get(key) ?? Promise.resolve();
-  const current = previous.catch(() => {}).then(operation);
+  const current = previous.catch(() => {}).then(() => withRegistryFileLease(file, operation));
   registryMutationTails.set(key, current);
   try {
     return await current;
@@ -495,7 +537,10 @@ export async function workspaceRepositoryDefaults(repository) {
   return {
     id,
     localPath: root,
-    url: origin,
+    // Persist the same redacted authority that was reviewed in the adoption proof. Credentials in
+    // an origin URL are transport material, not workspace configuration, and must never be copied
+    // into workspace.json or the local registry.
+    url: proof.origin,
     defaultBranch,
     required: true,
     jira: { board: '' },
@@ -1137,6 +1182,21 @@ function gitValue(root, args) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
+async function gitValueAsync(root, args) {
+  return new Promise((resolve) => {
+    const child = spawn('git', args, {
+      cwd: root, shell: false, windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
+      stdio: ['ignore', 'pipe', 'ignore']
+    });
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => resolve(code === 0 ? stdout.trim() : null));
+  });
+}
+
 async function writeJournal(root, journal, logsDirectory = 'logs') {
   const file = path.join(root, logsDirectory, 'workspace-materialization.json');
   await assertInside(root, file);
@@ -1615,17 +1675,25 @@ async function repositoryStatus(root, repository) {
       worldModel: null
     };
   }
-  const dirty = Boolean(gitValue(absolute, ['status', '--porcelain=v1', '--untracked-files=all']));
-  const branch = gitValue(absolute, ['branch', '--show-current']);
-  const remote = gitValue(absolute, ['remote', 'get-url', 'origin']);
+  // These are independent local reads. Running them concurrently keeps a workspace with many
+  // repositories from serially blocking the extension host on four spawnSync calls per repository.
+  const [statusText, branch, remote, headCommit] = await Promise.all([
+    gitValueAsync(absolute, ['status', '--porcelain=v1', '--untracked-files=all']),
+    gitValueAsync(absolute, ['branch', '--show-current']),
+    gitValueAsync(absolute, ['remote', 'get-url', 'origin']),
+    gitValueAsync(absolute, ['rev-parse', 'HEAD'])
+  ]);
+  const dirty = Boolean(statusText);
   return {
     ...repository,
     absolutePath: absolute,
-    state: remote === repository.url ? 'ready' : 'remote-mismatch',
+    // Credentials and equivalent URL spellings are transport details. Workspace identity is the
+    // sanitized remote authority used by adoption, status, and repair receipts.
+    state: sanitizeRemote(remote) === sanitizeRemote(repository.url) ? 'ready' : 'remote-mismatch',
     dirty,
     branch,
-    remote,
-    head: gitValue(absolute, ['rev-parse', 'HEAD']),
+    remote: sanitizeRemote(remote),
+    head: headCommit,
     worldModel: await repositoryWorldModelStatus(absolute)
   };
 }
@@ -1780,7 +1848,8 @@ export async function readWorkspaceRegistry(file) {
     const current = unique.get(entry.path);
     if (!current || entry.openedAt > current.openedAt) unique.set(entry.path, entry);
   }
-  return [...unique.values()].sort((left, right) => right.openedAt.localeCompare(left.openedAt)).slice(0, MAX_RECENT_WORKSPACES);
+  // Archived workspaces are durable history and are never evicted by the active-recency cap.
+  return [...unique.values()].sort((left, right) => right.openedAt.localeCompare(left.openedAt));
 }
 
 export async function rememberWorkspace(file, workspace, status = null, { preserveArchived = false } = {}) {
@@ -1807,7 +1876,10 @@ export async function rememberWorkspace(file, workspace, status = null, { preser
     // Keyed by path, not by identifier: copying a workspace beside itself keeps its id, and both
     // copies are real workspaces. The identifier is therefore not unique, which is why anything
     // resolving by id has to say so when the answer is ambiguous rather than pick one.
-    const workspaces = [entry, ...current.filter((item) => item.path !== entry.path)].slice(0, MAX_RECENT_WORKSPACES);
+    const merged = [entry, ...current.filter((item) => item.path !== entry.path)];
+    const active = merged.filter((item) => !item.archivedAt).slice(0, MAX_RECENT_WORKSPACES);
+    const archived = merged.filter((item) => item.archivedAt);
+    const workspaces = [...active, ...archived];
     await atomicJson(file, { schemaVersion: WORKSPACE_REGISTRY_SCHEMA_VERSION, workspaces });
     return workspaces;
   });

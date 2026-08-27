@@ -10,7 +10,7 @@ import {
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
-  workspaceStatus
+  workspaceRepositoryDefaults, workspaceStatus
 } from '../src/workspace.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, buildWorkspaceContext,
@@ -431,6 +431,35 @@ test('a clean existing clone can be adopted without changing its Git state or by
   }, before);
 });
 
+test('workspace adoption never persists credentials embedded in an origin URL', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-credentials-'));
+  const repository = path.join(root, 'repository');
+  await mkdir(repository);
+  run('git', ['init', '-b', 'main'], { cwd: repository });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: repository });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: repository });
+  await writeFile(path.join(repository, 'README.md'), '# repository\n');
+  run('git', ['add', '.'], { cwd: repository });
+  run('git', ['commit', '-m', 'initial'], { cwd: repository });
+  run('git', ['remote', 'add', 'origin', 'https://alice:office-token@example.com/acme/repository.git'], {
+    cwd: repository
+  });
+
+  const defaults = await workspaceRepositoryDefaults(repository);
+  assert.equal(defaults.url, 'https://example.com/acme/repository.git');
+  assert.equal(defaults.adoption.origin, defaults.url);
+  assert.doesNotMatch(JSON.stringify(defaults), /alice|office-token/);
+  const adopted = await adoptWorkspaceConfiguration({
+    cloneDirectory: repository,
+    id: 'credential-safe',
+    name: 'Credential safe',
+    baseDirectory: path.join(root, 'workspaces')
+  }, { confirmation: 'credential-safe' });
+  assert.doesNotMatch(JSON.stringify(adopted), /alice|office-token/);
+  assert.doesNotMatch(await readFile(path.join(adopted.workspace.path, 'workspace.json'), 'utf8'),
+    /alice|office-token/);
+});
+
 test('dirty-clone adoption requires a content-bound confirmation and never cleans the clone', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-dirty-'));
   const remote = await remoteRepository(root, 'platform');
@@ -671,6 +700,32 @@ test('workspace registry is local, bounded, and forget never deletes workspace f
   entries = await readWorkspaceRegistry(registry);
   assert.deepEqual(entries, []);
   assert.equal(JSON.parse(await readFile(path.join(created.workspace.path, 'workspace.json'), 'utf8')).anchor.key, 'PAY-100');
+});
+
+test('the registry caps active recency without deleting archived workspace history', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-registry-archive-cap-'));
+  const registry = path.join(root, 'registry.json');
+  const make = async (index) => createWorkspace({
+    ...workspaceInput(path.join(root, 'workspaces'), {
+      platform: { url: path.join(root, `${index}.git`), defaultBranch: 'main', required: true, path: 'repos/platform' }
+    }),
+    anchor: { ...workspaceInput(path.join(root, 'unused'), {}).anchor, key: `PAY-${index}`, title: `Workspace ${index}` }
+  }, { confirmation: `PAY-${index}`, clone: false });
+
+  const archived = await make(0);
+  await rememberWorkspace(registry, archived.workspace, archived.status);
+  const persisted = JSON.parse(await readFile(registry, 'utf8'));
+  persisted.workspaces[0].archivedAt = '2026-08-01T00:00:00.000Z';
+  await writeFile(registry, `${JSON.stringify(persisted, null, 2)}\n`);
+  for (let index = 1; index <= 21; index += 1) {
+    const created = await make(index);
+    await rememberWorkspace(registry, created.workspace, created.status);
+  }
+
+  const entries = await readWorkspaceRegistry(registry);
+  assert.equal(entries.filter((entry) => !entry.archivedAt).length, 20);
+  assert.equal(entries.filter((entry) => entry.archivedAt).length, 1);
+  assert.ok(entries.some((entry) => entry.anchorKey === 'PAY-0'));
 });
 
 test('workspace registry discards explicit non-v2 workflows without deleting workspace files', async () => {

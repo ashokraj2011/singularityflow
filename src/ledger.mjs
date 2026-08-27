@@ -493,6 +493,38 @@ function remotePinObservation(root, remote, pinRef, expectedCommit) {
   };
 }
 
+/** Observe every ledger pin with one remote round trip instead of one per entry. */
+function remotePinObservations(root, remote, bindings) {
+  const results = new Map();
+  if (!hasRemote(root, remote)) {
+    for (const { pinRef } of bindings) results.set(pinRef, { status: 'unconfigured', commit: null, remote });
+    return results;
+  }
+  const valid = bindings.filter(({ pinRef, expectedCommit }) => validPinBinding(pinRef, expectedCommit));
+  if (!valid.length) return results;
+  const observed = git(root, ['ls-remote', remote, ...valid.map(({ pinRef }) => pinRef)], {
+    allowFailure: true
+  });
+  if (observed.status !== 0) {
+    const status = observed.blocked ? 'network-disabled' : observed.timedOut ? 'timeout' : 'unavailable';
+    for (const { pinRef } of valid) results.set(pinRef, { status, commit: null, remote });
+    return results;
+  }
+  const advertised = new Map(observed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    .map((line) => {
+      const [commit, ref] = line.split(/\s+/, 2);
+      return [ref, commit];
+    }));
+  for (const { pinRef, expectedCommit } of valid) {
+    const commit = advertised.get(pinRef) ?? null;
+    results.set(pinRef, {
+      status: commit == null ? 'missing' : commit === expectedCommit ? 'expected' : 'mismatch',
+      commit, remote
+    });
+  }
+  return results;
+}
+
 function expectedCommitAvailable(root, expectedCommit) {
   if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/i.test(String(expectedCommit ?? ''))) return false;
   return git(root, ['cat-file', '-e', `${expectedCommit}^{commit}`], { allowFailure: true }).status === 0;
@@ -522,10 +554,10 @@ function validatePinnedSource(root, entry) {
  * the commit recorded by the ledger. Fetching to FETCH_HEAD first makes the comparison possible;
  * only the exact recorded commit is installed, with a compare-and-swap when a local ref exists.
  */
-function fetchExpectedPin(root, remote, pinRef, expectedCommit) {
+function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed = null) {
   if (!hasRemote(root, remote)) return { status: 'unconfigured', remote, pinRef };
   if (!validPinBinding(pinRef, expectedCommit)) return { status: 'invalid', remote, pinRef };
-  const advertised = remotePinObservation(root, remote, pinRef, expectedCommit);
+  const advertised = observed ?? remotePinObservation(root, remote, pinRef, expectedCommit);
   if (['mismatch', 'unavailable', 'timeout', 'network-disabled', 'unconfigured'].includes(advertised.status)) {
     return { ...advertised, pinRef };
   }
@@ -772,12 +804,16 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       const pushed = pushLedger(worktree, config, expectedRemoteSha);
       if (pushed.status !== 0) {
         const detail = (pushed.stderr || pushed.stdout).trim();
+        const concurrent = isStateBranchConcurrencyFailure(detail);
         const error = new SingularityFlowError(
           `Unable to publish to the ${config.branch} branch: ${detail}`,
-          { code: 'state_branch.concurrent_publication', details: { branch: config.branch, expectedRemoteSha } });
+          {
+            code: concurrent ? 'state_branch.concurrent_publication' : 'state_branch.publication_failed',
+            details: { branch: config.branch, expectedRemoteSha }
+          });
         // Callers that can deterministically rebase an immutable payload may retry. Lifecycle
         // decisions do not use this path and remain fail-fast.
-        error.concurrent = isStateBranchConcurrencyFailure(detail);
+        error.concurrent = concurrent;
         throw error;
       }
       // The local branch follows what was just published. Readers name the branch plainly —
@@ -1093,6 +1129,13 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
       if (entry.payload?.entryHash) retentionExpired.add(entry.payload.entryHash);
       if (entry.payload?.pinRef) retentionExpired.add(entry.payload.pinRef);
     }
+    const pinBindings = [...entries.values()]
+      .filter((entry) => entry.transport?.pinRef)
+      .map((entry) => ({
+        pinRef: entry.transport.pinRef,
+        expectedCommit: entry.transport.publishedCommit
+      }));
+    const remotePins = offline ? new Map() : remotePinObservations(root, config.remote, pinBindings);
     for (const [hash, entry] of entries) {
       const expected = ledgerIdempotencyKey(entry, entry.transport?.publishedCommit);
       if (entry.idempotencyKey !== expected.value) errors.push(`Entry ${hash} has an invalid idempotency key.`);
@@ -1103,9 +1146,14 @@ export async function verifyLedger(root, rawConfig, { offline = false } = {}) {
         const pinRef = entry.transport.pinRef;
         const expectedCommit = entry.transport.publishedCommit;
         const bindingValid = validPinBinding(pinRef, expectedCommit);
+        const localBefore = bindingValid ? localPinObservation(root, pinRef, expectedCommit) : { status: 'invalid' };
+        const remoteObserved = remotePins.get(pinRef) ?? null;
         const fetched = offline
           ? { status: 'not-checked', remote: config.remote, pinRef }
-          : fetchExpectedPin(root, config.remote, pinRef, expectedCommit);
+          : remoteObserved?.status === 'expected' && localBefore.status === 'expected'
+              && expectedCommitAvailable(root, expectedCommit)
+            ? { ...remoteObserved, pinRef }
+            : fetchExpectedPin(root, config.remote, pinRef, expectedCommit, remoteObserved);
         const pinned = bindingValid
           ? git(root, ['rev-parse', `${entry.transport.pinRef}^{commit}`], { allowFailure: true })
           : { status: 1, stdout: '' };

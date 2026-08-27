@@ -24,7 +24,7 @@ import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { mapLimit, removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
 import {
-  CAPABILITIES_PATH, editCapability, validateCapabilities, capabilityTree
+  CAPABILITIES_PATH, capabilityRepositories, editCapability, validateCapabilities, capabilityTree
 } from './capabilities.mjs';
 import { atomicJson } from './workspace.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -37,7 +37,8 @@ import {
   appendLedgerIntent, createLedgerIntent, initializeLedger, publishToStateBranch
 } from './ledger.mjs';
 import {
-  CONFIGURATION_BRANCH, configurationBranchHead, ensureConfigurationBranch, isConfigurationAsset,
+  CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT, STATE_CONFIGURATION_MANIFEST,
+  configurationAssetPaths, configurationBranchHead, ensureConfigurationBranch, isConfigurationAsset,
   remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
@@ -442,7 +443,7 @@ async function capabilityMapFromState(remote, branch = 'state') {
   try {
     run('git', ['init', '--quiet', '--bare', scratch]);
     const fetched = runRemoteGit([
-      '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', remote,
+      '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', '--filter=blob:none', remote,
       `refs/heads/${branch}:refs/heads/read-state`
     ], { operation: 'remote-configuration' });
     if (fetched.status !== 0) return null;
@@ -607,7 +608,7 @@ export async function mapCapability(leadUrl, {
   resources = {},
   sourceRoots = [],
   sharedRoots = [],
-  clone = { mode: 'full', sparseCone: [], fallback: 'refuse' },
+  clone = null,
   jiraProject = null,
   teams = []
 } = {}) {
@@ -619,7 +620,9 @@ export async function mapCapability(leadUrl, {
       preserved: ['approved-configuration', 'application-branches']
     })
   });
-  const cloneStrategy = normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
+  const cloneStrategy = clone == null
+    ? null
+    : normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
 
   return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
     `capability/map-${capabilityId}`, async (root, _baseBranch, leadRemoteSession) => {
@@ -657,10 +660,13 @@ export async function mapCapability(leadUrl, {
           url,
           sanitizeRemote(url) === sanitizeRemote(leadUrl) ? leadRemoteSession : new GitRemoteSession()
         );
-        portfolio.setIn(['repositories', id], portfolio.createNode({
-          url, defaultBranch: branch, required: true,
-          ...(cloneStrategy.mode !== 'full' ? { clone: cloneStrategy } : {})
-        }));
+        const existing = portfolio.getIn(['repositories', id], true)?.toJSON?.() ?? {};
+        const repository = { ...existing, url, defaultBranch: branch, required: true };
+        if (cloneStrategy) {
+          if (cloneStrategy.mode === 'full') delete repository.clone;
+          else repository.clone = cloneStrategy;
+        }
+        portfolio.setIn(['repositories', id], portfolio.createNode(repository));
       }
       await writeFile(file, portfolio.toString(YAML_OUTPUT), 'utf8');
     }
@@ -717,6 +723,66 @@ export async function mapCapability(leadUrl, {
   });
 }
 
+/** Add one shipping repository to an existing delivery capability as a reviewed proposal. */
+export async function addCapabilityRepository(leadUrl, capabilityId, repositoryUrl, {
+  makeLead = false, clone = null
+} = {}) {
+  if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
+  if (!repositoryUrl) throw new SingularityFlowError('A repository URL is required.');
+  const cloneStrategy = clone == null ? null
+    : normalizeCloneStrategy(clone, `Capability '${capabilityId}' repository clone strategy`);
+  return withLeadCheckout(leadUrl, `Add repository to capability ${capabilityId}`,
+    `capability/repository-add-${capabilityId}`, async (root, _baseBranch, leadRemoteSession) => {
+      assertGovernanceVisible(root);
+      const capabilityFile = path.join(root, CAPABILITIES_PATH);
+      const portfolioFile = path.join(root, PORTFOLIO_PATH);
+      if (!existsSync(capabilityFile) || !existsSync(portfolioFile)) {
+        throw new SingularityFlowError('The approved configuration has no capability map and portfolio to update.');
+      }
+      const capabilities = YAML.parseDocument(await readFile(capabilityFile, 'utf8'));
+      const current = capabilities.getIn(['capabilities', capabilityId], true)?.toJSON?.();
+      if (!current) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
+      if (current.kind !== 'delivery') {
+        throw new SingularityFlowError(
+          `Capability '${capabilityId}' is a collection. Change it to delivery in a reviewed proposal before adding a repository.`);
+      }
+      const repositoryId = repositoryIdOf(repositoryUrl);
+      const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+      const existingRepository = portfolio.getIn(['repositories', repositoryId], true)?.toJSON?.() ?? {};
+      const defaultBranch = observedDefaultBranch(
+        repositoryUrl,
+        sanitizeRemote(repositoryUrl) === sanitizeRemote(leadUrl) ? leadRemoteSession : new GitRemoteSession()
+      );
+      const repository = {
+        ...existingRepository, url: repositoryUrl, defaultBranch, required: true
+      };
+      if (cloneStrategy) {
+        if (cloneStrategy.mode === 'full') delete repository.clone;
+        else repository.clone = cloneStrategy;
+      }
+      portfolio.setIn(['repositories', repositoryId], portfolio.createNode(repository));
+
+      const before = capabilityRepositories(current);
+      const repositories = [...new Set([...before, repositoryId])];
+      capabilities.deleteIn(['capabilities', capabilityId, 'repository']);
+      capabilities.setIn(['capabilities', capabilityId, 'repositories'], repositories);
+      const previousLead = current.leadRepository ?? (before.length === 1 ? before[0] : null);
+      if (makeLead || previousLead) {
+        capabilities.setIn(['capabilities', capabilityId, 'leadRepository'],
+          makeLead ? repositoryId : previousLead);
+      }
+      const portfolioValue = portfolio.toJS();
+      validateCapabilities(capabilities.toJS(), portfolioValue);
+      await writeFile(portfolioFile, portfolio.toString(YAML_OUTPUT), 'utf8');
+      await writeFile(capabilityFile, capabilities.toString(YAML_OUTPUT), 'utf8');
+      return {
+        capabilityId, repositoryId, repositories,
+        leadRepositoryId: makeLead ? repositoryId : previousLead,
+        state: { published: false, reason: 'awaiting review and merge' }
+      };
+    });
+}
+
 /**
  * Put the capability map on the orphan state branch as well as the branch it was edited on.
  *
@@ -740,8 +806,52 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
   if (!ledger?.enabled) return { published: false, reason: 'the state branch is not enabled here' };
   if (ledger.publication === 'off') return { published: false, reason: 'state publication is disabled' };
   try {
+    // The state branch is a complete approved-configuration mirror, not a second capabilities.yml
+    // slot. Publishing only the edited map invalidates its manifest and makes Story startup reject
+    // the state authority. Rebuild the whole bounded mirror from the reviewed configuration tip.
+    const configurationCommit = head(root);
+    const configurationFiles = {};
+    const configurationHashes = {};
+    const configurationPaths = await configurationAssetPaths(root);
+    for (const relative of configurationPaths) {
+      const contents = await readFile(path.join(root, relative));
+      configurationFiles[relative] = contents;
+      configurationHashes[relative] = createHash('sha256').update(contents).digest('hex');
+    }
+    const manifest = {
+      format: STATE_CONFIGURATION_FORMAT,
+      layout: 'canonical-paths',
+      source: { branch: CONFIGURATION_BRANCH, commit: configurationCommit },
+      files: Object.fromEntries(Object.entries(configurationHashes)
+        .sort(([left], [right]) => left.localeCompare(right)))
+    };
+    // Retire configuration paths removed by the reviewed commit without touching runtime roots.
+    const remoteRef = `refs/remotes/${ledger.remote}/${ledger.branch}`;
+    runRemoteGit([
+      'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
+      `+refs/heads/${ledger.branch}:${remoteRef}`
+    ], { cwd: root, operation: 'remote-configuration' });
+    const tracked = run('git', [
+      'ls-tree', '-r', '-z', '--name-only', remoteRef, '--', 'singularity', '.github/agents', 'configuration'
+    ], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean);
+    const previousManifest = run('git', ['show', `${remoteRef}:${STATE_CONFIGURATION_MANIFEST}`], {
+      cwd: root, allowFailure: true
+    });
+    if (previousManifest.status === 0) {
+      try {
+        const previousProduct = JSON.parse(previousManifest.stdout)?.product;
+        if (previousProduct) manifest.product = previousProduct;
+      } catch { /* A malformed prior mirror is replaced by the validated complete mirror below. */ }
+    }
+    configurationFiles[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
+    const desired = new Set(configurationPaths);
+    const removePaths = tracked.filter((relative) =>
+      (isConfigurationAsset(relative) && !desired.has(relative))
+        || relative.startsWith('configuration/files/'));
     const result = await publishToStateBranch(
-      root, ledger, { [CAPABILITIES_PATH]: await readFile(file, 'utf8') }, message);
+      root, ledger, configurationFiles, message, {
+        replaceRoots: ['configuration'], removePaths
+      });
     // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
     // branch already agreed with is the ordinary case, not a problem to explain.
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
@@ -865,6 +975,11 @@ export async function listCapabilityProposals(url, { includeMerged = false } = {
       try {
         if (sharedFailure) throw sharedFailure;
         const ref = `refs/remotes/origin/${entry.branch}`;
+        // The ordinary inbox excludes merged proposals. Determine that with ancestry before
+        // computing names, identities, and the full diff for a proposal the caller will discard.
+        if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+          cwd: scratch, allowFailure: true
+        }).status === 0) continue;
         const proposal = inspectCapabilityProposalCheckout(scratch, sanitizeRemote(remote), entry.branch, ref);
         if (includeMerged || !proposal.merged) proposals.push(proposal);
       } catch (error) {
@@ -987,6 +1102,9 @@ export async function activateCapabilityProposal(url, branch, {
       const reviewBase = alreadyMerged
         ? run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim()
         : mergeBaseResult.stdout.trim();
+      // Once a provider merged the branch, this process can prove the resulting target but cannot
+      // honestly reconstruct the authority tip immediately before that external action.
+      const auditedTargetBefore = alreadyMerged ? null : targetBefore;
       const changed = proposalChangedFiles(root, reviewBase, ref);
       if (!changed.names.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
@@ -1027,6 +1145,25 @@ export async function activateCapabilityProposal(url, branch, {
         );
       }
       let protection = { enforced: null, detail: 'proposal is already merged' };
+      const validateEffectiveCapabilities = async () => {
+        const capabilities = YAML.parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'));
+        const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
+          ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8')) : null;
+        try {
+          validateCapabilities(capabilities, portfolio);
+        } catch (error) {
+          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+          throw new SingularityFlowError(
+            `Capability proposal is not operational: ${redactDiagnosticText(error?.message ?? String(error))}. Nothing was changed; correct the preserved proposal and review it again.`, {
+              code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
+              details: capabilityRecovery({
+                stage: 'activation', state: 'proposal-invalid', remote,
+                branch: proposalBranch, commit: proposalCommit, nextAction,
+                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+              })
+            });
+        }
+      };
       if (!alreadyMerged) {
         const actor = identity(root);
         const merged = run('git', [
@@ -1047,23 +1184,7 @@ export async function activateCapabilityProposal(url, branch, {
               })
             });
         }
-        const capabilities = YAML.parse(await readFile(path.join(root, CAPABILITIES_PATH), 'utf8'));
-        const portfolio = existsSync(path.join(root, PORTFOLIO_PATH))
-          ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8')) : null;
-        try {
-          validateCapabilities(capabilities, portfolio);
-        } catch (error) {
-          const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
-          throw new SingularityFlowError(
-            `Capability proposal is not operational: ${redactDiagnosticText(error?.message ?? String(error))}. Nothing was changed; correct the preserved proposal and review it again.`, {
-              code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
-              details: capabilityRecovery({
-                stage: 'activation', state: 'proposal-invalid', remote,
-                branch: proposalBranch, commit: proposalCommit, nextAction,
-                preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
-              })
-            });
-        }
+        await validateEffectiveCapabilities();
         // Probe the prospective merge commit, not the proposal tip. If the authority advanced
         // after this proposal was created, pushing the proposal itself is non-fast-forward even on
         // an unprotected server and would produce a false claim that protection was enforced.
@@ -1142,6 +1263,10 @@ export async function activateCapabilityProposal(url, branch, {
           };
         }
       }
+      // Validate the effective approved commit in both paths. A proposal merged externally used to
+      // skip this gate and could be audited and projected even when its capability forest was
+      // invalid.
+      if (alreadyMerged) await validateEffectiveCapabilities();
       const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
       const proposer = commitIdentity(root, ref);
       const approver = identity(root);
@@ -1164,7 +1289,7 @@ export async function activateCapabilityProposal(url, branch, {
           },
           proposalBranch,
           proposalCommit,
-          targetBefore,
+          targetBefore: auditedTargetBefore,
           targetCommit,
           changedFiles: changed.statuses,
           protection,
@@ -1201,7 +1326,7 @@ export async function activateCapabilityProposal(url, branch, {
         branch: proposalBranch,
         proposalCommit,
         targetBranch: CONFIGURATION_BRANCH,
-        targetBefore,
+        targetBefore: auditedTargetBefore,
         targetCommit,
         alreadyMerged,
         changedFiles: changed.statuses,

@@ -181,6 +181,24 @@ function restoreRepositoryCheckout(repository, targetBranch) {
   return null;
 }
 
+/** Prove every checkout is still at a state recovery understands before writing any plane. */
+function inspectRepositoryCheckout(repository, targetBranch) {
+  if (!repository?.target || !repository?.from) return `${repository?.repository ?? 'repository'}: recovery record is incomplete`;
+  const current = run('git', ['branch', '--show-current'], { cwd: repository.target, allowFailure: true });
+  if (current.status !== 0) return `${repository.repository}: repository is unavailable`;
+  const currentBranch = current.stdout.trim();
+  if (currentBranch !== targetBranch && currentBranch !== repository.from) {
+    return `${repository.repository}: checkout moved to '${currentBranch}'`;
+  }
+  if (!repository.targetBranchExisted && refExists(repository.target, `refs/heads/${targetBranch}`)) {
+    const targetHead = refHead(repository.target, `refs/heads/${targetBranch}`);
+    if (repository.baseCommit && targetHead !== repository.baseCommit) {
+      return `${repository.repository}: Story branch contains an unrecognized commit`;
+    }
+  }
+  return null;
+}
+
 /** Recover all mutations that can precede the ordinary Story publication journal. */
 export async function recoverStoryStart(root, id, { force = false } = {}) {
   const current = await readStoryStartJournal(root, id);
@@ -217,22 +235,47 @@ export async function recoverStoryStart(root, id, { force = false } = {}) {
     return { status: 'completed', preserved: true };
   }
 
-  if (record.configurationRestorePoint) {
+  const failures = [];
+  // This is deliberately a read-only preflight. A diverged checkout must not receive restored
+  // configuration/session bytes before the operator has reviewed it.
+  const currentBranch = branch(root);
+  if (currentBranch !== record.targetBranch && currentBranch !== record.originalBranch) {
+    failures.push(`root checkout moved to '${currentBranch}'`);
+  } else if (currentBranch === record.targetBranch) {
+    const targetHead = head(root);
+    if (!record.targetBranchExisted && record.baseCommit && targetHead !== record.baseCommit) {
+      failures.push('root Story branch contains an unrecognized commit');
+    }
+  }
+  for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
+    const failure = inspectRepositoryCheckout(repository, record.targetBranch);
+    if (failure) failures.push(failure);
+  }
+  if (failures.length) {
+    await updateStoryStartJournal(root, id, record.transactionId, {
+      stage: 'recovery-diverged', recoveryErrors: failures
+    });
+    throw new SingularityFlowError(
+      `Story '${id}' start recovery stopped safely: ${failures.join('; ')}. The journal was retained.`,
+      { code: 'STORY_START_RECOVERY_DIVERGED', details: { failures } }
+    );
+  }
+
+  // Configuration materialization only happens after the root is on the Story branch. If a prior
+  // recovery already returned to the original branch, replaying these bytes there would corrupt a
+  // stable checkout.
+  if (currentBranch === record.targetBranch && record.configurationRestorePoint) {
     await restoreConfigurationState(root, configurationRestorePoint(record.configurationRestorePoint));
   }
   await restoreAgentSession(root, record.originalSession ?? null);
   await restoreCopilotSession(root, record.originalCopilotSession ?? null);
 
-  const failures = [];
   for (const repository of [...(record.siblingRepositories ?? [])].reverse()) {
     const failure = restoreRepositoryCheckout(repository, record.targetBranch);
     if (failure) failures.push(failure);
   }
 
-  const currentBranch = branch(root);
-  if (currentBranch !== record.targetBranch && currentBranch !== record.originalBranch) {
-    failures.push(`root checkout moved to '${currentBranch}'`);
-  } else if (currentBranch === record.targetBranch) {
+  if (currentBranch === record.targetBranch) {
     const targetHead = head(root);
     if (!record.targetBranchExisted && record.baseCommit && targetHead !== record.baseCommit) {
       failures.push('root Story branch contains an unrecognized commit');

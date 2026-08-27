@@ -161,7 +161,7 @@ import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -592,6 +592,10 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 export async function startCommand(positionals, options) {
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
+  // Recovery owns the checkout that an interrupted start left behind. Run it before dirty-tree
+  // routing; otherwise the recovery files themselves cause a second isolated worktree to be
+  // created and the durable journal is never consumed.
+  await recoverStoryStart(root, id);
   const managedStoryWorktree = optionString(options, 'managed-story-worktree');
   // A Story owns a branch, index and working directory of its own. VS Code always asks for this
   // isolation; the CLI also selects it automatically when the launch checkout is dirty, so
@@ -600,10 +604,6 @@ export async function startCommand(positionals, options) {
       || (!optionBoolean(options, 'allow-dirty') && changes(root).trim()))) {
     return startCommandInIsolatedWorktree(root, id, positionals, options);
   }
-  // Story start mutates checkout/configuration/session planes before workflow.json exists. Recover
-  // their write-ahead journal before trying to load configuration, because a hard kill may have
-  // interrupted configuration materialization itself.
-  await recoverStoryStart(root, id);
   let config = existsSync(path.join(root, WORKFLOW_PATH)) ? await loadConfig(root) : null;
   // At this point the command has not established whether this is new work or an existing Story
   // carrying an older pinned policy. Enforce the transport-safe shape now; the selected lifecycle
@@ -764,6 +764,13 @@ export async function startCommand(positionals, options) {
       );
     }
   }
+  if (refExists(root, localStoryRef) && !localStory && !materializedSeed) {
+    throw new SingularityFlowError(
+      `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
+      + 'Singularity Flow will not adopt an ungoverned branch as a new Story. Rename or remove that branch, then retry.',
+      { code: 'STORY_BRANCH_EXISTS' }
+    );
+  }
   if (config && !materializedSeed) validateId(config, id);
   /**
    * The base branch, chosen once for the whole capability.
@@ -840,6 +847,7 @@ export async function startCommand(positionals, options) {
     `refs/heads/${baseAtStart}`
   ].some((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
   let configurationAuthority = null;
+  let automaticEnrollment = null;
   try {
     configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
   } catch (error) {
@@ -868,6 +876,7 @@ export async function startCommand(positionals, options) {
     const enrollment = await publishCurrentIdentityToConfiguration(root, {
       target: '*', automatic: true
     });
+    automaticEnrollment = enrollment;
     if (enrollment.changed && !enrollment.pushed) {
       throw new SingularityFlowError(
         `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
@@ -933,7 +942,7 @@ export async function startCommand(positionals, options) {
   const originalCopilotSession = await loadCopilotSession(root);
   const siblingRepositories = storyBase.scope === 'capability'
     ? storyBase.plan.repositories.map((repository) => {
-        const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
+        const target = repoRoot(workspaceRepositoryPath({ path: storyBase.workspaceRoot }, repository));
         const base = storyBase.plan.resolution.resolved[repository.id];
         const baseRef = `refs/remotes/${remote}/${base.branch}`;
         return {
@@ -1268,6 +1277,14 @@ export async function startCommand(positionals, options) {
         promptVariant: workflow.measurement.plan.variantId ?? null
       } : { status: workflow.measurement?.status ?? 'not-enrolled' },
       astWarm,
+      ...(automaticEnrollment?.changed ? {
+        approvalEnrollment: {
+          automatic: true,
+          target: '*',
+          commit: automaticEnrollment.commit,
+          pushed: automaticEnrollment.pushed === true
+        }
+      } : {}),
       ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
           ...storyBase.plan.record,
@@ -1299,6 +1316,9 @@ export async function startCommand(positionals, options) {
   });
   if (!optionBoolean(options, 'json')) {
     summary(workflow);
+    if (automaticEnrollment?.changed) {
+      console.log(`Approval enrollment: current Git identity added to configured authorities on ${CONFIGURATION_BRANCH}@${automaticEnrollment.commit.slice(0, 12)} (published).`);
+    }
     if (managedStoryWorktree) {
       const shellPath = root.replaceAll("'", "'\\''");
       console.log(`Isolated Story checkout: ${root}`);
@@ -5099,6 +5119,12 @@ async function capabilitiesCommand(positionals, options) {
     }
     const requiredGroups = resolved.policy.requiredAuthorityGroups ?? [];
     const authority = optionString(options, 'authority', requiredGroups[0] ?? Object.keys(workflowConfig.approvalAuthorities ?? {})[0]);
+    if (requiredGroups.length && !requiredGroups.includes(authority)) {
+      throw new SingularityFlowError(
+        `Capability '${capabilityId}' break-glass leases require one of its governed authority groups: ${requiredGroups.join(', ')}.`,
+        { code: 'CAPABILITY_LEASE_AUTHORITY_INVALID' }
+      );
+    }
     const matched = requireApprovalAuthority(workflowConfig.approvalAuthorities, { authorities: [authority] }, identity(root));
     const ledgerConfig = workflowConfig.ledger ?? {};
     if (!ledgerConfig.enabled) throw new SingularityFlowError('Capability leases require the capability ledger to be enabled.');
@@ -6970,6 +6996,31 @@ function capabilityRemovalDestination(options) {
 async function capabilityCommand(positionals, options) {
   const subcommandForWrite = positionals[1];
 
+  if (subcommandForWrite === 'repository' && positionals[2] === 'add') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const capabilityId = requirePositional(positionals, 3, 'capability ID');
+    const repositoryUrl = optionString(options, 'repository');
+    if (!repositoryUrl) throw new SingularityFlowError('capability repository add requires --repository <URL>.');
+    const hasClonePolicy = options['clone-mode'] !== undefined || options['sparse-cone'] !== undefined
+      || options['clone-fallback'] !== undefined;
+    const proposed = await addCapabilityRepository(leadUrl, capabilityId, repositoryUrl, {
+      makeLead: optionBoolean(options, 'make-lead'),
+      clone: hasClonePolicy ? {
+        mode: optionString(options, 'clone-mode', 'full'),
+        sparseCone: (optionString(options, 'sparse-cone') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+        fallback: optionString(options, 'clone-fallback', 'refuse')
+      } : null
+    });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...proposed }, null, 2));
+    console.log(`Proposed repository ${proposed.repositoryId} for capability ${capabilityId}.`);
+    console.log(`  review branch: ${proposed.branch}`);
+    console.log(`  review: singularity-flow capability proposal ${proposed.branch} --lead ${leadUrl}`);
+    console.log(`  activate: singularity-flow capability activate ${proposed.branch} --lead ${leadUrl} --confirm ${proposed.commit}`);
+    return;
+  }
+
   // Mapping and reading happen against a lead repository rather than a checkout, so they run from
   // anywhere — including a window with nothing open, which is where somebody describing what their
   // organisation builds actually is.
@@ -7005,11 +7056,12 @@ async function capabilityCommand(positionals, options) {
       resources: optionMap(optionStrings(options, 'resource'), 'Capability resources'),
       sourceRoots: (optionString(options, 'source-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
       sharedRoots: (optionString(options, 'shared-roots') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
-      clone: {
-        mode: optionString(options, 'clone-mode', 'full'),
-        sparseCone: (optionString(options, 'sparse-cone') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
-        fallback: optionString(options, 'clone-fallback', 'refuse')
-      },
+      clone: options['clone-mode'] !== undefined || options['sparse-cone'] !== undefined
+        || options['clone-fallback'] !== undefined ? {
+          mode: optionString(options, 'clone-mode', 'full'),
+          sparseCone: (optionString(options, 'sparse-cone') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+          fallback: optionString(options, 'clone-fallback', 'refuse')
+        } : null,
       jiraProject: optionString(options, 'jira-project'),
       teams: (optionString(options, 'teams') ?? '').split(',').map((team) => team.trim()).filter(Boolean)
     });
@@ -9391,11 +9443,33 @@ async function workspaceCommand(positionals, options) {
             path: `repos/${id}`
           }]))
       };
-      if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(previewWorkspaceConfiguration(localInput), null, 2));
-      const localResult = await createWorkspaceConfiguration(localInput, {
-        confirmation: optionString(options, 'confirm'),
-        clone: optionBoolean(options, 'clone', true)
-      });
+      const localPreview = previewWorkspaceConfiguration(localInput);
+      if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(localPreview, null, 2));
+      let localResult;
+      try {
+        localResult = await createWorkspaceConfiguration(localInput, {
+          confirmation: optionString(options, 'confirm'),
+          clone: optionBoolean(options, 'clone', true)
+        });
+      } catch (error) {
+        // A required clone can fail after the recoverable workspace shell and journal exist. Keep
+        // that shell discoverable instead of losing it merely because registration used to happen
+        // only on the success path.
+        try {
+          const retained = await readWorkspace(localPreview.root);
+          const retainedStatus = await workspaceStatus(retained.path);
+          await rememberWorkspace(registry, retained, retainedStatus);
+          throw new SingularityFlowError(
+            `${error.message}\nWorkspace retained and registered at ${retained.path}. Repair it with: `
+            + `singularity-flow workspace repair ${JSON.stringify(retained.path)}`,
+            { code: error.code ?? 'WORKSPACE_MATERIALIZATION_INCOMPLETE', cause: error }
+          );
+        } catch (retainedError) {
+          if (retainedError instanceof SingularityFlowError
+            && retainedError.code === (error.code ?? 'WORKSPACE_MATERIALIZATION_INCOMPLETE')) throw retainedError;
+          throw error;
+        }
+      }
       await rememberWorkspace(registry, localResult.workspace, localResult.status);
 
       // Initialising the workspace is what creates the governed state branch, in the repository the
@@ -9480,7 +9554,25 @@ async function workspaceCommand(positionals, options) {
     const preview = previewWorkspace(input);
     if (optionBoolean(options, 'dry-run')) return console.log(JSON.stringify(preview, null, 2));
     const confirmation = optionString(options, 'confirm');
-    const result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', true) });
+    let result;
+    try {
+      result = await createWorkspace(input, { confirmation, clone: optionBoolean(options, 'clone', true) });
+    } catch (error) {
+      try {
+        const retained = await readWorkspace(preview.root);
+        const retainedStatus = await workspaceStatus(retained.path);
+        await rememberWorkspace(registry, retained, retainedStatus);
+        throw new SingularityFlowError(
+          `${error.message}\nWorkspace retained and registered at ${retained.path}. Repair it with: `
+          + `singularity-flow workspace repair ${JSON.stringify(retained.path)}`,
+          { code: error.code ?? 'WORKSPACE_MATERIALIZATION_INCOMPLETE', cause: error }
+        );
+      } catch (retainedError) {
+        if (retainedError instanceof SingularityFlowError
+          && retainedError.code === (error.code ?? 'WORKSPACE_MATERIALIZATION_INCOMPLETE')) throw retainedError;
+        throw error;
+      }
+    }
     await rememberWorkspace(registry, result.workspace, result.status);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace ${result.created ? 'created' : 'resumed'} at ${result.workspace.path}.`);

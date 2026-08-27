@@ -33,7 +33,7 @@ export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
 export const STATE_CONFIGURATION_BRANCH = 'state';
 export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
-const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';
+export const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';
 
 // These directories are lifecycle state or generated evidence, never shared configuration.
 const RUNTIME_ROOTS = new Set([
@@ -77,12 +77,18 @@ async function filesBelow(root, relative = '', output = []) {
  * of "configuration" as new governed files are introduced.
  */
 export async function configurationAssetPaths(root) {
-  return [...await filesBelow(root)].sort();
+  // Do not walk the application tree (especially node_modules/build output) to discover two
+  // bounded configuration roots. Large monorepos otherwise pay this cost on every refresh and
+  // capability publication.
+  return [
+    ...await filesBelow(root, 'singularity'),
+    ...await filesBelow(root, '.github/agents')
+  ].sort();
 }
 
 async function copyAssets(source, destination) {
   const copied = [];
-  for (const relative of await filesBelow(source)) {
+  for (const relative of await configurationAssetPaths(source)) {
     const from = path.join(source, relative);
     const info = await lstat(from);
     if (!info.isFile() || info.isSymbolicLink()) {

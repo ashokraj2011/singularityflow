@@ -1079,6 +1079,9 @@ export async function snapshotResolution(root, definition, resolved) {
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
+    // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
+    // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.
+    faultRepair: structuredClone(resolved.faultRepair ?? normalizeFaultRepairPolicy(definition.faultRepair ?? {})),
     /**
      * The constitution policy the Story is held to `[SPK:CON-039]`.
      *

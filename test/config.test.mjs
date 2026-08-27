@@ -381,6 +381,9 @@ test('fault repair policy is bounded, legacy-safe, and pinned into work types', 
   assert.equal(definition.faultRepair.environmentCeilings.local, 'guided');
   assert.equal(definition.faultRepair.environmentCeilings.production, 'diagnose');
   assert.equal(resolveWorkType(definition, 'feature').faultRepair.maxAttempts, 3);
+  const pinned = await snapshotResolution(root, definition, resolveWorkType(definition, 'feature'));
+  assert.equal(pinned.faultRepair.maxAttempts, 3);
+  assert.deepEqual(pinned.faultRepair, resolveWorkType(definition, 'feature').faultRepair);
   definition.faultRepair.maxAttempts = 21;
   assert.throws(() => validateDefinition(definition), /maxAttempts must be an integer from 1 through 20/);
   definition.faultRepair.maxAttempts = 2;

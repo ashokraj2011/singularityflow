@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { lifecycleEvent, recordPublicationProjection } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
@@ -12,6 +13,9 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from '../src/story-start-journal.mjs';
 import { captureConfigurationState } from '../src/configuration-branch.mjs';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
 function git(args, cwd) {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -70,6 +74,51 @@ test('Story-start recovery refuses an unrecognized commit and retains its journa
   );
   assert.equal(git(['branch', '--show-current'], root), 'START-2');
   assert.ok(await readStoryStartJournal(root, 'START-2'));
+});
+
+test('recovery never restores Story configuration bytes onto an already stable original branch', async () => {
+  const root = await repository('sflow-story-start-original-stable-');
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: before-start\n');
+  git(['add', '.'], root);
+  git(['commit', '-m', 'configuration baseline'], root);
+  const base = git(['rev-parse', 'HEAD'], root);
+  const captured = await captureConfigurationState(root);
+  const journal = await beginStoryStartJournal(root, {
+    id: 'START-STABLE', targetBranch: 'START-STABLE', targetBranchExisted: false,
+    originalBranch: 'main', originalHead: base, baseCommit: base
+  });
+  await updateStoryStartJournal(root, 'START-STABLE', journal.transactionId, {
+    stage: 'configuration-captured',
+    configurationRestorePoint: serializeConfigurationRestorePoint(captured)
+  });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: operator-owned-original\n');
+
+  const recovered = await recoverStoryStart(root, 'START-STABLE', { force: true });
+  assert.equal(recovered.status, 'recovered');
+  assert.equal(git(['branch', '--show-current'], root), 'main');
+  assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'),
+    'version: operator-owned-original\n');
+});
+
+test('Story start refuses a pre-existing local branch with no governed state or seed', async () => {
+  const root = await repository('sflow-story-start-ungoverned-branch-');
+  const initialized = spawnSync(process.execPath, [cli, 'init'], { cwd: root, encoding: 'utf8' });
+  assert.equal(initialized.status, 0, initialized.stderr);
+  git(['add', '.'], root);
+  git(['commit', '-m', 'initialize governance'], root);
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-start-remote-'));
+  git(['init', '--bare'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  git(['branch', 'START-UNGOVERNED'], root);
+
+  const started = spawnSync(process.execPath, [cli, 'start', 'START-UNGOVERNED', '--json', '--yes'], {
+    cwd: root, encoding: 'utf8'
+  });
+  assert.notEqual(started.status, 0);
+  assert.match(started.stderr, /neither governed Story state nor a materialized Story seed/);
+  assert.equal(git(['branch', '--show-current'], root), 'main');
 });
 
 test('an exact governed binding commit completes start recovery instead of being rolled back', async () => {

@@ -21,7 +21,7 @@ import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
-  activateCapabilityProposal, editCapabilityInOrganisation, initializeWorkspaceState,
+  activateCapabilityProposal, addCapabilityRepository, editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
@@ -219,6 +219,46 @@ test('the first capability governs the repository it is mapped into', async () =
   assert.match(both, /parent: commerce/);
 });
 
+test('mapping another capability preserves an existing reviewed sparse clone strategy', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.platform,
+    clone: { mode: 'blobless-sparse', sparseCone: ['src', 'pom.xml'], fallback: 'refuse' }
+  });
+  const next = await mapCapability(org.platform, {
+    capabilityId: 'reporting', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const portfolio = YAML.parse(run('git', [
+    'show', `${next.branch}:singularity/portfolio.yml`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(portfolio.repositories.platform.clone.mode, 'blobless-sparse');
+  assert.equal(portfolio.repositories.platform.clone.fallback, 'refuse');
+  assert.ok(portfolio.repositories.platform.clone.sparseCone.includes('src'));
+  assert.ok(portfolio.repositories.platform.clone.sparseCone.includes('pom.xml'));
+});
+
+test('a repository can be added to an existing delivery through one reviewed proposal', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const proposed = await addCapabilityRepository(org.platform, 'calculator', org.service, {
+    clone: { mode: 'blobless-sparse', sparseCone: ['service'], fallback: 'refuse' }
+  });
+  const capability = YAML.parse(run('git', [
+    'show', `${proposed.branch}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout).capabilities.calculator;
+  assert.deepEqual(capability.repositories, ['platform', 'service']);
+  assert.equal(capability.leadRepository, 'platform');
+  const repository = YAML.parse(run('git', [
+    'show', `${proposed.branch}:singularity/portfolio.yml`
+  ], { cwd: org.platform }).stdout).repositories.service;
+  assert.equal(repository.url, org.service);
+  assert.equal(repository.clone.mode, 'blobless-sparse');
+});
+
 test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -282,6 +322,17 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.match(run('git', ['show', 'state:singularity/capabilities.yml'], {
     cwd: org.platform
   }).stdout, /calculator/);
+  const mirror = JSON.parse(run('git', ['show', 'state:configuration/manifest.json'], {
+    cwd: org.platform
+  }).stdout);
+  assert.equal(mirror.source.commit, activated.targetCommit);
+  assert.ok(mirror.files['singularity/workflow.yml']);
+  assert.ok(mirror.files['singularity/capabilities.yml']);
+  assert.deepEqual(Object.keys(mirror.files).sort(), run('git', [
+    'ls-tree', '-r', '--name-only', 'state', '--', 'singularity', '.github/agents'
+  ], { cwd: org.platform }).stdout.trim().split('\n').filter((file) =>
+    !file.startsWith('singularity/work-items/') && !file.startsWith('singularity/world-model/')
+      && !file.startsWith('singularity/ledger/')).sort());
   assert.deepEqual(await listCapabilityProposals(org.platform), []);
   const history = await listCapabilityProposals(org.platform, { includeMerged: true });
   assert.equal(history[0].merged, true);
@@ -488,6 +539,7 @@ test('an externally merged proposal can append its activation audit and projecti
     confirm: proposed.commit
   });
   assert.equal(activated.alreadyMerged, true);
+  assert.equal(activated.targetBefore, null);
   assert.equal(activated.protection.enforced, null);
   assert.equal(activated.audit.recorded, true);
   assert.equal(activated.projection.published, true);
@@ -495,6 +547,44 @@ test('an externally merged proposal can append its activation audit and projecti
     'show', `state:ledger/events/${activated.audit.eventId}.json`
   ], { cwd: org.platform }).stdout);
   assert.equal(event.eventId, activated.audit.eventId);
+});
+
+test('an externally merged invalid capability map is refused before audit or projection', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const checkout = await mkdtemp(path.join(os.tmpdir(), 'sflow-invalid-external-review-'));
+  let invalidCommit;
+  try {
+    run('git', ['clone', '-q', org.platform, checkout]);
+    run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: checkout });
+    run('git', ['config', 'user.name', 'Review User'], { cwd: checkout });
+    run('git', ['fetch', '-q', 'origin', proposed.branch], { cwd: checkout });
+    run('git', ['switch', '-q', '-C', proposed.branch, `origin/${proposed.branch}`], { cwd: checkout });
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    document.setIn(['capabilities', 'calculator', 'parent'], 'calculator');
+    await writeFile(file, document.toString());
+    run('git', ['add', file], { cwd: checkout });
+    run('git', ['commit', '-qm', 'introduce invalid capability cycle'], { cwd: checkout });
+    invalidCommit = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    run('git', ['push', '-q', '--force', 'origin', `HEAD:${proposed.branch}`], { cwd: checkout });
+    run('git', ['switch', '-q', '-C', 'sflow/config', 'origin/sflow/config'], { cwd: checkout });
+    run('git', ['merge', '--ff-only', proposed.branch], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', 'HEAD:sflow/config'], { cwd: checkout });
+  } finally {
+    await rm(checkout, { recursive: true, force: true });
+  }
+
+  await assert.rejects(
+    () => activateCapabilityProposal(org.platform, proposed.branch, { confirm: invalidCommit }),
+    (error) => error.code === 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID'
+  );
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/state'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 1);
 });
 
 test('activation success survives a later projection failure with an exact repair command', async () => {

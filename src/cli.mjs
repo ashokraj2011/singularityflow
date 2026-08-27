@@ -135,7 +135,7 @@ import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-ide
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, materializeConfigurationSnapshot,
-  resolveStoryConfigurationAuthority
+  loadStoryConfigurationDefinition, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
@@ -741,13 +741,6 @@ export async function startCommand(positionals, options) {
   }
 
   const preselectedWorkType = receipt?.answers['workflow-template'] ?? optionString(options, 'work-type');
-  // Refuse an unavailable catalog choice before choosing a base, checking out a Story branch, or
-  // creating a managed worktree. `workflow list` includes packaged profiles that can be installed;
-  // callers must not be able to mistake those catalog rows for profiles present in this approved
-  // definition and discover the mismatch only after Story state has begun to materialize.
-  if (preselectedWorkType && config) {
-    await selectWorkType(config, { selection: preselectedWorkType });
-  }
   if (preselectedWorkType === 'poc-workflow') {
     normalizeMcpTargetOrigin(optionString(options, 'target-url'), {
       required: true,
@@ -842,24 +835,34 @@ export async function startCommand(positionals, options) {
       })
     : null;
   const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
-  // A repository that still carries its approved workflow on the selected application base is a
-  // complete legacy authority in its own right. Do not mistake an unrelated `state` branch (for
-  // example one that contains only a governed world model) for a configuration mirror and reject
-  // an otherwise valid Story start. The current checkout alone is not enough evidence: a
-  // governance proposal also carries a workflow while its selected application base deliberately
-  // does not, and that case must still materialize the reviewed remote authority.
+  // A published configuration authority always governs a new Story, including when start was
+  // launched from an older pinned Story or an application base still contains a legacy workflow.
+  // The legacy base remains a fallback only when no usable sflow/config/state mirror exists.
   const baseCarriesConfiguration = [
     `refs/remotes/${remote}/${baseAtStart}`,
     `refs/heads/${baseAtStart}`
   ].some((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
-  const configurationAuthority = config && baseCarriesConfiguration
-    ? null
-    : await resolveStoryConfigurationAuthority(root, remote);
-  if (!config && !configurationAuthority) {
+  let configurationAuthority = null;
+  try {
+    configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
+  } catch (error) {
+    // Some legacy repositories use a `state` branch for unrelated runtime data. Their application
+    // base remains a complete authority; a malformed would-be mirror may not override it.
+    if (!baseCarriesConfiguration) throw error;
+  }
+  if (!configurationAuthority && !baseCarriesConfiguration) {
     throw new SingularityFlowError(
       `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
       + `state configuration mirror is available for this repository or its active workspace lead. `
       + 'Refresh the workspace configuration authority first.');
+  }
+  // Validate the explicit form/Copilot choice against the exact definition that will be pinned,
+  // before checkout, worktree creation, enrollment, or any governed mutation.
+  if (preselectedWorkType) {
+    const startDefinition = configurationAuthority
+      ? await loadStoryConfigurationDefinition(configurationAuthority)
+      : config;
+    if (startDefinition) await selectWorkType(startDefinition, { selection: preselectedWorkType });
   }
   // Enrollment is completed before the Story branch and its immutable configuration snapshot are
   // created. A failed configuration push stops here, so the Story can never pin the older authority
@@ -5072,7 +5075,7 @@ async function workflowCommand(positionals, options) {
         { key: 'governs', label: 'GOVERNS' }, { key: 'phases', label: 'PHASES' },
         { key: 'status', label: 'STATUS' }
       ]));
-    });
+    }, { preferAuthority: optionBoolean(options, 'for-start') });
   }
 
   // Authoring, folded in rather than given a noun of its own. `add` already means "install a

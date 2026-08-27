@@ -228,7 +228,7 @@ export class IntakePanel {
       const listed = await this.client.run<{
         id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
         installed?: boolean;
-      }[]>(['workflow', 'list', '--json']);
+      }[]>(['workflow', 'list', '--json', '--for-start']);
       return {
         // `workflow list` is intentionally a catalog: it includes packaged workflows that could be
         // installed as well as workflows present in the approved repository definition. Intake is

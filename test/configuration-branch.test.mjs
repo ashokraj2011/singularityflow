@@ -219,6 +219,59 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
   }
 });
 
+test('new-Story workflow listing reads current authority instead of an older pinned Story', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'pinned-story-catalog');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'story@example.com'], { cwd: checkout });
+    run('git', ['switch', '-q', '-c', 'PINNED-OLD'], { cwd: checkout });
+    await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
+    const workflowFile = path.join(checkout, 'singularity/workflow.yml');
+    const pinned = YAML.parse(await readFile(workflowFile, 'utf8'));
+    delete pinned.workTypes['spec-driven-standard'];
+    await writeFile(workflowFile, YAML.stringify(pinned));
+    run('git', ['add', '-A'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Pin an older Story workflow catalog'], { cwd: checkout });
+
+    const historical = JSON.parse(spawnSync(process.execPath, [
+      cli, 'workflow', 'list', '--json'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } }).stdout);
+    assert.equal(historical.find((entry) => entry.id === 'spec-driven-standard')?.installed, false,
+      'ordinary inspection describes the active Story pin');
+
+    const forStart = spawnSync(process.execPath, [
+      cli, 'workflow', 'list', '--json', '--for-start'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(forStart.status, 0, forStart.stderr || forStart.stdout);
+    const catalog = JSON.parse(forStart.stdout);
+    assert.equal(catalog.find((entry) => entry.id === 'spec-driven-standard')?.installed, true,
+      'new Story intake describes the latest approved configuration');
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'PINNED-OLD');
+    assert.equal(YAML.parse(await readFile(workflowFile, 'utf8')).workTypes['spec-driven-standard'],
+      undefined, 'authority inspection never mutates the pinned Story');
+
+    const started = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-SPEC-NEW', '--json', '--from-branch', 'main',
+      '--work-type', 'spec-driven-standard', '--agent', 'product-owner',
+      '--title', 'Use the current standard workflow',
+      '--description', 'A new Story must use approved configuration instead of the older active pin.'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(started.status, 0, started.stderr || started.stdout);
+    const result = JSON.parse(started.stdout);
+    const newStoryRoot = result.data.repositoryPath ?? checkout;
+    const state = JSON.parse(await readFile(path.join(
+      newStoryRoot, 'singularity/work-items/CFG-SPEC-NEW/workflow.json'
+    ), 'utf8'));
+    assert.equal(state.workItem.workType, 'spec-driven-standard');
+    assert.equal(state.resolution.configurationSource.branch, CONFIGURATION_BRANCH);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('a later materialization records configuration assets removed by the approved revision', async () => {
   const fixture = await repositoryFixture();
   try {
@@ -453,8 +506,13 @@ test('Story start changes nothing when neither configuration authority is availa
       cli, 'start', 'CFG-NONE', '--json', '--title', 'No authority',
       '--description', 'Refuse without configuration authority.',
       '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
-    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
-    assert.notEqual(started.status, 0);
+    ], { cwd: checkout, encoding: 'utf8', env: {
+      ...process.env,
+      NO_COLOR: '1',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.root, 'empty-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(fixture.root, 'no-active-workspace.json')
+    } });
+    assert.notEqual(started.status, 0, `${started.stderr}\n${started.stdout}`);
     assert.match(started.stderr, /Neither an approved sflow\/config branch nor a verified state configuration mirror/);
     assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), before);

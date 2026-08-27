@@ -221,7 +221,7 @@ Usage:
   singularity-flow secrets scan [--staged] [--json]
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
-  singularity-flow workflow list [--json]                  every workflow, Story and Initiative
+  singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT]
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]

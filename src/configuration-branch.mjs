@@ -583,6 +583,24 @@ export async function resolveStoryConfigurationAuthority(root, remoteName = 'ori
   return lead ? resolveRemoteStoryConfigurationAuthority(lead) : null;
 }
 
+/** Load one Story authority as a complete disposable definition without touching the checkout. */
+export async function loadStoryConfigurationDefinition(authority) {
+  if (!authority?.remote || !authority?.branch) {
+    throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
+  }
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
+  try {
+    if (authority.branch === STATE_CONFIGURATION_BRANCH) {
+      await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
+    } else {
+      await cloneConfiguration(authority.remote, scratch);
+    }
+    return await loadDefinition(scratch);
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
 export async function resolveConfigurationRemote(root, remoteName = 'origin') {
   const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();

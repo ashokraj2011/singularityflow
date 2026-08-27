@@ -181,14 +181,21 @@ async function extractConfiguration(root, authority, destination) {
  * Use the working-tree configuration when present; otherwise mount the fetched approved commit in
  * a disposable directory. A narrow clone may refresh one ordinary remote-tracking authority ref;
  * the selected ref, HEAD, index and application files are never changed.
+ *
+ * `preferAuthority` is for operations that describe a *new* Story. An active Story must keep
+ * reading its immutable pinned configuration, while new-work intake must see the latest approved
+ * catalog even when launched from that older Story checkout.
  */
-export async function withApprovedConfigurationRead(root, fn) {
+export async function withApprovedConfigurationRead(root, fn, { preferAuthority = false } = {}) {
   const workflow = await lstat(path.join(root, WORKFLOW_PATH)).catch((error) => {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
     throw error;
   });
-  if (workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
-  const authority = approvedConfigurationAuthority(root) ?? refreshApprovedConfigurationAuthority(root);
+  if (workflow && !preferAuthority) return fn({ kind: 'working-tree', ref: null, commit: null });
+  const authority = preferAuthority
+    ? refreshApprovedConfigurationAuthority(root) ?? approvedConfigurationAuthority(root)
+    : approvedConfigurationAuthority(root) ?? refreshApprovedConfigurationAuthority(root);
+  if (!authority && workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
   if (!authority) return fn(null);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-read-'));
   try {

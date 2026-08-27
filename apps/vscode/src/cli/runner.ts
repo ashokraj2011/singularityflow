@@ -23,6 +23,8 @@ export const SNAPSHOT_TIMEOUT_MS = 120_000;
 export const WORLD_MODEL_TIMEOUT_MS = 15 * 60_000;
 /** Remote capability authority may establish or review configuration on a very large monorepo. */
 export const CAPABILITY_AUTHORITY_TIMEOUT_MS = 15 * 60_000;
+/** Starting governed work may fetch, materialize, commit, and publish several repositories. */
+export const WORK_START_TIMEOUT_MS = 15 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
 export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */
@@ -197,6 +199,50 @@ export class CliError extends Error {
     this.exitCode = exitCode;
     this.stderr = stderr;
     this.result = result;
+  }
+}
+
+function terminalQuote(value: string, platform: NodeJS.Platform): string {
+  return platform === 'win32'
+    ? `'${value.replaceAll("'", "''")}'`
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+/**
+ * One pasteable command for the terminal native to the host running VS Code.
+ *
+ * Every argument is quoted, including values supplied by intake. Besides making spaces survive,
+ * this prevents a title containing `$()`, a backtick, `#`, or a single quote from becoming shell
+ * syntax when somebody follows timeout recovery. Secrets are never CLI arguments; they remain in
+ * the child environment supplied from SecretStorage.
+ */
+export function terminalCommand(
+  repository: string,
+  args: readonly string[],
+  platform: NodeJS.Platform = process.platform
+): string {
+  const quoted = args.map((argument) => terminalQuote(argument, platform)).join(' ');
+  if (platform === 'win32') {
+    return `Set-Location -LiteralPath ${terminalQuote(repository, platform)}; & 'singularity-flow'${quoted ? ` ${quoted}` : ''}`;
+  }
+  return `cd ${terminalQuote(repository, platform)} && 'singularity-flow'${quoted ? ` ${quoted}` : ''}`;
+}
+
+/** A timeout carries the exact invocation so every UI can offer deterministic recovery. */
+export class CliTimeoutError extends Error {
+  readonly code = 'SINGULARITY_FLOW_CLI_TIMEOUT';
+  readonly timeoutMs: number;
+  readonly terminalCommand: string;
+  readonly summary: string;
+  constructor(timeoutMs: number, command: string) {
+    const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+    const summary = `The Singularity Flow CLI did not finish within ${seconds} seconds. `
+      + 'The interrupted operation may have retained recoverable transaction state.';
+    super(`${summary}\n\nRun this exact command from a terminal:\n${command}`);
+    this.name = 'CliTimeoutError';
+    this.timeoutMs = timeoutMs;
+    this.terminalCommand = command;
+    this.summary = summary;
   }
 }
 
@@ -521,7 +567,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     }
 
     timer = setTimeout(() => {
-      terminate(new Error(`The Singularity Flow CLI did not finish within ${Math.ceil(timeoutMs / 1000)} seconds. Run the same command in a terminal to see what it is waiting on.`), 'error');
+      terminate(new CliTimeoutError(timeoutMs, terminalCommand(repository, args)), 'error');
     }, timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
 

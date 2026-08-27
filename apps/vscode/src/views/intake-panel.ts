@@ -15,6 +15,7 @@ import {
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
+import { CliTimeoutError, terminalCommand } from '../cli/runner.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 
 /** What was started, so the caller can take the reader straight to it. */
@@ -52,6 +53,7 @@ export class IntakePanel {
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
+  private preflightController: AbortController | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -128,8 +130,17 @@ export class IntakePanel {
   }
 
   private update(changes: Partial<IntakeForm>): void {
-    this.form = { ...this.form, ...changes };
+    this.form = {
+      ...this.form,
+      ...(Object.hasOwn(changes, 'error') && changes.error === null ? { recoveryCommand: null } : {}),
+      ...changes
+    };
     this.render();
+  }
+
+  private cancelBasePreflight(): void {
+    this.preflightController?.abort();
+    this.preflightController = null;
   }
 
   /**
@@ -322,6 +333,7 @@ export class IntakePanel {
     shape: (message) => {
       const shape = SHAPES.find((entry) => entry.id === stringField(message, 'value'));
       if (shape) {
+        this.cancelBasePreflight();
         this.preflightVersion += 1;
         this.update({
           shape: shape.id, error: null,
@@ -391,16 +403,19 @@ export class IntakePanel {
    * version prevents a slow answer for an earlier branch or identifier from enabling Start.
    */
   private async preflightBaseBranch(): Promise<void> {
+    this.cancelBasePreflight();
     const storyId = intakeIdentifier(this.form);
     const branch = this.form.baseBranch;
     if (this.form.shape !== 'story' || !storyId || !branch) return;
     const version = ++this.preflightVersion;
+    const controller = new AbortController();
+    this.preflightController = controller;
     this.update({ basePreflightPassed: false, basePreflightChecking: true, basePreflightReason: null });
     try {
       const result = await this.client.run<{ preflight?: { passed?: boolean } }>([
         'workspace', 'branches', '--json', '--preflight-story', storyId,
         '--from-branch', branch
-      ]);
+      ], controller.signal);
       if (version !== this.preflightVersion) return;
       if (!result.preflight?.passed) {
         this.update({
@@ -418,6 +433,8 @@ export class IntakePanel {
         basePreflightPassed: false, basePreflightChecking: false,
         basePreflightReason: (error as Error).message
       });
+    } finally {
+      if (this.preflightController === controller) this.preflightController = null;
     }
   }
 
@@ -430,10 +447,10 @@ export class IntakePanel {
       });
       return;
     }
-    this.update({ busy: true, error: null });
+    this.update({ busy: true, error: null, recoveryCommand: null });
 
     const args = intakeCommand(this.form);
-    this.output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
+    this.output.appendLine(`\n$ ${terminalCommand(this.client.repository, args)}`);
     try {
       type StartPayload = {
         id?: string;
@@ -460,11 +477,17 @@ export class IntakePanel {
         shape, id, currentPhase: payload.currentPhase, repositoryPath: payload.repositoryPath
       });
     } catch (error) {
-      this.update({ busy: false, error: (error as Error).message });
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.update({
+        busy: false,
+        error: failure instanceof CliTimeoutError ? failure.summary : failure.message,
+        recoveryCommand: failure instanceof CliTimeoutError ? failure.terminalCommand : null
+      });
     }
   }
 
   dispose(): void {
+    this.cancelBasePreflight();
     IntakePanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

@@ -234,6 +234,33 @@ test('loading a new snapshot slice cannot reuse a revision from a smaller projec
   assert.equal(outcome.definitionText, 'version: 2');
 });
 
+test('loading a missing slice reports that it already refreshed, so Start Work does not read twice', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let calls = 0;
+    const client = {
+      async snapshot(_signal, slices) {
+        calls += 1;
+        return { workItems: [], initiatives: [], included: slices, revision: { subjectRevision: String(calls) } };
+      },
+      async configurationSnapshot() { throw new Error('not expected'); }
+    };
+    const store = new WorkspaceStore(client);
+    const firstRefreshed = await store.ensureSlices(['configuration']);
+    const secondRefreshed = await store.ensureSlices(['configuration']);
+    process.stdout.write(JSON.stringify({ calls, firstRefreshed, secondRefreshed }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 10_000
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    calls: 1,
+    firstRefreshed: true,
+    secondRefreshed: false
+  });
+});
+
 test('a cached heavy panel does not make the next activation reload every heavy slice', () => {
   const source = `
     import { WorkspaceStore } from ${JSON.stringify(storeModule)};

@@ -124,7 +124,7 @@ export class WorkspaceStore {
   }
 
   /** Load a heavyweight domain once its surface is actually requested. */
-  async ensureSlices(slices: readonly SnapshotSlice[]): Promise<void> {
+  async ensureSlices(slices: readonly SnapshotSlice[]): Promise<boolean> {
     let added = false;
     for (const slice of slices) {
       if (this.loadedSlices.has(slice)) continue;
@@ -132,7 +132,11 @@ export class WorkspaceStore {
       added = true;
     }
     if (added) this.forceFullSnapshot = true;
-    if (added || !this.state.snapshot) await this.refresh();
+    if (added || !this.state.snapshot) {
+      await this.refresh();
+      return true;
+    }
+    return false;
   }
 
   /** Sleep, unless the refresh is superseded or the window goes away first. */

@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
-  WORLD_MODEL_TIMEOUT_MS,
+  WORK_START_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
@@ -307,6 +307,11 @@ export class SingularityFlowClient {
   private timeoutFor(args: string[]): number {
     if (args[0] === 'submit') return VALIDATION_TIMEOUT_MS;
     if (args[0] === 'repair' && args[1] === 'attempt') return VALIDATION_TIMEOUT_MS;
+    if (args[0] === 'start'
+        || (['story', 'epic', 'initiative'].includes(args[0] ?? '') && args[1] === 'start')
+        || (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story'))) {
+      return WORK_START_TIMEOUT_MS;
+    }
     // Validated workspace deletion can move large monorepo checkouts into rollback staging before
     // it commits the reset. The ordinary two-minute UI timeout must not kill that transaction in
     // the middle; the CLI still owns rollback and the panel remains non-shelling.

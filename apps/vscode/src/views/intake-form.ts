@@ -92,6 +92,8 @@ export interface IntakeForm {
   inFlight: InFlight[];
   busy: boolean;
   error: string | null;
+  /** Exact, safely quoted terminal recovery for a CLI timeout. */
+  recoveryCommand: string | null;
 }
 
 /** One offered base branch, and how much of the capability publishes it. */
@@ -111,7 +113,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
   workflowReason: null,
   jiraConfigured: false, jiraReason: null,
-  githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null
+  githubConfigured: true, githubReason: null, inFlight: [], busy: false, error: null,
+  recoveryCommand: null
 };
 
 /** What each shape is, and — the part that matters — what it leads to. */
@@ -582,6 +585,9 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ? `Reserves a branch for this ${escape(noun.toLowerCase())}, which is what mints its identifier, and commits its first governed state.`
       : `Starts ${escape(noun.toLowerCase())} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
+    ${form.recoveryCommand ? `<div class="notice warning"><strong>Continue from a terminal</strong>
+      <p>The command is bound to this repository and preserves every argument exactly.</p>
+      <pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre></div>` : ''}
     <p>
       <button data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}

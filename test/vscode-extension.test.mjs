@@ -25,8 +25,8 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
 const {
-  invokeCli, CliError, validateRepositoryDirectory, UninitializedRepositoryError,
-  RepositoryAuthorityUnavailableError
+  invokeCli, CliError, CliTimeoutError, terminalCommand, validateRepositoryDirectory,
+  UninitializedRepositoryError, RepositoryAuthorityUnavailableError
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
@@ -207,8 +207,35 @@ test('--json can be turned off for commands that print prose', async () => {
 
 test('a run that exceeds its timeout is killed and reports the timeout', async () => {
   await assert.rejects(
-    invoke({ timeoutMs: 20, spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 }) }),
-    /did not finish within 1 seconds/
+    invoke({
+      repository: "/work/Rule Engine's UI",
+      args: ['start', 'WRK-17', '--title', 'Fix $HOME and `checkout`'],
+      timeoutMs: 20,
+      spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+    }),
+    (error) => {
+      assert.ok(error instanceof CliTimeoutError);
+      assert.match(error.message, /did not finish within 1 seconds/);
+      assert.match(error.message, /Run this exact command from a terminal/);
+      assert.equal(error.terminalCommand, terminalCommand(
+        "/work/Rule Engine's UI",
+        ['start', 'WRK-17', '--title', 'Fix $HOME and `checkout`']
+      ));
+      assert.match(error.terminalCommand, /singularity-flow/);
+      assert.match(error.terminalCommand, /WRK-17/);
+      return true;
+    }
+  );
+});
+
+test('terminal timeout recovery is safely quoted for POSIX and PowerShell', () => {
+  assert.equal(
+    terminalCommand("/work/Rule Engine's UI", ['start', 'WRK-17', '--title', 'Fix $HOME'], 'darwin'),
+    "cd '/work/Rule Engine'\"'\"'s UI' && 'singularity-flow' 'start' 'WRK-17' '--title' 'Fix $HOME'"
+  );
+  assert.equal(
+    terminalCommand("C:\\Rule Engine's UI", ['start', 'WRK-17', '--title', 'Fix $HOME'], 'win32'),
+    "Set-Location -LiteralPath 'C:\\Rule Engine''s UI'; & 'singularity-flow' 'start' 'WRK-17' '--title' 'Fix $HOME'"
   );
 });
 
@@ -509,6 +536,9 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
     await client.run(['workspace', 'refresh-configuration', '--dry-run']).catch(() => {});
+    await client.run(['start', 'WRK-17', '--isolated-worktree']).catch(() => {});
+    await client.run(['story', 'start', 'WRK-18']).catch(() => {});
+    await client.run(['workspace', 'branches', '--preflight-story', 'WRK-19']).catch(() => {});
     await client.run(['submit', '--phase', 'poc-validation']).catch(() => {});
     await client.run(['initiative', 'status']).catch(() => {});
   } finally {
@@ -516,10 +546,13 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   }
   assert.equal(timeouts[0], 15 * 60_000);
   assert.equal(timeouts[1], 15 * 60_000);
-    assert.equal(timeouts[2], 15 * 60_000);
-    assert.equal(timeouts[3], 15 * 60_000);
-    assert.equal(timeouts[4], 30 * 60_000);
-    assert.equal(timeouts[5], 120_000);
+  assert.equal(timeouts[2], 15 * 60_000);
+  assert.equal(timeouts[3], 15 * 60_000);
+  assert.equal(timeouts[4], 15 * 60_000);
+  assert.equal(timeouts[5], 15 * 60_000);
+  assert.equal(timeouts[6], 15 * 60_000);
+  assert.equal(timeouts[7], 30 * 60_000);
+  assert.equal(timeouts[8], 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -2953,6 +2986,13 @@ test('an intake form still missing something disables the button and lists why',
 
 test('a refused start is reported on the form that caused it', () => {
   assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
+  const timeout = intakeHtml(intake({
+    error: 'The CLI timed out.',
+    recoveryCommand: "cd '/work/api' && 'singularity-flow' 'start' 'WRK-17'"
+  }));
+  assert.match(timeout, /Continue from a terminal/);
+  assert.match(timeout, /singularity-flow/);
+  assert.match(timeout, /WRK-17/);
 });
 
 const {

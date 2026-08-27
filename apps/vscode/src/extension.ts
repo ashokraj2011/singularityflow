@@ -2823,8 +2823,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // somebody completes the intake form wastes their answers and makes a correct guard look like a
     // dead button. The target is stated here because a selected workspace may point this window at
     // a lead repository other than the folder visible in the title bar.
-    await store.ensureSlices(['configuration']);
-    await store.refresh();
+    // Loading a new slice already performs a fresh snapshot. Calling refresh unconditionally after
+    // it made the first Start Work click pay for the same repository scan twice; only an already
+    // loaded configuration needs the explicit freshness read below.
+    const refreshedForConfiguration = await store.ensureSlices(['configuration']);
+    if (!refreshedForConfiguration) await store.refresh();
     const repositoryState = store.current.snapshot?.repository;
     const changedPaths = repositoryState?.changes ?? [];
     // Stories run in dedicated worktrees, so a dirty checkout from another Story is not a blocker.

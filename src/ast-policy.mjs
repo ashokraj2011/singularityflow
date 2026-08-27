@@ -5,6 +5,8 @@ export const AST_MODES = Object.freeze(['auto', 'off']);
 export const AST_FALLBACKS = Object.freeze(['host-and-text', 'text-only']);
 export const AST_ASSURANCE = Object.freeze(['text', 'syntax', 'semantic']);
 export const AST_EVIDENCE_MODES = Object.freeze(['replayable', 'identified', 'off']);
+export const AST_STORY_START_WARM_MODES = Object.freeze(['background', 'before-first-phase', 'off']);
+export const AST_STORY_START_WARM_SCOPES = Object.freeze(['configured-roots', 'repository']);
 export const AST_PREDICATE_TYPES = Object.freeze([
   'path-exists', 'symbol-exists', 'import-boundary', 'annotation-present', 'inherits-from',
   'conforms-to', 'override-exists', 'public-signature-changed', 'module-dependency'
@@ -36,7 +38,10 @@ function positiveInteger(value, fallback, label) {
  */
 export function normalizeAstPolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('ast must be an object.');
-  const allowed = new Set(['mode', 'fallback', 'languages', 'generatedRoots', 'budgets', 'predicates', 'evidence']);
+  const allowed = new Set([
+    'mode', 'fallback', 'languages', 'generatedRoots', 'budgets', 'predicates', 'evidence',
+    'warmOnStoryStart'
+  ]);
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new SingularityFlowError(`ast contains unknown field '${key}'.`);
   const mode = value.mode ?? 'auto';
   const fallback = value.fallback ?? 'host-and-text';
@@ -123,6 +128,27 @@ export function normalizeAstPolicy(value = {}) {
   if (!/^[a-z][a-z0-9-]*$/.test(evidenceStore)) {
     throw new SingularityFlowError('ast.evidence.store must be a lower-case logical store id.');
   }
+  const storyStartSource = value.warmOnStoryStart ?? {};
+  if (!storyStartSource || typeof storyStartSource !== 'object' || Array.isArray(storyStartSource)) {
+    throw new SingularityFlowError('ast.warmOnStoryStart must be an object.');
+  }
+  for (const key of Object.keys(storyStartSource)) {
+    if (!['mode', 'scope'].includes(key)) {
+      throw new SingularityFlowError(`ast.warmOnStoryStart contains unknown field '${key}'.`);
+    }
+  }
+  const storyStartMode = storyStartSource.mode ?? 'background';
+  const storyStartScope = storyStartSource.scope ?? 'configured-roots';
+  if (!AST_STORY_START_WARM_MODES.includes(storyStartMode)) {
+    throw new SingularityFlowError(
+      `ast.warmOnStoryStart.mode must be ${AST_STORY_START_WARM_MODES.join(', ')}.`
+    );
+  }
+  if (!AST_STORY_START_WARM_SCOPES.includes(storyStartScope)) {
+    throw new SingularityFlowError(
+      `ast.warmOnStoryStart.scope must be ${AST_STORY_START_WARM_SCOPES.join(' or ')}.`
+    );
+  }
   return Object.freeze({
     mode,
     fallback,
@@ -140,7 +166,8 @@ export function normalizeAstPolicy(value = {}) {
       ...(predicate.languages ? { languages: Object.freeze([...new Set(predicate.languages)].sort()) } : {}),
       ...(predicate.profiles ? { profiles: Object.freeze([...new Set(predicate.profiles)].sort()) } : {})
     }))),
-    evidence: Object.freeze({ mode: evidenceMode, store: evidenceStore })
+    evidence: Object.freeze({ mode: evidenceMode, store: evidenceStore }),
+    warmOnStoryStart: Object.freeze({ mode: storyStartMode, scope: storyStartScope })
   });
 }
 

@@ -31,6 +31,7 @@ import { writeReturnLocator } from './return-locator.mjs';
 import { pinAcceptedChangeFlightPlan } from './change-flight-plan.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
+import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, updateStoryStartJournal
@@ -103,7 +104,8 @@ export async function startStory(root, {
   urls = [],
   expectedBaseCommit = null,
   flightPlan = null,
-  auto = null
+  auto = null,
+  astWarmLauncher = undefined
 } = {}) {
   const initialDefinition = await loadDefinition(root);
   validateId(initialDefinition, id);
@@ -352,6 +354,9 @@ export async function startStory(root, {
     documents.push(...added);
   }
   if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
+  const astWarm = await scheduleStoryStartAstWarm(root, definition, workflow, {
+    ...(astWarmLauncher ? { launcher: astWarmLauncher } : {})
+  });
   return {
     workId: id,
     resumed: false,
@@ -378,6 +383,7 @@ export async function startStory(root, {
       cohort: workflow.measurement.plan.groupId,
       promptVariant: workflow.measurement.plan.variantId ?? null
     } : { status: workflow.measurement?.status ?? 'not-enrolled' },
+    astWarm,
     ...(storyBase.scope === 'capability' ? {
       capabilityBase: {
         ...storyBase.plan.record,

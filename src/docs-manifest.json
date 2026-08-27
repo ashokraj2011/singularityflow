@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "8974be115e902680b6629aa48d87e7ebd4a33426",
+  "sourceCommit": "9d712c851d6ee1f0c6ce9f001dfb49d3974cd1a7",
   "topicCount": 57,
-  "contentSha256": "aa6508a1ad514a6c7eef29b8785a71db2e66e0e9d53cd77fefec21aa26487a23",
+  "contentSha256": "aaf951dfba5a0e55ff3e450e0917bc82478481a0f99535dc304d6e8d13c6b80f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,9 +48,9 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 3,
-      "sha256": "3b9a77206963bf518907a0d046fc503f9f7e7e359fea5acdc03dd857ffa5ed01",
-      "routingSha256": "3016d3adbd38eb780767a2e9ce375d72bc738db4017440d5ef4096ddefd66f60",
+      "version": 4,
+      "sha256": "3183df9a9edeb460fd864f420cc85d3ad7aae79304a714e489974dd32eb3d3df",
+      "routingSha256": "1671f988a2f09eeb1af1cef10389c698c3e3a813a6caf2a362c9c3509bf23847",
       "file": "ast-intelligence.md"
     },
     {

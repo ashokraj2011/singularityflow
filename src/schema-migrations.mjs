@@ -994,6 +994,7 @@ const families = [
   family({ id: 'ast-semantic-warm-plan', currentVersion: 1 }),
   family({ id: 'ast-semantic-binding', currentVersion: 1, paths: [/^\$git\/ast\/v2\/projects\/[a-f0-9]{64}\.json$/] }),
   family({ id: 'ast-cone-manifest', currentVersion: 1, paths: [/^\$git\/ast\/v2\/manifests\/[a-f0-9]{64}\.json$/] }),
+  family({ id: 'ast-story-start-warm', currentVersion: 1, paths: [/^\$git\/ast\/v2\/story-start\/[a-f0-9]{64}\.json$/] }),
   family({
     id: 'ast-derivation-manifest', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/ast\/derivations\/[a-f0-9]{64}\.json$/],

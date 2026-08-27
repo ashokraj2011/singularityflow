@@ -21,6 +21,7 @@ import { effectiveAstMode, readAstPreference, setAstPreference } from './ast-mod
 import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.mjs';
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
+import { latestStoryStartAstWarmStatus } from './ast-story-start-status.mjs';
 import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
@@ -1424,6 +1425,11 @@ async function buildOrContext(root, options, operation, workBinding = null) {
   return validated;
 }
 
+/** Kernel-owned AST cache build used by the CLI and the optional Story-start warmer. */
+export async function buildAstCache(root, options = {}) {
+  return buildOrContext(root, options, 'build');
+}
+
 async function resumeBuild(root, handle, options) {
   const { job, file, runtime, selection } = await readResumeJob(root, handle);
   const resumedOptions = { ...options };
@@ -2094,8 +2100,9 @@ export async function astDoctor(root) {
           : selectedSyntax ? null : 'syntax-pack-unavailable'
     };
   });
+  const storyStartWarm = await latestStoryStartAstWarmStatus(root);
   return {
-    schemaVersion: 3, // schema-transient: live diagnostic result, never persisted
+    schemaVersion: 4, // schema-transient: live diagnostic result, never persisted
     healthy: true,
     available: effective.mode !== 'off',
     degraded: repositoryUnsupported.length > 0
@@ -2105,6 +2112,7 @@ export async function astDoctor(root) {
     effective,
     scope: runtime.sourceScope,
     cache,
+    storyStartWarm,
     catalog: runtime.languageCatalog,
     languages,
     projects: {
@@ -2492,7 +2500,7 @@ export async function astCommand(root, positionals, options) {
   else if (action === 'build') {
     const rawResume = Array.isArray(options.resume) ? options.resume.at(-1) : options.resume;
     const handle = rawResume === true ? positionals[1] : (rawResume ? String(rawResume) : null);
-    result = handle ? await resumeBuild(root, handle, options) : await buildOrContext(root, options, 'build');
+    result = handle ? await resumeBuild(root, handle, options) : await buildAstCache(root, options);
   }
   else if (action === 'context') result = await astContext(root, options);
   else if (action === 'query') result = await astQuery(root, options);

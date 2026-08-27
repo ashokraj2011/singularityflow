@@ -8,6 +8,8 @@ export type AstMode = 'auto' | 'off';
 export type AstFallback = 'host-and-text' | 'text-only';
 export type AstAssurance = 'text' | 'syntax' | 'semantic';
 export type AstEvidenceMode = 'replayable' | 'identified' | 'off';
+export type AstStoryStartWarmMode = 'background' | 'before-first-phase' | 'off';
+export type AstStoryStartWarmScope = 'configured-roots' | 'repository';
 
 export interface AstLanguageDraft {
   language: string;
@@ -34,6 +36,7 @@ export interface AstPolicyDraft {
   mode: AstMode;
   fallback: AstFallback;
   evidence: { mode: AstEvidenceMode; store: string };
+  warmOnStoryStart: { mode: AstStoryStartWarmMode; scope: AstStoryStartWarmScope };
   generatedRoots: string[];
   budgets: { maxFiles: number; maxBytes: number; maxFileBytes: number };
   languages: AstLanguageDraft[];
@@ -48,6 +51,7 @@ export function recommendedAstPolicyDraft(): AstPolicyDraft {
     mode: 'auto',
     fallback: 'host-and-text',
     evidence: { mode: 'identified', store: 'local-directory' },
+    warmOnStoryStart: { mode: 'background', scope: 'configured-roots' },
     generatedRoots: [],
     budgets: { maxFiles: 500, maxBytes: 20 * 1024 * 1024, maxFileBytes: 2 * 1024 * 1024 },
     languages: [],
@@ -62,6 +66,8 @@ export function astPolicyPreset(policy: AstPolicyDraft): AstPolicyPreset {
   const usesRecommendedDetails = policy.fallback === recommended.fallback
     && policy.evidence.mode === recommended.evidence.mode
     && policy.evidence.store === recommended.evidence.store
+    && policy.warmOnStoryStart.mode === recommended.warmOnStoryStart.mode
+    && policy.warmOnStoryStart.scope === recommended.warmOnStoryStart.scope
     && policy.budgets.maxFiles === recommended.budgets.maxFiles
     && policy.budgets.maxBytes === recommended.budgets.maxBytes
     && policy.budgets.maxFileBytes === recommended.budgets.maxFileBytes
@@ -191,6 +197,8 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
   const predicates = Array.isArray(raw.predicates) ? raw.predicates as Array<Record<string, unknown>> : [];
   const evidence = (raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
     ? raw.evidence : {}) as Record<string, unknown>;
+  const storyStart = (raw.warmOnStoryStart && typeof raw.warmOnStoryStart === 'object'
+    && !Array.isArray(raw.warmOnStoryStart) ? raw.warmOnStoryStart : {}) as Record<string, unknown>;
   const recommended = recommendedAstPolicyDraft();
   return {
     mode: raw.mode === 'off' ? 'off' : 'auto',
@@ -199,6 +207,11 @@ export function astPolicyView(snapshot: Pick<RepositorySnapshot, 'definition'>):
       mode: evidence.mode === 'replayable' || evidence.mode === 'off' || evidence.mode === 'identified'
         ? evidence.mode : recommended.evidence.mode,
       store: typeof evidence.store === 'string' && evidence.store ? evidence.store : 'local-directory'
+    },
+    warmOnStoryStart: {
+      mode: storyStart.mode === 'off' || storyStart.mode === 'before-first-phase'
+        ? storyStart.mode : 'background',
+      scope: storyStart.scope === 'repository' ? 'repository' : 'configured-roots'
     },
     generatedRoots: Array.isArray(raw.generatedRoots) ? raw.generatedRoots.filter((entry): entry is string => typeof entry === 'string') : [],
     budgets: {
@@ -225,6 +238,12 @@ export function validateAstPolicyDraft(draft: AstPolicyDraft): string[] {
   if (!FALLBACKS.has(draft.fallback)) errors.push('Fallback must be host-and-text or text-only.');
   if (!['replayable', 'identified', 'off'].includes(draft.evidence.mode)) errors.push('Evidence mode must be replayable, identified, or off.');
   if (!ID.test(draft.evidence.store)) errors.push('Evidence store must be a lower-case kebab-case logical identifier.');
+  if (!['background', 'before-first-phase', 'off'].includes(draft.warmOnStoryStart.mode)) {
+    errors.push('Story-start warming must be background, before-first-phase, or off.');
+  }
+  if (!['configured-roots', 'repository'].includes(draft.warmOnStoryStart.scope)) {
+    errors.push('Story-start warming scope must be configured-roots or repository.');
+  }
   for (const [name, value] of Object.entries(draft.budgets)) {
     if (!Number.isInteger(value) || value < 1) errors.push(`${name} must be a positive whole number.`);
   }
@@ -284,6 +303,8 @@ export function updateAstPolicyYaml(text: string, draft: AstPolicyDraft): string
   parsed.setIn(['ast', 'evidence', 'mode'], draft.evidence.mode);
   if (draft.evidence.store === 'local-directory') parsed.deleteIn(['ast', 'evidence', 'store']);
   else parsed.setIn(['ast', 'evidence', 'store'], draft.evidence.store);
+  parsed.setIn(['ast', 'warmOnStoryStart', 'mode'], draft.warmOnStoryStart.mode);
+  parsed.setIn(['ast', 'warmOnStoryStart', 'scope'], draft.warmOnStoryStart.scope);
   parsed.setIn(['ast', 'generatedRoots'], draft.generatedRoots.map((entry) => entry.trim()));
   parsed.setIn(['ast', 'budgets', 'maxFiles'], draft.budgets.maxFiles);
   parsed.setIn(['ast', 'budgets', 'maxBytes'], draft.budgets.maxBytes);

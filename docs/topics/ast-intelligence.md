@@ -9,6 +9,7 @@ questions:
   - How do I enable AST intelligence?
   - How do I disable AST intelligence?
   - What happens when AST is unavailable?
+  - Can AST be built when a Story starts?
   - Compare AST and text access
 keywords:
   - parser
@@ -21,7 +22,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 3
+version: 4
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -51,6 +52,18 @@ operation override.
 `auto` means use an available reviewed provider within the configured safety budgets. It does not
 promise semantic assurance. `off` returns a valid disabled result without scanning or creating a
 cache. In either mode normal file access and governed work continue.
+
+The repository can also set `ast.warmOnStoryStart.mode` to `background` (the default),
+`before-first-phase`, or `off`. The VS Code AST Intelligence page exposes this as **Warm the AST
+cache when a Story starts**. Background warming starts only after the governed Story commit is
+durable and lets Story work continue immediately. The wait option completes the same bounded build
+before returning from Story start. Neither option can fail, roll back, or block the Story.
+
+`scope: configured-roots` uses pinned capability/world-model roots and falls back to the bounded
+repository when no roots are declared. `scope: repository` explicitly requests the bounded entire
+repository. The worker is tied to the exact starting revision and skips instead of warming a newer
+checkout. Its local status is shown by `wm ast doctor`; it creates no governed commit and uses no
+model.
 
 ## Availability and assurance
 

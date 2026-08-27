@@ -1239,6 +1239,8 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   assert.match(panel.webview.html, /Machine preference/);
   assert.match(panel.webview.html, /VS Code environment/);
   assert.match(panel.webview.html, /name="generatedRoots"/);
+  assert.match(panel.webview.html, /name="storyStartWarmMode"/);
+  assert.match(panel.webview.html, /name="storyStartWarmScope"/);
   assert.match(panel.webview.html, /name="languages"/);
   assert.match(panel.webview.html, /name="predicates"/);
   assert.match(panel.webview.html, /Automatic — Recommended/);
@@ -1271,6 +1273,7 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   await panel.post(scoped({
     type: 'save-policy', mode: 'auto', fallback: 'text-only',
     evidenceMode: 'identified', evidenceStore: 'local-directory', generatedRoots: 'generated/types',
+    storyStartWarmMode: 'background', storyStartWarmScope: 'configured-roots',
     maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024,
     languages: 'typescript | auto | text',
     predicates: 'entrypoint | advisory | path-exists | README.md | text'
@@ -1279,6 +1282,7 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
   const workflow = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
   assert.deepEqual(workflow.ast, {
     mode: 'auto', fallback: 'text-only', evidence: { mode: 'identified' }, generatedRoots: ['generated/types'],
+    warmOnStoryStart: { mode: 'background', scope: 'configured-roots' },
     budgets: { maxFiles: 41, maxBytes: 4096, maxFileBytes: 1024 },
     languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
     predicates: [{ id: 'entrypoint', mode: 'advisory', type: 'path-exists', path: 'README.md', minimumAssurance: 'text' }]

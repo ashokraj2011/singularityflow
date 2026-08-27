@@ -82,6 +82,7 @@ test('AST policy is closed and bounded while off can suspend a required predicat
   const value = normalizeAstPolicy({ mode: 'auto', budgets: { maxFiles: 7 } });
   assert.equal(value.budgets.maxFiles, 7);
   assert.equal(value.budgets.maxFileBytes, 2 * 1024 * 1024);
+  assert.deepEqual(value.warmOnStoryStart, { mode: 'background', scope: 'configured-roots' });
   const disabled = normalizeAstPolicy({
     mode: 'off', evidence: { mode: 'identified' },
     predicates: [{ id: 'must', mode: 'required', type: 'path-exists', path: 'src' }]
@@ -89,6 +90,8 @@ test('AST policy is closed and bounded while off can suspend a required predicat
   assert.equal(disabled.mode, 'off');
   assert.equal(disabled.predicates[0].mode, 'required');
   assert.throws(() => normalizeAstPolicy({ surprise: true }), /unknown field/);
+  assert.throws(() => normalizeAstPolicy({ warmOnStoryStart: { mode: 'required' } }), /background/);
+  assert.throws(() => normalizeAstPolicy({ warmOnStoryStart: { scope: 'home' } }), /configured-roots/);
   assert.throws(() => normalizeAstPolicy({ predicates: [{
     id: 'boundary', mode: 'required', type: 'import-boundary', path: 'src', target: 'internal'
   }] }), /applicable languages/);

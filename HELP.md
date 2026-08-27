@@ -1926,6 +1926,13 @@ flow. The scope banner names the active workspace repository. In a multi-reposit
 selecting another ready repository updates the same durable repository context used by My Work,
 Lifecycle, Configuration, Copilot, and `workspace current`.
 
+The same screen configures optional Story-start warming. `background` is the recommended default:
+the Story commit and publication complete first, then a revision-bound local worker warms the
+configured capability/world-model source scope. `before-first-phase` waits for that bounded build;
+`off` leaves warming entirely on demand. When no roots are declared, configured scope explicitly
+uses the bounded repository. Missing packs, disabled AST, unsupported languages, worker failures,
+and cache failures are recorded as local status and never block or roll back Story creation.
+
 ```bash
 singularity-flow wm ast doctor
 singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json

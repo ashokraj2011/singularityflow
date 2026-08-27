@@ -185,6 +185,11 @@ worldModel:
 ast:
   mode: auto
   fallback: host-and-text
+  # Story creation is published first. This derived-cache job then runs independently and can
+  # never block or roll back the Story when a parser, binding, language, or local cache is absent.
+  warmOnStoryStart:
+    mode: background
+    scope: configured-roots
   # Recorded prompt context may keep immutable identities, but AST evidence never participates in
   # lifecycle authorization. The logical store ID never contains credentials or machine paths.
   evidence:

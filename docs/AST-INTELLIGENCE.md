@@ -22,6 +22,8 @@ not run a daemon, and never participates in lifecycle authorization.
   `<git-common-dir>/singularity-flow/ast/v2`;
 - machine-local `auto`/`off` preference combined with repository and environment policy by choosing
   the most restrictive value;
+- optional Story-start cache warming with a non-blocking background default, a wait-before-first-
+  phase choice, and a fully disabled choice;
 - a versioned, structured-argv contract and guarded machine-local registry for bounded
   out-of-process syntax/semantic adapter packs;
 - immutable derivation manifests that bind exact committed Git objects, policy/profile/options,
@@ -74,6 +76,9 @@ bodies, facts, adapter process details, and resume handles are not copied into t
 ast:
   mode: auto                 # auto | off
   fallback: host-and-text    # host-and-text | text-only
+  warmOnStoryStart:
+    mode: background         # background | before-first-phase | off
+    scope: configured-roots  # configured-roots | repository
   evidence:
     mode: replayable         # replayable | identified | off
   budgets:
@@ -100,6 +105,14 @@ ast:
 
 The active Story's pinned capability source roots are authoritative. When no roots are pinned, an
 ordinary AST request examines changed tracked paths only. Repository-wide work requires `--all`.
+
+Story-start warming is different from an ordinary unscoped read. It runs only after the governed
+Story commit and any required publication have succeeded. `configured-roots` uses the Story's
+pinned capability/world-model roots; when no roots are declared it explicitly selects the bounded
+repository scope. `repository` always selects that bounded repository scope. `background` launches
+an independent local worker and returns immediately. `before-first-phase` waits for the same build
+before returning from Story start. In both modes failures become local status warnings, never undo
+the Story, and never block a phase. The latest job is visible in AST Intelligence and `wm ast doctor`.
 
 The effective mode is the most restrictive of `ast.mode`, the machine preference,
 `SINGULARITY_FLOW_AST`, and an operation override. With mode `off`, the command returns a valid
@@ -171,6 +184,12 @@ selected-cone hash, input budgets, output limits, and next offset. Any relevant 
 it stale. Query coverage reports facts examined, matched, and returned separately. Cache pruning
 removes stale manifests/jobs, legacy v1 records, and blobs no live manifest references; it does not
 use a repository-wide dirty-tree hash.
+
+The Story-start worker is revision-bound: if the checkout moves before it begins, it records
+`repository-revision-changed` and does no work. Its status and output summary live only below the
+Git-common AST cache. It never edits application files, creates a governed commit, invokes a model,
+or writes to a Story branch. The normal AST budgets still apply, so a large scope can report a
+partial, resumable warm rather than turning Story creation into an unbounded scan.
 
 Every structural result declares an evidence class. Ordinary CLI and UI reads are `preview` and may
 inspect dirty worktree bytes. Governed prompt context is `recorded-context`; `gate` is an explicit

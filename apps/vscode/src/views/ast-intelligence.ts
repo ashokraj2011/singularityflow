@@ -10,7 +10,8 @@ import {
   recommendedAstPolicyDraft,
   astWorkspaceRepositoryInventory, updateAstPolicyYaml, validateAstPolicyDraft,
   type AstAssurance, type AstEvidenceMode, type AstFallback, type AstMode, type AstPolicyDraft,
-  type AstPolicyPreset, type AstRepositoryScopeView, type AstWorkspaceRepositoryInventory
+  type AstPolicyPreset, type AstRepositoryScopeView, type AstStoryStartWarmMode,
+  type AstStoryStartWarmScope, type AstWorkspaceRepositoryInventory
 } from './ast-intelligence-model.ts';
 import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
@@ -23,6 +24,10 @@ interface AstDoctorResult {
   effective?: { mode?: AstMode; sources?: Partial<Record<'repository' | 'local' | 'environment' | 'operation', AstMode>> };
   scope?: { kind?: string; paths?: string[] };
   cache?: AstCacheStatus;
+  storyStartWarm?: {
+    workId?: string; mode?: string; scope?: string; status?: string; reason?: string | null;
+    message?: string | null; updatedAt?: string; result?: { processed?: number; selected?: number } | null;
+  } | null;
   languages?: Array<{
     language?: string; selectedFiles?: number; maximumAssurance?: AstAssurance;
     availablePacks?: Array<{ id?: string; stage?: string; assurance?: AstAssurance; packVersion?: string }>;
@@ -102,6 +107,7 @@ const SCRIPT = `
     if (form.id === 'ast-policy-form') send({
       type: 'save-policy', preset: data.get('preset'), mode: data.get('mode'), fallback: data.get('fallback'),
       evidenceMode: data.get('evidenceMode'), evidenceStore: data.get('evidenceStore'),
+      storyStartWarmMode: data.get('storyStartWarmMode'), storyStartWarmScope: data.get('storyStartWarmScope'),
       generatedRoots: String(data.get('generatedRoots') || ''),
       maxFiles: Number(data.get('maxFiles')),
       maxBytes: Math.round(Number(data.get('maxBytesMiB')) * 1024 * 1024),
@@ -158,11 +164,13 @@ function runtimeSummary(doctor: AstDoctorResult | null): string {
     ['Operation default', sources.operation, 'Individual previews may choose a stricter off mode']
   ];
   const gateStatus = 'never required';
+  const storyWarm = doctor.storyStartWarm;
   return `<section class="plain"><h2>${icon(effective === 'off' ? 'warning' : 'ok')}Effective mode</h2>
     <div class="summary-grid"><div class="summary-card ${effective === 'off' ? 'important' : ''}"><strong>${escape(effective)}</strong><span>effective AST mode</span></div>
       <div class="summary-card"><strong>${escape((doctor.assuranceAvailable ?? ['text']).join(', '))}</strong><span>available assurance</span></div>
       <div class="summary-card"><strong>${escape(doctor.scope?.kind ?? 'changed')}</strong><span>default scope</span></div>
       <div class="summary-card"><strong>${escape(doctor.cache?.files ?? 0)}</strong><span>derived cache records</span></div>
+      <div class="summary-card"><strong>${escape(storyWarm?.status ?? 'not run')}</strong><span>latest Story-start warm${storyWarm?.workId ? ` · ${escape(storyWarm.workId)}` : ''}</span></div>
       <div class="summary-card"><strong>${escape(gateStatus)}</strong><span>workflow dependency</span></div></div>
     <div class="table-wrap"><table><thead><tr><th>Source</th><th>Mode</th><th>Ownership</th></tr></thead><tbody>${sourceRows.map(([name, mode, detail]) => `<tr><td><strong>${escape(name)}</strong></td><td><code>${escape(mode ?? 'auto')}</code></td><td>${escape(detail)}</td></tr>`).join('')}</tbody></table></div>
     <p class="notice">The most restrictive source wins. AST is always optional: disabled modes, missing language packs, unavailable adapters, and evidence-store problems degrade structural results but never block phase publication, submission, governance, or ordinary repository file access.</p>
@@ -172,7 +180,7 @@ function runtimeSummary(doctor: AstDoctorResult | null): string {
 
 function machinePreference(doctor: AstDoctorResult | null): string {
   const current = doctor?.effective?.sources?.local ?? 'auto';
-  return `<section><h2>${icon('configuration')}Machine preference</h2><p>Controls AST intelligence for this machine. <strong>Auto</strong> makes it available on demand; it does not start a daemon or scan in the background.</p>
+  return `<section><h2>${icon('configuration')}Machine preference</h2><p>Controls AST intelligence for this machine. <strong>Auto</strong> makes it available on demand and permits the repository's optional Story-start cache policy. No daemon is installed.</p>
     <form id="ast-machine-form" class="editor-card"><div class="form-grid"><label><span>Local preference</span><select name="mode">${option('auto', current, 'Auto — available when requested')}${option('off', current, 'Off — disable structural analysis')}</select></label></div>
       <p class="card-foot"><button type="submit">Save machine preference</button></p></form></section>`;
 }
@@ -230,6 +238,10 @@ function policyForm(policy: AstPolicyDraft, scope: AstRepositoryScopeView | null
         ${presetChoice('custom', preset, 'Custom', 'Keep repository-specific language, evidence, budget, or predicate settings.')}
       </div>
       ${detectedLanguageCards(doctor)}
+      <div class="editor-card"><h3>Warm the AST cache when a Story starts</h3><div class="form-grid">
+        <label><span>When to warm</span><select name="storyStartWarmMode">${option('background', policy.warmOnStoryStart.mode, 'Background — recommended')}${option('before-first-phase', policy.warmOnStoryStart.mode, 'Before first phase — wait for warming')}${option('off', policy.warmOnStoryStart.mode, 'Off — warm only when requested')}</select><small>Story publication always completes first. Failures are warnings and never block work.</small></label>
+        <label><span>Scope</span><select name="storyStartWarmScope">${option('configured-roots', policy.warmOnStoryStart.scope, 'Configured source scope — recommended')}${option('repository', policy.warmOnStoryStart.scope, 'Entire repository — bounded by safety limits')}</select><small>Configured scope uses pinned capability and world-model roots. When no roots are declared, it uses the bounded repository scope.</small></label>
+      </div></div>
       <p class="notice">AST is optional. Missing packs, unsupported languages, and disabled analysis never prevent normal Copilot repository access.</p>
       <p class="card-foot"><button type="button" class="secondary" data-open-ast-advanced>Set up deeper analysis</button></p></div>
       <details id="ast-custom-settings" class="configuration-advanced-tools"><summary>Advanced custom settings${preset === 'custom' ? ' · currently active' : ''}</summary>
@@ -486,7 +498,11 @@ export class AstIntelligencePanel {
   }
   private draft(message: InboundMessage): AstPolicyDraft {
     const preset = optionalString(message, 'preset');
-    if (preset === 'automatic') return recommendedAstPolicyDraft();
+    const warmOnStoryStart = {
+      mode: optionalString(message, 'storyStartWarmMode') as AstStoryStartWarmMode,
+      scope: optionalString(message, 'storyStartWarmScope') as AstStoryStartWarmScope
+    };
+    if (preset === 'automatic') return { ...recommendedAstPolicyDraft(), warmOnStoryStart };
     if (preset === 'off') return { ...this.policy(), mode: 'off' };
     return {
       mode: optionalString(message, 'mode') as AstMode,
@@ -495,6 +511,7 @@ export class AstIntelligencePanel {
         mode: optionalString(message, 'evidenceMode') as AstEvidenceMode,
         store: optionalString(message, 'evidenceStore')
       },
+      warmOnStoryStart,
       generatedRoots: optionalString(message, 'generatedRoots').split(',').map((entry) => entry.trim()).filter(Boolean),
       budgets: {
         maxFiles: positiveInteger(message, 'maxFiles'), maxBytes: positiveInteger(message, 'maxBytes'),

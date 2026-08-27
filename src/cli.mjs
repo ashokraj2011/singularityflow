@@ -172,6 +172,7 @@ import { assertActionPlanFresh, createActionPlan, loadActionPlan, readActionResu
 import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
+import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
 import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
@@ -1199,6 +1200,7 @@ export async function startCommand(positionals, options) {
       remote, branch: canonicalBranch, commit: head(root)
     }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
   }
+  const astWarm = await scheduleStoryStartAstWarm(root, config, workflow);
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -1244,6 +1246,7 @@ export async function startCommand(positionals, options) {
         cohort: workflow.measurement.plan.groupId,
         promptVariant: workflow.measurement.plan.variantId ?? null
       } : { status: workflow.measurement?.status ?? 'not-enrolled' },
+      astWarm,
       ...(storyBase.scope === 'capability' ? {
         capabilityBase: {
           ...storyBase.plan.record,
@@ -1284,6 +1287,13 @@ export async function startCommand(positionals, options) {
       console.log(`Prompt study assignment: ${workflow.measurement.plan.variantId} · ${workflow.measurement.plan.studyRunId}.`);
     }
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
+    if (astWarm.status === 'scheduled') {
+      console.log(`AST cache warm-up: running in the background (${astWarm.scope}); Story work may continue.`);
+    } else if (astWarm.status === 'failed') {
+      console.warn(`Warning: optional AST cache warm-up did not start: ${astWarm.message ?? astWarm.reason}. Story work may continue.`);
+    } else if (astWarm.mode === 'before-first-phase') {
+      console.log(`AST cache warm-up: ${astWarm.status} (${astWarm.scope}); Story work may continue.`);
+    }
   }
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   return startResult;

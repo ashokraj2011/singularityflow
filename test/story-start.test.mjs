@@ -56,6 +56,7 @@ test('Story intake creates durable manual state and resumes an existing branch',
     acceptanceCriteria: 'Authorized users can export\nUnauthorized users are denied',
     parentEpicId: 'EPIC-42'
   });
+  let astWarmLaunch = null;
   const created = await startStory(root, {
     id: 'WORK-901',
     source,
@@ -63,12 +64,19 @@ test('Story intake creates durable manual state and resumes an existing branch',
     agent: 'product-owner',
     baseBranch: 'main',
     files: [sourceFile],
-    urls: ['https://example.com/export-reference']
+    urls: ['https://example.com/export-reference'],
+    astWarmLauncher: (repositoryRoot, workId) => {
+      astWarmLaunch = { repositoryRoot, workId };
+      return { pid: 1234 };
+    }
   });
 
   assert.equal(created.resumed, false);
   assert.equal(created.workId, 'WORK-901');
   assert.equal(created.documents.length, 2);
+  assert.equal(created.astWarm.status, 'scheduled');
+  assert.equal(created.astWarm.blocking, false);
+  assert.deepEqual(astWarmLaunch, { repositoryRoot: root, workId: 'WORK-901' });
   const workRoot = path.join(root, 'singularity/work-items/WORK-901');
   const workflow = JSON.parse(await readFile(path.join(workRoot, 'workflow.json'), 'utf8'));
   assert.equal(workflow.workItem.source.type, 'manual');

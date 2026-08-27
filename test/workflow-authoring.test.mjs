@@ -202,11 +202,14 @@ test('the designer creates workflows, phases, and artifacts through the engine',
   assert.doesNotMatch(page, /data-artifact-phase/, 'the template designer still asks for a phase');
   assert.doesNotMatch(panel, /this\.artifactDraft\.phaseId/, 'the template draft still carries a phase');
 
-  // Run through the governed action path, so a refusal comes back from the engine rather than being
-  // decided in the editor.
+  // Workflow authoring is a shared-configuration proposal. The extension must not borrow the
+  // selected Story worktree and the UI must not silently execute or publish a Story commit.
   assert.match(panel, /\| \{ type: 'run'; command: string\[\]; title: string \}/);
   assert.match(extension, /if \(message\.type === 'run'\) \{/);
-  assert.match(extension, /runGovernedAction\(client, \{ command: message\.command/);
+  assert.match(extension, /const command = \[\.\.\.message\.command, '--propose', '--json'\]/);
+  assert.match(extension, /client\.run<\{/);
+  assert.match(extension, /The active Story was not changed/);
+  assert.doesNotMatch(extension, /runGovernedAction\(client, \{ command: message\.command/);
 
   // No QuickPick or InputBox hides the sequence from the person assembling it.
   assert.doesNotMatch(panel, /showQuickPick|showInputBox/);

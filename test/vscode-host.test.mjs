@@ -3281,6 +3281,9 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   // lose is that a template is governed configuration: writing one goes through the engine, which
   // validates before it writes, rather than the editor writing the file itself.
   const { root, registered } = await activated();
+  // Workflow design belongs to shared configuration. This fixture predates that authority branch,
+  // so seed it from the configuration already approved on main before opening the designer.
+  run('git', ['push', '-q', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
   await registered.commands.get('singularityFlow.openDesigner')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.designer');
   assert.ok(panel, 'a designer panel was created');
@@ -3314,17 +3317,26 @@ test('the designer opens, reads the real lifecycle, and creates a template throu
   assert.equal(existsSync(path.join(root, 'singularity/templates/initiatives/escape.md')), false);
 
   await panel.post(artifact);
-  // Written beside the templates a profile already points at, not beside whichever file happened to
-  // be first — this repository's templates root holds work-item templates too, and an initiative
-  // artifact written among those is a file nothing can ever reference.
+  // The selected Epic checkout is an immutable consumer of configuration. The template is written
+  // beside the approved templates in a review proposal, never into this active checkout.
   const created = path.join(root, 'singularity/templates/initiatives/release-checklist.md');
-  await until(() => (existsSync(created) ? true : null));
-  const text = readFileSync(created, 'utf8');
+  const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
+  const proposal = await until(() => run('git', [
+    'for-each-ref', '--format=%(refname:short)',
+    'refs/heads/sflow/config-change/workflow/save-file-release-checklist.md-*'
+  ], { cwd: remote }).stdout.trim() || null, { what: 'the artifact-template configuration proposal to be published' });
+  assert.equal(existsSync(created), false, 'the selected Epic checkout remains untouched');
+  const text = run('git', [
+    '--git-dir', remote, 'show', `${proposal}:singularity/templates/initiatives/release-checklist.md`
+  ]).stdout;
   // Written in the shape every other artifact template follows, so it is usable immediately.
   assert.match(text, /singularity-flow:initiative-metadata/);
   assert.match(text, /\{\{initiative\.id\}\} — Release checklist/);
   assert.match(text, /## Completion checklist/);
   assert.match(text, /\{\{inputs\}\}/);
+  await until(() => registered.infos.find(
+    (message) => /Artifact-template proposal .* was pushed/.test(message)
+  ) ?? null, { what: 'the editor to report the artifact-template proposal' });
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
 });
 

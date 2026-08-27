@@ -235,7 +235,10 @@ export class DesignerPanel {
           '--phases', this.workflowDraft.phases.map((phase) => phase.id).join(',')];
         if (this.workflowDraft.isNew) command.push('--governs', this.workflowDraft.governs);
         this.error = await this.onMessage({ type: 'run', command, title: `${this.workflowDraft.isNew ? 'Creating' : 'Saving'} ${this.workflowDraft.label}` });
-        if (!this.error) { this.profile = this.workflowDraft.id; this.workflowDraft = null; }
+        // A successful save is a review proposal, not approved configuration yet. Keep showing the
+        // currently approved workflow until that proposal is merged and refreshed; selecting the
+        // proposed ID here made it look as though the newly created workflow had disappeared.
+        if (!this.error) this.workflowDraft = null;
       }
       return this.render();
     }

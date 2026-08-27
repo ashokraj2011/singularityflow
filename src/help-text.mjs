@@ -223,12 +223,12 @@ Usage:
   singularity-flow secrets protect [--force]
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
-  singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative]
-  singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT]
+  singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
+  singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
-    [--agents a,b] [--authorities group-a,group-b] [--minimum N] [--governs story|initiative]
+    [--agents a,b] [--authorities group-a,group-b] [--minimum N] [--governs story|initiative] [--propose]
     (a phase runs nowhere until a workflow lists it)
-  singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b]
+  singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b] [--propose]
     (--governs is inferred from where the phases already live, and rarely needed)
   singularity-flow workflow phase output add <PHASE> <OUTPUT> --label TEXT --kind markdown --path FILE --template FILE
     [--optional] [--consumes phase/output,...]
@@ -345,7 +345,7 @@ Usage:
   singularity-flow plugin uninstall | list | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
   singularity-flow configuration validate --json
-  singularity-flow configuration save <PATH>    Reads replacement content from stdin
+  singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]
   singularity-flow state planes [WORK-ID] [--json]
   singularity-flow state reconcile [WORK-ID] --check|--repair-projections [--json]
@@ -528,6 +528,7 @@ Usage:
   singularity-flow workspace prune [--json]
   singularity-flow workspace current [--json]
   singularity-flow workspace use [ID|NAME|JIRA|DIRECTORY] [--repository ID] [--story ID] [--json]
+  singularity-flow workspace refresh-configuration [WORKSPACE] [--repository ID] [--dry-run]
   singularity-flow workspace copilot [ID|NAME|JIRA|DIRECTORY]
     [--repository ID] [--story ID] [--mode interactive|plan] [--dry-run]
   singularity-flow workspace prompt [--json]

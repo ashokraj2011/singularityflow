@@ -4032,17 +4032,54 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Authoring a lifecycle runs the same command the CLI runs, so the validation that refuses an
       // incoherent profile is one implementation rather than two that drift.
       if (message.type === 'run') {
-        const ran = await runGovernedAction(client, { command: message.command, title: message.title }, output);
-        if (!ran) return 'The lifecycle was not changed. The output channel has the engine\'s reason.';
-        await store.refresh();
-        return null;
+        const command = [...message.command, '--propose', '--json'];
+        output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+        try {
+          const proposal = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: message.title,
+            cancellable: false
+          }, () => client.run<{
+            branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
+            baseBranch?: string; nextAction?: string;
+          }>(command));
+          await store.refresh();
+          if (proposal.reviewRequired && proposal.branch) {
+            const files = proposal.files?.length ?? 0;
+            void vscode.window.showInformationMessage(
+              `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
+              + `Merge it into ${proposal.baseBranch ?? 'sflow/config'}, then refresh workspace configuration. `
+              + 'The active Story was not changed.'
+            );
+          } else {
+            void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
+          }
+          return null;
+        } catch (error) {
+          output.appendLine(`  refused: ${(error as Error).message}`);
+          showRefusal(error, { headline: 'Could not create workflow configuration proposal' });
+          return (error as Error).message;
+        }
       }
       // Written through the engine, which validates before it writes — a template is governed
       // configuration like any other, and the editor does not get its own way past that.
-      output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
+      output.appendLine(`\n$ singularity-flow configuration save ${message.path} --propose --json`);
       try {
-        await client.runText(['configuration', 'save', message.path], { input: message.content });
+        const text = await client.runText(
+          ['configuration', 'save', message.path, '--propose', '--json'],
+          { input: message.content }
+        );
+        const proposal = JSON.parse(text) as {
+          branch?: string; files?: string[]; reviewRequired?: boolean; baseBranch?: string;
+        };
         await store.refresh();
+        if (proposal.reviewRequired && proposal.branch) {
+          void vscode.window.showInformationMessage(
+            `Artifact-template proposal ${proposal.branch} was pushed. Merge it into `
+            + `${proposal.baseBranch ?? 'sflow/config'}, then refresh workspace configuration. `
+            + 'The active Story was not changed.'
+          );
+        }
         return null;
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);

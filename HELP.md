@@ -2557,9 +2557,16 @@ singularity-flow workflow list
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
+singularity-flow workflow create customer-onboarding --phases intake,implementation,verification --governs story --propose
 ```
 
 `workflow add` copies the profile plus missing Markdown templates/agent prompts and validates the resulting YAML. Customized profiles are never overwritten unless `--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work items keep their immutable resolution snapshots.
+
+Workflow Designer saves and `workflow ... --propose` author from the approved `sflow/config`
+revision in a disposable checkout and push one `sflow/config-change/workflow/...` review branch.
+They never edit the selected Story's pinned configuration. Merge the proposal into `sflow/config`,
+then run `singularity-flow workspace refresh-configuration` to update workspace state and make the
+workflow available to new Stories. Existing Stories keep their original configuration snapshot.
 
 ## Review bundles, assignments, and watching
 
@@ -2971,7 +2978,7 @@ singularity-flow jira assigned|list|pull|fields
 singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|path
-singularity-flow configuration save <PATH>
+singularity-flow configuration save <PATH> [--propose]
 singularity-flow configuration publish [--message TEXT] [--json]
 singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
 singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]

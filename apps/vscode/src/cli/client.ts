@@ -324,6 +324,14 @@ export class SingularityFlowClient {
     if (args[0] === 'capability' && REMOTE_CAPABILITY_OPERATIONS.has(args[1] ?? '')) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
+    // Workflow Designer proposals clone the approved configuration authority and publish an exact
+    // review ref. Office Git proxies can make that bounded remote transaction slower than an
+    // ordinary local CLI action, so it gets the same ceiling as capability authority changes. A
+    // real timeout still carries the complete terminal recovery command from the shared runner.
+    if ((args[0] === 'workflow' && hasOption(args, 'propose'))
+        || (args[0] === 'configuration' && args[1] === 'save' && hasOption(args, 'propose'))) {
+      return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    }
     if (args[0] === 'workspace' && args[1] === 'refresh-configuration') {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }

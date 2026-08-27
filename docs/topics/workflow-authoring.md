@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 5
+version: 6
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -22,9 +22,40 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Use it from each surface
 
-- **Shell:** `sflow workflow`, `sflow configuration`. Run `singularity-flow workflow --help` for the exact forms supported by this build.
+- **Shell:** `sflow workflow`, `sflow configuration`. Add `--propose` when authoring from an application or active Story checkout. Run `singularity-flow workflow --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-help` followed by the documented CLI fallback. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Configuration Center**. The extension renders engine results; it does not independently decide lifecycle state.
+- **VS Code:** open Singularity Flow **Configuration Center → Workflows & artifacts**. Workflow, phase, and artifact-template saves publish a review proposal against `sflow/config`; the extension does not edit the selected Story snapshot.
+
+## Shared configuration proposals
+
+Workflow definitions are reusable workspace configuration, not Story deliverables. The approved
+bytes live on `sflow/config`; a Story contains an immutable copy selected when that Story began.
+Writing a new workflow into the active Story would neither update future Stories nor update the
+approved catalog, and it would make the Story fail its protected-path gate.
+
+The Workflow Designer therefore performs this bounded transaction:
+
+1. read the exact approved `sflow/config` revision into a disposable checkout;
+2. apply and validate the workflow edit there;
+3. prove every changed file is inside the configuration scope;
+4. push one exact `sflow/config-change/workflow/...` review branch;
+5. leave the application/Story branch, index, and working tree unchanged.
+
+Merge that review branch into `sflow/config`, then run
+`singularity-flow workspace refresh-configuration`. The refresh mirrors the approved files to the
+workspace state branch and makes the workflow available to new Stories. Existing Stories remain
+pinned by design. A failed push retains an exact transport intent and reports its `push status`
+recovery command.
+
+CLI example:
+
+```bash
+singularity-flow workflow create customer-onboarding \
+  --label "Customer onboarding" \
+  --phases intake,implementation,verification \
+  --governs story \
+  --propose
+```
 
 ## Guided workflow
 

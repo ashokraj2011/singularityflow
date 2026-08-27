@@ -86,7 +86,7 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
     <div class="editor-title">
       <p class="eyebrow">${draft.isNew ? 'New workflow' : 'Workflow settings'}</p>
       <h3>${draft.isNew ? 'Create an ordered delivery path' : `Edit ${escape(draft.label)}`}</h3>
-      <p class="muted">The engine validates every phase reference before updating the governed YAML.</p>
+      <p class="muted">The engine validates every phase reference, then publishes a review proposal against the shared configuration authority. Active Story worktrees are never changed.</p>
     </div>
     <div class="form-grid">
       <label class="field"><span>Workflow ID</span><input data-workflow-id type="text" value="${escape(draft.id)}" ${draft.isNew ? '' : 'disabled'} placeholder="customer-onboarding"><small>Permanent lower-case identifier.</small></label>
@@ -108,7 +108,7 @@ function workflowEditor(draft: WorkflowDraftView, choices: PhaseChoice[]): strin
       <select data-workflow-add-phase><option value="">Choose a phase…</option>${available.map((phase) => `<option value="${escape(phase.id)}">${escape(phase.label)} — ${escape(phase.id)}</option>`).join('')}</select>
       <button class="secondary" data-add-workflow-phase="1"${available.length ? '' : ' disabled'}>Add phase</button>
     </div>
-    <div class="form-actions"><button data-save-workflow="1">${draft.isNew ? 'Create workflow' : 'Save workflow'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
+    <div class="form-actions"><button data-save-workflow="1">${draft.isNew ? 'Create workflow proposal' : 'Save workflow proposal'}</button><button class="secondary" data-cancel-workflow="1">Cancel</button></div>
   </section>`;
 }
 
@@ -163,7 +163,7 @@ function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: s
       <label class="field"><span>Expected agents</span><input data-phase-agents list="phase-agents-list" value="${escape(draft.agents)}" placeholder="architect,security-reviewer"><datalist id="phase-agents-list">${agents.map((agent) => `<option value="${escape(agent)}"></option>`).join('')}</datalist><small>${agents.length ? `Comma-separated. Governed agents: ${escape(agents.join(', '))}.` : 'No governed agents are configured in this repository yet.'}</small></label>
       <label class="field"><span>Business lanes</span><input data-phase-lanes value="${escape(draft.lanes)}" placeholder="design-architecture,engineering"><small>Initiative visualization only.</small></label>
     </div>
-    <div class="form-actions"><button data-save-phase="1">${draft.isNew ? 'Create phase' : 'Save phase'}</button><button class="secondary" data-cancel-phase="1">Cancel</button></div>
+    <div class="form-actions"><button data-save-phase="1">${draft.isNew ? 'Create phase proposal' : 'Save phase proposal'}</button><button class="secondary" data-cancel-phase="1">Cancel</button></div>
     ${phaseArtifacts(draft, templates)}
   </section>`;
 }
@@ -269,7 +269,7 @@ export function designerHtml(
   worldModelViews: string[] = [], governedAgents: string[] = []
 ): string {
   return `
-  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated by the same engine used by the CLI.</p></header>
+  <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated and pushed as a configuration review proposal; the selected Story is never edited.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'

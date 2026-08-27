@@ -8,6 +8,9 @@ import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
+import {
+  assertLocalConfigurationAuthoringAllowed, proposeConfigurationChange
+} from './configuration-proposal.mjs';
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -5289,6 +5292,21 @@ async function workflowCommand(positionals, options) {
     }, { preferAuthority: optionBoolean(options, 'for-start') });
   }
 
+  const proposing = optionBoolean(options, 'propose');
+  const author = async ({ operation, subject, message, mutate }) => {
+    if (proposing) return proposeConfigurationChange(root, { operation, subject, message, mutate });
+    assertLocalConfigurationAuthoringAllowed(root);
+    return mutate(root);
+  };
+  const printProposal = (result) => {
+    if (!result.reviewRequired) return false;
+    console.log(`Workflow configuration proposal published: ${result.branch}`);
+    console.log(`  ${result.files.join(', ')}`);
+    console.log(`  Approved ${result.baseBranch} and the current Story checkout were not changed.`);
+    console.log(`  Next: ${result.nextAction}`);
+    return true;
+  };
+
   // Authoring, folded in rather than given a noun of its own. `add` already means "install a
   // packaged workflow", so creating one from phases you choose is `create`.
   if (['create', 'edit'].includes(subcommand)) {
@@ -5296,13 +5314,19 @@ async function workflowCommand(positionals, options) {
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);
     if (subcommand === 'create') {
-      const created = await defineWorkflow(root, id, {
+      const input = {
         label: optionString(options, 'label'),
         description: optionString(options, 'description', ''),
         phases: list('phases'),
         governs: optionString(options, 'governs')
+      };
+      const created = await author({
+        operation: 'create-workflow', subject: id,
+        message: `[configuration] create workflow ${id}`,
+        mutate: (target) => defineWorkflow(target, id, input)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
+      if (printProposal(created)) return;
       console.log(`Created ${created.governs} workflow ${created.workflowId}: ${created.phases.join(' \u2192 ')}`);
       return console.log(`  ${created.path} — commit it to put the workflow under governance.`);
     }
@@ -5312,8 +5336,13 @@ async function workflowCommand(positionals, options) {
       if (value != null) changes[field] = value;
     }
     if (optionString(options, 'phases') != null) changes.phases = list('phases');
-    const edited = await editWorkflow(root, id, changes);
+    const edited = await author({
+      operation: 'edit-workflow', subject: id,
+      message: `[configuration] edit workflow ${id}`,
+      mutate: (target) => editWorkflow(target, id, changes)
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
+    if (printProposal(edited)) return;
     return console.log(`Updated ${edited.governs} workflow ${edited.workflowId} in ${edited.path}.`);
   }
 
@@ -5332,18 +5361,23 @@ async function workflowCommand(positionals, options) {
       }
       if (optionString(options, 'consumes') != null) changes.consumes = list('consumes');
       if (options.optional !== undefined) changes.required = !optionBoolean(options, 'optional');
-      const result = await upsertPhaseOutput(root, phaseId, outputId, changes, {
-        action: outputAction,
-        governs: optionString(options, 'governs', 'initiative')
+      const outputOptions = {
+        action: outputAction, governs: optionString(options, 'governs', 'initiative')
+      };
+      const result = await author({
+        operation: `${outputAction}-phase-output`, subject: `${phaseId}-${outputId}`,
+        message: `[configuration] ${outputAction} phase output ${phaseId}/${outputId}`,
+        mutate: (target) => upsertPhaseOutput(target, phaseId, outputId, changes, outputOptions)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (printProposal(result)) return;
       return console.log(`${outputAction === 'add' ? 'Added' : 'Updated'} output ${result.phaseId}/${result.outputId} in ${result.path}.`);
     }
     const id = requirePositional(positionals, 3, 'phase ID');
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);
     if (action === 'add') {
-      const created = await addPhase(root, id, {
+      const input = {
         label: optionString(options, 'label'),
         worldModelViews: list('views'),
         lanes: list('lanes'),
@@ -5351,8 +5385,14 @@ async function workflowCommand(positionals, options) {
         approvalAuthorities: list('authorities'),
         approvalMinimum: optionNumber(options, 'minimum') ?? 1,
         governs: optionString(options, 'governs', 'initiative')
+      };
+      const created = await author({
+        operation: 'add-phase', subject: id,
+        message: `[configuration] add phase ${id}`,
+        mutate: (target) => addPhase(target, id, input)
       });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(created, null, 2));
+      if (printProposal(created)) return;
       console.log(`Created ${created.governs} phase ${created.phaseId} in ${created.path}.`);
       if (created.template) console.log(`  Starter template: ${created.template}`);
       return console.log('  It runs nowhere until a workflow lists it: singularity-flow workflow edit <ID> --phases a,b,c');
@@ -5363,8 +5403,14 @@ async function workflowCommand(positionals, options) {
       if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
       if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
       if (optionString(options, 'agents') != null) changes.agents = list('agents');
-      const edited = await editPhase(root, id, changes, { governs: optionString(options, 'governs') });
+      const phaseOptions = { governs: optionString(options, 'governs') };
+      const edited = await author({
+        operation: 'edit-phase', subject: id,
+        message: `[configuration] edit phase ${id}`,
+        mutate: (target) => editPhase(target, id, changes, phaseOptions)
+      });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(edited, null, 2));
+      if (printProposal(edited)) return;
       console.log(`Updated phase ${edited.phaseId} in ${edited.path}.`);
       if (edited.usedBy.length) console.log(`  This changes ${edited.usedBy.join(', ')}, which run it.`);
       return;
@@ -8209,12 +8255,21 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   else if (subcommand === 'validate') result = await withApprovedConfigurationRead(
     root, () => validateEditorConfiguration(root)
   );
-  else if (subcommand === 'save') result = await saveConfigurationFile(
-    root,
-    requirePositional(positionals, 2, 'configuration path'),
-    await stdinText(),
-    { expectedSha256: optionString(options, 'expected-sha256') }
-  );
+  else if (subcommand === 'save') {
+    const requestedPath = requirePositional(positionals, 2, 'configuration path');
+    const content = await stdinText();
+    const saveOptions = { expectedSha256: optionString(options, 'expected-sha256') };
+    if (optionBoolean(options, 'propose')) {
+      result = await proposeConfigurationChange(root, {
+        operation: 'save-file',
+        subject: path.posix.basename(requestedPath),
+        message: `[configuration] update ${requestedPath}`,
+        mutate: (target) => saveConfigurationFile(target, requestedPath, content, saveOptions)
+      });
+    } else {
+      result = await saveConfigurationFile(root, requestedPath, content, saveOptions);
+    }
+  }
   else if (subcommand === 'read') result = await withApprovedConfigurationRead(
     root, () => readConfigurationFile(root, requirePositional(positionals, 2, 'configuration path'))
   );

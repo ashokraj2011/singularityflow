@@ -32,9 +32,25 @@ const {
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
 const { phasesInOrder, packsWithMembers, storiesByRepository, isApprovalPinned } =
   await import(source('cli/snapshot.ts'));
+const { renderReworkRollForwardPreview } = await import(source('views/rework-roll-forward-preview.ts'));
 
 const snapshot = JSON.parse(await readFile(
   path.join(packageRoot, 'apps', 'vscode', 'test', 'fixtures', 'snapshot-initiative-lite.json'), 'utf8'));
+
+test('rework roll-forward preview renders every path without truncation', () => {
+  const paths = Array.from({ length: 75 }, (_, index) => `src/generated/rework-${index}.mjs`);
+  const rendered = renderReworkRollForwardPreview({
+    workId: 'SAFE-ROLL-FORWARD',
+    changeRequestId: 'CR-001',
+    checkpointId: 'RFW-CR-001',
+    sourceCommit: 'a'.repeat(40),
+    sourcePhase: 'implementation',
+    paths
+  });
+  assert.match(rendered, /Paths restored: 75/);
+  for (const candidate of paths) assert.match(rendered, new RegExp(candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(rendered, /and \d+ more path/);
+});
 
 /** A child process that emits exactly what a test wants, without spawning anything. */
 function fakeSpawn({ stdout = '', stderr = '', code = 0, delayMs = 0 } = {}) {

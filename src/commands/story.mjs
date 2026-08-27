@@ -1209,8 +1209,11 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
         actor: result.actor,
         agent: result.agent,
         authorityGroup: result.authorityGroup,
+        generation: result.checkpoint.state.phases?.[result.checkpoint.sourcePhase]?.generation ?? null,
         identityAssurance: result.identityAssurance,
         payload: {
+          decision: 'abandoned',
+          reviewPacketSha256: null,
           changeRequestId: result.request.id,
           checkpointId: result.checkpoint.id,
           confirmation: result.preview.confirmation,

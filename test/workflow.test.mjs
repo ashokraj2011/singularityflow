@@ -765,6 +765,11 @@ test('completed work can be reopened only through an authorized governed change 
 
 test('returned phase rework can be discarded and rolled forward from an exact checkpoint', async () => {
   const root = await repository(); const workId = 'ROLL-FWD-1';
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/existing.mjs'), 'export const baseline = 0;\n');
+  execute('git', ['add', 'src/existing.mjs'], root);
+  execute('git', ['commit', '-m', 'add application source'], root);
+  execute('git', ['push', 'origin', 'main'], root);
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('bugfix', 'qa') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -778,13 +783,36 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   flow(root, ['resume', workId], { selection: selection('bugfix', 'qa') });
   flow(root, ['phase', 'publish', 'reproduction'], { selection: selection('bugfix', 'qa') });
   flow(root, ['submit'], { selection: selection('bugfix', 'qa') });
+  await writeFile(path.join(root, 'src/existing.mjs'), 'export const baseline = 1;\n');
+  await writeFile(path.join(root, 'src/preexisting-unchanged.mjs'), 'export const retained = true;\n');
+  await writeFile(path.join(root, 'src/preexisting-edited.mjs'), 'export const baseline = 1;\n');
   const forwardCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
   flow(root, ['reject', '--to', 'intake', '--reason', 'Try a different reproduction'], { selection: selection('bugfix', 'qa') });
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.changeRequests[0].forwardCheckpoint.sourceCommit, forwardCommit);
   assert.equal(workflow.changeRequests[0].forwardCheckpoint.state.currentPhase, 'reproduction');
+  assert.equal(workflow.changeRequests[0].forwardCheckpoint.schemaVersion, 2);
+  assert.match(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.tree, /^[0-9a-f]{40,64}$/);
+  assert.match(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.ref, /^refs\/singularity-flow\/rework-baselines\//);
+  assert.deepEqual(workflow.changeRequests[0].forwardCheckpoint.worktreeBaseline.dirtyPaths, [
+    'src/existing.mjs', 'src/preexisting-edited.mjs', 'src/preexisting-unchanged.mjs'
+  ]);
+  const abandonedUsage = {
+    status: 'exact', source: 'test', provider: 'test', model: 'test-model',
+    inputTokens: 500, outputTokens: 277, totalTokens: 777,
+    agent: 'qa', generation: workflow.phases.intake.generation
+  };
+  workflow.phases.intake.usage.push(abandonedUsage);
+  workflow.usage.records += 1;
+  workflow.usage.exactRecords += 1;
+  workflow.usage.totalTokens += abandonedUsage.totalTokens;
+  workflow.usage.byPhase.intake.records += 1;
+  workflow.usage.byPhase.intake.exactRecords += 1;
+  workflow.usage.byPhase.intake.totalTokens += abandonedUsage.totalTokens;
+  await writeFile(workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
 
-  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/existing.mjs'), 'export const baseline = 2;\n');
+  await writeFile(path.join(root, 'src/preexisting-edited.mjs'), 'export const baseline = 2;\n');
   await writeFile(path.join(root, 'src/rework-only.mjs'), 'export const abandoned = true;\n');
   execute('git', ['add', 'src/rework-only.mjs'], root);
   const stagedPreview = flow(root, ['story', 'rework', 'roll-forward', '--work-id', workId, '--json'], {
@@ -809,6 +837,9 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   assert.equal(plan.changeRequestId, 'CR-001');
   assert.match(plan.confirmation, /^sha256:[0-9a-f]{64}$/);
   assert.ok(plan.paths.includes('src/rework-only.mjs'));
+  assert.ok(plan.paths.includes('src/existing.mjs'));
+  assert.ok(plan.paths.includes('src/preexisting-edited.mjs'));
+  assert.ok(!plan.paths.includes('src/preexisting-unchanged.mjs'));
   assert.notEqual(plan.confirmation, stagedPlan.confirmation);
   assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), true);
 
@@ -823,12 +854,23 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   assert.match(result.backupPath, /rework-backups/);
   assert.equal(existsSync(path.join(result.backupPath, 'files/src/rework-only.mjs')), true);
   assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), false);
+  assert.equal(await readFile(path.join(root, 'src/existing.mjs'), 'utf8'), 'export const baseline = 1;\n');
+  assert.equal(await readFile(path.join(root, 'src/preexisting-edited.mjs'), 'utf8'), 'export const baseline = 1;\n');
+  assert.equal(await readFile(path.join(root, 'src/preexisting-unchanged.mjs'), 'utf8'), 'export const retained = true;\n');
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'reproduction');
   assert.equal(workflow.phases.reproduction.status, 'awaiting_approval');
   assert.equal(workflow.changeRequests[0].status, 'abandoned');
   assert.equal(workflow.changeRequests[0].resolution.confirmation, plan.confirmation);
   assert.equal(workflow.history.at(-1).event, 'rework_rolled_forward');
+  const projection = workflow.publicationProjections.at(-1);
+  assert.equal(projection.event.type, 'rework-rolled-forward');
+  assert.equal(projection.event.generation, workflow.phases.reproduction.generation);
+  assert.equal(projection.event.payload.decision, 'abandoned');
+  assert.equal(projection.event.payload.reviewPacketSha256, null);
+  const phaseUsage = workflow.phaseOrder.flatMap((phaseId) => workflow.phases[phaseId].usage ?? []);
+  assert.equal(workflow.usage.records, phaseUsage.length);
+  assert.equal(workflow.usage.totalTokens, phaseUsage.reduce((sum, usage) => sum + (usage.totalTokens ?? 0), 0));
   assert.equal(flow(root, ['validate']).status, 0);
   const history = execute('git', ['log', '--format=%s', '-4'], root).stdout;
   assert.match(history, /\[ROLL-FWD-1\]\[rework:roll-forward\] CR-001/);

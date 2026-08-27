@@ -695,9 +695,15 @@ const families = [
   family({ id: 'recovery-plan', currentVersion: 1 }),
   // Embedded in an open Story change request. It has no independent path, but every producer and
   // integrity verifier must still agree on its durable schema version.
-  family({ id: 'rework-forward-checkpoint', currentVersion: 1 }),
+  family({
+    id: 'rework-forward-checkpoint', currentVersion: 2,
+    steps: [migration(1, 2, identity(2))]
+  }),
   // A read-only, recomputed transport shape shown before destructive confirmation.
-  family({ id: 'rework-roll-forward-plan', currentVersion: 1 }),
+  family({
+    id: 'rework-roll-forward-plan', currentVersion: 2,
+    steps: [migration(1, 2, identity(2))]
+  }),
   family({
     id: 'rework-local-backup', currentVersion: 1,
     paths: [/^\$git\/rework-backups\/[^/]+\/[^/]+\/manifest\.json$/]

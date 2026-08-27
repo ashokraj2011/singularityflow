@@ -73,6 +73,7 @@ import { readRecord } from '../../../src/schema-migrations.mjs';
 import { registerSflowChat } from './sflow-chat.ts';
 import { recordHelpMetric } from '../../../src/help-metrics.mjs';
 import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
+import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -3983,8 +3984,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           return;
         }
-        const shown = plan.paths.slice(0, 30);
-        const remaining = Math.max(0, plan.paths.length - shown.length);
+        const previewContent = renderReworkRollForwardPreview(plan);
+        const previewDocument = await vscode.workspace.openTextDocument({ language: 'markdown', content: previewContent });
+        await vscode.window.showTextDocument(previewDocument, { preview: true });
+        const reviewed = await vscode.window.showInformationMessage(
+          `Review the complete ${plan.paths.length}-path roll-forward preview before continuing.`,
+          'Continue to confirmation'
+        );
+        if (reviewed !== 'Continue to confirmation') return;
         const choice = await vscode.window.showWarningMessage(
           `Discard ${requestId} rework and safely return ${workflow.workItem.id} to ${plan.sourcePhase}?`,
           {
@@ -3992,9 +3999,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             detail: [
               `Checkpoint: ${plan.checkpointId} at ${plan.sourceCommit}`,
               `The current Git history is preserved. A local backup is created before ${plan.paths.length} path(s) are restored.`,
-              '',
-              ...shown,
-              ...(remaining ? [`… and ${remaining} more path(s)`] : [])
+              'You confirmed that you reviewed the complete preview document.'
             ].join('\n')
           },
           'Back up, discard, and return forward'

@@ -113,7 +113,9 @@ import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule,
   testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { buildRepositoryChangeSet, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import {
+  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
+} from './repository-change-set.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
   inspectRequiredArtifactContent, requiredArtifactRepoPath,
@@ -2735,7 +2737,99 @@ function reworkCheckpointIntegrity(checkpoint) {
  * commit as the rejection/reopen. It deliberately records only the mutable forward cone rather
  * than nesting the whole workflow: repeated rework must grow linearly, not recursively.
  */
-function createReworkForwardCheckpoint(root, workflow, {
+async function scopedWorktreeTree(root, config, workflow, baseCommit) {
+  const changeSet = await buildRepositoryChangeSet(root, {
+    baseCommit,
+    subject: { kind: 'story-rework-baseline', id: workflow.workItem.id }
+  });
+  const entries = (changeSet.entries ?? []).filter((entry) => {
+    const endpoints = [entry.oldPath, entry.newPath].filter(Boolean);
+    return endpoints.some((candidate) => reworkScopePath(config, workflow, candidate, {
+      untracked: entry.untracked === true && candidate === entry.newPath
+    }));
+  });
+  const paths = [...new Set(entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
+  const baseTree = run('git', ['rev-parse', `${baseCommit}^{tree}`], { cwd: root }).stdout.trim();
+  if (!paths.length) return { tree: baseTree, paths };
+
+  const temporaryRoot = path.join(gitCommonDir(root), 'singularity-flow', 'temporary-indexes');
+  await mkdir(temporaryRoot, { recursive: true });
+  const scratch = await mkdtemp(path.join(temporaryRoot, 'rework-snapshot-'));
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+  try {
+    run('git', ['read-tree', baseCommit], { cwd: root, env });
+    run('git', ['add', '-A', '--', ...paths], { cwd: root, env });
+    return { tree: run('git', ['write-tree'], { cwd: root, env }).stdout.trim(), paths };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+async function currentReworkTreeChangeSet(root, config, workflow, baselineTree, currentHead) {
+  const current = await buildRepositoryChangeSet(root, {
+    baseCommit: currentHead,
+    subject: { kind: 'story-rework-current', id: workflow.workItem.id }
+  });
+  const paths = [...new Set((current.entries ?? [])
+    .filter((entry) => [entry.oldPath, entry.newPath].filter(Boolean).some((candidate) =>
+      reworkScopePath(config, workflow, candidate, {
+        untracked: entry.untracked === true && candidate === entry.newPath
+      })))
+    .flatMap((entry) => [entry.oldPath, entry.newPath])
+    .filter(Boolean))].sort();
+
+  if (!paths.length) {
+    const currentTree = run('git', ['rev-parse', `${currentHead}^{tree}`], { cwd: root }).stdout.trim();
+    return {
+      currentTree,
+      changeSet: buildRepositoryTreeChangeSet(root, {
+        baseTree: baselineTree,
+        targetTree: currentTree,
+        subject: { kind: 'story-rework-roll-forward', id: workflow.workItem.id }
+      })
+    };
+  }
+
+  const temporaryRoot = path.join(gitCommonDir(root), 'singularity-flow', 'temporary-indexes');
+  await mkdir(temporaryRoot, { recursive: true });
+  const scratch = await mkdtemp(path.join(temporaryRoot, 'rework-preview-'));
+  const objectDirectory = path.join(scratch, 'objects');
+  await mkdir(objectDirectory, { recursive: true });
+  const env = {
+    ...process.env,
+    GIT_INDEX_FILE: path.join(scratch, 'index'),
+    GIT_OBJECT_DIRECTORY: objectDirectory,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: [
+      path.join(gitCommonDir(root), 'objects'),
+      process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+    ].filter(Boolean).join(path.delimiter)
+  };
+  try {
+    run('git', ['read-tree', currentHead], { cwd: root, env });
+    if (paths.length) run('git', ['add', '-A', '--', ...paths], { cwd: root, env });
+    const currentTree = run('git', ['write-tree'], { cwd: root, env }).stdout.trim();
+    return {
+      currentTree,
+      changeSet: buildRepositoryTreeChangeSet(root, {
+        baseTree: baselineTree,
+        targetTree: currentTree,
+        subject: { kind: 'story-rework-roll-forward', id: workflow.workItem.id },
+        env
+      })
+    };
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+function reworkBaselineRef(workflow, changeRequestId) {
+  const key = createHash('sha256')
+    .update(`${workflow.workItem.id}\0${changeRequestId}`)
+    .digest('hex');
+  return `refs/singularity-flow/rework-baselines/${key}`;
+}
+
+async function createReworkForwardCheckpoint(root, config, workflow, {
   changeRequestId,
   sourcePhase,
   targetPhase,
@@ -2743,14 +2837,24 @@ function createReworkForwardCheckpoint(root, workflow, {
   createdAt
 }) {
   const affectedPhaseIds = workflow.phaseOrder.slice(targetIndex);
+  const sourceCommit = head(root);
+  const baseline = await scopedWorktreeTree(root, config, workflow, sourceCommit);
+  const baselineRef = baseline.paths.length ? reworkBaselineRef(workflow, changeRequestId) : null;
+  if (baselineRef) run('git', ['update-ref', baselineRef, baseline.tree], { cwd: root });
   const checkpoint = {
     schemaVersion: currentSchemaVersion('rework-forward-checkpoint'),
     id: `RFW-${changeRequestId}`,
     changeRequestId,
-    sourceCommit: head(root),
+    sourceCommit,
     sourcePhase,
     targetPhase,
     createdAt,
+    worktreeBaseline: {
+      kind: 'git-tree',
+      tree: baseline.tree,
+      ref: baselineRef,
+      dirtyPaths: baseline.paths
+    },
     state: {
       status: workflow.status,
       currentPhase: workflow.currentPhase,
@@ -2860,7 +2964,7 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: null,
     resolution: null
   };
-  changeRequest.forwardCheckpoint = createReworkForwardCheckpoint(root, workflow, {
+  changeRequest.forwardCheckpoint = await createReworkForwardCheckpoint(root, config, workflow, {
     changeRequestId: changeRequest.id,
     sourcePhase: phase.id,
     targetPhase: targetId,
@@ -3341,7 +3445,7 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
     reviewPacketSha256: null,
     resolution: null
   };
-  changeRequest.forwardCheckpoint = createReworkForwardCheckpoint(root, workflow, {
+  changeRequest.forwardCheckpoint = await createReworkForwardCheckpoint(root, config, workflow, {
     changeRequestId: changeRequest.id,
     sourcePhase: completionPhase.id,
     targetPhase: targetId,
@@ -3445,13 +3549,61 @@ function openReworkCheckpoint(workflow, changeRequestId = null) {
   return { request, checkpoint };
 }
 
+function verifiedReworkBaselineTree(root, checkpoint) {
+  const readable = readRecord('rework-forward-checkpoint', checkpoint).record;
+  const baseline = readable.worktreeBaseline;
+  if (baseline?.kind !== 'git-tree' || !baseline.tree) {
+    throw new SingularityFlowError(
+      `Rework checkpoint '${checkpoint.id}' predates exact worktree baselines. `
+      + 'Its rollback boundary cannot distinguish pre-existing developer changes from rework, so automatic roll-forward is refused. '
+      + 'Keep the current files and resolve this legacy change request manually.',
+      { code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE' }
+    );
+  }
+  const resolved = run('git', ['rev-parse', '--verify', `${baseline.tree}^{tree}`], {
+    cwd: root,
+    allowFailure: true
+  });
+  if (resolved.status !== 0 || resolved.stdout.trim() !== baseline.tree) {
+    throw new SingularityFlowError(
+      `The exact local worktree baseline for checkpoint '${checkpoint.id}' is unavailable. `
+      + 'No files were changed. Run this recovery from the checkout that recorded the phase return, or restore the local baseline ref.',
+      { code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE' }
+    );
+  }
+  if (baseline.ref) {
+    const retained = run('git', ['rev-parse', '--verify', `${baseline.ref}^{tree}`], {
+      cwd: root,
+      allowFailure: true
+    });
+    if (retained.status !== 0 || retained.stdout.trim() !== baseline.tree) {
+      throw new SingularityFlowError(
+        `The retained local baseline ref for checkpoint '${checkpoint.id}' is missing or changed. No files were changed.`,
+        { code: 'REWORK_FORWARD_BASELINE_UNAVAILABLE' }
+      );
+    }
+  } else {
+    const sourceTree = run('git', ['rev-parse', '--verify', `${checkpoint.sourceCommit}^{tree}`], {
+      cwd: root,
+      allowFailure: true
+    });
+    if (sourceTree.status !== 0 || sourceTree.stdout.trim() !== baseline.tree) {
+      throw new SingularityFlowError(
+        `Clean baseline for checkpoint '${checkpoint.id}' no longer matches its source commit. No files were changed.`,
+        { code: 'REWORK_FORWARD_BASELINE_INVALID' }
+      );
+    }
+  }
+  return baseline.tree;
+}
+
 /** A read-only, content-bound plan for abandoning the latest rework cone. */
 export async function previewReworkRollForward(root, config, workflow, { changeRequestId = null } = {}) {
   const { request, checkpoint } = openReworkCheckpoint(workflow, changeRequestId);
-  const changeSet = await buildRepositoryChangeSet(root, {
-    baseCommit: checkpoint.sourceCommit,
-    subject: { kind: 'story-rework-roll-forward', id: workflow.workItem.id, changeRequestId: request.id }
-  });
+  const baselineTree = verifiedReworkBaselineTree(root, checkpoint);
+  const currentHead = head(root);
+  const snapshot = await currentReworkTreeChangeSet(root, config, workflow, baselineTree, currentHead);
+  const changeSet = snapshot.changeSet;
   const entries = [];
   for (const entry of changeSet.entries ?? []) {
     const endpoints = [entry.oldPath, entry.newPath].filter(Boolean);
@@ -3480,7 +3632,9 @@ export async function previewReworkRollForward(root, config, workflow, { changeR
     sourceCommit: checkpoint.sourceCommit,
     sourcePhase: checkpoint.sourcePhase,
     targetPhase: checkpoint.targetPhase,
-    currentHead: head(root),
+    baselineTree,
+    currentHead,
+    currentTree: snapshot.currentTree,
     paths,
     stagedPaths: paths.filter((candidate) => staged.has(candidate)),
     entries
@@ -3526,21 +3680,20 @@ async function backupReworkPaths(root, workflow, preview) {
 }
 
 async function restoreReworkPaths(root, preview) {
-  const tracked = [...new Set(preview.entries
-    .filter((entry) => !entry.untracked)
-    .flatMap((entry) => [entry.oldPath, entry.newPath])
-    .filter(Boolean))].sort();
-  if (tracked.length) {
+  if (!preview.paths.length) return;
+  const present = new Set(run('git', [
+    'ls-tree', '-r', '--name-only', '-z', preview.baselineTree, '--', ...preview.paths
+  ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
+  const restored = preview.paths.filter((candidate) => present.has(candidate));
+  if (restored.length) {
     run('git', [
-      'restore', '--source', preview.sourceCommit, '--worktree',
+      'restore', '--source', preview.baselineTree, '--worktree',
       '--pathspec-from-file=-', '--pathspec-file-nul'
-    ], { cwd: root, input: Buffer.from(`${tracked.join('\0')}\0`) });
+    ], { cwd: root, input: Buffer.from(`${restored.join('\0')}\0`) });
   }
-  const untracked = [...new Set(preview.entries
-    .filter((entry) => entry.untracked)
-    .map((entry) => entry.newPath)
-    .filter(Boolean))].sort();
-  for (const relative of untracked) await rm(path.join(root, relative), { recursive: true, force: true });
+  for (const relative of preview.paths.filter((candidate) => !present.has(candidate))) {
+    await rm(path.join(root, relative), { recursive: true, force: true });
+  }
 }
 
 /**
@@ -3597,6 +3750,7 @@ export async function rollForwardRework(root, config, workflow, {
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
     workflow.phases[phaseId] = structuredClone(checkpoint.state.phases[phaseId]);
   }
+  rebuildUsageAggregates(workflow);
   const rolledAt = nowIso();
   for (const decision of rejectionDecisions) {
     decision.invalidatedAt = rolledAt;

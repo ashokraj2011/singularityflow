@@ -15,8 +15,8 @@ function sha256(value) {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
-function git(root, args, { allowFailure = false } = {}) {
-  const result = run('git', args, { cwd: root, allowFailure });
+function git(root, args, { allowFailure = false, env = process.env } = {}) {
+  const result = run('git', args, { cwd: root, allowFailure, env });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError((result.stderr || result.stdout).trim() || `git ${args.join(' ')} failed`);
   }
@@ -173,6 +173,54 @@ export async function buildRepositoryChangeSet(root, {
     subject,
     base: { commit: baseline, tree },
     target: { head, includesIndex: true, includesWorktree: true, includesUntracked: true, caseInsensitivePaths },
+    entries
+  };
+  return { ...core, digest: repositoryChangeSetDigest(core) };
+}
+
+/**
+ * Compare two already-materialized repository trees.
+ *
+ * Rework recovery uses private Git trees as exact visible-byte checkpoints. Comparing the trees
+ * directly avoids borrowing the contributor's index and, importantly, treats a file that was
+ * untracked at both checkpoints as the same file rather than as a deletion plus an addition.
+ */
+export function buildRepositoryTreeChangeSet(root, {
+  baseTree,
+  targetTree,
+  subject = null,
+  env = process.env
+} = {}) {
+  const resolveTree = (value, label) => {
+    if (!value) throw new SingularityFlowError(`${label} tree is required for a repository tree change set.`);
+    const resolved = git(root, ['rev-parse', '--verify', `${value}^{tree}`], { allowFailure: true, env });
+    if (resolved.status !== 0) {
+      throw new SingularityFlowError(`${label} tree ${value} is not available.`, {
+        code: 'CHANGE_SET_BASELINE_UNAVAILABLE'
+      });
+    }
+    return resolved.stdout.trim();
+  };
+  const baseline = resolveTree(baseTree, 'Baseline');
+  const target = resolveTree(targetTree, 'Target');
+  const raw = git(root, [
+    'diff', '--raw', '-z', '--no-abbrev', '--find-renames', '--find-copies',
+    '--no-ext-diff', '--no-textconv', baseline, target, '--'
+  ], { env }).stdout;
+  const entries = parseRawDiff(raw).map((entry) => withEntryIdentity({ ...entry, newContent: null }));
+  entries.sort(entryOrder);
+  const core = {
+    schemaVersion: currentSchemaVersion('repository-change-set'),
+    kind: 'repository-tree-change-set',
+    subject,
+    base: { tree: baseline },
+    target: {
+      tree: target,
+      includesIndex: false,
+      includesWorktree: true,
+      includesUntracked: true,
+      caseInsensitivePaths: repositoryCaseInsensitivePaths(root)
+    },
     entries
   };
   return { ...core, digest: repositoryChangeSetDigest(core) };

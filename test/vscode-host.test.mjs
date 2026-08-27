@@ -2888,6 +2888,78 @@ test('an open Workspaces panel follows the active workspace instead of retaining
   assert.match(panel.webview.html, /<h3>[\s\S]*?alpha<\/h3>[\s\S]*?active/);
 });
 
+test('Lifecycle follows a Story or workspace selection changed outside VS Code', async (t) => {
+  if (!requireBundle(t)) return;
+  const source = await demoRepository();
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-external-selection-'));
+  const registry = path.join(base, 'registry.json');
+  const selection = path.join(base, 'active-workspace.json');
+  const workspaces = path.join(base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+  });
+
+  const cli = (args) => {
+    const result = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(result.status, 0, `${args.join(' ')}\n${result.stderr}`);
+    return result.stdout;
+  };
+  const created = new Map();
+  for (const id of ['alpha', 'beta']) {
+    created.set(id, JSON.parse(cli([
+      'workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
+      '--lead', 'lead', '--repository', `lead=${source}`,
+      '--default-branch', 'lead=INIT-CHECKOUT', '--confirm', id
+    ])));
+  }
+  const beta = created.get('beta');
+  const betaRoot = path.join(beta.workspace.path, beta.workspace.repositories.lead.path);
+  const portfolio = YAML.parse(await readFile(path.join(betaRoot, 'singularity/portfolio.yml'), 'utf8'));
+  const betaStateFile = path.join(initiativeDir(betaRoot, portfolio, 'INIT-CHECKOUT'), 'state.json');
+  const betaState = JSON.parse(await readFile(betaStateFile, 'utf8'));
+  betaState.initiative.title = 'Externally selected checkout';
+  await saveInitiative(betaRoot, portfolio, betaState);
+  run('git', ['add', '.'], { cwd: betaRoot });
+  run('git', ['-c', `user.email=${EMAIL}`, '-c', 'user.name=Initiative Owner',
+    'commit', '-m', 'Distinguish the second workspace'], { cwd: betaRoot });
+
+  cli(['workspace', 'use', 'alpha', '--json']);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  const lifecycle = section(registered, 'lifecycle');
+  assert.equal(lifecycle.getTreeItem(lifecycle.getChildren()[0]).description, 'One-tap checkout');
+  const selectionWatcher = registered.watchers.find((watcher) =>
+    path.resolve(watcher.pattern.base.fsPath) === path.dirname(selection)
+      && watcher.pattern.pattern === path.basename(selection));
+  assert.ok(selectionWatcher, 'the extension watches the machine-wide active selection');
+
+  // Reproduce Copilot `/sf-session` or a terminal `session attach`: the CLI changes the durable
+  // selection without invoking the extension's Workspaces callback.
+  cli(['workspace', 'use', 'beta', '--json']);
+  selectionWatcher.change.fire({ fsPath: selection });
+  await until(() => registered.output.some((line) =>
+    line.includes('Active selection changed outside VS Code') && line.includes(path.resolve(betaRoot))) || null,
+  { what: 'the extension to observe the external active-workspace update' });
+  await until(() => {
+    const root = lifecycle.getChildren()[0];
+    return lifecycle.getTreeItem(root).description === 'Externally selected checkout' ? root : null;
+  }, { what: 'Lifecycle to refresh from the externally selected repository' });
+  assert.ok(registered.output.some((line) => line.includes(`Governed repository: ${path.resolve(betaRoot)}`)),
+    'all repository-bound screens were re-pointed through the shared selection callback');
+});
+
 /** Every command package.json contributes. The palette offers all of them, always. */
 function contributedCommands() {
   const manifest = JSON.parse(readFileSync(path.join(packageRoot, 'apps/vscode/package.json'), 'utf8'));
@@ -3723,15 +3795,23 @@ test('a future reset marker refuses safely and preserves extension-owned state',
 test('terminal lifecycle writes refresh every VS Code view through one watched snapshot', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
-  assert.equal(registered.watchers.length, 1, 'the governed repository is watched once');
-  assert.equal(await realpath(registered.watchers[0].pattern.base.fsPath), await realpath(root));
-  assert.equal(registered.watchers[0].pattern.pattern, 'singularity/**/*');
+  assert.equal(registered.watchers.length, 2,
+    'the governed repository and the machine-wide active Story selection are each watched once');
+  const repositoryWatcher = registered.watchers.find((watcher) =>
+    watcher.pattern.pattern === 'singularity/**/*');
+  const selectionWatcher = registered.watchers.find((watcher) =>
+    watcher.pattern.pattern === path.basename(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE));
+  assert.ok(repositoryWatcher, 'the governed repository watcher is registered');
+  assert.ok(selectionWatcher, 'the active Story selection watcher is registered');
+  assert.equal(await realpath(repositoryWatcher.pattern.base.fsPath), await realpath(root));
+  assert.equal(path.resolve(selectionWatcher.pattern.base.fsPath),
+    path.dirname(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE));
 
   const statePath = path.join(root, 'singularity', 'initiatives', 'INIT-CHECKOUT', 'state.json');
   const state = JSON.parse(await readFile(statePath, 'utf8'));
   state.initiative.title = 'Changed from Copilot CLI';
   await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
-  registered.watchers[0].change.fire({ fsPath: statePath });
+  repositoryWatcher.change.fire({ fsPath: statePath });
 
   const provider = section(registered, 'lifecycle');
   await until(() => provider.getChildren().find((node) => node.kind === 'initiative')?.description === 'Changed from Copilot CLI');

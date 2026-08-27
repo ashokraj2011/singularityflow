@@ -2279,6 +2279,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showRefusal(error);
     return unavailable('No Singularity Flow CLI was found', (error as Error).message);
   }
+  // Workspace/session selection is machine-wide. Keep its reads independent of the currently
+  // selected checkout so a removed or otherwise stale Story worktree cannot prevent the extension
+  // from discovering the checkout that replaced it.
+  const activeSelectionClient = new SingularityFlowClient({
+    location: client.location,
+    repository: process.cwd(),
+    environment: cliEnvironment,
+    onOutput: (text) => output.append(text)
+  });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
 
   const expandReference = async (seed?: string): Promise<void> => {
@@ -2710,6 +2719,84 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void refreshWorkspaceLogsTree();
     output.appendLine(`Governed repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
   });
+
+  /**
+   * Follow Story or workspace selections made outside this extension host.
+   *
+   * Copilot skills and terminal commands update the same machine-wide active-workspace record as
+   * the Workspaces screen. Previously only the screen called `workspaceSelected`, so `/sf-session`
+   * could attach a Story successfully while Lifecycle, Inbox, and Work Journey kept reading the
+   * previous checkout until VS Code was reloaded. Read the authoritative CLI projection again and
+   * reuse the one rebind path above; no surface gets to maintain its own idea of the active Story.
+   */
+  let selectionReconciliation: Promise<boolean> | null = null;
+  const reconcileActiveWorkspaceSelection = async (): Promise<boolean> => {
+    if (selectionReconciliation) return selectionReconciliation;
+    const reconciliation = (async (): Promise<boolean> => {
+      try {
+        const current = await activeSelectionClient.run<{
+          active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
+          repositoryId?: string; repositoryPath?: string; repositoryState?: string;
+          selectionStatus?: string; storyId?: string | null;
+        }>(['workspace', 'current', '--json']);
+        if (current.active === false || current.repositoryState && current.repositoryState !== 'ready'
+          || current.selectionStatus && current.selectionStatus !== 'ready') return false;
+        if (!current.repositoryPath || !current.workspacePath) return false;
+        const target = path.resolve(current.repositoryPath);
+        if (target === path.resolve(repository)) return false;
+        const selected: SelectedWorkspace = {
+          workspaceId: current.workspaceId ?? current.workspacePath,
+          workspaceName: current.workspaceName ?? current.workspaceId ?? path.basename(current.workspacePath),
+          repositoryId: current.repositoryId ?? null,
+          repositoryPath: target,
+          workspacePath: current.workspacePath
+        };
+        output.appendLine(`Active selection changed outside VS Code${current.storyId ? ` to Story ${current.storyId}` : ''}; following ${target}.`);
+        await refreshWorkspaceTree();
+        const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+        await WorkspacesPanel.activeWorkspaceChanged(current.workspacePath);
+        for (const follow of workspaceSelected) await follow(selected);
+        return path.resolve(repository) === target;
+      } catch (error) {
+        // A background synchronization failure must not interrupt editing. The explicit Refresh
+        // action remains available, and the output channel keeps the exact diagnostic.
+        output.appendLine(`Could not synchronize the active Story selection: ${(error as Error).message}`);
+        return false;
+      }
+    })();
+    selectionReconciliation = reconciliation;
+    try {
+      return await reconciliation;
+    } finally {
+      if (selectionReconciliation === reconciliation) selectionReconciliation = null;
+    }
+  };
+
+  const ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS = 250;
+  const activeSelectionFile = path.resolve(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE
+    || path.join(os.homedir(), '.singularity-flow', 'active-workspace.json'));
+  const activeSelectionWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(vscode.Uri.file(path.dirname(activeSelectionFile)), path.basename(activeSelectionFile))
+  );
+  let activeSelectionRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleActiveSelectionRefresh = (): void => {
+    if (activeSelectionRefreshTimer) clearTimeout(activeSelectionRefreshTimer);
+    activeSelectionRefreshTimer = setTimeout(() => {
+      activeSelectionRefreshTimer = null;
+      void reconcileActiveWorkspaceSelection();
+    }, ACTIVE_SELECTION_REFRESH_DEBOUNCE_MS);
+  };
+  context.subscriptions.push(
+    activeSelectionWatcher.onDidCreate(scheduleActiveSelectionRefresh),
+    activeSelectionWatcher.onDidChange(scheduleActiveSelectionRefresh),
+    activeSelectionWatcher.onDidDelete(scheduleActiveSelectionRefresh),
+    {
+      dispose: () => {
+        activeSelectionWatcher.dispose();
+        if (activeSelectionRefreshTimer) clearTimeout(activeSelectionRefreshTimer);
+      }
+    }
+  );
 
   /**
    * Run whatever a node offers, then refresh so every view reflects what just happened.
@@ -3731,7 +3818,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.detachEvidence': detachEvidence as never,
     'singularityFlow.addSource': addSource,
     'singularityFlow.refresh': async () => {
-      await store.refresh();
+      const repositoryChanged = await reconcileActiveWorkspaceSelection();
+      if (!repositoryChanged) await store.refresh();
       void refreshReadiness(true);
       void refreshWorkspaceLogsTree();
     },
@@ -3743,6 +3831,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.submitStoryPhase': ((node?: TreeNode) => runStoryPhase('submit', node)) as never,
     'singularityFlow.approve': runNode as never,
     'singularityFlow.openJourney': async () => {
+      await reconcileActiveWorkspaceSelection();
       const { JourneyPanel } = await import('./views/journey.ts');
       return JourneyPanel.show(context, store, onJourneyMessage);
     },

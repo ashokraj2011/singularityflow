@@ -3361,7 +3361,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         approve: approval.source === 'story'
           ? {
             kind: 'story', workId: approval.workId ?? '', phaseId: approval.phase,
-            expected: approval.expected, summary: `Approve ${approval.label}`
+            expected: approval.expected, summary: `Approve ${approval.label}`,
+            selfApproval: approval.selfApproval
           }
           : {
             kind: 'initiative', initiativeId: initiative?.state.initiative.id ?? '',

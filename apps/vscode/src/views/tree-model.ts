@@ -65,7 +65,10 @@ export interface TreeNode {
    */
   approve?:
     | { kind: 'initiative'; initiativeId: string; subject: string; expected: string; summary: string }
-    | { kind: 'story'; workId: string; phaseId: string; expected: string; summary: string };
+    | {
+      kind: 'story'; workId: string; phaseId: string; expected: string; summary: string;
+      selfApproval?: boolean;
+    };
   contextValue?: string;
   evidence?: {
     ownerKind: 'story' | 'epic'; ownerId: string; evidenceId: string;
@@ -306,7 +309,13 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       return [completedFolder([completed, ...siblings], countArtifacts(completed)),
         ...(activeStories ? [activeStories] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
-    return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
+    return [storyWorkflowNode(
+      snapshot.workflow,
+      snapshot.documents ?? [],
+      snapshot.detachedDocuments ?? [],
+      snapshot.fastPath ?? null,
+      identityOf(snapshot.identities?.git)
+    ),
       ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []),
       ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
@@ -732,7 +741,12 @@ function storyEvidenceGroups(workId: string, active: StoryArtifact[], detached: 
   }] : [])];
 }
 
-function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode[] {
+function identityOf(identity: string | { email?: string; login?: string | null; name?: string } | null | undefined): string {
+  if (typeof identity === 'string') return identity.trim().toLowerCase();
+  return (identity?.email ?? identity?.login ?? identity?.name ?? '').trim().toLowerCase();
+}
+
+function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase, actor: string): TreeNode[] {
   if (workflow.currentPhase !== phase.id) return [];
   if (phase.status === 'awaiting_approval') {
     return [{
@@ -740,7 +754,8 @@ function storyPhaseActions(workflow: StoryWorkflow, phase: StoryPhase): TreeNode
       description: 'exact generation', icon: 'verified',
       approve: {
         kind: 'story', workId: workflow.workItem.id, phaseId: phase.id, expected: phase.id,
-        summary: `Approve ${workflow.workItem.id} / ${phase.label}`
+        summary: `Approve ${workflow.workItem.id} / ${phase.label}`,
+        selfApproval: Boolean(actor) && identityOf(phase.generatedBy) === actor
       },
       contextValue: 'sflow.story.approval'
     }];
@@ -866,7 +881,8 @@ function storyWorkflowNode(
   workflow: StoryWorkflow,
   documents: StoryArtifact[],
   detachedDocuments: StoryArtifact[],
-  fastPath: FastPathProjection | null = null
+  fastPath: FastPathProjection | null = null,
+  actor = ''
 ): TreeNode {
   const phases = workflow.phaseOrder.map((id) => workflow.phases[id])
     .filter((phase): phase is StoryPhase => Boolean(phase));
@@ -939,7 +955,7 @@ function storyWorkflowNode(
               description: current ? 'generated files appear here after preparation' : 'none recorded for this phase',
               icon: 'info'
             }]),
-            ...storyPhaseActions(workflow, phase)
+            ...storyPhaseActions(workflow, phase, actor)
           ]
         };
       })

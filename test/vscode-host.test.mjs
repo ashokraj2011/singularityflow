@@ -1428,6 +1428,128 @@ test('approving from the editor still demands the exact confirmation a terminal 
   assert.equal(validateInput(''), null, 'an empty box is not yet an error, just not a confirmation');
 });
 
+test('Story approval collects every specification-quality decision in one guarded form', async (t) => {
+  if (!requireBundle(t)) return;
+  const root = await demoRepository();
+  const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
+    cwd: root, encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Initiative Owner',
+      SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' })
+    }
+  });
+
+  run('git', ['switch', 'main'], { cwd: root });
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  definition.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(definition.approvalAuthorities ?? {})) {
+    authority.allowAnyGitIdentity = true;
+  }
+  for (const phase of Object.values(definition.phases ?? {})) {
+    if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
+  }
+  await writeFile(workflowFile, YAML.stringify(definition));
+  run('git', ['add', workflowFile], { cwd: root });
+  run('git', ['commit', '-m', 'Permit local approval form fixture'], { cwd: root });
+  run('git', ['push', 'origin', 'main'], { cwd: root });
+
+  const start = cli([
+    'start', 'CFA-STORY', '--from-branch', 'main', '--work-type', 'spec-driven-standard',
+    '--title', 'Calculate finance amount',
+    '--description', 'Specify a deterministic finance calculation before implementation.',
+    '--agent', 'product-owner'
+  ]);
+  assert.equal(start.status, 0, start.stderr);
+  const specPath = path.join(root, 'singularity/work-items/CFA-STORY/artifacts/specification/spec.md');
+  await mkdir(path.dirname(specPath), { recursive: true });
+  await writeFile(specPath, [
+    '# Specification — Calculate finance amount', '',
+    '## Actors', '', 'A finance analyst with access to an approved account.', '',
+    '## User scenarios', '',
+    '- **Given** a principal and annual rate',
+    '  **When** the analyst requests the finance calculation',
+    '  **Then** the result contains the deterministic calculated amount.', '',
+    '## Requirements', '',
+    '- The system calculates the amount from principal and annual rate. [CFA:REQ-001]',
+    '- The system rejects a negative principal with a validation result. [CFA:REQ-002]', '',
+    '## Non-functional requirements', '',
+    '- The same inputs must always produce the same rounded result. [CFA:NFR-001]', ''
+  ].join('\n'));
+  for (const args of [
+    ['artifact', 'scan', '--phase', 'specification'],
+    ['phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place'],
+    ['submit', 'specification', '--skip-checks']
+  ]) {
+    const result = cli(args);
+    assert.equal(result.status, 0, `${args.join(' ')} failed:\n${result.stderr}`);
+  }
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  const provider = section(registered, 'lifecycle');
+  const story = provider.getChildren().find((node) => node.kind === 'story');
+  assert.ok(story, 'the awaiting Story is visible in Lifecycle');
+  const rail = provider.getChildren(story).find((node) => node.id === 'story:phase-rail');
+  const specification = provider.getChildren(rail).find((node) => node.id === 'story-phase:specification');
+  const approval = provider.getChildren(specification).find((node) => node.approve?.kind === 'story');
+  assert.equal(approval?.approve?.selfApproval, true,
+    'the approval action carries the self-approval fact from the same repository snapshot');
+
+  const approvalRun = registered.commands.get('singularityFlow.approve')(approval);
+  const panel = await until(() => registered.panels.find((entry) =>
+    entry.id === 'singularityFlow.approvalReview'));
+  await until(() => panel.webview.html.includes('Specification quality checklist') ? true : null);
+  for (const article of [
+    'Completeness', 'Ambiguity', 'Consistency', 'Verifiability', 'Boundary conditions',
+    'Non-functional requirements'
+  ]) assert.match(panel.webview.html, new RegExp(article));
+  assert.match(panel.webview.html, /Self-approval — not independent review/);
+  assert.match(panel.webview.html, /CFA-STORY/);
+  assert.match(panel.webview.html,
+    /singularity\/work-items\/CFA-STORY\/artifacts\/specification\/spec\.md/);
+  assert.doesNotMatch(panel.webview.html, /value="specification"/,
+    'the exact confirmation is shown as a prompt but is never prefilled');
+
+  await panel.post({
+    type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
+    decisions: [{ article: 'completeness', decision: 'satisfied' }]
+  });
+  assert.match(panel.webview.html, /Choose a decision for/,
+    'forged or incomplete page messages are rejected again by the extension host');
+
+  const articleIds = [
+    'completeness', 'ambiguity', 'consistency', 'verifiability', 'boundary-conditions', 'non-functional'
+  ];
+  await panel.post({
+    type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
+    decisions: articleIds.map((article) => ({
+      article, decision: article === 'ambiguity' ? 'exception' : 'satisfied', reason: ''
+    }))
+  });
+  assert.match(panel.webview.html, /Explain why &#39;ambiguity&#39; is exception/,
+    'exceptions and not-applicable decisions cannot be submitted without a reason');
+
+  await panel.post({
+    type: 'approval.submit', confirmation: 'specification', acknowledgeSelfApproval: true,
+    decisions: articleIds.map((article) => ({ article, decision: 'satisfied', reason: '' }))
+  });
+  await approvalRun;
+
+  assert.deepEqual(registered.errors, []);
+  const state = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/CFA-STORY/workflow.json'), 'utf8'
+  ));
+  const recorded = state.phases.specification.approvals.at(-1);
+  assert.equal(state.phases.specification.status, 'approved');
+  assert.equal(recorded.checklist.length, 6, 'all six human decisions reached the governed record');
+  assert.equal(recorded.selfApproval, true, 'the engine retained the non-independent-review fact');
+});
+
 test('a self-approval is refused by the engine and re-asked as an explicit acknowledgement', async (t) => {
   if (!requireBundle(t)) return;
   // The engine refuses rather than silently recording a non-independent approval. The editor must
@@ -1994,8 +2116,15 @@ test('the packaged POC release candidate journey survives publication, review, C
   assert.match(approvalText, /1 waiting for you/);
   assert.match(approvalText, /signing as qa\.reviewer@example\.com/);
 
-  reviewHost.registered.typed = 'poc-intake';
   await approvals.post({ type: 'approve', id: 'story-phase:poc-intake' });
+  const approvalReview = await until(() => reviewHost.registered.panels
+    .find((entry) => entry.id === 'singularityFlow.approvalReview') ?? null,
+  { what: 'the governed POC phase approval form to open' });
+  assert.match(approvalReview.webview.html, /Type <code>poc-intake<\/code>/);
+  await approvalReview.post({
+    type: 'approval.submit', confirmation: 'poc-intake',
+    acknowledgeSelfApproval: false, decisions: []
+  });
   const workflowStateFile = path.join(storyRoot, 'singularity/work-items/POC-RC-1/workflow.json');
   await until(() => {
     const state = JSON.parse(readFileSync(workflowStateFile, 'utf8'));

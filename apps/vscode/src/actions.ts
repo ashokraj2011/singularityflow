@@ -16,6 +16,7 @@ import type { SingularityFlowClient } from './cli/client.ts';
 import { CliError } from './cli/runner.ts';
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 import { showRefusal } from './views/result-panel.ts';
+import type { ApprovalChecklistDecision } from './views/approval-review.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -41,11 +42,29 @@ export type ApprovalRequest =
     phaseId: string;
     expected: string;
     summary: string;
+    /** Known from the same repository snapshot that offered the approval. */
+    selfApproval?: boolean;
   };
 
 interface ChoiceOption { id: string; label?: string; description?: string }
 interface ReceiptChoiceSet { id: string; label: string; options: ChoiceOption[] }
 interface Receipt { token: string; choiceSets: ReceiptChoiceSet[] }
+
+interface StoryReviewBundle {
+  workItem?: { id?: string; title?: string };
+  phase?: { id?: string; label?: string; generation?: number };
+  artifact?: { path?: string | null; sha256?: string | null } | null;
+  specificationQuality?: {
+    checklist?: {
+      articles?: Array<{ id?: string; title?: string; question?: string }>;
+    };
+    findings?: Array<{ kind?: string; message?: string }>;
+  } | null;
+  priorExceptions?: Array<{
+    article?: string; decision?: string; reason?: string;
+    actor?: string | { email?: string; login?: string; name?: string };
+  }>;
+}
 
 interface PlannedAction {
   actionId: string;
@@ -298,6 +317,21 @@ export async function approveWithReceipt(
   request: ApprovalRequest,
   output: vscode.OutputChannel
 ): Promise<boolean> {
+  let storyReview: StoryReviewBundle | null = null;
+  if (request.kind === 'story') {
+    try {
+      // The review bundle carries the exact checklist pinned to this Story generation. Reading it
+      // here avoids hard-coding the six starter articles into the editor and keeps future reviewed
+      // checklists on the same path without another UI implementation.
+      storyReview = await client.run<StoryReviewBundle>([
+        'review', request.phaseId, '--format', 'json'
+      ]);
+    } catch (error) {
+      showRefusal(error);
+      return false;
+    }
+  }
+
   let receipt: Receipt;
   try {
     receipt = await client.run<Receipt>(request.kind === 'story'
@@ -308,8 +342,46 @@ export async function approveWithReceipt(
     return false;
   }
 
-  const confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
-  if (!confirmed) {
+  let confirmed: string | null = null;
+  let checklist: ApprovalChecklistDecision[] = [];
+  if (request.kind === 'story') {
+    const { collectApprovalReview } = await import('./views/approval-review.ts');
+    const actorLabel = (
+      actor: string | { email?: string; login?: string; name?: string } | undefined
+    ): string => {
+      if (typeof actor === 'string') return actor;
+      return actor?.email ?? actor?.login ?? actor?.name ?? 'unknown reviewer';
+    };
+    const review = await collectApprovalReview({
+      title: request.summary,
+      expected: request.expected,
+      workId: request.workId,
+      phaseId: request.phaseId,
+      phaseLabel: storyReview?.phase?.label ?? request.phaseId,
+      generation: storyReview?.phase?.generation ?? 0,
+      artifact: storyReview?.artifact ?? null,
+      articles: (storyReview?.specificationQuality?.checklist?.articles ?? [])
+        .filter((article): article is { id: string; title: string; question: string } =>
+          Boolean(article.id && article.title && article.question)),
+      findings: storyReview?.specificationQuality?.findings ?? [],
+      priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
+        article: entry.article,
+        decision: entry.decision,
+        reason: entry.reason,
+        actor: actorLabel(entry.actor)
+      })),
+      selfApproval: request.selfApproval === true
+    });
+    if (!review) {
+      void vscode.window.setStatusBarMessage('$(circle-slash) Approval cancelled; nothing changed.', 4_000);
+      return false;
+    }
+    confirmed = review.confirmation;
+    checklist = review.decisions;
+  } else {
+    confirmed = await askConfirmation({ expected: request.expected, summary: request.summary });
+  }
+  if (!confirmed || confirmed !== request.expected) {
     void vscode.window.setStatusBarMessage('$(circle-slash) Not confirmed; nothing was approved.', 4_000);
     return false;
   }
@@ -326,6 +398,14 @@ export async function approveWithReceipt(
   const argv = request.kind === 'story'
     ? ['approve', request.workId, '--fetch', '--phase', request.phaseId, '--selection-receipt', receipt.token]
     : ['initiative', 'approve', request.subject, '--selection-receipt', receipt.token];
+  if (request.kind === 'story') {
+    for (const entry of checklist) {
+      argv.push('--article', `${entry.article}=${entry.decision}`);
+      if (entry.decision !== 'satisfied' && entry.reason) {
+        argv.push('--article-reason', entry.reason);
+      }
+    }
+  }
   const run = async (extra: string[] = []): Promise<boolean> => {
     output.appendLine(`\n$ singularity-flow ${[...argv, ...extra].join(' ')}`);
     await vscode.window.withProgress(

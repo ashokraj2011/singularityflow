@@ -205,6 +205,26 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
 }
 
 /**
+ * SFlow-owned structured test reports are command scratch, never application source.
+ *
+ * Unlike a repository's own `build/`, `target/`, or `coverage/` tree, `.sflow/results/` is a
+ * reserved engine path. Older builds could accidentally commit one of these reports and then
+ * classify every timestamp-bearing rewrite as a source change. Keep the distinction explicit so
+ * a tracked legacy report cannot re-enter work-interval, delivery, or source-tree fingerprints.
+ */
+export function isTransientTestResultPath(candidate) {
+  const normalized = posix(candidate);
+  return Boolean(normalized && /(?:^|\/)\.sflow\/results(?:\/|$)/.test(normalized));
+}
+
+export function isGeneratedOutputPath(candidate) {
+  const normalized = posix(candidate);
+  if (!normalized) return false;
+  return isTransientTestResultPath(normalized)
+    || normalized.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
+}
+
+/**
  * Whether a path counts as application source for work-interval accounting.
  *
  * Governance material does not. This excluded `singularity/` but not `.github/agents/`, while
@@ -216,26 +236,20 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
  * Derived from `GOVERNED_ROOTS` rather than restating the list, so a future governed root cannot
  * silently become "application source" that eats somebody's interval.
  */
-export function isGeneratedOutputPath(candidate) {
-  const normalized = posix(candidate);
-  if (!normalized) return false;
-  return /(?:^|\/)\.sflow\/results(?:\/|$)/.test(normalized)
-    || normalized.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
-}
-
 export function isApplicationPath(candidate) {
   const normalized = posix(candidate);
-  if (!normalized || normalized.startsWith('.git/')) return false;
+  if (!normalized || normalized.startsWith('.git/') || isTransientTestResultPath(normalized)) return false;
   return !GOVERNED_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`));
 }
 
 /**
  * Classify one observed path with its Git provenance. A tracked path is application input by
- * default, even when a directory happens to be named build, vendor, target, or coverage. Generated
- * output exclusions apply only to untracked/ignored material unless a future pinned policy says
- * otherwise.
+ * default, even when a directory happens to be named build, vendor, target, or coverage. Those
+ * generic generated-output exclusions apply only to untracked/ignored material; the reserved
+ * `.sflow/results/**` transport is never application input, tracked or otherwise.
  */
 export function isApplicationChangePath(candidate, { untracked = false } = {}) {
+  if (isTransientTestResultPath(candidate)) return false;
   return isApplicationPath(candidate) && !(untracked && isGeneratedOutputPath(candidate));
 }
 

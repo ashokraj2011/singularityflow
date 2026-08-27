@@ -17,7 +17,8 @@ import {
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import {
-  commitAndPublish, createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts
+  commitAndPublish, createWorkflow, loadConfig, preparePhaseInputs, publishGeneration, scanArtifacts,
+  submitPhase
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
@@ -81,7 +82,7 @@ async function fixture(name) {
   return { root, config, workflow, phase, target, statePath };
 }
 
-async function codeFixture(name, { acceptance = true } = {}) {
+async function codeFixture(name, { acceptance = true, trackedResult = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -91,9 +92,14 @@ async function codeFixture(name, { acceptance = true } = {}) {
   }, null, 2)}\n`);
   await writeFile(path.join(root, 'test-runner.mjs'), [
     "import { writeFileSync } from 'node:fs';",
-    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
+    "writeFileSync('.sflow/results/unit.json', JSON.stringify({ run: Date.now(), tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
     ''
   ].join('\n'));
+  if (trackedResult) {
+    await mkdir(path.join(root, '.sflow', 'results'), { recursive: true });
+    await writeFile(path.join(root, '.sflow', 'results', 'unit.json'),
+      '{"run":"legacy","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n');
+  }
   await initializeDefinition(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'initialize repository');
@@ -480,6 +486,11 @@ test('structured test discovery fails before publication consumes the generation
   assert.equal(context.phase.generation, 0);
   assert.equal(context.phase.generationIntent.status, 'open');
   assert.equal(context.phase.deliveryEvidence, undefined);
+  await assert.rejects(
+    () => readFile(path.join(context.root, '.sflow', 'results', 'unit.json')),
+    (error) => error.code === 'ENOENT',
+    'a refused publication left disposable structured test output in the worktree'
+  );
 });
 
 test('a code phase publishes source and acceptance-mapped tests with a delivery receipt', async () => {
@@ -568,6 +579,42 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   });
   const adoption = adoptable.actions.find((entry) => entry.id === 'begin-new-generation:implementation');
   assert.match(adoption.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
+});
+
+test('tracked volatile SFlow test output is restored and never blocks publish or submit', async () => {
+  const context = await codeFixture('tracked-result', { trackedResult: true });
+  const resultPath = path.join(context.root, '.sflow', 'results', 'unit.json');
+  const baselineResult = await readFile(resultPath, 'utf8');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+
+  // Simulate a legacy registration produced before `.sflow/results/**` became reserved transport.
+  context.phase.artifacts.push({
+    path: '.sflow/results/unit.json', kind: 'configuration', status: 'pending', exists: true,
+    size: Buffer.byteLength(baselineResult), sha256: 'legacy-registration'
+  });
+
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  assert.equal(await readFile(resultPath, 'utf8'), baselineResult,
+    'publication left timestamp-bearing reporter output in the tracked worktree');
+  assert.equal(context.phase.artifacts.some((artifact) => artifact.path === '.sflow/results/unit.json'), false,
+    'legacy raw result registration survived artifact scanning');
+  assert.equal(context.phase.deliveryEvidence.sourcePaths.includes('.sflow/results/unit.json'), false,
+    'raw reporter output entered the governed source boundary');
+
+  await inContext(context.root, () => submitPhase(
+    context.root, context.config, context.workflow, { phaseId: 'implementation', persist: false }
+  ));
+  assert.equal(context.phase.status, 'approved');
+  assert.equal(await readFile(resultPath, 'utf8'), baselineResult,
+    'submission left its fresh raw test report as an application change');
+  assert.doesNotMatch(git(context.root, 'status', '--short'), /\.sflow\/results\/unit\.json/);
+  assert.equal(context.phase.deliveryEvidence.testExecutions.length, 1,
+    'submission did not replace raw output with a durable normalized test receipt');
 });
 
 test('prepare refuses a consumed code generation before writing next-generation state', async () => {

@@ -1,6 +1,7 @@
-import { copyFile, lstat, mkdir, readFile, readlink, rm } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import {
   SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
@@ -90,7 +91,9 @@ import {
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
-  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath, isApplicationPath, isGeneratedOutputPath, phaseUsesWorkInterval, reconcileWorkInterval, recordFinalReconciliation
+  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath,
+  isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
+  recordFinalReconciliation
 } from './work-intervals.mjs';
 import { operationContext } from './operation-context.mjs';
 import { evaluateExternalCommandForModelMode, externalCommandText } from './external-command-policy.mjs';
@@ -972,6 +975,7 @@ export async function registerArtifact(root, workflow, candidate, { phaseId, kin
 }
 
 function ignored(config, workflow, relativePath, { untracked = false } = {}) {
+  if (isTransientTestResultPath(relativePath)) return true;
   if (untracked && isGeneratedOutputPath(relativePath)) return true;
   if ([WORKFLOW_PATH, 'singularity/config.json', 'singularity/worldmodel.json'].includes(relativePath)) return true;
   if (relativePath.startsWith('singularity/world-model/')) return true;
@@ -983,6 +987,7 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
   await assertNoPendingPublication(root, config, workflow, 'scan or register artifacts');
   const phase = await assertPhaseSequence(root, workflow, 'scan artifacts', { requestedPhase: phaseId }); const records = [];
+  pruneTransientArtifactRegistrations(phase);
   const untracked = new Set(untrackedFiles(root));
   // `prepare` creates the required phase artifact on purpose. Calling that expected output an
   // "adopted" file makes the ordinary authoring path look like accidental scope expansion and, on
@@ -1009,13 +1014,23 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   return records;
 }
 
+function pruneTransientArtifactRegistrations(phase) {
+  const transient = new Set((phase.artifacts ?? [])
+    .filter((artifact) => isTransientTestResultPath(artifact.path))
+    .map((artifact) => artifact.path));
+  if (!transient.size) return [];
+  phase.artifacts = (phase.artifacts ?? []).filter((artifact) => !transient.has(artifact.path));
+  phase.sidecars = (phase.sidecars ?? []).filter((sidecar) => !transient.has(sidecar.artifact));
+  return [...transient].sort();
+}
+
 async function validatePhase(root, config, workflow, phase, { placeholders = true } = {}) {
   const errors = await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { placeholders });
   const required = requiredRepoPath(config, workflow, phase);
   if (!errors.some((error) => error.startsWith('Required artifact missing:')) && !artifactFor(phase, required)) {
     errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
   }
-  for (const artifact of phase.artifacts) {
+  for (const artifact of phase.artifacts.filter((entry) => !isTransientTestResultPath(entry.path))) {
     const current = await snapshot(path.join(root, artifact.path));
     if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) errors.push(`Artifact changed after registration: ${artifact.path}. Run singularity-flow artifact scan.`);
   }
@@ -1107,7 +1122,7 @@ export async function sourceTreeHash(root) {
       const [mode, object, stage] = line.slice(0, tab).split(' ');
       return { path: posix(line.slice(tab + 1)), mode, object, stage: Number(stage) };
     })
-    .filter((entry) => entry.stage === 0 && isApplicationPath(entry.path));
+    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path));
   const unstaged = new Set(run('git', ['diff', '--name-only', '-z', 'HEAD', '--'], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
   for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, { untracked: true }))) {
@@ -1738,12 +1753,56 @@ function boundedQualityDiagnostic(value, max = 2000) {
   return `${text.slice(0, first)}${marker}${text.slice(-(remaining - first))}`;
 }
 
+const transientQualityResultRestorers = new WeakMap();
+
+async function stageTransientQualityResult(root, commandRoot, resultPath) {
+  const absolute = path.resolve(commandRoot, resultPath);
+  const relative = repoRelative(root, absolute);
+  if (!isTransientTestResultPath(relative)) return null;
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-test-result-'));
+  const backup = path.join(temporary, 'result');
+  let present = false;
+  try {
+    await lstat(absolute);
+    present = true;
+    await cp(absolute, backup, { recursive: true, preserveTimestamps: true });
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      await rm(temporary, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
+  }
+  let restored = false;
+  return async () => {
+    if (restored) return;
+    restored = true;
+    try {
+      await rm(absolute, { recursive: true, force: true });
+      if (present) {
+        await mkdir(path.dirname(absolute), { recursive: true });
+        await cp(backup, absolute, { recursive: true, preserveTimestamps: true });
+      }
+    } finally {
+      await rm(temporary, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+}
+
+async function restoreTransientQualityResult(check) {
+  const restore = transientQualityResultRestorers.get(check);
+  if (!restore) return;
+  transientQualityResultRestorers.delete(check);
+  await restore();
+}
+
 async function qualityChecks(root, phase, config, commands = phase.qualityCommands ?? []) {
   const checks = [];
   const sourceCommit = head(root);
   const sourceTreeSha256 = await sourceTreeHash(root);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
+  let activeTransientRestore = null;
+  try {
   for (const [index, value] of commands.entries()) {
     const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
     const command = policy.command ?? policy.argv.join(' ');
@@ -1764,6 +1823,7 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       { label: `Quality command '${policy.id}' working directory`, mustExist: true, type: 'directory' }
     );
     const commandRoot = commandTarget.absolute;
+    let restoreTransientResult = null;
     if (policy.kind === 'test' && policy.result?.path) {
       const resultTarget = path.resolve(commandRoot, policy.result.path);
       // `secureRepositoryPath` resolves macOS' /var -> /private/var alias. Compare the result to the
@@ -1783,6 +1843,10 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, path.dirname(resultTarget)), {
         label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
       });
+      restoreTransientResult = await stageTransientQualityResult(
+        repositoryTarget.absolute, commandRoot, policy.result.path
+      );
+      activeTransientRestore = restoreTransientResult;
       // A timestamp is not execution evidence: touching yesterday's report made it fresh. The
       // configured structured-result path is disposable command output, so remove it before the
       // process starts. Anything parsed afterwards must have been created by this invocation.
@@ -1816,7 +1880,7 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
-    checks.push({
+    const check = {
       id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
       workingDirectory: policy.workingDirectory,
       externalModelPolicy: policy.modelPolicy,
@@ -1831,7 +1895,15 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
       stderrBytes: result.stderrBytes,
       stdoutTruncated: result.stdoutTruncated,
       stderrTruncated: result.stderrTruncated
-    });
+    };
+    if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
+    checks.push(check);
+    activeTransientRestore = null;
+  }
+  } catch (error) {
+    if (activeTransientRestore) await activeTransientRestore();
+    for (const check of checks) await restoreTransientQualityResult(check);
+    throw error;
   }
   return checks;
 }
@@ -1868,26 +1940,30 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   }
   const checks = await qualityChecks(root, phase, config, commands);
   const passing = [];
-  for (const command of commands) {
-    const check = checks.find((entry) => entry.id === command.id);
-    if (!check || check.status === 'skipped-warning') {
-      throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+  try {
+    for (const command of commands) {
+      const check = checks.find((entry) => entry.id === command.id);
+      if (!check || check.status === 'skipped-warning') {
+        throw new SingularityFlowError(`Required test command '${command.id}' was skipped before publication.`, { code: 'CODE_TEST_SKIPPED' });
+      }
+      if (check.status === 'blocked') {
+        throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
+      }
+      if (check.status !== 'passed' || check.exitCode !== 0) {
+        throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
+      }
+      const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+      const receipt = buildTestExecutionReceipt(command, check, parsed);
+      if (receipt.tests.discovered < parsed.minimumDiscovered) {
+        throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+      }
+      if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
+        throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
+      }
+      passing.push(command);
     }
-    if (check.status === 'blocked') {
-      throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
-    }
-    if (check.status !== 'passed' || check.exitCode !== 0) {
-      throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
-    }
-    const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-    const receipt = buildTestExecutionReceipt(command, check, parsed);
-    if (receipt.tests.discovered < parsed.minimumDiscovered) {
-      throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
-    }
-    if (!testReceiptPassing(receipt, parsed.minimumDiscovered, command.result.minimumPassed)) {
-      throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence before publication.`, { code: 'CODE_TEST_FAILED' });
-    }
-    passing.push(command);
+  } finally {
+    for (const check of checks) await restoreTransientQualityResult(check);
   }
   if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
     const paths = phase.sourceBoundary === 'test-automation'
@@ -1930,6 +2006,10 @@ export function qualityValidationVerdict(checks = [], { required = false } = {})
 export async function submitPhase(root, config, workflow, { phaseId, runChecks = true, persist = true } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
+  // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
+  // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
+  // command transport and commonly changes timestamps on every otherwise identical test run.
+  pruneTransientArtifactRegistrations(phase);
   const unacknowledgedAmendment = pendingIntentAmendmentAcknowledgement(workflow);
   if (unacknowledgedAmendment) {
     throw new SingularityFlowError(
@@ -2048,43 +2128,50 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     );
   }
   phase.checks = runChecks ? await qualityChecks(root, phase, config, deliveryCommands) : [];
+  if (!codeDeliveryRequired) {
+    for (const check of phase.checks) await restoreTransientQualityResult(check);
+  }
   const testExecutions = [];
   if (codeDeliveryRequired) {
-    for (const command of requiredTestCommands) {
-      const check = phase.checks.find((entry) => entry.id === command.id);
-      if (!check || check.status === 'skipped-warning') {
-        throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
+    try {
+      for (const command of requiredTestCommands) {
+        const check = phase.checks.find((entry) => entry.id === command.id);
+        if (!check || check.status === 'skipped-warning') {
+          throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
+        }
+        if (check.status === 'blocked') {
+          throw new SingularityFlowError(`Required test command '${command.id}' was blocked: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
+        }
+        if (check.status !== 'passed' || check.exitCode !== 0) {
+          throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
+        }
+        const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
+        const receipt = buildTestExecutionReceipt(command, check, parsed);
+        const minimumPassed = Math.max(
+          parsed.minimumPassed,
+          workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
+        );
+        if (receipt.tests.discovered < parsed.minimumDiscovered) {
+          throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+        }
+        if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
+          throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+        }
+        const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
+        const receiptPath = posix(path.join(
+          workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
+          `${phase.id}-gen${phase.generation}-${safeId}.json`
+        ));
+        await writeJson(path.join(root, receiptPath), receipt);
+        testExecutions.push({
+          commandId: command.id, receiptPath,
+          receiptSha256: createHash('sha256').update(canonicalJson(receipt)).digest('hex'),
+          status: receipt.status,
+          affectedRoots: command.affectedRoots
+        });
       }
-      if (check.status === 'blocked') {
-        throw new SingularityFlowError(`Required test command '${command.id}' was blocked: ${check.stderr}`, { code: 'CODE_TEST_FAILED' });
-      }
-      if (check.status !== 'passed' || check.exitCode !== 0) {
-        throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
-      }
-      const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-      const receipt = buildTestExecutionReceipt(command, check, parsed);
-      const minimumPassed = Math.max(
-        parsed.minimumPassed,
-        workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
-      );
-      if (receipt.tests.discovered < parsed.minimumDiscovered) {
-        throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
-      }
-      if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
-        throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
-      }
-      const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
-      const receiptPath = posix(path.join(
-        workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
-        `${phase.id}-gen${phase.generation}-${safeId}.json`
-      ));
-      await writeJson(path.join(root, receiptPath), receipt);
-      testExecutions.push({
-        commandId: command.id, receiptPath,
-        receiptSha256: createHash('sha256').update(canonicalJson(receipt)).digest('hex'),
-        status: receipt.status,
-        affectedRoots: command.affectedRoots
-      });
+    } finally {
+      for (const check of phase.checks) await restoreTransientQualityResult(check);
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
       const pathsRequiringCoverage = phase.sourceBoundary === 'test-automation'

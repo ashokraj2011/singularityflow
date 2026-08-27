@@ -1911,7 +1911,7 @@ test('the sidebar inbox exposes the combined page and opens exact generated path
   assert.equal(artifact.readOnly, true);
 });
 
-test('the sidebar inbox lists active Stories without mixing their artifacts', () => {
+test('the sidebar and full inbox list active Stories without mixing their artifacts', async () => {
   const shot = storySnapshot({ generation: 1 });
   shot.workItems[0].status = 'in_progress';
   shot.workItems[0].currentPhase = 'design';
@@ -1930,6 +1930,17 @@ test('the sidebar inbox lists active Stories without mixing their artifacts', ()
     'only the selected Story artifact snapshot is rendered');
   assert.equal(find(tree, 'inbox:work:CFA-STORY'), undefined,
     'an unselected Story is a navigation row, not a fabricated artifact catalog');
+
+  const inbox = buildInbox(shot);
+  assert.deepEqual(inbox.activeStories.map((story) => [story.workId, story.current]), [
+    ['STORY-42', true], ['CFA-STORY', false]
+  ]);
+  const surface = await readFile(source('views/inbox.ts'), 'utf8');
+  assert.match(surface, /Active Stories/);
+  assert.match(surface, /data-story=/);
+  assert.match(surface, /aria-current="page"/);
+  assert.match(surface, /Open checkout/);
+  assert.match(surface, /'attach-story'/);
 });
 
 const { buildStories } = await import(source('views/stories-model.ts'));
@@ -2661,6 +2672,7 @@ test('the enterprise tokens support light, dark, high contrast, reduced motion, 
   assert.match(STYLE, /--sf-accent:/);
   assert.match(STYLE, /@media \(prefers-color-scheme: dark\)[\s\S]*--sf-accent:/);
   assert.match(STYLE, /background: var\(--vscode-input-background\)/);
+  assert.match(STYLE, /background: var\(--vscode-editor-background\)/);
   assert.match(STYLE, /color: var\(--vscode-foreground\)/);
   assert.doesNotMatch(STYLE, /background:\s*#(fff|ffffff|000|000000)\b/i);
   assert.match(STYLE, /--sf-radius:\s*6px/);
@@ -2670,6 +2682,16 @@ test('the enterprise tokens support light, dark, high contrast, reduced motion, 
   assert.match(buttonRule, /min-height:\s*2rem/);
   assert.match(buttonRule, /border-radius:\s*var\(--sf-radius\)/);
   assert.doesNotMatch(buttonRule, /999px/, 'primary actions are compact controls, not pills');
+});
+
+test('shared pages remain usable in a narrow editor column', () => {
+  assert.match(STYLE, /minmax\(min\(9rem, 100%\), 1fr\)/,
+    'summary cards must be allowed to shrink below their preferred width');
+  assert.match(STYLE, /\.help-question-form \{ grid-template-columns: 1fr; \}/);
+  assert.match(STYLE, /\.field\.compact, \.inline-form \.field, \.add-row select \{ width: 100%; min-width: 0; \}/);
+  assert.match(STYLE, /@media \(max-width: 420px\)[\s\S]*\.summary-grid[\s\S]*grid-template-columns: 1fr/);
+  const html = enterpriseVisualFixture({ theme: 'dark', width: 320 });
+  assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1">/);
 });
 
 test('visual-review fixtures are deterministic across three themes and narrow and wide widths', () => {
@@ -2686,6 +2708,8 @@ test('visual-review fixtures are deterministic across three themes and narrow an
     assert.match(first, /Governed agent/);
     assert.match(first, /Configuration navigation/);
     assert.match(first, /Artifact inventory/);
+    assert.match(first, /Active Stories/);
+    assert.match(first, /Check and open created Story/);
     for (const task of first.matchAll(/<section class="fixture-task[^>]*">([\s\S]*?)<\/section>/g)) {
       assert.ok([...task[1].matchAll(/<button(?![^>]*class=)[^>]*>/g)].length <= 1,
         `${review.theme}/${review.width} has competing primary actions in one task area`);
@@ -2903,7 +2927,7 @@ test('a Story requires an explicit base even when only one remote branch is avai
   const html = intakeHtml(form);
   assert.match(html, /data-base-branch="main"/);
   assert.doesNotMatch(html, /data-base-branch="main"[^>]*checked/);
-  assert.match(html, /<button data-submit="start" disabled>/);
+  assert.match(html, /<button type="button" data-submit="start" disabled>/);
 });
 
 test('Story workflow phases render as a horizontal rail beneath the workflow name', () => {
@@ -3012,24 +3036,26 @@ test('completed work is shown as completed rather than already under way', () =>
 test('an intake form still missing something disables the button and lists why', () => {
   const html = intakeHtml(intake());
   assert.match(html, /Before this can start/);
-  assert.match(html, /<button data-submit="start" disabled>/);
+  assert.match(html, /<button type="button" data-submit="start" disabled>/);
 
   const ready = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B'
   }));
   assert.match(ready, /Starts story <code>checkout-retry<\/code>/);
-  assert.match(ready, /<button data-submit="start" >/);
+  assert.match(ready, /<button type="button" data-submit="start" >/);
 
   const waitingForRemote = intakeHtml(intake({
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B',
     basePreflightPassed: false, basePreflightChecking: true
   }));
   assert.match(waitingForRemote, /Checking remote branch freshness/);
-  assert.match(waitingForRemote, /<button data-submit="start" disabled>/);
+  assert.match(waitingForRemote, /<button type="button" data-submit="start" disabled>/);
 });
 
 test('a refused start is reported on the form that caused it', () => {
-  assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
+  const refused = intakeHtml(intake({ error: 'Working tree is not clean.' }));
+  assert.match(refused, /Working tree is not clean/);
+  assert.match(refused, /role="alert"/);
   const timeout = intakeHtml(intake({
     shape: 'story',
     error: 'The CLI timed out.',
@@ -3040,6 +3066,8 @@ test('a refused start is reported on the form that caused it', () => {
   assert.match(timeout, /WRK-17/);
   assert.match(timeout, /data-submit="recover-start"/);
   assert.match(timeout, /Check and open created Story/);
+  assert.match(timeout, /role="status" aria-live="polite"/);
+  assert.match(intakeHtml(intake({ busy: true })), /aria-busy="true"/);
 });
 
 const {

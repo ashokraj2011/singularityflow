@@ -3317,6 +3317,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** The inbox reuses the exact approval transaction and adds all-phase document navigation. */
   const onInboxMessage = async (message: InboxMessage): Promise<void> => {
+    if (message.type === 'attach-story') {
+      return runNode({
+        kind: 'story', id: `inbox:active-story:${message.workId}`, label: message.workId,
+        command: ['session', 'attach', message.workId]
+      });
+    }
     if (message.type === 'open-artifact') {
       return openArtifact(repository, {
         kind: 'artifact', id: message.artifact.id, label: message.artifact.label,

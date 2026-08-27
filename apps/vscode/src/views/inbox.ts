@@ -51,7 +51,24 @@ function decisionCards(inbox: Inbox): string {
     </article>`).join('')}</div>`;
 }
 
-function bodyHtml(inbox: Inbox): string {
+function activeStoryCards(inbox: Inbox): string {
+  if (!inbox.activeStories.length) return '';
+  return `<section class="active-story-switcher" aria-labelledby="active-stories-heading">
+    <div class="section-heading"><div><h2 id="active-stories-heading">${icon('story')}Active Stories</h2>
+      <p class="muted">Switching opens the Story's isolated checkout in this window. It does not change another Story.</p></div>
+      <span class="count-badge">${inbox.activeStories.length}</span></div>
+    <div class="active-story-grid">${inbox.activeStories.map((story) => `
+      <button type="button" class="active-story-card${story.current ? ' current' : ''}"
+        data-story="${escape(story.workId)}"${story.current ? ' aria-current="page"' : ''}>
+        <span class="active-story-title">${icon(story.current ? 'statusCurrent' : 'story')}${escape(story.workId)}</span>
+        <span class="active-story-phase">${escape(story.phase)}</span>
+        <small>${escape(story.title)}</small>
+        <span class="active-story-action">${story.current ? 'Current checkout' : 'Open checkout'}${icon('next')}</span>
+      </button>`).join('')}</div>
+  </section>`;
+}
+
+export function inboxHtml(inbox: Inbox): string {
   if (inbox.empty) return `<div class="brand-lockup"><strong>SINGULARITY</strong><span>FLOW</span></div>
     <header><h1>${icon('approval', { size: 20 })}Inbox</h1></header><div class="empty"><p>${escape(inbox.empty)}</p></div>`;
   const yours = inbox.approvals.pending.filter((approval) => approval.standing === 'yours').length;
@@ -69,6 +86,7 @@ function bodyHtml(inbox: Inbox): string {
       <div class="summary-card"><strong>${approved}</strong><span>Approved</span></div>
       <div class="summary-card"><strong>${other}</strong><span>With other reviewers</span></div>
     </div>
+    ${activeStoryCards(inbox)}
     <section><div class="section-heading"><h2>${icon('approval')}Needs your attention</h2><span class="count-badge">${yours}</span></div>${decisionCards(inbox)}</section>
     <section><div class="section-heading"><h2>${icon('document')}Everything generated</h2><span class="count-badge">${inbox.artifacts.length}</span></div>
       <p class="muted">Every existing governed output across every phase. Open any card to inspect the exact committed file.</p>${artifactRows(inbox)}</section>`;
@@ -77,9 +95,10 @@ function bodyHtml(inbox: Inbox): string {
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-artifact],[data-approve],[data-reject],[data-open-approval]');
+    const target = event.target.closest('[data-story],[data-artifact],[data-approve],[data-reject],[data-open-approval]');
     if (!target) return;
-    if (target.dataset.artifact) vscode.postMessage({ type: 'open-artifact', id: target.dataset.artifact });
+    if (target.dataset.story) vscode.postMessage({ type: 'attach-story', id: target.dataset.story });
+    else if (target.dataset.artifact) vscode.postMessage({ type: 'open-artifact', id: target.dataset.artifact });
     else if (target.dataset.approve) vscode.postMessage({ type: 'approve', id: target.dataset.approve });
     else if (target.dataset.reject) vscode.postMessage({ type: 'reject', id: target.dataset.reject });
     else if (target.dataset.openApproval) vscode.postMessage({ type: 'open-approval', id: target.dataset.openApproval });
@@ -87,6 +106,7 @@ const SCRIPT = `
 `;
 
 export type InboxMessage =
+  | { type: 'attach-story'; workId: string }
   | { type: 'open-artifact'; artifact: InboxArtifact }
   | { type: 'approve'; approval: PendingApproval }
   | { type: 'reject'; approval: PendingApproval }
@@ -116,6 +136,11 @@ export class InboxPanel {
       return id ? buildApprovals(store.current.snapshot).pending.find((item) => item.id === id) ?? null : null;
     };
     const router = registerMessageRouter('singularityFlow.inbox', {
+      'attach-story': (message) => {
+        const workId = stringField(message, 'id');
+        const exists = buildInbox(store.current.snapshot).activeStories.some((item) => item.workId === workId);
+        if (workId && exists) onMessage({ type: 'attach-story', workId });
+      },
       'open-artifact': (message) => {
         const id = stringField(message, 'id');
         const artifact = id
@@ -154,7 +179,7 @@ export class InboxPanel {
 
   private render(): void {
     const token = nonce();
-    this.panel.webview.html = page('Inbox', bodyHtml(buildInbox(this.store.current.snapshot)),
+    this.panel.webview.html = page('Inbox', inboxHtml(buildInbox(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 

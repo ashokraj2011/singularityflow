@@ -36,6 +36,14 @@ export interface InboxWorkItem {
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
 }
 
+/** A live Story checkout available from this workspace, including siblings of the selected Story. */
+export interface InboxActiveStory {
+  workId: string;
+  title: string;
+  phase: string;
+  current: boolean;
+}
+
 export interface Inbox {
   subjectId: string;
   subjectLabel: string;
@@ -43,6 +51,8 @@ export interface Inbox {
   artifacts: InboxArtifact[];
   /** Generated artifacts grouped by their owning Work ID, then by lifecycle phase. */
   workItems: InboxWorkItem[];
+  /** Every non-terminal Story so the full Inbox can switch checkout without returning to the tree. */
+  activeStories: InboxActiveStory[];
   /** Flattened phase groups retained for callers that only render the active subject. */
   groups: Array<{ phase: string; label: string; artifacts: InboxArtifact[] }>;
   empty: string | null;
@@ -132,7 +142,7 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
   const approvals = buildApprovals(snapshot);
   if (!snapshot) {
     return {
-      subjectId: '', subjectLabel: '', approvals, artifacts: [], workItems: [], groups: [],
+      subjectId: '', subjectLabel: '', approvals, artifacts: [], workItems: [], activeStories: [], groups: [],
       empty: 'Reading the repository…'
     };
   }
@@ -181,6 +191,16 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
 
   const subjectId = initiativeId || storyId;
   const subjectLabel = initiativeId ? initiativeLabel : storyLabel;
+  const activeStories = (snapshot.workItems ?? [])
+    .filter((item) => !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
+    .map((item): InboxActiveStory => ({
+      workId: item.id,
+      title: item.title ?? item.id,
+      phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
+      current: item.id === (snapshot.selectedWorkId ?? snapshot.workflow?.workItem.id)
+    }))
+    .sort((left, right) => Number(right.current) - Number(left.current)
+      || left.workId.localeCompare(right.workId));
   const workItems = [...byWorkId.entries()].map(([workId, entries]): InboxWorkItem => {
     const source = entries[0]?.source ?? 'story';
     return {
@@ -208,8 +228,9 @@ export function buildInbox(snapshot: RepositorySnapshot | null): Inbox {
     approvals,
     artifacts,
     workItems,
+    activeStories,
     groups,
-    empty: subjectId || artifacts.length || approvals.pending.length
+    empty: subjectId || artifacts.length || approvals.pending.length || activeStories.length
       ? null
       : 'Nothing governed is checked out on this branch.'
   };

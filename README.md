@@ -99,7 +99,9 @@ Start with the [documentation map](docs/README.md) and
 [glossary](docs/GLOSSARY.md). For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
-[How Singularity Flow works](FRAMEWORK-GUIDE.md). For the implementation-level
+[How Singularity Flow works](FRAMEWORK-GUIDE.md). The
+[VS Code UI remediation and regression contract](docs/UI-REMEDIATION-PLAN.md) covers active Story
+navigation, timeout recovery, responsive behavior, and visual fixtures. For the implementation-level
 path from `/sf-*` through the Node.js launcher, command dispatcher, prompt
 composer, question bridge, and Git publication, read
 [Singularity Flow under the hood](docs/UNDER-THE-HOOD.md).

@@ -40,6 +40,10 @@ function fixtureBody(theme: VisualTheme): string {
     <div class="summary-card"><strong>12</strong><span>generated artifacts</span></div>
     <div class="summary-card"><strong>2</strong><span>waiting for approval</span></div>
   </div>
+  <section class="fixture-task active-story-switcher" aria-labelledby="fixture-active-stories"><div class="section-heading"><div><h2 id="fixture-active-stories">${icon('story')}Active Stories</h2><p class="muted">Choose an isolated checkout without losing the other Story.</p></div><span class="count-badge">2</span></div>
+    <div class="active-story-grid"><button type="button" class="active-story-card current" aria-current="page"><span class="active-story-title">${icon('statusCurrent')}WRK-TAN</span><span class="active-story-phase">intake</span><small>Add tan operator</small><span class="active-story-action">Current checkout${icon('next')}</span></button>
+      <button type="button" class="active-story-card"><span class="active-story-title">${icon('story')}CFA-STORY</span><span class="active-story-phase">implementation</span><small>Calculate compound interest</small><span class="active-story-action">Open checkout${icon('next')}</span></button></div>
+    <div class="notice warning" role="status"><strong>Start command timed out</strong><p>The durable result can be checked without starting the Story again.</p><button type="button" class="secondary">Check and open created Story</button></div></section>
   <section class="fixture-task"><div class="section-heading"><h2>${icon('approval')}Approval inbox</h2><span class="pill wait">${icon('waiting')}Waiting</span></div>
     <article class="decision-card"><p class="eyebrow">Phase gate</p><h3>Solution design</h3><p class="muted">Review the exact approved specification and its source hash.</p>
       <div class="card-foot"><button>Review &amp; approve</button><button class="secondary">Open artifact</button><button class="link">Reject</button></div></article></section>

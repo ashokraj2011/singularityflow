@@ -291,8 +291,7 @@ export function intakeCommand(form: IntakeForm): string[] {
 }
 
 function shapeHtml(form: IntakeForm): string {
-  return `
-    <div class="choices">
+  return `<div class="choices">
       ${SHAPES.map((shape) => `
       <label class="choice${shape.id === form.shape ? ' chosen' : ''}">
         <input type="radio" name="shape" value="${shape.id}" data-shape="${shape.id}"${shape.id === form.shape ? ' checked' : ''}>
@@ -542,7 +541,7 @@ function inFlightHtml(form: IntakeForm): string {
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
   const problems = intakeProblems(form);
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
-  return `
+  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">
   ${startWizardProgress(journey)}
   <header>
     <h1>${icon('epic', { size: 20 })}Start work</h1>
@@ -584,17 +583,17 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
     : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${mintsIdentifier(form)
       ? `Reserves a branch for this ${escape(noun.toLowerCase())}, which is what mints its identifier, and commits its first governed state.`
       : `Starts ${escape(noun.toLowerCase())} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
-    ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
-    ${form.recoveryCommand ? `<div class="notice warning"><strong>Continue from a terminal</strong>
+    ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
+    ${form.recoveryCommand ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue from a terminal</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
       <pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
-      ${form.shape === 'story' ? '<button class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
+      ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>
-      <button data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
+      <button type="button" data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}
       </button>
     </p>
-  </section>`;
+  </section></div>`;
 }
 
 /** The page reports intent; every value is re-validated before it reaches the CLI. */

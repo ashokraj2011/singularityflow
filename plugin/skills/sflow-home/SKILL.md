@@ -8,7 +8,7 @@ description: Guide developer requests through explicit governed choices.
 <!-- sflow-output-contract: conversational-guidance -->
 **Output contract:** Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Use this for questions about current work, blockers, next actions, and recovery; automatic invocation is not mutation consent.
 

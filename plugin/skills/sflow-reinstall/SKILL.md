@@ -10,7 +10,7 @@ argument-hint: "--checkout <path> [--registry <url>]"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 installation surfaces, and perform the exact confirmed transaction. Preserve its complete preview,
 verification result, recovery command, and receipt path.
 

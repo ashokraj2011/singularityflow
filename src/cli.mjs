@@ -142,7 +142,12 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
-import { activateWorkspaceContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import {
+  activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile,
+  clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext,
+  resolveWorkspaceExecutionContext, workspacePromptLabel, workspaceContextForRepository,
+  workspaceRegistryFile
+} from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger } from './ledger.mjs';
@@ -552,6 +557,16 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       'story-launch-repository': sourceRoot
     });
     completeStoryWorktree(prepared);
+    try {
+      await activateWorkspaceStoryContext(
+        activeWorkspaceFile(), workspaceRegistryFile(), prepared.repositoryPath,
+        { storyId: id, selectionSource: 'story-start' }
+      );
+    } catch (error) {
+      // The Story is already committed and may already be pushed. A machine-local navigation
+      // receipt must never turn that durable success into a failed start or cause a duplicate retry.
+      console.warn(`Warning: Story '${id}' started, but its active-checkout selection was not updated: ${error.message}`);
+    }
     return result;
   } catch (error) {
     const recovery = rollbackStoryWorktree(prepared);
@@ -5842,6 +5857,177 @@ async function sessionCommand(positionals, options) {
     }
     return;
   }
+  if (subcommand === 'current') {
+    let context = null;
+    try {
+      context = await resolveWorkspaceExecutionContext(
+        activeWorkspaceFile(), workspaceRegistryFile(), { cwd: process.cwd() }
+      );
+    } catch (error) {
+      if (optionBoolean(options, 'json')) {
+        return console.log(JSON.stringify({
+          ready: false,
+          code: error.code ?? 'ACTIVE_SUBJECT_UNAVAILABLE',
+          message: error.message,
+          details: error.details ?? null
+        }, null, 2));
+      }
+      throw error;
+    }
+    if (!context) {
+      const resolved = await resolveSessionRepository();
+      if (!resolved.root) {
+        const empty = {
+          ready: false, workId: null, repositoryPath: null,
+          selectionSource: null, reason: resolved.reason, detail: resolved.detail
+        };
+        return console.log(optionBoolean(options, 'json')
+          ? JSON.stringify(empty, null, 2)
+          : `No Singularity Flow execution context is active. ${resolved.detail}`);
+      }
+      context = {
+        repositoryPath: resolved.root,
+        canonicalRepositoryPath: resolved.root,
+        checkoutPath: resolved.root,
+        workspaceId: resolved.workspaceId,
+        workspaceName: null,
+        repositoryId: null,
+        storyId: null,
+        branch: branch(resolved.root),
+        head: head(resolved.root),
+        selectionSource: resolved.resolvedFrom,
+        selectionStatus: 'ready',
+        storyWorktree: gitDir(resolved.root) !== gitCommonDir(resolved.root)
+      };
+    }
+    const executionRoot = path.resolve(context.repositoryPath);
+    const authority = sessionRepositoryAuthority(executionRoot);
+    const { definition } = await sessionDiscoveryConfiguration(executionRoot, authority);
+    let workflow = null;
+    try { workflow = await loadStoryAggregate(executionRoot, definition); } catch { /* No Story is a valid workspace context. */ }
+    const actualWorkId = workflow?.workItem?.id ?? null;
+    if (context.storyId && actualWorkId !== context.storyId) {
+      throw new SingularityFlowError(
+        `Selected Story '${context.storyId}' does not match checkout Story '${actualWorkId ?? 'none'}'. Nothing was changed.`,
+        {
+          code: 'ACTIVE_SUBJECT_MISMATCH',
+          details: {
+            expectedWorkId: context.storyId,
+            actualWorkId,
+            repositoryPath: executionRoot,
+            nextCommand: `singularity-flow session attach ${context.storyId} --json`
+          }
+        }
+      );
+    }
+    const activeSession = await loadSession(executionRoot, { required: false });
+    const result = {
+      ready: context.selectionStatus === 'ready',
+      workspaceId: context.workspaceId ?? null,
+      workspaceName: context.workspaceName ?? null,
+      repositoryId: context.repositoryId ?? null,
+      repositoryPath: executionRoot,
+      canonicalRepositoryPath: context.canonicalRepositoryPath ?? executionRoot,
+      checkoutPath: context.checkoutPath ?? executionRoot,
+      storyWorktree: context.storyWorktree === true,
+      workId: actualWorkId,
+      branch: branch(executionRoot),
+      head: head(executionRoot),
+      phase: workflow?.currentPhase ?? null,
+      status: workflow?.status ?? null,
+      activeAgent: activeSession?.workId === actualWorkId ? activeSession.agent ?? null : null,
+      selectionSource: context.selectionSource ?? null,
+      selectionStatus: context.selectionStatus ?? 'ready'
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Repository: ${result.repositoryPath}`);
+    console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);
+    console.log(`Phase: ${result.phase ?? '—'} · status ${result.status ?? '—'}`);
+    console.log(`Selection: ${result.selectionSource} · ${result.selectionStatus}`);
+    return result;
+  }
+  if (subcommand === 'doctor') {
+    const selected = await readActiveWorkspaceContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
+    ).catch(() => null);
+    let execution = null;
+    let executionError = null;
+    try {
+      execution = await resolveWorkspaceExecutionContext(
+        activeWorkspaceFile(), workspaceRegistryFile(), { cwd: process.cwd() }
+      );
+    } catch (error) { executionError = error; }
+    let currentRoot = null;
+    try { currentRoot = repoRoot(); } catch { /* Outside Git is a reported condition. */ }
+    const currentSession = currentRoot
+      ? await loadSession(currentRoot, { required: false }).catch(() => null)
+      : null;
+    const findings = [];
+    if (!selected) findings.push({ severity: 'warning', code: 'workspace-selection-missing', message: 'No active workspace is selected.' });
+    if (executionError) findings.push({
+      severity: 'error', code: executionError.code ?? 'active-subject-unavailable',
+      message: executionError.message, details: executionError.details ?? null
+    });
+    if (selected?.storyId && currentSession?.workId && selected.storyId !== currentSession.workId) {
+      findings.push({
+        severity: 'warning', code: 'current-directory-session-differs',
+        message: `Current directory session '${currentSession.workId}' differs from selected Story '${selected.storyId}'.`
+      });
+    }
+    const result = {
+      healthy: !findings.some((finding) => finding.severity === 'error'),
+      selected: selected ? {
+        workspaceId: selected.workspaceId, repositoryId: selected.repositoryId,
+        workId: selected.storyId ?? null, repositoryPath: selected.repositoryPath,
+        checkoutPath: selected.checkoutPath ?? null, selectionStatus: selected.selectionStatus ?? null
+      } : null,
+      execution: execution ? {
+        workId: execution.storyId ?? null, repositoryPath: execution.repositoryPath,
+        branch: execution.branch ?? null, selectionSource: execution.selectionSource ?? null
+      } : null,
+      currentDirectory: currentRoot ? {
+        repositoryPath: currentRoot, branch: branch(currentRoot), sessionWorkId: currentSession?.workId ?? null
+      } : null,
+      findings
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Session routing: ${result.healthy ? 'healthy' : 'needs repair'}`);
+    for (const finding of findings) console.log(`- ${finding.severity}: ${finding.message}`);
+    return result;
+  }
+  if (subcommand === 'repair-selection') {
+    const workId = requirePositional(positionals, 2, 'work ID');
+    if (optionString(options, 'confirm') !== workId) {
+      throw new SingularityFlowError(
+        `Repairing the machine-local Story selection requires --confirm ${workId}. No Git state was changed.`,
+        { code: 'ACTIVE_SUBJECT_REPAIR_CONFIRMATION_REQUIRED' }
+      );
+    }
+    const selected = await readActiveWorkspaceContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
+    );
+    if (!selected) throw new SingularityFlowError('No active workspace is selected.');
+    const canonicalRoot = selected.canonicalRepositoryPath ?? selected.repositoryPath;
+    const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
+    const managed = storyWorktreeForBranch(canonicalRoot, workId);
+    if (!managed) {
+      throw new SingularityFlowError(
+        `No managed checkout currently owns Story '${workId}'. Reattach it with 'singularity-flow session attach ${workId} --json'.`,
+        { code: 'ACTIVE_SUBJECT_UNAVAILABLE' }
+      );
+    }
+    const repaired = await activateWorkspaceStoryContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), managed.repositoryPath,
+      { storyId: workId, selectionSource: 'session-repair' }
+    );
+    const result = {
+      repaired: true, workId, repositoryPath: repaired.repositoryPath,
+      branch: repaired.branch, head: repaired.head, gitChanged: false
+    };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
+    return result;
+  }
   const resolved = await resolveSessionRepository();
   const root = resolved.root;
   if (!root) {
@@ -5994,6 +6180,10 @@ async function sessionCommand(positionals, options) {
     const attachedConfig = await loadConfig(attachmentRoot);
     const workflow = await loadStoryAggregate(attachmentRoot, attachedConfig, id);
     const session = await activateWorkItemSession(attachmentRoot, attachedConfig, workflow);
+    await activateWorkspaceStoryContext(
+      activeWorkspaceFile(), workspaceRegistryFile(), attachmentRoot,
+      { storyId: id, selectionSource: 'session-attach' }
+    );
     const result = {
       workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
       phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,

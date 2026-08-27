@@ -9,11 +9,11 @@ disable-model-invocation: true
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Execute one lifecycle action, report its durable Git result, and stop. Never loop through approvals. Human identity grants approval authority.
 
-1. Run `singularity-flow nextsteps --json`. If it names `singularity-flow wm ensure`, explain that generation may start a repository-reading/file-writing Copilot agent and get explicit consent. Do not start it while waiting. On consent run the exact command, then `singularity-flow next`; otherwise stop. Never derive `--task` from Story text; lifecycle grounding uses the shared repository model.
+1. Run `singularity-flow session current --json`; require `ready`, retain its subject fields, and from that cwd run `singularity-flow nextsteps <WORK-ID> --json`. Refuse `ACTIVE_SUBJECT_MISMATCH`; never use another Story. If it names `singularity-flow wm ensure`, explain that generation may start a repository-reading/file-writing Copilot agent and get explicit consent. Do not start it while waiting. On consent run the exact command, then `singularity-flow next`; otherwise stop. Never derive `--task` from Story text; lifecycle grounding uses the shared repository model.
 2. Let CLI synchronization, submission, gate, or approval finish. Before approval run `singularity-flow phase show <phase> --json`, validate reviewer identity/authority, report the automatic phase agent, and require the exact phase name. Every recorded approval must produce its own commit and push.
 3. Follow the selected skill. When the selected action is `/sf-code`, do not imitate or inline that skill inside this model-disabled turn: report `Next in Copilot: /sf-code` with the exact phase and stop. The contributor's next invocation owns authoring and publication. For another generative phase, report `/sf-phase` and stop. Never publish from a delegated next-step turn.
 4. For a non-delegated publication, run `singularity-flow phase publish <phase> --authored governed-agent --channel copilot-host` once. Confirm sanitized `telemetry/<phase>-gen<N>.json`; use `--usage-json` only for exact usage.

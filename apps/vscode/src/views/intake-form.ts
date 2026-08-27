@@ -587,7 +587,8 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
     ${form.error ? `<p class="blockers">${escape(form.error)}</p>` : ''}
     ${form.recoveryCommand ? `<div class="notice warning"><strong>Continue from a terminal</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
-      <pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre></div>` : ''}
+      <pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
+      ${form.shape === 'story' ? '<button class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>
       <button data-submit="start" ${problems.length || form.busy ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : `Start this ${escape(noun.toLowerCase())}`}
@@ -601,7 +602,7 @@ export const INTAKE_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-submit]');
-    if (target) vscode.postMessage({ type: 'start' });
+    if (target) vscode.postMessage({ type: target.dataset.submit === 'recover-start' ? 'recover-start' : 'start' });
   });
   /**
    * A shape or tracker change redraws, because it changes which fields exist. A keystroke does not,

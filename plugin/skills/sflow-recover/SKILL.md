@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID]"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow recover $ARGUMENTS --fetch --json` without `--apply` and show the complete recovery plan, blocker evidence, exact file/line, preserved state, and `planId`.
 2. Diagnosis is deterministic and model-free. Do not use a model to classify, clear, or reinterpret a blocker. AST absence is never a recovery blocker.

@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow epic merge-plan --epic <EPIC-KEY> --json`.
 2. Display Story order, repository, blocking flag, dependencies, current state, and the next merge candidate.

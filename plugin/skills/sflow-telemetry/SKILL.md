@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. For context questions, run `singularity-flow context xray <WORK-ID> --json`. For token questions, run `singularity-flow tokens report <WORK-ID> --json`. Omit `<WORK-ID>` only when governed Story work is active. Otherwise run `singularity-flow telemetry status --json`.
 2. Show the qualified state (`captured`, `partial`, `unavailable`, `conflict`, or `disabled`), SFlow-owned launch counts, capability mode, and pending generations. Do not expose host paths or raw event content.

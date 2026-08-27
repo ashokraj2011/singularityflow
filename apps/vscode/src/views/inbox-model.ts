@@ -229,12 +229,29 @@ export function buildInboxTree(snapshot: RepositorySnapshot | null, error?: Erro
   }];
 
   const yours = inbox.approvals.pending.filter((approval) => approval.standing === 'yours').length;
+  const activeStories = (snapshot.workItems ?? [])
+    .filter((item) => !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
+    .sort((left, right) => left.id.localeCompare(right.id));
   return [{
     kind: 'action', id: 'inbox:open', label: 'Open business inbox',
     description: `${yours} waiting · ${inbox.artifacts.length} generated`,
     tooltip: 'Review decisions and every generated artifact in one place.',
     icon: yours ? 'bell-dot' : 'inbox', runCommand: 'singularityFlow.openInbox'
-  }, {
+  }, ...(activeStories.length ? [{
+    kind: 'group' as const, id: 'inbox:active-stories', label: 'Active Stories',
+    description: String(activeStories.length), icon: 'list-tree',
+    tooltip: 'Select a Story to open its isolated checkout and load its generated artifacts.',
+    children: activeStories.map((item) => ({
+      kind: 'story' as const, id: `inbox:active-story:${item.id}`, label: item.id,
+      description: item.id === snapshot.selectedWorkId
+        ? `${item.currentPhase ?? item.status ?? 'active'} · current`
+        : String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
+      tooltip: `${item.title ?? item.id}\nSelect to synchronize and open this Story checkout.`,
+      icon: item.id === snapshot.selectedWorkId ? 'check' : 'statusCurrent',
+      command: ['session', 'attach', item.id], runCommand: 'singularityFlow.runAction',
+      contextValue: 'sflow.story.active.summary'
+    }))
+  }] : []), {
     kind: 'group', id: 'inbox:generated', label: 'Generated artifacts',
     description: String(inbox.artifacts.length), icon: 'files',
     children: inbox.workItems.map((work) => ({

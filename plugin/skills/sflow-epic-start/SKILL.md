@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Require the Jira Epic key. Run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
 2. Present every profile and governed-agent option with Copilot's selectable question UI. Do not infer an answer.

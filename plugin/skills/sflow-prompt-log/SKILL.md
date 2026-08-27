@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Interpret `$ARGUMENTS` as one of `on`, `off`, `status`, `list`, `view <record-id>`, `retention`, `repair`, or `clear`; use `status` when no action is supplied.
 2. Run `singularity-flow prompt-log <action>`, forwarding filters such as `--agent`, `--phase`, `--work-id`, and `--limit` unchanged.

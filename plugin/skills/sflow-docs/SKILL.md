@@ -9,7 +9,7 @@ argument-hint: "[QUESTION | TOPIC]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Pass the exact question or topic through the model-free resolver: run `singularity-flow explain "$ARGUMENTS" --json`. With no argument, run `singularity-flow explain --json` for the topic catalog. Do not map the question to a topic from model memory.
 2. Read the served bytes from `data.served.text` and preserve `data.helpIntent`, provenance, and warnings.

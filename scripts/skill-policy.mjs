@@ -31,10 +31,10 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
 function executionBoundary() {
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
   // its process cwd while the model loses the conversational repository hint. Resolve the selected
-  // workspace on every skill invocation and make its absolute repository path the cwd of every
-  // shell/file tool. Keeping this generated makes the rule catalog-wide and prevents a new skill
-  // from silently falling back to the user's home directory.
-  return '**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.';
+  // Story checkout on every skill invocation and make its absolute path the cwd of every shell/file
+  // tool. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
+  // replace the Story selected before `/clear`. Keeping this generated makes the rule catalog-wide.
+  return '**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.';
 }
 
 function referencedModelOperations(body) {

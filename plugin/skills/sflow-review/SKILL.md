@@ -10,7 +10,7 @@ argument-hint: "[review emphasis]"
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 First run `singularity-flow review` and reproduce its unified artifact, approved-input provenance, checks, decisions, source-change summary, usage, and supporting evidence. Use `singularity-flow review --format html --out <file>` when the user wants a portable browser view.
 

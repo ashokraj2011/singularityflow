@@ -9,7 +9,7 @@ argument-hint: "[--level error|warn|info|debug|all] [--event PATTERN] [--tail N]
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Run `singularity-flow logs $ARGUMENTS`. This command is read-only: it never
 changes repository, workflow, or lifecycle state, and it works even while a

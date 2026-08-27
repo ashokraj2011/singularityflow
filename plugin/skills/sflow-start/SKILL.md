@@ -10,7 +10,7 @@ argument-hint: "<WORK-ID> [--jira | manual story details] [documents and URLs]"
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Require an explicit work ID. Run `singularity-flow version` and `git status --short`; report missing CLI or dirty-tree failures without installing or discarding anything.
 2. Before collecting intake, run `singularity-flow session candidates --json`. If the ID exists, report it and route to `/sf-session` or `singularity-flow resume <WORK-ID>`; do not start it again.

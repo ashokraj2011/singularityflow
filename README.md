@@ -2266,6 +2266,8 @@ evidence workflow.
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
+| `singularity-flow session current` | Resolve the verified Story checkout, Work ID, branch, phase, and agent that lifecycle commands must use. |
+| `singularity-flow session doctor` | Compare workspace selection, current directory, and worktree-local session state without changing Git. |
 | `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]` | Attach session context to a saved workspace from any directory and return the exact governed repository/host handoff. |
 | `singularity-flow session context [--work-id ID] [--flight-plan CFP-ID] [--slice SLICE]` | Return bounded legacy context or a deterministic, token-aware Evidence Packet; deeper content is available only through sealed expansion handles. |
 | `singularity-flow context xray [WORK-ID]` | Read what content-free packet telemetry says was supplied, omitted, unavailable, and expanded for the current phase, together with provider-model coverage. |
@@ -2273,6 +2275,7 @@ evidence workflow.
 | `singularity-flow tokens status\|report [WORK-ID]` | Read delivered and digest-deduplicated unique context, provider usage, lifecycle outcomes, and mixed coverage with field-level assurance; use `--phase` to narrow it. |
 | `singularity-flow tokens compare --study STUDY-ID` | Reuse a pre-registered IMP comparison and issue an honest quality-gated optimization state; cheaper-but-worse always blocks a release claim. |
 | `singularity-flow session attach <ID>` | Safely fast-forward to the exact remote work-item head and activate the current phase agent. |
+| `singularity-flow session repair-selection <ID> --confirm <ID>` | Repair only the machine-local checkout selection for an existing managed Story worktree. |
 | `singularity-flow session status` | Inspect work-item and agent binding readiness for the current Copilot session. |
 | `sflow-inbox [--offline] [--json]` | Fetch and list committed remote phases awaiting approval; equivalent to `singularity-flow inbox`. |
 | `singularity-flow status [ID]` | Show phase, governed agent, artifacts, human approvals, usage, and warnings. |

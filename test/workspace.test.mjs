@@ -13,8 +13,9 @@ import {
   workspaceStatus
 } from '../src/workspace.mjs';
 import {
-  activateWorkspaceContext, buildWorkspaceContext, discardUnsupportedWorkflowWorkspaces,
-  readActiveWorkspaceContext, resolveWorkspaceReference, workspacePromptLabel
+  activateWorkspaceContext, activateWorkspaceStoryContext, buildWorkspaceContext,
+  discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext,
+  resolveWorkspaceExecutionContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
 import {
   activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS, hasLocalGovernanceAuthority
@@ -749,6 +750,33 @@ test('active workspace context resolves friendly references and adds governed St
   const active = await activateWorkspaceContext(registry, selection, created.workspace.id, { storyId: 'MOB-999' });
   assert.equal(active.storyId, 'MOB-999');
   assert.equal((await readActiveWorkspaceContext(selection, registry)).prompt, `${created.workspace.name} / MOB-999 >`);
+
+  run('git', ['add', '.'], { cwd: lead });
+  run('git', ['commit', '-m', 'add first Story'], { cwd: lead });
+  const storyCheckout = path.join(root, 'MOB-999-checkout');
+  run('git', ['worktree', 'add', '-b', 'MOB-999', storyCheckout, 'HEAD'], { cwd: lead });
+  await mkdir(path.join(storyCheckout, 'singularity', 'work-items', 'MOB-999'), { recursive: true });
+  await writeFile(path.join(storyCheckout, 'singularity', 'work-items', 'MOB-999', 'workflow.json'), JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'MOB-999', branch: 'MOB-999', title: 'Selected isolated Story' },
+    lineage: { canonicalBranch: 'MOB-999', childBranches: [] },
+    currentPhase: 'intake', status: 'in_progress', phaseOrder: ['intake'],
+    phases: { intake: { id: 'intake', status: 'in_progress' } }
+  }));
+  run('git', ['add', '.'], { cwd: storyCheckout });
+  run('git', ['commit', '-m', 'start selected Story'], { cwd: storyCheckout });
+
+  const selectedStory = await activateWorkspaceStoryContext(selection, registry, storyCheckout, {
+    storyId: 'MOB-999', selectionSource: 'test-attach'
+  });
+  assert.equal(selectedStory.repositoryPath, await realpath(storyCheckout));
+  assert.equal(selectedStory.canonicalRepositoryPath, await realpath(lead));
+  assert.equal(selectedStory.storyWorktree, true);
+  const execution = await resolveWorkspaceExecutionContext(selection, registry, { cwd: lead });
+  assert.equal(execution.storyId, 'MOB-999');
+  assert.equal(execution.repositoryPath, await realpath(storyCheckout),
+    'the selected Story checkout wins over the canonical clone in the next Copilot turn');
+  assert.equal(execution.selectionStatus, 'ready');
   await assert.rejects(() => buildWorkspaceContext(registry, created.workspace.id, { repositoryId: 'missing' }), /not part of workspace/);
 });
 

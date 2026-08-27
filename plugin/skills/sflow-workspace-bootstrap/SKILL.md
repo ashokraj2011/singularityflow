@@ -10,7 +10,7 @@ argument-hint: "[REMOTE-OR-MANIFEST|BOOTSTRAP-ID]"
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Use this skill when no workspace exists yet, a clone failed, authentication changed, a target was
 occupied, or Home reports an unfinished workspace bootstrap.

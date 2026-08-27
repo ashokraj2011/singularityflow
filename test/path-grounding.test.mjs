@@ -16,7 +16,7 @@ import { snapshot } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
-const boundary = 'Resolve the active repository with `singularity-flow workspace current --json`';
+const boundary = 'Resolve the active Story checkout with `singularity-flow session current --json`';
 
 function git(repository, ...args) {
   const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
@@ -50,7 +50,7 @@ test('every packaged and template agent rebinds tools to the active repository a
     for (const name of names) {
       const content = await readFile(path.join(directory, name), 'utf8');
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
-      assert.match(content, /absolute `repositoryPath` as cwd for every shell and file tool/, name);
+      assert.match(content, /require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
       assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
       assert.match(content, /singularity\/work-items\/<WORK-ID>\//, name);
     }
@@ -64,14 +64,14 @@ test('the two broadest skill reads state their governed base and repository fenc
   assert.match(implement, /Inspect further files only as the implementation requires within this repository\./);
 });
 
-test('every skill resolves the selected workspace repository and forbids home-directory fallback', async () => {
+test('every skill resolves the selected Story checkout and forbids home-directory fallback', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
   for (const name of Object.keys(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /<!-- sflow-execution-boundary -->/, name);
-    assert.match(content, /`singularity-flow workspace current --json` → cwd=`repositoryPath`/, name);
+    assert.match(content, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
     assert.match(content, /never `\$HOME`/, name);
-    assert.match(content, /Story: `singularity\/work-items\/<WORK-ID>\/`/, name);
+    assert.match(content, /`singularity\/work-items\/<WORK-ID>\/`/, name);
   }
 });
 

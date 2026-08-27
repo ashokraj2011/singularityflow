@@ -24,8 +24,9 @@ test('session and progress skills ground every follow-up command in the resolved
   assert.match(session, /session attach <WORK-ID> --json/);
   assert.match(session, /exact `repositoryPath` returned/);
   assert.match(session, /same returned `repositoryPath`/);
-  assert.match(progress, /workspace current --json/);
-  assert.match(progress, /exact `repositoryPath`/);
+  assert.match(progress, /session current --json/);
+  assert.match(progress, /Require `ready=true`/);
+  assert.match(progress, /exact returned `repositoryPath`/);
   assert.match(progress, /do not rely on a prior child command to have changed the shell directory/i);
 });
 
@@ -423,7 +424,8 @@ test('next skill executes one action and preserves explicit approval controls', 
   assert.match(content, /singularity-flow next`/);
   assert.doesNotMatch(content, /next --task "<current objective>"/);
   assert.match(content, /shared repository model/);
-  assert.match(content, /singularity-flow nextsteps --json/);
+  assert.match(content, /singularity-flow nextsteps <WORK-ID> --json/);
+  assert.match(content, /ACTIVE_SUBJECT_MISMATCH/);
   assert.match(content, /explicit consent/);
   assert.match(content, /singularity-flow wm ensure/);
   assert.match(content, /Do not start it while waiting/);

@@ -2728,6 +2728,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // name — a failure that says nothing about what was actually wanted.
     const argv = await resolvePlaceholders(node.command, repository);
     if (!argv) return;
+    // Session attachment can resolve to a managed Story worktree. Refreshing the launch clone after
+    // that succeeds leaves every view on the previous Story and discards the most important field
+    // in the command result: `repositoryPath`. Run this one selection operation as JSON, then move
+    // the window to the checkout the engine proved. The CLI still owns fetching and validation.
+    if (argv[0] === 'session' && argv[1] === 'attach') {
+      try {
+        const args = argv.includes('--json') ? argv : [...argv, '--json'];
+        const attached = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: `Attaching ${argv[2] ?? 'Story'}…` },
+          () => client.run<{
+            workId?: string; repositoryPath?: string; branch?: string; phase?: string; status?: string;
+          }>(args)
+        );
+        const checkout = attached.repositoryPath ? path.resolve(attached.repositoryPath) : null;
+        if (!checkout) {
+          showRefusal('Story attachment completed without a repositoryPath.', {
+            headline: 'Could not open the selected Story checkout'
+          });
+          return;
+        }
+        if (checkout !== path.resolve(repository)) {
+          void vscode.window.showInformationMessage(
+            `Story ${attached.workId ?? argv[2]} is ready in its isolated checkout. Opening it now.`
+          );
+          await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(checkout), false);
+          return;
+        }
+        await store.refresh();
+      } catch (error) {
+        output.appendLine(`Story attachment failed: ${(error as Error).message}`);
+        showRefusal(error, { headline: `Could not attach Story ${argv[2] ?? ''}`.trim() });
+      }
+      return;
+    }
     const ran = await runGovernedAction(client, {
       command: argv,
       title: node.confirmation?.summary ?? `singularity-flow ${argv.join(' ')}`,
@@ -4236,6 +4270,8 @@ async function activeWorkspaceRepository(
   let current: {
     active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
     repositoryId?: string; repositoryPath?: string; repositoryState?: string;
+    canonicalRepositoryPath?: string; checkoutPath?: string | null; storyId?: string | null;
+    selectionStatus?: string; selectionError?: string | null;
   };
   try {
     const client = new SingularityFlowClient({
@@ -4259,6 +4295,14 @@ async function activeWorkspaceRepository(
     };
   }
   if (current.active === false) return null;
+  if (current.selectionStatus === 'stale' && current.storyId) {
+    return {
+      label: `Selected Story ${current.storyId} needs reattachment`,
+      reason: `Its previous checkout is unavailable${current.selectionError ? `: ${current.selectionError}` : '.'} Run “Select Story” or singularity-flow session attach ${current.storyId} --json.`,
+      contextValue: 'sflow.workspace.repositoryUnavailable',
+      lead: current.canonicalRepositoryPath ?? current.repositoryPath ?? null
+    };
+  }
   const directory = current.workspacePath;
   if (!directory) {
     return {

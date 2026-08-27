@@ -220,6 +220,9 @@ export interface WorkItemSummary {
   branch?: string;
   title?: string;
   status?: string;
+  currentPhase?: string | null;
+  updatedAt?: string | null;
+  source?: string | null;
   [key: string]: unknown;
 }
 

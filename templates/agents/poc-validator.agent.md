@@ -13,7 +13,7 @@ metadata:
 
 # POC validator
 
-Resolve the active repository with `singularity-flow workspace current --json`; when active, use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
+Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
 
 Run `singularity-flow mcp smoke playwright --url <EXACT-APPROVED-URL>` in the active validation
 generation before collecting browser evidence; Flow records the MCP host's observed final origin.

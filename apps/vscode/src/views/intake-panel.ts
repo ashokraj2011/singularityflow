@@ -390,8 +390,39 @@ export class IntakePanel {
         if (invalidatesPreflight) return this.preflightBaseBranch();
       }
     },
-    start: () => this.start()
+    start: () => this.start(),
+    'recover-start': () => this.recoverStartedStory()
   });
+
+  /** Adopt a Story whose terminal retry completed after the extension request timed out. */
+  private async recoverStartedStory(): Promise<void> {
+    if (this.form.shape !== 'story' || this.form.busy) return;
+    const workId = intakeIdentifier(this.form);
+    if (!workId) return;
+    this.update({ busy: true, error: null });
+    try {
+      const candidates = await this.client.run<Array<{
+        id?: string; phase?: string; status?: string; commit?: string;
+      }>>(['session', 'candidates', '--json']);
+      if (!candidates.some((candidate) => candidate.id === workId)) {
+        this.update({
+          busy: false,
+          error: `Story ${workId} is not published yet. Let the terminal command finish, then check again.`
+        });
+        return;
+      }
+      const attached = await this.client.run<{
+        workId?: string; repositoryPath?: string; phase?: string; status?: string;
+      }>(['session', 'attach', workId, '--json']);
+      this.dispose();
+      await this.onStarted({
+        shape: 'story', id: attached.workId ?? workId,
+        currentPhase: attached.phase, repositoryPath: attached.repositoryPath
+      });
+    } catch (error) {
+      this.update({ busy: false, error: (error as Error).message });
+    }
+  }
 
   private writableField(message: InboundMessage): string | null {
     const field = stringField(message, 'field');

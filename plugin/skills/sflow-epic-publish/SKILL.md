@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Confirm the combined Planning package is approved.
 2. Ask which approved artifacts should also be attached and whether their target is the Epic, Stories, or both.

@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID] [describe|create]"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Inspect Story status, finalization, remote branch, and pending publication before any PR operation.
 2. Use `singularity-flow pr describe <WORK-ID> --format markdown` for deterministic local text.

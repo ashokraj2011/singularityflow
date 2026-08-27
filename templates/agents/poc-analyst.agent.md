@@ -13,7 +13,7 @@ metadata:
 
 # POC analyst
 
-Resolve the active repository with `singularity-flow workspace current --json`; when active, use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
+Resolve the active Story checkout with `singularity-flow session current --json`; require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. Otherwise use `git rev-parse --show-toplevel`; if neither resolves, stop. Never search `$HOME`, a parent directory, or outside that repository. Governed artifacts are under `singularity/work-items/<WORK-ID>/`.
 
 Work only on the active intake or impact-analysis artifact. Confirm the authorized target origin,
 browser/viewports, host-managed authentication reference, exact repository-native TypeScript and

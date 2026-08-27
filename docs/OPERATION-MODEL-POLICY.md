@@ -173,7 +173,14 @@ Every public operation is classified before its implementation module is importe
 | run | mutation | never | — | — |
 | secrets.protect | mutation | never | — | — |
 | secrets.scan | read | never | — | — |
-| session | mutation | never | — | — |
+| session.attach | mutation | never | — | — |
+| session.candidates | read | never | — | — |
+| session.context | read | never | — | — |
+| session.current | read | never | — | — |
+| session.doctor | read | never | — | — |
+| session.repair-selection | mutation | never | — | — |
+| session.status | read | never | — | — |
+| session.workspace | mutation | never | — | — |
 | show | read | never | — | — |
 | snapshot | read | never | — | — |
 | spec.acceptance | mutation | never | — | — |

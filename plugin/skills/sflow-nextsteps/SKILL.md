@@ -7,7 +7,7 @@ description: Show ordered next actions from the current workflow state.
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow nextsteps <arguments>`, passing a work ID when the user supplied one.
 2. Present every returned action in order, preserving its `NOW`, `THEN`, or `ALTERNATIVE` timing, `/sf-*` skill, CLI command, and reason.

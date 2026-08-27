@@ -42,6 +42,20 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function activeWorkspaceV1ToV2(source) {
+  const repositoryPath = source.repositoryPath ?? null;
+  return {
+    ...source,
+    schemaVersion: 2,
+    canonicalRepositoryPath: source.canonicalRepositoryPath ?? repositoryPath,
+    checkoutPath: source.checkoutPath ?? repositoryPath,
+    head: source.head ?? null,
+    selectionSource: source.selectionSource ?? 'workspace',
+    selectionStatus: source.selectionStatus ?? 'ready',
+    selectionError: source.selectionError ?? null
+  };
+}
+
 function promptAuditSettingsV1ToV2(source) {
   return {
     ...source,
@@ -898,7 +912,11 @@ const families = [
     id: 'help-metrics-event', currentVersion: 1,
     paths: [/^(?:\$git|\$workspace)\/help-metrics\/events\.jsonl$/], immutable: true
   }),
-  family({ id: 'active-workspace', currentVersion: 1, paths: [/^\$local\/active-workspace\.json$/] }),
+  family({
+    id: 'active-workspace', currentVersion: 2,
+    steps: [migration(1, 2, activeWorkspaceV1ToV2)],
+    paths: [/^\$local\/active-workspace\.json$/]
+  }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({
     id: 'auto-plan', currentVersion: 1,

@@ -293,25 +293,28 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     runCommand: 'singularityFlow.openImpact', contextValue: 'sflow.workspace.impact'
   };
   if (snapshot.workflow) {
+    const activeStories = activeStoryArchive(snapshot, snapshot.workflow.workItem.id);
     const completedArchive = completedStoryArchive(snapshot, snapshot.workflow.workItem.id);
     const cancelledArchive = cancelledStoryArchive(snapshot, snapshot.workflow.workItem.id);
     if (snapshot.workflow.status === 'cancelled') {
       return [archivedFolder([cancelledStoryNode(snapshot.workflow, snapshot.documents ?? [])]),
-        ...(completedArchive ? [completedArchive] : []), workspaceImpact];
+        ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []), workspaceImpact];
     }
     if (snapshot.workflow.status === 'complete') {
       const completed = completedStoryNode(snapshot.workflow, snapshot.documents ?? []);
       const siblings = completedStorySummaries(snapshot, snapshot.workflow.workItem.id);
       return [completedFolder([completed, ...siblings], countArtifacts(completed)),
-        ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
+        ...(activeStories ? [activeStories] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
     }
     return [storyWorkflowNode(snapshot.workflow, snapshot.documents ?? [], snapshot.detachedDocuments ?? [], snapshot.fastPath ?? null),
-      ...(completedArchive ? [completedArchive] : []), ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
+      ...(activeStories ? [activeStories] : []), ...(completedArchive ? [completedArchive] : []),
+      ...(cancelledArchive ? [cancelledArchive] : []), workspaceImpact];
   }
 
   const initiative = snapshot.initiative;
   if (!initiative) {
     const available = (snapshot.initiatives?.length ?? 0) + (snapshot.workItems?.length ?? 0);
+    const active = activeStoryArchive(snapshot);
     const archived = completedStoryArchive(snapshot);
     const cancelled = cancelledStoryArchive(snapshot);
     return [{
@@ -336,7 +339,7 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
       icon: 'play-circle',
       runCommand: 'singularityFlow.startWork',
       contextValue: 'sflow.start'
-    }, ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
+    }, ...(active ? [active] : []), ...(archived ? [archived] : []), ...(cancelled ? [cancelled] : []), workspaceImpact];
   }
 
   // Workflow selection belongs to intake. Once work exists, Lifecycle shows only that work and its
@@ -349,6 +352,37 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
   }
   const archived = completedStoryArchive(snapshot);
   return [initiativeNode(initiative), ...(archived ? [archived] : []), workspaceImpact];
+}
+
+/** Active sibling Stories stay selectable even though only one checkout can supply full artifacts. */
+function activeStorySummaries(snapshot: RepositorySnapshot, excludeId?: string): TreeNode[] {
+  return (snapshot.workItems ?? [])
+    .filter((item) => item.id !== excludeId
+      && !['complete', 'completed', 'cancelled', 'invalid'].includes(String(item.status)))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((item) => ({
+      kind: 'story' as const,
+      id: `active-story-summary:${item.id}`,
+      label: item.id,
+      description: [item.currentPhase, item.status]
+        .filter(Boolean).map((value) => String(value).replaceAll('_', ' ')).join(' · ')
+        || item.title || 'Active Story',
+      tooltip: `${item.title ?? item.id}\nSelect to synchronize and open its governed checkout.`,
+      icon: 'statusCurrent',
+      command: ['session', 'attach', item.id],
+      runCommand: 'singularityFlow.runAction',
+      contextValue: 'sflow.story.active.summary'
+    }));
+}
+
+function activeStoryArchive(snapshot: RepositorySnapshot, excludeId?: string): TreeNode | null {
+  const stories = activeStorySummaries(snapshot, excludeId);
+  return stories.length ? {
+    kind: 'group', id: 'active-stories', label: 'Active Stories',
+    description: `${stories.length} ${stories.length === 1 ? 'Story' : 'Stories'}`,
+    tooltip: 'Active governed work in sibling branches. Select a Story to open its isolated checkout.',
+    icon: 'list-tree', contextValue: 'sflow.activeStories', children: stories
+  } : null;
 }
 
 /** Count unique, openable artifact paths beneath one completed subject. */

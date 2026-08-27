@@ -9,7 +9,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Do not orient with raw Git or scan instructions before step 1; session commands validate the repository. This is a session-setup-only skill, never implementation. Do not load phase skills, read source/artifacts, modify files, or execute lifecycle work. End the turn after reporting.
 

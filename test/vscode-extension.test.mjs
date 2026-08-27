@@ -102,6 +102,10 @@ test('VS Code command audit classification follows mixed read and mutation subco
   assert.equal(commandClass(['spec', 'acceptance']), 'mutation');
   assert.equal(commandClass(['visual', 'status']), 'read');
   assert.equal(commandClass(['visual', 'compare', '--expected', 'a', '--actual', 'b']), 'mutation');
+  assert.equal(commandClass(['session', 'current', '--json']), 'read');
+  assert.equal(commandClass(['session', 'doctor', '--json']), 'read');
+  assert.equal(commandClass(['session', 'attach', 'CFA-STORY', '--json']), 'mutation');
+  assert.equal(commandClass(['session', 'repair-selection', 'CFA-STORY']), 'mutation');
 });
 
 test('every VS Code CLI completion reports one privacy-safe timing envelope', async () => {
@@ -810,6 +814,25 @@ test('completed sibling Stories remain visible while another Story is active', (
   assert.equal(completed.description, 'Change the color');
   assert.deepEqual(completed.command, ['session', 'attach', 'WRK-456']);
   assert.equal(completed.runCommand, 'singularityFlow.runAction');
+});
+
+test('active sibling Stories remain visible and attach to their isolated checkout', () => {
+  const active = storySnapshot({ generation: 1 });
+  active.workItems[0].status = 'in_progress';
+  active.workItems[0].currentPhase = 'design';
+  active.workItems.push({
+    id: 'CFA-STORY', title: 'Calculate compound interest', status: 'in_progress',
+    currentPhase: 'intake', branch: 'CFA-STORY'
+  });
+  const tree = buildTree(active);
+
+  assert.deepEqual(tree.map((node) => node.id), ['active-story:STORY-42', 'active-stories', 'workspace:impact']);
+  assert.equal(find(tree, 'active-stories').description, '1 Story');
+  const sibling = find(tree, 'active-story-summary:CFA-STORY');
+  assert.equal(sibling.label, 'CFA-STORY');
+  assert.equal(sibling.description, 'intake · in progress');
+  assert.deepEqual(sibling.command, ['session', 'attach', 'CFA-STORY']);
+  assert.equal(sibling.runCommand, 'singularityFlow.runAction');
 });
 
 test('a completed Initiative is archived with its generated outputs, not active actions', () => {
@@ -1886,6 +1909,27 @@ test('the sidebar inbox exposes the combined page and opens exact generated path
   const artifact = work.children[0].children[0];
   assert.equal(artifact.path, output.repositoryPath);
   assert.equal(artifact.readOnly, true);
+});
+
+test('the sidebar inbox lists active Stories without mixing their artifacts', () => {
+  const shot = storySnapshot({ generation: 1 });
+  shot.workItems[0].status = 'in_progress';
+  shot.workItems[0].currentPhase = 'design';
+  shot.workItems.push({
+    id: 'CFA-STORY', title: 'Calculate compound interest', status: 'in_progress',
+    currentPhase: 'intake', branch: 'CFA-STORY'
+  });
+
+  const tree = buildInboxTree(shot);
+  const active = find(tree, 'inbox:active-stories');
+  assert.equal(active.description, '2');
+  assert.match(find(tree, 'inbox:active-story:STORY-42').description, /current/);
+  assert.deepEqual(find(tree, 'inbox:active-story:CFA-STORY').command,
+    ['session', 'attach', 'CFA-STORY']);
+  assert.equal(find(tree, 'inbox:generated').description, '1',
+    'only the selected Story artifact snapshot is rendered');
+  assert.equal(find(tree, 'inbox:work:CFA-STORY'), undefined,
+    'an unselected Story is a navigation row, not a fabricated artifact catalog');
 });
 
 const { buildStories } = await import(source('views/stories-model.ts'));
@@ -2987,12 +3031,15 @@ test('an intake form still missing something disables the button and lists why',
 test('a refused start is reported on the form that caused it', () => {
   assert.match(intakeHtml(intake({ error: 'Working tree is not clean.' })), /Working tree is not clean/);
   const timeout = intakeHtml(intake({
+    shape: 'story',
     error: 'The CLI timed out.',
     recoveryCommand: "cd '/work/api' && 'singularity-flow' 'start' 'WRK-17'"
   }));
   assert.match(timeout, /Continue from a terminal/);
   assert.match(timeout, /singularity-flow/);
   assert.match(timeout, /WRK-17/);
+  assert.match(timeout, /data-submit="recover-start"/);
+  assert.match(timeout, /Check and open created Story/);
 });
 
 const {

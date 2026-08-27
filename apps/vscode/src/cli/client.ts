@@ -121,6 +121,11 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
+  if (args[0] === 'session') {
+    return ['current', 'doctor', 'context', 'candidates', 'status'].includes(args[1] ?? 'status')
+      ? 'read'
+      : 'mutation';
+  }
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
   if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && hasOption(args, 'dry-run')) return 'read';
   if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';

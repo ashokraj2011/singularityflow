@@ -9,7 +9,7 @@ argument-hint: "status | compare --expected <record> --actual <record>"
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow visual status --json` for a read-only inventory.
 2. For comparison, require explicit expected and actual records and run `singularity-flow visual compare --expected <EXPECTED> --actual <ACTUAL> --json`.

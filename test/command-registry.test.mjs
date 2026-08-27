@@ -43,6 +43,10 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('visual', ['visual', 'compare']), 'mutation');
   assert.equal(classify('review', ['review', 'intake']), 'read');
   assert.equal(classify('review', ['review', 'intake'], { out: 'review.md' }), 'mutation');
+  assert.equal(classify('session', ['session', 'current']), 'read');
+  assert.equal(classify('session', ['session', 'doctor']), 'read');
+  assert.equal(classify('session', ['session', 'attach', 'CFA-STORY']), 'mutation');
+  assert.equal(classify('session', ['session', 'repair-selection', 'CFA-STORY']), 'mutation');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).id, 'workspace.impact.analyze.preview');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'copilot'], options: { 'dry-run': true } }).id, 'workspace.copilot.preview');

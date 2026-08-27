@@ -10,7 +10,7 @@ argument-hint: "[code-generation focus]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow status --json`; use the governed workflow as Story context. Stop unless the active phase's normalized `generation.task` is `code`. Never hard-code `implementation`.
 2. Before composition or file access, run `singularity-flow recover <WORK-ID> --phase <phase> --json`. Review and run its exact new-generation command first. Stop on a manual action or unchanged plan fingerprint.

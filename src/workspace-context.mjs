@@ -8,7 +8,7 @@ import {
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { gitCommonDir } from './git.mjs';
+import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
 
@@ -152,6 +152,10 @@ export async function buildWorkspaceContext(registryFile, reference, {
   }
   const selectedStoryId = portableStoryId(storyId)
     ?? (detectStory ? await detectedStory(repository.absolutePath, repository.branch) : null);
+  let repositoryHead = null;
+  if (repository.state === 'ready') {
+    try { repositoryHead = head(repository.absolutePath); } catch { /* An unborn clone is reported by readiness. */ }
+  }
   const context = {
     schemaVersion: ACTIVE_WORKSPACE_SCHEMA_VERSION,
     workspaceId: workspace.id,
@@ -160,11 +164,17 @@ export async function buildWorkspaceContext(registryFile, reference, {
     anchorKey: workspace.anchor.key,
     repositoryId: repository.id,
     repositoryPath: repository.absolutePath,
+    canonicalRepositoryPath: repository.absolutePath,
+    checkoutPath: repository.absolutePath,
     repositoryState: repository.state,
     branch: repository.branch,
+    head: repositoryHead,
     capabilities: [...(workspace.capabilities ?? [])],
     repositoryCapabilities: [...(workspace.repositories[repository.id]?.capabilities ?? [])],
     storyId: selectedStoryId,
+    selectionSource: 'workspace',
+    selectionStatus: 'ready',
+    selectionError: null,
     selectedAt: new Date().toISOString()
   };
   return { ...context, prompt: workspacePromptLabel(context) };
@@ -190,9 +200,166 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
   if (!refresh) return { ...selected, prompt: workspacePromptLabel(selected) };
   const context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
     repositoryId: selected.repositoryId,
-    storyId: selected.storyId
+    // The selected checkout, not the canonical clone's current branch, proves the Story below.
+    storyId: null
   });
-  return { ...context, selectedAt: selected.selectedAt ?? context.selectedAt };
+  const canonicalRepositoryPath = context.repositoryPath;
+  const selectedStoryId = portableStoryId(selected.storyId);
+  const candidate = selected.checkoutPath ?? selected.repositoryPath;
+  if (!selectedStoryId || !candidate) {
+    return { ...context, selectedAt: selected.selectedAt ?? context.selectedAt };
+  }
+  try {
+    const checkoutPath = await canonical(candidate);
+    if (await canonical(gitCommonDir(checkoutPath)) !== await canonical(gitCommonDir(canonicalRepositoryPath))) {
+      throw new Error('the selected checkout belongs to another Git repository');
+    }
+    const checkoutBranch = branch(checkoutPath);
+    const checkoutStoryId = await detectedStory(checkoutPath, checkoutBranch);
+    if (checkoutStoryId !== selectedStoryId) {
+      throw new Error(`the selected checkout resolves to '${checkoutStoryId ?? 'no Story'}'`);
+    }
+    const resolved = {
+      ...context,
+      repositoryPath: checkoutPath,
+      canonicalRepositoryPath,
+      checkoutPath,
+      branch: checkoutBranch,
+      head: head(checkoutPath),
+      storyId: selectedStoryId,
+      storyWorktree: gitDir(checkoutPath) !== gitCommonDir(checkoutPath),
+      selectionSource: selected.selectionSource ?? 'session-attach',
+      selectionStatus: 'ready',
+      selectionError: null,
+      selectedAt: selected.selectedAt ?? context.selectedAt
+    };
+    return { ...resolved, prompt: workspacePromptLabel(resolved) };
+  } catch (error) {
+    const stale = {
+      ...context,
+      canonicalRepositoryPath,
+      checkoutPath: null,
+      // Preserve the explicit selection for prompts and repair UI, but mark it stale. Execution
+      // resolution below refuses this record before any lifecycle command can use the canonical
+      // checkout as a substitute.
+      storyId: selectedStoryId,
+      requestedStoryId: selectedStoryId,
+      selectionSource: selected.selectionSource ?? 'session-attach',
+      selectionStatus: 'stale',
+      selectionError: error.message,
+      selectedAt: selected.selectedAt ?? context.selectedAt
+    };
+    return { ...stale, prompt: workspacePromptLabel(stale) };
+  }
+}
+
+/**
+ * Persist the checkout proven by Story attachment or Story start.
+ *
+ * This is machine-local navigation state only. It never checks out a branch, changes HEAD, writes
+ * governed files, or contacts a remote. The exact Git common directory and Story aggregate must
+ * already agree before the selection is recorded.
+ */
+export async function activateWorkspaceStoryContext(
+  selectionFile, registryFile, checkout, { storyId, selectionSource = 'session-attach' } = {}
+) {
+  const selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
+  if (!selected) return null;
+  const base = await buildWorkspaceContext(registryFile, selected.workspaceId, {
+    repositoryId: selected.repositoryId,
+    storyId: null
+  });
+  const checkoutPath = await canonical(checkout);
+  const canonicalRepositoryPath = await canonical(base.repositoryPath);
+  if (await canonical(gitCommonDir(checkoutPath)) !== await canonical(gitCommonDir(canonicalRepositoryPath))) {
+    return null;
+  }
+  const checkoutBranch = branch(checkoutPath);
+  const actualStoryId = await detectedStory(checkoutPath, checkoutBranch);
+  const expectedStoryId = portableStoryId(storyId);
+  if (!actualStoryId || actualStoryId !== expectedStoryId) {
+    throw new SingularityFlowError(
+      `Cannot select Story '${expectedStoryId}': checkout '${checkoutPath}' resolves to '${actualStoryId ?? 'no Story'}'.`,
+      {
+        code: 'ACTIVE_SUBJECT_MISMATCH',
+        details: { expectedWorkId: expectedStoryId, actualWorkId: actualStoryId, checkoutPath }
+      }
+    );
+  }
+  const context = {
+    ...base,
+    repositoryPath: checkoutPath,
+    canonicalRepositoryPath,
+    checkoutPath,
+    branch: checkoutBranch,
+    head: head(checkoutPath),
+    storyId: actualStoryId,
+    storyWorktree: gitDir(checkoutPath) !== gitCommonDir(checkoutPath),
+    selectionSource,
+    selectionStatus: 'ready',
+    selectionError: null,
+    selectedAt: new Date().toISOString()
+  };
+  await writeAtomic(selectionFile, `${JSON.stringify(context, null, 2)}\n`, { mode: 0o600 });
+  return { ...context, prompt: workspacePromptLabel(context) };
+}
+
+/**
+ * Resolve the checkout a lifecycle command must use.
+ *
+ * A linked Story worktree containing the caller wins so independent VS Code windows cannot steal
+ * one another's Story. Otherwise the last explicitly attached checkout wins over the canonical
+ * launch clone. A stale Story selection fails closed instead of silently routing to another Story.
+ */
+export async function resolveWorkspaceExecutionContext(
+  selectionFile, registryFile, { cwd = process.cwd() } = {}
+) {
+  const selected = await readActiveWorkspaceContext(selectionFile, registryFile);
+  if (!selected) return null;
+  const canonicalRepositoryPath = selected.canonicalRepositoryPath ?? selected.repositoryPath;
+  let currentRoot = null;
+  try { currentRoot = repoRoot(cwd); } catch { /* The active workspace may still supply the checkout. */ }
+  if (currentRoot) {
+    try {
+      const sameRepository = await canonical(gitCommonDir(currentRoot))
+        === await canonical(gitCommonDir(canonicalRepositoryPath));
+      const linkedWorktree = gitDir(currentRoot) !== gitCommonDir(currentRoot);
+      if (sameRepository && linkedWorktree) {
+        const currentBranch = branch(currentRoot);
+        const currentStoryId = await detectedStory(currentRoot, currentBranch);
+        if (currentStoryId) {
+          const current = {
+            ...selected,
+            repositoryPath: currentRoot,
+            checkoutPath: currentRoot,
+            canonicalRepositoryPath,
+            branch: currentBranch,
+            head: head(currentRoot),
+            storyId: currentStoryId,
+            storyWorktree: true,
+            selectionSource: 'current-story-worktree',
+            selectionStatus: 'ready'
+          };
+          return { ...current, prompt: workspacePromptLabel(current) };
+        }
+      }
+    } catch { /* A broken caller checkout cannot override the validated selection. */ }
+  }
+  if (selected.selectionStatus === 'stale' && selected.requestedStoryId) {
+    throw new SingularityFlowError(
+      `Selected Story '${selected.requestedStoryId}' no longer has a valid checkout. Reattach it before lifecycle work.`,
+      {
+        code: 'ACTIVE_SUBJECT_UNAVAILABLE',
+        details: {
+          expectedWorkId: selected.requestedStoryId,
+          canonicalRepositoryPath,
+          reason: selected.selectionError ?? null,
+          nextCommand: `singularity-flow session attach ${selected.requestedStoryId} --json`
+        }
+      }
+    );
+  }
+  return selected;
 }
 
 /** Clear the local selection only when it points at the workspace being forgotten. */

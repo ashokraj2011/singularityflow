@@ -9,7 +9,7 @@ argument-hint: "[WORK-ID | TOPIC | QUESTION]"
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Packaged documentation can still be served when no workspace is registered; do not search the
 filesystem for a repository in that case.

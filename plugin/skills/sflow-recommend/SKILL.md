@@ -8,7 +8,7 @@ description: Show one grounded next step from the active SFlow workspace.
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 Use the durable workspace, work-item, evidence, and repository records. Never infer lifecycle state from chat history.
 

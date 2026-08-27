@@ -10,7 +10,7 @@ argument-hint: "[design constraints or emphasis]"
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use the complete governed prompt and approved inputs, ask unresolved questions, then publish and show configured artifacts.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → cwd=`repositoryPath`; never `$HOME`. Story: `singularity/work-items/<WORK-ID>/`.
+**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `design`. Use that governed workflow as Story context.
 2. Run `singularity-flow wm compose --phase design` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational design objective as `--task`. Use the shared architecture and security grounding as evidence.

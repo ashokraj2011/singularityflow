@@ -693,6 +693,15 @@ const families = [
   // Registering the shape still gives every producer one current version without pretending it is
   // a durable record family with an on-disk path.
   family({ id: 'recovery-plan', currentVersion: 1 }),
+  // Embedded in an open Story change request. It has no independent path, but every producer and
+  // integrity verifier must still agree on its durable schema version.
+  family({ id: 'rework-forward-checkpoint', currentVersion: 1 }),
+  // A read-only, recomputed transport shape shown before destructive confirmation.
+  family({ id: 'rework-roll-forward-plan', currentVersion: 1 }),
+  family({
+    id: 'rework-local-backup', currentVersion: 1,
+    paths: [/^\$git\/rework-backups\/[^/]+\/[^/]+\/manifest\.json$/]
+  }),
   family({ id: 'selection-receipt', currentVersion: 1, paths: [/^\$git\/choices\/[^/]+\.json$/] }),
   family({ id: 'artifact-set', currentVersion: 1 }),
   family({ id: 'artifact-sidecar', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/sidecars\/[^/]+\.json$/], immutable: true }),

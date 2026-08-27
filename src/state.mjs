@@ -8,7 +8,7 @@ import {
   run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
-  branch, changedFiles, head, identity, pushBranch, pushCommitToBranch, remoteContains, untrackedFiles
+  branch, changedFiles, gitCommonDir, head, identity, pushBranch, pushCommitToBranch, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -113,7 +113,7 @@ import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule,
   testReceiptPassing
 } from './code-delivery-tests.mjs';
-import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import { buildRepositoryChangeSet, repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
   inspectRequiredArtifactContent, requiredArtifactRepoPath,
@@ -373,6 +373,9 @@ export function storyStatusMarkdown(workflow) {
     for (const request of openChangeRequests) {
       const requester = request.requestedBy?.name ?? request.requestedBy?.email ?? request.requestedBy?.login ?? 'unknown';
       lines.push(`- **${request.id}** — return \`${request.sourcePhase}\` to \`${request.targetPhase}\`: ${request.comment} _(requested by ${requester} at ${request.requestedAt})_`);
+      if (request.forwardCheckpoint) {
+        lines.push(`  - Reversible checkpoint: \`${request.forwardCheckpoint.id}\` — preview with \`singularity-flow story rework roll-forward --work-id ${workflow.workItem.id} --change-request ${request.id} --json\`.`);
+      }
     }
   }
   /**
@@ -2720,6 +2723,49 @@ async function refreshRequiredArtifact(root, config, workflow, phase) {
   else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
+function reworkCheckpointIntegrity(checkpoint) {
+  const { integrity: _integrity, ...core } = checkpoint;
+  return `sha256:${createHash('sha256').update(canonicalJson(core)).digest('hex')}`;
+}
+
+/**
+ * Capture the lifecycle state that an authorized return invalidates.
+ *
+ * The checkpoint is embedded in the change request and therefore lands in the same governed
+ * commit as the rejection/reopen. It deliberately records only the mutable forward cone rather
+ * than nesting the whole workflow: repeated rework must grow linearly, not recursively.
+ */
+function createReworkForwardCheckpoint(root, workflow, {
+  changeRequestId,
+  sourcePhase,
+  targetPhase,
+  targetIndex,
+  createdAt
+}) {
+  const affectedPhaseIds = workflow.phaseOrder.slice(targetIndex);
+  const checkpoint = {
+    schemaVersion: currentSchemaVersion('rework-forward-checkpoint'),
+    id: `RFW-${changeRequestId}`,
+    changeRequestId,
+    sourceCommit: head(root),
+    sourcePhase,
+    targetPhase,
+    createdAt,
+    state: {
+      status: workflow.status,
+      currentPhase: workflow.currentPhase,
+      affectedPhaseIds,
+      phases: Object.fromEntries(affectedPhaseIds.map((phaseId) => [phaseId, structuredClone(workflow.phases[phaseId])])),
+      workIntervals: structuredClone(workflow.workIntervals ?? null),
+      repairBudgets: structuredClone(workflow.repairBudgets ?? null),
+      lineage: structuredClone(workflow.lineage ?? null),
+      measurement: structuredClone(workflow.measurement ?? null),
+      spec: structuredClone(workflow.spec ?? null)
+    }
+  };
+  return { ...checkpoint, integrity: { sha256: reworkCheckpointIntegrity(checkpoint) } };
+}
+
 export async function rejectPhase(root, config, workflow, { phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null, channel = 'terminal', actionContext = null } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'reject');
   /**
@@ -2814,6 +2860,13 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
     reviewPacketSha256: null,
     resolution: null
   };
+  changeRequest.forwardCheckpoint = createReworkForwardCheckpoint(root, workflow, {
+    changeRequestId: changeRequest.id,
+    sourcePhase: phase.id,
+    targetPhase: targetId,
+    targetIndex,
+    createdAt: timestamp
+  });
   const budgetPhase = repairBudgetPhaseForRejection(workflow, phase, targetId);
   const repairBudget = budgetPhase ? consumeRepairAttempt(workflow, budgetPhase, {
     targetPhase: targetId,
@@ -3288,6 +3341,13 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
     reviewPacketSha256: null,
     resolution: null
   };
+  changeRequest.forwardCheckpoint = createReworkForwardCheckpoint(root, workflow, {
+    changeRequestId: changeRequest.id,
+    sourcePhase: completionPhase.id,
+    targetPhase: targetId,
+    targetIndex,
+    createdAt: timestamp
+  });
   for (let index = targetIndex; index < workflow.phaseOrder.length; index += 1) {
     const affected = workflow.phases[workflow.phaseOrder[index]];
     affected.approvals.forEach((approval) => { if (!approval.invalidatedAt) approval.invalidatedAt = timestamp; });
@@ -3339,6 +3399,252 @@ export async function reopenWorkflow(root, config, workflow, { target, reason, c
   });
   await saveWorkflow(root, config, workflow);
   return { phase: workflow.phases[targetId], changeRequest, decision };
+}
+
+function reworkScopePath(config, workflow, candidate, { untracked = false } = {}) {
+  const relative = posix(String(candidate ?? ''));
+  if (!relative) return false;
+  if (isApplicationChangePath(relative, { untracked })) return true;
+  const itemRoot = posix(workDirRelative(config, workflow.workItem.id));
+  if (!(relative === itemRoot || relative.startsWith(`${itemRoot}/`))) return false;
+  const child = relative.slice(itemRoot.length).replace(/^\//, '');
+  return child !== 'workflow.json'
+    && child !== 'STATUS.md'
+    && !child.startsWith('approvals/');
+}
+
+function openReworkCheckpoint(workflow, changeRequestId = null) {
+  const candidates = (workflow.changeRequests ?? []).filter((request) =>
+    request.status === 'open' && request.forwardCheckpoint);
+  const latest = candidates.at(-1) ?? null;
+  if (changeRequestId && latest && latest.id !== changeRequestId) {
+    throw new SingularityFlowError(
+      `Change request '${changeRequestId}' is beneath newer open rework '${latest.id}'. `
+      + `Roll forward ${latest.id} first; checkpoints unwind newest-first.`,
+      { code: 'REWORK_ROLL_FORWARD_ORDER_INVALID', details: { requested: changeRequestId, latest: latest.id } }
+    );
+  }
+  const request = changeRequestId
+    ? candidates.find((candidate) => candidate.id === changeRequestId) ?? null
+    : latest;
+  if (!request) {
+    const qualifier = changeRequestId ? ` '${changeRequestId}'` : '';
+    throw new SingularityFlowError(
+      `No open rework change request${qualifier} has a forward checkpoint. `
+      + 'Only phase returns recorded by this or a newer Singularity Flow build can be rolled forward safely.',
+      { code: 'REWORK_FORWARD_CHECKPOINT_UNAVAILABLE' }
+    );
+  }
+  const checkpoint = request.forwardCheckpoint;
+  const expected = reworkCheckpointIntegrity(checkpoint);
+  if (checkpoint.integrity?.sha256 !== expected) {
+    throw new SingularityFlowError(`Rework checkpoint '${checkpoint.id}' failed its integrity check.`, {
+      code: 'REWORK_FORWARD_CHECKPOINT_INVALID'
+    });
+  }
+  return { request, checkpoint };
+}
+
+/** A read-only, content-bound plan for abandoning the latest rework cone. */
+export async function previewReworkRollForward(root, config, workflow, { changeRequestId = null } = {}) {
+  const { request, checkpoint } = openReworkCheckpoint(workflow, changeRequestId);
+  const changeSet = await buildRepositoryChangeSet(root, {
+    baseCommit: checkpoint.sourceCommit,
+    subject: { kind: 'story-rework-roll-forward', id: workflow.workItem.id, changeRequestId: request.id }
+  });
+  const entries = [];
+  for (const entry of changeSet.entries ?? []) {
+    const endpoints = [entry.oldPath, entry.newPath].filter(Boolean);
+    const scoped = endpoints.map((candidate) => reworkScopePath(config, workflow, candidate, {
+      untracked: entry.untracked === true && candidate === entry.newPath
+    }));
+    if (!scoped.some(Boolean)) continue;
+    if (scoped.some((value) => !value)) {
+      throw new SingularityFlowError(
+        `Rework change '${entry.changeId}' crosses the safe rollback boundary (${endpoints.join(' -> ')}). `
+        + 'Move or commit that cross-boundary rename separately before rolling forward.',
+        { code: 'REWORK_ROLL_FORWARD_SCOPE_CROSSING' }
+      );
+    }
+    entries.push(structuredClone(entry));
+  }
+  const paths = [...new Set(entries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
+  const staged = new Set(run('git', ['diff', '--cached', '--name-only', '-z', 'HEAD', '--'], { cwd: root })
+    .stdout.split('\0').filter(Boolean).map(posix));
+  const plan = {
+    schemaVersion: currentSchemaVersion('rework-roll-forward-plan'),
+    workId: workflow.workItem.id,
+    changeRequestId: request.id,
+    checkpointId: checkpoint.id,
+    checkpointSha256: checkpoint.integrity.sha256,
+    sourceCommit: checkpoint.sourceCommit,
+    sourcePhase: checkpoint.sourcePhase,
+    targetPhase: checkpoint.targetPhase,
+    currentHead: head(root),
+    paths,
+    stagedPaths: paths.filter((candidate) => staged.has(candidate)),
+    entries
+  };
+  return {
+    ...plan,
+    confirmation: `sha256:${createHash('sha256').update(canonicalJson(plan)).digest('hex')}`
+  };
+}
+
+async function backupReworkPaths(root, workflow, preview) {
+  const stamp = nowIso().replace(/[:.]/g, '-');
+  const directory = path.join(
+    gitCommonDir(root), 'singularity-flow', 'rework-backups',
+    workflow.workItem.id, `${preview.changeRequestId}-${stamp}`
+  );
+  const filesDirectory = path.join(directory, 'files');
+  await mkdir(filesDirectory, { recursive: true });
+  const files = [];
+  for (const relative of preview.paths) {
+    const absolute = path.join(root, relative);
+    const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    if (!info) {
+      files.push({ path: relative, status: 'missing' });
+      continue;
+    }
+    const destination = path.join(filesDirectory, relative);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await cp(absolute, destination, { recursive: true, force: false, verbatimSymlinks: true });
+    files.push({ path: relative, status: 'saved', kind: info.isSymbolicLink() ? 'symlink' : info.isDirectory() ? 'directory' : 'file' });
+  }
+  const manifest = {
+    schemaVersion: currentSchemaVersion('rework-local-backup'),
+    workId: workflow.workItem.id,
+    changeRequestId: preview.changeRequestId,
+    confirmation: preview.confirmation,
+    checkpointCommit: preview.sourceCommit,
+    capturedAt: nowIso(),
+    files
+  };
+  await writeJson(path.join(directory, 'manifest.json'), manifest);
+  return directory;
+}
+
+async function restoreReworkPaths(root, preview) {
+  const tracked = [...new Set(preview.entries
+    .filter((entry) => !entry.untracked)
+    .flatMap((entry) => [entry.oldPath, entry.newPath])
+    .filter(Boolean))].sort();
+  if (tracked.length) {
+    run('git', [
+      'restore', '--source', preview.sourceCommit, '--worktree',
+      '--pathspec-from-file=-', '--pathspec-file-nul'
+    ], { cwd: root, input: Buffer.from(`${tracked.join('\0')}\0`) });
+  }
+  const untracked = [...new Set(preview.entries
+    .filter((entry) => entry.untracked)
+    .map((entry) => entry.newPath)
+    .filter(Boolean))].sort();
+  for (const relative of untracked) await rm(path.join(root, relative), { recursive: true, force: true });
+}
+
+/**
+ * Abandon changes made after an authorized phase return and restore its exact forward state.
+ *
+ * This never resets or rewrites Git history. The rejection and every rework commit remain ancestors;
+ * the result is a new governed commit whose tree restores the captured bytes and lifecycle cone.
+ */
+export async function rollForwardRework(root, config, workflow, {
+  changeRequestId = null,
+  confirmation,
+  channel = 'terminal',
+  actionContext = null
+} = {}) {
+  await assertNoPendingPublication(root, config, workflow, 'roll forward abandoned rework');
+  const preview = await previewReworkRollForward(root, config, workflow, { changeRequestId });
+  if (!confirmation || confirmation !== preview.confirmation) {
+    throw new SingularityFlowError(
+      `Rework roll-forward requires the current change-set confirmation: --confirm ${preview.confirmation}.`,
+      { code: 'REWORK_ROLL_FORWARD_CONFIRMATION_REQUIRED', details: { preview } }
+    );
+  }
+  if (preview.stagedPaths.length) {
+    throw new SingularityFlowError(
+      `Rework roll-forward will not alter the existing Git index. Unstage these rework path(s), then preview again:\n- ${preview.stagedPaths.join('\n- ')}`,
+      { code: 'REWORK_ROLL_FORWARD_STAGED_PATHS', details: { stagedPaths: preview.stagedPaths } }
+    );
+  }
+  const { request, checkpoint } = openReworkCheckpoint(workflow, preview.changeRequestId);
+  const session = await loadSession(root);
+  const sourcePhase = checkpoint.state.phases?.[checkpoint.sourcePhase] ?? workflow.phases[checkpoint.sourcePhase];
+  const authority = requireApprovalAuthority(
+    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
+    sourcePhase.approvalPolicy,
+    session.actor
+  );
+  const backupPath = await backupReworkPaths(root, workflow, preview);
+  await restoreReworkPaths(root, preview);
+
+  const currentHistory = structuredClone(workflow.history ?? []);
+  const rejectionDecisions = (workflow.phases?.[checkpoint.sourcePhase]?.approvals ?? [])
+    .filter((decision) => decision.changeRequestId === request.id)
+    .map((decision) => structuredClone(decision));
+  workflow.status = checkpoint.state.status;
+  workflow.currentPhase = checkpoint.state.currentPhase;
+  workflow.workIntervals = structuredClone(checkpoint.state.workIntervals);
+  workflow.repairBudgets = structuredClone(checkpoint.state.repairBudgets ?? {});
+  if (checkpoint.state.lineage == null) delete workflow.lineage;
+  else workflow.lineage = structuredClone(checkpoint.state.lineage);
+  if (checkpoint.state.measurement == null) delete workflow.measurement;
+  else workflow.measurement = structuredClone(checkpoint.state.measurement);
+  if (checkpoint.state.spec == null) delete workflow.spec;
+  else workflow.spec = structuredClone(checkpoint.state.spec);
+  for (const phaseId of checkpoint.state.affectedPhaseIds) {
+    workflow.phases[phaseId] = structuredClone(checkpoint.state.phases[phaseId]);
+  }
+  const rolledAt = nowIso();
+  for (const decision of rejectionDecisions) {
+    decision.invalidatedAt = rolledAt;
+    decision.supersededAt = rolledAt;
+    decision.supersededBy = 'rework-roll-forward';
+    const approvals = workflow.phases[checkpoint.sourcePhase].approvals ??= [];
+    if (!approvals.some((entry) => entry.changeRequestId === decision.changeRequestId && entry.at === decision.at)) approvals.push(decision);
+  }
+  request.status = 'abandoned';
+  request.resolution = {
+    status: 'abandoned',
+    rolledForwardAt: rolledAt,
+    rolledForwardBy: structuredClone(session.actor),
+    agent: session.agent,
+    channel,
+    confirmation: preview.confirmation,
+    restoredCommit: checkpoint.sourceCommit,
+    restoredPhase: checkpoint.sourcePhase,
+    backup: { local: true, id: path.basename(backupPath) },
+    ...(actionContext ? { actionContext } : {})
+  };
+  workflow.history = currentHistory;
+  workflow.history.push({
+    at: rolledAt,
+    actor: actorKey(session.actor),
+    agent: session.agent,
+    event: 'rework_rolled_forward',
+    phase: checkpoint.sourcePhase,
+    detail: `${request.id} abandoned; restored ${preview.paths.length} path(s) and returned to ${checkpoint.sourcePhase}`
+  });
+  for (const phaseId of checkpoint.state.affectedPhaseIds) {
+    await writeJson(approvalPath(root, config, workflow.workItem.id, phaseId), {
+      schemaVersion: currentSchemaVersion('phase-approval'),
+      phase: phaseId,
+      decisions: workflow.phases[phaseId].approvals ?? []
+    });
+  }
+  await saveWorkflow(root, config, workflow);
+  return {
+    request,
+    checkpoint,
+    preview,
+    backupPath,
+    actor: session.actor,
+    agent: session.agent,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance
+  };
 }
 
 /**

@@ -1,8 +1,8 @@
 ---
 name: sflow-reject
-description: Request changes to a submitted or completed Story as the current Git identity, recording a structured comment, target phase, human authority group, governed agent, invalidation, commit, and push. Use when a stakeholder disagrees with an artifact, approval, or completed result and wants work returned to an allowed phase.
+description: Request changes to a submitted or completed Story, or safely abandon that rework and return to its exact forward checkpoint. Records the human authority, invalidation or restoration, commit, and push without rewriting Git history.
 disable-model-invocation: true
-argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation'"
+argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' | roll-forward [CR-ID]"
 
 ---
 # Request governed changes
@@ -22,3 +22,14 @@ Sequence gates may be hard or soft. On `Out of sequence`, stop immediately and r
 6. Show which approvals and later phases will be invalidated before recording the decision.
 7. Report the change-request ID, comment, human identity, authority group, governed agent, reopened target, invalidated phases, commit, and push.
 8. Stop after recording the request. Do not modify artifacts unless the user separately asks to address it.
+
+If the user later decides to abandon everything changed after that return, do not reset Git and do
+not manually copy artifacts. Preview the stored forward checkpoint first:
+
+`singularity-flow story rework roll-forward --work-id <WORK-ID> --change-request <CR-ID> --json`
+
+Show every restored path, the original phase, the local-backup guarantee, and the exact confirmation
+digest. Only after explicit confirmation run the same command with `--confirm <sha256>`. Report the
+backup path, governed commit, push, and restored phase. A missing checkpoint, a changed digest, a
+cross-boundary rename, or a staged rework path is a hard stop; preserve the current bytes and relay
+the engine's recovery instruction.

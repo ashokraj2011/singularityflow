@@ -305,13 +305,20 @@ export interface StoryWorkflow {
   };
   changeRequests?: Array<{
     id: string;
-    status: 'open' | 'resolved';
+    status: 'open' | 'resolved' | 'abandoned';
     sourcePhase: string;
     targetPhase: string;
     comment: string;
     requestedAt: string;
     requestedBy?: { name?: string; email?: string; login?: string } | null;
     resolvedAt?: string | null;
+    forwardCheckpoint?: {
+      id: string;
+      sourceCommit: string;
+      sourcePhase: string;
+      targetPhase: string;
+      integrity?: { sha256?: string };
+    } | null;
   }>;
   resolution?: {
     approvalAuthorities?: Record<string, { members?: Array<{ name?: string; email?: string }> }>;

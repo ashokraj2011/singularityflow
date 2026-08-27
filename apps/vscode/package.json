@@ -504,6 +504,11 @@
         "icon": "$(git-pull-request-go-to-changes)"
       },
       {
+        "command": "singularityFlow.rollForwardRework",
+        "title": "Singularity Flow: Discard Rework and Return Forward",
+        "icon": "$(discard)"
+      },
+      {
         "command": "singularityFlow.cancelWork",
         "title": "Singularity Flow: Cancel and Archive Story",
         "icon": "$(archive)"

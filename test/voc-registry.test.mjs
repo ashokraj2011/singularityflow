@@ -20,6 +20,7 @@ function entry(value, overrides = {}) {
 test('the lifecycle vocabulary owns immutable symbols, descriptors, and a stable manifest', () => {
   assert.equal(LIFECYCLE_EVENT.ARTIFACT_GENERATED, 'artifact-generated');
   assert.equal(LIFECYCLE_EVENT.DESIGN_SOURCE_PROMOTED, 'design-source-promoted');
+  assert.equal(LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD, 'rework-rolled-forward');
   assert.equal(LIFECYCLE_EVENT_TYPES.includes('generation-started'), false);
   assert.equal(LIFECYCLE_EVENT_VOCABULARY.descriptors['artifact-generated'].class, 'core-governing');
   assert.match(LIFECYCLE_EVENT_VOCABULARY.manifest.sha256, /^sha256:[0-9a-f]{64}$/);
@@ -54,4 +55,3 @@ test('an unknown lifecycle writer is refused with operation scope and preserved-
       && error.details.allowedOperations.includes('phase.begin')
   );
 });
-

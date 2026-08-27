@@ -766,7 +766,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configureAstIntelligence', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
-    'singularityFlow.reopenCompleted', 'singularityFlow.cancelWork',
+    'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
   /** Workspaces are machine-wide and remain available whatever folder is open. */
@@ -3953,6 +3953,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
       } catch (error) {
         showRefusal(error, { headline: 'Could not reopen ${workflow.workItem.id}' });
+      }
+    },
+    'singularityFlow.rollForwardRework': async (node?: TreeNode) => {
+      const workflow = store.current.snapshot?.workflow;
+      if (!workflow) {
+        void vscode.window.showWarningMessage('No active Story has a rework checkpoint to restore.');
+        return;
+      }
+      const requestId = node?.id.match(/^story:change-request:([^:]+):roll-forward$/)?.[1]
+        ?? workflow.changeRequests?.filter((request) => request.status === 'open' && request.forwardCheckpoint).at(-1)?.id;
+      if (!requestId) {
+        void vscode.window.showWarningMessage('No open change request has a safe forward checkpoint.');
+        return;
+      }
+      type ReworkPlan = {
+        status: 'preview'; workId: string; changeRequestId: string; sourcePhase: string; targetPhase: string;
+        checkpointId: string; sourceCommit: string; confirmation: string; paths: string[]; stagedPaths: string[];
+      };
+      try {
+        const plan = await client.run<ReworkPlan>([
+          'story', 'rework', 'roll-forward', '--work-id', workflow.workItem.id,
+          '--change-request', requestId, '--json'
+        ]);
+        if (plan.stagedPaths.length) {
+          showRefusal(
+            `Unstage these rework paths first; Singularity Flow will not alter your Git index:\n- ${plan.stagedPaths.join('\n- ')}`,
+            { headline: 'Staged rework is preserved' }
+          );
+          return;
+        }
+        const shown = plan.paths.slice(0, 30);
+        const remaining = Math.max(0, plan.paths.length - shown.length);
+        const choice = await vscode.window.showWarningMessage(
+          `Discard ${requestId} rework and safely return ${workflow.workItem.id} to ${plan.sourcePhase}?`,
+          {
+            modal: true,
+            detail: [
+              `Checkpoint: ${plan.checkpointId} at ${plan.sourceCommit}`,
+              `The current Git history is preserved. A local backup is created before ${plan.paths.length} path(s) are restored.`,
+              '',
+              ...shown,
+              ...(remaining ? [`… and ${remaining} more path(s)`] : [])
+            ].join('\n')
+          },
+          'Back up, discard, and return forward'
+        );
+        if (choice !== 'Back up, discard, and return forward') return;
+        const result = await client.run<{
+          status: 'rolled-forward'; phase: string | null; restoredPaths: string[]; backupPath: string;
+          commit: string; pushed: boolean;
+        }>([
+          'story', 'rework', 'roll-forward', '--work-id', plan.workId,
+          '--change-request', plan.changeRequestId, '--confirm', plan.confirmation, '--json'
+        ]);
+        await store.refresh();
+        void vscode.window.showInformationMessage(
+          `${plan.workId} returned to ${result.phase ?? 'complete'} in ${result.commit.slice(0, 8)}. `
+          + `${result.restoredPaths.length} path(s) were backed up locally and restored.`
+        );
+      } catch (error) {
+        showRefusal(error, { headline: `Could not return ${workflow.workItem.id} forward` });
       }
     },
     'singularityFlow.openDesigner': async () => {

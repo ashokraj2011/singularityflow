@@ -3003,6 +3003,7 @@ singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason 
 singularity-flow story intent-amendment decide <AMD-ID> --decision approve|reject --confirm <AMD-ID>
 singularity-flow story intent-amendment acknowledge [AMD-ID]
 singularity-flow story rework [--reason TEXT] [--confirm]
+singularity-flow story rework roll-forward [--work-id ID] [--change-request CR-ID] [--json] [--confirm sha256:...]
 singularity-flow story advance [--confirm]
 singularity-flow initiative start|resume|phase|context|documents|checklist
 singularity-flow initiative evidence|approve|reject|breakdown|materialize|sync

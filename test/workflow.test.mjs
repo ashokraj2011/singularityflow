@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -721,10 +722,15 @@ test('completed work can be reopened only through an authorized governed change 
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('chore', 'developer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  for (const phaseId of workflow.phaseOrder) {
+    const artifact = path.join(root, 'singularity/work-items', workId, workflow.phases[phaseId].requiredArtifact.path);
+    await mkdir(path.dirname(artifact), { recursive: true });
+    if (!existsSync(artifact)) await writeFile(artifact, `# ${phaseId}\n\n${'Reviewed lifecycle evidence. '.repeat(20)}\n`);
+  }
   workflow.status = 'complete'; workflow.currentPhase = null;
   for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
-  execute('git', ['add', workflowFile], root); execute('git', ['commit', '-m', 'simulate completed story'], root);
+  execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root); execute('git', ['commit', '-m', 'simulate completed story'], root);
 
   const result = flow(root, ['reopen', workId, '--to', 'implementation', '--reason', 'Production feedback requires safer rollback behavior']);
   assert.match(result.stdout, /Reopened REOPEN-1 at implementation with CR-001/);
@@ -737,6 +743,96 @@ test('completed work can be reopened only through an authorized governed change 
   assert.equal(reopened.history.at(-1).event, 'workflow_reopened');
   assert.match(await readFile(path.join(root, 'singularity/work-items', workId, 'STATUS.md'), 'utf8'),
     /CR-001.*Production feedback requires safer rollback behavior/);
+  assert.equal(reopened.changeRequests[0].forwardCheckpoint.state.status, 'complete');
+  assert.equal(reopened.changeRequests[0].forwardCheckpoint.state.currentPhase, null);
+
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/reopened-only.mjs'), 'export const reopened = true;\n');
+  const plan = JSON.parse(flow(root, [
+    'story', 'rework', 'roll-forward', '--work-id', workId, '--change-request', 'CR-001', '--json'
+  ]).stdout);
+  const rollForwardResult = JSON.parse(flow(root, [
+    'story', 'rework', 'roll-forward', '--work-id', workId, '--change-request', 'CR-001',
+    '--confirm', plan.confirmation, '--json'
+  ]).stdout);
+  assert.equal(rollForwardResult.phase, null);
+  assert.equal(existsSync(path.join(root, 'src/reopened-only.mjs')), false);
+  const restored = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(restored.status, 'complete');
+  assert.equal(restored.currentPhase, null);
+  assert.equal(restored.changeRequests[0].status, 'abandoned');
+});
+
+test('returned phase rework can be discarded and rolled forward from an exact checkpoint', async () => {
+  const root = await repository(); const workId = 'ROLL-FWD-1';
+  flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('bugfix', 'qa') });
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('bugfix', 'product-owner') });
+  flow(root, ['submit'], { selection: selection('bugfix', 'product-owner') });
+  flow(root, ['approve', '--yes'], { selection: selection('bugfix', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  flow(root, ['prepare', 'reproduction'], { selection: selection('bugfix', 'qa') });
+  await completeArtifact(root, workflow, 'reproduction');
+  flow(root, ['resume', workId], { selection: selection('bugfix', 'qa') });
+  flow(root, ['phase', 'publish', 'reproduction'], { selection: selection('bugfix', 'qa') });
+  flow(root, ['submit'], { selection: selection('bugfix', 'qa') });
+  const forwardCommit = execute('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  flow(root, ['reject', '--to', 'intake', '--reason', 'Try a different reproduction'], { selection: selection('bugfix', 'qa') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.changeRequests[0].forwardCheckpoint.sourceCommit, forwardCommit);
+  assert.equal(workflow.changeRequests[0].forwardCheckpoint.state.currentPhase, 'reproduction');
+
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/rework-only.mjs'), 'export const abandoned = true;\n');
+  execute('git', ['add', 'src/rework-only.mjs'], root);
+  const stagedPreview = flow(root, ['story', 'rework', 'roll-forward', '--work-id', workId, '--json'], {
+    selection: selection('bugfix', 'qa')
+  });
+  const stagedPlan = JSON.parse(stagedPreview.stdout);
+  assert.deepEqual(stagedPlan.stagedPaths, ['src/rework-only.mjs']);
+  const stagedApply = flow(root, [
+    'story', 'rework', 'roll-forward', '--work-id', workId,
+    '--change-request', 'CR-001', '--confirm', stagedPlan.confirmation, '--json'
+  ], { selection: selection('bugfix', 'qa'), allowFailure: true });
+  assert.notEqual(stagedApply.status, 0);
+  assert.match(stagedApply.stderr, /will not alter the existing Git index/);
+  assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), true);
+  execute('git', ['reset', '--quiet', 'HEAD', '--', 'src/rework-only.mjs'], root);
+
+  const preview = flow(root, ['story', 'rework', 'roll-forward', '--work-id', workId, '--json'], {
+    selection: selection('bugfix', 'qa')
+  });
+  const plan = JSON.parse(preview.stdout);
+  assert.equal(plan.status, 'preview');
+  assert.equal(plan.changeRequestId, 'CR-001');
+  assert.match(plan.confirmation, /^sha256:[0-9a-f]{64}$/);
+  assert.ok(plan.paths.includes('src/rework-only.mjs'));
+  assert.notEqual(plan.confirmation, stagedPlan.confirmation);
+  assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), true);
+
+  const applied = flow(root, [
+    'story', 'rework', 'roll-forward', '--work-id', workId,
+    '--change-request', 'CR-001', '--confirm', plan.confirmation, '--json'
+  ], { selection: selection('bugfix', 'qa') });
+  const result = JSON.parse(applied.stdout);
+  assert.equal(result.status, 'rolled-forward');
+  assert.equal(result.phase, 'reproduction');
+  assert.equal(result.changeRequestId, 'CR-001');
+  assert.match(result.backupPath, /rework-backups/);
+  assert.equal(existsSync(path.join(result.backupPath, 'files/src/rework-only.mjs')), true);
+  assert.equal(existsSync(path.join(root, 'src/rework-only.mjs')), false);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'reproduction');
+  assert.equal(workflow.phases.reproduction.status, 'awaiting_approval');
+  assert.equal(workflow.changeRequests[0].status, 'abandoned');
+  assert.equal(workflow.changeRequests[0].resolution.confirmation, plan.confirmation);
+  assert.equal(workflow.history.at(-1).event, 'rework_rolled_forward');
+  assert.equal(flow(root, ['validate']).status, 0);
+  const history = execute('git', ['log', '--format=%s', '-4'], root).stdout;
+  assert.match(history, /\[ROLL-FWD-1\]\[rework:roll-forward\] CR-001/);
+  assert.match(history, /\[ROLL-FWD-1\]\[phase:reproduction\]\[reject\] return to intake/);
 });
 
 test('multi-approval threshold requires distinct identities while allowing agent selection', async () => {

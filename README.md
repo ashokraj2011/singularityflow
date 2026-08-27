@@ -2493,6 +2493,13 @@ commands are:
 /sf-resume ENG-142
 ```
 
+An authorized phase return now carries a reversible forward checkpoint. If the rework is later
+abandoned, preview it with `singularity-flow story rework roll-forward --work-id ENG-142 --json`,
+review every path, and repeat the emitted command with its exact `--confirm sha256:...`. The engine
+backs up uncommitted rework under Git's local Singularity Flow storage and publishes a restoration
+commit; it does not reset the branch or erase the rejection and rework history. The same action is
+available beside an open change request in the VS Code Lifecycle tree and through `/sf-reject`.
+
 The `sf-` prefix prevents collisions with generic skills such as `/start`,
 `/status`, and `/approve`. Existing `/sf-*` and qualified
 `/singularity-flow/sflow-*` invocations remain compatible. After upgrading, run

@@ -23,7 +23,7 @@ const observational = (value, description) => ({
 /** The sole owner of first-party Story and Initiative lifecycle event members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 2,
+  version: 3,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -37,6 +37,10 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     INTENT_AMENDMENT_REJECTED: governing('intent-amendment-rejected', 'Rejects a governed intent amendment.'),
     INTENT_AMENDMENT_ACKNOWLEDGED: governing('intent-amendment-acknowledged', 'Acknowledges the outcome of a governed intent amendment.'),
     WORKFLOW_REOPENED: governing('workflow-reopened', 'Reopens a completed or previously decided workflow boundary.'),
+    REWORK_ROLLED_FORWARD: {
+      ...governing('rework-rolled-forward', 'Abandons a returned rework cone and restores its exact forward checkpoint.'),
+      since: 3
+    },
     SEQUENCE_OVERRIDE: governing('sequence-override', 'Records an authorized workflow sequence override.'),
     EVIDENCE_RECORDED: observational('evidence-recorded', 'Records bounded evidence without independently advancing lifecycle authority.'),
     EXTERNAL_SYNCHRONIZED: observational('external-synchronized', 'Records synchronization with an external system.'),

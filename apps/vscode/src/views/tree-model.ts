@@ -927,13 +927,26 @@ function storyWorkflowNode(
     }, ...(openChangeRequests.length ? [{
       kind: 'group' as const, id: 'story:change-requests', label: 'Changes requested',
       description: `${openChangeRequests.length} open`, icon: 'prompt',
-      children: openChangeRequests.map((request) => ({
+      children: openChangeRequests.flatMap((request) => [{
         kind: 'message' as const, id: `story:change-request:${request.id}`,
         label: `${request.id} · ${request.targetPhase}`,
         description: request.comment,
         tooltip: `${request.sourcePhase} → ${request.targetPhase}\n${request.comment}\nRequested ${request.requestedAt}`,
         icon: 'prompt'
-      }))
+      }, ...(request.forwardCheckpoint ? [{
+        kind: 'action' as const,
+        id: `story:change-request:${request.id}:roll-forward`,
+        label: `Discard rework and return to ${request.sourcePhase}`,
+        description: 'preview exact files · local backup · governed commit',
+        tooltip: `Restore checkpoint ${request.forwardCheckpoint.id} without rewriting Git history.`,
+        icon: 'discard',
+        command: [
+          'story', 'rework', 'roll-forward', '--work-id', workflow.workItem.id,
+          '--change-request', request.id, '--json'
+        ],
+        runCommand: 'singularityFlow.rollForwardRework',
+        contextValue: 'sflow.story.rework.rollForward'
+      }] : [])])
     }] : []), {
       kind: 'group', id: 'story:phase-rail', label: 'Story lifecycle',
       description: `${approved}/${phases.length} approved`, icon: 'list-ordered',

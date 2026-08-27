@@ -37,7 +37,8 @@ import { loadSession } from '../session.mjs';
 import { evaluateSpecAcceptance, extractClauses, loadActiveSpecRecords, loadSpecRecords } from '../specifications.mjs';
 import {
   StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
-  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, rejectPhase, workDir
+  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, previewReworkRollForward,
+  rejectPhase, rollForwardRework, workDir
 } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
 import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from '../util.mjs';
@@ -1079,6 +1080,8 @@ export async function storyIntentAmendmentCommand(positionals, options) {
  * every earlier iteration, finding and approval survives `[SPK:REQ-082]`.
  */
 export async function storyReworkCommand(positionals, options) {
+  if (positionals[2] === 'roll-forward') return storyReworkRollForwardCommand(positionals, options);
+  if (positionals[2]) throw new SingularityFlowError(`Unknown Story rework action '${positionals[2]}'. Allowed: roll-forward.`);
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
@@ -1131,6 +1134,105 @@ export async function storyReworkCommand(positionals, options) {
   console.log(`Clauses: ${clauseIds.join(', ') || 'none recorded'}`);
   console.log('Prior convergence records, findings and approvals are preserved. The next implementation publication opens iteration '
     + `${projection.iteration + 1}.`);
+}
+
+/**
+ * Discard a returned rework cone without erasing its Git history.
+ *
+ * With no confirmation this is a pure preview. The digest binds the checkpoint, current HEAD and
+ * every restorable path/content identity; apply recomputes it under the publication lock.
+ */
+export async function storyReworkRollForwardCommand(_positionals, options) {
+  const root = repoRoot();
+  const config = await loadConfig(root);
+  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  const changeRequestId = optionString(options, 'change-request');
+  const preview = await previewReworkRollForward(root, config, workflow, { changeRequestId });
+  const confirmation = optionString(options, 'confirm');
+  if (!confirmation) {
+    const result = { status: 'preview', ...preview };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Rework roll-forward preview for ${preview.workId} / ${preview.changeRequestId}`);
+    console.log(`Return being abandoned: ${preview.sourcePhase} -> ${preview.targetPhase}`);
+    console.log(`Forward checkpoint: ${preview.checkpointId} at ${preview.sourceCommit}`);
+    console.log(`Paths restored: ${preview.paths.length}`);
+    preview.paths.forEach((candidate) => console.log(`  ${candidate}`));
+    if (preview.stagedPaths.length) {
+      console.log('\nStaged rework paths must be unstaged before apply (their index state is never changed automatically):');
+      preview.stagedPaths.forEach((candidate) => console.log(`  ${candidate}`));
+    }
+    console.log('\nNo file, lifecycle state, commit, or remote was changed.');
+    console.log('Review the listed paths, then run:');
+    console.log(`singularity-flow story rework roll-forward --work-id ${preview.workId} --change-request ${preview.changeRequestId} --confirm ${preview.confirmation}`);
+    return;
+  }
+  if (confirmation !== preview.confirmation) {
+    throw new SingularityFlowError(
+      `The rework bytes changed after preview. Review the new plan and confirm ${preview.confirmation}.`,
+      { code: 'REWORK_ROLL_FORWARD_CONFIRMATION_STALE', details: { preview } }
+    );
+  }
+  const workRoot = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const applicationPaths = preview.paths.filter((candidate) =>
+    candidate !== workRoot && !candidate.startsWith(`${workRoot}/`));
+  const before = structuredClone(workflow);
+  let transition;
+  const publication = await commitAndPublish(
+    root,
+    config,
+    workflow,
+    {
+      type: LIFECYCLE_EVENT.REWORK_ROLLED_FORWARD,
+      phaseId: preview.sourcePhase,
+      generation: workflow.phases[preview.sourcePhase]?.generation ?? null,
+      payload: {
+        changeRequestId: preview.changeRequestId,
+        checkpointId: preview.checkpointId,
+        confirmation: preview.confirmation,
+        restoredPaths: preview.paths.length
+      }
+    },
+    `[${workflow.workItem.id}][rework:roll-forward] ${preview.changeRequestId}`,
+    applicationPaths,
+    {
+      rollbackWorkflow: before,
+      beforeStateWrite: async () => {
+        transition = await rollForwardRework(root, config, workflow, {
+          changeRequestId: preview.changeRequestId,
+          confirmation,
+          channel: 'terminal',
+          actionContext: activeActionContext()
+        });
+        return transition;
+      },
+      eventFromResult: (result) => ({
+        actor: result.actor,
+        agent: result.agent,
+        authorityGroup: result.authorityGroup,
+        identityAssurance: result.identityAssurance,
+        payload: {
+          changeRequestId: result.request.id,
+          checkpointId: result.checkpoint.id,
+          confirmation: result.preview.confirmation,
+          restoredPaths: result.preview.paths.length
+        }
+      })
+    }
+  );
+  const result = {
+    status: 'rolled-forward',
+    workId: workflow.workItem.id,
+    phase: workflow.currentPhase,
+    changeRequestId: transition.request.id,
+    restoredPaths: transition.preview.paths,
+    backupPath: transition.backupPath,
+    commit: publication.sha,
+    pushed: publication.pushed
+  };
+  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+  console.log(`Abandoned ${result.changeRequestId} and safely returned ${result.workId} to ${result.phase ?? 'complete'}.`);
+  console.log(`Restored ${result.restoredPaths.length} path(s) in governed commit ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  console.log(`The discarded working bytes remain recoverable from local backup: ${result.backupPath}`);
 }
 
 /**

@@ -444,6 +444,8 @@ Usage:
   singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]
   singularity-flow constitution except <ARTICLE-ID> --reason TEXT [--scope TEXT] [--expires ISO] [--work-id ID]
   singularity-flow story rework [--work-id ID] [--reason TEXT] [--confirm]
+  singularity-flow story rework roll-forward [--work-id ID] [--change-request CR-ID]
+    [--json] [--confirm sha256:...]              (preview first; backup and restore without rewriting history)
   singularity-flow story advance [--work-id ID] [--confirm]
   singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]
   singularity-flow story finalize [--json]

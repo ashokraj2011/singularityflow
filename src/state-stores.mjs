@@ -228,7 +228,8 @@ export {
 export {
   actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, CONFIG_PATH, createWorkflow, currentPhase,
   generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
-  promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, scanArtifacts,
+  previewReworkRollForward, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
+  rollForwardRework, scanArtifacts,
   sourceTreeHash, storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
 } from './state.mjs';

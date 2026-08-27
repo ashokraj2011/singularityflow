@@ -746,13 +746,21 @@ test('an open stakeholder change request is visible beside the reopened Story', 
   reopened.workflow.changeRequests = [{
     id: 'CR-003', status: 'open', sourcePhase: 'design', targetPhase: 'intake',
     comment: 'Clarify failure behavior before design continues.',
-    requestedAt: '2026-08-05T00:00:00.000Z', requestedBy: { email: 'reviewer@example.com' }
+    requestedAt: '2026-08-05T00:00:00.000Z', requestedBy: { email: 'reviewer@example.com' },
+    forwardCheckpoint: {
+      id: 'RFW-CR-003', sourceCommit: 'a'.repeat(40), sourcePhase: 'design', targetPhase: 'intake',
+      integrity: { sha256: `sha256:${'b'.repeat(64)}` }
+    }
   }];
   const tree = buildTree(reopened);
   assert.equal(find(tree, 'story:change-requests').description, '1 open');
   const request = find(tree, 'story:change-request:CR-003');
   assert.equal(request.label, 'CR-003 · intake');
   assert.match(request.description, /Clarify failure behavior/);
+  const rollForward = find(tree, 'story:change-request:CR-003:roll-forward');
+  assert.equal(rollForward.runCommand, 'singularityFlow.rollForwardRework');
+  assert.match(rollForward.label, /return to design/);
+  assert.deepEqual(rollForward.command.slice(0, 3), ['story', 'rework', 'roll-forward']);
 });
 
 test('a completed Story leaves the active rail and opens from Completed with every artifact', () => {

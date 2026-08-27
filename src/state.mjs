@@ -338,6 +338,11 @@ async function updateArtifactMetadata(root, config, workflow, phase) {
   const block = artifactMetadataBlock(storyArtifactMetadata(workflow, phase));
   const pattern = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
   await writeText(file, pattern.test(text) ? text.replace(pattern, block) : `${block}\n\n${text}`);
+  // Managed metadata is part of the durable artifact bytes. Any lifecycle transition that rewrites
+  // it must keep an existing registration in lockstep, otherwise a later submit compares the new
+  // engine-owned bytes with the pre-transition digest and incorrectly reports user tampering. Do
+  // not create a registration during preparation: first registration remains the scanner's job.
+  await refreshRequiredArtifact(root, config, workflow, phase, { registerIfMissing: false });
 }
 
 export function storyStatusMarkdown(workflow) {
@@ -1001,9 +1006,23 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // explicitly declare.
   const requiredArtifact = requiredRepoPath(config, workflow, phase);
   const adopted = [];
-  for (const file of changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }))) {
+  const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
+  const discoveredPaths = new Set(discovered);
+  for (const file of discovered) {
     records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
     if (untracked.has(file) && file !== requiredArtifact) adopted.push(file);
+  }
+  // A prior SFlow build or lifecycle transition may have committed managed metadata while leaving
+  // an older registration in workflow.json. Such a file is clean in Git, so changedFiles() cannot
+  // discover it and the documented `artifact scan` recovery used to be a permanent no-op. Refresh
+  // every already-governed path whose exact bytes no longer match; this repairs legacy state while
+  // retaining the explicit scan boundary for contributor-authored changes.
+  for (const artifact of phase.artifacts.filter((entry) => !isTransientTestResultPath(entry.path))) {
+    if (discoveredPaths.has(artifact.path)) continue;
+    const current = await snapshot(path.join(root, artifact.path));
+    if (current.exists === artifact.exists && current.size === artifact.size && current.sha256 === artifact.sha256) continue;
+    Object.assign(artifact, { ...current, updatedAt: nowIso() });
+    records.push(artifact);
   }
   // Untracked files are registered on purpose: a brand-new source file is a legitimate part of a
   // source-and-artifact generation, and excluding it would silently drop real work from the governed
@@ -2719,10 +2738,10 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
   return specIndex;
 }
 
-async function refreshRequiredArtifact(root, config, workflow, phase) {
+async function refreshRequiredArtifact(root, config, workflow, phase, { registerIfMissing = true } = {}) {
   const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
   if (existing) Object.assign(existing, { ...current, updatedAt: nowIso() });
-  else phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
+  else if (registerIfMissing) phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
 
 function reworkCheckpointIntegrity(checkpoint) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -381,6 +382,49 @@ test('the required artifact is expected while unrelated untracked files still wa
     assert.ok(secondWarnings.every((message) => !message.includes('/artifacts/intake/intake.md')),
       `the required artifact reappeared in the adoption warning: ${JSON.stringify(secondWarnings)}`);
   });
+});
+
+test('artifact scan repairs a stale registration even when the governed artifact is Git-clean', async () => {
+  const { root, target } = await fixture('clean-stale-registration');
+  const workflowPath = path.join(root, 'singularity', 'work-items', 'PREFLIGHT-1', 'workflow.json');
+  const relative = 'singularity/work-items/PREFLIGHT-1/artifacts/intake/intake.md';
+  const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+  const prepared = await readFile(target, 'utf8');
+  const managedMetadata = prepared.match(/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/)?.[0];
+  assert.ok(managedMetadata, 'the prepared artifact has no managed lifecycle metadata');
+
+  await writeFile(target, [
+    managedMetadata, '',
+    '# Intake', '',
+    '## Requested outcome', '',
+    'Keep exact artifact registration synchronized with durable lifecycle metadata.', '',
+    '## Scope and constraints', '',
+    'A clean tracked artifact may still expose a legacy registration written by an older engine.', '',
+    '## Evidence', '',
+    'The explicit scanner must compare already-governed paths rather than relying only on Git changes.', ''
+  ].join('\n'));
+  flow(root, ['artifact', 'scan']);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'register authored intake artifact');
+
+  const registeredBefore = JSON.parse(await readFile(workflowPath, 'utf8'))
+    .phases.intake.artifacts.find((artifact) => artifact.path === relative);
+  const registeredText = await readFile(target, 'utf8');
+  const changedText = registeredText.replace('"status": "in_progress"', '"status": "awaiting_approval"');
+  assert.notEqual(changedText, registeredText, 'the fixture did not find the managed lifecycle metadata');
+  const changed = Buffer.from(changedText);
+  await writeFile(target, changed);
+  git(root, 'add', relative);
+  git(root, 'commit', '-m', 'simulate legacy managed metadata rewrite');
+  assert.equal(git(root, 'status', '--short'), '', 'the regression artifact was not Git-clean');
+  assert.notEqual(registeredBefore.sha256, digest(changed), 'the fixture did not create stale registration state');
+
+  const repaired = flow(root, ['artifact', 'scan']);
+  assert.match(repaired.stdout, new RegExp(relative.replaceAll('/', '\\/')));
+  const workflowAfter = JSON.parse(await readFile(workflowPath, 'utf8'));
+  const registeredAfter = workflowAfter.phases.intake.artifacts.find((artifact) => artifact.path === relative);
+  assert.equal(registeredAfter.sha256, digest(changed));
+  assert.equal(registeredAfter.size, changed.length);
 });
 
 test('a code phase refuses an artifact-only generation before mutating phase state', async () => {

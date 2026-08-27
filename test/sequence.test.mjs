@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -294,6 +295,15 @@ test('submitted work blocks generation mutations and rejection requires regenera
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'in_progress');
   assert.equal(workflow.phases.intake.generation, 1);
+  for (const phaseId of ['intake']) {
+    const phase = workflow.phases[phaseId];
+    const relative = `singularity/work-items/SEQ-1/${phase.requiredArtifact.path}`;
+    const artifact = phase.artifacts.find((entry) => entry.path === relative);
+    const bytes = await readFile(path.join(root, relative));
+    assert.equal(artifact.sha256, createHash('sha256').update(bytes).digest('hex'),
+      `rejection left ${phaseId} managed metadata newer than its artifact registration`);
+    assert.equal(artifact.size, bytes.length);
+  }
   const rejectedWorkflow = await readFile(workflowFile, 'utf8');
   assertSequenceFailure(flow(root, ['submit'], { allowFailure: true }), /returned for correction and has not been regenerated/, /Regenerate and publish phase 'intake'/);
   assert.equal(await readFile(workflowFile, 'utf8'), rejectedWorkflow);

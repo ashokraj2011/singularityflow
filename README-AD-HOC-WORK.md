@@ -214,4 +214,3 @@ normal Story lifecycle.
 - [Help reference](./HELP.md)
 - [Help Center topic](./docs/topics/ad-hoc-work.md)
 - [Governed work intervals](./docs/GOVERNED-WORK-INTERVALS.md)
-

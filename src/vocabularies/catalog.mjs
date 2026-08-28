@@ -20,10 +20,10 @@ const observational = (value, description) => ({
   description
 });
 
-/** The sole owner of first-party Story and Initiative lifecycle event members. */
+/** The sole owner of first-party Story, Initiative, and ad hoc landing lifecycle members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
-  version: 3,
+  version: 4,
   defaultClass: 'core-observational',
   entries: {
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
@@ -55,6 +55,10 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     IMPACT_FINALIZED: governing('impact-finalized', 'Finalizes the governed impact decision.'),
     WORK_CANCELLED: governing('work-cancelled', 'Cancels governed work without claiming completion.'),
     WORK_COMPLETED: governing('work-completed', 'Records governed work completion.'),
+    ADHOC_LANDED: {
+      ...governing('adhoc-landed', 'Publishes an exact reverse-converged ad hoc landing.'),
+      since: 4
+    },
     DESIGN_SOURCE_PROMOTED: {
       ...governing('design-source-promoted', 'Promotes a reviewed design source and invalidates dependent authority.'),
       since: 2

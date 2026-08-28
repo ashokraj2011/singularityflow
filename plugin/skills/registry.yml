@@ -84,6 +84,7 @@ classes:
 # budget so catalog growth cannot hide behind per-skill exceptions.
 skills:
   sflow-about: { class: echo }
+  sflow-adhoc: { class: interactive }
   sflow-advise: { class: conversational }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo }

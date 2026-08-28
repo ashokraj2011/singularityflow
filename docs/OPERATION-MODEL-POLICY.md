@@ -8,6 +8,27 @@ Every public operation is classified before its implementation module is importe
 |---|---|---|---|---|
 | about | read | never | — | — |
 | action | mutation | never | — | — |
+| adhoc.claim | mutation | never | — | — |
+| adhoc.close | mutation | never | — | — |
+| adhoc.deviate | mutation | never | — | — |
+| adhoc.diff | mutation | never | — | — |
+| adhoc.discard | mutation | never | — | — |
+| adhoc.effects | mutation | never | — | — |
+| adhoc.evidence | mutation | never | — | — |
+| adhoc.intent.confirm | mutation | never | — | — |
+| adhoc.intent.show | read | never | — | — |
+| adhoc.land | mutation | never | — | — |
+| adhoc.landing.confirm | mutation | never | — | — |
+| adhoc.landing.preview | mutation | never | — | — |
+| adhoc.pause | mutation | never | — | — |
+| adhoc.promote | mutation | never | — | — |
+| adhoc.publish | mutation | never | — | — |
+| adhoc.resume | mutation | never | — | — |
+| adhoc.revert | mutation | never | — | — |
+| adhoc.run | mutation | never | — | — |
+| adhoc.split | mutation | never | — | — |
+| adhoc.start | mutation | never | — | — |
+| adhoc.status | read | never | — | — |
 | agent | mutation | never | — | — |
 | agents | mutation | never | — | — |
 | approvals | read | never | — | — |
@@ -129,6 +150,7 @@ Every public operation is classified before its implementation module is importe
 | journal.settings.update | mutation | never | — | — |
 | journal.today | read | never | — | — |
 | knowledge | mutation | never | — | — |
+| land | mutation | never | — | — |
 | ledger | mutation | never | — | — |
 | local-reset | mutation | never | — | — |
 | logs | read | never | — | — |

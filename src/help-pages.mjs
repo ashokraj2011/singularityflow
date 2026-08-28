@@ -79,6 +79,46 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  adhoc: {
+    summary: 'Start with local work and later land it through an exact reverse-converged record.',
+    description: [
+      'Ad hoc mode does not create a Story or claim that intent existed before the work. It records',
+      'an exact baseline, observes actual repository effects, asks a human to confirm discovered',
+      'intent, requires a disposition for every resource, runs an allowlisted test, and binds the',
+      'final decision to one content-addressed landing packet.',
+      '',
+      'The first release is intentionally bounded to one in-place Git repository, twenty resources,',
+      'no protected paths, one configured spec.testCommands entry, and an unprotected branch.',
+      'Anything larger is preserved and reported as promotion-required.'
+    ],
+    options: [
+      ['--include-existing', 'Explicitly include work already present when the session starts.'],
+      ['--from REVISION', 'Resolve and pin an exact baseline commit.'],
+      ['--objective TEXT', 'Human-confirmed reverse-converged objective.'],
+      ['--success TEXT', 'Observable success criterion; repeat for more than one.'],
+      ['--clause ID', 'Bind a changed resource to a confirmed success criterion.'],
+      ['--test-command ID', 'Select one allowlisted spec.testCommands entry when several exist.'],
+      ['--confirm SHA256', 'Confirm the exact current change set or landing packet.'],
+      ['--json', 'Emit complete operational records and content hashes.']
+    ],
+    examples: [
+      ['singularity-flow land', 'Observe existing work and create a non-authoritative intent candidate.'],
+      ['singularity-flow adhoc claim --all --clause ADH-INTENT:SC-001', 'Disposition every current resource after intent confirmation.'],
+      ['singularity-flow adhoc landing preview AHS-...', 'Run deterministic verification and produce an exact packet or promotion reasons.']
+    ],
+    seeAlso: ['land', 'start', 'story', 'status']
+  },
+  land: {
+    summary: 'Observe existing work and begin the bounded ad hoc landing review.',
+    description: [
+      'Land is the short entry point for work that began without an ad hoc session. It pins HEAD as',
+      'the baseline, inventories tracked and untracked effects, and produces an advisory discovered',
+      'intent candidate. It does not commit, push, approve, or represent the work as preplanned.'
+    ],
+    options: [['--json', 'Emit the exact effect set and candidate intent.']],
+    examples: [['singularity-flow land', 'Create or reuse the local landing session and show the next exact intent-confirmation command.']],
+    seeAlso: ['adhoc', 'status', 'start']
+  },
   auto: {
     summary: 'Plan and start bounded, hash-ratified work in an isolated managed worktree.',
     description: [

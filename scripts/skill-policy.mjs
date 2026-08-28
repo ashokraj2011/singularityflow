@@ -28,7 +28,10 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });
 
-function executionBoundary() {
+function executionBoundary(skillName = null) {
+  if (skillName === 'sflow-adhoc') {
+    return '**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.';
+  }
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
   // its process cwd while the model loses the conversational repository hint. Resolve the selected
   // Story checkout on every skill invocation and make its absolute path the cwd of every shell/file
@@ -80,7 +83,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file) {
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
-  const boundaryText = executionBoundary();
+  const boundaryText = executionBoundary(path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
@@ -154,7 +157,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
-    const boundaryText = executionBoundary();
+    const boundaryText = executionBoundary(name);
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
     if (automatic.has(name)) {

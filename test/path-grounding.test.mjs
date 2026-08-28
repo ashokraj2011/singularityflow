@@ -69,9 +69,14 @@ test('every skill resolves the selected Story checkout and forbids home-director
   for (const name of Object.keys(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /<!-- sflow-execution-boundary -->/, name);
-    assert.match(content, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
+    if (name === 'sflow-adhoc') {
+      assert.match(content, /`singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`/, name);
+      assert.match(content, /no active Story is required/, name);
+    } else {
+      assert.match(content, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
+      assert.match(content, /`singularity\/work-items\/<WORK-ID>\/`/, name);
+    }
     assert.match(content, /never `\$HOME`/, name);
-    assert.match(content, /`singularity\/work-items\/<WORK-ID>\/`/, name);
   }
 });
 

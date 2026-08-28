@@ -748,6 +748,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_COMMANDS = [
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.startWork',
+    'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
     'singularityFlow.attachEvidence', 'singularityFlow.manageEvidence',
@@ -3858,6 +3859,80 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (await runPlannedAction(client, output)) await store.refresh();
     },
     'singularityFlow.startWork': startWork,
+    'singularityFlow.openAdhocWork': async () => {
+      const choice = await vscode.window.showQuickPick([
+        {
+          label: '$(diff) Observe existing work',
+          description: 'Create a local landing preview; no commit or push',
+          action: 'land'
+        },
+        {
+          label: '$(record) Start before editing',
+          description: 'Record an exact clean baseline for an in-place session',
+          action: 'start'
+        },
+        {
+          label: '$(list-tree) View current session',
+          description: 'Show baseline, effects, intent, packet, and publication status',
+          action: 'status'
+        },
+        {
+          label: '$(book) Open ad hoc guide',
+          description: 'Read the reviewed offline procedure and recovery guidance',
+          action: 'guide'
+        }
+      ], { title: 'Ad Hoc Work & Governed Landing', placeHolder: 'Choose a safe next step' });
+      if (!choice) return;
+      if (choice.action === 'guide') {
+        await vscode.commands.executeCommand('singularityFlow.explainTopic', { id: 'help:topic:ad-hoc-work' });
+        return;
+      }
+      try {
+        let result: unknown;
+        if (choice.action === 'start') {
+          const note = await vscode.window.showInputBox({
+            title: 'Start ad hoc work',
+            prompt: 'Optional note; it is not treated as an approved specification',
+            placeHolder: 'Investigate checkout latency'
+          });
+          if (note === undefined) return;
+          result = await client.run(['adhoc', 'start', ...(note.trim() ? [note.trim()] : []), '--json']);
+        } else if (choice.action === 'land') {
+          const selected = await vscode.window.showWarningMessage(
+            'Observe all current tracked and untracked changes as one ad hoc landing candidate?',
+            {
+              modal: true,
+              detail: 'This writes only a machine-local session and preview. It does not commit, push, approve, or fabricate pre-work intent.'
+            },
+            'Observe current work'
+          );
+          if (selected !== 'Observe current work') return;
+          result = await client.run(['land', '--json']);
+        } else {
+          result = await client.run(['adhoc', 'status', '--json']);
+        }
+        const document = await vscode.workspace.openTextDocument({
+          language: 'json', content: `${JSON.stringify(result, null, 2)}\n`
+        });
+        await vscode.window.showTextDocument(document, { preview: true });
+        const next = await vscode.window.showInformationMessage(
+          'Ad hoc record opened. Continue the reviewed intent, disposition, verification, and exact-packet steps in Copilot or the terminal.',
+          'Open Copilot', 'Open terminal command'
+        );
+        if (next === 'Open Copilot') {
+          await vscode.commands.executeCommand('workbench.action.chat.open', { query: '/sf-adhoc ' });
+        } else if (next === 'Open terminal command') {
+          const terminal = vscode.window.createTerminal({
+            name: 'Singularity Flow · Ad Hoc', cwd: client.repository
+          });
+          terminal.show(true);
+          // Prefill only. The contributor reviews and submits the command.
+          terminal.sendText('singularity-flow adhoc status', false);
+        }
+      } catch (error) {
+        showRefusal(error, { headline: 'Ad hoc work could not continue' });
+      }
+    },
     'singularityFlow.attachEvidence': manageEvidence,
     'singularityFlow.manageEvidence': manageEvidence,
     'singularityFlow.detachEvidence': detachEvidence as never,

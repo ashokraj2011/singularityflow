@@ -180,6 +180,7 @@ const ACTION_COMMANDS: Record<string, string> = {
   'workspace-manage': 'singularityFlow.openWorkspaces',
   'local-reset': 'singularityFlow.openLocalReset',
   'work-start': 'singularityFlow.startWork',
+  'adhoc-work': 'singularityFlow.openAdhocWork',
   goals: 'singularityFlow.openGoals',
   'impact-form': 'singularityFlow.impactForm',
   refresh: 'singularityFlow.refresh',
@@ -221,6 +222,7 @@ interface FavoriteMenu {
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
+  { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },
   { id: 'approvals-open', label: 'Approvals', description: 'governed decisions', icon: 'approval', command: ACTION_COMMANDS['approvals-open']! },
   { id: 'workspace-manage', label: 'Workspaces', description: 'choose and manage workspaces', icon: 'workspace', command: ACTION_COMMANDS['workspace-manage']! },

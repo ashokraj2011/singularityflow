@@ -45,8 +45,8 @@ export function lifecycleEvent({
       details: { vocabulary: LIFECYCLE_EVENT_VOCABULARY.id, member: type }
     });
   }
-  if (!['story', 'initiative'].includes(subject?.kind) || !String(subject?.id ?? '').trim()) {
-    throw new SingularityFlowError('Lifecycle events require subject.kind story|initiative and subject.id.');
+  if (!['story', 'initiative', 'adhoc'].includes(subject?.kind) || !String(subject?.id ?? '').trim()) {
+    throw new SingularityFlowError('Lifecycle events require subject.kind story|initiative|adhoc and subject.id.');
   }
   if (generation != null && (!Number.isInteger(generation) || generation < 0)) {
     throw new SingularityFlowError('Lifecycle event generation must be a non-negative integer or null.');

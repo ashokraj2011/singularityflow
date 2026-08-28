@@ -684,6 +684,82 @@ const families = [
   }),
   family({ id: 'copilot-session', currentVersion: 1, paths: [/^\$git\/copilot-session\.json$/] }),
   family({ id: 'copilot-turn-intent', currentVersion: 1, paths: [/^\$git\/copilot-turn-[^/]+\.json$/] }),
+  family({ id: 'adhoc-active-session', currentVersion: 1, paths: [/^\$git\/adhoc\/active\.json$/] }),
+  family({
+    id: 'adhoc-session', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/session\.json$/]
+  }),
+  family({
+    id: 'adhoc-baseline', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/baseline\.json$/]
+  }),
+  family({
+    id: 'adhoc-change-set', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/landing-preview\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/effect-set\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-intent-candidate', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/intent-candidate\.json$/]
+  }),
+  family({ id: 'adhoc-intent-confirmation', currentVersion: 1 }),
+  family({
+    id: 'adhoc-confirmed-intent', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/confirmed-intent\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/confirmed-intent\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-change-disposition-map', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/disposition-map\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/disposition-map\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-verification-plan', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/verification-plan\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/verification-plan\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-verification-result', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/verification-result\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/verification-result\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-landing-eligibility', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/eligibility\.json$/]
+  }),
+  family({
+    id: 'adhoc-landing-packet', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/landing-packet\.json$/]
+  }),
+  family({
+    id: 'adhoc-landing-decision', currentVersion: 1,
+    paths: [/^singularity\/adhoc-work\/[^/]+\/decision\.json$/]
+  }),
+  family({
+    id: 'reverse-converged-work', currentVersion: 1,
+    paths: [/^singularity\/adhoc-work\/[^/]+\/work\.json$/]
+  }),
+  family({
+    id: 'adhoc-landing-receipt', currentVersion: 1,
+    paths: [
+      /^\$git\/adhoc\/AHS-[^/]+\/landing-receipt\.json$/,
+      /^singularity\/adhoc-work\/[^/]+\/landing-receipt\.json$/
+    ]
+  }),
+  family({
+    id: 'adhoc-promotion-checkpoint', currentVersion: 1,
+    paths: [/^\$git\/adhoc\/AHS-[^/]+\/promotion-checkpoint\.json$/]
+  }),
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
   family({
     id: 'story-workflow', currentVersion: 2,

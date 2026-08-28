@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "bf2df1130457df0afc24bd43c51163a6e9deb234",
-  "topicCount": 57,
-  "contentSha256": "78f8079355f7c33e1ffe4effb17167a7143e6fc43df2a10e87f896fd9334bae2",
+  "sourceCommit": "7cedff86ec63d9bb2ac541327b4ed4df22b26f94",
+  "topicCount": 58,
+  "contentSha256": "63b497d31d8c1dc9b595a47ef31207cf5c8652b137e27391670395a04af94390",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -12,6 +12,14 @@
       "sha256": "e800344e0642badfaae0e823d0202e32c6c70f8e8b943eb0ae70ec16930897a6",
       "routingSha256": "332bbcacb673289aa488c06c3253ec7d7d7f3c33677660afb5b2a93336e066fa",
       "file": "activity-and-prompt-audit.md"
+    },
+    {
+      "id": "ad-hoc-work",
+      "title": "Ad hoc work and governed landing",
+      "version": 1,
+      "sha256": "8aba2b3a60a1d53e7819c06ad548073cc96270af7471f3117137109820d42231",
+      "routingSha256": "5cc50cf586524cc24138d4c473af6f13631cf3b7e7e040184507630319ddba23",
+      "file": "ad-hoc-work.md"
     },
     {
       "id": "agents-and-routing",

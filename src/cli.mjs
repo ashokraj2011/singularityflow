@@ -11344,6 +11344,12 @@ async function dispatch(command, positionals, options) {
     journal: async () => (await import('./commands/journal.mjs')).run([], { positionals, options }),
     push: async () => (await import('./commands/push.mjs')).run([], { positionals, options }),
     auto: async () => (await import('./commands/auto.mjs')).run(argv, { positionals, options }),
+    adhoc: async () => (await import('./commands/adhoc.mjs')).run(argv, {
+      positionals, options, definition: commandDefinition('adhoc')
+    }),
+    land: async () => (await import('./commands/adhoc.mjs')).run(argv, {
+      positionals, options, definition: commandDefinition('land')
+    }),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

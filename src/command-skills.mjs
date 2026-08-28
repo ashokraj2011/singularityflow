@@ -61,6 +61,8 @@ const entries = {
   // AUT's requested public `/sflow-auto` alias remains gated on the product-wide namespace
   // migration. Until then the CLI is documented through the existing governed Story-start skill.
   auto: ['sf-start'],
+  adhoc: ['sf-adhoc'],
+  land: ['sf-adhoc'],
   home: ['sf-home'],
   recommend: ['sf-recommend'],
   logs: ['sf-logs'],

@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -26,6 +26,8 @@ const LAZY_MODULES = Object.freeze({
   journal: './commands/journal.mjs',
   push: './commands/push.mjs',
   auto: './commands/auto.mjs',
+  adhoc: './commands/adhoc.mjs',
+  land: './commands/adhoc.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'
@@ -64,6 +66,7 @@ function command([name, aliases = []]) {
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['adhoc'], ['land'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
@@ -183,6 +186,10 @@ const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
 const AUTO_SUBCOMMANDS = Object.freeze(['plan', 'show-plan', 'start', 'status', 'report', 'pause', 'resume', 'halt', 'discard', 'flight-step']);
+const ADHOC_SUBCOMMANDS = Object.freeze([
+  'start', 'status', 'diff', 'effects', 'evidence', 'pause', 'resume', 'land', 'intent',
+  'claim', 'deviate', 'revert', 'landing', 'publish', 'promote', 'close', 'run', 'split', 'discard'
+]);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
@@ -215,6 +222,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   context: CONTEXT_SUBCOMMANDS,
   tokens: TOKENS_SUBCOMMANDS,
   auto: AUTO_SUBCOMMANDS,
+  adhoc: ADHOC_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
@@ -482,6 +490,22 @@ function resolveAutoOperation(definition, positionals) {
   return never(`auto.${subcommand}`, definition, 'mutation');
 }
 
+function resolveAdhocOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'status';
+  if (!ADHOC_SUBCOMMANDS.includes(subcommand)) return unknownSubcommand('adhoc', subcommand, ADHOC_SUBCOMMANDS);
+  if (subcommand === 'intent') {
+    const action = positionals[2] ?? 'show';
+    if (!['show', 'confirm'].includes(action)) return unknownSubcommand('adhoc intent', action, ['confirm', 'show'], 'action');
+    return never(`adhoc.intent.${action}`, definition, action === 'show' ? 'read' : 'mutation');
+  }
+  if (subcommand === 'landing') {
+    const action = positionals[2] ?? 'preview';
+    if (!['preview', 'confirm'].includes(action)) return unknownSubcommand('adhoc landing', action, ['confirm', 'preview'], 'action');
+    return never(`adhoc.landing.${action}`, definition, 'mutation');
+  }
+  return never(`adhoc.${subcommand}`, definition, subcommand === 'status' ? 'read' : 'mutation');
+}
+
 function optional(id, fallbackOperationId, definition) {
   return operation(id, 'optional', {
     classification: definition.classification,
@@ -691,6 +715,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
   if (definition.name === 'auto') return resolveAutoOperation(definition, positionals);
+  if (definition.name === 'adhoc') return resolveAdhocOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'session') return resolveSessionOperation(definition, positionals);
@@ -735,6 +760,16 @@ export function operationCatalog() {
     never('pr.plan', prDefinition),
     never('pr.describe', prDefinition),
     optional('pr.describe.polish', 'pr.describe', prDefinition)
+  ];
+  const adhocDefinition = commandDefinition('adhoc');
+  const adhoc = [
+    ...ADHOC_SUBCOMMANDS.filter((name) => !['intent', 'landing'].includes(name)).map((name) => never(
+      `adhoc.${name}`, adhocDefinition, name === 'status' ? 'read' : 'mutation'
+    )),
+    never('adhoc.intent.show', adhocDefinition, 'read'),
+    never('adhoc.intent.confirm', adhocDefinition, 'mutation'),
+    never('adhoc.landing.preview', adhocDefinition, 'mutation'),
+    never('adhoc.landing.confirm', adhocDefinition, 'mutation')
   ];
   const telemetryDefinition = commandDefinition('telemetry');
   const helpMetricsDefinition = commandDefinition('help-metrics');
@@ -854,7 +889,7 @@ export function operationCatalog() {
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),
     operation('version', 'never', { classification: 'read' }),
-    ...direct, ...wm, ...workspace, ...pullRequest, ...modelFreeMixed
+    ...direct, ...wm, ...workspace, ...pullRequest, ...adhoc, ...modelFreeMixed
   ].sort((a, b) => a.id.localeCompare(b.id)));
 }
 

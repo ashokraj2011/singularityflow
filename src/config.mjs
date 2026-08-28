@@ -58,6 +58,7 @@ import {
 } from './intelligence-policy.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
+import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -427,6 +428,7 @@ export function validateDefinition(definition) {
   normalizePlanning(definition.planning ?? {});
   definition.models = normalizeModelProviders(definition.models ?? {});
   definition.auto = normalizeAutoPolicy(definition.auto);
+  definition.adhoc = normalizeAdhocPolicy(definition.adhoc);
   definition.harnessImports = normalizeHarnessImports(definition.harnessImports);
   normalizeLogging(definition.logging ?? {});
   definition.mcpServers = normalizeMcpServers(definition.mcpServers ?? {}, {

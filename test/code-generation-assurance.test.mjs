@@ -95,6 +95,66 @@ test('a pure product-source deletion remains first-class code delivery evidence'
   assert.equal(evidence.paths.find((entry) => entry.path === 'src/payment.js').fileKind, 'missing');
 });
 
+test('code delivery accepts only exact protected configuration projected at Story start', async (t) => {
+  const root = await repository('configuration-projection');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['switch', '-c', 'CGA-CONFIG']);
+  const phase = {
+    id: 'implementation', generation: 0, status: 'in_progress', writeScope: 'source-and-artifact',
+    sourceBoundary: 'unrestricted', generationPolicy: { task: 'code' },
+    requiredArtifact: { kind: 'implementation-summary' }
+  };
+  const workflowText = 'schemaVersion: 1\n';
+  const agentText = '---\nname: developer\n---\n';
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await mkdir(path.join(root, '.github', 'agents'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), workflowText);
+  await writeFile(path.join(root, '.github', 'agents', 'developer.agent.md'), agentText);
+  const digest = (value) => createHash('sha256').update(value).digest('hex');
+  const workflow = {
+    workItem: { id: 'CGA-CONFIG', workType: 'feature', branch: 'CGA-CONFIG' },
+    currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase },
+    resolution: {
+      configSha256: digest(workflowText), sourceSha256: 's'.repeat(64), templates: {},
+      configurationSource: { files: {
+        'singularity/workflow.yml': digest(workflowText),
+        '.github/agents/developer.agent.md': digest(agentText)
+      } },
+      capability: { policy: { protectedPaths: [] } },
+      codeDelivery: normalizeCodeDeliveryPolicy()
+    },
+    lineage: { canonicalBranch: 'CGA-CONFIG', requiredChecks: [] }, history: []
+  };
+  const config = {
+    workItemRoot: 'singularity/work-items',
+    governance: {
+      requireAcceptanceCriteriaTags: false,
+      protectedPaths: ['singularity/workflow.yml', '.github/agents']
+    },
+    workTypes: { feature: {} }
+  };
+  const itemDirectory = path.join(root, 'singularity', 'work-items', workflow.workItem.id);
+  await mkdir(itemDirectory, { recursive: true });
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory,
+    itemRelative: path.relative(root, itemDirectory).replaceAll(path.sep, '/')
+  });
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "implemented";\n');
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), 'test("payment", () => {});\n');
+
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.ok(evidence.sourcePaths.includes('src/payment.js'));
+  assert.ok(evidence.testPaths.includes('tests/payment.test.js'));
+
+  await writeFile(path.join(root, '.github', 'agents', 'developer.agent.md'), `${agentText}tampered\n`);
+  await assert.rejects(
+    evaluateCodeDeliveryPreflight(root, config, workflow, phase),
+    (error) => error.code === 'CHANGE_SET_POLICY_VIOLATION'
+      && /\.github\/agents\/developer\.agent\.md/.test(error.message)
+  );
+});
+
 test('protected-path evaluation checks the source and destination of renames', () => {
   const changeSet = {
     entries: [{ changeId: 'one', status: 'renamed', oldPath: 'singularity/workflow.yml', newPath: 'archive/workflow.yml' }]
@@ -457,6 +517,9 @@ test('approval replay binds the committed tree, change-set policy, and exact tes
   const root = await repository('replay');
   const baseline = git(root, ['rev-parse', 'HEAD']);
   await mkdir(path.join(root, 'tests'), { recursive: true });
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  const approvedWorkflow = 'schemaVersion: 1\n';
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), approvedWorkflow);
   await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = false;\n');
   await writeFile(path.join(root, 'tests', 'payment.test.js'), '// @ac:CGA:AC-001\ntest("payment", () => {});\n');
   const changeSet = await buildRepositoryChangeSet(root, { baseCommit: baseline });
@@ -501,6 +564,21 @@ test('approval replay binds the committed tree, change-set policy, and exact tes
     status: 'ready', capturedAt: new Date(0).toISOString()
   };
   assert.equal((await verifyCodeDeliveryReceipt(root, receipt)).valid, true);
+  const configurationReplay = await verifyCodeDeliveryReceipt(root, receipt, {
+    protectedPaths: ['singularity/workflow.yml'],
+    configurationSource: { files: {
+      'singularity/workflow.yml': createHash('sha256').update(approvedWorkflow).digest('hex')
+    } }
+  });
+  assert.equal(configurationReplay.valid, true,
+    'receipt replay accepts the exact configuration snapshot projected when the Story started');
+  const changedConfigurationReplay = await verifyCodeDeliveryReceipt(root, receipt, {
+    protectedPaths: ['singularity/workflow.yml'],
+    configurationSource: { files: { 'singularity/workflow.yml': 'f'.repeat(64) } }
+  });
+  assert.equal(changedConfigurationReplay.valid, false,
+    'receipt replay does not exempt a protected file from a different configuration digest');
+  assert.ok(changedConfigurationReplay.errors.some((message) => /protected path policy fails/.test(message)));
   const insufficientModel = await verifyCodeDeliveryReceipt(root, receipt, { minimumModelAssurance: 'observed' });
   assert.equal(insufficientModel.valid, false);
   assert.ok(insufficientModel.errors.some((message) => /below required 'observed'/.test(message)));

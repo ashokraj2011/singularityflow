@@ -2715,6 +2715,7 @@ export async function approvePhase(root, config, workflow, {
           ...(config.governance?.protectedPaths ?? []),
           ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
         ])],
+        configurationSource: workflow.resolution?.configurationSource,
         sourceBoundary: phase.sourceBoundary,
         symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
         minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,

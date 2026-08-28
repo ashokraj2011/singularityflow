@@ -24,7 +24,8 @@ import {
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
-import { buildRepositoryChangeSet, evaluateProtectedPaths } from './repository-change-set.mjs';
+import { buildRepositoryChangeSet } from './repository-change-set.mjs';
+import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
@@ -38,25 +39,7 @@ function traceabilitySources(workflow) {
   return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
 }
 
-/**
- * Configuration materialized by Story start is governance input, not Story output.
- *
- * The protected-path gate used to compare HEAD only with the branch merge-base. A repository whose
- * approved configuration branch was newer than that base therefore failed for the exact workflow,
- * templates, prompts, and agents that Story start had just pinned. Exemption is deliberately
- * content-addressed: a missing, renamed, symlinked, or byte-different file remains protected.
- */
-export function approvedConfigurationMaterializations(changeSet, workflow) {
-  const pinned = workflow?.resolution?.configurationSource?.files ?? {};
-  return new Set((changeSet?.entries ?? []).flatMap((entry) => {
-    const expected = entry.newPath ? pinned[entry.newPath] : null;
-    return expected
-      && entry.newContent?.kind === 'regular-file'
-      && entry.newContent.sha256 === `sha256:${expected}`
-      ? [entry.newPath]
-      : [];
-  }));
-}
+export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
 
 export function generationAuthorship(phase, generation) {
   return [...(phase?.authorship ?? [])].reverse()
@@ -149,18 +132,14 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const mergeBase = run('git', ['merge-base', workflow.workItem.baseBranch, 'HEAD'], { cwd: root, allowFailure: true });
   if (mergeBase.status === 0) {
     const branchChangeSet = await buildRepositoryChangeSet(root, { baseCommit: mergeBase.stdout.trim() });
-    const protectedResult = evaluateProtectedPaths(branchChangeSet, config.governance?.protectedPaths ?? []);
-    const approvedMaterializations = approvedConfigurationMaterializations(branchChangeSet, workflow);
-    const acceptedProtectedPaths = new Set();
+    const protectedResult = evaluateStoryProtectedPaths(
+      branchChangeSet, config.governance?.protectedPaths ?? [], workflow
+    );
     for (const violation of protectedResult.violations) {
-      if (approvedMaterializations.has(violation.path)) {
-        acceptedProtectedPaths.add(violation.path);
-        continue;
-      }
       errors.push(`protected process path changed on work branch: ${violation.path} (${violation.endpoint})`);
     }
-    if (acceptedProtectedPaths.size) {
-      passes.push(`approved configuration materialization: ${acceptedProtectedPaths.size} protected path(s) match the pinned configuration snapshot`);
+    if (protectedResult.acceptedProtectedPaths.size) {
+      passes.push(`approved configuration materialization: ${protectedResult.acceptedProtectedPaths.size} protected path(s) match the pinned configuration snapshot`);
     }
   } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseBranch}`);
 
@@ -249,6 +228,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
                 ...(config.governance?.protectedPaths ?? []),
                 ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
               ])],
+              configurationSource: workflow.resolution?.configurationSource,
               sourceBoundary: phase.sourceBoundary,
               symlinkPolicy: workflow.resolution?.codeDelivery?.changeSet?.symlinks ?? 'reject',
               minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,

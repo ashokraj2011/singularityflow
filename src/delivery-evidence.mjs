@@ -8,9 +8,10 @@ import {
   isSupportingTestResourcePath, resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
-  buildRepositoryChangeSet, evaluateProtectedPaths, evaluateSourceBoundary,
+  buildRepositoryChangeSet, evaluateSourceBoundary,
   verifyRepositoryChangeSetIntegrity
 } from './repository-change-set.mjs';
+import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -286,7 +287,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     ...(config.governance?.protectedPaths ?? []),
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ])];
-  const protectedResult = evaluateProtectedPaths(changeSet, guards);
+  const protectedResult = evaluateStoryProtectedPaths(changeSet, guards, workflow);
   if (!protectedResult.valid) {
     throw new SingularityFlowError(
       `Generation cannot modify protected process paths: ${protectedResult.violations.map((entry) => `${entry.endpoint} ${entry.path}`).join(', ')}`,
@@ -555,6 +556,7 @@ function modelAssuranceRank(value) {
  */
 export async function verifyCodeDeliveryReceipt(root, receipt, {
   protectedPaths = [],
+  configurationSource = null,
   sourceBoundary = 'unrestricted',
   symlinkPolicy = 'reject',
   minimumDiscovered = 1,
@@ -592,7 +594,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     const integrity = verifyRepositoryChangeSetIntegrity(changeSet);
     if (!integrity.valid) fail('repository change-set integrity does not reproduce');
     if (changeSet.digest !== receipt.changeSet.digest) fail('repository change-set digest differs from its receipt');
-    const protectedResult = evaluateProtectedPaths(changeSet, protectedPaths);
+    const protectedResult = evaluateStoryProtectedPaths(changeSet, protectedPaths, configurationSource);
     if (!protectedResult.valid) fail(`protected path policy fails: ${protectedResult.violations.map((item) => item.path).join(', ')}`);
     const applicationChangeSet = {
       ...changeSet,

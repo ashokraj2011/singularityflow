@@ -4038,6 +4038,16 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the same UI can inspect retained merged proposal branches without making them actionable');
   assert.match(dashboard, /data-review/,
     'each proposal opens the exact review screen');
+  assert.match(dashboard, /capability', 'fsck'/,
+    'the dashboard runs the read-only authority and proposal integrity check');
+  assert.match(dashboard, /Discard stale proposal/);
+  assert.match(dashboard, /capability', 'discard-proposal'/);
+  assert.match(dashboard, /--confirm', entry\.proposalCommit/,
+    'stale deletion is bound to the full proposal commit loaded by the dashboard');
+  assert.match(dashboard, /--reason', reason\.trim\(\)/,
+    'the guarded UI records a contributor-entered reason rather than inventing one');
+  assert.match(dashboard, /If the remote branch moved, the operation refuses/,
+    'the confirmation explains the exact-SHA lease before deletion');
   const panel = await readFile(source('views/capability-proposal.ts'), 'utf8');
   assert.match(panel, /capability', 'proposal'/);
   assert.match(panel, /capability', 'activate'/);

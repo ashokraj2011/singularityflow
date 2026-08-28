@@ -14,11 +14,22 @@ interface CapabilityProposalSummary {
   valid: boolean;
   merged?: boolean;
   status?: string;
+  discardable?: boolean;
   failure?: { code?: string; message?: string; nextAction?: { command?: string } };
 }
 
 interface ProposalEntry extends CapabilityProposalSummary { lead: string }
 interface LeadFailure { lead: string; message: string }
+interface CapabilityFsckCheck {
+  id: string; status: 'pass' | 'info' | 'warn' | 'fail'; summary: string;
+  branch?: string | null; commit?: string | null; remediation?: string | null;
+}
+interface CapabilityFsckResult {
+  valid: boolean;
+  summary: { passed: number; information: number; warnings: number; failures: number };
+  checks: CapabilityFsckCheck[];
+}
+interface LeadIntegrity { lead: string; result?: CapabilityFsckResult; error?: string }
 type Run = (argv: string[]) => Promise<{ result: unknown; error: string | null }>;
 
 function shortName(branch: string): string {
@@ -26,7 +37,7 @@ function shortName(branch: string): string {
 }
 
 function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFailure[],
-  busy: boolean, includeMerged: boolean): string {
+  busy: boolean, includeMerged: boolean, integrity: LeadIntegrity[]): string {
   const ready = entries.filter((entry) => entry.valid && !entry.merged).length;
   const blocked = entries.filter((entry) => !entry.valid).length;
   const merged = entries.filter((entry) => entry.merged).length;
@@ -40,21 +51,32 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
   const groups = [...grouped.entries()].map(([lead, rows]) => `<section class="plain">
     <div class="section-heading"><h2>${icon('repository')} ${escape(lead)}</h2>
       <span class="count-badge">${rows.length}</span></div>
-    <div class="configuration-list">${rows.map(({ entry, index }) => `<button
-      class="configuration-row secondary" data-review="${index}"
-      aria-label="Review capability proposal ${escape(shortName(entry.branch))}">
-      <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
-      <strong>${escape(shortName(entry.branch))}</strong>
-      <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
-      ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
-      ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}
-    </button>`).join('')}</div>
+    <div class="configuration-list">${rows.map(({ entry, index }) => `<div class="configuration-row-wrap"><button
+        class="configuration-row secondary" data-review="${index}"
+        aria-label="Review capability proposal ${escape(shortName(entry.branch))}">
+        <span>${icon(entry.valid ? 'merge' : 'warning')}</span>
+        <strong>${escape(shortName(entry.branch))}</strong>
+        <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
+        ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
+        ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}
+      </button>${entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
   </section>`).join('');
+  const integrityHtml = integrity.map((entry) => {
+    if (entry.error) return `<div class="notice error"><p><strong>${escape(entry.lead)}</strong>: ${escape(entry.error)}</p></div>`;
+    const issues = entry.result?.checks.filter((check) => check.status === 'fail' || check.status === 'warn') ?? [];
+    return `<section class="plain"><div class="section-heading"><h2>${icon(entry.result?.valid ? 'ok' : 'warning')} Integrity · ${escape(entry.lead)}</h2>
+      <span class="count-badge">${issues.length}</span></div>
+      ${issues.length ? issues.map((check) => `<div class="notice ${check.status === 'fail' ? 'error' : 'governance-warning'}"><p><strong>${escape(check.id)}</strong>: ${escape(check.summary)}</p>
+        ${check.branch ? `<p><code>${escape(check.branch)}${check.commit ? `@${escape(check.commit)}` : ''}</code></p>` : ''}
+        ${check.remediation ? `<p>Remediation: <code>${escape(check.remediation)}</code></p>` : ''}</div>`).join('')
+        : '<div class="notice ok"><p>No capability authority or proposal-integrity issues were detected.</p></div>'}</section>`;
+  }).join('');
   return `${brandLockup()}
     <header class="inbox-header">
       <p class="eyebrow">Governed configuration review</p>
       <div class="section-heading"><h1>${icon('merge', { size: 24 })} Capability proposals</h1>
         <button class="secondary" data-action="toggle-history" ${busy ? 'disabled' : ''}>${icon('git')} ${includeMerged ? 'Hide merged history' : 'Show merged history'}</button>
+        <button class="secondary" data-action="fsck" ${busy ? 'disabled' : ''}>${icon('policy')} Check integrity</button>
         <button class="secondary" data-action="refresh" ${busy ? 'disabled' : ''}>${icon('refresh')} ${busy ? 'Refreshing…' : 'Refresh'}</button></div>
       <p class="meta">Review proposed capability-map changes across registered lead repositories, or inspect earlier merged revisions. Nothing is merged from this list.</p>
     </header>
@@ -65,6 +87,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${includeMerged ? merged : blocked}</strong><span>${includeMerged ? 'Merged history' : 'Blocked'}</span></div>
     </div>
     <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Activation uses a normal non-force push to <code>sflow/config</code>; the application default branch is never changed.</p></div>
+    ${integrityHtml}
     ${failures.map((failure) => `<div class="notice error"><p><strong>${escape(failure.lead)}</strong>: ${escape(failure.message)}</p></div>`).join('')}
     ${busy && !entries.length ? `<div class="empty">${icon('wait')} Reading registered lead repositories and pending proposals…</div>`
       : groups || `<div class="empty"><h2>${icon('ok')} ${includeMerged ? 'No proposal history found' : 'No proposals waiting'}</h2><p>${includeMerged ? 'No retained capability proposal branches are available to inspect.' : 'No capability-map proposals require review. You can retry the capability change that brought you here.'}</p></div>`}`;
@@ -73,6 +96,8 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
 const SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const discard = event.target.closest('[data-discard]');
+    if (discard) return vscode.postMessage({ type: 'discard', index: Number(discard.dataset.discard) });
     const review = event.target.closest('[data-review]');
     if (review) return vscode.postMessage({ type: 'review', index: Number(review.dataset.review) });
     const action = event.target.closest('[data-action]');
@@ -87,6 +112,8 @@ export class CapabilityProposalsPanel {
   private entries: ProposalEntry[] = [];
   private leadCount = 0;
   private failures: LeadFailure[] = [];
+  private integrity: LeadIntegrity[] = [];
+  private leadUrls: string[] = [];
   private busy = false;
   private includeMerged = false;
 
@@ -108,6 +135,12 @@ export class CapabilityProposalsPanel {
       'toggle-history': () => {
         this.includeMerged = !this.includeMerged;
         void this.load();
+      },
+      fsck: () => { void this.fsck(); },
+      discard: (message) => {
+        const index = integerField(message, 'index');
+        const entry = index === null ? null : this.entries[index];
+        if (entry?.discardable) void this.discard(entry);
       },
       review: (message) => {
         const index = integerField(message, 'index');
@@ -141,7 +174,7 @@ export class CapabilityProposalsPanel {
   private render(): void {
     const token = nonce();
     this.panel.webview.html = page('Capability proposals',
-      proposalsHtml(this.entries, this.leadCount, this.failures, this.busy, this.includeMerged),
+      proposalsHtml(this.entries, this.leadCount, this.failures, this.busy, this.includeMerged, this.integrity),
       contentSecurityPolicy(this.panel.webview, token), token, SCRIPT);
   }
 
@@ -156,6 +189,7 @@ export class CapabilityProposalsPanel {
     }
     const leads = Array.isArray(leadsResponse.result)
       ? (leadsResponse.result as LeadRepository[]).filter((lead) => typeof lead?.url === 'string') : [];
+    this.leadUrls = leads.map((lead) => lead.url);
     this.leadCount = leads.length;
     const results = await Promise.all(leads.map(async (lead) => {
       const response = await this.run([
@@ -172,6 +206,56 @@ export class CapabilityProposalsPanel {
     this.failures = results.filter((result) => result.error)
       .map((result) => ({ lead: result.lead, message: result.error as string }));
     this.busy = false; this.render();
+  }
+
+  private async fsck(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true; this.integrity = []; this.render();
+    const results = await Promise.all(this.leadUrls.map(async (lead) => {
+      const response = await this.run(['capability', 'fsck', '--lead', lead, '--json']);
+      return response.error
+        ? { lead, error: response.error }
+        : { lead, result: response.result as CapabilityFsckResult };
+    }));
+    this.integrity = results;
+    this.busy = false; this.render();
+  }
+
+  private async discard(entry: ProposalEntry): Promise<void> {
+    if (this.busy || !entry.discardable) return;
+    const reason = await vscode.window.showInputBox({
+      title: 'Discard stale capability proposal',
+      prompt: 'Why is this unrelated-history proposal no longer needed?',
+      placeHolder: 'The configuration authority was intentionally re-created',
+      validateInput: (value) => value.trim() ? null : 'A reason is required.',
+      ignoreFocusOut: true
+    });
+    if (!reason?.trim()) return;
+    const confirmation = 'Discard exact stale proposal';
+    const accepted = await vscode.window.showWarningMessage(
+      `Discard ${entry.branch}@${entry.proposalCommit.slice(0, 12)}?`,
+      {
+        modal: true,
+        detail: 'Only this exact unrelated-history capability proposal ref is removed. If the remote branch moved, the operation refuses. Approved configuration, state, application branches, and every other proposal are preserved.'
+      },
+      confirmation
+    );
+    if (accepted !== confirmation) return;
+    this.busy = true; this.render();
+    const response = await this.run([
+      'capability', 'discard-proposal', entry.branch,
+      '--lead', entry.lead, '--confirm', entry.proposalCommit,
+      '--reason', reason.trim(), '--json'
+    ]);
+    this.busy = false;
+    if (response.error) {
+      this.failures = [{ lead: entry.lead, message: response.error }, ...this.failures];
+      this.render();
+      return;
+    }
+    void vscode.window.showInformationMessage(
+      `Discarded stale capability proposal ${shortName(entry.branch)}; approved configuration was preserved.`);
+    await this.load();
   }
 
   dispose(): void {

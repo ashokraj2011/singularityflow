@@ -164,7 +164,7 @@ import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, capabilityReadiness, composeCapabilityWorldModel, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -7193,6 +7193,50 @@ async function capabilityCommand(positionals, options) {
     return console.log(state.branch
       ? `The ${state.branch} capability projection is already current.`
       : `Capability projection not published: ${state.reason}.`);
+  }
+
+  if (subcommandForWrite === 'fsck') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const registered = await readWorkspaceRegistry(workspaceRegistryFile());
+    const workspaces = [];
+    for (const entry of registered) {
+      try { workspaces.push(await readWorkspace(entry.path)); }
+      catch { /* A malformed workspace is reported by workspace doctor; fsck continues with readable peers. */ }
+    }
+    const result = await capabilityFsck(leadUrl, { workspaces });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    for (const item of result.checks) {
+      console.log(`${style.mark(item.status === 'info' ? 'pass' : item.status)} ${item.id}: ${item.summary}`);
+      if (item.branch) console.log(`  branch: ${item.branch}${item.commit ? `@${item.commit}` : ''}`);
+      if (item.remediation) console.log(`  remediation: ${item.remediation}`);
+      for (const alternative of item.details?.alternatives ?? []) console.log(`  option: ${alternative}`);
+    }
+    console.log(`\n${style.fields(
+      `${result.summary.passed} passed`,
+      `${result.summary.information} informational`,
+      `${result.summary.warnings} warnings`,
+      `${result.summary.failures} failures`
+    )}`);
+    return result;
+  }
+
+  if (subcommandForWrite === 'discard-proposal') {
+    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+    const branch = requirePositional(positionals, 2, 'stale capability proposal branch');
+    const result = await discardStaleCapabilityProposal(leadUrl, branch, {
+      confirm: optionString(options, 'confirm'),
+      reason: optionString(options, 'reason')
+    });
+    await rememberLeadRepository(leadUrl);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Discarded stale capability proposal ${result.branch}@${result.proposalCommit}.`);
+    console.log(`  reason: ${result.reason}`);
+    console.log(`  preserved: ${result.preserved.join(', ')}`);
+    console.log(`  verify: ${result.nextAction.command}`);
+    return result;
   }
 
   if (subcommandForWrite === 'proposals') {

@@ -21,7 +21,8 @@ import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
-  activateCapabilityProposal, addCapabilityRepository, editCapabilityInOrganisation, initializeWorkspaceState,
+  activateCapabilityProposal, addCapabilityRepository, capabilityFsck, discardStaleCapabilityProposal,
+  editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
@@ -693,8 +694,102 @@ test('one unreadable proposal remains visible without hiding healthy proposals',
   const invalid = proposals.find((entry) => entry.branch.endsWith('/invalid-review'));
   assert.equal(invalid.valid, false);
   assert.equal(invalid.status, 'unreadable');
+  assert.equal(invalid.discardable, true);
   assert.match(invalid.failure.message, /does not share history|rev-parse|unknown revision/i);
-  assert.match(invalid.failure.nextAction.command, /capability proposal/);
+  assert.match(invalid.failure.nextAction.command, /capability discard-proposal/);
+
+  const fsck = await capabilityFsck(org.platform);
+  assert.equal(fsck.valid, false);
+  const finding = fsck.checks.find((entry) => entry.branch === invalid.branch);
+  assert.equal(finding.status, 'fail');
+  assert.equal(finding.commit, invalid.proposalCommit);
+  assert.match(finding.remediation, /discard-proposal/);
+  assert.match(finding.remediation, new RegExp(invalid.proposalCommit));
+  assert.ok(finding.details.alternatives.some((entry) => /Recreate the capability/.test(entry)));
+  const protectedRefs = Object.fromEntries(['main', 'sflow/config'].map((branch) => [
+    branch,
+    run('git', ['rev-parse', `refs/heads/${branch}`], { cwd: org.platform }).stdout.trim()
+  ]));
+
+  await assert.rejects(
+    discardStaleCapabilityProposal(org.platform, invalid.branch, {
+      confirm: invalid.proposalCommit.slice(0, 12), reason: 'obsolete configuration root'
+    }),
+    (error) => error?.code === 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH'
+  );
+  await assert.rejects(
+    discardStaleCapabilityProposal(org.platform, healthy.branch, {
+      confirm: healthy.commit, reason: 'must not delete a reviewable proposal'
+    }),
+    (error) => error?.code === 'CAPABILITY_PROPOSAL_DISCARD_NOT_STALE'
+  );
+
+  // A full confirmation is still only for one observed revision. If somebody moves the proposal
+  // between fsck and discard, the old exact SHA cannot delete the new branch tip.
+  const movedCheckout = await mkdtemp(path.join(os.tmpdir(), 'sflow-moved-stale-proposal-'));
+  try {
+    run('git', ['clone', '-q', '--branch', invalid.branch, org.platform, movedCheckout]);
+    run('git', ['config', 'user.email', 'mover@example.test'], { cwd: movedCheckout });
+    run('git', ['config', 'user.name', 'Proposal Mover'], { cwd: movedCheckout });
+    await writeFile(path.join(movedCheckout, 'README.md'), '# still unrelated, but moved\n');
+    run('git', ['add', 'README.md'], { cwd: movedCheckout });
+    run('git', ['commit', '-qm', 'Move stale proposal'], { cwd: movedCheckout });
+    run('git', ['push', '-q', 'origin', `HEAD:${invalid.branch}`], { cwd: movedCheckout });
+  } finally {
+    await rm(movedCheckout, { recursive: true, force: true });
+  }
+  await assert.rejects(
+    discardStaleCapabilityProposal(org.platform, invalid.branch, {
+      confirm: invalid.proposalCommit, reason: 'configuration authority was intentionally re-rooted'
+    }),
+    (error) => error?.code === 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH'
+  );
+  const moved = (await listCapabilityProposals(org.platform))
+    .find((entry) => entry.branch === invalid.branch);
+  assert.notEqual(moved.proposalCommit, invalid.proposalCommit);
+
+  const discarded = await discardStaleCapabilityProposal(org.platform, invalid.branch, {
+    confirm: moved.proposalCommit, reason: 'configuration authority was intentionally re-rooted'
+  });
+  assert.equal(discarded.discarded, true);
+  assert.equal(discarded.proposalCommit, moved.proposalCommit);
+  assert.deepEqual(discarded.preserved,
+    ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches']);
+  assert.equal(run('git', ['show-ref', '--verify', `refs/heads/${invalid.branch}`], {
+    cwd: org.platform, allowFailure: true
+  }).status === 0, false);
+  const remaining = await listCapabilityProposals(org.platform);
+  assert.deepEqual(remaining.map((entry) => entry.branch), [healthy.branch]);
+  for (const [branch, commit] of Object.entries(protectedRefs)) {
+    assert.equal(run('git', ['rev-parse', `refs/heads/${branch}`], {
+      cwd: org.platform
+    }).stdout.trim(), commit, `discard must not move ${branch}`);
+  }
+});
+
+test('capability fsck detects machine workspace bindings absent from approved configuration', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const fsck = await capabilityFsck(org.platform, {
+    workspaces: [{
+      id: 'office-work', name: 'Office work', path: '/workspaces/office-work',
+      capabilityAuthority: { url: org.platform },
+      capabilities: ['calculator'],
+      repositories: {
+        platform: { url: org.platform, capabilities: ['calculator', 'missing-office-capability'] }
+      }
+    }]
+  });
+  assert.equal(fsck.valid, false);
+  const binding = fsck.checks.find((entry) => entry.id === 'workspace:office-work:capability-binding');
+  assert.equal(binding.status, 'fail');
+  assert.match(binding.summary, /missing-office-capability/);
+  assert.match(binding.remediation, /capability map/);
+  assert.deepEqual(binding.details.unknown, ['missing-office-capability']);
+  assert.ok(binding.details.alternatives.some((entry) => /workspace update/.test(entry)));
 });
 
 test('mapping succeeds against a protected default branch and preserves existing singularity files', async () => {

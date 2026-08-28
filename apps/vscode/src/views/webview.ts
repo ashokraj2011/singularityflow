@@ -398,6 +398,8 @@ export const STYLE = `
   .configuration-list { display: grid; gap: .4rem; margin: .7rem 0; }
   button.configuration-row { display: grid; grid-template-columns: 1.4rem minmax(10rem, .55fr) 1fr; gap: .55rem; justify-content: start; text-align: left; color: var(--vscode-foreground); background: var(--sf-surface); }
   button.configuration-row small { color: var(--sf-dim); font-weight: 400; }
+  .configuration-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: stretch; }
+  .configuration-row-wrap > button.configuration-row { width: 100%; }
   .notice { border: var(--sf-border); border-left: 3px solid var(--sf-wait); border-radius: var(--sf-radius); padding: .55rem .75rem; margin: .7rem 0; }
   .notice p { margin: .15rem 0; }
   .notice.ok { border-left-color: var(--sf-ok); }
@@ -417,6 +419,7 @@ export const STYLE = `
     .editor-card label.span-2 { grid-column: auto; }
     button.configuration-row { grid-template-columns: 1.4rem 1fr; }
     button.configuration-row small { grid-column: 2; }
+    .configuration-row-wrap { grid-template-columns: 1fr; }
     .wm-provenance { grid-template-columns: 1fr; }
     .wm-map-legend { width: 100%; margin-left: 0; }
   }

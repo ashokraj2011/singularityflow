@@ -790,13 +790,27 @@ const PAGES = Object.freeze({
       'publish as one proposal. An empty destination moves direct children to the top level.',
       '',
       'For monorepos, source/shared roots bound world-model grounding. A blobless or blobless-sparse',
-      'clone policy bounds what new workspaces download; sparse mode always retains governed files.'
+      'clone policy bounds what new workspaces download; sparse mode always retains governed files.',
+      '',
+      '`capability fsck` verifies the approved map, registered workspace bindings, state projection,',
+      'and every retained proposal.',
+      'An unrelated-history proposal is never merged or rebased. `discard-proposal` removes only a',
+      'stale proposal ref after its full current commit and a reason are supplied; a moved or valid',
+      'proposal is refused and approved configuration and application branches remain untouched.'
+    ],
+    options: [
+      ['--lead URL', 'Configuration-authority repository to inspect or update.'],
+      ['--confirm FULL-COMMIT', 'For stale discard, the complete proposal commit reported by a current fsck.'],
+      ['--reason TEXT', 'Required explanation for discarding an unrelated-history proposal.'],
+      ['--json', 'Emit structured checks, exact refs, and remediation commands.']
     ],
     examples: [
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
       ['singularity-flow capability map payments --repository <URL> --source-roots apps/payments --clone-mode blobless-sparse --sparse-cone apps/payments --clone-fallback refuse', 'Propose a scoped capability and safe monorepo clone policy.'],
       ['singularity-flow capability edit legacy --lead <URL> --mode remove --reparent-children-to platform', 'Remove a capability and atomically relink its direct children.'],
       ['singularity-flow capability organisation --refresh', 'Refresh the approved organisation map.'],
+      ['singularity-flow capability fsck --lead <URL>', 'Detect stale projections and broken proposal history without changing a ref.'],
+      ['singularity-flow capability discard-proposal <BRANCH> --lead <URL> --confirm <FULL-COMMIT> --reason "configuration authority was re-created"', 'Discard only the exact stale proposal identified by fsck.'],
       ['singularity-flow capability tree', 'The capability map as a tree.']
     ],
     seeAlso: ['capabilities', 'workspace', 'bootstrap']

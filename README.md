@@ -621,9 +621,20 @@ Lifecycle **Start work** action in VS Code.
 - **“Confirmation must be the exact proposal commit”** — re-read `capability
   proposal` and use its complete `proposalCommit`, not the displayed short SHA.
 - **Proposal is empty, conflicted, from unrelated history, or contains application
-  files** — activation changes nothing and retains the branch for inspection. Rebase
-  or replace it with a configuration-only proposal; never force it into
-  `sflow/config`.
+  files** — activation changes nothing and retains the branch for inspection. Run
+  `singularity-flow capability fsck --lead <URL>` to classify the exact ref. Rebase
+  or replace a reviewable proposal with a configuration-only proposal; never force it
+  into `sflow/config`. An unrelated-history proposal can be removed only with the
+  fsck-reported full commit and a reason:
+
+  ```bash
+  singularity-flow capability discard-proposal "<REVIEW-BRANCH>" \
+    --lead "<LEAD-URL>" --confirm "<FULL-COMMIT>" \
+    --reason "configuration authority was intentionally re-created" --json
+  ```
+
+  The exact-SHA lease refuses a moved or valid proposal and preserves approved
+  configuration, state, application branches, and every other proposal.
 - **Missing state or configuration readiness** — rerun activation after an external
   merge, then use `capability organisation --readiness --refresh` before workspace
   creation. If activation completed but projection is pending, run the returned

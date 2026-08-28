@@ -75,7 +75,8 @@ const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview'
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
-  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation'
+  'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
+  'fsck', 'discard-proposal'
 ]);
 
 function hasOption(args: string[], name: string): boolean {
@@ -121,6 +122,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'visual') return (args[1] ?? 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'capabilities' && args[1] === 'doctor') return 'read';
+  if (args[0] === 'capability') {
+    return ['tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads']
+      .includes(args[1] ?? 'tree') ? 'read' : 'mutation';
+  }
   if (args[0] === 'session') {
     return ['current', 'doctor', 'context', 'candidates', 'status'].includes(args[1] ?? 'status')
       ? 'read'

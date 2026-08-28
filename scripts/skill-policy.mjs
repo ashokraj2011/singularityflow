@@ -32,6 +32,9 @@ function executionBoundary(skillName = null) {
   if (skillName === 'sflow-adhoc') {
     return '**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.';
   }
+  if (skillName === 'sflow-capability-doctor') {
+    return '**Boundary:** organisation integrity is storyless and uses only the selected lead URL; repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`; never `$HOME`.';
+  }
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
   // its process cwd while the model loses the conversational repository hint. Resolve the selected
   // Story checkout on every skill invocation and make its absolute path the cwd of every shell/file

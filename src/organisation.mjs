@@ -55,11 +55,14 @@ function quoted(value) {
   return JSON.stringify(String(value ?? ''));
 }
 
-function capabilityCommand(action, { remote, branch = null, commit = null, acknowledge = false } = {}) {
+function capabilityCommand(action, {
+  remote, branch = null, commit = null, acknowledge = false, reason = null
+} = {}) {
   const args = ['singularity-flow', 'capability', action];
   if (branch) args.push(quoted(branch));
   if (remote) args.push('--lead', quoted(sanitizeRemote(remote)));
   if (commit) args.push('--confirm', quoted(commit));
+  if (reason) args.push('--reason', quoted(reason));
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');
@@ -988,20 +991,30 @@ export async function listCapabilityProposals(url, {
         if (includeMerged || !proposal.merged) proposals.push(proposal);
       } catch (error) {
         // One corrupt or stale proposal must remain visible without hiding every healthy proposal
-        // on the same lead. It is deliberately not actionable: review shows the structured reason.
+        // on the same lead. Only the proven unrelated-history case gets the exact-SHA discard path;
+        // every other unreadable state remains inspection-only.
         proposals.push({
           remote: sanitizeRemote(remote), branch: entry.branch,
           targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
           proposalCommit: entry.proposalCommit, proposalBase: null, mergeBase: null,
           merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
           status: 'unreadable',
+          discardable: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
           failure: {
             code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
             message: redactDiagnosticText(error?.message ?? String(error)),
-            nextAction: error?.details?.nextAction ?? {
-              command: capabilityCommand('proposal', { remote, branch: entry.branch }),
-              skill: '/sf-capability-map'
-            }
+            nextAction: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
+              ? {
+                  command: capabilityCommand('discard-proposal', {
+                    remote, branch: entry.branch, commit: entry.proposalCommit,
+                    reason: '<WHY THIS STALE PROPOSAL IS NO LONGER NEEDED>'
+                  }),
+                  skill: '/sf-capability-map'
+                }
+              : error?.details?.nextAction ?? {
+                  command: capabilityCommand('proposal', { remote, branch: entry.branch }),
+                  skill: '/sf-capability-map'
+                }
           }
         });
       }
@@ -1015,12 +1028,19 @@ export async function listCapabilityProposals(url, {
 function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { includeDiff = true } = {}) {
   const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
-  const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
   const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
   if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
     throw new SingularityFlowError(
-      `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`);
+      `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`, {
+        code: 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
+        details: capabilityRecovery({
+          stage: 'review', state: 'proposal-history-invalid', remote,
+          branch: proposalBranch, recoverable: true,
+          preserved: ['approved-configuration', 'application-branches', 'proposal-branch']
+        })
+      });
   }
+  const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
   const mergeBase = mergeBaseResult.stdout.trim();
   const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
     cwd: root, allowFailure: true
@@ -1057,6 +1077,279 @@ export async function inspectCapabilityProposal(url, branch) {
     inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref));
 }
 
+function capabilityFsckCheck(id, status, summary, {
+  branch = null, commit = null, remediation = null, details = null
+} = {}) {
+  return { id, status, summary, branch, commit, remediation, details };
+}
+
+/** Verify the approved capability authority and every retained proposal without changing a ref. */
+export async function capabilityFsck(url, { workspaces = [] } = {}) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED'
+  });
+  const lead = sanitizeRemote(remote);
+  const checks = [];
+  let organisation = null;
+  try {
+    organisation = await readOrganisation(remote, { refresh: true });
+    if (!organisation.governed) {
+      checks.push(capabilityFsckCheck(
+        'approved-capability-map', 'fail',
+        `The approved '${CONFIGURATION_BRANCH}' branch has no capability map.`,
+        { remediation: `singularity-flow capability map <CAPABILITY-ID> --lead ${quoted(lead)} --json` }
+      ));
+    } else {
+      checks.push(capabilityFsckCheck(
+        'approved-capability-map', 'pass',
+        `Approved capability configuration is readable from '${organisation.branch}'.`,
+        { branch: organisation.branch }
+      ));
+      const projected = organisation.sourceBranch !== CONFIGURATION_BRANCH;
+      checks.push(capabilityFsckCheck(
+        'state-projection', projected ? 'pass' : 'warn',
+        projected
+          ? `The capability read mirror is current on '${organisation.sourceBranch}'.`
+          : 'The approved map is readable, but its state-branch mirror is absent or stale.',
+        projected ? { branch: organisation.sourceBranch, commit: organisation.sourceCommit } : {
+          remediation: capabilityCommand('publish', { remote })
+        }
+      ));
+    }
+  } catch (error) {
+    checks.push(capabilityFsckCheck(
+      'approved-capability-map', 'fail', redactDiagnosticText(error?.message ?? String(error)),
+      { remediation: `singularity-flow capability organisation ${quoted(lead)} --refresh --json` }
+    ));
+  }
+
+  const capabilityIds = (nodes, output = new Set()) => {
+    for (const node of nodes ?? []) {
+      if (node?.id) output.add(node.id);
+      capabilityIds(node?.children, output);
+    }
+    return output;
+  };
+  const knownCapabilities = capabilityIds(organisation?.capabilities);
+  const matchingWorkspaces = workspaces.filter((workspace) => {
+    const authority = workspace?.capabilityAuthority?.url;
+    if (authority) return sanitizeRemote(authority) === lead;
+    return Object.values(workspace?.repositories ?? {})
+      .some((repository) => sanitizeRemote(repository?.url) === lead);
+  });
+  for (const workspace of matchingWorkspaces) {
+    const requested = [...new Set([
+      ...(workspace.capabilities ?? []),
+      ...Object.values(workspace.repositories ?? {})
+        .flatMap((repository) => repository?.capabilities ?? [])
+    ])].sort();
+    const unknown = requested.filter((capability) => !knownCapabilities.has(capability));
+    checks.push(capabilityFsckCheck(
+      `workspace:${workspace.id}:capability-binding`, unknown.length ? 'fail' : 'pass',
+      unknown.length
+        ? `Workspace '${workspace.name ?? workspace.id}' references capability IDs absent from approved '${CONFIGURATION_BRANCH}': ${unknown.join(', ')}.`
+        : `Workspace '${workspace.name ?? workspace.id}' capability bindings exist in approved configuration.`,
+      unknown.length ? {
+        remediation: `singularity-flow capability map ${quoted(unknown[0])} --lead ${quoted(lead)} --json`,
+        details: {
+          workspaceId: workspace.id,
+          workspacePath: workspace.path ?? null,
+          unknown,
+          alternatives: [
+            'If the ID is correct, map, review, and activate that capability on the configuration authority.',
+            `If the workspace ID is wrong, correct it with 'singularity-flow workspace update' after selecting a valid capability.`
+          ]
+        }
+      } : { details: { workspaceId: workspace.id, requested } }
+    ));
+  }
+
+  let proposals = [];
+  try {
+    proposals = await listCapabilityProposals(remote, { includeMerged: true, includeDiff: false });
+    if (!proposals.length) {
+      checks.push(capabilityFsckCheck('proposal-catalog', 'pass', 'No capability proposal branches are retained.'));
+    }
+    for (const proposal of proposals) {
+        if (proposal.merged) {
+          checks.push(capabilityFsckCheck(
+            `proposal:${proposal.branch}`, 'pass',
+            'The retained proposal is already contained by approved configuration.',
+            { branch: proposal.branch, commit: proposal.proposalCommit }
+          ));
+        } else if (proposal.valid) {
+          checks.push(capabilityFsckCheck(
+            `proposal:${proposal.branch}`, 'info', 'A valid capability proposal is waiting for review.',
+            {
+              branch: proposal.branch, commit: proposal.proposalCommit,
+              remediation: capabilityCommand('proposal', { remote, branch: proposal.branch })
+            }
+          ));
+        } else if (proposal.discardable) {
+          checks.push(capabilityFsckCheck(
+            `proposal:${proposal.branch}`, 'fail',
+            `The proposal cannot be reviewed or merged because it does not share history with '${CONFIGURATION_BRANCH}'.`,
+            {
+              branch: proposal.branch, commit: proposal.proposalCommit,
+              remediation: capabilityCommand('discard-proposal', {
+                remote, branch: proposal.branch, commit: proposal.proposalCommit,
+                reason: '<WHY THIS STALE PROPOSAL IS NO LONGER NEEDED>'
+              }),
+              details: {
+                alternatives: [
+                  `Recreate the capability from current '${CONFIGURATION_BRANCH}' with 'singularity-flow capability map'.`,
+                  'Discard only after reviewing the exact branch and commit shown by this check.'
+                ]
+              }
+            }
+          ));
+        } else {
+          checks.push(capabilityFsckCheck(
+            `proposal:${proposal.branch}`, 'fail',
+            proposal.failure?.message ?? 'The capability proposal is not valid for activation.',
+            {
+              branch: proposal.branch, commit: proposal.proposalCommit,
+              remediation: proposal.failure?.nextAction?.command
+                ?? capabilityCommand('proposal', { remote, branch: proposal.branch })
+            }
+          ));
+        }
+    }
+  } catch (error) {
+    checks.push(capabilityFsckCheck(
+      'proposal-catalog', 'fail', redactDiagnosticText(error?.message ?? String(error)),
+      { remediation: capabilityCommand('proposals', { remote }) }
+    ));
+  }
+
+  const summary = {
+    passed: checks.filter((entry) => entry.status === 'pass').length,
+    information: checks.filter((entry) => entry.status === 'info').length,
+    warnings: checks.filter((entry) => entry.status === 'warn').length,
+    failures: checks.filter((entry) => entry.status === 'fail').length
+  };
+  return {
+    schemaVersion: 1,
+    checkedAt: new Date().toISOString(),
+    lead,
+    valid: summary.failures === 0,
+    summary,
+    checks,
+    proposals: proposals.map((proposal) => ({
+      branch: proposal.branch,
+      proposalCommit: proposal.proposalCommit,
+      merged: proposal.merged,
+      valid: proposal.valid,
+      status: proposal.status ?? (proposal.merged ? 'merged' : proposal.valid ? 'pending-review' : 'invalid'),
+      discardable: proposal.discardable === true
+    }))
+  };
+}
+
+/** Delete one provably stale proposal branch with an exact remote-SHA lease. */
+export async function discardStaleCapabilityProposal(url, branch, {
+  confirm = null, reason = null
+} = {}) {
+  const remote = String(url ?? '').trim();
+  if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED'
+  });
+  const proposalBranch = capabilityProposalBranch(branch);
+  const explanation = String(reason ?? '').trim();
+  if (!explanation) {
+    throw new SingularityFlowError('Discarding a stale capability proposal requires --reason <TEXT>. Nothing was changed.', {
+      code: 'CAPABILITY_PROPOSAL_DISCARD_REASON_REQUIRED'
+    });
+  }
+  if (explanation.length > 500) {
+    throw new SingularityFlowError('Capability proposal discard reason must be 500 characters or fewer. Nothing was changed.', {
+      code: 'CAPABILITY_PROPOSAL_DISCARD_REASON_INVALID'
+    });
+  }
+  const proposals = await listCapabilityProposals(remote, { includeMerged: true, includeDiff: false });
+  const proposal = proposals.find((entry) => entry.branch === proposalBranch);
+  if (!proposal) {
+    throw new SingularityFlowError(
+      `Capability proposal '${proposalBranch}' does not exist. Refresh fsck before retrying; nothing was changed.`, {
+        code: 'CAPABILITY_PROPOSAL_NOT_FOUND'
+      }
+    );
+  }
+  const expected = proposal.proposalCommit;
+  if (String(confirm ?? '').trim() !== expected) {
+    throw new SingularityFlowError(
+      `Confirmation must equal the current full proposal commit '${expected}'. Nothing was changed.`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_CONFIRMATION_MISMATCH',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          nextAction: {
+            command: capabilityCommand('discard-proposal', {
+              remote, branch: proposalBranch, commit: expected, reason: explanation
+            }),
+            skill: '/sf-capability-map'
+          }
+        }
+      }
+    );
+  }
+  if (!proposal.discardable) {
+    throw new SingularityFlowError(
+      `Capability proposal '${proposalBranch}' is reviewable and cannot be discarded as stale. Review or activate it instead; nothing was changed.`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_NOT_STALE',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          nextAction: {
+            command: capabilityCommand('proposal', { remote, branch: proposalBranch }),
+            skill: '/sf-capability-map'
+          }
+        }
+      }
+    );
+  }
+
+  const targetRef = `refs/heads/${proposalBranch}`;
+  const deleted = runRemoteGit([
+    'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
+    remote, `:${targetRef}`
+  ], { operation: 'remote-push' });
+  if (deleted.status !== 0) {
+    throw new SingularityFlowError(
+      `Stale proposal '${proposalBranch}' was not discarded. The remote may have moved or refused the exact deletion. ${deleted.failure?.advice ?? 'Refresh fsck and retry.'}`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_FAILED',
+        details: {
+          lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected,
+          nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' },
+          preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+        }
+      }
+    );
+  }
+  const observed = new GitRemoteSession().observe(remote, {
+    includeHead: false, refs: [targetRef], refresh: true
+  });
+  if (!observed.ok || observed.refs.has(targetRef)) {
+    throw new SingularityFlowError(
+      `The remote did not verify removal of stale proposal '${proposalBranch}'. Run capability fsck before taking another action.`, {
+        code: 'CAPABILITY_PROPOSAL_DISCARD_UNVERIFIED',
+        details: { lead: sanitizeRemote(remote), proposalBranch, proposalCommit: expected }
+      }
+    );
+  }
+  return {
+    schemaVersion: 1,
+    status: 'discarded',
+    discarded: true,
+    lead: sanitizeRemote(remote),
+    branch: proposalBranch,
+    proposalCommit: expected,
+    reason: explanation,
+    discardedAt: new Date().toISOString(),
+    preserved: ['approved-configuration', 'state-projection', 'application-branches', 'other-proposal-branches'],
+    nextAction: { command: capabilityCommand('fsck', { remote }), skill: '/sf-capability-map' }
+  };
+}
+
 /**
  * Merge one exact reviewed proposal into the configuration authority, then refresh its projection.
  *
@@ -1090,9 +1383,15 @@ export async function activateCapabilityProposal(url, branch, {
       }
       const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
       if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
-        const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+        const nextAction = {
+          command: capabilityCommand('discard-proposal', {
+            remote, branch: proposalBranch, commit: proposalCommit,
+            reason: '<WHY THIS STALE PROPOSAL IS NO LONGER NEEDED>'
+          }),
+          skill: '/sf-capability-map'
+        };
         throw new SingularityFlowError(
-          `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'. Nothing was changed. Inspect or replace the preserved proposal.`, {
+          `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'. Nothing was changed. Run capability fsck, then recreate or discard only the exact preserved proposal.`, {
             code: 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
             details: capabilityRecovery({
               stage: 'activation', state: 'proposal-invalid', remote,

@@ -917,6 +917,9 @@ singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode set --paren
 singularity-flow capability edit <CAPABILITY-ID> --lead <URL> --mode remove --reparent-children-to <PARENT-ID>
 singularity-flow capability proposals --lead <URL>
 singularity-flow capability proposal <REVIEW-BRANCH> --lead <URL>
+singularity-flow capability fsck --lead <URL> [--json]
+singularity-flow capability discard-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-COMMIT> --reason <TEXT> [--json]
 singularity-flow capability activate <REVIEW-BRANCH> --lead <URL> --confirm <FULL-COMMIT> [--acknowledge-unprotected]
 singularity-flow capability publish --lead <URL>
 singularity-flow capability organisation [LEAD-URL] [--refresh] [--json]
@@ -988,6 +991,18 @@ the exact configuration-branch commit. If the remote becomes unreachable, the la
 validated result is returned with `stale: true`; `--refresh` bypasses a current cache
 entry and contacts the remote. VS Code shows the same stale warning without hiding
 the cached capability choices.
+
+`capability fsck` is a read-only integrity pass over the approved capability map,
+registered workspace capability bindings, its state projection, and every retained
+capability proposal. It distinguishes valid pending review from invalid configuration
+and from an unrelated-history branch that
+cannot be merged. For the last case, the result prints both safe choices: recreate the
+capability from current `sflow/config`, or discard the stale proposal. Discard requires
+the complete currently advertised proposal commit and a reason, uses an exact remote-SHA
+lease, and refuses when the branch moved or became reviewable. It never changes
+`sflow/config`, state, application branches, or another proposal. The VS Code
+**Review capability proposals** dashboard exposes the same **Check integrity** and
+**Discard stale proposal** actions.
 
 A newly created Story branch receives an immutable copy of the approved revision.
 `singularity/configuration-source.json` records the configuration repository,

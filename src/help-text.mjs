@@ -520,8 +520,14 @@ Usage:
   those direct children to the top level; older reviewed map revisions remain available in Git.
   singularity-flow capability publish [--lead URL] [--json]
     (after a capability review branch is merged, refresh its orphan state projection)
+  singularity-flow capability fsck [--lead URL] [--json]
+    (read-only verification of registered workspace bindings, approved configuration,
+     state projection, and proposal refs; returns exact remediation commands)
   singularity-flow capability proposals [--lead URL] [--all] [--json]
   singularity-flow capability proposal <REVIEW-BRANCH> [--lead URL] [--json]
+  singularity-flow capability discard-proposal <REVIEW-BRANCH> [--lead URL]
+    --confirm <FULL-COMMIT> --reason TEXT [--json]
+    (deletes only a provably unrelated-history proposal at the exact current remote commit)
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
     (review and normally merge one exact proposal into sflow/config, then refresh its projection;

@@ -28,7 +28,8 @@ disable-model-invocation: true
 
 7. On `CAPABILITY_CONFIGURATION_UNPROTECTED`, explain the exception and ask explicit acceptance. Only then repeat with `--acknowledge-unprotected`.
 8. If branch protection or permissions reject activation, report the preserved branch for external review. After confirmed merge into `sflow/config`, run the same exact-hash `capability activate` command again to record the audit and projection.
-9. Run `capability organisation <LEAD-URL> --refresh --json`; report the active tree.
+9. On `CAPABILITY_PROPOSAL_HISTORY_INVALID`, run `singularity-flow capability fsck --lead <LEAD-URL> --json`. Offer its two explicit recovery choices: recreate the mapping from current `sflow/config`, or discard only the unrelated-history proposal with the engine-provided exact full commit after collecting a reason. Never discard a valid proposal.
+10. Run `capability organisation <LEAD-URL> --refresh --json`; report the active tree.
 
 ## Starting from nothing
 

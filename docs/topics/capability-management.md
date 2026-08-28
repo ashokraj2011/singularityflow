@@ -11,7 +11,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 3
+version: 4
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -33,6 +33,23 @@ Use this topic when the current goal matches **capability management**. Start in
 4. Activate the exact reviewed commit. Flow dry-runs the push to `sflow/config`; if the remote permits the direct update, CLI callers must add `--acknowledge-unprotected` after reviewing that fact.
 5. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
 
+Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
+the state projection looks inconsistent, or a workspace says its selected capability
+does not exist. It checks every registered workspace binding against the approved map
+and returns exact branches, commits, issue classifications, and remediation commands
+without changing a ref. An unrelated-history proposal cannot be reviewed or merged.
+Recreate it from current `sflow/config`, or
+discard only the fsck-reported ref with:
+
+```bash
+singularity-flow capability discard-proposal <REVIEW-BRANCH> --lead <URL> \
+  --confirm <FULL-COMMIT> --reason "configuration authority was re-created" --json
+```
+
+The remote-SHA lease refuses a branch that moved. A valid proposal is never eligible
+for stale discard, and approved configuration, state, application branches, and other
+proposal branches are preserved.
+
 For a delivery in a large monorepo, **Map a capability** also records two independent boundaries. **World-model application/shared roots** decide which paths can ground this capability. **Clone strategy/sparse checkout directories** decide which bytes a new workspace materializes. Prefer `blobless-sparse` with `fallback: refuse`; Flow always includes its governed configuration and agent contracts. These settings are reviewed and activated with the rest of the capability proposal rather than stored as an ungoverned developer preference.
 
 In VS Code, select a capability to navigate its direct parent and children. **Add child** opens the mapping form with the selected parent prefilled. To move an existing capability, change **Linked under** and save; the engine stores one canonical parent link and derives the parent's child list from it, so both views update together.
@@ -53,6 +70,7 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and cac
 - If activation reports an unprotected authority, either configure remote protection or deliberately repeat it with `--acknowledge-unprotected`; never treat that flag as a generic retry switch.
 - If an organisation result is stale, its choices remain usable for inspection, but refresh before proposing or activating a change.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If fsck reports unrelated proposal history, never force-merge or rebase it into `sflow/config`. Use **Discard stale proposal** only after reviewing its exact commit, or create a fresh map proposal from the current authority.
 - If removal is refused because the capability still contains children, choose a replacement parent in VS Code or pass `--reparent-children-to`; descendants of the removed capability are intentionally unavailable because they would create a cycle.
 
 ## Related topics

@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -207,6 +207,15 @@ const STORY_SUBCOMMANDS = Object.freeze([
 const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 'candidates', 'status']);
 const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'repair-selection']);
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
+const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
+  'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads'
+]);
+const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
+  'add', 'set', 'remove', 'map', 'edit', 'publish', 'activate', 'discard-proposal', 'repository'
+]);
+const CAPABILITY_SUBCOMMANDS = Object.freeze([
+  ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS
+]);
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
@@ -227,6 +236,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   spec: SPEC_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
   session: SESSION_SUBCOMMANDS,
+  capability: CAPABILITY_SUBCOMMANDS,
   wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast', 'recovery']),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration',
@@ -687,6 +697,18 @@ function resolveSessionOperation(definition, positionals) {
   );
 }
 
+function resolveCapabilityOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'tree';
+  if (!CAPABILITY_SUBCOMMANDS.includes(subcommand)) {
+    return unknownSubcommand('capability', subcommand, CAPABILITY_SUBCOMMANDS);
+  }
+  return never(
+    `capability.${subcommand}`,
+    definition,
+    CAPABILITY_READ_SUBCOMMANDS.includes(subcommand) ? 'read' : 'mutation'
+  );
+}
+
 export function resolveOperation({ requestedCommand, positionals, options = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
@@ -719,6 +741,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
   if (definition.name === 'session') return resolveSessionOperation(definition, positionals);
+  if (definition.name === 'capability') return resolveCapabilityOperation(definition, positionals);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
   return unclassified(definition.name);
 }
@@ -780,6 +803,7 @@ export function operationCatalog() {
   const specDefinition = commandDefinition('spec');
   const storyDefinition = commandDefinition('story');
   const sessionDefinition = commandDefinition('session');
+  const capabilityDefinition = commandDefinition('capability');
   const constitutionDefinition = commandDefinition('constitution');
   const visualDefinition = commandDefinition('visual');
   const clarificationDefinition = commandDefinition('clarification');
@@ -883,6 +907,8 @@ export function operationCatalog() {
       .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...SESSION_READ_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'read')),
     ...SESSION_MUTATION_SUBCOMMANDS.map((name) => never(`session.${name}`, sessionDefinition, 'mutation')),
+    ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
+    ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
     ...CONSTITUTION_READ_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
     ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
   ];

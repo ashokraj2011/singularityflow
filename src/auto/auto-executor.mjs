@@ -13,7 +13,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { composePhasePrompt } from '../worldmodel.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
-import { applicationChangeSetProjection } from '../work-intervals.mjs';
+import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { readAutoPlan, revalidateAutoPlan } from './auto-plan.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
@@ -435,7 +435,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         subject: { kind: 'story', id: state.story.workId, phase: phase.id }
       });
       const protectedResult = protectedPathEvaluation(definition, workflow, changeSet);
-      const applicationChangeSet = applicationChangeSetProjection(changeSet);
+      const applicationChangeSet = applicationChangeSetProjection(
+        changeSet, applicationPathContext(definition, workflow)
+      );
       const applicationEntries = applicationChangeSet.entries;
       const files = [...new Set(applicationEntries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
       const protectedPaths = protectedResult.violations.map((violation) => violation.path);

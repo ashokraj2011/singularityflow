@@ -14,7 +14,7 @@ import {
 import { invokeModel } from './model-runner.mjs';
 import { nullLogger, repositoryLogger } from './logging.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
-import { isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
@@ -3064,13 +3064,16 @@ async function factsCommand(root, options) {
   return facts;
 }
 
-function workflowChangedPaths(root, workflow) {
+function workflowChangedPaths(root, definition, workflow) {
   const pending = changedFiles(root);
+  const pathContext = applicationPathContext(definition, workflow);
   const base = workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch;
-  if (!base) return pending.map(posix).filter(isApplicationPath).sort();
+  if (!base) return pending.map(posix)
+    .filter((candidate) => isApplicationPath(candidate, pathContext)).sort();
   const committed = run('git', ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, 'HEAD', '--'], { cwd: root, allowFailure: true });
   const files = committed.status === 0 ? committed.stdout.split(/\r?\n/).filter(Boolean) : [];
-  return [...new Set([...files, ...pending])].map(posix).filter(isApplicationPath).sort();
+  return [...new Set([...files, ...pending])].map(posix)
+    .filter((candidate) => isApplicationPath(candidate, pathContext)).sort();
 }
 
 function groundingSectionsText(selected, rulePaths) {
@@ -3197,7 +3200,7 @@ async function compose(root, options) {
     agent,
     phase: requestedPhase ?? workflow?.currentPhase ?? null,
     workType: workflow?.workItem?.workType ?? null,
-    changedPaths: workflowChangedPaths(root, workflow),
+    changedPaths: workflowChangedPaths(root, definition, workflow),
     labels: source?.labels ?? []
   };
   if (!signals.phase) throw new SingularityFlowError('Provide --phase or run from an active work-item branch.');

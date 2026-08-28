@@ -14,11 +14,13 @@ import test from 'node:test';
 import { acquireSubjectLock, subjectLockPath, withSubjectLock } from '../src/subject-lock.mjs';
 import { GOVERNED_ROOTS, initializeDefinition } from '../src/config.mjs';
 import {
-  isApplicationChangePath, isApplicationPath, isGeneratedOutputPath, isTransientTestResultPath
+  applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
+  isGeneratedOutputPath, isTransientTestResultPath
 } from '../src/work-intervals.mjs';
 import { assertNotDefaultBranch, defaultBranchName, protectedBranchNames } from '../src/git.mjs';
 import { DEFAULT_IMPACT_METRIC_AUTHORITIES } from '../src/impact-config.mjs';
 import { selectAuthoritativeImpactEvidence } from '../src/impact.mjs';
+import { sourceTreeHash } from '../src/state-stores.mjs';
 import { run } from '../src/util.mjs';
 
 async function repository(branch = 'main', { remoteDefault = branch } = {}) {
@@ -275,4 +277,34 @@ test('governance material does not consume a work interval', () => {
 
   // Derived from the one list, so a new governed root cannot silently become application source.
   for (const root of GOVERNED_ROOTS) assert.equal(isApplicationPath(`${root}/anything.md`), false);
+
+  const configured = applicationPathContext(
+    { workItemRoot: 'governed/story-state' },
+    { resolution: { initiativeRoot: 'portfolio/initiative-state' } }
+  );
+  for (const governed of [
+    'governed/story-state/CUSTOM-1/workflow.json',
+    'portfolio/initiative-state/INIT-1/state.json'
+  ]) {
+    assert.equal(isApplicationPath(governed, configured), false,
+      `${governed} follows its configured governance root`);
+    assert.equal(isApplicationChangeEntry({ status: 'added', newPath: governed }, configured), false);
+  }
+  assert.equal(isApplicationPath('governed/product-rules.js', configured), true,
+    'a similarly named application directory is not excluded without an exact configured root');
+});
+
+test('configured governance roots do not perturb the application source tree hash', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const config = { workItemRoot: 'governed/story-state' };
+  const before = await sourceTreeHash(root, config);
+  await mkdir(path.join(root, config.workItemRoot, 'CUSTOM-1'), { recursive: true });
+  await writeFile(path.join(root, config.workItemRoot, 'CUSTOM-1', 'workflow.json'), '{"status":"in_progress"}\n');
+  run('git', ['add', config.workItemRoot], { cwd: root });
+
+  assert.equal(await sourceTreeHash(root, config), before,
+    'Story lifecycle projection is excluded even after it is staged');
+  assert.notEqual(await sourceTreeHash(root), before,
+    'without the configured boundary the same tracked bytes would be mistaken for application source');
 });

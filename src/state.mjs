@@ -93,7 +93,8 @@ import {
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
-  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath, isApplicationPath,
+  applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
+  isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
   recordFinalReconciliation
 } from './work-intervals.mjs';
@@ -876,7 +877,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) {
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
-      const paths = changedFiles(root).map(posix).filter(isApplicationPath);
+      const pathContext = applicationPathContext(config, workflow);
+      const paths = changedFiles(root).map(posix)
+        .filter((candidate) => isApplicationPath(candidate, pathContext));
       const checks = (phase.qualityCommands ?? []).length
         ? phase.qualityCommands.map((command, index) => `- \`${externalCommandText(command, index)}\``).join('\n')
         : '- No mandatory commands are configured for this phase.';
@@ -1272,17 +1275,20 @@ function rebuildUsageAggregates(workflow) {
   }
 }
 
-export async function sourceTreeHash(root) {
+export async function sourceTreeHash(root, ...governanceSources) {
+  const pathContext = applicationPathContext(...governanceSources);
   const indexed = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
     .map((line) => {
       const tab = line.indexOf('\t');
       const [mode, object, stage] = line.slice(0, tab).split(' ');
       return { path: posix(line.slice(tab + 1)), mode, object, stage: Number(stage) };
     })
-    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path));
+    .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
   const unstaged = new Set(run('git', ['diff', '--name-only', '-z', 'HEAD', '--'], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
-  for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, { untracked: true }))) {
+  for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, {
+    ...pathContext, untracked: true
+  }))) {
     byPath.set(relative, { path: relative, mode: null, object: null, stage: 0, untracked: true });
     unstaged.add(relative);
   }
@@ -1343,7 +1349,7 @@ export async function generationResultDigest(root, config, workflow, phase) {
     publicationFiles.push({ path: relative, exists: current.exists, sha256: current.sha256, bytes: current.size });
   }
   return `sha256:${createHash('sha256').update(canonicalJson({
-    sourceTreeSha256: await sourceTreeHash(root),
+    sourceTreeSha256: await sourceTreeHash(root, config, workflow),
     publicationFiles,
     bindings: {
       phase: phase.id,
@@ -1607,7 +1613,7 @@ export async function publishGeneration(root, config, workflow, {
     const receiptPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}.json`;
     const changeSetPath = `${deliveryRoot}/${phase.id}-gen${phase.generation}-changes.json`;
     await writeJson(path.join(root, changeSetPath), deliveryPreflight.changeSet);
-    const workingStateDigest = await sourceTreeHash(root);
+    const workingStateDigest = await sourceTreeHash(root, config, workflow);
     const receipt = {
       schemaVersion: currentSchemaVersion('code-delivery'),
       kind: 'code-delivery',
@@ -1748,7 +1754,7 @@ export async function publishGeneration(root, config, workflow, {
     ].sort((left, right) => left.generation - right.generation);
   }
   phase.sourceCommit = head(root);
-  if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root);
+  if (phase.id === 'conformance') phase.conformanceTree = await sourceTreeHash(root, config, workflow);
   phase.usage.push(...normalizedUsage);
   const telemetry = await recordPhaseTelemetry(root, workflow, phase, normalizedUsage, capture, {
     itemDirectory: workDir(root, config, workflow.workItem.id), itemRelative: workDirRelative(config, workflow.workItem.id)
@@ -1955,7 +1961,7 @@ async function restoreTransientQualityResult(check) {
 async function qualityChecks(root, phase, config, commands = phase.qualityCommands ?? []) {
   const checks = [];
   const sourceCommit = head(root);
-  const sourceTreeSha256 = await sourceTreeHash(root);
+  const sourceTreeSha256 = await sourceTreeHash(root, config);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
@@ -2229,7 +2235,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
         { code: 'CODE_DELIVERY_RECEIPT_MISSING' }
       );
     }
-    const currentTree = await sourceTreeHash(root);
+    const currentTree = await sourceTreeHash(root, config, workflow);
     if (evidence.sourceTreeSha256 !== currentTree) {
       throw new SingularityFlowError(
         `Phase ${phase.id} code or tests changed after publication. Publish a fresh generation before submission.`,
@@ -2405,7 +2411,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       : null;
     phase.deliveryEvidence.validation = {
       sourceCommit: phase.generationCommit,
-      sourceTreeSha256: await sourceTreeHash(root),
+      sourceTreeSha256: await sourceTreeHash(root, config, workflow),
       commands: deliveryCommands.map((command, index) => ({
         id: phase.checks[index]?.id ?? `quality-${index + 1}`,
         command: externalCommandText(command, index)
@@ -2453,7 +2459,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       testExecutions: testExecutions.map(({ affectedRoots: _affectedRoots, ...entry }) => entry),
       tree: {
         ...deliveryReceipt.tree,
-        workingStateDigest: await sourceTreeHash(root),
+        workingStateDigest: await sourceTreeHash(root, config, workflow),
         generationCommit: phase.generationCommit,
         generationTree
       },
@@ -2648,7 +2654,7 @@ export async function approvePhase(root, config, workflow, {
   }
   if (phaseRequiresCodeDelivery(phase)) {
     const validation = phase.deliveryEvidence?.validation;
-    const currentTree = await sourceTreeHash(root);
+    const currentTree = await sourceTreeHash(root, config, workflow);
     if (!validation || validation.status !== 'passed') {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
@@ -2722,7 +2728,8 @@ export async function approvePhase(root, config, workflow, {
         minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
         requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
         minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
-        evidenceCommit: submittedReview.evidenceCommit
+        evidenceCommit: submittedReview.evidenceCommit,
+        pathContext: applicationPathContext(config, workflow)
       });
       if (!replay.valid) {
         throw new SingularityFlowError(
@@ -3723,7 +3730,9 @@ export async function reopenWorkflow(root, config, workflow, {
 function reworkScopePath(config, workflow, candidate, { untracked = false } = {}) {
   const relative = posix(String(candidate ?? ''));
   if (!relative) return false;
-  if (isApplicationChangePath(relative, { untracked })) return true;
+  if (isApplicationChangePath(relative, {
+    ...applicationPathContext(config, workflow), untracked
+  })) return true;
   const itemRoot = posix(workDirRelative(config, workflow.workItem.id));
   if (!(relative === itemRoot || relative.startsWith(`${itemRoot}/`))) return false;
   const child = relative.slice(itemRoot.length).replace(/^\//, '');

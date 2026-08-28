@@ -18,7 +18,7 @@ import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
 import {
-  isApplicationChangeEntry, isGeneratedOutputPath, verifyWorkIntervalBaseline
+  applicationPathContext, isApplicationChangeEntry, isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -35,10 +35,11 @@ function pathInside(candidate, root) {
  * only supplies deterministic repository roles and clearly labels its path-policy inference.
  */
 export function classifyDeliveryChanges(changeSet, {
-  generatedRoots = [], declaredOrigins = []
+  generatedRoots = [], declaredOrigins = [], pathContext = null
 } = {}) {
   const roots = [...new Set(generatedRoots.map(posix).filter(Boolean))];
-  const entries = (changeSet?.entries ?? []).filter(isApplicationChangeEntry).map((entry) => {
+  const entries = (changeSet?.entries ?? [])
+    .filter((entry) => isApplicationChangeEntry(entry, pathContext)).map((entry) => {
     const candidate = entry.newPath ?? entry.oldPath;
     const configuredGenerated = roots.some((root) => pathInside(candidate, root));
     const testOutput = /(?:^|\/)(?:\.sflow\/results|coverage|test-results|surefire-reports)(?:\/|$)/i.test(candidate ?? '');
@@ -294,7 +295,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       { code: 'CHANGE_SET_POLICY_VIOLATION' }
     );
   }
-  const applicationEntries = changeSet.entries.filter(isApplicationChangeEntry);
+  const pathContext = applicationPathContext(config, workflow);
+  const applicationEntries = changeSet.entries
+    .filter((entry) => isApplicationChangeEntry(entry, pathContext));
   const applicationChangeSet = { ...changeSet, entries: applicationEntries };
   const boundaryResult = evaluateSourceBoundary(applicationChangeSet, phase.sourceBoundary, {
     phaseId: phase.id, allowedPath: isAllowedTestAutomationPath
@@ -400,7 +403,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     generationIntentId: phase.generationIntent?.id ?? null,
     changeSet,
     changeClassification: classifyDeliveryChanges(changeSet, {
-      generatedRoots: workflow.resolution?.ast?.generatedRoots ?? config.ast?.generatedRoots ?? []
+      generatedRoots: workflow.resolution?.ast?.generatedRoots ?? config.ast?.generatedRoots ?? [],
+      pathContext
     }),
     paths: await pathEvidence(root, [...new Set([
       ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths
@@ -563,7 +567,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   minimumPassed = 1,
   requireAffectedModuleCoverage = true,
   minimumModelAssurance = 'unavailable',
-  evidenceCommit = null
+  evidenceCommit = null,
+  pathContext = null
 } = {}) {
   const errors = [];
   const fail = (message) => errors.push(message);
@@ -598,7 +603,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (!protectedResult.valid) fail(`protected path policy fails: ${protectedResult.violations.map((item) => item.path).join(', ')}`);
     const applicationChangeSet = {
       ...changeSet,
-      entries: changeSet.entries.filter(isApplicationChangeEntry)
+      entries: changeSet.entries.filter((entry) => isApplicationChangeEntry(entry, pathContext))
     };
     const boundary = evaluateSourceBoundary(applicationChangeSet, sourceBoundary, {
       phaseId: receipt.phase, allowedPath: isAllowedTestAutomationPath

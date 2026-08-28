@@ -29,6 +29,7 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
+import { applicationPathContext } from './application-paths.mjs';
 import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
@@ -237,7 +238,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
               minimumDiscovered: workflow.resolution?.codeDelivery?.tests?.minimumDiscovered ?? 1,
               minimumPassed: workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1,
               requireAffectedModuleCoverage: workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false,
-              minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable'
+              minimumModelAssurance: workflow.resolution?.codeDelivery?.model?.minimumAssurance ?? 'unavailable',
+              pathContext: applicationPathContext(config, workflow)
             });
             errors.push(...replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`));
             if (replay.valid) passes.push(`code delivery verified: ${phaseId} generation ${generation}`);
@@ -368,7 +370,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         base: workflow.workItem.baseCommit
           ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit
           ?? workflow.workItem.baseBranch,
-        target: 'HEAD'
+        target: 'HEAD',
+        pathContext: applicationPathContext(config, workflow)
       }), specPolicy, { root });
       const messages = [
         ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
@@ -383,7 +386,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (specPolicy.acceptance !== 'off') {
       const acceptance = evaluateSpecAcceptance(records, specPolicy, {
         workId: workflow.workItem.id,
-        sourceTreeSha256: await specificationSourceTreeHash(root),
+        sourceTreeSha256: await specificationSourceTreeHash(
+          root, applicationPathContext(config, workflow)
+        ),
         commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
       });
       const messages = [
@@ -429,7 +434,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     for (const finding of blockingVerdicts) {
       errors.push(`conformance ${finding.clauseId} remains ${finding.verdict}`);
     }
-    if (phase.conformanceTree !== await sourceTreeHash(root)) errors.push('conformance report is stale: source/test tree changed after comparison');
+    if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) errors.push('conformance report is stale: source/test tree changed after comparison');
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
   }
 

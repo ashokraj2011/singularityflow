@@ -8,7 +8,9 @@ import {
   SingularityFlowError, exists, nowIso, posix, run, secureRepositoryPath, snapshot, writeJson
 } from './util.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
-import { isApplicationChangePath, isApplicationPath } from './application-paths.mjs';
+import {
+  applicationPathContext, isApplicationChangePath, isApplicationPath
+} from './application-paths.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -489,14 +491,15 @@ export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = 
 }
 
 export async function runSpecAcceptance(root, policy = {}, {
-  commandIds = [], workId = null, phase = null, generation = null, outputPath = null, write = true
+  commandIds = [], workId = null, phase = null, generation = null, outputPath = null, write = true,
+  pathContext = null
 } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const configured = normalized.testCommands;
   const selected = commandIds.length ? [...new Set(commandIds)] : Object.keys(configured);
   for (const id of selected) if (!configured[id]) throw new SingularityFlowError(`Unknown allowlisted specification test command '${id}'.`);
   if (!selected.length) throw new SingularityFlowError('No spec.testCommands are configured. Add an allowlisted argv command before running acceptance.');
-  const sourceTreeBefore = await specificationSourceTreeHash(root);
+  const sourceTreeBefore = await specificationSourceTreeHash(root, pathContext);
   const commandSetSha256 = sha256(canonicalJson(selected.map((id) => ({ id, argv: configured[id] }))));
   const startedAt = nowIso();
   const commands = selected.map((id) => {
@@ -511,7 +514,7 @@ export async function runSpecAcceptance(root, policy = {}, {
       stderr: result.stderr.slice(-65536)
     };
   });
-  const sourceTreeAfter = await specificationSourceTreeHash(root);
+  const sourceTreeAfter = await specificationSourceTreeHash(root, pathContext);
   const sourceChangedDuringRun = sourceTreeBefore !== sourceTreeAfter;
   const record = {
     schemaVersion: currentSchemaVersion('specification-acceptance'),
@@ -539,7 +542,7 @@ export function configuredAcceptanceCommandSetSha256(policy = {}, commandIds = [
   return sha256(canonicalJson(selected.map((id) => ({ id, argv: normalized.testCommands[id] }))));
 }
 
-export async function specificationSourceTreeHash(root) {
+export async function specificationSourceTreeHash(root, pathContext = null) {
   const tracked = run('git', ['ls-files', '-z', '--cached'], { cwd: root, allowFailure: true });
   const untracked = run('git', ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: root, allowFailure: true });
   if (tracked.status !== 0 || untracked.status !== 0) {
@@ -547,9 +550,10 @@ export async function specificationSourceTreeHash(root) {
     throw new SingularityFlowError(`Unable to enumerate repository source for specification acceptance: ${(failure.stderr || failure.stdout).trim() || 'git ls-files failed'}`);
   }
   const files = [...new Set([
-    ...tracked.stdout.split('\0').filter(Boolean).map(posix).filter(isApplicationPath),
+    ...tracked.stdout.split('\0').filter(Boolean).map(posix)
+      .filter((file) => isApplicationPath(file, pathContext)),
     ...untracked.stdout.split('\0').filter(Boolean).map(posix)
-      .filter((file) => isApplicationChangePath(file, { untracked: true }))
+      .filter((file) => isApplicationChangePath(file, { ...pathContext, untracked: true }))
   ])].sort();
   const hash = createHash('sha256');
   for (const file of files) {
@@ -568,7 +572,7 @@ function gitCommit(root) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-export function changedRepositoryPaths(root, { base = null, target = 'HEAD' } = {}) {
+export function changedRepositoryPaths(root, { base = null, target = 'HEAD', pathContext = null } = {}) {
   const args = base
     ? ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, target, '--']
     : ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${target}^`, target, '--'];
@@ -576,8 +580,11 @@ export function changedRepositoryPaths(root, { base = null, target = 'HEAD' } = 
   if (result.status !== 0) {
     throw new SingularityFlowError(`Unable to calculate changed repository paths: ${(result.stderr || result.stdout).trim() || `git diff exited ${result.status}`}`);
   }
-  return result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map(posix).filter(isApplicationPath);
+  return result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map(posix)
+    .filter((file) => isApplicationPath(file, pathContext));
 }
+
+export { applicationPathContext };
 
 export function traceClause(records, clauseId = null) {
   const rows = [];

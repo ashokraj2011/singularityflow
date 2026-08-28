@@ -4,7 +4,7 @@ import { planAgentBriefs } from './agent-briefs.mjs';
 import { evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
-import { applicationChangeSetProjection } from './work-intervals.mjs';
+import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { publishedGenerationCommit } from './generation-boundary.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 
@@ -70,7 +70,9 @@ export async function generationRecovery(root, workflow, phase, generationDigest
           generationIntentId: null
         }
       });
-      const applicationChangeSet = applicationChangeSetProjection(changeSet);
+      const applicationChangeSet = applicationChangeSetProjection(
+        changeSet, applicationPathContext(workflow)
+      );
       if (applicationChangeSet.entries.length) {
         changeSetDigest = applicationChangeSet.digest;
         if (!previousGenerationCommit

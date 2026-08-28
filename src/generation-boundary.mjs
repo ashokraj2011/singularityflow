@@ -9,7 +9,7 @@ import {
   persistGenerationPublicationRecord, publishedGenerationCommit
 } from './generation-publication-store.mjs';
 import { beginTelemetryCapture } from './telemetry.mjs';
-import { applicationChangeSetProjection } from './work-intervals.mjs';
+import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { nowIso, posix, readJson, SingularityFlowError, writeJson } from './util.mjs';
 
 function receiptRelative(config, workflow, phase, generation) {
@@ -96,7 +96,9 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     baseCommit: baselineCommit,
     subject: { workId: workflow.workItem.id, phase: phase.id, generation, generationIntentId: null }
   });
-  const applicationChangeSet = applicationChangeSetProjection(changeSet);
+  const applicationChangeSet = applicationChangeSetProjection(
+    changeSet, applicationPathContext(config, workflow)
+  );
   const existing = applicationChangeSet.entries;
   const dirtyPolicy = workflow.resolution?.codeDelivery?.generationBoundary?.dirtyStart ?? 'block';
   if (existing.length && !adoptExisting) {

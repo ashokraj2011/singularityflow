@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { changedRepositoryPaths, loadActiveSpecRecords } from './specifications.mjs';
+import { applicationPathContext } from './application-paths.mjs';
 import { workDir } from './state-stores.mjs';
 import { run } from './util.mjs';
 
@@ -98,7 +99,10 @@ export async function composeEvidenceReceipt(root, config, workflow, packet) {
   let changedPaths = { status: 'unavailable', count: null, sha256: null };
   try {
     const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
-    const paths = changedRepositoryPaths(root, { base, target: packet.sourceCommit });
+    const paths = changedRepositoryPaths(root, {
+      base, target: packet.sourceCommit,
+      pathContext: applicationPathContext(config, workflow)
+    });
     changedPaths = { status: 'exact', count: paths.length, sha256: digest(paths) };
   } catch {
     // A shallow clone or unavailable base is a truthful unavailable projection, never zero changes.

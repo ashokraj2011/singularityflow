@@ -23,7 +23,7 @@ import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
-import { applicationChangeSetProjection } from './work-intervals.mjs';
+import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
@@ -2910,7 +2910,9 @@ async function specCommand(positionals, options) {
     const records = await loadActiveSpecRecords(itemDirectory, workflow);
     const base = optionString(options, 'base') ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? null;
     const target = optionString(options, 'target', 'HEAD');
-    const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, { base, target }), policy, { root });
+    const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
+      base, target, pathContext: applicationPathContext(config, workflow)
+    }), policy, { root });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(coverage, null, 2));
     else {
       console.log(`Clause coverage: ${coverage.complete ? 'complete' : coverage.severity} · ${coverage.totals.observed}/${coverage.totals.clauses} observed · ${coverage.totals.changedPaths} changed path(s).`);
@@ -2942,14 +2944,17 @@ async function specCommand(positionals, options) {
       phase: phase.id,
       generation,
       outputPath: relative,
-      write: true
+      write: true,
+      pathContext: applicationPathContext(config, workflow)
     });
     const records = await loadActiveSpecRecords(itemDirectory, workflow);
     const evaluation = evaluateSpecAcceptance({ ...records, acceptance: [...records.acceptance, result] }, policy, {
       workId: workflow.workItem.id,
       phase: phase.id,
       generation,
-      sourceTreeSha256: await specificationSourceTreeHash(root),
+      sourceTreeSha256: await specificationSourceTreeHash(
+        root, applicationPathContext(config, workflow)
+      ),
       // A partial command run remains useful evidence, but it cannot satisfy a
       // policy that configures a larger command set.
       commandSetSha256: configuredAcceptanceCommandSetSha256(policy)
@@ -3744,8 +3749,9 @@ async function phaseCommand(positionals, options) {
           targetPath, publicationArtifactContract, publicationAuthoringOptions
         )).sha256;
         const deliveryBaseline = phase.deliveryEvidence?.baselineCommit ?? null;
+        const pathContext = applicationPathContext(config, workflow);
         const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
-          ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet).digest
+          ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet, pathContext).digest
           : null;
         publicationStabilityGuard = async () => {
           const artifact = await inspectInPlaceArtifact(
@@ -3769,7 +3775,7 @@ async function phaseCommand(positionals, options) {
                 generationIntentId: phase.generationIntent?.id ?? null
               }
             });
-            applicationDigest = applicationChangeSetProjection(current).digest;
+            applicationDigest = applicationChangeSetProjection(current, pathContext).digest;
             if (applicationDigest !== expectedApplicationDigest) {
               throw new SingularityFlowError(
                 'Application source or test bytes changed after validation and before the governed commit. '

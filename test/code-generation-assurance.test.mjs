@@ -155,6 +155,46 @@ test('code delivery accepts only exact protected configuration projected at Stor
   );
 });
 
+test('code delivery excludes lifecycle state stored under a configured custom Story root', async (t) => {
+  const root = await repository('custom-story-root');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['switch', '-c', 'CGA-CUSTOM-ROOT']);
+  const workItemRoot = 'governed/story-state';
+  const phase = {
+    id: 'implementation', generation: 0, status: 'in_progress',
+    writeScope: 'source-and-artifact', sourceBoundary: 'unrestricted',
+    generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' }
+  };
+  const workflow = {
+    workItem: { id: 'CGA-CUSTOM-ROOT', workType: 'feature', branch: 'CGA-CUSTOM-ROOT' },
+    currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase },
+    resolution: {
+      workItemRoot, configSha256: 'c'.repeat(64), sourceSha256: 's'.repeat(64), templates: {},
+      capability: { policy: { protectedPaths: [] } }, codeDelivery: normalizeCodeDeliveryPolicy()
+    },
+    lineage: { canonicalBranch: 'CGA-CUSTOM-ROOT', requiredChecks: [] }, history: []
+  };
+  const config = {
+    workItemRoot, governance: { requireAcceptanceCriteriaTags: false }, workTypes: { feature: {} }
+  };
+  const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
+  await mkdir(itemDirectory, { recursive: true });
+  await writeFile(path.join(itemDirectory, 'workflow.json'), `${JSON.stringify(workflow)}\n`);
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory,
+    itemRelative: path.relative(root, itemDirectory).replaceAll(path.sep, '/')
+  });
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = "custom-root";\n');
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), 'test("custom root", () => {});\n');
+
+  const evidence = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.ok(evidence.changeClassification.entries.some((entry) => entry.newPath === 'src/payment.js'));
+  assert.ok(evidence.changeClassification.entries.every((entry) =>
+    !(entry.newPath ?? entry.oldPath)?.startsWith(`${workItemRoot}/`)),
+  'custom-root lifecycle records are not application delivery');
+});
+
 test('protected-path evaluation checks the source and destination of renames', () => {
   const changeSet = {
     entries: [{ changeId: 'one', status: 'renamed', oldPath: 'singularity/workflow.yml', newPath: 'archive/workflow.yml' }]

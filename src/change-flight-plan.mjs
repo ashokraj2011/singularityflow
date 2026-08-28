@@ -14,7 +14,7 @@ import { astQuery } from './ast-intelligence.mjs';
 import { loadDefinition } from './config.mjs';
 import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir } from './git.mjs';
-import { isApplicationPath } from './application-paths.mjs';
+import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import {
   configurationReadAuthority, configurationReadRoot, isConfigurationReadPath
@@ -808,7 +808,9 @@ export function evaluateChangeFlightPlanBoundary(root, workflow, { phaseId = nul
   const plan = readRecord('change-flight-plan', gitJsonAt(root, 'HEAD', binding.acceptedPath)).record;
   if (sha256(plan) !== binding.acceptedPlanSha256) throw new SingularityFlowError('The accepted Change Flight Plan no longer matches its workflow binding.', { code: 'CFP_RECOVERY_REQUIRED' });
   const output = run('git', ['diff', '--name-only', '-z', plan.baseline.revision, 'HEAD', '--'], { cwd: root }).stdout;
-  const changedPaths = splitNull(output).map(posix).filter(isApplicationPath).sort();
+  const pathContext = applicationPathContext(workflow);
+  const changedPaths = splitNull(output).map(posix)
+    .filter((candidate) => isApplicationPath(candidate, pathContext)).sort();
   const expectedPaths = [...new Set(plan.findings.filter((finding) => finding.disposition === 'included' && [
     'code-file', 'test-file', 'configuration', 'database-migration', 'build-configuration'
   ].includes(finding.kind)).map((finding) => finding.subject))].sort();

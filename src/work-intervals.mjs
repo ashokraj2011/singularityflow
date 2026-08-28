@@ -11,12 +11,12 @@ import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
 } from './util.mjs';
 import {
-  isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
+  applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
 } from './application-paths.mjs';
 
 export {
-  isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
+  applicationPathContext, isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath
 } from './application-paths.mjs';
 
@@ -219,12 +219,12 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
  * Entry identities and current-content hashes still bind every application rename, deletion,
  * staged/unstaged edit, and untracked source file to the confirmation digest.
  */
-export function applicationChangeSetProjection(changeSet) {
+export function applicationChangeSetProjection(changeSet, pathContext = null) {
   const { digest: _digest, ...core } = changeSet;
   const projection = {
     ...core,
     target: { ...core.target, head: null },
-    entries: (core.entries ?? []).filter(isApplicationChangeEntry)
+    entries: (core.entries ?? []).filter((entry) => isApplicationChangeEntry(entry, pathContext))
   };
   return { ...projection, digest: repositoryChangeSetDigest(projection) };
 }
@@ -233,9 +233,9 @@ function splitNull(value) {
   return value.split('\0').map((item) => item.trim()).filter(Boolean);
 }
 
-async function pathsSince(root, sourceBaseCommit) {
+async function pathsSince(root, sourceBaseCommit, pathContext = null) {
   const changeSet = await buildRepositoryChangeSet(root, { baseCommit: sourceBaseCommit });
-  const applicationChangeSet = applicationChangeSetProjection(changeSet);
+  const applicationChangeSet = applicationChangeSetProjection(changeSet, pathContext);
   return changeSetPaths(applicationChangeSet, { bothEndpoints: true });
 }
 
@@ -253,7 +253,7 @@ export async function changedApplicationPathsSinceBaseline(root, workflow, {
   if (!current || current.phaseId !== phaseId || !['open', 'reconciled'].includes(current.status)) {
     throw new SingularityFlowError(`Phase '${phaseId ?? ''}' has no active governed work interval.`);
   }
-  return pathsSince(root, current.sourceBaseCommit);
+  return pathsSince(root, current.sourceBaseCommit, applicationPathContext(workflow));
 }
 
 async function fileEvidence(root, paths) {
@@ -311,7 +311,8 @@ export async function reconcileWorkInterval(root, config, workflow, {
     throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
   }
   const baseline = await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
-  const paths = await pathsSince(root, current.sourceBaseCommit);
+  const pathContext = applicationPathContext(config, workflow);
+  const paths = await pathsSince(root, current.sourceBaseCommit, pathContext);
   const evidence = await fileEvidence(root, paths);
   const planned = await plannedPaths(itemDirectory, workflow);
   const guards = protectedPaths(config, workflow);
@@ -333,7 +334,9 @@ export async function reconcileWorkInterval(root, config, workflow, {
   }
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
   const uncommittedApplicationPaths = changedFiles(root)
-    .filter((candidate) => isApplicationChangePath(candidate, { untracked: untracked.has(candidate) }));
+    .filter((candidate) => isApplicationChangePath(candidate, {
+      ...pathContext, untracked: untracked.has(candidate)
+    }));
   const dirtyTargetBlocked = requireCleanTarget && uncommittedApplicationPaths.length > 0;
   if (dirtyTargetBlocked) {
     reasons.push(`uncommitted application paths remain: ${uncommittedApplicationPaths.join(', ')}`);
@@ -567,7 +570,7 @@ export function closeWorkInterval(workflow, {
 export async function createLocalCheckpoint(root, workflow, { name = null, note = null } = {}) {
   const current = workflow.workIntervals?.current;
   if (!current || current.status !== 'open') throw new SingularityFlowError('The current Story phase has no open governed work interval.');
-  const paths = await pathsSince(root, current.sourceBaseCommit);
+  const paths = await pathsSince(root, current.sourceBaseCommit, applicationPathContext(workflow));
   const evidence = await fileEvidence(root, paths);
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
   const core = {
@@ -582,7 +585,9 @@ export async function createLocalCheckpoint(root, workflow, { name = null, note 
     branch: branch(root),
     head: head(root),
     hasUncommittedBytes: changedFiles(root)
-      .some((candidate) => isApplicationChangePath(candidate, { untracked: untracked.has(candidate) })),
+      .some((candidate) => isApplicationChangePath(candidate, {
+        ...applicationPathContext(workflow), untracked: untracked.has(candidate)
+      })),
     durabilityNotice: 'This checkpoint stores fingerprints only. Uncommitted source bytes are not remotely durable.',
     name: name?.trim() || null,
     note: note?.trim() || null,

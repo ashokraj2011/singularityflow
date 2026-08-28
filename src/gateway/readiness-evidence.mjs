@@ -17,6 +17,7 @@ import { secureRepositoryPath, snapshot } from '../util.mjs';
 import { evaluateVisualCoverage } from '../visual-coverage.mjs';
 import { reconcileWorkInterval } from '../work-intervals.mjs';
 import { workDir } from '../state-stores.mjs';
+import { applicationPathContext } from '../application-paths.mjs';
 
 const row = (id, state, source, evidence, slots = {}, action = null) => ({
   id, code: `readiness.${id}`, state, source, evidence, slots, action
@@ -117,7 +118,9 @@ async function claimsRow(root, config, workflow) {
   const base = workflow.workItem.baseCommit
     ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit
     ?? workflow.workItem.baseBranch;
-  const changed = changedRepositoryPaths(root, { base, target: 'HEAD' });
+  const changed = changedRepositoryPaths(root, {
+    base, target: 'HEAD', pathContext: applicationPathContext(config, workflow)
+  });
   const coverage = evaluateSpecCoverage(records, changed, policy, { root });
   const unmet = coverage.unclaimedChangedPaths.length > 0;
   return row('unclaimed-changes', unmet ? 'unmet' : 'met', 'evidence',

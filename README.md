@@ -35,9 +35,12 @@ Then, on a repository you care about:
 | Review private local return memory | `sflow journal today` / `sflow journal refresh` |
 | Execute or inspect the governed next step | `singularity-flow next` / `singularity-flow nextsteps WORK-123` |
 | Orient yourself or return to a Story without changing state | `sflow home` / `sflow story return WORK-123` |
+| Land a small change without creating a Story first | `singularity-flow adhoc start` / `singularity-flow land` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
 The full documentation map is in [docs/README.md](./docs/README.md).
+For bounded work that begins without a Story, follow the
+[ad hoc work and governed landing guide](./README-AD-HOC-WORK.md).
 For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT
 semantic AST, VS Code visualization, and measured reuse, follow the
 [Java/Maven world-model and semantic AST demo](./README-JAVA-MAVEN-WORLD-MODEL-DEMO.md).

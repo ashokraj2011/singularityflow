@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7cedff86ec63d9bb2ac541327b4ed4df22b26f94",
+  "sourceCommit": "f153bd359a814262c249db59f055bad98ba05f8c",
   "topicCount": 58,
-  "contentSha256": "63b497d31d8c1dc9b595a47ef31207cf5c8652b137e27391670395a04af94390",
+  "contentSha256": "693d11054990e0081359650940fe049f07a4b41811c7cf7d9912f80b7b2518f6",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -16,8 +16,8 @@
     {
       "id": "ad-hoc-work",
       "title": "Ad hoc work and governed landing",
-      "version": 1,
-      "sha256": "8aba2b3a60a1d53e7819c06ad548073cc96270af7471f3117137109820d42231",
+      "version": 2,
+      "sha256": "0dc8cdc41de88086703aaded5f51fc5957d4826db7bc3f977887d332042f062e",
       "routingSha256": "5cc50cf586524cc24138d4c473af6f13631cf3b7e7e040184507630319ddba23",
       "file": "ad-hoc-work.md"
     },

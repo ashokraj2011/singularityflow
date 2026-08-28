@@ -2761,6 +2761,11 @@ singularity-flow verify [WORK-ID] [--json]
 
 ### Documentation
 
+For a practical start-to-publish walkthrough of work that begins without a Story,
+including Copilot and VS Code entry points, safety refusals, promotion, recovery,
+records, and current pilot limits, read
+[Ad hoc work and governed landing](README-AD-HOC-WORK.md).
+
 ```text
 singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
 ```

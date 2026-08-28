@@ -21,7 +21,7 @@ keywords:
   - disposition
   - landing packet
   - promotion
-version: 1
+version: 2
 ---
 Ad hoc mode lets work begin without a Story and later applies a small, exact safety envelope before publication. It does not fabricate a pre-work specification: confirmed intent is explicitly recorded as discovered at landing.
 
@@ -57,5 +57,7 @@ The committed landing receipt binds through the lifecycle event and commit trail
 `ADH_DIRTY_START_CHOICE_REQUIRED` means existing work was found and needs explicit `--include-existing`; nothing was adopted. `ADH_CHANGE_UNCLAIMED` lists resources still needing a disposition. `ADH_PROMOTION_REQUIRED` preserves the branch and provides a workflow handoff. `ADH_PACKET_STALE` means HEAD or bytes changed after preview; create and review a replacement packet. Push failure retains the exact governed commit in the existing publication-recovery mechanism.
 
 ## Related topics
+
+Follow the [complete ad hoc work and governed landing guide](../../README-AD-HOC-WORK.md) for the exact CLI sequence, Copilot and VS Code entry points, safe recovery, common refusals, records, privacy, and the current thin-pilot boundary.
 
 See `starting-work` for compiled Story entry, `story-lifecycle` for preplanned phase governance, and `recovery` for exact commit publication recovery.

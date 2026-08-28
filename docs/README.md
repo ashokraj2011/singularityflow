@@ -20,6 +20,7 @@ is not part of the current product.
 | Install and initialize a repository | [README](../README.md) |
 | Run a complete Story locally | [Local runbook](../LOCAL-RUNBOOK.md) |
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
+| Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |
 | Return to work through the read-only developer home | [Developer Home and Story Return](DEVELOPER-HOME.md) |

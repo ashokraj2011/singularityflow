@@ -12,18 +12,343 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
+import YAML from 'yaml';
 
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote
 } from './configuration-branch.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
 import { gitCommitIdentity } from './git.mjs';
-import { sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { classifyGitRemoteFailure, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
+
+function quoted(value) { return JSON.stringify(String(value ?? '')); }
+
+function workflowProposalCommand(action, branch, commit = null, acknowledge = false) {
+  const args = ['singularity-flow', 'workflow', action];
+  if (branch) args.push(quoted(branch));
+  if (commit) args.push('--confirm', quoted(commit));
+  if (acknowledge) args.push('--acknowledge-unprotected');
+  args.push('--json');
+  return args.join(' ');
+}
+
+function workflowProposalBranch(value) {
+  const branch = String(value ?? '').trim();
+  if (!branch.startsWith(REVIEW_PREFIX)
+      || !/^sflow\/config-change\/workflow\/[a-z0-9._/-]+$/.test(branch)
+      || branch.includes('..') || branch.includes('//') || branch.endsWith('/')) {
+    throw new SingularityFlowError(
+      `Workflow proposal must be a branch beneath '${REVIEW_PREFIX}'.`,
+      { code: 'WORKFLOW_PROPOSAL_BRANCH_INVALID' }
+    );
+  }
+  return branch;
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+}
+
+function stable(value) { return JSON.stringify(canonical(value)); }
+
+function yamlAtRef(root, ref, relative) {
+  const shown = run('git', ['show', `${ref}:${relative}`], { cwd: root, allowFailure: true });
+  if (shown.status !== 0) return {};
+  return YAML.parse(shown.stdout) ?? {};
+}
+
+function workflowChanges(root, base, proposal) {
+  const baseDefinition = yamlAtRef(root, base, 'singularity/workflow.yml');
+  const proposedDefinition = yamlAtRef(root, proposal, 'singularity/workflow.yml');
+  const basePortfolio = yamlAtRef(root, base, 'singularity/portfolio.yml');
+  const proposedPortfolio = yamlAtRef(root, proposal, 'singularity/portfolio.yml');
+  const rows = [];
+  for (const [governs, before, after] of [
+    ['story', baseDefinition.workTypes ?? {}, proposedDefinition.workTypes ?? {}],
+    ['initiative', basePortfolio.initiativeProfiles ?? {}, proposedPortfolio.initiativeProfiles ?? {}]
+  ]) {
+    for (const id of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      if (stable(before[id]) === stable(after[id])) continue;
+      const profile = after[id] ?? before[id] ?? {};
+      rows.push({
+        id,
+        governs,
+        change: !Object.hasOwn(before, id) ? 'added' : !Object.hasOwn(after, id) ? 'removed' : 'modified',
+        label: profile.label ?? id,
+        phases: profile.phases ?? []
+      });
+    }
+  }
+  return rows;
+}
+
+function changedConfigurationFiles(root, base, proposal) {
+  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root })
+    .stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root })
+    .stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+      const [status, ...paths] = entry.split('\t');
+      return { status, paths };
+    });
+  return { names, statuses };
+}
+
+function inspectWorkflowProposalCheckout(root, remote, branch, ref, { includeDiff = true } = {}) {
+  const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
+  const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
+  const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
+  if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
+    throw new SingularityFlowError(
+      `Workflow proposal '${branch}' does not share history with '${CONFIGURATION_BRANCH}'.`,
+      { code: 'WORKFLOW_PROPOSAL_HISTORY_INVALID' }
+    );
+  }
+  const mergeBase = mergeBaseResult.stdout.trim();
+  const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+  const reviewBase = merged ? proposalBase : mergeBase;
+  const changed = changedConfigurationFiles(root, reviewBase, ref);
+  const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
+  const diff = includeDiff
+    ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], { cwd: root }).stdout
+    : null;
+  return {
+    remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
+    targetCommit, proposalCommit, proposalBase, mergeBase, merged,
+    valid: changed.names.length > 0 && invalidFiles.length === 0,
+    invalidFiles, changedFiles: changed.statuses,
+    workflows: workflowChanges(root, reviewBase, ref),
+    diff: diff == null ? null
+      : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,
+    diffDeferred: diff == null
+  };
+}
+
+async function proposalRemote(root) {
+  const remote = await resolveConfigurationRemote(root);
+  if (!remote) {
+    throw new SingularityFlowError(
+      `No approved '${CONFIGURATION_BRANCH}' authority is available. Refresh workspace configuration first.`,
+      { code: 'WORKFLOW_PROPOSAL_AUTHORITY_MISSING' }
+    );
+  }
+  return remote;
+}
+
+async function withWorkflowProposalCheckout(root, requestedBranch, operation) {
+  const branch = workflowProposalBranch(requestedBranch);
+  const remote = await proposalRemote(root);
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
+  try {
+    const cloned = runRemoteGit([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
+      '--branch', CONFIGURATION_BRANCH, remote, scratch
+    ], { operation: 'remote-configuration' });
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read approved configuration from '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`,
+        { code: cloned.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
+      );
+    }
+    const fetched = runRemoteGit([
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      `+refs/heads/${branch}:refs/remotes/origin/${branch}`
+    ], { cwd: scratch, operation: 'remote-configuration' });
+    if (fetched.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read workflow proposal '${branch}'. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
+        { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_UNAVAILABLE' }
+      );
+    }
+    return await operation(scratch, remote, branch, `refs/remotes/origin/${branch}`);
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/** List durable workflow-review branches without changing the selected Story checkout. */
+export async function listWorkflowConfigurationProposals(root, {
+  includeMerged = false, includeDiff = false
+} = {}) {
+  const remote = await proposalRemote(root);
+  const advertised = runRemoteGit([
+    'ls-remote', '--heads', '--', remote,
+    `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${REVIEW_PREFIX}*`
+  ], { operation: 'remote-probe' });
+  if (advertised.status !== 0) {
+    throw new SingularityFlowError(
+      `Cannot list workflow proposals on '${sanitizeRemote(remote)}'. ${advertised.failure?.advice ?? 'Git remote is unavailable.'}`,
+      { code: advertised.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE' }
+    );
+  }
+  const branches = advertised.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/))
+    .filter(([, ref]) => ref?.startsWith(`refs/heads/${REVIEW_PREFIX}`))
+    .map(([proposalCommit, ref]) => ({ proposalCommit, branch: ref.replace(/^refs\/heads\//, '') }))
+    .sort((left, right) => left.branch.localeCompare(right.branch));
+  if (!branches.length) return [];
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
+  try {
+    const cloned = runRemoteGit([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
+      '--branch', CONFIGURATION_BRANCH, remote, scratch
+    ], { operation: 'remote-configuration' });
+    if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
+    const fetched = runRemoteGit([
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
+    ], { cwd: scratch, operation: 'remote-configuration' });
+    if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
+    const proposals = [];
+    for (const entry of branches) {
+      const ref = `refs/remotes/origin/${entry.branch}`;
+      if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+        cwd: scratch, allowFailure: true
+      }).status === 0) continue;
+      try {
+        proposals.push(inspectWorkflowProposalCheckout(
+          scratch, remote, entry.branch, ref, { includeDiff }
+        ));
+      } catch (error) {
+        proposals.push({
+          remote: sanitizeRemote(remote), branch: entry.branch, targetBranch: CONFIGURATION_BRANCH,
+          targetCommit: null, proposalCommit: entry.proposalCommit, merged: false, valid: false,
+          invalidFiles: [], changedFiles: [], workflows: [], diff: null, diffDeferred: true,
+          status: 'unreadable', failure: { code: error.code ?? 'WORKFLOW_PROPOSAL_UNREADABLE', message: error.message }
+        });
+      }
+    }
+    return proposals;
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/** Exact commits, changed files, affected workflows, and diff for one review proposal. */
+export async function inspectWorkflowConfigurationProposal(root, branch) {
+  return withWorkflowProposalCheckout(root, branch, (scratch, remote, proposalBranch, ref) =>
+    inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref));
+}
+
+/**
+ * Activate one exact reviewed workflow proposal using a normal non-force update.
+ * Protected branches remain under their repository review controls; an unprotected direct update
+ * requires a separate explicit acknowledgement.
+ */
+export async function activateWorkflowConfigurationProposal(root, branch, {
+  confirm = null, acknowledgeUnprotected = false
+} = {}) {
+  return withWorkflowProposalCheckout(root, branch, async (scratch, remote, proposalBranch, ref) => {
+    const reviewed = inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref);
+    if (String(confirm ?? '').trim() !== reviewed.proposalCommit) {
+      const nextAction = workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit);
+      throw new SingularityFlowError(
+        `Confirmation must be the exact workflow proposal commit '${reviewed.proposalCommit}'. Nothing was changed. Re-run: ${nextAction}`,
+        { code: 'WORKFLOW_PROPOSAL_CONFIRMATION_MISMATCH', details: { nextAction } }
+      );
+    }
+    if (!reviewed.valid) {
+      throw new SingularityFlowError(
+        `Workflow proposal '${proposalBranch}' is not valid configuration-only work. Nothing was changed.`,
+        { code: 'WORKFLOW_PROPOSAL_INVALID' }
+      );
+    }
+    let alreadyMerged = reviewed.merged;
+    if (!alreadyMerged) {
+      const actor = gitCommitIdentity(root);
+      const merged = run('git', [
+        '-c', `user.name=${actor.name || 'Singularity Flow contributor'}`,
+        '-c', `user.email=${actor.email || 'unknown@invalid'}`,
+        'merge', '--no-ff', '--no-edit', ref
+      ], { cwd: scratch, allowFailure: true });
+      if (merged.status !== 0) {
+        throw new SingularityFlowError(
+          `Workflow proposal '${proposalBranch}' no longer merges cleanly into '${CONFIGURATION_BRANCH}'. `
+          + 'The proposal was preserved; rebase or recreate it against current approved configuration.',
+          { code: 'WORKFLOW_PROPOSAL_CONFLICT' }
+        );
+      }
+    }
+
+    // Validate the complete merged configuration, including agents and routing, before a ref can
+    // move. This is the same read-only validator used by Configuration Center.
+    await import('./editor.mjs').then(({ validateEditorConfiguration }) =>
+      validateEditorConfiguration(scratch));
+    const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    if (!alreadyMerged) {
+      const dryRun = runRemoteGit([
+        'push', '--dry-run', '--porcelain', 'origin',
+        `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
+      ], { cwd: scratch, operation: 'remote-push' });
+      if (dryRun.status !== 0) {
+        const failure = classifyGitRemoteFailure(dryRun);
+        const diagnostic = `${dryRun.stderr ?? ''}\n${dryRun.stdout ?? ''}`;
+        const reviewRequired = /protected branch|review required|pull request|required reviews?|pre-receive hook declined/i
+          .test(diagnostic);
+        return {
+          status: reviewRequired ? 'review-required' : 'activation-pending', activated: false,
+          remote: sanitizeRemote(remote), branch: proposalBranch,
+          proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
+          targetCommit: reviewed.targetCommit, proposedMergeCommit: targetCommit,
+          changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
+          failure: {
+            code: reviewRequired ? 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED' : failure.code,
+            classification: failure.classification, retryable: failure.retryable,
+            message: reviewRequired
+              ? `Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
+              : failure.advice
+          },
+          externalAction: reviewRequired ? {
+            action: 'merge-proposal', sourceBranch: proposalBranch,
+            targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
+          } : null,
+          nextAction: workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit)
+        };
+      }
+      if (!acknowledgeUnprotected) {
+        const nextAction = workflowProposalCommand(
+          'activate', proposalBranch, reviewed.proposalCommit, true
+        );
+        throw new SingularityFlowError(
+          `'${CONFIGURATION_BRANCH}' accepted the exact dry-run update, so branch protection is not enforced for this actor. `
+          + `Nothing was changed. Review the diff, then explicitly acknowledge the direct merge. Re-run: ${nextAction}`,
+          { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
+        );
+      }
+      const pushed = runRemoteGit([
+        'push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
+      ], { cwd: scratch, operation: 'remote-push' });
+      if (pushed.status !== 0) {
+        const failure = classifyGitRemoteFailure(pushed);
+        return {
+          status: 'activation-pending', activated: false,
+          remote: sanitizeRemote(remote), branch: proposalBranch,
+          proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
+          targetCommit: reviewed.targetCommit, proposedMergeCommit: targetCommit,
+          changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
+          failure: { code: failure.code, classification: failure.classification,
+            retryable: failure.retryable, message: failure.advice },
+          nextAction: workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit, true)
+        };
+      }
+    }
+    return {
+      status: 'activated', activated: true, alreadyMerged,
+      remote: sanitizeRemote(remote), branch: proposalBranch,
+      proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
+      targetCommit, changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
+      nextAction: 'singularity-flow workspace refresh-configuration'
+    };
+  });
+}
 
 function safeSlug(value) {
   const normalized = String(value ?? '').trim().toLowerCase()

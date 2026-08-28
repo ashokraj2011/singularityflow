@@ -9,7 +9,9 @@ import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, existsSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
 import {
-  assertLocalConfigurationAuthoringAllowed, proposeConfigurationChange
+  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
+  inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
+  proposeConfigurationChange
 } from './configuration-proposal.mjs';
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -5294,7 +5296,21 @@ async function workflowCommand(positionals, options) {
       // name. That is a fact about the storage, not about the thing.
       const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
         .map((workflow) => ({ ...workflow, status: 'current' }));
-      const both = [...catalog, ...initiatives];
+      // Pending proposals are durable Git work and must not disappear after the create command.
+      // They remain non-selectable until merged: `--for-start` intentionally lists only approved
+      // workflows, while the ordinary catalog shows newly added proposal rows as pending review.
+      const pending = optionBoolean(options, 'for-start') ? []
+        : await listWorkflowConfigurationProposals(root, { includeDiff: false }).catch(() => []);
+      const proposed = pending.flatMap((proposal) => (proposal.workflows ?? [])
+        .filter((workflow) => workflow.change === 'added')
+        .map((workflow) => ({
+          ...workflow,
+          status: 'pending-review',
+          installed: false,
+          proposalBranch: proposal.branch,
+          proposalCommit: proposal.proposalCommit
+        })));
+      const both = [...catalog, ...initiatives, ...proposed];
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(both, null, 2));
       return console.log(table(both.map((item) => ({
         id: item.id, label: item.label, governs: item.governs, phases: item.phases.length, status: item.status
@@ -5304,6 +5320,61 @@ async function workflowCommand(positionals, options) {
         { key: 'status', label: 'STATUS' }
       ]));
     }, { preferAuthority: optionBoolean(options, 'for-start') });
+  }
+
+  if (subcommand === 'proposals') {
+    const proposals = await listWorkflowConfigurationProposals(root, {
+      includeMerged: optionBoolean(options, 'all'), includeDiff: false
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposals, null, 2));
+    if (!proposals.length) return console.log('No workflow configuration proposals are waiting.');
+    for (const proposal of proposals) {
+      const subjects = (proposal.workflows ?? []).map((entry) => `${entry.id} (${entry.change})`).join(', ');
+      console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
+        + `${proposal.merged ? 'merged' : proposal.valid ? 'pending review' : 'blocked'}`);
+      if (subjects) console.log(`  workflows: ${subjects}`);
+      if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
+    }
+    return;
+  }
+
+  if (subcommand === 'proposal') {
+    const branch = requirePositional(positionals, 2, 'workflow proposal branch');
+    const proposal = await inspectWorkflowConfigurationProposal(root, branch);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(proposal, null, 2));
+    console.log(`${proposal.branch} (${proposal.proposalCommit})`);
+    console.log(`  target: ${proposal.targetBranch}@${proposal.targetCommit}`);
+    console.log(`  status: ${proposal.merged ? 'already merged' : proposal.valid ? 'ready for review' : 'invalid'}`);
+    for (const workflow of proposal.workflows) {
+      console.log(`  ${workflow.change.padEnd(8)} ${workflow.governs} workflow ${workflow.id}`);
+    }
+    for (const file of proposal.changedFiles) console.log(`  ${file.status.padEnd(4)} ${file.paths.join(' -> ')}`);
+    if (proposal.invalidFiles.length) console.log(`  refused files: ${proposal.invalidFiles.join(', ')}`);
+    return;
+  }
+
+  if (subcommand === 'activate') {
+    const branch = requirePositional(positionals, 2, 'workflow proposal branch');
+    const result = await activateWorkflowConfigurationProposal(root, branch, {
+      confirm: optionString(options, 'confirm'),
+      acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    if (!result.activated) {
+      console.log(`Workflow activation is ${result.status}.`);
+      console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
+      if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
+      if (result.externalAction) {
+        console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
+      }
+      if (result.nextAction) console.log(`  after recovery: ${result.nextAction}`);
+      return;
+    }
+    console.log(result.alreadyMerged
+      ? `${branch} was already merged into ${result.targetBranch}.`
+      : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
+    console.log(`  Refresh workspace configuration: ${result.nextAction}`);
+    return;
   }
 
   const proposing = optionBoolean(options, 'propose');

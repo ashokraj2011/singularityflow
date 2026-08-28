@@ -224,6 +224,9 @@ Usage:
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
+  singularity-flow workflow proposals [--all] [--json]     pending configuration review branches
+  singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
+  singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
   singularity-flow workflow edit <ID> [--phases a,b,c] [--label TEXT] [--description TEXT] [--propose]
   singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
     [--agents a,b] [--authorities group-a,group-b] [--minimum N] [--governs story|initiative] [--propose]

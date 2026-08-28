@@ -114,6 +114,76 @@ test('workflow proposals publish from approved configuration without changing th
     assert.equal(recovered.transportStatus, 'succeeded-existing');
     assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: item.story }).stdout.trim(), storyHead);
     assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: item.story }).stdout, '');
+
+    const pendingList = spawnSync(process.execPath, [
+      cli, 'workflow', 'list', '--json'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(pendingList.status, 0, pendingList.stderr || pendingList.stdout);
+    const pendingWorkflow = JSON.parse(pendingList.stdout)
+      .find((entry) => entry.id === 'customer-onboarding');
+    assert.equal(pendingWorkflow.status, 'pending-review');
+    assert.equal(pendingWorkflow.installed, false);
+    assert.equal(pendingWorkflow.proposalBranch, result.branch);
+
+    const startListBefore = spawnSync(process.execPath, [
+      cli, 'workflow', 'list', '--json', '--for-start'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(startListBefore.status, 0, startListBefore.stderr || startListBefore.stdout);
+    assert.equal(JSON.parse(startListBefore.stdout)
+      .some((entry) => entry.id === 'customer-onboarding' && entry.installed), false,
+    'pending review is visible but cannot be selected for governed work');
+
+    const inspected = spawnSync(process.execPath, [
+      cli, 'workflow', 'proposal', result.branch, '--json'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(inspected.status, 0, inspected.stderr || inspected.stdout);
+    const review = JSON.parse(inspected.stdout);
+    assert.equal(review.proposalCommit, result.commit);
+    assert.deepEqual(review.workflows.map((entry) => [entry.id, entry.change]), [
+      ['customer-onboarding', 'added']
+    ]);
+
+    const unacknowledged = spawnSync(process.execPath, [
+      cli, 'workflow', 'activate', result.branch, '--confirm', result.commit, '--json'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.notEqual(unacknowledged.status, 0);
+    assert.match(unacknowledged.stderr, /branch protection is not enforced/i);
+    assert.equal(run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(), item.approved,
+      'an unprotected authority does not move without its separate acknowledgement');
+
+    const activated = spawnSync(process.execPath, [
+      cli, 'workflow', 'activate', result.branch, '--confirm', result.commit,
+      '--acknowledge-unprotected', '--json'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(activated.status, 0, activated.stderr || activated.stdout);
+    const activation = JSON.parse(activated.stdout);
+    assert.equal(activation.activated, true);
+    assert.notEqual(activation.targetCommit, item.approved);
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: item.story }).stdout.trim(), storyHead,
+      'activation never switches or commits the selected Story checkout');
+
+    const startListAfter = spawnSync(process.execPath, [
+      cli, 'workflow', 'list', '--json', '--for-start'
+    ], { cwd: item.story, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(startListAfter.status, 0, startListAfter.stderr || startListAfter.stdout);
+    const approvedWorkflow = JSON.parse(startListAfter.stdout)
+      .find((entry) => entry.id === 'customer-onboarding');
+    assert.equal(approvedWorkflow.status, 'local');
+    assert.equal(approvedWorkflow.installed, true);
+
+    const configurationSnapshot = spawnSync(process.execPath, [
+      cli, 'snapshot', '--include', 'configuration', '--json'
+    ], {
+      cwd: item.story,
+      encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1' },
+      maxBuffer: 16 * 1024 * 1024
+    });
+    assert.equal(configurationSnapshot.status, 0,
+      configurationSnapshot.stderr || configurationSnapshot.stdout);
+    assert.ok(JSON.parse(configurationSnapshot.stdout)
+      .configuration.definition.workTypes['customer-onboarding'],
+    'Configuration Center reads newly approved authority even while an older Story stays selected');
   } finally {
     await rm(item.base, { recursive: true, force: true });
   }

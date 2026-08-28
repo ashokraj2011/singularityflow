@@ -4067,6 +4067,20 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the Configuration Center exposes the dashboard directly');
 });
 
+test('workflow creation stays visible and offers exact guarded activation', async () => {
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /It remains visible as Pending review/,
+    'creation reports durable proposal state instead of making the workflow appear to disappear');
+  assert.match(extension, /'workflow', 'proposal', proposal\.branch, '--json'/,
+    'the UI opens the exact proposal diff before activation');
+  assert.match(extension, /'workflow', 'activate', inspected\.branch/);
+  assert.match(extension, /--confirm', inspected\.proposalCommit/,
+    'activation binds the complete reviewed proposal commit');
+  assert.match(extension, /WORKFLOW_CONFIGURATION_UNPROTECTED/,
+    'a direct unprotected merge requires a second explicit acknowledgement');
+  assert.match(extension, /application branch remains unchanged/i);
+});
+
 test('configuration recovery stays inside VS Code for conflicting MCP host entries', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
   assert.match(extension, /detail\.includes\('--replace-server'\)/,

@@ -4046,11 +4046,76 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await store.refresh();
           if (proposal.reviewRequired && proposal.branch) {
             const files = proposal.files?.length ?? 0;
-            void vscode.window.showInformationMessage(
+            const review = 'Review and activate';
+            const selected = await vscode.window.showInformationMessage(
               `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `
-              + `Merge it into ${proposal.baseBranch ?? 'sflow/config'}, then refresh workspace configuration. `
-              + 'The active Story was not changed.'
+              + `It remains visible as Pending review until it is merged into ${proposal.baseBranch ?? 'sflow/config'}. `
+              + 'The active Story was not changed.',
+              review, 'Later'
             );
+            if (selected === review) {
+              const inspected = await client.run<{
+                branch: string; proposalCommit: string; targetBranch: string; diff: string;
+                valid: boolean; workflows?: Array<{ id: string; change: string }>;
+              }>(['workflow', 'proposal', proposal.branch, '--json']);
+              const document = await vscode.workspace.openTextDocument({
+                language: 'diff', content: inspected.diff || 'No textual diff.'
+              });
+              await vscode.window.showTextDocument(document, { preview: true });
+              if (!inspected.valid) {
+                showRefusal('The workflow proposal contains invalid or out-of-scope configuration changes.', {
+                  headline: 'Workflow proposal cannot be activated'
+                });
+                return null;
+              }
+              const merge = 'Merge exact proposal';
+              const confirmed = await vscode.window.showWarningMessage(
+                `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
+                {
+                  modal: true,
+                  detail: 'The complete diff is open for review. This uses a normal non-force push, never changes the application branch, and requires a separate acknowledgement if branch protection is not enforced.'
+                },
+                merge
+              );
+              if (confirmed !== merge) return null;
+              const baseArguments = [
+                'workflow', 'activate', inspected.branch,
+                '--confirm', inspected.proposalCommit, '--json'
+              ];
+              let activation: {
+                activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
+                failure?: { message?: string }; nextAction?: string;
+              };
+              try {
+                activation = await client.run(baseArguments);
+              } catch (error) {
+                if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|branch protection is not enforced|accepted the exact dry-run update/i
+                  .test((error as Error).message)) throw error;
+                const acknowledge = 'Acknowledge and merge';
+                const accepted = await vscode.window.showWarningMessage(
+                  `${inspected.targetBranch} permits a direct update. Acknowledge this governance exception and merge the exact reviewed workflow proposal?`,
+                  { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. The application branch remains unchanged.' },
+                  acknowledge
+                );
+                if (accepted !== acknowledge) return null;
+                activation = await client.run([
+                  ...baseArguments.slice(0, -1), '--acknowledge-unprotected', '--json'
+                ]);
+              }
+              if (activation.activated === false) {
+                void vscode.window.showWarningMessage(
+                  activation.failure?.message
+                    ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`
+                );
+                return null;
+              }
+              await store.refresh();
+              void vscode.window.showInformationMessage(
+                `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
+                + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
+                + 'It is now available to new Stories; refresh workspace configuration to project it to other repositories.'
+              );
+            }
           } else {
             void vscode.window.showInformationMessage('The approved configuration already contains this workflow change.');
           }

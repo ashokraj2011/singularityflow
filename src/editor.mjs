@@ -1125,6 +1125,23 @@ async function integrationSlice(root) {
  * the surface the latency budget is actually about.
  */
 export async function repositorySnapshot(root, requestedWorkId = null, requestedInitiativeId = null, { included = null } = {}) {
+  // Configuration Center edits the shared authority used by future work. An active Story carries
+  // an intentionally immutable configuration copy, so using the ordinary lifecycle read scope for
+  // the configuration slice made a successfully activated workflow remain invisible until the
+  // user left that Story. Build this slice from current approved authority while every lifecycle
+  // slice continues to read the Story's pinned contract.
+  if (included?.includes('configuration')) {
+    const other = [...new Set(included)].filter((slice) => slice !== 'configuration');
+    const result = other.length
+      ? await withApprovedConfigurationRead(root, () => withDefinitionCache(
+          () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included: other })
+        ))
+      : {};
+    const configuration = await withApprovedConfigurationRead(root, () => withDefinitionCache(
+      () => configurationSlice(root)
+    ), { preferAuthority: true });
+    return { ...result, configuration };
+  }
   return withApprovedConfigurationRead(root, () => withDefinitionCache(
     () => repositorySnapshotInScope(root, requestedWorkId, requestedInitiativeId, { included })
   ));

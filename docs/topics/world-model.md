@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 13
+version: 14
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -30,6 +30,15 @@ while preserving all valid existing artifacts. Expensive semantic generation req
 `wm build`/`wm ensure` action or an opted-in `on-demand` policy with confirmation. Automatic
 materialization is restricted to the deterministic `light` builder, which consumes zero model
 tokens. An unchanged ready source snapshot is reused rather than rebuilt.
+
+If a same-source state-branch model is valid but lacks a view required by a later phase or Story,
+ordinary lifecycle `wm ensure` fills the complete approved repository view catalog with the
+deterministic light builder. It does not invoke the provider. Existing valid same-source tiers are
+preserved byte-for-byte, and both bounded tiers of every configured view are warmed so a later
+Story does not pay again merely because the last phase published a narrow selection. An explicit
+`--depth`, `--model`, `--view`, `--views`, `--tier`, or `--task` remains exact and is never widened.
+Changed source snapshots still cannot reuse older semantic claims; an explicit semantic build is
+required when refreshed semantic analysis is desired.
 
 Semantic generation routes existing calls by task: each parallel discovery view uses `analyze`,
 and final synthesis uses `reason`, both resolved through `singularity/modelTiers.yml`. The build

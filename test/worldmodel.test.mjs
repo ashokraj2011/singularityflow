@@ -623,6 +623,63 @@ test('wm light creates a compact validated repository inventory with zero model 
   );
 });
 
+test('a later Story warms a same-source narrow model without another provider invocation', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cross-story-reuse-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Cross Story Reuse Tester'], root);
+  run('git', ['config', 'user.email', 'cross-story@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'local', lookahead: 'none', depth: 'phase', confirmation: 'prompt'
+  };
+  const providerMarker = path.join(root, 'provider-was-invoked.txt');
+  const provider = path.join(root, 'provider-must-not-run.mjs');
+  await writeFile(provider, `import { writeFile } from 'node:fs/promises';\nawait writeFile(${JSON.stringify(providerMarker)}, 'invoked\\n');\nprocess.exit(9);\n`);
+  definition.models = {
+    defaultProvider: 'must-not-run',
+    providers: {
+      'must-not-run': {
+        type: 'copilot-cli', executable: process.execPath,
+        promptTransport: 'attachment', arguments: [provider]
+      }
+    }
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Shared world-model catalog\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'initialize shared model fixture'], root);
+
+  // Simulate the preceding Story's final phase: it published only release at the current source.
+  run(process.execPath, [bin, 'wm', 'light', '--phase', 'release', '--local'], root);
+  let manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(Object.keys(manifest.views), ['release']);
+  assert.equal(existsSync(providerMarker), false);
+
+  // A later Story needs implementation context. The same-source state is safe to extend, so the
+  // lifecycle ensure warms the repository catalog deterministically instead of calling a model.
+  const warmed = run(process.execPath, [bin, 'wm', 'ensure', '--phase', 'implementation', '--json'], root);
+  const resultRecord = JSON.parse(warmed.slice(warmed.indexOf('{')));
+  assert.equal(resultRecord.catalogRefresh.mode, 'deterministic-repository-catalog');
+  assert.equal(resultRecord.catalogRefresh.modelInvoked, false);
+  assert.equal(existsSync(providerMarker), false, 'same-source catalog warm-up must not invoke the provider');
+
+  manifest = JSON.parse(await readFile(path.join(root, 'singularity/world-model/manifest.json'), 'utf8'));
+  assert.deepEqual(Object.keys(manifest.views).sort(), [...definition.worldModel.views].sort());
+  assert.ok(Object.values(manifest.views).every((entry) =>
+    entry.tiers.brief.status === 'ready' && entry.tiers.full.status === 'ready'));
+  assert.equal(manifest.core.tiers.brief.status, 'ready');
+  assert.equal(manifest.core.tiers.full.status, 'ready');
+
+  const reused = run(process.execPath, [bin, 'wm', 'ensure', '--phase', 'testing', '--json'], root);
+  const reusedRecord = JSON.parse(reused.slice(reused.indexOf('{')));
+  assert.equal(reusedRecord.mode, 'reuse');
+  assert.equal(reusedRecord.catalogRefresh, null);
+  assert.equal(existsSync(providerMarker), false, 'a later phase must reuse the warmed repository catalog');
+});
+
 test('wm availability is read-only when required tiers are absent', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-availability-'));
   run('git', ['init', '-b', 'main'], root);

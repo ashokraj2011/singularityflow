@@ -459,6 +459,22 @@ async function readySelectionIsValid(directory, entry) {
     && (entry.bytes == null || entry.bytes === actual.size);
 }
 
+function selectionProductionKind(manifest, id) {
+  const records = [...(manifest?.materializations ?? [])].reverse();
+  const producer = records.find((record) => (record?.produced ?? []).includes(id));
+  if (!producer) return 'unknown';
+  return producer.provider == null ? 'deterministic' : 'semantic';
+}
+
+function shouldReplaceReadySelection(existing, fragment, selection) {
+  const id = selectionId(selection);
+  // A user-requested semantic build must be able to upgrade a same-source deterministic fallback.
+  // Every other ready artifact remains stable: light never downgrades semantic output, and two
+  // concurrent semantic publishers keep the first governed winner instead of churning bytes.
+  return selectionProductionKind(existing, id) === 'deterministic'
+    && selectionProductionKind(fragment, id) === 'semantic';
+}
+
 async function mergeReferencedArtifacts({ fragmentDirectory, targetDirectory, existingEntries = [], fragmentEntries = [] }) {
   const merged = new Map(existingEntries.map((entry) => [entry.id, structuredClone(entry)]));
   for (const entry of fragmentEntries) {
@@ -517,7 +533,8 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
   const reused = [];
   for (const selection of plan.selections) {
     const prior = worldModelSelectionEntry(existing, selection);
-    if (await readySelectionIsValid(existingDirectory, prior)) {
+    const priorReady = await readySelectionIsValid(existingDirectory, prior);
+    if (priorReady && !shouldReplaceReadySelection(existing, fragment, selection)) {
       reused.push(selectionId(selection));
       continue;
     }
@@ -525,6 +542,9 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
     if (from.status !== 'ready' || !from.path) continue;
     await mkdir(path.dirname(path.join(targetDirectory, from.path)), { recursive: true });
     await cp(path.join(fragmentDirectory, from.path), path.join(targetDirectory, from.path), { force: true });
+    if (priorReady && prior?.path && prior.path !== from.path) {
+      await rm(path.join(targetDirectory, prior.path), { force: true });
+    }
     if (selection.kind === 'core') merged.core.tiers[selection.tier] = from;
     else {
       merged.views[selection.view] ??= { tiers: { brief: { status: 'missing' }, full: { status: 'missing' } } };

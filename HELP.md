@@ -2063,9 +2063,13 @@ singularity-flow help-metrics clear
 It stores no raw question, answer, path, Work ID, identity, or file content.
 
 `wm status` and its `wm availability` alias perform a read-only exact-tier and governed-state authority check and never invoke a model. `wm ensure` is
-the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot,
-generates only missing selections, and requires governed state-branch publication before a shared
-phase prompt consumes the result. Changed source snapshots never reuse older generated selections.
+the explicit authorization boundary: it reuses valid v3 selections from the same source snapshot
+and requires governed state-branch publication before a shared phase prompt consumes the result.
+When an ordinary lifecycle ensure finds a valid same-source model with a missing phase selection,
+it uses the deterministic light builder to warm both tiers of every approved repository view with
+zero model tokens. Existing same-source artifacts remain byte-identical, and later Stories reuse
+the completed catalog. Explicit depth, model, view, tier, and task requests are never widened.
+Changed source snapshots never reuse older generated selections.
 
 ### Let `next` build deterministic light grounding
 

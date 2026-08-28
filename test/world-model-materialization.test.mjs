@@ -205,3 +205,37 @@ test('a changed source snapshot never reuses artifacts from the older snapshot',
   assert.equal(manifest.views.business, undefined);
   assert.match(await readFile(path.join(target, 'core/summary.brief.md'), 'utf8'), /new core brief/);
 });
+
+test('same-source semantic generation upgrades light tiers without downgrading semantic winners', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-upgrade-'));
+  const source = `sha256:${'5'.repeat(64)}`;
+  const light = path.join(root, 'light');
+  const semantic = path.join(root, 'semantic');
+  const upgraded = path.join(root, 'upgraded');
+  const preserved = path.join(root, 'preserved');
+  const plan = {
+    selections: [{ kind: 'core', tier: 'brief' }, { kind: 'view', view: 'testing', tier: 'full' }]
+  };
+  await seedModel(light, source, {
+    label: 'light', views: { testing: ['full'] },
+    materialization: { id: 'light', provider: null, selections: ['core/brief', 'testing/full'] }
+  });
+  await seedModel(semantic, source, {
+    label: 'semantic', views: { testing: ['full'] },
+    materialization: { id: 'semantic', provider: 'copilot-cli', selections: ['core/brief', 'testing/full'] }
+  });
+
+  await mergeWorldModelSnapshot({
+    existingDirectory: light, fragmentDirectory: semantic, targetDirectory: upgraded,
+    sourceTreeSha256: source, plan, materialization: null
+  });
+  assert.match(await readFile(path.join(upgraded, 'core/summary.brief.md'), 'utf8'), /semantic core brief/);
+  assert.match(await readFile(path.join(upgraded, 'views/testing.md'), 'utf8'), /semantic testing full/);
+
+  await mergeWorldModelSnapshot({
+    existingDirectory: semantic, fragmentDirectory: light, targetDirectory: preserved,
+    sourceTreeSha256: source, plan, materialization: null
+  });
+  assert.match(await readFile(path.join(preserved, 'core/summary.brief.md'), 'utf8'), /semantic core brief/);
+  assert.match(await readFile(path.join(preserved, 'views/testing.md'), 'utf8'), /semantic testing full/);
+});

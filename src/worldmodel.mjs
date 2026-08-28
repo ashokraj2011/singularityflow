@@ -596,6 +596,56 @@ function groundingPlan(config, options, requestedPhase = null) {
 }
 
 /**
+ * The reusable repository catalog produced by a deterministic lifecycle warm-up.
+ *
+ * A phase plan deliberately selects only the context that phase will consume. That is the right
+ * prompt boundary and the wrong cache-warming boundary: publishing only `release/brief` for an
+ * otherwise unchanged source snapshot makes the next Story spend three provider calls rebuilding
+ * testing context. The light builder already computes both bounded tiers without a model, so a
+ * lifecycle warm-up retains both tiers for every approved concrete view. Later phase plans still
+ * read only their exact selections.
+ */
+function repositoryCatalogGroundingPlan(config, phase = null) {
+  const views = configuredWorldModelViews(config);
+  const viewRecords = views.map((view, order) => ({
+    kind: 'view', view, tier: 'brief', required: true, origin: 'repository-catalog',
+    reason: 'shared repository catalog warm-up', id: `${view}/brief`, order
+  }));
+  const selections = [
+    { kind: 'core', tier: 'brief', required: true, origin: 'repository-catalog' },
+    { kind: 'core', tier: 'full', required: true, origin: 'repository-catalog' },
+    ...views.flatMap((view) => [
+      { kind: 'view', view, tier: 'brief', required: true, origin: 'repository-catalog' },
+      { kind: 'view', view, tier: 'full', required: true, origin: 'repository-catalog' }
+    ])
+  ];
+  return {
+    phase,
+    depth: 'light',
+    core: {
+      kind: 'core', tier: 'brief', required: true,
+      reason: 'shared repository orientation', id: 'core/brief'
+    },
+    views: viewRecords,
+    selections,
+    includeDomains: 'matched',
+    includeEvidence: true,
+    taskGuide: { required: false, task: null },
+    agentViewMode: 'fallback',
+    declaredViews: views,
+    agentViews: []
+  };
+}
+
+function lifecycleCatalogWarmAllowed(plan, options) {
+  if (!plan.phase) return false;
+  // Any caller-named scope is an exact request. Do not replace it with a broader deterministic
+  // warm-up, especially when the caller explicitly selected a model or semantic depth.
+  return ['view', 'views', 'tier', 'task', 'depth', 'model', 'parallel', 'workers', 'runner']
+    .every((key) => options[key] === undefined);
+}
+
+/**
  * Resolve lifecycle readiness from the immutable Story scope and exact phase plan.
  *
  * This is the shared replacement for `worldModelRebuildReason`, whose repository-wide worktree
@@ -1997,7 +2047,9 @@ async function buildLight(root, config, options) {
     const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
     const existingWorldModelDirectory = options.existingWorldModelDirectory
       ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
-    const plan = groundingPlan(config, options);
+    const plan = options.repositoryCatalog === true
+      ? repositoryCatalogGroundingPlan(config, optionString(options, 'phase'))
+      : groundingPlan(config, options);
     const views = plan.views.map((item) => item.view);
     const metadata = {
       generated_at: generatedAt,
@@ -2887,7 +2939,10 @@ async function ensure(root, config, options, requestedPhase = null) {
   // contract but swaps only the builder to deterministic light.
   const deterministic = policy.depth === 'light' || !modelEnabled;
   const plan = groundingPlan(config, policy.depth === 'light' ? { ...options, depth: 'light' } : options, requestedPhase);
+  let catalogRefresh = null;
   const result = await materializeSelections(root, config, plan, async ({ policy, availability }) => {
+      const warmCatalog = lifecycleCatalogWarmAllowed(plan, options)
+        && (deterministic || Boolean(availability.extensionBase));
       const buildOptions = {
         ...options,
         phase: plan.phase ?? options.phase,
@@ -2900,7 +2955,23 @@ async function ensure(root, config, options, requestedPhase = null) {
       if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
       else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');
       if (plan.taskGuide.required) buildOptions.task = plan.taskGuide.task;
-      if (deterministic) await buildLight(root, config, buildOptions);
+      if (warmCatalog) {
+        catalogRefresh = {
+          mode: 'deterministic-repository-catalog',
+          reason: deterministic
+            ? 'lifecycle policy selected zero-token light materialization'
+            : 'the same-source shared model was missing a phase selection',
+          views: configuredWorldModelViews(config),
+          modelInvoked: false
+        };
+        await buildLight(root, config, {
+          ...buildOptions,
+          view: undefined,
+          views: undefined,
+          depth: undefined,
+          repositoryCatalog: true
+        });
+      } else if (deterministic) await buildLight(root, config, buildOptions);
       else await build(root, config, buildOptions);
       return buildOptions;
     },
@@ -2908,13 +2979,23 @@ async function ensure(root, config, options, requestedPhase = null) {
     // from a model-driven synthesis to the deterministic inventory. It is the fallback `wm.build`
     // has always declared and nothing has ever run.
     deterministic ? null : async ({ policy, availability }) => {
+      const warmCatalog = lifecycleCatalogWarmAllowed(plan, options);
+      if (warmCatalog) {
+        catalogRefresh = {
+          mode: 'deterministic-repository-catalog',
+          reason: 'semantic materialization failed; the zero-token fallback warmed the shared catalog',
+          views: configuredWorldModelViews(config),
+          modelInvoked: false
+        };
+      }
       await buildLight(root, config, {
         ...options,
         phase: plan.phase ?? options.phase,
-        views: plan.views.length ? plan.views.map((entry) => entry.view).join(',') : undefined,
+        views: warmCatalog ? undefined : plan.views.length ? plan.views.map((entry) => entry.view).join(',') : undefined,
         task: plan.taskGuide.required ? plan.taskGuide.task : undefined,
         local: policy.publish === 'local',
         existingWorldModelDirectory: availability.extensionBase?.directory ?? null,
+        repositoryCatalog: warmCatalog,
         // buildLight refuses these: they belong to the model-driven path it is standing in for.
         parallel: undefined, workers: undefined, runner: undefined, depth: undefined
       });
@@ -2932,6 +3013,7 @@ async function ensure(root, config, options, requestedPhase = null) {
     plan,
     mode: result.mode,
     availability: result.availability,
+    catalogRefresh,
     degraded: result.degraded ?? (!modelEnabled && policy.depth === 'phase' && isMinimalModel(result.availability.selected?.manifest)
       ? {
           code: 'MODEL_DISABLED_LIGHT_FALLBACK',
@@ -2940,6 +3022,10 @@ async function ensure(root, config, options, requestedPhase = null) {
       : null)
   };
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
+  else if (catalogRefresh) {
+    console.log(`${style.mark('ok')} shared repository world-model catalog ready with zero model tokens: ${catalogRefresh.views.join(', ')}`);
+    console.log('  Future Stories at this exact source snapshot reuse it; run wm build with an explicit depth to request semantic regeneration.');
+  }
   else if (result.degraded) {
     // Never silently. Work continues, and the reader is told exactly what they are working on.
     console.log(`${style.mark('warn')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''} on the LIGHT model: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);

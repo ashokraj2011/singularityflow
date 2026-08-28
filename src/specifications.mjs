@@ -8,6 +8,7 @@ import {
   SingularityFlowError, exists, nowIso, posix, run, secureRepositoryPath, snapshot, writeJson
 } from './util.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
+import { isApplicationChangePath, isApplicationPath } from './application-paths.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -73,7 +74,7 @@ export function normalizeSpecPolicy(value = {}) {
   if (!Array.isArray(configuredExcludes) || configuredExcludes.some((item) => typeof item !== 'string' || !item)) {
     throw new SingularityFlowError('spec.excludes must be an array of repository-relative path prefixes.');
   }
-  const excludes = [...new Set(['singularity', '.git', 'node_modules', ...configuredExcludes])];
+  const excludes = [...new Set(['singularity', '.github/agents', '.git', 'node_modules', ...configuredExcludes])];
   const limits = { ...DEFAULT_LIMITS, ...(value.limits ?? {}) };
   for (const [key, maximum] of Object.entries({
     maxClausesPerArtifact: 10000,
@@ -539,12 +540,17 @@ export function configuredAcceptanceCommandSetSha256(policy = {}, commandIds = [
 }
 
 export async function specificationSourceTreeHash(root) {
-  const listed = run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) throw new SingularityFlowError(`Unable to enumerate repository source for specification acceptance: ${(listed.stderr || listed.stdout).trim() || 'git ls-files failed'}`);
-  const files = listed.stdout.split('\0').filter(Boolean)
-    .map(posix)
-    .filter((file) => !file.startsWith('singularity/') && !file.startsWith('.git/') && !file.startsWith('node_modules/'))
-    .sort();
+  const tracked = run('git', ['ls-files', '-z', '--cached'], { cwd: root, allowFailure: true });
+  const untracked = run('git', ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: root, allowFailure: true });
+  if (tracked.status !== 0 || untracked.status !== 0) {
+    const failure = tracked.status !== 0 ? tracked : untracked;
+    throw new SingularityFlowError(`Unable to enumerate repository source for specification acceptance: ${(failure.stderr || failure.stdout).trim() || 'git ls-files failed'}`);
+  }
+  const files = [...new Set([
+    ...tracked.stdout.split('\0').filter(Boolean).map(posix).filter(isApplicationPath),
+    ...untracked.stdout.split('\0').filter(Boolean).map(posix)
+      .filter((file) => isApplicationChangePath(file, { untracked: true }))
+  ])].sort();
   const hash = createHash('sha256');
   for (const file of files) {
     const absolute = path.join(root, file);
@@ -564,13 +570,13 @@ function gitCommit(root) {
 
 export function changedRepositoryPaths(root, { base = null, target = 'HEAD' } = {}) {
   const args = base
-    ? ['diff', '--name-only', '--diff-filter=ACMRTUXB', `${base}...${target}`]
-    : ['diff', '--name-only', '--diff-filter=ACMRTUXB', `${target}^`, target];
+    ? ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, target, '--']
+    : ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${target}^`, target, '--'];
   const result = run('git', args, { cwd: root, allowFailure: true });
   if (result.status !== 0) {
     throw new SingularityFlowError(`Unable to calculate changed repository paths: ${(result.stderr || result.stdout).trim() || `git diff exited ${result.status}`}`);
   }
-  return result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map(posix);
+  return result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).map(posix).filter(isApplicationPath);
 }
 
 export function traceClause(records, clauseId = null) {

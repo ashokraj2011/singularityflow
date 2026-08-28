@@ -6,7 +6,8 @@ import YAML from 'yaml';
 
 import { BUILD_INFO } from './build-info.mjs';
 import {
-  configurationAssetPaths, CONFIGURATION_BRANCH, ensureConfigurationBranch, isConfigurationAsset
+  canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
+  ensureConfigurationBranch, isConfigurationAsset
 } from './configuration-branch.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommitIdentity } from './git.mjs';
@@ -588,10 +589,11 @@ async function desiredStateProjection(root) {
   const paths = await configurationAssetPaths(root);
   const files = {};
   const hashes = {};
+  const canonicalAssets = await canonicalConfigurationAssets(root, paths);
   for (const relative of paths) {
-    const contents = await readFile(path.join(root, relative));
-    files[relative] = contents;
-    hashes[relative] = sha256(contents);
+    const asset = canonicalAssets.get(relative);
+    files[relative] = asset.contents;
+    hashes[relative] = asset.sha256;
   }
   const approved = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
   return {

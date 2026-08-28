@@ -106,7 +106,7 @@
   "initiative-invalidation-record": [{ "schemaVersion": 1 }],
   "initiative-approval-summary": [{ "schemaVersion": 1 }],
   "story-lineage": [{ "schemaVersion": 1 }],
-  "configuration-source": [{ "schemaVersion": 1 }],
+  "configuration-source": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }],
   "impact-evidence": [{ "schemaVersion": 1 }],
   "jira-write-receipt": [{ "schemaVersion": 1 }],
   "mcp-observation-receipt": [{ "schemaVersion": 1 }],

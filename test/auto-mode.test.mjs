@@ -15,6 +15,7 @@ import {
   readAutoFlightReport, readAutoFlightState, resumeAutoFlight
 } from '../src/auto/auto-flight-store.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
@@ -85,6 +86,16 @@ async function executableRepository({ authorDelayMs = 0 } = {}) {
   await writeFile(workflowPath, YAML.stringify(workflow));
   run('git', ['add', 'singularity/workflow.yml'], root);
   run('git', ['commit', '-m', 'configure executable auto pilot'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  return root;
+}
+
+async function configurationFreeExecutableRepository() {
+  const root = await executableRepository();
+  const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
+  await ensureConfigurationBranch(remote);
+  run('git', ['rm', '-qr', '--', 'singularity', '.github/agents'], root);
+  run('git', ['commit', '-m', 'keep application main configuration-free'], root);
   run('git', ['push', 'origin', 'main'], root);
   return root;
 }
@@ -362,6 +373,27 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   assert.equal(report.evidence.changeSetDigest, deliveryReceipt.changeSet.digest);
   assert.equal(report.evidence.reviewPacketSha256, completedWorkflow.lineage.submissions.at(-1).packetSha256);
   assert.equal(report.lastSuccessfulStoryRevision, final.commits.submission);
+});
+
+test('Auto treats approved configuration projected into a config-free Story as input, not model output', async () => {
+  const root = await configurationFreeExecutableRepository();
+  assert.equal(run('git', ['cat-file', '-e', 'HEAD:singularity/workflow.yml'], root, {
+    allowFailure: true
+  }).status, 128);
+  const plan = await createAutoPlan(root, 'Change the exported application value from one to two.', {
+    ...proposal,
+    workType: 'quick-fix',
+    predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, { workId: 'AUT-CONFIG-FREE', workType: 'quick-fix', fromBranch: 'main' });
+  assert.match(plan.bindings.workflowSha256, /^[0-9a-f]{64}$/,
+    'the plan binds the approved configuration overlay even though main is code-only');
+  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
+  if (final.status === 'halted') assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  assert.deepEqual(final.observedPaths, ['app.mjs', 'test/app.test.mjs']);
+  assert.notEqual(final.stopReason, 'protected-path-contact');
+  assert.notEqual(final.stopReason, 'scope-expansion');
 });
 
 for (const boundary of ['published', 'submitted']) {

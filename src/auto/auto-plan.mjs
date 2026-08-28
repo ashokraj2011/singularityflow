@@ -8,6 +8,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { resolveLifecycleCapability } from '../capability-context.mjs';
@@ -26,6 +27,8 @@ import {
 } from './auto-policy.mjs';
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { configurationReadRoot } from '../configuration-read-scope.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -153,7 +156,7 @@ export function autoPlanPrompt(requirement, definition) {
   ].join('\n');
 }
 
-export async function synthesizeAutoPlanProposal(root, requirement, { definition = null } = {}) {
+async function synthesizeAutoPlanProposalInScope(root, requirement, { definition = null } = {}) {
   const config = definition ?? await loadDefinition(root);
   if (!config.auto.enabled) throw new SingularityFlowError('Auto mode is disabled by repository policy.', { code: 'AUTO_DISABLED' });
   const provider = resolveModelProvider(config);
@@ -178,6 +181,18 @@ export async function synthesizeAutoPlanProposal(root, requirement, { definition
   return { proposal: parseProposalOutput(result.output), invocation: result.invocation, usage: result.usage };
 }
 
+export async function synthesizeAutoPlanProposal(root, requirement, options = {}) {
+  if (options.definition) return synthesizeAutoPlanProposalInScope(root, requirement, options);
+  return withApprovedConfigurationRead(root, async (authority) => {
+    if (!authority) throw new SingularityFlowError('Auto Plan requires approved Singularity Flow configuration.', {
+      code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
+    });
+    return synthesizeAutoPlanProposalInScope(root, requirement, {
+      ...options, definition: await loadDefinition(root)
+    });
+  }, { preferAuthority: true });
+}
+
 function workIdFor(requirement, config, explicit = null) {
   if (explicit) return String(explicit).trim();
   if (config.auto.workIdAllocator === 'require-explicit') {
@@ -195,8 +210,31 @@ function remoteHead(root, remote, branchName) {
 }
 
 function committedFileSha(root, relative) {
+  const readRoot = configurationReadRoot(root);
+  if (path.resolve(readRoot) !== path.resolve(root)) {
+    try {
+      return createHash('sha256').update(readFileSync(path.join(readRoot, relative))).digest('hex');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
   const result = run('git', ['show', `HEAD:${relative}`], { cwd: root, allowFailure: true, maxBuffer: 8 * 1024 * 1024 });
   return result.status === 0 ? sha256(result.stdout) : null;
+}
+
+function autoPolicySha256(definition) {
+  const policy = structuredClone(definition);
+  // Automatic identity enrollment changes only group membership while Story start is executing.
+  // Membership does not change the model, tools, phase rail, ceilings, or required authority
+  // groups ratified by an Auto Plan, so bind all configuration except that append-only roster.
+  for (const authority of Object.values(policy.approvalAuthorities ?? {})) delete authority.members;
+  // Agent files are extracted into a different private temporary directory on every read. Their
+  // reviewed content digest and prompt bytes remain in the projection; the machine-local absolute
+  // filename is transport metadata and must not make a Plan instantly stale.
+  for (const agent of Object.values(policy.agents ?? {})) delete agent.file;
+  for (const agent of policy.agentCatalog ?? []) delete agent.file;
+  return sha256(policy);
 }
 
 function branchExists(root, name, remote) {
@@ -237,7 +275,7 @@ export function autoPlanHash(plan) {
 }
 
 /** Build and persist a Plan from an untrusted proposal. This function never starts governed work. */
-export async function createAutoPlan(root, requirementValue, proposalValue, options = {}) {
+async function createAutoPlanInScope(root, requirementValue, proposalValue, options = {}) {
   const requirement = normalizedRequirement(requirementValue);
   const proposal = proposalObject(proposalValue);
   const definition = options.definition ?? await loadDefinition(root);
@@ -361,7 +399,9 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
     },
     bindings: {
       repository: run('git', ['config', '--get', 'remote.origin.url'], { cwd: root, allowFailure: true }).stdout.trim() || path.resolve(root),
-      head: head(root), branch: branch(root), workflowSha256: committedFileSha(root, 'singularity/workflow.yml'),
+      head: head(root), branch: branch(root),
+      workflowSha256: committedFileSha(root, 'singularity/workflow.yml'),
+      autoPolicySha256: autoPolicySha256(definition),
       flightPlanId: flightPlan.planId, flightPlanSha256: `sha256:${recordSha256(flightPlan)}`
     },
     safety: {
@@ -390,6 +430,18 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
   return plan;
 }
 
+export async function createAutoPlan(root, requirementValue, proposalValue, options = {}) {
+  if (options.definition) return createAutoPlanInScope(root, requirementValue, proposalValue, options);
+  return withApprovedConfigurationRead(root, async (authority) => {
+    if (!authority) throw new SingularityFlowError('Auto Plan requires approved Singularity Flow configuration.', {
+      code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
+    });
+    return createAutoPlanInScope(root, requirementValue, proposalValue, {
+      ...options, definition: await loadDefinition(root)
+    });
+  }, { preferAuthority: true });
+}
+
 export async function readAutoPlan(root, planIdValue) {
   const planId = validatePlanId(planIdValue);
   let raw;
@@ -406,14 +458,19 @@ export async function readAutoPlan(root, planIdValue) {
   return plan;
 }
 
-export async function revalidateAutoPlan(root, plan) {
+async function revalidateAutoPlanInScope(root, plan) {
   const changed = [];
   if (Date.parse(plan.expiresAt) <= Date.now()) throw new SingularityFlowError(`Auto Plan '${plan.planId}' expired.`, {
     code: 'AUTO_PLAN_EXPIRED', details: { nextAction: 'Create and review a new Auto Plan.' }
   });
   if (head(root) !== plan.bindings.head) changed.push('HEAD changed');
   if (branch(root) !== plan.bindings.branch) changed.push('branch changed');
-  if (committedFileSha(root, 'singularity/workflow.yml') !== plan.bindings.workflowSha256) changed.push('workflow changed');
+  if (plan.bindings.autoPolicySha256) {
+    const definition = await loadDefinition(root);
+    if (autoPolicySha256(definition) !== plan.bindings.autoPolicySha256) changed.push('Auto policy changed');
+  } else if (committedFileSha(root, 'singularity/workflow.yml') !== plan.bindings.workflowSha256) {
+    changed.push('workflow changed');
+  }
   if (plan.capability) {
     const capability = await resolveLifecycleCapability(root, { capabilityId: plan.capability.id, required: true });
     if (capability.map.sha256 !== plan.capability.mapSha256) changed.push('capability map changed');
@@ -428,6 +485,15 @@ export async function revalidateAutoPlan(root, plan) {
     code: 'AUTO_PLAN_STALE', details: { changed, nextAction: 'Create and review a new Auto Plan.' }
   });
   return { valid: true, checkedAt: nowIso() };
+}
+
+export async function revalidateAutoPlan(root, plan) {
+  return withApprovedConfigurationRead(root, async (authority) => {
+    if (!authority) throw new SingularityFlowError('Auto Plan cannot revalidate without approved configuration.', {
+      code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
+    });
+    return revalidateAutoPlanInScope(root, plan);
+  }, { preferAuthority: true });
 }
 
 export async function ratifyAutoPlan(root, planIdValue, confirmation) {

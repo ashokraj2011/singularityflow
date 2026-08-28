@@ -14,6 +14,7 @@ import {
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, run as runProcess, SingularityFlowError } from '../util.mjs';
+import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 
 const SUBCOMMANDS = new Set(['plan', 'show-plan', 'start', 'status', 'report', 'pause', 'resume', 'halt', 'discard', 'flight-step']);
 const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
@@ -121,21 +122,26 @@ export async function run(_argv, { positionals, options }) {
       code: 'AUTO_PILOT_SCOPE', details: { supported: 'single-repository Story rail' }
     });
     const requirement = required(positionals, 2, 'a quoted requirement');
-    const definition = await loadDefinition(root);
-    const synthesized = await synthesizeAutoPlanProposal(root, requirement, { definition });
-    const plan = await createAutoPlan(root, requirement, synthesized.proposal, {
-      definition,
-      workType: optionString(options, 'work-type'), capabilityId: optionString(options, 'capability'),
-      workId: optionString(options, 'work-id'), fromBranch: optionString(options, 'from-branch'),
-      pace: optionString(options, 'pace'), until: optionString(options, 'until'),
-      synthesis: {
-        invocationId: synthesized.invocation?.id ?? null,
-        provider: synthesized.invocation?.provider ?? null,
-        model: synthesized.invocation?.model ?? null,
-        usage: synthesized.usage ?? { status: 'unavailable' }
-      }
-    });
-    return emitAuto(plan, { operation: 'auto.plan', card: planCard(plan), json });
+    return withApprovedConfigurationRead(root, async (authority) => {
+      if (!authority) throw new SingularityFlowError('Auto Plan requires approved Singularity Flow configuration.', {
+        code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
+      });
+      const definition = await loadDefinition(root);
+      const synthesized = await synthesizeAutoPlanProposal(root, requirement, { definition });
+      const plan = await createAutoPlan(root, requirement, synthesized.proposal, {
+        definition,
+        workType: optionString(options, 'work-type'), capabilityId: optionString(options, 'capability'),
+        workId: optionString(options, 'work-id'), fromBranch: optionString(options, 'from-branch'),
+        pace: optionString(options, 'pace'), until: optionString(options, 'until'),
+        synthesis: {
+          invocationId: synthesized.invocation?.id ?? null,
+          provider: synthesized.invocation?.provider ?? null,
+          model: synthesized.invocation?.model ?? null,
+          usage: synthesized.usage ?? { status: 'unavailable' }
+        }
+      });
+      return emitAuto(plan, { operation: 'auto.plan', card: planCard(plan), json });
+    }, { preferAuthority: true });
   }
 
   if (subcommand === 'show-plan') {

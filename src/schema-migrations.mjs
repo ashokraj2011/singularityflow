@@ -70,6 +70,18 @@ function promptAuditSettingsV1ToV2(source) {
   };
 }
 
+function configurationSourceV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    baseCommit: source.baseCommit ?? null,
+    assets: source.assets ?? Object.fromEntries(Object.entries(source.files ?? {})
+      .map(([relative, sha256]) => [relative, { sha256, object: null, mode: null }])),
+    removed: source.removed ?? {},
+    projectionSha256: source.projectionSha256 ?? null
+  };
+}
+
 function promptAuditRecordV1ToV2(source) {
   return {
     ...source,
@@ -932,7 +944,11 @@ const families = [
   family({ id: 'initiative-invalidation-record', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/invalidations\/records\/[a-f0-9]{64}\.json$/], immutable: true }),
   family({ id: 'initiative-approval-summary', currentVersion: 1, paths: [/^singularity\/initiatives\/[^/]+\/approvals\/SUMMARY\.json$/] }),
   family({ id: 'story-lineage', currentVersion: 1 }),
-  family({ id: 'configuration-source', currentVersion: 1, paths: [/^singularity\/configuration-source\.json$/], immutable: true }),
+  family({
+    id: 'configuration-source', currentVersion: 2,
+    steps: [migration(1, 2, configurationSourceV1ToV2)],
+    paths: [/^singularity\/configuration-source\.json$/], immutable: true
+  }),
   family({ id: 'impact-evidence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/impact\/evidence\/[^/]+\.json$/], immutable: true }),
   family({ id: 'jira-write-receipt', currentVersion: 1, immutable: true }),
   family({ id: 'mcp-observation-receipt', currentVersion: 1, immutable: true }),

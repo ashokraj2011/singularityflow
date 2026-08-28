@@ -38,7 +38,8 @@ import {
 } from './ledger.mjs';
 import {
   CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT, STATE_CONFIGURATION_MANIFEST,
-  configurationAssetPaths, configurationBranchHead, ensureConfigurationBranch, isConfigurationAsset,
+  canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
+  ensureConfigurationBranch, isConfigurationAsset,
   remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
@@ -816,10 +817,11 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     const configurationFiles = {};
     const configurationHashes = {};
     const configurationPaths = await configurationAssetPaths(root);
+    const canonicalAssets = await canonicalConfigurationAssets(root, configurationPaths);
     for (const relative of configurationPaths) {
-      const contents = await readFile(path.join(root, relative));
-      configurationFiles[relative] = contents;
-      configurationHashes[relative] = createHash('sha256').update(contents).digest('hex');
+      const asset = canonicalAssets.get(relative);
+      configurationFiles[relative] = asset.contents;
+      configurationHashes[relative] = asset.sha256;
     }
     const manifest = {
       format: STATE_CONFIGURATION_FORMAT,

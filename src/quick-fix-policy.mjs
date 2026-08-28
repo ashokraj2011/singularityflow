@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { run } from './util.mjs';
+import { isApplicationPath } from './application-paths.mjs';
 
 export const DEFAULT_QUICK_FIX_POLICY = Object.freeze({
   id: 'quick-fix-low-risk-v1',
@@ -15,12 +16,12 @@ function hash(value) {
 }
 
 function changedPaths(root, workflow) {
-  const base = workflow.workItem.baseBranch;
-  const result = run('git', ['diff', '--name-only', '--diff-filter=ACMRTUXB', `${base}...HEAD`], { cwd: root, allowFailure: true });
+  const base = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
+  const result = run('git', ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, 'HEAD', '--'], { cwd: root, allowFailure: true });
   if (result.status !== 0) return { paths: [], available: false };
   return {
     paths: [...new Set(result.stdout.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
-      .filter((item) => !item.startsWith('singularity/')))].sort(),
+      .filter(isApplicationPath))].sort(),
     available: true
   };
 }

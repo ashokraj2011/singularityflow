@@ -41,6 +41,41 @@ test('protected configuration materialization is exempt only at its pinned regul
   assert.deepEqual([...approvedConfigurationMaterializations(changeSet, workflow)], ['singularity/workflow.yml']);
 });
 
+test('configuration projection binds canonical blob modes and approved removals', () => {
+  const digest = 'a'.repeat(64);
+  const blob = 'b'.repeat(40);
+  const removedBlob = 'c'.repeat(40);
+  const source = {
+    assets: {
+      'singularity/workflow.yml': { sha256: digest, object: blob, mode: '100644' }
+    },
+    removed: {
+      '.github/agents/obsolete.agent.md': { object: removedBlob, mode: '100644' }
+    }
+  };
+  const accepted = approvedConfigurationMaterializations({ entries: [
+    {
+      status: 'modified', oldPath: 'singularity/workflow.yml', newPath: 'singularity/workflow.yml',
+      oldMode: '100644', newMode: '100644', oldObject: 'd'.repeat(40), newObject: blob,
+      newContent: { kind: 'regular-file', sha256: `sha256:${'e'.repeat(64)}` }
+    },
+    {
+      status: 'deleted', oldPath: '.github/agents/obsolete.agent.md', newPath: null,
+      oldMode: '100644', newMode: '000000', oldObject: removedBlob, newObject: null,
+      newContent: null
+    },
+    {
+      status: 'modified', oldPath: '.github/agents/developer.agent.md',
+      newPath: '.github/agents/developer.agent.md', oldMode: '100644', newMode: '100755',
+      oldObject: blob, newObject: blob,
+      newContent: { kind: 'regular-file', sha256: `sha256:${digest}` }
+    }
+  ] }, source);
+  assert.deepEqual([...accepted].sort(), [
+    '.github/agents/obsolete.agent.md', 'singularity/workflow.yml'
+  ]);
+});
+
 test('final grounding mirrors publication authorship and does not invent a model dependency', () => {
   const phase = { authorship: [
     { generation: 1, producer: 'governed-agent' },

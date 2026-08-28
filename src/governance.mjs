@@ -129,7 +129,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     else passes.push(`document integrity: ${manifest.documents?.length ?? 0} supporting inputs`);
   } else if ((workflow.documents?.count ?? 0) > 0) errors.push('workflow records documents but documents.json is missing');
 
-  const mergeBase = run('git', ['merge-base', workflow.workItem.baseBranch, 'HEAD'], { cwd: root, allowFailure: true });
+  const pinnedBase = workflow.workItem.baseCommit ?? null;
+  const mergeBase = pinnedBase
+    ? { status: 0, stdout: pinnedBase }
+    : run('git', ['merge-base', workflow.workItem.baseBranch, 'HEAD'], { cwd: root, allowFailure: true });
   if (mergeBase.status === 0) {
     const branchChangeSet = await buildRepositoryChangeSet(root, { baseCommit: mergeBase.stdout.trim() });
     const protectedResult = evaluateStoryProtectedPaths(
@@ -141,7 +144,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (protectedResult.acceptedProtectedPaths.size) {
       passes.push(`approved configuration materialization: ${protectedResult.acceptedProtectedPaths.size} protected path(s) match the pinned configuration snapshot`);
     }
-  } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseBranch}`);
+  } else warnings.push(`could not compare protected process paths with ${workflow.workItem.baseCommit ?? workflow.workItem.baseBranch}`);
 
   for (const phaseId of workflow.phaseOrder) {
     const phase = workflow.phases[phaseId];
@@ -362,7 +365,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
     if (specPolicy.coverage !== 'off') {
       const coverage = evaluateSpecCoverage(records, changedRepositoryPaths(root, {
-        base: workflow.phases[workflow.phaseOrder[0]]?.sourceCommit ?? workflow.workItem.baseBranch,
+        base: workflow.workItem.baseCommit
+          ?? workflow.phases[workflow.phaseOrder[0]]?.sourceCommit
+          ?? workflow.workItem.baseBranch,
         target: 'HEAD'
       }), specPolicy, { root });
       const messages = [

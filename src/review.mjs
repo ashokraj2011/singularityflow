@@ -9,6 +9,7 @@ import { citedArticleIds, requiredArticles } from './constitution.mjs';
 import { markerSummary, priorChecklistExceptions, resolvedSpecificationQualityPolicy } from './specification-gate.mjs';
 import { STARTER_CHECKLIST, analyzeSpecification, policyHash } from './specification-quality.mjs';
 import { exists, posix, run, snapshot } from './util.mjs';
+import { GOVERNED_ROOTS } from './config.mjs';
 
 function escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
 
@@ -68,7 +69,12 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
     const producerPath = producer ? path.join(itemRoot, producer.requiredArtifact.path) : null;
     inputs.push({ phase: declaration.phase, status: producer?.status ?? 'missing', optional: declaration.optional === true, path: producerPath ? path.relative(root, producerPath).replaceAll(path.sep, '/') : null, sha256: producerPath && await exists(producerPath) ? (await snapshot(producerPath)).sha256 : null });
   }
-  const diff = run('git', ['diff', '--stat', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
+  const reviewBase = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
+  const diff = run('git', [
+    'diff', '--stat', reviewBase, 'HEAD', '--', '.',
+    ...GOVERNED_ROOTS.flatMap((root) => [`:(exclude)${root}`, `:(exclude)${root}/**`]),
+    ':(exclude).sflow/results/**'
+  ], { cwd: root, allowFailure: true });
   const approvals = activeApprovals(phase).map((item) => ({
     decision: item.decision,
     agent: item.agent,

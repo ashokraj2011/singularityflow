@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -78,7 +78,12 @@ test('spec index can inspect a standalone repository file before a Story exists'
   await writeFile(path.join(root, 'candidate.md'), markdown);
   const result = spawnSync(process.execPath, [cli, 'spec', 'index', 'candidate.md'], {
     cwd: root,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.workspaces.json')
+    }
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Indexed 2 standalone clause/);
@@ -165,4 +170,35 @@ test('acceptance policy distinguishes planned evidence from verified execution',
 test('changed-path discovery fails closed when the Git comparison is invalid', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-diff-'));
   assert.throws(() => changedRepositoryPaths(root, { base: 'missing', target: 'HEAD' }), /Unable to calculate changed repository paths/);
+});
+
+test('specification coverage includes source deletions and excludes every governed root', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-spec-ownership-'));
+  run('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Spec Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'spec@example.com'], { cwd: root });
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
+  await writeFile(path.join(root, 'src/obsolete.mjs'), 'export const obsolete = true;\n');
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 2\n');
+  await writeFile(path.join(root, '.github/agents/developer.agent.md'), '# Developer\n');
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'baseline'], { cwd: root });
+  const base = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const sourceHash = await specificationSourceTreeHash(root);
+
+  await rm(path.join(root, 'src/obsolete.mjs'));
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 3\n');
+  await writeFile(path.join(root, '.github/agents/developer.agent.md'), '# Changed agent\n');
+  run('git', ['add', '-A'], { cwd: root });
+  run('git', ['commit', '-qm', 'delete source and refresh governance'], { cwd: root });
+  assert.deepEqual(changedRepositoryPaths(root, { base, target: 'HEAD' }), ['src/obsolete.mjs']);
+  assert.notEqual(await specificationSourceTreeHash(root), sourceHash,
+    'deleting application source changes the acceptance fingerprint');
+
+  const afterDeletion = await specificationSourceTreeHash(root);
+  await writeFile(path.join(root, '.github/agents/developer.agent.md'), '# Another agent edit\n');
+  assert.equal(await specificationSourceTreeHash(root), afterDeletion,
+    'agent projection never makes application acceptance evidence stale');
 });

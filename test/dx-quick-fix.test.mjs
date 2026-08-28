@@ -29,8 +29,17 @@ async function fixture(file = 'src/message.txt') {
 
 test('two-phase-completion policy waives only bounded low-risk changes', async () => {
   const root = await fixture();
+  await mkdir(path.join(root, '.github/agents'), { recursive: true });
+  for (const name of ['architect', 'developer', 'qa', 'product-owner', 'product-designer', 'mobile-architect']) {
+    await writeFile(path.join(root, `.github/agents/${name}.agent.md`), `# ${name}\n`);
+  }
+  git(root, ['add', '.github/agents']);
+  git(root, ['commit', '-m', 'project approved agent configuration']);
   const workflow = {
-    workItem: { baseBranch: 'main', source: { risk: 'low', repositoryCount: 1 } },
+    workItem: {
+      baseBranch: 'main', baseCommit: git(root, ['rev-parse', 'main']).stdout.trim(),
+      source: { risk: 'low', repositoryCount: 1 }
+    },
     resolution: { capability: { policy: {} } }
   };
   const phase = {

@@ -171,6 +171,14 @@ test('accepted plans distinguish expected changes from unexamined scope expansio
   assert.deepEqual(expected.delta.unresolved, []);
   assert.deepEqual(expected.delta.actualPaths, ['src/payment/notifier.mjs']);
 
+  await writeFile(path.join(target, '.github/agents/developer.agent.md'), '# Approved agent projection\n');
+  run('git', ['add', '.github/agents/developer.agent.md'], target);
+  run('git', ['commit', '-m', 'project approved configuration'], target);
+  workflow = await loadStoryAggregate(target, definition, 'PAY-DELTA');
+  const afterProjection = evaluateChangeFlightPlanBoundary(target, workflow);
+  assert.deepEqual(afterProjection.delta.actualPaths, ['src/payment/notifier.mjs'],
+    'approved agent projection is not a Story scope expansion');
+
   await writeFile(path.join(target, 'src/payment/unplanned.mjs'), 'export const unexpected = true;\n');
   run('git', ['add', 'src/payment/unplanned.mjs'], target);
   run('git', ['commit', '-m', 'expand actual scope'], target);

@@ -12,6 +12,8 @@ import { loadStoryAggregate } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { composePhasePrompt } from '../worldmodel.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
+import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
+import { applicationChangeSetProjection } from '../work-intervals.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { readAutoPlan, revalidateAutoPlan } from './auto-plan.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
@@ -23,11 +25,6 @@ const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.
 
 function allowedPath(actual, predicted) {
   return predicted.some((candidate) => actual === candidate || actual.startsWith(`${candidate.replace(/\/$/, '')}/`));
-}
-
-function storyControlPath(definition, workId, candidate) {
-  const prefix = `${definition.workItemRoot ?? 'singularity/work-items'}/${workId}/`;
-  return candidate.startsWith(prefix);
 }
 
 function tokenObservation(usage) {
@@ -239,13 +236,13 @@ async function finishAtBoundary(root, flightId, state, phaseId, boundary) {
   }, { expectedCheckpoint: completed.checkpointSha256, expectedStatuses: ['completed'] });
 }
 
-function actualProtectedPaths(definition, workflow, files) {
+function protectedPathEvaluation(definition, workflow, changeSet) {
   const protectedPaths = [...new Set([
     'singularity/workflow.yml', 'singularity/capabilities.yml',
     ...(definition.governance?.protectedPaths ?? []),
     ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
   ])];
-  return files.filter((file) => protectedPaths.some((guard) => file === guard || file.startsWith(`${guard.replace(/\/$/, '')}/`)));
+  return evaluateStoryProtectedPaths(changeSet, protectedPaths, workflow);
 }
 
 async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime = {}) {
@@ -437,20 +434,18 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         baseCommit: plan.repositories[0].baseCommit,
         subject: { kind: 'story', id: state.story.workId, phase: phase.id }
       });
-      const applicationEntries = changeSet.entries.filter((entry) => {
-        const paths = [entry.oldPath, entry.newPath].filter(Boolean);
-        return paths.some((candidate) => !storyControlPath(definition, state.story.workId, candidate));
-      });
+      const protectedResult = protectedPathEvaluation(definition, workflow, changeSet);
+      const applicationChangeSet = applicationChangeSetProjection(changeSet);
+      const applicationEntries = applicationChangeSet.entries;
       const files = [...new Set(applicationEntries.flatMap((entry) => [entry.oldPath, entry.newPath]).filter(Boolean))].sort();
-      const protectedPaths = actualProtectedPaths(definition, workflow, files);
+      const protectedPaths = protectedResult.violations.map((violation) => violation.path);
       if (protectedPaths.length) {
         return stopActive('halted', 'protected-path-contact',
           `Review retained worktree changes to protected paths: ${protectedPaths.join(', ')}.`, {
             touchedPaths: files, lastInvocationId: invocation.invocationId
           });
       }
-      const outside = files.filter((file) => !storyControlPath(definition, state.story.workId, file)
-        && !allowedPath(file, plan.proposal.predictedPaths));
+      const outside = files.filter((file) => !allowedPath(file, plan.proposal.predictedPaths));
       if (outside.length) {
         return stopActive('halted', 'scope-expansion',
           `Review retained worktree changes outside the ratified prediction: ${outside.join(', ')}.`, {
@@ -481,12 +476,12 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.position = 'authored';
         draft.counters.touchedPaths = files.length;
         draft.counters.touchedChanges = applicationEntries.length;
-        draft.observedPaths = files.filter((file) => !storyControlPath(definition, state.story.workId, file));
+        draft.observedPaths = files;
         draft.lastInvocationId = invocation.invocationId;
-        draft.evidence = { ...(draft.evidence ?? {}), changeSetDigest: changeSet.digest };
+        draft.evidence = { ...(draft.evidence ?? {}), changeSetDigest: applicationChangeSet.digest };
         draft.operations = [...(draft.operations ?? []), {
           operation: 'author', phase: phase.id, outcome: 'succeeded',
-          invocationId: invocation.invocationId, changeSetDigest: changeSet.digest
+          invocationId: invocation.invocationId, changeSetDigest: applicationChangeSet.digest
         }];
         draft.token = token;
         draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0) + authoringActiveMilliseconds;

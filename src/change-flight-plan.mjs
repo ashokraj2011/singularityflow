@@ -7,12 +7,18 @@
  */
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readdir, realpath } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { astQuery } from './ast-intelligence.mjs';
 import { loadDefinition } from './config.mjs';
 import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir } from './git.mjs';
+import { isApplicationPath } from './application-paths.mjs';
+import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
+import {
+  configurationReadAuthority, configurationReadRoot, isConfigurationReadPath
+} from './configuration-read-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic, writeJson, writeText
@@ -70,6 +76,14 @@ function repositoryIdentity(root) {
 }
 
 function committedDigest(root, revision, relative) {
+  const readRoot = configurationReadRoot(root);
+  if (path.resolve(readRoot) !== path.resolve(root) && isConfigurationReadPath(relative)) {
+    try { return sha256(readFileSync(path.join(readRoot, relative), 'utf8')); }
+    catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
   const text = gitTextAt(root, revision, relative);
   return text == null ? null : sha256(text);
 }
@@ -387,7 +401,7 @@ export async function readChangeFlightPlan(root, planId) {
   }
 }
 
-export async function previewChangeFlightPlan(root, input = {}) {
+async function previewChangeFlightPlanInScope(root, input = {}) {
   const started = performance.now();
   const budgets = { ...DEFAULT_BUDGETS, ...(input.budgets ?? {}) };
   for (const [name, value] of Object.entries(budgets)) {
@@ -502,6 +516,13 @@ export async function previewChangeFlightPlan(root, input = {}) {
   };
   if (input.persist !== false) await persistLocalPlan(root, plan);
   return plan;
+}
+
+export async function previewChangeFlightPlan(root, input = {}) {
+  if (configurationReadAuthority(root)) return previewChangeFlightPlanInScope(root, input);
+  return withApprovedConfigurationRead(root, () => previewChangeFlightPlanInScope(root, input), {
+    preferAuthority: true
+  });
 }
 
 export async function explainChangeFlightPlanFinding(root, planId, findingId = null) {
@@ -658,7 +679,7 @@ export async function pinAcceptedChangeFlightPlan(root, definition, workflow, pl
   return workflow.changeFlightPlan;
 }
 
-export async function startChangeFlightPlan(root, planId, options = {}) {
+async function startChangeFlightPlanInScope(root, planId, options = {}) {
   const id = validatePlanId(planId);
   if (options.confirm !== id) throw new SingularityFlowError(`Starting governed work requires --confirm ${id}.`, { code: 'CFP_START_TRANSACTION_INCOMPLETE' });
   const existing = await startRecord(root, id);
@@ -774,9 +795,11 @@ export async function startChangeFlightPlan(root, planId, options = {}) {
   }
 }
 
-function controlPath(workflow, relative) {
-  const root = `singularity/work-items/${workflow.workItem.id}/`;
-  return relative === root.slice(0, -1) || relative.startsWith(root);
+export async function startChangeFlightPlan(root, planId, options = {}) {
+  if (configurationReadAuthority(root)) return startChangeFlightPlanInScope(root, planId, options);
+  return withApprovedConfigurationRead(root, () => startChangeFlightPlanInScope(root, planId, options), {
+    preferAuthority: true
+  });
 }
 
 export function evaluateChangeFlightPlanBoundary(root, workflow, { phaseId = null } = {}) {
@@ -785,7 +808,7 @@ export function evaluateChangeFlightPlanBoundary(root, workflow, { phaseId = nul
   const plan = readRecord('change-flight-plan', gitJsonAt(root, 'HEAD', binding.acceptedPath)).record;
   if (sha256(plan) !== binding.acceptedPlanSha256) throw new SingularityFlowError('The accepted Change Flight Plan no longer matches its workflow binding.', { code: 'CFP_RECOVERY_REQUIRED' });
   const output = run('git', ['diff', '--name-only', '-z', plan.baseline.revision, 'HEAD', '--'], { cwd: root }).stdout;
-  const changedPaths = splitNull(output).map(posix).filter((relative) => !controlPath(workflow, relative)).sort();
+  const changedPaths = splitNull(output).map(posix).filter(isApplicationPath).sort();
   const expectedPaths = [...new Set(plan.findings.filter((finding) => finding.disposition === 'included' && [
     'code-file', 'test-file', 'configuration', 'database-migration', 'build-configuration'
   ].includes(finding.kind)).map((finding) => finding.subject))].sort();

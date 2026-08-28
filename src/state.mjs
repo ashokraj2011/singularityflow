@@ -93,7 +93,7 @@ import {
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
-  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath,
+  closeWorkInterval, ensureWorkIntervalBaseline, isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
   recordFinalReconciliation
 } from './work-intervals.mjs';
@@ -876,7 +876,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   if (!dryRun) {
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
-      const paths = changedFiles(root).filter((file) => !file.startsWith('singularity/'));
+      const paths = changedFiles(root).map(posix).filter(isApplicationPath);
       const checks = (phase.qualityCommands ?? []).length
         ? phase.qualityCommands.map((command, index) => `- \`${externalCommandText(command, index)}\``).join('\n')
         : '- No mandatory commands are configured for this phase.';

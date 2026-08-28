@@ -16,6 +16,8 @@ import {
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
+import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
 import { run } from '../src/util.mjs';
 import {
@@ -215,12 +217,45 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
       snapshot.files['singularity/company-policy.md']
     );
 
+    await writeFile(path.join(checkout, 'singularity', 'unapproved-local-policy.yml'), 'enabled: true\n');
+    await assert.rejects(
+      () => readConfigurationSource(checkout, { verify: true }),
+      /Pinned configuration asset set changed after materialization.*Unexpected: singularity\/unapproved-local-policy\.yml/
+    );
+    await rm(path.join(checkout, 'singularity', 'unapproved-local-policy.yml'));
+
     await writeFile(path.join(checkout, 'singularity', 'company-policy.md'), '# Changed after pinning\n');
     await assert.rejects(
       () => readConfigurationSource(checkout, { verify: true }),
       /Pinned configuration asset changed after materialization/
     );
     assert.equal(await readFile(path.join(checkout, 'README.md'), 'utf8'), '# Application\n');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('configuration verification uses canonical Git bytes across CRLF worktrees', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'crlf-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Windows Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'windows@example.com'], { cwd: checkout });
+    run('git', ['switch', '-q', '-c', 'STORY-CRLF'], { cwd: checkout });
+    await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
+    run('git', ['add', '-A'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'materialize approved configuration'], { cwd: checkout });
+    run('git', ['config', 'core.autocrlf', 'true'], { cwd: checkout });
+    const workflowFile = path.join(checkout, 'singularity/workflow.yml');
+    const canonical = await readFile(workflowFile, 'utf8');
+    await writeFile(workflowFile, canonical.replaceAll('\n', '\r\n'));
+    assert.equal(run('git', ['diff', '--quiet', '--', 'singularity/workflow.yml'], {
+      cwd: checkout, allowFailure: true
+    }).status, 0, 'Git regards the CRLF checkout as the same canonical blob');
+    const source = await readConfigurationSource(checkout, { verify: true });
+    assert.equal(source.assets['singularity/workflow.yml'].mode, '100644');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -413,6 +448,17 @@ test('a later materialization records configuration assets removed by the approv
     const refreshed = await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
     assert.ok(refreshed.paths.includes('singularity/company-policy.md'));
     await assert.rejects(() => readFile(path.join(checkout, 'singularity/company-policy.md'), 'utf8'), /ENOENT/);
+    const source = await readConfigurationSource(checkout, { verify: true });
+    assert.equal(source.schemaVersion, 2);
+    assert.match(source.projectionSha256, /^[0-9a-f]{64}$/);
+    assert.match(source.removed['singularity/company-policy.md'].object, /^[0-9a-f]{40,64}$/);
+    const baseline = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    const changes = await buildRepositoryChangeSet(checkout, { baseCommit: baseline });
+    assert.equal(
+      approvedConfigurationMaterializations(changes, source).has('singularity/company-policy.md'),
+      true,
+      'an exact deletion selected by approved configuration is input projection, not a Story violation'
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

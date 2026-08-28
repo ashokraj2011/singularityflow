@@ -7,6 +7,22 @@ function configurationFiles(subject) {
     ?? {};
 }
 
+function configurationAssets(subject) {
+  const source = subject?.resolution?.configurationSource
+    ?? subject?.configurationSource
+    ?? subject
+    ?? {};
+  return source.assets ?? Object.fromEntries(Object.entries(configurationFiles(subject))
+    .map(([relative, sha256]) => [relative, { sha256, object: null, mode: null }]));
+}
+
+function configurationRemovals(subject) {
+  return subject?.resolution?.configurationSource?.removed
+    ?? subject?.configurationSource?.removed
+    ?? subject?.removed
+    ?? {};
+}
+
 /**
  * Return configuration paths whose current change-set bytes exactly match the immutable
  * configuration snapshot selected when the Story started.
@@ -16,14 +32,22 @@ function configurationFiles(subject) {
  * never accepted as approved materialization.
  */
 export function approvedConfigurationMaterializations(changeSet, workflowOrConfigurationSource) {
-  const pinned = configurationFiles(workflowOrConfigurationSource);
+  const pinned = configurationAssets(workflowOrConfigurationSource);
+  const removals = configurationRemovals(workflowOrConfigurationSource);
   return new Set((changeSet?.entries ?? []).flatMap((entry) => {
+    const accepted = [];
     const expected = entry.newPath ? pinned[entry.newPath] : null;
-    return expected
-      && entry.newContent?.kind === 'regular-file'
-      && entry.newContent.sha256 === `sha256:${expected}`
-      ? [entry.newPath]
-      : [];
+    const expectedSha256 = expected?.sha256 ?? expected;
+    const modeMatches = !expected?.mode || entry.newMode === expected.mode;
+    const objectMatches = Boolean(expected?.object && entry.newObject === expected.object);
+    const bytesMatch = entry.newContent?.kind === 'regular-file'
+      && entry.newContent.sha256 === `sha256:${expectedSha256}`;
+    if (expected && modeMatches && (objectMatches || bytesMatch)) accepted.push(entry.newPath);
+    const removed = entry.oldPath ? removals[entry.oldPath] : null;
+    if (removed && entry.oldObject === removed.object && entry.oldMode === removed.mode) {
+      accepted.push(entry.oldPath);
+    }
+    return accepted;
   }));
 }
 

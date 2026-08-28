@@ -89,6 +89,81 @@ export async function configurationAssetPaths(root) {
   ].sort();
 }
 
+/**
+ * Read the repository's canonical Git bytes for the current configuration worktree without
+ * touching its real index. This is the line-ending-safe source for state mirrors and receipts.
+ */
+export async function canonicalConfigurationAssets(root, paths = null) {
+  const selected = paths ?? await configurationAssetPaths(root);
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-index-'));
+  const index = path.join(temporary, 'index');
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    run('git', ['read-tree', '--empty'], { cwd: root, env });
+    for (let offset = 0; offset < selected.length; offset += 200) {
+      run('git', ['add', '--', ...selected.slice(offset, offset + 200)], { cwd: root, env });
+    }
+    const staged = run('git', ['ls-files', '--stage', '-z'], { cwd: root, env }).stdout
+      .split('\0').filter(Boolean).map((line) => {
+        const match = line.match(/^(\d{6}) ([0-9a-f]{40,64}) \d\t(.+)$/s);
+        if (!match) throw new SingularityFlowError('Temporary configuration index is not readable.');
+        return { mode: match[1], object: match[2], relative: slash(match[3]) };
+      });
+    const expected = [...selected].sort();
+    const actual = staged.map((entry) => entry.relative).sort();
+    if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+      throw new SingularityFlowError('Canonical configuration index does not match the approved asset set.');
+    }
+    const batch = run('git', ['cat-file', '--batch'], {
+      cwd: root, encoding: 'buffer', input: `${staged.map((entry) => entry.object).join('\n')}\n`
+    });
+    let cursor = 0;
+    const assets = new Map();
+    for (const entry of staged) {
+      const newline = batch.stdout.indexOf(0x0a, cursor);
+      const header = newline >= 0
+        ? batch.stdout.toString('utf8', cursor, newline).trim().split(' ')
+        : [];
+      const size = Number(header[2]);
+      if (header[0] !== entry.object || header[1] !== 'blob' || !Number.isSafeInteger(size) || size < 0) {
+        throw new SingularityFlowError(`Canonical configuration blob is not readable: ${entry.relative}`);
+      }
+      const start = newline + 1;
+      const end = start + size;
+      if (end > batch.stdout.length) {
+        throw new SingularityFlowError(`Canonical configuration blob was truncated: ${entry.relative}`);
+      }
+      const contents = Buffer.from(batch.stdout.subarray(start, end));
+      assets.set(entry.relative, {
+        ...entry, contents,
+        sha256: createHash('sha256').update(contents).digest('hex')
+      });
+      cursor = end + 1;
+    }
+    return assets;
+  } finally {
+    await removeTemporaryTree(temporary);
+  }
+}
+
+function configurationTreeEntries(root, ref = 'HEAD') {
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
+    'singularity', '.github/agents'
+  ], { cwd: root, allowFailure: true });
+  if (listed.status !== 0) return new Map();
+  return new Map(listed.stdout.split('\0').filter(Boolean).map((line) => {
+    const first = line.indexOf(' ');
+    const second = line.indexOf(' ', first + 1);
+    const entry = {
+      mode: line.slice(0, first),
+      object: line.slice(first + 1, second),
+      relative: slash(line.slice(second + 1))
+    };
+    return [entry.relative, entry];
+  }).filter(([, entry]) => /^100(?:644|755)$/.test(entry.mode) && isConfigurationAsset(entry.relative)));
+}
+
 async function copyAssets(source, destination) {
   const copied = [];
   for (const relative of await configurationAssetPaths(source)) {
@@ -456,7 +531,7 @@ export async function ensureConfigurationBranch(remote, {
 
 async function cloneConfiguration(remote, target) {
   const clone = runRemoteGit([
-    'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+    '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
     '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, remote, target
   ], { operation: 'remote-configuration' });
   if (clone.status !== 0) {
@@ -522,6 +597,7 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
         code: 'STATE_CONFIGURATION_MIRROR_INVALID'
       });
     }
+    const treeEntries = configurationTreeEntries(source, 'HEAD');
     const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination);
     if (JSON.stringify(copied) !== JSON.stringify(declared)) {
       throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
@@ -543,7 +619,8 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       remote, branch, mirrorCommit,
       sourceBranch: CONFIGURATION_BRANCH,
       sourceCommit: manifest.source.commit,
-      files: manifest.files
+      files: manifest.files,
+      assets: Object.fromEntries(copied.map((relative) => [relative, treeEntries.get(relative)]))
     };
   } finally {
     await removeTemporaryTree(source);
@@ -647,6 +724,9 @@ export async function loadStoryConfigurationSnapshot(authority) {
     }
     const definition = await loadDefinition(scratch);
     const assets = [];
+    const treeEntries = mirror?.assets
+      ? new Map(Object.entries(mirror.assets))
+      : configurationTreeEntries(scratch, 'HEAD');
     for (const relative of await configurationAssetPaths(scratch)) {
       const file = path.join(scratch, relative);
       const info = await lstat(file);
@@ -654,11 +734,18 @@ export async function loadStoryConfigurationSnapshot(authority) {
         throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
       }
       const contents = Buffer.from(await readFile(file));
+      const treeEntry = treeEntries.get(relative);
+      if (!treeEntry || !/^100(?:644|755)$/.test(treeEntry.mode)
+          || !/^[0-9a-f]{40,64}$/.test(treeEntry.object ?? '')) {
+        throw new SingularityFlowError(`Configuration asset has no canonical Git blob identity: ${relative}`);
+      }
       assets.push(Object.freeze({
         relative,
         contents,
         sha256: createHash('sha256').update(contents).digest('hex'),
-        mode: info.mode & 0o777
+        mode: treeEntry.mode === '100755' ? 0o755 : 0o644,
+        gitMode: treeEntry.mode,
+        object: treeEntry.object
       }));
     }
     if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
@@ -748,16 +835,27 @@ export async function materializeConfigurationSnapshot(root, {
   const commit = verifiedSnapshot.sourceCommit;
   const mirror = verifiedSnapshot.mirror;
   {
+    const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+    const before = configurationTreeEntries(root, baseCommit);
     const removed = await clearConfigurationAssets(root);
     const files = await copyStoryConfigurationSnapshot(verifiedSnapshot, root);
     if (!files.includes('singularity/workflow.yml')) {
       throw new SingularityFlowError(
         `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);
     }
-    const hashes = {};
-    for (const relative of files) {
-      hashes[relative] = createHash('sha256').update(await readFile(path.join(root, relative))).digest('hex');
-    }
+    const assets = Object.fromEntries(verifiedSnapshot.assets.map((entry) => [entry.relative, {
+      sha256: entry.sha256,
+      object: entry.object,
+      mode: entry.gitMode
+    }]).sort(([a], [b]) => a.localeCompare(b)));
+    const hashes = Object.fromEntries(Object.entries(assets).map(([relative, entry]) => [relative, entry.sha256]));
+    const removedAssets = Object.fromEntries([...before.entries()]
+      .filter(([relative]) => !assets[relative])
+      .map(([relative, entry]) => [relative, { object: entry.object, mode: entry.mode }])
+      .sort(([a], [b]) => a.localeCompare(b)));
+    const projectionSha256 = createHash('sha256').update(JSON.stringify({
+      baseCommit, assets, removed: removedAssets
+    })).digest('hex');
     const record = {
       schemaVersion: currentSchemaVersion('configuration-source'),
       repository: sourceRemote,
@@ -765,7 +863,11 @@ export async function materializeConfigurationSnapshot(root, {
       commit,
       ...(mirror ? { mirror: { branch: mirror.branch, commit: mirror.commit ?? mirror.mirrorCommit } } : {}),
       materializedAt: new Date().toISOString(),
-      files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b)))
+      baseCommit,
+      files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b))),
+      assets,
+      removed: removedAssets,
+      projectionSha256
     };
     const recordFile = path.join(root, CONFIGURATION_SOURCE_PATH);
     await mkdir(path.dirname(recordFile), { recursive: true });
@@ -845,8 +947,10 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
   if (!info.isFile() || info.isSymbolicLink()) {
     throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} must be a regular file.`);
   }
-  let record;
-  try { record = readRecord('configuration-source', await readFile(file)).record; }
+  let record; let storedVersion;
+  try {
+    ({ record, storedVersion } = readRecord('configuration-source', await readFile(file)));
+  }
   catch (error) {
     throw new SingularityFlowError(`Cannot read ${CONFIGURATION_SOURCE_PATH}: ${error.message}`);
   }
@@ -854,9 +958,21 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
     || !/^[0-9a-f]{40}$/.test(record.commit ?? '') || !record.repository) {
     throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} is not a valid configuration provenance record.`);
   }
-  for (const [relative, expected] of Object.entries(record.files ?? {})) {
+  const assetEntries = record.assets ?? Object.fromEntries(Object.entries(record.files ?? {})
+    .map(([relative, sha256]) => [relative, { sha256, object: null, mode: null }]));
+  if (!assetEntries || typeof assetEntries !== 'object' || Array.isArray(assetEntries)) {
+    throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} has no valid asset catalog.`);
+  }
+  for (const [relative, descriptor] of Object.entries(assetEntries)) {
+    const expected = descriptor?.sha256 ?? record.files?.[relative];
     if (!isConfigurationAsset(relative) || !/^[0-9a-f]{64}$/.test(expected)) {
       throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid asset entry '${relative}'.`);
+    }
+    if (descriptor?.object != null && !/^[0-9a-f]{40,64}$/.test(descriptor.object)) {
+      throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid Git object for '${relative}'.`);
+    }
+    if (descriptor?.mode != null && !/^100(?:644|755)$/.test(descriptor.mode)) {
+      throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid Git mode for '${relative}'.`);
     }
     if (!verify) continue;
     const asset = path.join(root, relative);
@@ -865,9 +981,46 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
       throw new SingularityFlowError(`Pinned configuration asset is missing or unsafe: ${relative}`);
     }
     const actual = createHash('sha256').update(await readFile(asset)).digest('hex');
-    if (actual !== expected) {
+    let canonicalMatch = actual === expected;
+    if (!canonicalMatch && descriptor?.object) {
+      const indexed = run('git', ['ls-files', '--stage', '-z', '--', relative], {
+        cwd: root, allowFailure: true
+      }).stdout.split('\0').find(Boolean)?.match(/^(\d{6}) ([0-9a-f]{40,64}) \d\t/);
+      const clean = run('git', ['diff', '--quiet', '--', relative], { cwd: root, allowFailure: true }).status === 0;
+      canonicalMatch = Boolean(indexed && indexed[2] === descriptor.object
+        && (!descriptor.mode || indexed[1] === descriptor.mode) && clean);
+    }
+    if (!canonicalMatch) {
       throw new SingularityFlowError(
         `Pinned configuration asset changed after materialization: ${relative}. Start from the approved configuration again.`);
+    }
+  }
+  for (const [relative, descriptor] of Object.entries(record.removed ?? {})) {
+    if (!isConfigurationAsset(relative)
+        || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
+        || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')) {
+      throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid approved removal '${relative}'.`);
+    }
+  }
+  if (verify) {
+    const actualAssets = await configurationAssetPaths(root);
+    const expectedAssets = Object.keys(assetEntries).sort();
+    if (JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) {
+      const extra = actualAssets.filter((relative) => !assetEntries[relative]);
+      const missing = expectedAssets.filter((relative) => !actualAssets.includes(relative));
+      throw new SingularityFlowError(
+        `Pinned configuration asset set changed after materialization.`
+        + `${extra.length ? ` Unexpected: ${extra.join(', ')}.` : ''}`
+        + `${missing.length ? ` Missing: ${missing.join(', ')}.` : ''}`
+      );
+    }
+  }
+  if (storedVersion >= 2) {
+    const expectedProjection = createHash('sha256').update(JSON.stringify({
+      baseCommit: record.baseCommit, assets: assetEntries, removed: record.removed ?? {}
+    })).digest('hex');
+    if (record.projectionSha256 !== expectedProjection) {
+      throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} projection digest is invalid.`);
     }
   }
   // Derived, never stored. The loop above compares each asset to a hash held in the very file it is
@@ -875,6 +1028,15 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
   // This digest of the whole pinned set is what the Story's immutable resolution compares against,
   // and because it is computed rather than read, it cannot be edited alongside the map.
   const files = Object.entries(record.files ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  const filesSha256 = createHash('sha256').update(JSON.stringify(files)).digest('hex');
+  const attestation = storedVersion >= 2
+    ? {
+        files: Object.fromEntries(files),
+        baseCommit: record.baseCommit,
+        assets: assetEntries,
+        removed: record.removed ?? {},
+        projectionSha256: record.projectionSha256
+      }
+    : files;
+  const filesSha256 = createHash('sha256').update(JSON.stringify(attestation)).digest('hex');
   return { ...structuredClone(record), filesSha256 };
 }

@@ -10,7 +10,15 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
 } from './util.mjs';
-import { GOVERNED_ROOTS } from './config.mjs';
+import {
+  isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
+  isGeneratedOutputPath, isTransientTestResultPath
+} from './application-paths.mjs';
+
+export {
+  isApplicationChangeEntry, isApplicationChangePath, isApplicationPath,
+  isGeneratedOutputPath, isTransientTestResultPath
+} from './application-paths.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -202,60 +210,6 @@ export async function ensureWorkIntervalBaseline(root, config, workflow, {
     detail: `baseline ${record.baselineSha256.slice(0, 12)} at ${sourceBaseCommit.slice(0, 12)}`
   });
   return workflow.workIntervals.current;
-}
-
-/**
- * SFlow-owned structured test reports are command scratch, never application source.
- *
- * Unlike a repository's own `build/`, `target/`, or `coverage/` tree, `.sflow/results/` is a
- * reserved engine path. Older builds could accidentally commit one of these reports and then
- * classify every timestamp-bearing rewrite as a source change. Keep the distinction explicit so
- * a tracked legacy report cannot re-enter work-interval, delivery, or source-tree fingerprints.
- */
-export function isTransientTestResultPath(candidate) {
-  const normalized = posix(candidate);
-  return Boolean(normalized && /(?:^|\/)\.sflow\/results(?:\/|$)/.test(normalized));
-}
-
-export function isGeneratedOutputPath(candidate) {
-  const normalized = posix(candidate);
-  if (!normalized) return false;
-  return isTransientTestResultPath(normalized)
-    || normalized.split('/').some((segment) => ['node_modules', 'vendor', 'target', 'build', 'coverage'].includes(segment));
-}
-
-/**
- * Whether a path counts as application source for work-interval accounting.
- *
- * Governance material does not. This excluded `singularity/` but not `.github/agents/`, while
- * `isConfigurationAsset` claims both — so once `start` began materializing the approved
- * configuration from `sflow/config`, six agent prompts landed in the Story branch and the interval
- * counted them as the developer's changes, then flagged them as protected paths modified. A
- * quick-fix, limit five, was over budget before anyone had written a line.
- *
- * Derived from `GOVERNED_ROOTS` rather than restating the list, so a future governed root cannot
- * silently become "application source" that eats somebody's interval.
- */
-export function isApplicationPath(candidate) {
-  const normalized = posix(candidate);
-  if (!normalized || normalized.startsWith('.git/') || isTransientTestResultPath(normalized)) return false;
-  return !GOVERNED_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`));
-}
-
-/**
- * Classify one observed path with its Git provenance. A tracked path is application input by
- * default, even when a directory happens to be named build, vendor, target, or coverage. Those
- * generic generated-output exclusions apply only to untracked/ignored material; the reserved
- * `.sflow/results/**` transport is never application input, tracked or otherwise.
- */
-export function isApplicationChangePath(candidate, { untracked = false } = {}) {
-  if (isTransientTestResultPath(candidate)) return false;
-  return isApplicationPath(candidate) && !(untracked && isGeneratedOutputPath(candidate));
-}
-
-export function isApplicationChangeEntry(entry) {
-  return [entry?.oldPath, entry?.newPath].filter(Boolean).some((candidate) =>
-    isApplicationChangePath(candidate, { untracked: entry?.untracked === true && candidate === entry?.newPath }));
 }
 
 /**

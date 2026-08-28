@@ -14,6 +14,7 @@ import {
 import { invokeModel } from './model-runner.mjs';
 import { nullLogger, repositoryLogger } from './logging.mjs';
 import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
+import { isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, recordInjection } from './inject.mjs';
@@ -3065,10 +3066,11 @@ async function factsCommand(root, options) {
 
 function workflowChangedPaths(root, workflow) {
   const pending = changedFiles(root);
-  if (!workflow?.workItem?.baseBranch) return pending;
-  const committed = run('git', ['diff', '--name-only', `${workflow.workItem.baseBranch}...HEAD`], { cwd: root, allowFailure: true });
+  const base = workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch;
+  if (!base) return pending.map(posix).filter(isApplicationPath).sort();
+  const committed = run('git', ['diff', '--name-only', '--diff-filter=ACDMRTUXB', base, 'HEAD', '--'], { cwd: root, allowFailure: true });
   const files = committed.status === 0 ? committed.stdout.split(/\r?\n/).filter(Boolean) : [];
-  return [...new Set([...files, ...pending])].map(posix).filter((file) => !file.startsWith('singularity/')).sort();
+  return [...new Set([...files, ...pending])].map(posix).filter(isApplicationPath).sort();
 }
 
 function groundingSectionsText(selected, rulePaths) {

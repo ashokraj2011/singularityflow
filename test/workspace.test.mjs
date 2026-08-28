@@ -95,6 +95,20 @@ test('a tracked lifecycle aggregate keeps recovery and approval reads in the cur
   assert.equal(hasLocalGovernanceAuthority(root), true);
 });
 
+test('a tracked lifecycle aggregate under a custom root retains repository routing when configuration is damaged', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-custom-lifecycle-routing-'));
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: root });
+  const state = path.join(root, 'governed/story-state/ROUTE-CUSTOM/workflow.json');
+  await mkdir(path.dirname(state), { recursive: true });
+  await writeFile(state, JSON.stringify({ schemaVersion: 2, workItem: { id: 'ROUTE-CUSTOM' }, phaseOrder: [], phases: {} }));
+  run('git', ['add', state], { cwd: root });
+  run('git', ['commit', '-m', 'tracked custom lifecycle state'], { cwd: root });
+
+  assert.equal(hasLocalGovernanceAuthority(root), true);
+});
+
 test('selected workspace routing reports a stale repository path before dispatch', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-stale-command-root-'));
   const selection = path.join(root, 'active-workspace.json');

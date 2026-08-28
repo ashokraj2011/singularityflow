@@ -56,6 +56,7 @@ function approvedConfigurationAuthority(root) {
     let manifest;
     try { manifest = JSON.parse(shown.stdout); } catch { continue; }
     const files = manifest?.files;
+    const assets = manifest?.assets ?? null;
     if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
       || manifest?.source?.branch !== CONFIGURATION_BRANCH
       || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
@@ -63,6 +64,12 @@ function approvedConfigurationAuthority(root) {
       || !Object.hasOwn(files, WORKFLOW_PATH)
       || Object.entries(files).some(([relative, sha]) =>
         !isConfigurationReadPath(relative) || !/^[0-9a-f]{64}$/.test(sha))) continue;
+    if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
+      || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
+      || Object.entries(assets).some(([relative, descriptor]) =>
+        descriptor?.sha256 !== files[relative]
+        || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
+        || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')))) continue;
     return { kind: 'verified-state-mirror', ref, commit, manifest };
   }
   return null;
@@ -165,6 +172,16 @@ async function extractConfiguration(root, authority, destination) {
       throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
         code: 'STATE_CONFIGURATION_MIRROR_INVALID'
       });
+    }
+    if (authority.manifest.assets) {
+      for (const entry of entries) {
+        const descriptor = authority.manifest.assets[entry.file];
+        if (descriptor.object !== entry.oid || descriptor.mode !== entry.mode) {
+          throw new SingularityFlowError(`State configuration mirror Git identity does not match for '${entry.file}'.`, {
+            code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+          });
+        }
+      }
     }
     for (const relative of copied) {
       const actual = createHash('sha256').update(await readFile(path.join(destination, relative))).digest('hex');

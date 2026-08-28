@@ -7,7 +7,8 @@ import {
   currentKnowledge, filterKnowledge, harvestableEntries, readKnowledge, readKnowledgeWithDiagnostics,
   recallKnowledge, recordKnowledge, resolveKnowledge
 } from '../src/knowledge.mjs';
-import { run } from '../src/util.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import { run, snapshot } from '../src/util.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 
 async function repository() {
@@ -211,4 +212,39 @@ test('knowledge requires a known type, text, approved provenance, and explicit s
     () => recordKnowledge(root, { type: 'insight', text: 'looks valid but is not approved', provenance: PROVENANCE, scope: SCOPE }),
     /approved artifact revision/
   );
+});
+
+test('approved knowledge provenance follows a configured non-default Story root', async () => {
+  const root = await repository();
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
+  await writeFile(
+    definitionPath,
+    (await readFile(definitionPath, 'utf8')).replace('workItemRoot: singularity/work-items', 'workItemRoot: governed/story-state')
+  );
+  const artifactRelative = 'governed/story-state/CUSTOM-1/artifacts/verification/report.md';
+  const artifactPath = path.join(root, artifactRelative);
+  await mkdir(path.dirname(artifactPath), { recursive: true });
+  await writeFile(artifactPath, '# Approved result\n\nThe bounded outcome was verified.\n');
+  const artifact = await snapshot(artifactPath);
+  const statePath = path.join(root, 'governed/story-state/CUSTOM-1/workflow.json');
+  await writeFile(statePath, JSON.stringify({
+    workItem: { id: 'CUSTOM-1' },
+    phases: {
+      verification: {
+        id: 'verification', status: 'approved', generation: 2,
+        artifacts: [{ path: 'artifacts/verification/report.md', sha256: artifact.sha256, size: artifact.size }]
+      }
+    }
+  }));
+
+  const recorded = await recordKnowledge(root, {
+    type: 'insight', text: 'The bounded outcome was verified.',
+    provenance: [{
+      workId: 'CUSTOM-1', artifact: 'artifacts/verification/report.md',
+      sha256: artifact.sha256, approvedRevision: 2
+    }],
+    scope: { repositories: ['custom-root'] }
+  });
+  assert.equal(recorded.created, true);
 });

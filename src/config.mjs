@@ -48,6 +48,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { normalizeRepairBudget } from './repair-budget.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
@@ -404,7 +405,7 @@ export function validateDefinition(definition) {
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
-  assertRelative(definition.workItemRoot ?? 'singularity/work-items', 'workItemRoot');
+  definition.workItemRoot = normalizeWorkItemRoot(definition.workItemRoot);
   assertRelative(definition.templatesRoot, 'templatesRoot');
   /**
    * The catalog, and then every reference against it. Existence is checked here rather than in
@@ -1068,6 +1069,10 @@ export async function snapshotResolution(root, definition, resolved) {
   const impact = await loadImpactDefinition(root);
   return {
     configSha256: definitionSnapshot.sha256,
+    // The state root is part of the immutable Story contract. Consumers that receive only the
+    // workflow aggregate (visual evidence, reference handles, recovery) cannot safely fall back to
+    // the product default when a repository selected a different governed location.
+    workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),

@@ -3480,9 +3480,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (message.type === 'spec') {
       // The specification lives beside the Story plan, under the planning phase.
+      const initiativeRoot = String(
+        store.current.snapshot?.initiative?.state.resolution.initiativeRoot ?? 'singularity/initiatives'
+      ).replace(/\/+$/, '');
       return openArtifact(repository, {
         kind: 'artifact', id: `spec:${message.story.planId}`, label: message.story.workId,
-        path: `singularity/initiatives/${initiativeId}/artifacts/epic-planning/stories/${message.story.planId}/story-spec.md`
+        path: `${initiativeRoot}/${initiativeId}/artifacts/epic-planning/stories/${message.story.planId}/story-spec.md`
       });
     }
     const title = await vscode.window.showInputBox({

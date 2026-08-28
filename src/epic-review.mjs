@@ -16,10 +16,9 @@ import { exists, run, SingularityFlowError } from './util.mjs';
 import { matchApprovalAuthority } from './approval-authority.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGit } from './git-execution.mjs';
-
-function workItemPath(workId) {
-  return `singularity/work-items/${workId}/workflow.json`;
-}
+import {
+  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+} from './work-item-location.mjs';
 
 function reviewClone(root, initiativeId, repositoryId) {
   return path.join(gitDir(root), 'singularity-flow', 'reviews', initiativeId, repositoryId);
@@ -73,7 +72,15 @@ function candidateRemoteRefs(clone) {
 }
 
 function workflowAtRef(clone, ref, workId) {
-  const result = git(clone, ['show', `${ref}:${workItemPath(workId)}`], { allowFailure: true });
+  const definition = git(clone, ['show', `${ref}:singularity/workflow.yml`], { allowFailure: true });
+  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  if (definition.status === 0) {
+    try { workItemRoot = workItemRootFromDefinitionText(definition.stdout); }
+    catch { return null; }
+  }
+  const result = git(clone, ['show', `${ref}:${workItemWorkflowRelative(workId, workItemRoot)}`], {
+    allowFailure: true
+  });
   if (result.status !== 0) return null;
   try {
     const workflow = JSON.parse(result.stdout);

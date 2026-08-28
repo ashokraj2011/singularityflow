@@ -117,6 +117,27 @@ test('an active Story session hook injects the repository and governed work-item
   assert.match(result.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
 });
 
+test('an active Story session hook uses the immutable non-default work-item root', async () => {
+  const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-custom-path-hook-'));
+  const phase = { id: 'implementation', status: 'in_progress', defaultAgent: 'developer' };
+  const current = {
+    workItem: { id: 'GROUND-CUSTOM' }, currentPhase: phase.id, phases: { implementation: phase },
+    resolution: {
+      workItemRoot: 'governed/story-state',
+      session: { workItemSelection: 'off', requireBeforeTools: false }
+    }
+  };
+  const customDefinition = {
+    workItemRoot: 'different/live-configuration',
+    session: current.resolution.session,
+    agents: { developer: { id: 'developer', defaultFor: ['implementation'], phases: ['implementation'] } },
+    agentCatalog: [{ id: 'developer', defaultFor: ['implementation'], phases: ['implementation'] }]
+  };
+  const result = await sessionStartAgentHook(repository, customDefinition, current, { sessionId: 'custom-path-hook' });
+  assert.match(result.additionalContext, /Governed artifacts for GROUND-CUSTOM live under governed\/story-state\/GROUND-CUSTOM\//);
+  assert.doesNotMatch(result.additionalContext, /singularity\/work-items\/GROUND-CUSTOM|different\/live-configuration/);
+});
+
 test('prepare, inputs, and compose replay complete repository-rooted paths without truncation', async () => {
   const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-path-replay-'));
   git(repository, 'init', '-b', 'main');

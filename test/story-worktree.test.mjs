@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
+import { rollbackStoryWorktree } from '../src/story-worktree.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -24,7 +25,7 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-async function repository(t) {
+async function repository(t, { workItemRoot = 'singularity/work-items' } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-worktree-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repository');
@@ -37,6 +38,7 @@ async function repository(t) {
   const definitionFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.git.publish = 'off';
+  definition.workItemRoot = workItemRoot;
   await writeFile(definitionFile, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-q', '-m', 'initialize'], root);
@@ -123,4 +125,28 @@ test('a failed isolated start removes its disposable checkout and branch', async
   await access(expected).catch((error) => {
     if (error?.code !== 'ENOENT') throw error;
   });
+});
+
+test('isolated-start recovery retains a durable Story under a custom configured root', async (t) => {
+  const workItemRoot = 'governed/story-state';
+  const { root } = await repository(t, { workItemRoot });
+  const started = run(process.execPath, [cli,
+    'start', 'ISO-CUSTOM-1', '--isolated-worktree', '--json', '--from-branch', 'main',
+    '--work-type', 'feature', '--title', 'Custom root Story',
+    '--description', 'Retain durable work regardless of the configured state directory.'
+  ], root);
+  const worktree = JSON.parse(started.stdout).data.repositoryPath;
+  const workflow = JSON.parse(await readFile(path.join(
+    worktree, workItemRoot, 'ISO-CUSTOM-1', 'workflow.json'
+  ), 'utf8'));
+  assert.equal(workflow.resolution.workItemRoot, workItemRoot);
+
+  const recovery = rollbackStoryWorktree({
+    sourceRepository: root,
+    repositoryPath: worktree,
+    workId: 'ISO-CUSTOM-1',
+    stagingBranch: 'already-removed'
+  });
+  assert.equal(recovery.retained, true);
+  assert.equal(git(worktree, ['branch', '--show-current']), 'ISO-CUSTOM-1');
 });

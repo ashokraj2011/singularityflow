@@ -135,6 +135,7 @@ export interface InitiativeState {
   status?: string;
   resolution: {
     profile: string;
+    initiativeRoot?: string;
     phases: InitiativeResolutionPhase[];
     packs?: Array<{ id: string; label?: string; members: string[] }>;
     worldModelGrounding?: 'off' | 'warn' | 'enforce';

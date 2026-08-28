@@ -598,6 +598,27 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       });
     }
     const treeEntries = configurationTreeEntries(source, 'HEAD');
+    const declaredAssets = manifest.assets ?? null;
+    if (declaredAssets != null) {
+      if (typeof declaredAssets !== 'object' || Array.isArray(declaredAssets)
+          || JSON.stringify(Object.keys(declaredAssets).sort()) !== JSON.stringify(declared)) {
+        throw new SingularityFlowError('State configuration mirror asset identities do not match its file set.', {
+          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+        });
+      }
+      for (const relative of declared) {
+        const descriptor = declaredAssets[relative];
+        const actual = treeEntries.get(relative);
+        if (!descriptor || descriptor.sha256 !== manifest.files[relative]
+            || !/^[0-9a-f]{40,64}$/.test(descriptor.object ?? '')
+            || !/^100(?:644|755)$/.test(descriptor.mode ?? '')
+            || actual?.object !== descriptor.object || actual?.mode !== descriptor.mode) {
+          throw new SingularityFlowError(`State configuration mirror Git identity does not match for '${relative}'.`, {
+            code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+          });
+        }
+      }
+    }
     const copied = await copyConfigurationAssetsFromRef(source, 'HEAD', destination);
     if (JSON.stringify(copied) !== JSON.stringify(declared)) {
       throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {

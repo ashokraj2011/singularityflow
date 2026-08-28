@@ -15,6 +15,7 @@ import {
 } from './world-model-selection.mjs';
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -22,6 +23,12 @@ const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 // exhaust the descriptor table on a large repository.
 const SNAPSHOT_CONCURRENCY = 16;
 export const WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM = 'sflow-source-git-v2';
+
+async function withInitiativeRoot(root, definition = {}) {
+  if (definition.initiativeRoot) return definition;
+  const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
+  return portfolio?.initiativeRoot ? { ...definition, initiativeRoot: portfolio.initiativeRoot } : definition;
+}
 
 export function groundingMode(definition, workflow = null) {
   const mode = workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off';
@@ -211,8 +218,9 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
 }
 
 export async function worldModelSourceSnapshot(root, definition = {}) {
-  const records = await gitSourceRecords(root, { definition, excludeGovernance: true });
-  const scope = worldModelSourceScope(definition);
+  const effectiveDefinition = await withInitiativeRoot(root, definition);
+  const records = await gitSourceRecords(root, { definition: effectiveDefinition, excludeGovernance: true });
+  const scope = worldModelSourceScope(effectiveDefinition);
   const hash = createHash('sha256');
   hash.update(WORLD_MODEL_SOURCE_FINGERPRINT_ALGORITHM).update('\0');
   hash.update(JSON.stringify({ sourceRoots: scope.sourceRoots, sharedRoots: scope.sharedRoots })).update('\0');
@@ -778,11 +786,12 @@ export async function worldModelRebuildReason(root, config) {
   const manifestPath = path.join(root, outputDir, 'manifest.json');
   if (!existsSync(manifestPath)) return 'The governed repository world model has not been built.';
   try {
+    const effectiveConfig = await withInitiativeRoot(root, config);
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-    const currentSource = await worldModelSourceSnapshot(root, config);
+    const currentSource = await worldModelSourceSnapshot(root, effectiveConfig);
     if (!worldModelCommit(root, outputDir)) return 'The repository world model is not committed.';
     if (!manifest.source_tree_sha256 || manifest.source_tree_sha256 !== currentSource.sha256) {
-      const changedSources = sourcePathsChangedSince(root, config, manifest.repository_commit ?? manifest.repository?.commit);
+      const changedSources = sourcePathsChangedSince(root, effectiveConfig, manifest.repository_commit ?? manifest.repository?.commit);
       if (changedSources?.length === 0) return null;
       if (changedSources?.length) {
         const visible = changedSources.slice(0, 6).join(', ');

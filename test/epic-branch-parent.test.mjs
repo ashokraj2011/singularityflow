@@ -265,7 +265,8 @@ test('story pull request targets the epic branch and is built from committed sta
   const { pullRequestTarget, storyPullRequestBody, createStoryPullRequest, updateStoryPullRequest } = await import('../src/pull-request.mjs');
   const workflow = {
     workItem: { id: 'APP-1', title: 'Add priority', branch: 'APP-1', baseBranch: 'main', workType: 'feature' },
-    source: {}
+    source: {},
+    resolution: { workItemRoot: 'governed/story-state' }
   };
   const seed = {
     initiative: { id: EPIC, branch: EPIC },
@@ -290,6 +291,7 @@ test('story pull request targets the epic branch and is built from committed sta
   assert.match(body, /Branched from: `INIT-SOLO` at `aaaaaaaa`/);
   assert.match(body, /Priority is persisted/);
   assert.match(body, /business-case\.md` — define\/business-case @ `bbbbbbbbbbbb`/);
+  assert.match(body, /APP-1:governed\/story-state\/APP-1\/workflow\.json/);
   assert.match(body, /Editable draft generated deterministically/);
   assert.match(body, /not a governed lifecycle artifact/);
 

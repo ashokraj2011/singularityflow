@@ -1840,6 +1840,13 @@ test('governed state does not make the world model stale', async () => {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/Main.java'), 'class Main {}\n');
   await initializeDefinition(root);
+  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
+  await writeFile(
+    portfolioPath,
+    (await readFile(portfolioPath, 'utf8')).replace(
+      'initiativeRoot: singularity/initiatives', 'initiativeRoot: governed/initiative-state'
+    )
+  );
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'init'], root);
 
@@ -1850,9 +1857,9 @@ test('governed state does not make the world model stale', async () => {
   // this in one commit: initiative state, the artifact templates, and the agent prompts. On the
   // rule-engine repository the templates alone were 22 files, so a model built minutes earlier was
   // reported stale before a line of the application had changed.
-  await mkdir(path.join(root, 'singularity/initiatives/EPIC-1/artifacts'), { recursive: true });
-  await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/state.json'), '{"currentPhase":"epic-intake"}\n');
-  await writeFile(path.join(root, 'singularity/initiatives/EPIC-1/artifacts/requirements.md'), '# REQ\n');
+  await mkdir(path.join(root, 'governed/initiative-state/EPIC-1/artifacts'), { recursive: true });
+  await writeFile(path.join(root, 'governed/initiative-state/EPIC-1/state.json'), '{"currentPhase":"epic-intake"}\n');
+  await writeFile(path.join(root, 'governed/initiative-state/EPIC-1/artifacts/requirements.md'), '# REQ\n');
   await mkdir(path.join(root, 'singularity/templates/initiatives/epic'), { recursive: true });
   await writeFile(path.join(root, 'singularity/templates/initiatives/epic/requirements.md'), '# {{work.id}} requirements\n');
   await mkdir(path.join(root, 'singularity/agents'), { recursive: true });
@@ -1865,6 +1872,8 @@ test('governed state does not make the world model stale', async () => {
   const after = await worldModelSourceSnapshot(root, definition);
   assert.equal(after.sha256, before.sha256, 'governance material must not change the source-tree hash');
   assert.ok(!after.files.some((file) => String(file.path ?? file).startsWith('singularity/')), 'nothing under the governance root is application source');
+  assert.ok(!after.files.some((file) => String(file.path ?? file).startsWith('governed/initiative-state/')),
+    'a configured Initiative root outside singularity is governance rather than application source');
 
   // A real source change still moves it, or the signal would be worthless in the other direction.
   await writeFile(path.join(root, 'src/Main.java'), 'class Main { void go() {} }\n');

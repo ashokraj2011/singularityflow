@@ -11,6 +11,10 @@ import { identity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { SingularityFlowError, nowIso, secureRepositoryPath, snapshot, writeText } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { loadDefinition } from './config.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
+import { initiativeRelative } from './state-stores.mjs';
+import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
 export const KNOWLEDGE_ROOT = 'singularity/knowledge';
 export const KNOWLEDGE_TYPES = new Set(['insight', 'decision', 'gotcha', 'constraint', 'uncertainty']);
@@ -61,10 +65,18 @@ function normalizeProvenance(provenance) {
 }
 
 async function approvedProvenance(root, provenance) {
+  const [definition, portfolio] = await Promise.all([
+    loadDefinition(root).catch(() => null),
+    loadPortfolio(root, { required: false }).catch(() => null)
+  ]);
   for (const item of provenance) {
+    const storyBase = path.posix.join(normalizeWorkItemRoot(definition?.workItemRoot), item.workId);
+    const initiativeBase = portfolio
+      ? initiativeRelative(portfolio, item.workId)
+      : path.posix.join('singularity/initiatives', item.workId);
     const candidates = [
-      { kind: 'story', state: `singularity/work-items/${item.workId}/workflow.json`, base: `singularity/work-items/${item.workId}` },
-      { kind: 'initiative', state: `singularity/initiatives/${item.workId}/state.json`, base: `singularity/initiatives/${item.workId}` }
+      { kind: 'story', state: path.posix.join(storyBase, 'workflow.json'), base: storyBase },
+      { kind: 'initiative', state: path.posix.join(initiativeBase, 'state.json'), base: initiativeBase }
     ];
     let matched = false;
     for (const candidate of candidates) {
@@ -79,7 +91,9 @@ async function approvedProvenance(root, provenance) {
           const approved = phase.status === 'approved' || output.status === 'approved';
           const revision = Number(phase.generation ?? 0);
           if (!approved || revision !== item.approvedRevision || output.sha256 !== item.sha256) continue;
-          const relative = outputPath.startsWith('singularity/') ? outputPath : path.posix.join(candidate.base, outputPath);
+          const relative = outputPath === candidate.base || outputPath.startsWith(`${candidate.base}/`)
+            ? outputPath
+            : path.posix.join(candidate.base, outputPath);
           const artifact = await secureRepositoryPath(root, relative, { label: 'Knowledge provenance artifact', mustExist: true, type: 'file' });
           if ((await snapshot(artifact.absolute)).sha256 !== item.sha256) {
             throw new SingularityFlowError(`Knowledge provenance artifact '${item.artifact}' no longer matches its approved hash.`);

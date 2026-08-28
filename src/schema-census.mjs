@@ -5,6 +5,8 @@ import path from 'node:path';
 import { gitCommonDir } from './git.mjs';
 import { exists, SingularityFlowError } from './util.mjs';
 import { familyForStoredPath, migrationRegistrySnapshot } from './schema-migrations.mjs';
+import { loadDefinition } from './config.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
 
 async function jsonFiles(base, prefix, files, { maximumFiles }) {
   if (!(await exists(base))) return;
@@ -55,8 +57,29 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     });
   }
   const files = [];
-  await jsonFiles(path.join(root, 'singularity'), 'singularity/', files, { maximumFiles });
-  await jsonFiles(path.join(root, '.sdlc'), '.sdlc/', files, { maximumFiles });
+  const [definition, portfolio] = await Promise.all([
+    loadDefinition(root).catch(() => null),
+    loadPortfolio(root, { required: false }).catch(() => null)
+  ]);
+  const familyRoots = {
+    workItemRoot: definition?.workItemRoot ?? null,
+    initiativeRoot: portfolio?.initiativeRoot ?? null
+  };
+  const repositoryRoots = [
+    { relative: 'singularity', absolute: path.join(root, 'singularity') },
+    { relative: '.sdlc', absolute: path.join(root, '.sdlc') },
+    ...(familyRoots.workItemRoot ? [{ relative: familyRoots.workItemRoot, absolute: path.resolve(root, familyRoots.workItemRoot) }] : []),
+    ...(familyRoots.initiativeRoot ? [{ relative: familyRoots.initiativeRoot, absolute: path.resolve(root, familyRoots.initiativeRoot) }] : [])
+  ].sort((left, right) => left.absolute.length - right.absolute.length);
+  const selectedRoots = [];
+  for (const candidate of repositoryRoots) {
+    if (selectedRoots.some((selected) => candidate.absolute === selected.absolute
+      || candidate.absolute.startsWith(`${selected.absolute}${path.sep}`))) continue;
+    selectedRoots.push(candidate);
+  }
+  for (const selected of selectedRoots) {
+    await jsonFiles(selected.absolute, `${selected.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`, files, { maximumFiles });
+  }
   const gitState = path.join(gitCommonDir(root), 'singularity-flow');
   await jsonFiles(gitState, '$git/', files, { maximumFiles });
 
@@ -69,7 +92,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     if (scannedRecords >= maximumRecords) { recordLimitReached = true; return; }
     scannedRecords += 1;
     if (!record || typeof record !== 'object' || Array.isArray(record) || record.schemaVersion == null) return;
-    const family = familyForStoredPath(familyPath);
+    const family = familyForStoredPath(familyPath, familyRoots);
     if (!family) {
       unregistered.push({ path: filePath, schemaVersion: record.schemaVersion });
       return;
@@ -119,7 +142,7 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'schema-census',
-    roots: Object.freeze(['singularity/', '.sdlc/', '$git/']),
+    roots: Object.freeze([...selectedRoots.map((entry) => `${entry.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`), '$git/']),
     scanned: scannedRecords,
     scannedFiles: files.length,
     truncated: files.length >= maximumFiles || recordLimitReached,

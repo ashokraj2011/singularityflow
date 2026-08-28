@@ -1277,9 +1277,18 @@ export function readRecord(familyId, rawBytes) {
   return Object.freeze({ record, storedVersion, migratedThrough: Object.freeze(migratedThrough) });
 }
 
-export function familyForStoredPath(relativePath) {
+export function familyForStoredPath(relativePath, { workItemRoot = null, initiativeRoot = null } = {}) {
   const normalized = String(relativePath ?? '').replaceAll('\\', '/');
-  return families.find((entry) => entry.paths.some((pattern) => pattern.test(normalized))) ?? null;
+  const aliases = [normalized];
+  const appendAlias = (configuredRoot, canonicalRoot) => {
+    const prefix = String(configuredRoot ?? '').replaceAll('\\', '/').replace(/\/+$/, '');
+    if (prefix && prefix !== canonicalRoot && (normalized === prefix || normalized.startsWith(`${prefix}/`))) {
+      aliases.push(`${canonicalRoot}${normalized.slice(prefix.length)}`);
+    }
+  };
+  appendAlias(workItemRoot, 'singularity/work-items');
+  appendAlias(initiativeRoot, 'singularity/initiatives');
+  return families.find((entry) => aliases.some((candidate) => entry.paths.some((pattern) => pattern.test(candidate)))) ?? null;
 }
 
 export function migrationRegistrySnapshot() {

@@ -292,12 +292,15 @@ test('repository sync observes child workflow milestones and all-blocking readin
   run('git', ['clone', '--branch', 'API-1', api, author], { cwd: root });
   run('git', ['config', 'user.name', 'API Developer'], { cwd: author });
   run('git', ['config', 'user.email', 'api@example.com'], { cwd: author });
-  await mkdir(path.join(author, 'singularity/work-items/API-1'), { recursive: true });
-  await writeFile(path.join(author, 'singularity/work-items/API-1/workflow.json'), JSON.stringify({
+  const childRoot = 'governed/story-state';
+  await mkdir(path.join(author, 'singularity'), { recursive: true });
+  await writeFile(path.join(author, 'singularity/workflow.yml'), `version: 2\nworkItemRoot: ${childRoot}\n`);
+  await mkdir(path.join(author, childRoot, 'API-1'), { recursive: true });
+  await writeFile(path.join(author, childRoot, 'API-1/workflow.json'), JSON.stringify({
     schemaVersion: 2,
     workItem: { id: 'API-1', branch: 'API-1', workType: 'feature' },
     resolution: {
-      workType: 'feature',
+      workType: 'feature', workItemRoot: childRoot,
       phases: ['implementation-spec', 'implementation', 'verification', 'conformance'].map((id) => ({ id }))
     },
     status: 'in_progress',

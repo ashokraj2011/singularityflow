@@ -64,15 +64,28 @@ async function publishStateConfigurationMirror(fixture) {
   await cp(path.join(approved, '.github'), path.join(publisher, '.github'), { recursive: true });
   const sourceCommit = run('git', ['rev-parse', 'HEAD'], { cwd: approved }).stdout.trim();
   const files = {};
+  const sourceEntries = new Map(run('git', [
+    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', 'HEAD', '--',
+    'singularity', '.github/agents'
+  ], { cwd: approved }).stdout.split('\0').filter(Boolean).map((line) => {
+    const first = line.indexOf(' ');
+    const second = line.indexOf(' ', first + 1);
+    return [line.slice(second + 1), {
+      mode: line.slice(0, first), object: line.slice(first + 1, second)
+    }];
+  }));
+  const assets = {};
   for (const relative of await configurationAssetPaths(publisher)) {
     files[relative] = createHash('sha256').update(await readFile(path.join(publisher, relative))).digest('hex');
+    assets[relative] = { sha256: files[relative], ...sourceEntries.get(relative) };
   }
   const manifest = {
     format: 'singularity-flow-configuration-mirror/v2',
     layout: 'canonical-paths',
     source: { branch: CONFIGURATION_BRANCH, commit: sourceCommit },
     product: { version: 'test', revision: 'test' },
-    files
+    files,
+    assets
   };
   await mkdir(path.join(publisher, 'configuration'), { recursive: true });
   await writeFile(path.join(publisher, STATE_CONFIGURATION_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -652,7 +665,32 @@ test('a state mirror with changed bytes is not a Story configuration authority',
     run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
     await assert.rejects(
       () => materializeConfigurationSnapshot(checkout, { remote: fixture.remote }),
-      /mirror hash does not match/
+      /mirror (?:Git identity|hash) does not match/
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a state mirror with a changed Git mode is not a Story configuration authority', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    await publishStateConfigurationMirror(fixture);
+    run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote });
+    const tamper = path.join(fixture.root, 'mode-tampered-state');
+    run('git', ['clone', '-q', '-b', 'state', fixture.remote, tamper], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Configuration Mirror'], { cwd: tamper });
+    run('git', ['config', 'user.email', 'mirror@example.com'], { cwd: tamper });
+    run('git', ['update-index', '--chmod=+x', 'singularity/workflow.yml'], { cwd: tamper });
+    run('git', ['commit', '-qm', 'Tamper with mirrored mode'], { cwd: tamper });
+    run('git', ['push', '-q', 'origin', 'state'], { cwd: tamper });
+
+    const checkout = path.join(fixture.root, 'mode-tampered-state-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    await assert.rejects(
+      () => materializeConfigurationSnapshot(checkout, { remote: fixture.remote }),
+      /mirror Git identity does not match/
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });

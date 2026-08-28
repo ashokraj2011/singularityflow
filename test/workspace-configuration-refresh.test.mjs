@@ -435,6 +435,10 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(mirror.format, 'singularity-flow-configuration-mirror/v2');
   assert.equal(mirror.layout, 'canonical-paths');
   assert.equal(mirror.source.commit, run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim());
+  assert.equal(mirror.assets['singularity/workflow.yml'].sha256,
+    mirror.files['singularity/workflow.yml']);
+  assert.match(mirror.assets['singularity/workflow.yml'].object, /^[0-9a-f]{40,64}$/);
+  assert.match(mirror.assets['singularity/workflow.yml'].mode, /^100(?:644|755)$/);
   const mirroredWorkflow = run('git', [
     '--git-dir', remote, 'show', 'state:singularity/workflow.yml'
   ]).stdout;

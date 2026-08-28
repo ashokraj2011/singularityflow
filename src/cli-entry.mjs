@@ -79,6 +79,17 @@ export function hasLocalGovernanceAuthority(root) {
     'singularity/initiatives/*/state.json'
   ], { cwd: root, allowFailure: true });
   if (governedSubjects.status === 0 && governedSubjects.stdout.trim()) return true;
+  // workItemRoot and initiativeRoot are configurable. If the configuration snapshot itself is the
+  // damaged file being recovered, the exact roots are no longer available to route the command.
+  // Recognize tracked aggregate content in one bounded Git search instead of falling back to fixed
+  // product-default directories or recursively searching the filesystem.
+  const configuredSubjects = run('git', [
+    'grep', '-l', '-E',
+    '-e', '"workItem"[[:space:]]*:',
+    '-e', '"initiative"[[:space:]]*:',
+    '--', ':(glob)**/workflow.json', ':(glob)**/state.json'
+  ], { cwd: root, allowFailure: true });
+  if (configuredSubjects.status === 0 && configuredSubjects.stdout.trim()) return true;
   const refs = run('git', [
     'for-each-ref', '--format=%(refname)',
     'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',

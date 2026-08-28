@@ -320,12 +320,34 @@ export async function validateRepositoryDirectory(
           if (manifestResult.status !== 0 || workflowResult.status !== 0) return false;
           try {
             const manifest = JSON.parse(manifestResult.stdout);
-            return manifest?.format === 'singularity-flow-configuration-mirror/v2'
+            const valid = manifest?.format === 'singularity-flow-configuration-mirror/v2'
               && manifest?.layout === 'canonical-paths'
               && manifest?.source?.branch === 'sflow/config'
               && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
               && manifest?.files?.['singularity/workflow.yml']
                 === createHash('sha256').update(workflowResult.stdout).digest('hex');
+            if (!valid || manifest.assets == null) return valid;
+            if (typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)
+                || JSON.stringify(Object.keys(manifest.assets).sort())
+                  !== JSON.stringify(Object.keys(manifest.files).sort())) return false;
+            const tree = spawnSync('git', [
+              'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
+              'singularity', '.github/agents'
+            ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
+            if (tree.status !== 0) return false;
+            const entries = new Map(tree.stdout.split('\0').filter(Boolean).map((line) => {
+              const first = line.indexOf(' ');
+              const second = line.indexOf(' ', first + 1);
+              return [line.slice(second + 1), {
+                mode: line.slice(0, first), object: line.slice(first + 1, second)
+              }];
+            }));
+            return Object.entries(manifest.assets).every(([relative, descriptor]: [string, any]) =>
+              descriptor?.sha256 === manifest.files[relative]
+              && /^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
+              && /^100(?:644|755)$/.test(descriptor?.mode ?? '')
+              && entries.get(relative)?.object === descriptor.object
+              && entries.get(relative)?.mode === descriptor.mode);
           } catch { return false; }
         });
     };

@@ -5,6 +5,7 @@ import { run, commandExists, exists, SingularityFlowError } from './util.mjs';
 import { githubAuthStatus } from './github-evidence.mjs';
 import { defaultBranchName } from './git.mjs';
 import { recap } from './narration/recap.mjs';
+import { workItemWorkflowRelative } from './work-item-location.mjs';
 
 // Where the story's pull request goes. Materialization records the branch the story was cut from;
 // for a story in the epic's own repository that is the epic branch, so the pull request targets the
@@ -90,7 +91,7 @@ export function storyPullRequestBody(workflow, seed = null, { mergeSequence = nu
   }
 
   lines.push('### Worldline', '', `- Story: \`${workflow.workItem.id}\` at \`${workflow.source?.commit ?? workflow.workItem.sourceCommit ?? 'unavailable'}\``);
-  lines.push(`- Workflow state: \`${workflow.workItem.branch ?? workflow.workItem.id}:singularity/work-items/${workflow.workItem.id}/workflow.json\``, '');
+  lines.push(`- Workflow state: \`${workflow.workItem.branch ?? workflow.workItem.id}:${workItemWorkflowRelative(workflow.workItem.id, workflow.resolution?.workItemRoot)}\``, '');
 
   if (mergeSequence) {
     const entry = mergeSequence.stories?.find((item) => item.workId === workflow.workItem.id || item.id === workflow.workItem.id);

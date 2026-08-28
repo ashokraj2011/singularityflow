@@ -11,6 +11,8 @@ import {
 } from '../src/harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from '../src/harness-events.mjs';
 import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrations.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import { schemaCensus } from '../src/schema-census.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -82,6 +84,38 @@ test('resolution remains pinned to the registered revision and reports current-p
   assert.doesNotMatch(resolved.preview.text, /Different/);
   assert.equal(resolved.currentPath.status, 'diverged');
   assert.notEqual(resolved.currentPath.sha256, resolved.resolvedRevision.sha256);
+});
+
+test('reference registration and resolution follow a configured non-default Story root', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-harness-custom-'));
+  git(root, ['init', '-b', 'main']);
+  git(root, ['config', 'user.name', 'Harness Test']);
+  git(root, ['config', 'user.email', 'harness@example.com']);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
+  await writeFile(
+    definitionPath,
+    (await readFile(definitionPath, 'utf8')).replace('workItemRoot: singularity/work-items', 'workItemRoot: governed/story-state')
+  );
+  const relative = 'governed/story-state/REF-CUSTOM/artifacts/verification/report.md';
+  await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+  const bytes = Buffer.from('# Custom verification\n\nThe configured root is authoritative.\n');
+  await writeFile(path.join(root, relative), bytes);
+  git(root, ['add', '.']); git(root, ['commit', '-m', 'Add custom-root governed artifact']);
+  const registered = await registerReference(root, {
+    repository: { id: 'fixture', origin: null },
+    subject: { kind: 'story', id: 'REF-CUSTOM', branch: 'REF-CUSTOM', subjectRevision: 1 },
+    artifact: { phaseId: 'verification', generation: 1, outputId: 'report', path: relative, mediaType: 'text/markdown' },
+    revision: { commitSha: git(root, ['rev-parse', 'HEAD']), sha256: digest(bytes), bytes: bytes.length },
+    visibility: 'model'
+  });
+  assert.match(registered.path, /^governed\/story-state\/REF-CUSTOM\/context\/references\//);
+  assert.equal(familyForStoredPath(registered.path, { workItemRoot: 'governed/story-state' })?.id, 'governed-reference');
+  const census = await schemaCensus(root);
+  assert.ok(census.roots.includes('governed/story-state/'));
+  assert.equal(census.families.find((entry) => entry.family === 'governed-reference')?.records, 1);
+  const resolved = await resolveReference(root, registered.handle);
+  assert.match(resolved.preview.text, /configured root is authoritative/);
 });
 
 test('protected paths remain blocked', async () => {

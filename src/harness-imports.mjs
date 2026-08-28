@@ -8,6 +8,7 @@ import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { repoRoot } from './git.mjs';
 import { nowIso, secureRepositoryPath, SingularityFlowError, snapshot, writeText } from './util.mjs';
+import { normalizeWorkItemRoot } from './work-item-location.mjs';
 
 export const HARNESS_IMPORTS_HARD_MAXIMUM_BYTES = 65_536;
 export const HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES = 16_384;
@@ -260,18 +261,34 @@ function boundReferenceEnvelope(value, maximum) {
   throw new SingularityFlowError(`Reference metadata cannot fit within the ${maximum}-byte total envelope limit.`, { exitCode: 5, code: 'handle.expansion_invalid' });
 }
 
-function referenceDirectory(subject) {
-  const base = subject.kind === 'story' ? 'singularity/work-items' : 'singularity/initiatives';
-  return path.posix.join(base, subject.id, 'context', 'references');
+async function subjectRootCandidates(root, subject) {
+  let configured = null;
+  if (subject.kind === 'story') {
+    // config.mjs owns harness-import normalization, so loading it at module initialization would
+    // create a configuration -> harness -> configuration cycle. Resolution happens only after the
+    // CLI has entered its approved-configuration scope; defer the import to preserve that scope
+    // without making configuration validation depend on this runtime surface.
+    const { loadDefinition } = await import('./config.mjs');
+    const definition = await loadDefinition(root).catch(() => null);
+    configured = normalizeWorkItemRoot(definition?.workItemRoot);
+  } else {
+    const { loadPortfolio } = await import('./initiative-config.mjs');
+    const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
+    configured = portfolio?.initiativeRoot ?? 'singularity/initiatives';
+  }
+  const fallback = subject.kind === 'story' ? 'singularity/work-items' : 'singularity/initiatives';
+  return [...new Set([configured, fallback])].map((base) => path.posix.join(base, subject.id));
 }
 
-function assertModelSafeArtifact(subject, artifact) {
+function referenceDirectory(subjectRoot) {
+  return path.posix.join(subjectRoot, 'context', 'references');
+}
+
+function assertModelSafeArtifact(subjectRoot, artifact) {
   const artifactPath = String(artifact?.path ?? '').replaceAll('\\', '/');
-  const subjectRoot = subject.kind === 'story'
-    ? `singularity/work-items/${subject.id}/`
-    : `singularity/initiatives/${subject.id}/`;
-  if (!artifactPath.startsWith(subjectRoot)) {
-    throw new SingularityFlowError(`Reference artifact must remain inside ${subjectRoot}.`, { exitCode: 6, code: 'handle.blocked' });
+  const prefix = `${subjectRoot}/`;
+  if (!artifactPath.startsWith(prefix)) {
+    throw new SingularityFlowError(`Reference artifact must remain inside ${prefix}.`, { exitCode: 6, code: 'handle.blocked' });
   }
   const segments = artifactPath.split('/');
   if (segments.some((segment) => BLOCKED_PATH_SEGMENTS.has(segment)) || BLOCKED_FILE_PATTERNS.some((pattern) => pattern.test(artifactPath))) {
@@ -313,7 +330,8 @@ export async function registerReference(root, input) {
   };
   if (!['story', 'initiative'].includes(core.subject?.kind)) throw new SingularityFlowError('Reference subject must be story or initiative.');
   if (core.visibility !== 'model' && core.visibility !== 'human') throw new SingularityFlowError('Reference visibility must be model or human.');
-  assertModelSafeArtifact(core.subject, core.artifact);
+  const [subjectRoot] = await subjectRootCandidates(root, core.subject);
+  assertModelSafeArtifact(subjectRoot, core.artifact);
   if (!/^[a-f0-9]{40,64}$/.test(core.revision?.commitSha ?? '') || !commitExists(root, core.revision.commitSha)) {
     throw new SingularityFlowError('Reference revision commit is unavailable.', { exitCode: 3, code: 'handle.stale' });
   }
@@ -328,29 +346,37 @@ export async function registerReference(root, input) {
     if (current.sha256 !== core.revision?.sha256 || current.size !== core.revision?.bytes) throw new SingularityFlowError('Reference revision does not match the registered artifact bytes.');
   }
   const recordHash = recordSha256(core);
-  const target = await secureRepositoryPath(root, path.posix.join(referenceDirectory(core.subject), `${recordHash}.json`), { label: 'Governed reference record', type: 'file' });
+  const target = await secureRepositoryPath(root, path.posix.join(referenceDirectory(subjectRoot), `${recordHash}.json`), { label: 'Governed reference record', type: 'file' });
   const record = { ...core, createdAt: input.createdAt ?? nowIso() };
   if (!target.exists) await writeText(target.absolute, canonicalJson(record));
   return { recordHash, handle: formatReferenceHandle(core.subject, recordHash), path: target.relative, record };
 }
 
 async function findReferenceRecord(root, parsed) {
-  const directory = await secureRepositoryPath(root, referenceDirectory(parsed.subject), { label: 'Governed reference directory', type: 'directory' });
-  if (!directory.exists) throw new SingularityFlowError(`Reference handle was not found for ${parsed.subject.id}.`, { exitCode: 2, code: 'handle.not_found' });
-  const candidates = (await readdir(directory.absolute, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.startsWith(parsed.recordHash) && /^[a-f0-9]{64}\.json$/.test(entry.name));
-  if (candidates.length !== 1) throw new SingularityFlowError(candidates.length ? 'Reference handle prefix is ambiguous.' : 'Reference handle was not found.', { exitCode: 2, code: 'handle.not_found' });
-  const target = await secureRepositoryPath(root, path.posix.join(referenceDirectory(parsed.subject), candidates[0].name), { label: 'Governed reference record', mustExist: true, type: 'file' });
+  let selected = null;
+  for (const subjectRoot of await subjectRootCandidates(root, parsed.subject)) {
+    const directory = await secureRepositoryPath(root, referenceDirectory(subjectRoot), { label: 'Governed reference directory', type: 'directory' });
+    if (!directory.exists) continue;
+    const candidates = (await readdir(directory.absolute, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.startsWith(parsed.recordHash) && /^[a-f0-9]{64}\.json$/.test(entry.name));
+    if (candidates.length > 1) throw new SingularityFlowError('Reference handle prefix is ambiguous.', { exitCode: 2, code: 'handle.not_found' });
+    if (candidates.length === 1) {
+      selected = { subjectRoot, name: candidates[0].name };
+      break;
+    }
+  }
+  if (!selected) throw new SingularityFlowError(`Reference handle was not found for ${parsed.subject.id}.`, { exitCode: 2, code: 'handle.not_found' });
+  const target = await secureRepositoryPath(root, path.posix.join(referenceDirectory(selected.subjectRoot), selected.name), { label: 'Governed reference record', mustExist: true, type: 'file' });
   const record = readRecord('governed-reference', await readFile(target.absolute)).record;
   const { createdAt: _createdAt, ...core } = record;
-  if (recordSha256(core) !== candidates[0].name.slice(0, 64)) throw new SingularityFlowError('Reference record failed its content-hash check.', { exitCode: 4, code: 'handle.hash_mismatch' });
-  return { record, recordHash: candidates[0].name.slice(0, 64) };
+  if (recordSha256(core) !== selected.name.slice(0, 64)) throw new SingularityFlowError('Reference record failed its content-hash check.', { exitCode: 4, code: 'handle.hash_mismatch' });
+  return { record, recordHash: selected.name.slice(0, 64), subjectRoot: selected.subjectRoot };
 }
 
 export async function resolveReference(rootValue, handle, options = {}) {
   const root = rootValue ?? repoRoot(); const parsed = parseReferenceHandle(handle);
   const found = await findReferenceRecord(root, parsed);
   if (found.record.visibility !== 'model') throw new SingularityFlowError('Reference is not visible to model-facing expansion.', { exitCode: 6, code: 'handle.blocked' });
-  assertModelSafeArtifact(found.record.subject, found.record.artifact);
+  assertModelSafeArtifact(found.subjectRoot, found.record.artifact);
   if (!commitExists(root, found.record.revision.commitSha)) throw new SingularityFlowError('Registered reference revision is not available in this clone.', { exitCode: 3, code: 'handle.stale' });
   const source = await secureRepositoryPath(root, found.record.artifact.path, { label: 'Governed reference artifact', type: 'file' });
   const bytes = readObjectAtCommit(root, found.record.revision.commitSha, found.record.artifact.path);

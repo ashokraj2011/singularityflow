@@ -332,6 +332,10 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.equal(mirror.source.commit, activated.targetCommit);
   assert.ok(mirror.files['singularity/workflow.yml']);
   assert.ok(mirror.files['singularity/capabilities.yml']);
+  assert.equal(mirror.assets['singularity/workflow.yml'].sha256,
+    mirror.files['singularity/workflow.yml']);
+  assert.match(mirror.assets['singularity/workflow.yml'].object, /^[0-9a-f]{40,64}$/);
+  assert.match(mirror.assets['singularity/workflow.yml'].mode, /^100(?:644|755)$/);
   assert.deepEqual(Object.keys(mirror.files).sort(), run('git', [
     'ls-tree', '-r', '--name-only', 'state', '--', 'singularity', '.github/agents'
   ], { cwd: org.platform }).stdout.trim().split('\n').filter((file) =>

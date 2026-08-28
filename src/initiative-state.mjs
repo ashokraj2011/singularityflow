@@ -659,6 +659,7 @@ export async function createInitiative(root, {
     initiative: initiative.initiative,
     resolution: {
       profile: resolution.profile,
+      initiativeRoot: resolution.initiativeRoot,
       portfolioSha256: resolution.portfolioSha256,
       resolutionSha256: resolution.resolutionSha256,
       idAuthority: resolution.identity.authority,

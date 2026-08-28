@@ -16,6 +16,9 @@ import {
 } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import {
+  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+} from './work-item-location.mjs';
 
 function safeId(value, label) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`${label} must be a safe identifier.`);
@@ -42,6 +45,22 @@ function metadataMap(value, label) {
     result[key] = String(raw);
   }
   return result;
+}
+
+function childWorkflowAtCommit(root, commit, workId) {
+  const definition = run('git', ['show', `${commit}:singularity/workflow.yml`], {
+    cwd: root, allowFailure: true
+  });
+  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  if (definition.status === 0) {
+    try { workItemRoot = workItemRootFromDefinitionText(definition.stdout); }
+    catch (error) {
+      return { status: 1, stdout: '', stderr: `Child workflow definition is invalid: ${error.message}` };
+    }
+  }
+  return run('git', ['show', `${commit}:${workItemWorkflowRelative(workId, workItemRoot)}`], {
+    cwd: root, allowFailure: true
+  });
 }
 
 function normalizeTask(value, storyId, index) {
@@ -944,7 +963,7 @@ export async function initiativeMergeState(root, initiativeId) {
     if (run('git', ['merge-base', '--is-ancestor', storyRef, parentRef], { cwd: cache, allowFailure: true }).status === 0) {
       merged.push(story.id);
     }
-    const workflowText = run('git', ['show', `${storyHead.stdout.trim()}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
+    const workflowText = childWorkflowAtCommit(cache, storyHead.stdout.trim(), workId);
     if (workflowText.status === 0) {
       try {
         if (readRecord('story-workflow', workflowText.stdout).record.status === 'complete') complete.push(story.id);
@@ -1005,7 +1024,7 @@ export async function syncInitiativeRepositories(root, initiativeId) {
       results.push({ storyId: story.id, repository: story.repository, status: 'missing-branch' });
       continue;
     }
-    const workflowText = run('git', ['show', `${commit}:singularity/work-items/${workId}/workflow.json`], { cwd: cache, allowFailure: true });
+    const workflowText = childWorkflowAtCommit(cache, commit, workId);
     const previous = initiative.childStories[story.id] ?? {};
     let workflow = null;
     if (workflowText.status === 0) {

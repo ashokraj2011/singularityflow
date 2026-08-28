@@ -78,8 +78,10 @@ function safeId(value, label) {
 
 function safeRelative(value, label) {
   if (typeof value !== 'string' || !value.trim()) throw new SingularityFlowError(`${label} is required.`);
-  const normalized = posix(value.trim()).replace(/^\.\/+/, '');
-  if (path.posix.isAbsolute(normalized) || normalized.split('/').includes('..')) throw new SingularityFlowError(`${label} must remain inside the repository.`);
+  const candidate = posix(value.trim());
+  if (path.posix.isAbsolute(candidate) || candidate.split('/').includes('..')) throw new SingularityFlowError(`${label} must remain inside the repository.`);
+  const normalized = path.posix.normalize(candidate).replace(/^\.\/+/, '').replace(/\/+$/, '');
+  if (!normalized || normalized === '.') throw new SingularityFlowError(`${label} must remain inside the repository.`);
   return normalized;
 }
 
@@ -768,6 +770,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
   }
   const canonical = JSON.stringify({
     profile: resolved.id,
+    initiativeRoot: portfolio.initiativeRoot,
     phases: resolved.phases,
     // Packs belong in the hash for the same reason phases do: a pack names the artifact set a
     // governance body signs off on, so changing its membership changes what an approval meant.
@@ -787,6 +790,7 @@ export async function snapshotInitiativeResolution(root, portfolio, resolved) {
     profile: resolved.id,
     profileLabel: resolved.label,
     lifecycleMode: resolved.lifecycleMode,
+    initiativeRoot: portfolio.initiativeRoot,
     portfolioSha256: portfolioSnapshot.sha256,
     resolutionSha256: createHash('sha256').update(canonical).digest('hex'),
     templates,

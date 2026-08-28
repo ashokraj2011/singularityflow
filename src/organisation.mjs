@@ -816,18 +816,26 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     const configurationCommit = head(root);
     const configurationFiles = {};
     const configurationHashes = {};
+    const configurationAssets = {};
     const configurationPaths = await configurationAssetPaths(root);
     const canonicalAssets = await canonicalConfigurationAssets(root, configurationPaths);
     for (const relative of configurationPaths) {
       const asset = canonicalAssets.get(relative);
       configurationFiles[relative] = asset.contents;
       configurationHashes[relative] = asset.sha256;
+      configurationAssets[relative] = {
+        sha256: asset.sha256,
+        object: asset.object,
+        mode: asset.mode
+      };
     }
     const manifest = {
       format: STATE_CONFIGURATION_FORMAT,
       layout: 'canonical-paths',
       source: { branch: CONFIGURATION_BRANCH, commit: configurationCommit },
       files: Object.fromEntries(Object.entries(configurationHashes)
+        .sort(([left], [right]) => left.localeCompare(right))),
+      assets: Object.fromEntries(Object.entries(configurationAssets)
         .sort(([left], [right]) => left.localeCompare(right)))
     };
     // Retire configuration paths removed by the reviewed commit without touching runtime roots.

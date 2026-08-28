@@ -543,12 +543,17 @@ function stateConfiguration(approved) {
 
 function stateTree(root, ref) {
   const listed = run('git', [
-    'ls-tree', '-r', '-z', '--format=%(objectname) %(path)', ref, '--',
+    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
     'configuration', 'singularity', '.github/agents'
   ], { cwd: root });
   const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
-    const separator = line.indexOf(' ');
-    return { oid: line.slice(0, separator), file: line.slice(separator + 1) };
+    const first = line.indexOf(' ');
+    const second = line.indexOf(' ', first + 1);
+    return {
+      mode: line.slice(0, first),
+      oid: line.slice(first + 1, second),
+      file: line.slice(second + 1)
+    };
   });
   if (!entries.length) return new Map();
   const batch = run('git', ['cat-file', '--batch'], {
@@ -569,7 +574,11 @@ function stateTree(root, ref) {
     if (end > batch.stdout.length) {
       throw new SingularityFlowError(`State configuration object '${entry.file}' was truncated.`);
     }
-    output.set(entry.file, batch.stdout.subarray(start, end));
+    output.set(entry.file, {
+      mode: entry.mode,
+      object: entry.oid,
+      contents: batch.stdout.subarray(start, end)
+    });
     cursor = end + 1;
   }
   return output;
@@ -589,17 +598,20 @@ async function desiredStateProjection(root) {
   const paths = await configurationAssetPaths(root);
   const files = {};
   const hashes = {};
+  const assets = {};
   const canonicalAssets = await canonicalConfigurationAssets(root, paths);
   for (const relative of paths) {
     const asset = canonicalAssets.get(relative);
     files[relative] = asset.contents;
     hashes[relative] = asset.sha256;
+    assets[relative] = { sha256: asset.sha256, object: asset.object, mode: asset.mode };
   }
   const approved = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
   return {
     paths,
     files,
     hashes: Object.fromEntries(Object.entries(hashes).sort(([left], [right]) => left.localeCompare(right))),
+    assets: Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right))),
     approved,
     stateConfig: stateConfiguration(approved)
   };
@@ -619,15 +631,17 @@ function observeStateProjection(root, desired, sourceCommit, product) {
   const desiredSet = new Set(desired.paths);
   const missingPaths = desired.paths.filter((relative) => !canonical.includes(relative));
   const changedPaths = desired.paths.filter((relative) => {
-    const bytes = tree.get(relative);
-    return bytes != null && sha256(bytes) !== desired.hashes[relative];
+    const entry = tree.get(relative);
+    const expected = desired.assets[relative];
+    return entry != null && (sha256(entry.contents) !== expected.sha256
+      || entry.object !== expected.object || entry.mode !== expected.mode);
   });
   const extraPaths = canonical.filter((relative) => !desiredSet.has(relative));
   const legacyPaths = paths.filter((relative) => relative.startsWith(`${STATE_CONFIGURATION_ROOT}/files/`));
   let manifest = null;
-  const manifestBytes = tree.get(STATE_CONFIGURATION_MANIFEST);
-  if (manifestBytes) {
-    try { manifest = JSON.parse(manifestBytes.toString('utf8')); }
+  const manifestEntry = tree.get(STATE_CONFIGURATION_MANIFEST);
+  if (manifestEntry) {
+    try { manifest = JSON.parse(manifestEntry.contents.toString('utf8')); }
     catch { manifest = null; }
   }
   const manifestCurrent = manifest?.format === MIRROR_FORMAT
@@ -635,7 +649,8 @@ function observeStateProjection(root, desired, sourceCommit, product) {
     && manifest?.source?.branch === CONFIGURATION_BRANCH
     && manifest?.source?.commit === sourceCommit
     && manifest?.product?.revision === product.revision
-    && equal(manifest?.files ?? {}, desired.hashes);
+    && equal(manifest?.files ?? {}, desired.hashes)
+    && equal(manifest?.assets ?? {}, desired.assets);
   const changed = !manifestCurrent || missingPaths.length > 0 || changedPaths.length > 0
     || extraPaths.length > 0 || legacyPaths.length > 0;
   return {
@@ -841,7 +856,8 @@ async function publishCandidate(candidate) {
     layout: 'canonical-paths',
     source: { branch: CONFIGURATION_BRANCH, commit: approvedCommit },
     product: refresh.product,
-    files: projection.hashes
+    files: projection.hashes,
+    assets: projection.assets
   };
   mirrored[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
   let state;

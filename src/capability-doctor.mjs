@@ -6,6 +6,8 @@ import { ledgerStatus } from './ledger.mjs';
 import { renderCapabilityWorldModelPack, resolveLifecycleCapability } from './capability-context.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { run, snapshot } from './util.mjs';
+import { loadPortfolio } from './initiative-config.mjs';
+import { initiativeRelative } from './state-stores.mjs';
 
 function check(id, status, summary, detail = null) { return { id, status, summary, detail }; }
 
@@ -83,7 +85,12 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   let lifecycle = null;
   const current = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
   const story = definition ? path.join(root, definition.workItemRoot ?? 'singularity/work-items', current, 'workflow.json') : null;
-  const initiative = path.join(root, 'singularity/initiatives', current, 'state.json');
+  const portfolio = await loadPortfolio(root, { required: false }).catch(() => null);
+  const initiative = path.join(
+    root,
+    portfolio ? initiativeRelative(portfolio, current) : path.posix.join('singularity/initiatives', current),
+    'state.json'
+  );
   const stateFile = story && existsSync(story) ? story : existsSync(initiative) ? initiative : null;
   if (stateFile) {
     const state = readRecord(stateFile === story ? 'story-workflow' : 'initiative-state', await readFile(stateFile)).record;

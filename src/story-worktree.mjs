@@ -14,6 +14,9 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { gitCommonDir } from './git.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
+import {
+  DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
+} from './work-item-location.mjs';
 
 function digest(value) {
   return createHash('sha256').update(String(value)).digest('hex');
@@ -147,6 +150,25 @@ export function completeStoryWorktree(prepared) {
   return { ...prepared, completedAt: nowIso(), cleanupPending: null };
 }
 
+function durableStoryWorkflowOnBranch(root, id) {
+  const definition = run('git', ['show', `${id}:singularity/workflow.yml`], {
+    cwd: root, allowFailure: true
+  });
+  let workItemRoot = DEFAULT_WORK_ITEM_ROOT;
+  if (definition.status === 0) {
+    try {
+      workItemRoot = workItemRootFromDefinitionText(definition.stdout);
+    } catch {
+      // A branch carrying unreadable governance may still carry the only durable Story commit.
+      // Recovery must retain uncertain data; doctor can diagnose it without destroying the branch.
+      return true;
+    }
+  }
+  return run('git', [
+    'cat-file', '-e', `${id}:${workItemWorkflowRelative(id, workItemRoot)}`
+  ], { cwd: root, allowFailure: true }).status === 0;
+}
+
 /**
  * Roll back only an unpublished launch. A durable workflow or remote Story ref is never removed;
  * the recovery path returns its exact worktree path instead.
@@ -154,9 +176,7 @@ export function completeStoryWorktree(prepared) {
 export function rollbackStoryWorktree(prepared) {
   const root = prepared.sourceRepository;
   const id = prepared.workId;
-  const workflowAtBranch = run('git', [
-    'cat-file', '-e', `${id}:singularity/work-items/${id}/workflow.json`
-  ], { cwd: root, allowFailure: true }).status === 0;
+  const workflowAtBranch = durableStoryWorkflowOnBranch(root, id);
   const published = run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${id}`], {
     cwd: root, allowFailure: true
   }).status === 0;

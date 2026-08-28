@@ -376,6 +376,8 @@ test('artifact packs are pinned into the resolution and covered by its hash', as
   const resolved = resolveInitiativeProfile(portfolio, 'enterprise-delivery');
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
 
+  assert.equal(resolution.initiativeRoot, portfolio.initiativeRoot,
+    'the durable Initiative namespace is pinned alongside its phase contracts');
   assert.equal(resolution.packs.length, 7, 'every PDLC pack survives into the pinned resolution');
   const pack = resolution.packs.find((entry) => entry.id === 'validation-release-readiness');
   assert.ok(pack, 'the cross-phase pack is present');
@@ -389,6 +391,13 @@ test('artifact packs are pinned into the resolution and covered by its hash', as
     root, edited, resolveInitiativeProfile(edited, 'enterprise-delivery'));
   assert.notEqual(after.resolutionSha256, resolution.resolutionSha256,
     'changing a pack changes the resolution hash');
+
+  const moved = structuredClone(portfolio);
+  moved.initiativeRoot = 'governed/initiative-state';
+  const movedResolution = await snapshotInitiativeResolution(
+    root, moved, resolveInitiativeProfile(moved, 'enterprise-delivery'));
+  assert.notEqual(movedResolution.resolutionSha256, resolution.resolutionSha256,
+    'changing the durable Initiative root changes the immutable resolution hash');
 });
 
 test('applicability policies are pinned into the resolution and covered by its hash', async () => {

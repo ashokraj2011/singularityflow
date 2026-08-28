@@ -20,6 +20,7 @@ import {
 } from './git-execution.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { incrementCommandCounter } from './dx-command-timing.mjs';
 
 export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
@@ -1271,7 +1272,7 @@ function cloneFailure(operation, result) {
     + `Git returned an unrecognized failure (exit ${result.status}). Run workspace doctor --network, correct Git access, then repair again.`;
 }
 
-async function cloneIntoWorkspace(root, operation) {
+async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) {
   await assertInside(root, operation.target);
   const existing = await lstat(operation.target).catch(() => null);
   if (existing) {
@@ -1333,13 +1334,14 @@ async function cloneIntoWorkspace(root, operation) {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
-  const cloneOnce = (selected) => runRemoteGit([
+  const cloneOnce = (selected) => runRemoteGitAsync([
     'clone', '--branch', operation.branch, ...cloneStrategyArguments(selected),
     '--', operation.url, staging
   ], { cwd: root, operation: 'remote-configuration' });
+  incrementCommandCounter('git.remote-clone');
   let selected = strategy;
   let fallbackUsed = false;
-  let result = cloneOnce(selected);
+  let result = await cloneOnce(selected);
   if (result.status !== 0) {
     return { status: result.status, error: await cleanupFailure(cloneFailure(operation, result)) };
   }
@@ -1367,7 +1369,7 @@ async function cloneIntoWorkspace(root, operation) {
     await rm(staging, { recursive: true, force: true });
     selected = normalizeCloneStrategy({ mode: 'full', fallback: 'full' });
     fallbackUsed = true;
-    result = cloneOnce(selected);
+    result = await cloneOnce(selected);
     if (result.status !== 0) {
       return { status: result.status, error: await cleanupFailure(cloneFailure(operation, result)) };
     }
@@ -1385,25 +1387,38 @@ async function cloneIntoWorkspace(root, operation) {
       };
     }
   }
-  try {
-    // A user may pre-create the repository folder while setting up a workspace. Claim it only
-    // when it is still empty after the clone completes; rmdir fails if a concurrent process
-    // added anything, so no user content is overwritten.
-    if (existing) await rmdir(operation.target);
-    await rename(staging, operation.target);
-    const cleaned = await cleanupStaging();
+  const claim = async () => {
+    try {
+      // A user may pre-create the repository folder while setting up a workspace. Claim it only
+      // when it is still empty after the clone completes; rmdir fails if a concurrent process
+      // added anything, so no user content is overwritten.
+      if (existing) await rmdir(operation.target);
+      await rename(staging, operation.target);
+      const cleaned = await cleanupStaging();
+      return {
+        status: 0, error: null, clone: selected, fallbackUsed,
+        cleanup: cleaned
+          ? { status: 'removed', path: stagingRoot, recoverable: false }
+          : { status: 'retained', path: stagingRoot, recoverable: true }
+      };
+    } catch (error) {
+      return {
+        status: 1,
+        error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`)
+      };
+    }
+  };
+  if (deferClaim) {
     return {
       status: 0, error: null, clone: selected, fallbackUsed,
-      cleanup: cleaned
-        ? { status: 'removed', path: stagingRoot, recoverable: false }
-        : { status: 'retained', path: stagingRoot, recoverable: true }
-    };
-  } catch (error) {
-    return {
-      status: 1,
-      error: await cleanupFailure(`Clone completed but could not claim its workspace target: ${error.message}`)
+      staging: { path: stagingRoot },
+      claim,
+      discard: async () => ({
+        removed: await cleanupStaging(), path: stagingRoot
+      })
     };
   }
+  return claim();
 }
 
 async function readRepairJournal(workspace, repositories) {
@@ -1442,7 +1457,8 @@ async function readRepairJournal(workspace, repositories) {
 export async function createWorkspace(options, {
   confirmation,
   clone = true,
-  bootstrapId = null
+  bootstrapId = null,
+  workers = 3
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
@@ -1504,14 +1520,40 @@ export async function createWorkspace(options, {
     for (const operation of journal.operations) {
       operation.status = 'running';
       operation.startedAt = nowIso();
-      await writeJournal(root, journal, manifest.directories.logs);
-      const result = operation.action === 'adopt'
+    }
+    await writeJournal(root, journal, manifest.directories.logs);
+    const stagedResults = await mapLimit(journal.operations, workers, async (operation) => (
+      operation.action === 'adopt'
         ? await verifyAdoptionOperation(operation)
         : await cloneIntoWorkspace(root, {
           ...operation,
           bootstrapId,
           workspaceId: manifest.id
-        });
+        }, { deferClaim: true })
+    ));
+    const requiredFailure = journal.operations.find((operation, index) =>
+      operation.required && stagedResults[index].status !== 0);
+    if (requiredFailure) {
+      await Promise.all(stagedResults.map(async (result) => {
+        if (result.status === 0 && result.discard) await result.discard();
+      }));
+      journal.operations.forEach((operation, index) => {
+        const result = stagedResults[index];
+        operation.status = result.status === 0 ? 'pending' : 'failed';
+        operation.error = result.status === 0
+          ? `Staged clone was discarded because required repository '${requiredFailure.repository}' failed.`
+          : result.error;
+        operation.completedAt = nowIso();
+      });
+      await writeJournal(root, journal, manifest.directories.logs);
+      const failedResult = stagedResults[journal.operations.indexOf(requiredFailure)];
+      throw new SingularityFlowError(
+        `Workspace retained for repair after ${requiredFailure.repository} clone failed: ${failedResult.error}`);
+    }
+    for (let index = 0; index < journal.operations.length; index += 1) {
+      const operation = journal.operations[index];
+      const staged = stagedResults[index];
+      const result = staged.status === 0 && staged.claim ? await staged.claim() : staged;
       operation.status = result.status === 0 ? 'complete' : 'failed';
       operation.error = result.error;
       operation.actualClone = result.status === 0 ? result.clone : null;
@@ -1634,7 +1676,7 @@ async function repositoryWorldModelStatus(root) {
   }
 }
 
-async function repositoryStatus(root, repository) {
+async function repositoryStatus(root, repository, { level = 'full' } = {}) {
   const absolute = repository.adoption?.canonicalPath ?? path.join(root, repository.path);
   if (repository.adoption) {
     const canonical = await realpath(absolute).catch(() => null);
@@ -1677,8 +1719,12 @@ async function repositoryStatus(root, repository) {
   }
   // These are independent local reads. Running them concurrently keeps a workspace with many
   // repositories from serially blocking the extension host on four spawnSync calls per repository.
+  const readinessOnly = level === 'readiness';
   const [statusText, branch, remote, headCommit] = await Promise.all([
-    gitValueAsync(absolute, ['status', '--porcelain=v1', '--untracked-files=all']),
+    readinessOnly
+      ? Promise.resolve('')
+      : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
+        ? '--untracked-files=no' : '--untracked-files=all']),
     gitValueAsync(absolute, ['branch', '--show-current']),
     gitValueAsync(absolute, ['remote', 'get-url', 'origin']),
     gitValueAsync(absolute, ['rev-parse', 'HEAD'])
@@ -1694,14 +1740,18 @@ async function repositoryStatus(root, repository) {
     branch,
     remote: sanitizeRemote(remote),
     head: headCommit,
-    worldModel: await repositoryWorldModelStatus(absolute)
+    worldModel: level === 'full' ? await repositoryWorldModelStatus(absolute) : null
   };
 }
 
-export async function workspaceStatus(workspacePath) {
+export async function workspaceStatus(workspacePath, { level = 'full' } = {}) {
+  if (!['readiness', 'summary', 'full'].includes(level)) {
+    throw new SingularityFlowError(`Unknown workspace status level '${level}'.`);
+  }
   const workspace = await readWorkspace(workspacePath);
-  const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) => repositoryStatus(workspace.path, repository)));
-  const staged = await listWorkspaceDocuments(workspace.path);
+  const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) =>
+    repositoryStatus(workspace.path, repository, { level })));
+  const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = repositories
     .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)
     .map((repository) => ({
@@ -1711,6 +1761,7 @@ export async function workspaceStatus(workspacePath) {
     }));
   return {
     workspace,
+    level,
     healthy: repositories.every((repository) => repository.state === 'ready'),
     leadRepositoryPath: workspaceRepositoryPath(workspace, workspace.repositories[workspace.leadRepository]),
     repositories,

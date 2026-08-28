@@ -917,7 +917,9 @@ export async function publishOrganisationCapabilityMap(url) {
 }
 
 /** Pending capability proposals on a lead repository, without changing either authority branch. */
-export async function listCapabilityProposals(url, { includeMerged = false } = {}) {
+export async function listCapabilityProposals(url, {
+  includeMerged = false, includeDiff = true
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -980,7 +982,9 @@ export async function listCapabilityProposals(url, { includeMerged = false } = {
         if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
           cwd: scratch, allowFailure: true
         }).status === 0) continue;
-        const proposal = inspectCapabilityProposalCheckout(scratch, sanitizeRemote(remote), entry.branch, ref);
+        const proposal = inspectCapabilityProposalCheckout(
+          scratch, sanitizeRemote(remote), entry.branch, ref, { includeDiff }
+        );
         if (includeMerged || !proposal.merged) proposals.push(proposal);
       } catch (error) {
         // One corrupt or stale proposal must remain visible without hiding every healthy proposal
@@ -1008,7 +1012,7 @@ export async function listCapabilityProposals(url, { includeMerged = false } = {
   return proposals;
 }
 
-function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref) {
+function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { includeDiff = true } = {}) {
   const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
   const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
@@ -1024,9 +1028,11 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref) {
   const reviewBase = merged ? proposalBase : mergeBase;
   const changed = proposalChangedFiles(root, reviewBase, ref);
   const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
-  const diff = run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
-    cwd: root
-  }).stdout;
+  const diff = includeDiff
+    ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
+        cwd: root
+      }).stdout
+    : null;
   return {
     remote,
     branch: proposalBranch,
@@ -1039,7 +1045,9 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref) {
     valid: invalidFiles.length === 0 && changed.names.length > 0,
     invalidFiles,
     changedFiles: changed.statuses,
-    diff: diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff
+    diff: diff == null ? null
+      : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,
+    diffDeferred: diff == null
   };
 }
 

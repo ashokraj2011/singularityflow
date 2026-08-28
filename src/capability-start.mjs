@@ -22,17 +22,21 @@ import {
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
 import {
-  assertClean, branch as currentBranch, checkout, fetchRemote, preflightPushBranch, pushCommitToBranch,
+  assertClean, branch as currentBranch, checkout, preflightPushBranch, pushCommitToBranch,
   gitCommonDir, refExists, refHead, repoRoot
 } from './git.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import {
-  resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority
+  resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority,
+  resolveStoryConfigurationSnapshotCapability
 } from './configuration-branch.mjs';
-import { nowIso, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
+import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
+import { incrementCommandCounter } from './dx-command-timing.mjs';
+
+const DEFAULT_REMOTE_WORKERS = 4;
 
 /**
  * Which branches each repository publishes.
@@ -59,6 +63,34 @@ export function publishedBranches(repositories, { timeoutMs = 20000 } = {}) {
   return { published, unreachable };
 }
 
+/** Bounded asynchronous inventory used by interactive/desktop planning across a capability. */
+export async function publishedBranchesAsync(repositories, {
+  timeoutMs = 20000, workers = DEFAULT_REMOTE_WORKERS, runGit = runRemoteGitAsync
+} = {}) {
+  const observations = await mapLimit(repositories, workers, async (repository) => {
+    incrementCommandCounter('git.remote-inventory');
+    const result = await runGit(['ls-remote', '--heads', '--', repository.url], {
+      operation: 'remote-probe', timeoutMs
+    });
+    return { repository, result };
+  });
+  const published = {};
+  const unreachable = [];
+  for (const { repository, result } of observations) {
+    if (result.status !== 0) {
+      published[repository.id] = [];
+      unreachable.push({
+        repository: repository.id,
+        url: repository.url,
+        detail: (result.stderr || result.stdout || '').trim()
+      });
+    } else {
+      published[repository.id] = parseRemoteHeads(result.stdout);
+    }
+  }
+  return { published, unreachable };
+}
+
 /**
  * Branch inventory for a Story start, whether this checkout belongs to a capability or stands alone.
  *
@@ -79,7 +111,7 @@ export async function storyBaseCatalog(root, {
   if (context && capability) {
     const workspace = await readWorkspace(context.workspacePath);
     const repositories = capabilityRepositories(workspace, capability);
-    const { published, unreachable } = publishedBranches(repositories);
+    const { published, unreachable } = await publishedBranchesAsync(repositories);
     return {
       scope: 'capability',
       capability,
@@ -115,7 +147,7 @@ export async function storyBaseCatalog(root, {
       choices: []
     };
   }
-  const { published, unreachable } = publishedBranches([repository]);
+  const { published, unreachable } = await publishedBranchesAsync([repository]);
   return {
     scope: 'repository', capability: null, remote, workspaceRoot: null,
     repositoryId: repository.id, repositories: [repository], published, unreachable,
@@ -234,7 +266,7 @@ export async function planCapabilityBase(workspace, capability, options = {}, {
   values = [], interactive = true
 } = {}) {
   const repositories = capabilityRepositories(workspace, capability);
-  const { published, unreachable } = publishedBranches(repositories);
+  const { published, unreachable } = await publishedBranchesAsync(repositories);
   if (unreachable.length) {
     throw new SingularityFlowError(
       `Cannot read the published branches of ${unreachable.map((entry) => entry.repository).join(', ')}. `
@@ -273,7 +305,10 @@ export async function planCapabilityBase(workspace, capability, options = {}, {
  */
 export async function preflightStoryRepositories(workspaceRoot, plan, storyBranch, {
   remote = 'origin', publishRequired = true, lifecycleRoot = null,
-  capabilityId = plan?.record?.capability ?? null
+  capabilityId = plan?.record?.capability ?? null,
+  configurationSnapshot = null,
+  workers = DEFAULT_REMOTE_WORKERS,
+  runGit = runRemoteGitAsync
 } = {}) {
   // Workspace registration decides which repositories move together, but the governed capability
   // catalog decides whether that identifier exists at all. Resolve the same explicit identifier
@@ -281,8 +316,12 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // a stale machine-local workspace from passing UI preflight and failing only after configuration
   // has been materialized onto a new Story branch.
   if (lifecycleRoot && capabilityId) {
-    const configurationAuthority = await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
-    if (configurationAuthority) {
+    const configurationAuthority = configurationSnapshot
+      ? configurationSnapshot.authority
+      : await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
+    if (configurationSnapshot) {
+      await resolveStoryConfigurationSnapshotCapability(configurationSnapshot, capabilityId);
+    } else if (configurationAuthority) {
       await resolveApprovedConfigurationCapability(configurationAuthority, capabilityId);
     } else {
       await resolveLifecycleCapability(lifecycleRoot, {
@@ -294,7 +333,10 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       });
     }
   }
-  const checked = [];
+  // Validate every local precondition before the first network operation. Fetches may update only
+  // remote-tracking refs; checkout/index/worktree mutations still wait for the complete capability
+  // to pass this stage.
+  const candidates = [];
   for (const repository of plan.repositories) {
     const target = workspaceRepositoryPath({ path: workspaceRoot }, repository);
     if (!existsSync(path.join(target, '.git'))) {
@@ -309,7 +351,29 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     // same Git common directory, so only sibling repositories still need the legacy clean-checkout
     // precondition here.
     if (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot))) assertClean(root);
-    fetchRemote(root, remote);
+    run('git', ['remote', 'set-branches', remote, '*'], { cwd: root, allowFailure: false });
+    candidates.push({ repository, root });
+  }
+  const fetched = await mapLimit(candidates, workers, async (candidate) => {
+    incrementCommandCounter('git.remote-fetch');
+    return {
+      ...candidate,
+      result: await runGit(['fetch', '--prune', remote], {
+        cwd: candidate.root, operation: 'remote-configuration', allowFailure: true
+      })
+    };
+  });
+  const failedFetch = fetched.find((entry) => entry.result.status !== 0);
+  if (failedFetch) {
+    throw new SingularityFlowError(
+      `Cannot refresh required repository '${failedFetch.repository.id}' from '${remote}'. `
+      + `${failedFetch.result.failure?.advice ?? (failedFetch.result.stderr || failedFetch.result.stdout || 'Git fetch failed').trim()} Nothing was changed.`,
+      { code: failedFetch.result.failure?.code ?? 'STORY_REMOTE_UNREACHABLE' }
+    );
+  }
+
+  const checked = [];
+  for (const { repository, root } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
     if (!refExists(root, sourceRef)) {
@@ -374,6 +438,12 @@ export function capabilityPublicationPlan(preflight, lifecycleRoot) {
     }));
 }
 
+export function preflightIncludesRepository(preflight, repositoryRoot) {
+  if (!preflight?.length) return false;
+  const common = gitCommonDir(repoRoot(repositoryRoot));
+  return preflight.some((entry) => gitCommonDir(repoRoot(entry.root)) === common);
+}
+
 /** Publish exact preflight-bound sibling commits, returning a resumable remainder on failure. */
 export function publishCapabilityRepositories(entries = []) {
   const published = [];
@@ -430,7 +500,7 @@ export function rollbackCapabilityRepositories(prepared, storyBranch) {
 }
 
 export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, {
-  remote = 'origin', lifecycleRoot = null
+  remote = 'origin', lifecycleRoot = null, fetched = false
 } = {}) {
   const prepared = [];
   try {
@@ -455,7 +525,7 @@ export function prepareCapabilityRepositories(workspaceRoot, plan, storyBranch, 
       assertClean(root);
       const already = currentBranch(root);
       const checkoutMode = checkout(root, storyBranch, {
-        base: base.branch, fetch: true, remote, preferRemoteBase: true
+        base: base.branch, fetch: !fetched, remote, preferRemoteBase: true
       });
       prepared.push({
         repository: repository.id,

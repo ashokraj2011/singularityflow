@@ -112,7 +112,7 @@ export function runRemoteGit(args, {
 export async function runRemoteGitAsync(args, {
   cwd = process.cwd(), env = process.env, operation = 'remote-probe',
   timeoutMs = timeoutFor(operation, env), allowFailure = true,
-  maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn
+  maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null
 } = {}) {
   if (networkDisabled(env)) {
     return runRemoteGit(args, {
@@ -120,7 +120,9 @@ export async function runRemoteGitAsync(args, {
       runCommand() { throw new Error('offline Git execution must not spawn'); }
     });
   }
-  const result = await new Promise((resolve) => {
+  const result = signal?.aborted
+    ? { status: 1, stdout: '', stderr: '', error: signal.reason, timedOut: false, aborted: true }
+    : await new Promise((resolve) => {
     let child;
     try {
       child = spawnCommand('git', args, {
@@ -160,20 +162,28 @@ export async function runRemoteGitAsync(args, {
       timedOut = true;
       terminate();
     }, timeoutMs);
+    const abort = () => terminate();
+    signal?.addEventListener('abort', abort, { once: true });
     // These timers are part of the promise's completion machinery. Unreferencing the deadline (or
     // the forced-kill grace timer) lets Node conclude that the event loop is empty while callers are
     // still awaiting this operation. `node:test` then reports a pending promise instead of the
     // classified timeout result. Keep both referenced until `close` settles the operation.
-    child.on('close', (code, signal) => {
+    child.on('close', (code, terminationSignal) => {
       clearTimeout(timer);
       if (forceTimer) clearTimeout(forceTimer);
+      signal?.removeEventListener('abort', abort);
       resolve({
         status: code ?? 1, stdout, stderr, error: spawnError,
-        signal, timedOut, outputOverflow
+        signal: terminationSignal, timedOut, outputOverflow, aborted: signal?.aborted === true
       });
     });
   });
-  const failure = result.status === 0 && !result.outputOverflow
+  const failure = result.aborted
+    ? {
+        code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,
+        advice: 'The Git operation was cancelled before it completed. Retry when ready.'
+      }
+    : result.status === 0 && !result.outputOverflow
     ? null
     : classifyGitRemoteFailure(result);
   const observed = { ...result, failure, operation, timeoutMs };

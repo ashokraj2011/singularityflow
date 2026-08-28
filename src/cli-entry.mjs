@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
-import { commandTimer, recordCommandTiming, writeCommandTimings } from './dx-command-timing.mjs';
+import {
+  commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
+} from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
 import { parseArgs, run, SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
@@ -287,7 +289,7 @@ export async function main(argv) {
     await module.load?.();
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
-    const result = await withOperationContext({
+    const result = await withCommandTiming(timer, () => withOperationContext({
       operation,
       modelMode,
       root,
@@ -296,7 +298,10 @@ export async function main(argv) {
       fallbackFrom: operation.id === requestedOperation.id ? null : requestedOperation.id,
       command: definition.name,
       startedAt
-    }, () => module.run(effectiveArgv, { positionals: [definition.name, ...positionals.slice(1)], options, definition, operation, requestedOperation, modelMode }));
+    }, () => module.run(effectiveArgv, {
+      positionals: [definition.name, ...positionals.slice(1)], options, definition,
+      operation, requestedOperation, modelMode
+    })));
     timer.stage('execute');
     /**
      * Private return memory is downstream of authority, never inside its transaction.

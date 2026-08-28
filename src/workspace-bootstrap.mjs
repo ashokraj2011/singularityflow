@@ -15,7 +15,8 @@ import {
   rememberWorkspace, validateWorkspaceCapabilityRegistration, workspaceRepositoryPath,
   workspaceStatus
 } from './workspace.mjs';
-import { run, SingularityFlowError } from './util.mjs';
+import { mapLimit, run, SingularityFlowError } from './util.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -28,6 +29,7 @@ const TERMINAL = new Set(['ready', 'abandoned']);
 const ACTIVE = new Set(WORKSPACE_BOOTSTRAP_STATUSES.filter((status) => !TERMINAL.has(status)));
 const MIN_DISK_BYTES = 1024 * 1024 * 1024;
 const LEASE_STALE_MS = 5 * 60 * 1000;
+const PREFLIGHT_RECEIPT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_OPERATION_BUDGETS = Object.freeze({
   preflight: Object.freeze({ used: 0, maximum: 3 }),
   materialize: Object.freeze({ used: 0, maximum: 2 }),
@@ -58,6 +60,10 @@ function planHashFor(plan) {
       leadRepository: plan.workspace.leadRepository,
       capabilities: [...(plan.workspace.capabilities ?? [])].sort()
     },
+    capabilityAuthority: plan.createInput?.capabilityAuthority ? {
+      remote: sanitizeRemote(plan.createInput.capabilityAuthority.url),
+      branch: plan.createInput.capabilityAuthority.branch ?? 'sflow/config'
+    } : null,
     repositories: plan.repositories.map((repository) => ({
       id: repository.id,
       remote: sanitizeRemote(repository.remote),
@@ -719,16 +725,51 @@ function rebuiltPlan(plan, branchUpdates) {
   });
 }
 
+async function asynchronousRemoteProbe(remote, { branch = null, env = process.env } = {}) {
+  const url = assertCredentialFreeRemote(remote);
+  const result = await runRemoteGitAsync([
+    'ls-remote', '--symref', '--', url, 'HEAD', 'refs/heads/*'
+  ], { operation: 'remote-probe', env, allowFailure: true });
+  const branches = [...String(result.stdout ?? '').matchAll(
+    /^[0-9a-f]{40,64}\s+refs\/heads\/(.+)$/gmi
+  )].map((match) => match[1]).sort();
+  const defaultBranch = String(result.stdout ?? '')
+    .match(/^ref:\s+refs\/heads\/(.+?)\s+HEAD$/m)?.[1] ?? null;
+  const base = {
+    remote: sanitizeRemote(url), remoteFingerprint: remoteFingerprint(url),
+    defaultBranch, branches
+  };
+  if (result.status !== 0) return { ...base, ok: false, failure: result.failure };
+  if (branch && !branches.includes(branch)) {
+    return {
+      ...base, ok: false,
+      failure: {
+        classification: 'branch-not-found', code: 'REMOTE_BRANCH_NOT_FOUND',
+        retryable: false, branch,
+        advice: `Create or select a branch that exists on '${sanitizeRemote(url)}', then retry.`
+      }
+    };
+  }
+  return { ...base, ok: true, failure: null };
+}
+
 async function remotePreflight(plan, { env = process.env, runCommand = run } = {}) {
   const checks = [];
   const findings = [];
   const branchUpdates = new Map();
-  for (const repository of plan.repositories) {
+  const observations = await mapLimit(plan.repositories, 4, async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
-    const probe = probeGitRemote(actualUrl, {
-      branch: inferDefault ? null : repository.defaultBranch, runCommand, env
-    });
+    const probe = runCommand === run
+      ? await asynchronousRemoteProbe(actualUrl, {
+          branch: inferDefault ? null : repository.defaultBranch, env
+        })
+      : probeGitRemote(actualUrl, {
+          branch: inferDefault ? null : repository.defaultBranch, runCommand, env
+        });
+    return { repository, actualUrl, inferDefault, probe };
+  });
+  for (const { repository, inferDefault, probe } of observations) {
     const chosenBranch = inferDefault ? probe.defaultBranch : repository.defaultBranch;
     if (probe.ok && inferDefault && chosenBranch) branchUpdates.set(repository.id, chosenBranch);
     const missingDefault = probe.ok && inferDefault && !chosenBranch;
@@ -824,6 +865,19 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
         } }
       );
     }
+    const previousCheckedAt = Date.parse(session.preflight?.checkedAt ?? '');
+    const targetStillAbsent = !(await lstat(session.plan.workspace.targetPath).catch(() => null));
+    if (session.preflight?.ready === true
+        && session.preflight.planHash === session.planHash
+        && targetStillAbsent
+        && Number.isFinite(previousCheckedAt)
+        && Date.now() - previousCheckedAt <= PREFLIGHT_RECEIPT_TTL_MS) {
+      // A confirmed resume immediately follows preview in the UI. Re-running disk, Git, and
+      // capability checks here doubled office-network latency. Workspace creation still validates
+      // capability registration and each clone remains bounded/recoverable, so this short-lived
+      // exact-plan receipt is safe to reuse.
+      return session;
+    }
     const preflightAttempt = (session.steps ?? [])
       .filter((step) => step.operationId === 'bootstrap.preflight').length + 1;
     let budgets;
@@ -891,6 +945,8 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       preflight: {
         schemaVersion: 1,
         checkedAt,
+        planHash,
+        reuseUntil: new Date(Date.parse(checkedAt) + PREFLIGHT_RECEIPT_TTL_MS).toISOString(),
         ready: blockers.length === 0,
         checks: [...machine.checks, ...remote.checks],
         findings
@@ -996,7 +1052,7 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
         steps: verifying.steps,
         result: { workspace: materialized.workspace, materialization: materialized.materialization ?? materialized.repair ?? [] }
       });
-      const status = await workspaceStatus(materialized.workspace.path);
+      const status = materialized.status ?? await workspaceStatus(materialized.workspace.path);
       await rememberWorkspace(workspaceRegistryFile(env, home), materialized.workspace, status);
       session = {
         ...session,

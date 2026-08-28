@@ -88,7 +88,8 @@ test('Story intake creates durable manual state and resumes an existing branch',
   assert.deepEqual(documents.documents.map((item) => item.type), ['file', 'url']);
   const log = run('git', ['log', '--format=%s'], root).stdout;
   assert.match(log, /\[WORK-901\]\[init\] start feature workflow/);
-  assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 2);
+  assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 1,
+    'all initial evidence is published in one governed transaction');
 
   const resumed = await startStory(root, {
     id: 'WORK-901',

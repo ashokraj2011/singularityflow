@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import {
   capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
-  publishedBranches, prepareCapabilityRepositories
+  publishedBranches, publishedBranchesAsync, prepareCapabilityRepositories
 } from '../src/capability-start.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
 import { run } from '../src/util.mjs';
@@ -64,6 +64,29 @@ test('an unreachable remote is reported, never treated as a repository with no b
   assert.deepEqual(published.ghost, []);
   assert.equal(unreachable.length, 1);
   assert.equal(unreachable[0].repository, 'ghost');
+});
+
+test('capability remote inventory is bounded, concurrent, and returns manifest order', async () => {
+  let active = 0;
+  let maximum = 0;
+  const repositories = Array.from({ length: 6 }, (_, index) => ({
+    id: `repository-${index}`, url: `https://example.invalid/repository-${index}.git`
+  }));
+  const runGit = async (args) => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    const index = Number(args.at(-1).match(/repository-(\d+)/)[1]);
+    await new Promise((resolve) => setTimeout(resolve, (6 - index) * 3));
+    active -= 1;
+    return {
+      status: 0, stderr: '',
+      stdout: `${String(index).padStart(40, 'a')}\trefs/heads/main\n`
+    };
+  };
+  const result = await publishedBranchesAsync(repositories, { workers: 3, runGit });
+  assert.equal(maximum, 3);
+  assert.deepEqual(Object.keys(result.published), repositories.map((entry) => entry.id));
+  assert.deepEqual(result.unreachable, []);
 });
 
 test('every repository in the capability lands on the Story branch cut from the chosen base', async () => {

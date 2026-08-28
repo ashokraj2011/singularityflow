@@ -139,6 +139,11 @@ test('prepare persists a resumable plan before destination mutation and resume l
     'prepare created the workspace destination');
   assert.equal(prepared.plan.workspace.confirmation, 'demo');
 
+  const reused = await preflightWorkspaceBootstrap(prepared.bootstrapId, { env });
+  assert.equal(reused.integrity.sha256, prepared.integrity.sha256,
+    'an exact-plan ready preflight is reused rather than rewritten');
+  assert.equal(reused.operationBudgets.preflight.used, prepared.operationBudgets.preflight.used);
+
   const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
     confirmation: 'demo', env
   });

@@ -1,11 +1,21 @@
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { gitDir } from './git.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 90;
 const LOG_NAME = 'timings.jsonl';
+const commandTimingContext = new AsyncLocalStorage();
+
+export function withCommandTiming(timer, action) {
+  return commandTimingContext.run(timer, action);
+}
+
+export function incrementCommandCounter(name, amount = 1) {
+  return commandTimingContext.getStore()?.increment(name, amount) ?? null;
+}
 
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
@@ -18,12 +28,28 @@ export function commandTimer(command, input = {}) {
   const created = process.hrtime.bigint();
   const startedAt = new Date(Date.now() - (Number(created - started) / 1e6)).toISOString();
   const stages = {};
+  const counters = {};
   let checkpoint = started;
   return {
     stage(name) {
       const now = process.hrtime.bigint();
       stages[name] = (stages[name] ?? 0) + (Number(now - checkpoint) / 1e6);
       checkpoint = now;
+    },
+    /**
+     * Count bounded operation facts without recording arguments, paths, remotes, or content.
+     * Names are deliberately caller-owned closed vocabulary; invalid names are refused so a
+     * diagnostic cannot accidentally turn user input into telemetry keys.
+     */
+    increment(name, amount = 1) {
+      if (!/^[a-z][a-z0-9.-]{0,63}$/.test(String(name ?? ''))) {
+        throw new TypeError('Timing counter names must use lower-case dotted or kebab-case identifiers.');
+      }
+      if (!Number.isSafeInteger(amount) || amount < 0) {
+        throw new TypeError('Timing counter increments must be non-negative safe integers.');
+      }
+      counters[name] = (counters[name] ?? 0) + amount;
+      return counters[name];
     },
     finish(extra = {}) {
       const ended = process.hrtime.bigint();
@@ -36,6 +62,7 @@ export function commandTimer(command, input = {}) {
         recordedAt: new Date().toISOString(),
         durationMs: Number(ended - started) / 1e6,
         stages,
+        counters,
         outcome: 'success',
         fallback: 'none',
         ...extra
@@ -47,7 +74,9 @@ export function commandTimer(command, input = {}) {
 export function writeCommandTimings(event) {
   const stages = Object.entries(event.stages ?? {})
     .map(([name, durationMs]) => `${name}=${durationMs.toFixed(1)}ms`).join(' ');
-  process.stderr.write(`[sflow timing] ${event.command} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${stages ? ` ${stages}` : ''}\n`);
+  const counters = Object.entries(event.counters ?? {})
+    .map(([name, count]) => `${name}=${count}`).join(' ');
+  process.stderr.write(`[sflow timing] ${event.command} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
 }
 
 export function commandTimingDirectory(root) {

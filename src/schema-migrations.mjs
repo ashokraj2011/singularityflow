@@ -430,6 +430,14 @@ function dxCommandTimingV1ToV2(source) {
   };
 }
 
+function dxCommandTimingV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    counters: clone(source.counters ?? {})
+  };
+}
+
 function vscodeResetMarkerV1ToV2(source) {
   return {
     ...source,
@@ -895,8 +903,11 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({
-    id: 'dx-command-timing', currentVersion: 2,
-    steps: [migration(1, 2, dxCommandTimingV1ToV2)],
+    id: 'dx-command-timing', currentVersion: 3,
+    steps: [
+      migration(1, 2, dxCommandTimingV1ToV2),
+      migration(2, 3, dxCommandTimingV2ToV3)
+    ],
     paths: [/^\$git\/(?:dx\/timings(?:-[^/]+)?|performance\/commands)\.jsonl$/]
   }),
   family({

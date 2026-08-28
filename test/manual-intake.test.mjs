@@ -100,7 +100,8 @@ test('manual story intake commits complete details and every supplied document w
 
   const log = run('git', ['log', '--format=%s'], root).stdout;
   assert.match(log, /\[WORK-123\]\[init\] start feature workflow/);
-  assert.equal((log.match(/\[WORK-123\]\[documents\]\[upload\]/g) ?? []).length, 4);
+  assert.equal((log.match(/\[WORK-123\]\[documents\]\[upload\]/g) ?? []).length, 1,
+    'Story intake batches every initial document into one publication');
 
   const guide = flow(root, ['guide']).stdout;
   assert.match(guide, /WORK-123 — Feature \(feature\)/);

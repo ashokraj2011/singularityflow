@@ -655,12 +655,23 @@ test('workspace creates isolated clones, stages ungoverned documents, and can be
   const created = await createWorkspace(input, { confirmation: 'PAY-100' });
   assert.equal(created.created, true);
   assert.equal(created.status.healthy, true);
+  assert.equal(created.status.level, 'full');
   assert.notEqual(created.status.repositories[0].absolutePath, created.status.repositories[1].absolutePath);
   const loaded = await readWorkspace(created.workspace.path);
   assert.equal(loaded.anchor.issueTypeName, 'Business Initiative');
   assert.equal(loaded.localOnly, true);
   assert.deepEqual(loaded.repositories.platform.metadata, { appId: 'APP-PLATFORM', name: 'Shared platform' });
   assert.deepEqual(loaded.repositories.mobile.metadata, { appId: 'APP-MOBILE', owner: 'Digital' });
+
+  const readiness = await workspaceStatus(created.workspace.path, { level: 'readiness' });
+  assert.equal(readiness.healthy, true);
+  assert.equal(readiness.level, 'readiness');
+  assert.equal(readiness.stagedDocuments.length, 0);
+  assert.ok(readiness.repositories.every((repository) => repository.worldModel === null));
+  await assert.rejects(
+    () => workspaceStatus(created.workspace.path, { level: 'expensive-and-unknown' }),
+    /Unknown workspace status level/
+  );
 
   const requirement = path.join(root, 'requirement.pdf');
   await writeFile(requirement, 'pinned requirement');
@@ -1169,6 +1180,22 @@ test('a failed clone leaves no partial repository and can resume when the remote
   const resumed = await createWorkspace(input, { confirmation: 'PAY-100' });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.status.healthy, true);
+});
+
+test('parallel workspace staging claims no repository when any required clone fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-clone-wave-'));
+  const available = await remoteRepository(root, 'available');
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: { url: available, defaultBranch: 'main', required: true, path: 'repos/platform' },
+    missing: { url: path.join(root, 'missing.git'), defaultBranch: 'main', required: true, path: 'repos/missing' }
+  });
+  const preview = previewWorkspace(input);
+  await assert.rejects(
+    () => createWorkspace(input, { confirmation: 'PAY-100', workers: 2 }),
+    /retained for repair/
+  );
+  assert.deepEqual(await readdir(path.join(preview.root, 'repos')), [],
+    'a successful sibling remains private staging and is discarded before coordinator claim');
 });
 
 test('workspace repair names a configured branch that the remote does not have', async () => {

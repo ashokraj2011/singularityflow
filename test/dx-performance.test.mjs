@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { evaluateLatency, summarizeSamples } from '../src/dx-performance.mjs';
-import { commandTimer, commandTimingDirectory, recordCommandTiming } from '../src/dx-command-timing.mjs';
+import {
+  commandTimer, commandTimingDirectory, incrementCommandCounter, recordCommandTiming,
+  withCommandTiming
+} from '../src/dx-command-timing.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(path.join(root, 'benchmarks/dx/reference-fixture.json'), 'utf8'));
@@ -266,16 +269,39 @@ test('the command that loads most of the codebase says so under module-load', ()
 test('command timing events use the privacy-safe versioned envelope', () => {
   const timer = commandTimer('status', { commandClass: 'read' });
   timer.stage('resolve');
+  timer.increment('git.remote-fetch');
+  timer.increment('git.remote-fetch', 2);
   const event = timer.finish({ outcome: 'cancelled', fallback: 'cached-snapshot' });
-  assert.equal(event.schemaVersion, 2);
+  assert.equal(event.schemaVersion, 3);
   assert.equal(event.event, 'dx.command-timing');
   assert.equal(event.commandClass, 'read');
   assert.equal(event.command, 'status');
   assert.equal(event.outcome, 'cancelled');
   assert.equal(event.fallback, 'cached-snapshot');
   assert.equal(typeof event.stages.resolve, 'number');
+  assert.deepEqual(event.counters, { 'git.remote-fetch': 3 });
   assert.ok(Date.parse(event.startedAt));
   assert.doesNotMatch(JSON.stringify(event), /argv|argument|token|password|secret/i);
+});
+
+test('command timing counters refuse content-shaped keys and invalid values', () => {
+  const timer = commandTimer('status', { commandClass: 'read' });
+  assert.throws(() => timer.increment('/Users/person/repository'), /counter names/);
+  assert.throws(() => timer.increment('git.fetch', -1), /non-negative/);
+});
+
+test('operation counters follow asynchronous command execution without becoming global', async () => {
+  const timer = commandTimer('start', { commandClass: 'mutation' });
+  await withCommandTiming(timer, async () => {
+    incrementCommandCounter('git.remote-fetch');
+    await Promise.resolve();
+    incrementCommandCounter('configuration.snapshot-read', 2);
+  });
+  assert.equal(incrementCommandCounter('git.remote-fetch'), null);
+  assert.deepEqual(timer.finish().counters, {
+    'git.remote-fetch': 1,
+    'configuration.snapshot-read': 2
+  });
 });
 
 test('machine-local timing logs rotate and use private permissions', async () => {

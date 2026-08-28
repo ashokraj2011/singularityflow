@@ -227,7 +227,10 @@ async function createConnectedFixture() {
    * measurement used.
    */
   await writeFile(definitionPath, withLedger, 'utf8');
-  git(root, ['add', '.']);
+  // The reference fixture deliberately carries untracked files. Staging the whole tree here both
+  // destroys that topology and makes concurrent macOS runs ask Git to insert disposable files.
+  // Only the ledger configuration belongs to this commit.
+  git(root, ['add', 'singularity/workflow.yml']);
   git(root, ['commit', '-q', '-m', 'Enable the ledger on the measured branch']);
 
   /**
@@ -254,7 +257,8 @@ async function createConnectedFixture() {
       await writeFile(path.join(directory, `${eventId}.json`),
         `${JSON.stringify({ eventId, subject: { workId: 'DX-001' }, type: 'phase_submitted' }, null, 2)}\n`, 'utf8');
     }
-    git(root, ['add', '.']);
+    // Preserve the reference fixture's untracked-file dimension on every connected branch.
+    git(root, ['add', 'singularity']);
     git(root, ['commit', '-q', '-m', `Ledger intents on ${name}`]);
     git(root, ['push', '-q', 'origin', name]);
   }

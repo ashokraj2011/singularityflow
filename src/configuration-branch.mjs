@@ -28,6 +28,7 @@ import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { incrementCommandCounter } from './dx-command-timing.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
@@ -44,6 +45,8 @@ const RUNTIME_ROOTS = new Set([
   // merge them, so this directory must never be materialized into lifecycle history.
   '.product'
 ]);
+
+const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 
 function slash(value) { return value.split(path.sep).join('/'); }
 
@@ -600,15 +603,29 @@ export async function resolveStoryConfigurationAuthority(root, remoteName = 'ori
 
 /** Load one Story authority as a complete disposable definition without touching the checkout. */
 export async function loadStoryConfigurationDefinition(authority) {
+  return (await loadStoryConfigurationSnapshot(authority)).definition;
+}
+
+/**
+ * Read and verify one exact approved configuration revision once for the complete Story-start
+ * operation. The bounded configuration payload is retained in memory after the disposable clone
+ * is removed, so validation and later branch materialization cannot perform two network clones or
+ * observe two different authority revisions.
+ */
+export async function loadStoryConfigurationSnapshot(authority) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
+  incrementCommandCounter('configuration.snapshot-read');
   try {
     let observedCommit;
+    let sourceCommit;
+    let mirror = null;
     if (authority.branch === STATE_CONFIGURATION_BRANCH) {
-      const mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
+      mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
       observedCommit = mirror.mirrorCommit;
+      sourceCommit = mirror.sourceCommit;
       if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
         throw new SingularityFlowError(
           `Approved configuration source moved from ${authority.sourceCommit.slice(0, 12)} to ${mirror.sourceCommit.slice(0, 12)} while Story intake was being prepared. Refresh and retry; nothing was changed.`,
@@ -617,6 +634,7 @@ export async function loadStoryConfigurationDefinition(authority) {
       }
     } else {
       observedCommit = await cloneConfiguration(authority.remote, scratch);
+      sourceCommit = observedCommit;
     }
     if (authority.commit && observedCommit !== authority.commit) {
       throw new SingularityFlowError(
@@ -627,10 +645,59 @@ export async function loadStoryConfigurationDefinition(authority) {
         }
       );
     }
-    return await loadDefinition(scratch);
+    const definition = await loadDefinition(scratch);
+    const assets = [];
+    for (const relative of await configurationAssetPaths(scratch)) {
+      const file = path.join(scratch, relative);
+      const info = await lstat(file);
+      if (!info.isFile() || info.isSymbolicLink()) {
+        throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
+      }
+      const contents = Buffer.from(await readFile(file));
+      assets.push(Object.freeze({
+        relative,
+        contents,
+        sha256: createHash('sha256').update(contents).digest('hex'),
+        mode: info.mode & 0o777
+      }));
+    }
+    if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
+      throw new SingularityFlowError(
+        `${CONFIGURATION_BRANCH}@${sourceCommit.slice(0, 12)} does not contain singularity/workflow.yml.`);
+    }
+    return Object.freeze({
+      [STORY_CONFIGURATION_SNAPSHOT]: true,
+      authority: Object.freeze({ ...authority }),
+      observedCommit,
+      sourceCommit,
+      mirror: mirror ? Object.freeze({ branch: mirror.branch, commit: mirror.mirrorCommit }) : null,
+      definition,
+      assets: Object.freeze(assets)
+    });
   } finally {
     await removeTemporaryTree(scratch);
   }
+}
+
+async function copyStoryConfigurationSnapshot(snapshot, destination) {
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
+    throw new SingularityFlowError('Story configuration materialization requires a verified snapshot.');
+  }
+  const copied = [];
+  for (const entry of snapshot.assets) {
+    if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
+      throw new SingularityFlowError(
+        `Verified Story configuration snapshot changed in memory: ${entry.relative}.`,
+        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+      );
+    }
+    const target = path.join(destination, entry.relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, entry.contents);
+    await chmod(target, entry.mode);
+    copied.push(entry.relative);
+  }
+  return copied.sort();
 }
 
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
@@ -659,48 +726,30 @@ export async function resolveConfigurationRemote(root, remoteName = 'origin') {
 export async function materializeConfigurationSnapshot(root, {
   remote = null,
   remoteName = 'origin',
-  authority = null
+  authority = null,
+  snapshot = null
 } = {}) {
-  const resolvedAuthority = authority
+  const resolvedAuthority = authority ?? snapshot?.authority
     ?? (remote ? await resolveRemoteStoryConfigurationAuthority(remote) : await resolveStoryConfigurationAuthority(root, remoteName));
   if (!resolvedAuthority) return null;
+  const verifiedSnapshot = snapshot ?? await loadStoryConfigurationSnapshot(resolvedAuthority);
+  if (snapshot) incrementCommandCounter('configuration.snapshot-reused');
+  if (!verifiedSnapshot?.[STORY_CONFIGURATION_SNAPSHOT]
+      || verifiedSnapshot.authority.remote !== resolvedAuthority.remote
+      || verifiedSnapshot.authority.branch !== resolvedAuthority.branch
+      || (resolvedAuthority.commit && verifiedSnapshot.observedCommit !== resolvedAuthority.commit)
+      || (resolvedAuthority.sourceCommit && verifiedSnapshot.sourceCommit !== resolvedAuthority.sourceCommit)) {
+    throw new SingularityFlowError(
+      'Approved configuration snapshot does not match the selected authority. Refresh Story intake and retry; nothing was changed.',
+      { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+    );
+  }
   const sourceRemote = resolvedAuthority.remote;
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-materialize-'));
-  try {
-    let commit;
-    let mirror = null;
-    if (resolvedAuthority.branch === STATE_CONFIGURATION_BRANCH) {
-      mirror = await copyVerifiedStateConfiguration(sourceRemote, scratch, resolvedAuthority.branch);
-      commit = mirror.sourceCommit;
-      if ((resolvedAuthority.commit && mirror.mirrorCommit !== resolvedAuthority.commit)
-          || (resolvedAuthority.sourceCommit && commit !== resolvedAuthority.sourceCommit)) {
-        throw new SingularityFlowError(
-          'Approved state-backed configuration moved after Story intake selected it. Refresh the intake and retry; nothing was changed.',
-          {
-            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
-            details: {
-              expectedMirrorCommit: resolvedAuthority.commit ?? null,
-              actualMirrorCommit: mirror.mirrorCommit,
-              expectedSourceCommit: resolvedAuthority.sourceCommit ?? null,
-              actualSourceCommit: commit
-            }
-          }
-        );
-      }
-    } else {
-      commit = await cloneConfiguration(sourceRemote, scratch);
-      if (resolvedAuthority.commit && commit !== resolvedAuthority.commit) {
-        throw new SingularityFlowError(
-          `Approved configuration authority moved from ${resolvedAuthority.commit.slice(0, 12)} to ${commit.slice(0, 12)} after Story intake selected it. Refresh the intake and retry; nothing was changed.`,
-          {
-            code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
-            details: { expectedCommit: resolvedAuthority.commit, actualCommit: commit }
-          }
-        );
-      }
-    }
+  const commit = verifiedSnapshot.sourceCommit;
+  const mirror = verifiedSnapshot.mirror;
+  {
     const removed = await clearConfigurationAssets(root);
-    const files = await copyAssets(scratch, root);
+    const files = await copyStoryConfigurationSnapshot(verifiedSnapshot, root);
     if (!files.includes('singularity/workflow.yml')) {
       throw new SingularityFlowError(
         `${CONFIGURATION_BRANCH}@${commit.slice(0, 12)} does not contain singularity/workflow.yml.`);
@@ -714,7 +763,7 @@ export async function materializeConfigurationSnapshot(root, {
       repository: sourceRemote,
       branch: CONFIGURATION_BRANCH,
       commit,
-      ...(mirror ? { mirror: { branch: mirror.branch, commit: mirror.mirrorCommit } } : {}),
+      ...(mirror ? { mirror: { branch: mirror.branch, commit: mirror.commit ?? mirror.mirrorCommit } } : {}),
       materializedAt: new Date().toISOString(),
       files: Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b)))
     };
@@ -728,8 +777,6 @@ export async function materializeConfigurationSnapshot(root, {
       ...record,
       paths: [...new Set([...removed, ...files, CONFIGURATION_SOURCE_PATH])].sort()
     };
-  } finally {
-    await removeTemporaryTree(scratch);
   }
 }
 
@@ -758,6 +805,31 @@ export async function resolveApprovedConfigurationCapability(remote, capabilityI
       branch: authority.branch,
       commit: materialized.sourceCommit,
       mirrorCommit: materialized.mirrorCommit ?? null,
+      capability
+    };
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
+/** Resolve a capability from an already-verified operation snapshot without another clone. */
+export async function resolveStoryConfigurationSnapshotCapability(snapshot, capabilityId) {
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
+    throw new SingularityFlowError('Capability resolution requires a verified Story configuration snapshot.');
+  }
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-capability-snapshot-'));
+  try {
+    await copyStoryConfigurationSnapshot(snapshot, scratch);
+    const { resolveLifecycleCapability } = await import('./capability-context.mjs');
+    const capability = await resolveLifecycleCapability(scratch, {
+      capabilityId,
+      required: true,
+      offline: true
+    });
+    return {
+      branch: snapshot.authority.branch,
+      commit: snapshot.sourceCommit,
+      mirrorCommit: snapshot.mirror?.commit ?? null,
       capability
     };
   } finally {

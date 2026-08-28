@@ -142,12 +142,13 @@ import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-ide
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, materializeConfigurationSnapshot,
-  loadStoryConfigurationDefinition, resolveStoryConfigurationAuthority
+  loadStoryConfigurationSnapshot, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
+import { publishInitialStoryDocuments } from './story-start-documents.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile,
@@ -801,7 +802,7 @@ export async function startCommand(positionals, options) {
   const {
     storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
-    publishCapabilityRepositories
+    preflightIncludesRepository, publishCapabilityRepositories
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -833,12 +834,8 @@ export async function startCommand(positionals, options) {
   }
   const baseAtStart = storyBase.localBase;
   const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
-  const capabilityPreflight = storyBase.scope === 'capability'
-    ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
-        remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability
-      })
-    : null;
-  const capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
+  let capabilityPreflight = null;
+  let capabilityPublications = [];
   // A published configuration authority always governs a new Story, including when start was
   // launched from an older pinned Story or an application base still contains a legacy workflow.
   // The legacy base remains a fallback only when no usable sflow/config/state mirror exists.
@@ -860,14 +857,6 @@ export async function startCommand(positionals, options) {
       `Missing ${WORKFLOW_PATH}. Neither an approved ${CONFIGURATION_BRANCH} branch nor a verified `
       + `state configuration mirror is available for this repository or its active workspace lead. `
       + 'Refresh the workspace configuration authority first.');
-  }
-  // Validate the explicit form/Copilot choice against the exact definition that will be pinned,
-  // before checkout, worktree creation, enrollment, or any governed mutation.
-  if (preselectedWorkType) {
-    const startDefinition = configurationAuthority
-      ? await loadStoryConfigurationDefinition(configurationAuthority)
-      : config;
-    if (startDefinition) await selectWorkType(startDefinition, { selection: preselectedWorkType });
   }
   // Enrollment is completed before the Story branch and its immutable configuration snapshot are
   // created. A failed configuration push stops here, so the Story can never pin the older authority
@@ -898,11 +887,29 @@ export async function startCommand(positionals, options) {
       }
     }
   }
+  // Read the exact approved payload once after enrollment has settled. The same verified bytes
+  // validate the form/Copilot selection here and are copied onto the Story branch later, removing
+  // the former validate-clone + materialize-clone race and network round trip.
+  const approvedConfigurationSnapshot = configurationAuthority
+    ? await loadStoryConfigurationSnapshot(configurationAuthority)
+    : null;
+  if (preselectedWorkType) {
+    const startDefinition = approvedConfigurationSnapshot?.definition ?? config;
+    if (startDefinition) await selectWorkType(startDefinition, { selection: preselectedWorkType });
+  }
+  capabilityPreflight = storyBase.scope === 'capability'
+    ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
+        remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
+        configurationSnapshot: approvedConfigurationSnapshot
+      })
+    : null;
+  capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
   // Listing branches establishes read access; this dry-run additionally establishes that the
   // configured publication remote will accept the new Story ref.
-  fetchRemote(root, remote);
+  const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
+  if (!rootFetchedByCapabilityPreflight) fetchRemote(root, remote);
   const remoteBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
   if (!materializedSeed && !refExists(root, remoteBaseRef)) {
     throw new SingularityFlowError(
@@ -989,7 +996,8 @@ export async function startCommand(positionals, options) {
   if (storyBase.scope === 'capability') {
     capabilityRepositoriesPrepared = prepareCapabilityRepositories(
       storyBase.workspaceRoot, storyBase.plan, canonicalBranch, {
-        remote, lifecycleRoot: managedStoryWorktree ? root : null
+        remote, lifecycleRoot: managedStoryWorktree ? root : null,
+        fetched: Boolean(capabilityPreflight)
       }
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(storyBase.plan, capabilityRepositoriesPrepared);
@@ -1008,6 +1016,7 @@ export async function startCommand(positionals, options) {
     });
     configurationSnapshot = await materializeConfigurationSnapshot(root, {
       authority: configurationAuthority,
+      snapshot: approvedConfigurationSnapshot,
       remoteName: remote
     });
   }
@@ -1168,34 +1177,10 @@ export async function startCommand(positionals, options) {
     }
   }
   try {
-    for (const document of supportingDocuments) {
-      let records = [];
-      await commitAndPublish(
-        root,
-        config,
-        workflow,
-        { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'supporting-document-upload' } },
-        `[${id}][documents][upload] supporting evidence`,
-        [],
-        {
-          beforeStateWrite: async () => {
-            records = await addDocuments(root, config, workflow, {
-              files: document.type === 'file' ? [document.path] : [],
-              url: document.type === 'url' ? document.url : null,
-              label: document.label,
-              kind: document.kind
-            });
-            return records;
-          },
-          eventFromResult: (created) => ({
-            payload: {
-              operation: 'supporting-document-upload',
-              documentIds: (created ?? []).map((record) => record.id)
-            }
-          })
-        }
-      );
-    }
+    await publishInitialStoryDocuments(root, config, workflow, {
+      workId: id,
+      inputs: supportingDocuments
+    });
   } catch (error) {
     await retainCapabilityPublicationRecovery(root, id, {
       remote, branch: canonicalBranch, commit: head(root)
@@ -7143,7 +7128,10 @@ async function capabilityCommand(positionals, options) {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
     if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
     const proposals = await listCapabilityProposals(leadUrl, {
-      includeMerged: optionBoolean(options, 'all')
+      includeMerged: optionBoolean(options, 'all'),
+      // The list and inbox show exact commits and changed paths. The potentially 200 KB textual
+      // diff is fetched only when the reviewer opens one proposal.
+      includeDiff: false
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) {

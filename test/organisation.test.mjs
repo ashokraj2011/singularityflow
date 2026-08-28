@@ -274,6 +274,9 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   assert.equal(pending[0].merged, false);
   assert.equal(pending[0].valid, true);
   assert.ok(pending[0].changedFiles.some((file) => file.paths.includes('singularity/capabilities.yml')));
+  const summaryOnly = await listCapabilityProposals(org.platform, { includeDiff: false });
+  assert.equal(summaryOnly[0].diff, null);
+  assert.equal(summaryOnly[0].diffDeferred, true);
 
   const inspected = await inspectCapabilityProposal(org.platform, proposed.branch);
   assert.equal(inspected.proposalCommit, proposed.commit);

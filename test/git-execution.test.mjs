@@ -130,3 +130,26 @@ test('asynchronous remote execution terminates a command at its operation deadli
   assert.equal(result.failure.classification, 'network-transient');
   assert.deepEqual(signals, ['SIGTERM']);
 });
+
+test('asynchronous remote execution propagates cancellation and terminates the child', async () => {
+  const controller = new AbortController();
+  const signals = [];
+  const spawnCommand = () => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = (signal) => {
+      signals.push(signal);
+      queueMicrotask(() => child.emit('close', null, signal));
+      return true;
+    };
+    queueMicrotask(() => controller.abort(new Error('user cancelled')));
+    return child;
+  };
+  const result = await runRemoteGitAsync(['fetch', 'origin'], {
+    timeoutMs: 5_000, spawnCommand, signal: controller.signal
+  });
+  assert.equal(result.aborted, true);
+  assert.equal(result.failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.deepEqual(signals, ['SIGTERM']);
+});

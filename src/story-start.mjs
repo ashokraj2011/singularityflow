@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { loadDefinition, resolveWorkType } from './config.mjs';
-import { addDocuments } from './documents.mjs';
 import {
   assertClean,
   branch,
@@ -16,7 +15,7 @@ import {
 } from './git.mjs';
 import {
   capabilityPublicationPlan, preflightStoryRepositories, prepareCapabilityRepositories,
-  publishCapabilityRepositories, storyBaseForRepository
+  preflightIncludesRepository, publishCapabilityRepositories, storyBaseForRepository
 } from './capability-start.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import {
@@ -35,7 +34,7 @@ import { pinAcceptedAutoPlan } from './auto/auto-origin.mjs';
 import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import {
-  captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationDefinition,
+  captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
@@ -45,6 +44,7 @@ import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
+import { publishInitialStoryDocuments } from './story-start-documents.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -126,9 +126,10 @@ export async function startStory(root, {
   catch (error) {
     if (!checkoutDefinition) throw error;
   }
-  let initialDefinition = configurationAuthority
-    ? await loadStoryConfigurationDefinition(configurationAuthority)
-    : checkoutDefinition;
+  let approvedConfigurationSnapshot = configurationAuthority
+    ? await loadStoryConfigurationSnapshot(configurationAuthority)
+    : null;
+  let initialDefinition = approvedConfigurationSnapshot?.definition ?? checkoutDefinition;
   if (!initialDefinition) throw definitionError;
   validateId(initialDefinition, id);
   await recoverStoryStart(root, id);
@@ -161,7 +162,8 @@ export async function startStory(root, {
           { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
         );
       }
-      initialDefinition = await loadStoryConfigurationDefinition(configurationAuthority);
+      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
+      initialDefinition = approvedConfigurationSnapshot.definition;
     }
   }
   // Reject incomplete POC intake while the caller is still on its original branch. Validation
@@ -199,11 +201,13 @@ export async function startStory(root, {
     const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
     const capabilityPreflight = storyBase.scope === 'capability'
       ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
-          remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability
+          remote, publishRequired, lifecycleRoot: root, capabilityId: storyBase.capability,
+          configurationSnapshot: approvedConfigurationSnapshot
         })
       : null;
     capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
-    fetchRemote(root, remote);
+    const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
+    if (!rootFetchedByCapabilityPreflight) fetchRemote(root, remote);
     const remoteBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
     if (!refExists(root, remoteBaseRef)) {
       throw new SingularityFlowError(
@@ -266,7 +270,7 @@ export async function startStory(root, {
     });
     if (storyBase.scope === 'capability') {
       capabilityRepositoriesPrepared = prepareCapabilityRepositories(
-        storyBase.workspaceRoot, storyBase.plan, id, { remote }
+        storyBase.workspaceRoot, storyBase.plan, id, { remote, fetched: Boolean(capabilityPreflight) }
       );
       await updateStoryStartJournal(root, id, startJournal.transactionId, {
         stage: 'siblings-prepared', capabilityRepositoriesPrepared
@@ -280,6 +284,7 @@ export async function startStory(root, {
       });
       configurationSnapshot = await materializeConfigurationSnapshot(root, {
         authority: configurationAuthority,
+        snapshot: approvedConfigurationSnapshot,
         remoteName: remote
       });
     }
@@ -369,49 +374,14 @@ export async function startStory(root, {
       return { workflow, publication };
     }
   });
-  const documents = [];
-  if (files.length) {
-    let added = [];
-    await commitAndPublish(
-      root,
-      definition,
-      workflow,
-      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
-      `[${id}][documents][upload] governed evidence`,
-      [],
-      {
-        beforeStateWrite: async () => {
-          added = await addDocuments(root, definition, workflow, { files });
-          return added;
-        },
-        eventFromResult: (created) => ({
-          payload: { operation: 'document-upload', documentIds: (created ?? []).map((record) => record.id) }
-        })
-      }
-    );
-    documents.push(...added);
-  }
-  for (const url of urls) {
-    let added = [];
-    await commitAndPublish(
-      root,
-      definition,
-      workflow,
-      { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
-      `[${id}][documents][upload] governed evidence`,
-      [],
-      {
-        beforeStateWrite: async () => {
-          added = await addDocuments(root, definition, workflow, { url });
-          return added;
-        },
-        eventFromResult: (created) => ({
-          payload: { operation: 'document-upload', documentIds: (created ?? []).map((record) => record.id) }
-        })
-      }
-    );
-    documents.push(...added);
-  }
+  const documents = await publishInitialStoryDocuments(root, definition, workflow, {
+    workId: id,
+    operation: 'document-upload',
+    inputs: [
+      ...(files.length ? [{ files }] : []),
+      ...urls.map((url) => ({ url }))
+    ]
+  });
   if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
   let capabilityPublication = { published: [], pending: [], error: null };
   const rootPublication = { remote, branch: id, commit: head(root) };

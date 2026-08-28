@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, ensureConfigurationBranch,
   configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
+  loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
   resolveStoryConfigurationAuthority,
   STATE_CONFIGURATION_MANIFEST
@@ -220,6 +221,30 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
       /Pinned configuration asset changed after materialization/
     );
     assert.equal(await readFile(path.join(checkout, 'README.md'), 'utf8'), '# Application\n');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('one verified Story snapshot validates and materializes without a second remote read', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'single-read-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['switch', '-q', '-c', 'STORY-SNAPSHOT'], { cwd: checkout });
+    const authority = await resolveStoryConfigurationAuthority(checkout);
+    const prepared = await loadStoryConfigurationSnapshot(authority);
+    assert.equal(prepared.definition.version, 2);
+
+    // Removing the remote proves materialization consumes the already-verified bytes instead of
+    // silently cloning the authority a second time.
+    await rm(fixture.remote, { recursive: true, force: true });
+    const materialized = await materializeConfigurationSnapshot(checkout, {
+      authority, snapshot: prepared
+    });
+    assert.equal(materialized.commit, authority.commit);
+    assert.equal((await loadDefinition(checkout)).version, 2);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

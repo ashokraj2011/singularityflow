@@ -179,6 +179,23 @@ export async function buildRepositorySubjectIndex(root, { definition = {}, portf
 }
 
 const isSubjectRecord = (file) => file.endsWith('/workflow.json') || file.endsWith('/state.json');
+const REF_SUBJECT_CACHE_LIMIT = 128;
+const refSubjectCache = new Map();
+
+function cachedRefSubjects(key, load) {
+  if (refSubjectCache.has(key)) {
+    const value = refSubjectCache.get(key);
+    refSubjectCache.delete(key);
+    refSubjectCache.set(key, value);
+    return value;
+  }
+  const value = load();
+  refSubjectCache.set(key, value);
+  while (refSubjectCache.size > REF_SUBJECT_CACHE_LIMIT) {
+    refSubjectCache.delete(refSubjectCache.keys().next().value);
+  }
+  return value;
+}
 
 function safeRefRoot(value, fallback) {
   const candidate = String(value ?? fallback).trim().replace(/\/$/, '');
@@ -251,11 +268,20 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   for (const item of refs) {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
-    const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
+    const commit = refHead(root, ref);
+    const cacheKey = JSON.stringify([path.resolve(root), commit, workRoot, initiativeRoot]);
+    const cached = cachedRefSubjects(cacheKey, () => {
+      const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
+      const observed = roots.status === 'ok'
+        ? readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord })
+        : null;
+      return { roots, observed };
+    });
+    const { roots, observed } = cached;
     if (roots.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({
         code: 'SUBJECT_STATE_UNAVAILABLE', path: null,
-        location: { ref, branch, commit: refHead(root, ref) },
+        location: { ref, branch, commit },
         reason: roots.reason
       }));
       continue;
@@ -270,8 +296,6 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
      * `ls-tree` and one `cat-file --batch`, which is what `ledger.mjs` already did next door for
      * the same reason.
      */
-    const commit = refHead(root, ref);
-    const observed = readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord });
     if (observed.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({
         code: observed.status === 'partial' ? 'SUBJECT_STATE_PARTIAL' : 'SUBJECT_STATE_UNAVAILABLE',

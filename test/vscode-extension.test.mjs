@@ -3749,7 +3749,7 @@ test('the status dashboard carries lifecycle analytics without inventing them wh
 
 const { buildProfiles, buildTemplateUsage, consequence, standingOn } =
   await import(source('views/designer-model.ts'));
-const { designerHtml } = await import(source('views/designer-page.ts'));
+const { designerHtml, DESIGNER_SCRIPT } = await import(source('views/designer-page.ts'));
 const { newArtifactDraft, renderArtifactTemplate, sectionFor, validateArtifactDraft } =
   await import(source('views/artifact-designer-model.ts'));
 const {
@@ -4069,9 +4069,26 @@ test('capability proposals have an exact review and activation UI', async () => 
 
 test('workflow creation stays visible and offers exact guarded activation', async () => {
   const extension = await readFile(source('extension.ts'), 'utf8');
+  const proposal = {
+    branch: 'sflow/config-change/workflow/create-demo-abc123',
+    proposalCommit: 'a'.repeat(40),
+    valid: true,
+    workflows: [{ id: 'demo', label: 'Demo workflow', governs: 'story', change: 'added', phases: ['intake'] }]
+  };
+  const html = designerHtml(
+    'phases', buildProfiles(DESIGN_SNAPSHOT), [], null, 'all', [], 'singularity/portfolio.yml',
+    null, null, null, undefined, [], [], '', [], [], [proposal], true, null
+  );
+  assert.match(html, /Pending workflow proposals \(1\)/);
+  assert.match(html, /Demo workflow \(added\)/);
+  assert.match(html, /data-review-proposal="sflow\/config-change\/workflow\/create-demo-abc123"/);
+  assert.match(DESIGNER_SCRIPT, /type: 'review-proposal'/,
+    'the persistent proposal row dispatches review through the host boundary');
+  assert.match(extension, /'workflow', 'proposals', '--json'/,
+    'opening or refreshing the designer reloads durable proposal branches');
   assert.match(extension, /It remains visible as Pending review/,
     'creation reports durable proposal state instead of making the workflow appear to disappear');
-  assert.match(extension, /'workflow', 'proposal', proposal\.branch, '--json'/,
+  assert.match(extension, /'workflow', 'proposal', branch, '--json'/,
     'the UI opens the exact proposal diff before activation');
   assert.match(extension, /'workflow', 'activate', inspected\.branch/);
   assert.match(extension, /--confirm', inspected\.proposalCommit/,

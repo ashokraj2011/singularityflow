@@ -5,7 +5,7 @@ import { renderWorkflowGraph } from './workflow-graph-svg.ts';
 import path from 'node:path';
 import {
   designerHtml, DESIGNER_SCRIPT, type DesignerTab, type PhaseChoice,
-  type PhaseDraftView, type WorkflowDraftView
+  type PhaseDraftView, type WorkflowDraftView, type WorkflowProposalSummary
 } from './designer-page.ts';
 import { buildProfiles, buildTemplateUsage, standingOn, type Profile } from './designer-model.ts';
 import {
@@ -20,6 +20,7 @@ import type { RepositorySnapshot } from '../cli/snapshot.ts';
 export type DesignerMessage =
   | { type: 'open'; path: string }
   | { type: 'save'; path: string; content: string }
+  | { type: 'review-proposal'; branch: string }
   | { type: 'run'; command: string[]; title: string };
 
 const GOVERNANCE = new Set(['story', 'initiative']);
@@ -41,6 +42,7 @@ export class DesignerPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly onMessage: (message: DesignerMessage) => Promise<string | null>;
+  private readonly loadProposals: () => Promise<WorkflowProposalSummary[]>;
   private readonly subscription: { dispose(): void };
   private readonly disposables: vscode.Disposable[] = [];
   private tab: DesignerTab = 'phases';
@@ -51,15 +53,20 @@ export class DesignerPanel {
   private phaseDraft: PhaseDraftView | null = null;
   private artifactDraft: ArtifactDraft = newArtifactDraft();
   private artifactErrors: string[] = [];
+  private workflowProposals: WorkflowProposalSummary[] = [];
+  private proposalsLoaded = false;
+  private proposalsError: string | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
-    onMessage: (message: DesignerMessage) => Promise<string | null>
+    onMessage: (message: DesignerMessage) => Promise<string | null>,
+    loadProposals: () => Promise<WorkflowProposalSummary[]>
   ) {
     this.panel = panel;
     this.store = store;
     this.onMessage = onMessage;
+    this.loadProposals = loadProposals;
     this.subscription = store.onDidChange(() => this.render());
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -69,15 +76,18 @@ export class DesignerPanel {
  void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
+    void this.refreshProposals();
   }
 
   static show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
-    onMessage: (message: DesignerMessage) => Promise<string | null>
+    onMessage: (message: DesignerMessage) => Promise<string | null>,
+    loadProposals: () => Promise<WorkflowProposalSummary[]>
   ): DesignerPanel {
     if (DesignerPanel.current) {
       DesignerPanel.current.panel.reveal(vscode.ViewColumn.Active);
+      void DesignerPanel.current.refreshProposals();
       return DesignerPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -86,8 +96,23 @@ export class DesignerPanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    DesignerPanel.current = new DesignerPanel(panel, store, onMessage);
+    DesignerPanel.current = new DesignerPanel(panel, store, onMessage, loadProposals);
     return DesignerPanel.current;
+  }
+
+  private async refreshProposals(): Promise<void> {
+    this.proposalsLoaded = false;
+    this.proposalsError = null;
+    this.render();
+    try {
+      this.workflowProposals = await this.loadProposals();
+    } catch (error) {
+      this.workflowProposals = [];
+      this.proposalsError = (error as Error).message;
+    } finally {
+      this.proposalsLoaded = true;
+      this.render();
+    }
   }
 
   private profiles(snapshot: RepositorySnapshot | null): Profile[] {
@@ -186,6 +211,13 @@ export class DesignerPanel {
     if (message.type === 'filter' && typeof message.value === 'string') {
       this.filter = message.value; return this.render();
     }
+    if (message.type === 'refresh-proposals') return void this.refreshProposals();
+    if (message.type === 'review-proposal' && typeof message.branch === 'string') {
+      if (!this.workflowProposals.some((proposal) => proposal.branch === message.branch)) return;
+      this.error = await this.onMessage({ type: 'review-proposal', branch: message.branch });
+      await this.refreshProposals();
+      return;
+    }
     if (message.type === 'open' && typeof message.path === 'string') {
       const known = [snapshot?.portfolioPath ?? 'singularity/portfolio.yml', snapshot?.definitionPath ?? 'singularity/workflow.yml', ...(snapshot?.templates ?? []).map((template) => template.path)];
       if (known.includes(message.path)) await this.onMessage({ type: 'open', path: message.path });
@@ -238,7 +270,11 @@ export class DesignerPanel {
         // A successful save is a review proposal, not approved configuration yet. Keep showing the
         // currently approved workflow until that proposal is merged and refreshed; selecting the
         // proposed ID here made it look as though the newly created workflow had disappeared.
-        if (!this.error) this.workflowDraft = null;
+        if (!this.error) {
+          this.workflowDraft = null;
+          await this.refreshProposals();
+          return;
+        }
       }
       return this.render();
     }
@@ -378,7 +414,8 @@ export class DesignerPanel {
        * that has not been built yet; the list is a `datalist`, which suggests without refusing.
        */
       [...new Set((snapshot?.worldModel?.views ?? []).map((view) => view.id))].sort(),
-      [...new Set((snapshot?.agents ?? []).map((agent) => agent.id))].sort()
+      [...new Set((snapshot?.agents ?? []).map((agent) => agent.id))].sort(),
+      this.workflowProposals, this.proposalsLoaded, this.proposalsError
     ), contentSecurityPolicy(this.panel.webview, token), token, DESIGNER_SCRIPT);
   }
 

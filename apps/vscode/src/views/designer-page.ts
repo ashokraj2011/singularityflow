@@ -34,6 +34,20 @@ export interface PhaseChoice {
   governs: 'story' | 'initiative';
 }
 
+export interface WorkflowProposalSummary {
+  branch: string;
+  proposalCommit: string;
+  valid: boolean;
+  workflows: Array<{
+    id: string;
+    label?: string;
+    governs?: string;
+    change: string;
+    phases?: string[];
+  }>;
+  failure?: { message?: string };
+}
+
 function approvalSummary(approval: Phase['bundleApproval']): string {
   if (!approval) return '<span class="muted">No approval configured</span>';
   if (approval.chain?.length) {
@@ -171,7 +185,8 @@ function phaseEditor(draft: PhaseDraftView, templates: TemplateUsage[], views: s
 function phasesHtml(
   profiles: Profile[], selected: string | null, standing: Standing[], portfolioPath: string,
   draft: WorkflowDraftView | null, phaseDraft: PhaseDraftView | null, choices: PhaseChoice[],
-  graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = []
+  graphSvg = '', templates: TemplateUsage[] = [], views: string[] = [], agents: string[] = [],
+  proposals: WorkflowProposalSummary[] = [], proposalsLoaded = true, proposalsError: string | null = null
 ): string {
   const profile = profiles.find((entry) => entry.id === selected) ?? profiles[0];
   /**
@@ -184,6 +199,20 @@ function phasesHtml(
    */
   if (!profile && !draft && !phaseDraft) return '<section class="empty-state"><h3>No workflow exists yet</h3><p>Create the first workflow from the phase catalog, or define a phase to use in one.</p><button data-new-workflow="1">Create workflow</button><button class="secondary" data-new-phase="1">New phase</button></section>';
   return `
+  <section class="plain proposal-inventory" aria-labelledby="pending-workflow-proposals">
+    <div class="toolbar-row"><div><p class="eyebrow">Configuration review</p><h2 id="pending-workflow-proposals">Pending workflow proposals${proposalsLoaded ? ` (${proposals.length})` : ''}</h2></div><span class="grow"></span><button class="secondary" data-refresh-proposals="1">Refresh</button></div>
+    ${!proposalsLoaded ? '<p class="muted">Checking the approved configuration remote…</p>'
+      : proposalsError ? `<div class="blockers"><strong>Could not load pending proposals</strong><p>${escape(proposalsError)}</p></div>`
+      : proposals.length ? `<div class="template-grid">${proposals.map((proposal) => {
+        const names = proposal.workflows.length
+          ? proposal.workflows.map((workflow) => `${workflow.label ?? workflow.id} (${workflow.change})`).join(', ')
+          : 'No readable workflow changes';
+        return `<article class="template-tile"><strong>${escape(names)}</strong><span><code>${escape(proposal.proposalCommit.slice(0, 12))}</code> · ${escape(proposal.branch)}</span>${proposal.valid
+          ? `<button class="secondary" data-review-proposal="${escape(proposal.branch)}">Review and activate</button>`
+          : `<span class="blockers">Blocked${proposal.failure?.message ? `: ${escape(proposal.failure.message)}` : ''}</span>`}</article>`;
+      }).join('')}</div>`
+      : '<p class="muted">No workflow proposals are waiting for review.</p>'}
+  </section>
   <section class="plain toolbar-row">
     ${profile ? `<label class="field compact"><span>Workflow</span><select data-profile-pick>${profiles.map((entry) => `<option value="${escape(entry.id)}"${entry.id === profile.id ? ' selected' : ''}>${escape(entry.label)} · ${entry.governs}</option>`).join('')}</select></label>` : ''}
     <span class="grow"></span>
@@ -266,14 +295,16 @@ export function designerHtml(
   artifactDraft: ArtifactDraft = newArtifactDraft(), artifactErrors: string[] = [], phaseChoices: PhaseChoice[] = [],
   graphSvg = '',
   /** The repository's own vocabularies, so the phase editor offers them instead of asking blind. */
-  worldModelViews: string[] = [], governedAgents: string[] = []
+  worldModelViews: string[] = [], governedAgents: string[] = [],
+  workflowProposals: WorkflowProposalSummary[] = [], proposalsLoaded = true,
+  proposalsError: string | null = null
 ): string {
   return `
   <header><p class="eyebrow">Workflow designer · configuration studio</p><h1>${icon('workflow', { size: 20 })}Workflows & artifacts</h1><p class="meta">Create the delivery path and design the documents each phase must produce. Every save is validated and pushed as a configuration review proposal; the selected Story is never edited.</p></header>
   ${error ? `<section class="plain"><div class="blockers">${escape(error)}</div></section>` : ''}
   <nav class="designer-tabs" aria-label="Configuration designers"><button class="tab${tab === 'phases' ? ' active' : ''}" aria-current="${tab === 'phases' ? 'page' : 'false'}" data-tab="phases">${icon('workflow')}Workflow builder</button><button class="tab${tab === 'templates' ? ' active' : ''}" aria-current="${tab === 'templates' ? 'page' : 'false'}" data-tab="templates">${icon('artifact')}Artifact designer</button></nav>
   ${tab === 'phases'
-    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents)
+    ? phasesHtml(profiles, selectedProfile, standing, portfolioPath, workflowDraft, phaseDraft, phaseChoices, graphSvg, templates, worldModelViews, governedAgents, workflowProposals, proposalsLoaded, proposalsError)
     : `${artifactBuilder(artifactDraft, artifactErrors)}${templateInventory(templates, filter)}`}`;
 }
 
@@ -302,13 +333,15 @@ export const DESIGNER_SCRIPT = `
     sections: sections()
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact]');
+    const target = event.target.closest('button[data-tab],button[data-open-file],button[data-open-template],button[data-edit-phase],button[data-edit-workflow],button[data-new-workflow],button[data-new-phase],button[data-cancel-workflow],button[data-save-workflow],button[data-workflow-phase-action],button[data-add-workflow-phase],button[data-save-phase],button[data-cancel-phase],button[data-add-section],button[data-section-action],button[data-save-artifact],button[data-reset-artifact],button[data-attach-artifact],button[data-review-proposal],button[data-refresh-proposals]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
     if (data.tab) vscode.postMessage({ type: 'tab', tab: data.tab });
     else if (data.openFile) vscode.postMessage({ type: 'open', path: data.openFile });
     else if (data.openTemplate) vscode.postMessage({ type: 'open-template', template: data.openTemplate });
+    else if (data.reviewProposal) vscode.postMessage({ type: 'review-proposal', branch: data.reviewProposal });
+    else if (data.refreshProposals !== undefined) vscode.postMessage({ type: 'refresh-proposals' });
     else if (data.editPhase) vscode.postMessage({ type: 'edit-phase', phase: data.editPhase });
     else if (data.editWorkflow !== undefined) vscode.postMessage({ type: 'begin-workflow' });
     else if (data.newWorkflow !== undefined) vscode.postMessage({ type: 'new-workflow' });

@@ -119,6 +119,77 @@ const PAGES = Object.freeze({
     examples: [['singularity-flow land', 'Create or reuse the local landing session and show the next exact intent-confirmation command.']],
     seeAlso: ['adhoc', 'status', 'start']
   },
+  intent: {
+    summary: 'Capture and compile confirmed intent without allowing natural language to become authority.',
+    description: [
+      'SGOS Intent records keep normative provenance explicit. Capture creates a candidate envelope;',
+      'validation and compilation are deterministic and model-free. A model-proposed field never',
+      'becomes human-confirmed merely because it appears in a source document.',
+      '',
+      'Compilation requires exact Intent IR, Workflow IR, ratification, and policy records. Missing',
+      'coverage, contradictions, unsafe effects, or an invalid ratification are refusals, not guesses.'
+    ],
+    options: [
+      ['--registry FILE', 'For compile, supply the exact registry snapshot pinned by ratification.'],
+      ['--out FILE', 'For capture or compile, write the canonical record inside the repository.'],
+      ['--json', 'Emit the complete content-addressed record.']
+    ],
+    examples: [
+      ['singularity-flow intent capture "Produce a verified migration report" --out intent.json', 'Capture a candidate without running a model.'],
+      ['singularity-flow intent compile intent-ir.json --workflow workflow-ir.json --ratification ratification.json --policy policy.json --registry registry.json --out program.json', 'Compile one ratified finite Program.']
+    ],
+    seeAlso: ['program', 'process', 'workflow']
+  },
+  program: {
+    summary: 'Inspect, validate, explain, or simulate an immutable SGOS Program.',
+    description: [
+      'A Program is the content-addressed output of the deterministic workflow compiler. Simulation',
+      'derives task order, human stops, unsupported execution units, evidence requirements, and the',
+      'ready set without executing a task or changing process state.'
+    ],
+    options: [['--json', 'Emit the complete validation, explanation, or simulation result.']],
+    examples: [['singularity-flow program simulate program.json --json', 'Prove the bounded execution shape before starting it.']],
+    seeAlso: ['intent', 'process', 'workflow']
+  },
+  process: {
+    summary: 'Run and recover a bounded SGOS Program through revisioned checkpoints and receipts.',
+    description: [
+      'Process state is machine-local operational state under the Git common directory. It is guarded',
+      'by a subject lock, expected revision, atomic replacement, and content hash. It cannot advance',
+      'a Story or become Git authority.',
+      '',
+      'The initial runtime executes deterministic kernel, verification, checkpoint, human-request,',
+      'no-op, and end tasks sequentially. Agent and device opcodes stop with an explicit adapter',
+      'refusal. A task is never successful without an immutable verification-bound receipt.'
+    ],
+    options: [['--confirm SHA256', 'Bind resume to the exact current checkpoint.'], ['--json', 'Emit the complete process/checkpoint projection.']],
+    examples: [
+      ['singularity-flow process start program.json', 'Create a repository-bound operational Process.'],
+      ['singularity-flow process step PROC-...', 'Execute at most one deterministic ready task.']
+    ],
+    seeAlso: ['program', 'task', 'request', 'recover']
+  },
+  task: {
+    summary: 'Inspect SGOS task state, attempts, immutable receipts, and compiled evidence.',
+    description: [
+      'Task commands are projection-only. They expose the exact Task Contract, dependencies, current',
+      'state, attempt lineage, verification, evidence gaps, and receipt without running the task.'
+    ],
+    options: [['--json', 'Emit the complete task or action-evidence record.']],
+    examples: [['singularity-flow task evidence PROC-... verify-output --json', 'Inspect why a task is or is not verified.']],
+    seeAlso: ['process', 'request', 'receipt']
+  },
+  request: {
+    summary: 'Inspect and answer typed SGOS Human Requests bound to exact bytes.',
+    description: [
+      'Human Requests survive restart and state why judgment is needed, which authority is required,',
+      'and what resumes afterward. A response uses compare-and-swap and binds the exact request hash;',
+      'expired, stale, unauthorized, or generic continue responses are refused.'
+    ],
+    options: [['--option ID', 'Select one declared option.'], ['--confirm SHA256', 'Confirm the exact current request hash.'], ['--json', 'Emit request or response records.']],
+    examples: [['singularity-flow request respond HRQ-... --process PROC-... --option approve --confirm sha256:...', 'Answer one current request without bypassing its authority contract.']],
+    seeAlso: ['process', 'task', 'approve']
+  },
   auto: {
     summary: 'Plan and start bounded, hash-ratified work in an isolated managed worktree.',
     description: [

@@ -2874,6 +2874,11 @@ singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
 singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTION-ID [--channel terminal|vscode] [--json]
 singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
+singularity-flow intent capture|show|validate|compile ...
+singularity-flow program show|validate|explain|simulate <PROGRAM.json> [--json]
+singularity-flow process start|status|graph|step|pause|resume|recover ...
+singularity-flow task list|show|evidence <PROCESS-ID> [TASK-ID] [--json]
+singularity-flow request list|show|respond [REQUEST-ID] [--process PROCESS-ID] [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow run --repair-on-fault [--max-attempts N] [--allow-path PATH]... -- <COMMAND> [ARGUMENTS...]

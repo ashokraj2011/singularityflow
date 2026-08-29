@@ -361,6 +361,59 @@ for (const entry of extensionDirs) {
   else checked.push(path.relative(root, file));
 }
 
+function validateLocalSchemaReferences(schema, schemaFile) {
+  const resolvePointer = (reference) => {
+    if (!reference.startsWith('#/')) return null;
+    let current = schema;
+    for (const encoded of reference.slice(2).split('/')) {
+      const segment = encoded.replaceAll('~1', '/').replaceAll('~0', '~');
+      if (!current || typeof current !== 'object' || !Object.hasOwn(current, segment)) return null;
+      current = current[segment];
+    }
+    return current;
+  };
+  const visit = (value, location = '$') => {
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.$ref === 'string' && value.$ref.startsWith('#/') && resolvePointer(value.$ref) == null) {
+      fail(`${schemaFile}: ${location} has unresolved local reference '${value.$ref}'`);
+    }
+    if (Array.isArray(value)) value.forEach((entry, index) => visit(entry, `${location}[${index}]`));
+    else for (const [key, child] of Object.entries(value)) visit(child, `${location}.${key}`);
+  };
+  visit(schema);
+}
+
+function validateSgosContractSchema(schema, schemaFile) {
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
+    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
+  }
+  if (!schema.$defs || typeof schema.$defs !== 'object' || Array.isArray(schema.$defs)) {
+    fail(`${schemaFile}: $defs must be an object`);
+    return;
+  }
+  const contractKinds = Object.values(schema.$defs)
+    .map((definition) => definition?.properties?.kind?.const)
+    .filter(Boolean);
+  if (!Array.isArray(schema.oneOf) || schema.oneOf.length !== contractKinds.length) {
+    fail(`${schemaFile}: oneOf must reference every durable SGOS contract exactly once`);
+  }
+  if (new Set(contractKinds).size !== contractKinds.length) {
+    fail(`${schemaFile}: durable contract kind values must be unique`);
+  }
+  for (const [name, definition] of Object.entries(schema.$defs)) {
+    if (!definition?.properties?.kind?.const) continue;
+    if (definition.type !== 'object' || definition.additionalProperties !== false) {
+      fail(`${schemaFile}: $defs.${name} must be a closed object schema`);
+    }
+    for (const required of definition.required ?? []) {
+      if (!Object.hasOwn(definition.properties ?? {}, required)) {
+        fail(`${schemaFile}: $defs.${name} requires undeclared property '${required}'`);
+      }
+    }
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+}
+
 for (const schemaFile of [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
@@ -397,9 +450,11 @@ for (const schemaFile of [
   'schemas/auto-origin.schema.json',
   'schemas/auto-step-result.schema.json',
   'schemas/auto-flight-report.schema.json',
-  'schemas/artifact-validation.schema.json'
+  'schemas/artifact-validation.schema.json',
+  'schemas/sgos-contract.schema.json'
 ]) {
-  JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
+  const schema = JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
+  if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
   checked.push(schemaFile);
 }
 

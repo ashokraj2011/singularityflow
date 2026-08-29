@@ -39,6 +39,8 @@ Then, on a repository you care about:
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
 The full documentation map is in [docs/README.md](./docs/README.md).
+The additive, model-free SGOS compiler/runtime profile and its explicit staged boundaries are in
+[the SGOS guide](./docs/SGOS.md).
 For bounded work that begins without a Story, follow the
 [ad hoc work and governed landing guide](./README-AD-HOC-WORK.md).
 For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT

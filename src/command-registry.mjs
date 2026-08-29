@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'task', 'request']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'task', 'request']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -28,6 +28,11 @@ const LAZY_MODULES = Object.freeze({
   auto: './commands/auto.mjs',
   adhoc: './commands/adhoc.mjs',
   land: './commands/adhoc.mjs',
+  intent: './commands/sgos.mjs',
+  program: './commands/sgos.mjs',
+  process: './commands/sgos.mjs',
+  task: './commands/sgos.mjs',
+  request: './commands/sgos.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'
@@ -67,6 +72,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'],
+  ['intent'], ['program'], ['process'], ['task'], ['request'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
@@ -216,6 +222,13 @@ const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
 const CAPABILITY_SUBCOMMANDS = Object.freeze([
   ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS
 ]);
+const SGOS_SUBCOMMANDS = Object.freeze({
+  intent: Object.freeze({ read: ['show', 'validate'], mutation: ['capture', 'compile'] }),
+  program: Object.freeze({ read: ['show', 'validate', 'simulate', 'explain'], mutation: [] }),
+  process: Object.freeze({ read: ['status', 'graph'], mutation: ['start', 'step', 'pause', 'resume', 'recover'] }),
+  task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: [] }),
+  request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] })
+});
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
@@ -237,6 +250,8 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   story: STORY_SUBCOMMANDS,
   session: SESSION_SUBCOMMANDS,
   capability: CAPABILITY_SUBCOMMANDS,
+  ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
+    .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
   wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast', 'recovery']),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration',
@@ -709,6 +724,18 @@ function resolveCapabilityOperation(definition, positionals) {
   );
 }
 
+function resolveSgosOperation(definition, positionals) {
+  const vocabulary = SGOS_SUBCOMMANDS[definition.name];
+  const subcommand = positionals[1] ?? vocabulary.read[0] ?? vocabulary.mutation[0];
+  const known = [...vocabulary.read, ...vocabulary.mutation];
+  if (!known.includes(subcommand)) return unknownSubcommand(definition.name, subcommand, known);
+  return never(
+    `${definition.name}.${subcommand}`,
+    definition,
+    vocabulary.read.includes(subcommand) ? 'read' : 'mutation'
+  );
+}
+
 export function resolveOperation({ requestedCommand, positionals, options = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
@@ -743,6 +770,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'session') return resolveSessionOperation(definition, positionals);
   if (definition.name === 'capability') return resolveCapabilityOperation(definition, positionals);
   if (definition.name === 'constitution') return resolveConstitutionOperation(definition, positionals);
+  if (SGOS_SUBCOMMANDS[definition.name]) return resolveSgosOperation(definition, positionals);
   return unclassified(definition.name);
 }
 
@@ -821,6 +849,13 @@ export function operationCatalog() {
   const contextDefinition = commandDefinition('context');
   const tokensDefinition = commandDefinition('tokens');
   const autoDefinition = commandDefinition('auto');
+  const sgos = Object.entries(SGOS_SUBCOMMANDS).flatMap(([name, actions]) => {
+    const definition = commandDefinition(name);
+    return [
+      ...actions.read.map((action) => never(`${name}.${action}`, definition, 'read')),
+      ...actions.mutation.map((action) => never(`${name}.${action}`, definition, 'mutation'))
+    ];
+  });
   const modelFreeMixed = [
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
@@ -910,7 +945,8 @@ export function operationCatalog() {
     ...CAPABILITY_READ_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'read')),
     ...CAPABILITY_MUTATION_SUBCOMMANDS.map((name) => never(`capability.${name}`, capabilityDefinition, 'mutation')),
     ...CONSTITUTION_READ_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'read')),
-    ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation'))
+    ...CONSTITUTION_MUTATION_SUBCOMMANDS.map((name) => never(`constitution.${name}`, constitutionDefinition, 'mutation')),
+    ...sgos
   ];
   return Object.freeze([
     operation('help.root', 'never', { classification: 'read' }),

@@ -17,6 +17,10 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'sgos.reported': {
+    headline: (s) => slot(s.summary, 'Singularity Flow governed execution result is ready.'),
+    preserves: true
+  },
   'auto.plan-ready': {
     headline: (s) => `Auto Plan ${slot(s.planId)} is ready for exact review.`,
     preserves: true

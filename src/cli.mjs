@@ -11501,6 +11501,11 @@ async function dispatch(command, positionals, options) {
     land: async () => (await import('./commands/adhoc.mjs')).run(argv, {
       positionals, options, definition: commandDefinition('land')
     }),
+    intent: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    program: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    process: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    task: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    request: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

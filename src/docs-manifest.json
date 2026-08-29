@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7799ee6a4c221bf619ae71f610aff73b65c08005",
-  "topicCount": 58,
-  "contentSha256": "185afbee6d193915b836495482984c07dbb7de8b87152f5688c1beb5f883c58a",
+  "sourceCommit": "687e27771739c5b1b1780d62192fb9e561638f35",
+  "topicCount": 59,
+  "contentSha256": "fda8550cfbf75e58cc459b739eabb57c75fc144392583b697bc085a4e9231f06",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -380,6 +380,14 @@
       "sha256": "b5e0dbb7df5e575c415aa686b41e91b442cd9836644e6aa743ff8bfea6cf27ce",
       "routingSha256": "33e8926d2944073e4592ede7af57a6157686383cb9c55d14e098952138abcbae",
       "file": "sequence-gates.md"
+    },
+    {
+      "id": "sgos-governed-execution",
+      "title": "SGOS governed execution",
+      "version": 1,
+      "sha256": "64e9c1cfda3fcc8eee199e43e00bf6feef340f923eccb9fd56945e66e252a214",
+      "routingSha256": "8a9923e033b474f393556ccbbbbe3970cd871caad51929457b4886d05c471772",
+      "file": "sgos-governed-execution.md"
     },
     {
       "id": "specification-quality",

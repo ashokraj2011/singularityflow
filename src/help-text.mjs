@@ -252,6 +252,29 @@ Usage:
   singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
     (add and upgrade are the former names and still work)
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
+
+  # SGOS — deterministic intent compilation and governed execution
+  singularity-flow intent capture <TEXT> [--out FILE] [--json]
+  singularity-flow intent validate <FILE> [--json]
+  singularity-flow intent show <FILE> [--json]
+  singularity-flow intent compile <INTENT-IR> --workflow <FILE> --ratification <FILE> --policy <FILE> --registry <FILE> [--out FILE] [--json]
+  singularity-flow program validate <FILE> [--json]
+  singularity-flow program show <FILE> [--json]
+  singularity-flow program explain <FILE> [--json]
+  singularity-flow program simulate <FILE> [--json]
+  singularity-flow process start <PROGRAM> [--binding FILE] [--json]
+  singularity-flow process status <PROCESS-ID> [--json]
+  singularity-flow process graph <PROCESS-ID> [--json]
+  singularity-flow process step <PROCESS-ID> [--json]
+  singularity-flow process pause <PROCESS-ID> [--json]
+  singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--json]
+  singularity-flow process recover <PROCESS-ID> [--json]
+  singularity-flow task list <PROCESS-ID> [--json]
+  singularity-flow task show <PROCESS-ID> <TASK-ID> [--json]
+  singularity-flow task evidence <PROCESS-ID> <TASK-ID> [--json]
+  singularity-flow request list [<PROCESS-ID>] [--json]
+  singularity-flow request show <REQUEST-ID> [--process <PROCESS-ID>] [--json]
+  singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID> --option <OPTION> --confirm <REQUEST-SHA256> [--json]
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]

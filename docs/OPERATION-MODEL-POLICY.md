@@ -186,8 +186,10 @@ Every public operation is classified before its implementation module is importe
 | pr.describe.polish | mutation | optional | pr.describe | copilot-cli |
 | pr.plan | mutation | never | — | — |
 | prepare | mutation | never | — | — |
+| process.archive | mutation | never | — | — |
 | process.graph | read | never | — | — |
 | process.pause | mutation | never | — | — |
+| process.quarantine | mutation | never | — | — |
 | process.recover | mutation | never | — | — |
 | process.resume | mutation | never | — | — |
 | process.start | mutation | never | — | — |

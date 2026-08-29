@@ -262,19 +262,28 @@ Usage:
   singularity-flow program show <FILE> [--json]
   singularity-flow program explain <FILE> [--json]
   singularity-flow program simulate <FILE> [--json]
-  singularity-flow process start <PROGRAM> [--binding FILE] [--json]
+  singularity-flow process start <PROGRAM> [--compiler-request <FILE>] [--binding FILE]
+    [--subject ID] [--subject-kind story|repository] [--json]
   singularity-flow process status <PROCESS-ID> [--json]
   singularity-flow process graph <PROCESS-ID> [--json]
   singularity-flow process step <PROCESS-ID> [--json]
   singularity-flow process pause <PROCESS-ID> [--json]
   singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--json]
   singularity-flow process recover <PROCESS-ID> [--json]
+  singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
+    --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
+  singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
+  singularity-flow process archive <PROCESS-ID> ...  # compatibility alias for quarantine
+    preserve an unreadable v1 machine-local Process; preview first, never restore it as v2
   singularity-flow task list <PROCESS-ID> [--json]
   singularity-flow task show <PROCESS-ID> <TASK-ID> [--json]
   singularity-flow task evidence <PROCESS-ID> <TASK-ID> [--json]
   singularity-flow request list [<PROCESS-ID>] [--json]
   singularity-flow request show <REQUEST-ID> [--process <PROCESS-ID>] [--json]
-  singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID> --option <OPTION> --confirm <REQUEST-SHA256> [--json]
+  singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
+    (--decision approved|rejected|provided|cancelled | --option <DECLARED-OPTION-ID>)
+    [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
+    --confirm <REQUEST-SHA256> [--json]
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]

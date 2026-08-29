@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   GVM_OPCODES,
+  SGOS_COMPILER_ID,
+  SGOS_COMPILER_VERSION,
   compileSgosProgram,
   explainSgosProgram,
   registrySnapshotDigest,
@@ -225,6 +227,11 @@ test('same confirmed inputs compile to the same canonical finite Program', () =>
   assert.equal(first.program.programSha256, second.program.programSha256);
   assert.equal(first.program.programId, second.program.programId);
   assert.deepEqual(first.program.taskTemplates.map((task) => task.taskTemplateId), ['copy', 'end']);
+  assert.deepEqual(first.program.compiler, {
+    id: SGOS_COMPILER_ID,
+    version: SGOS_COMPILER_VERSION
+  });
+  assert.equal(SGOS_COMPILER_VERSION, '2');
   assert.deepEqual(first.program.edges.map(({ from, to }) => [from, to]), [['copy', 'end']]);
   assert.deepEqual(firstInput, untouched, 'the compiler must not mutate its confirmed inputs');
   assert.deepEqual(GVM_OPCODES, [

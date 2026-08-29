@@ -57,7 +57,9 @@ export function buildSgosTaskAttempt({
   reason = 'initial',
   taskContractSha256,
   executionHandleSha256 = null,
-  status
+  status,
+  startedAt = null,
+  completedAt = null
 } = {}) {
   if (!attemptId || !processId || !taskInstanceId || !Number.isInteger(attemptNumber) || attemptNumber < 1) {
     fail('A Task Attempt requires stable attempt/task IDs and a positive attemptNumber.', 'SGOS_ATTEMPT_INVALID');
@@ -76,7 +78,9 @@ export function buildSgosTaskAttempt({
     reason,
     taskContractSha256,
     executionHandleSha256,
-    status
+    status,
+    startedAt,
+    completedAt
   });
 }
 
@@ -88,6 +92,7 @@ export function buildSgosTaskReceipt({
   processId,
   taskInstanceId,
   attemptId,
+  attemptSha256,
   inputRefs = [],
   outputRefs = [],
   candidateSha256 = null,
@@ -98,8 +103,9 @@ export function buildSgosTaskReceipt({
   verification,
   completedAt = null
 } = {}) {
-  if (!processId || !taskInstanceId || !attemptId) {
-    fail('A Task Receipt requires process, task, and attempt identity.', 'SGOS_RECEIPT_INVALID');
+  if (!processId || !taskInstanceId || !attemptId
+      || !SHA256.test(String(attemptSha256 ?? ''))) {
+    fail('A Task Receipt requires process, task, and exact terminal-attempt identity.', 'SGOS_RECEIPT_INVALID');
   }
   if (verification?.status !== 'passed') {
     fail('A task cannot receive a success receipt until deterministic verification passes.', 'SGOS_RECEIPT_VERIFICATION_REQUIRED');
@@ -114,6 +120,7 @@ export function buildSgosTaskReceipt({
     processId,
     taskInstanceId,
     attemptId,
+    attemptSha256,
     inputRefs: normalizedRefs(inputRefs),
     outputRefs: normalizedRefs(outputRefs),
     candidateSha256: candidateRef,

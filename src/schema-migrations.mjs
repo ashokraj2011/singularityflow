@@ -680,6 +680,22 @@ function codeDeliveryV1ToV2(source) {
   };
 }
 
+function gvmProcessV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    controlEventSha256: source.controlEventSha256 ?? null,
+    recordIndexSha256: source.recordIndexSha256 ?? null
+  };
+}
+
+function sgosRecordReservationPath(familyId) {
+  const escaped = familyId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `^\\$git/sgos/processes/[^/]+/record-reservations/${escaped}--[a-f0-9]{64}\\.json$`
+  );
+}
+
 function family({
   id, currentVersion, minimumReadableVersion = 1, steps = [], paths = [], immutable = false,
   unversionedAs = null, migrationPolicy = 'migrate-on-read'
@@ -706,23 +722,115 @@ const families = [
   }),
   family({ id: 'copilot-session', currentVersion: 1, paths: [/^\$git\/copilot-session\.json$/] }),
   family({ id: 'copilot-turn-intent', currentVersion: 1, paths: [/^\$git\/copilot-turn-[^/]+\.json$/] }),
-  // SGOS trust/compiler/runtime contracts. These v1 families are content-addressed records; a
+  // SGOS trust/compiler/runtime contracts. Immutable families are content-addressed records; a
   // changed value is a new record rather than an in-place schema mutation.
   family({ id: 'intent-envelope', currentVersion: 1, immutable: true }),
   family({ id: 'intent-ir', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-ir', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-ratification', currentVersion: 1, immutable: true }),
   family({ id: 'policy-snapshot', currentVersion: 1, immutable: true }),
-  family({ id: 'candidate-snapshot', currentVersion: 1, immutable: true }),
-  family({ id: 'process-binding', currentVersion: 1, immutable: true }),
-  family({ id: 'gvm-program', currentVersion: 1, immutable: true }),
-  family({ id: 'gvm-process', currentVersion: 1 }),
-  family({ id: 'gvm-task-attempt', currentVersion: 1, immutable: true }),
-  family({ id: 'gvm-task-receipt', currentVersion: 1, immutable: true }),
-  family({ id: 'gvm-checkpoint', currentVersion: 1, immutable: true }),
-  family({ id: 'human-request', currentVersion: 1, immutable: true }),
-  family({ id: 'human-response', currentVersion: 1, immutable: true }),
-  family({ id: 'action-evidence', currentVersion: 1, immutable: true }),
+  // The runtime persists these records beneath the Git-common sidecar. Path classification is
+  // exact so `doctor` includes SGOS in its migration census without treating staging files or
+  // unrelated JSON as governed durable records.
+  family({
+    id: 'candidate-snapshot', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/candidate-snapshots\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('candidate-snapshot')
+    ]
+  }),
+  family({
+    // v1 did not bind the approved configuration authority. It is deliberately archived instead
+    // of being synthesized during read: an immutable authority claim cannot be reconstructed.
+    id: 'process-binding', currentVersion: 2, minimumReadableVersion: 2, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/bindings\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('process-binding')
+    ]
+  }),
+  family({
+    id: 'gvm-program', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/programs\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('gvm-program')
+    ]
+  }),
+  family({
+    // v1 Process state did not carry the closed authority binding required by v2. Do not invent
+    // that authority during read; preserve the old Process for archival. v3 adds a deterministic
+    // null control head; the SGOS store establishes its first immutable control event while holding
+    // the Process lock before republishing the migrated mutable state.
+    id: 'gvm-process', currentVersion: 3, minimumReadableVersion: 2,
+    steps: [migration(2, 3, gvmProcessV2ToV3)],
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/state\.json$/]
+  }),
+  family({
+    id: 'sgos-record-index', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/record-indexes\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-control-event', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/control-events\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-control-successor', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/control-next\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-transition-intent', currentVersion: 1,
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/transition-intent\.json$/]
+  }),
+  family({
+    id: 'gvm-task-attempt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/attempts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('gvm-task-attempt')
+    ]
+  }),
+  family({
+    // v1 receipts named only attemptId and cannot be upgraded safely without scanning mutable
+    // Process context. Archive them fail-closed; v2 binds the exact terminal attempt hash.
+    id: 'gvm-task-receipt', currentVersion: 2, minimumReadableVersion: 2, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('gvm-task-receipt')
+    ]
+  }),
+  family({
+    id: 'gvm-checkpoint', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/checkpoints\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('gvm-checkpoint')
+    ]
+  }),
+  family({
+    // v1 Human Requests did not carry the exact configuration authority used for authorization.
+    id: 'human-request', currentVersion: 2, minimumReadableVersion: 2, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/human-requests\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('human-request')
+    ]
+  }),
+  family({
+    id: 'human-response', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/human-responses\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('human-response')
+    ]
+  }),
+  family({
+    id: 'action-evidence', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/evidence\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('action-evidence')
+    ]
+  }),
+  family({
+    // v2 optionally binds an active lease to the exact running-attempt hash. Pre-CAS recovery
+    // fixtures may omit it, but an active Process is required to carry it by runtime validation.
+    id: 'sgos-execution-lease', currentVersion: 2, minimumReadableVersion: 2,
+    paths: [/^\$git\/sgos\/processes\/[^/]+\/execution-leases\/[^/]+\.json$/]
+  }),
   family({ id: 'work-object', currentVersion: 1, immutable: true }),
   family({ id: 'adhoc-active-session', currentVersion: 1, paths: [/^\$git\/adhoc\/active\.json$/] }),
   family({

@@ -34,61 +34,78 @@ function assetPolicyAtCommit(root, commit) {
   );
 }
 
-function approvedConfigurationAuthority(root) {
-  const listed = run('git', [
-    'for-each-ref', '--format=%(refname)',
-    `refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`
-  ], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) return null;
-  const refs = listed.stdout.trim().split('\n').map((entry) => entry.trim()).filter(Boolean)
-    .sort((left, right) => {
-      const leftOrigin = left === `refs/remotes/origin/${CONFIGURATION_BRANCH}` ? 0 : 1;
-      const rightOrigin = right === `refs/remotes/origin/${CONFIGURATION_BRANCH}` ? 0 : 1;
-      return leftOrigin - rightOrigin || left.localeCompare(right);
-    });
-  for (const ref of refs) {
-    const commit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
-      cwd: root, allowFailure: true
-    }).stdout.trim();
-    if (!/^[0-9a-f]{40,64}$/.test(commit)) continue;
+function configurationAuthorityAtRef(root, ref) {
+  const commit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
+    cwd: root, allowFailure: true
+  }).stdout.trim();
+  if (!/^[0-9a-f]{40,64}$/.test(commit)) return null;
+  if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)
+      || ref === `refs/heads/${CONFIGURATION_BRANCH}`) {
     const workflow = run('git', ['cat-file', '-e', `${commit}:${WORKFLOW_PATH}`], {
       cwd: root, allowFailure: true
     });
-    if (workflow.status === 0) return { kind: 'approved-configuration-ref', ref, commit };
+    return workflow.status === 0
+      ? { kind: 'approved-configuration-ref', ref, commit }
+      : null;
   }
-  const stateRefs = run('git', [
+  if (!(ref.endsWith(`/${STATE_BRANCH}`) || ref === `refs/heads/${STATE_BRANCH}`)) return null;
+  const shown = run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
+  if (shown.status !== 0) return null;
+  let manifest;
+  try { manifest = JSON.parse(shown.stdout); } catch { return null; }
+  const files = manifest?.files;
+  const assets = manifest?.assets ?? null;
+  const policy = assetPolicyAtCommit(root, commit);
+  if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
+    || manifest?.source?.branch !== CONFIGURATION_BRANCH
+    || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+    || !files || typeof files !== 'object' || Array.isArray(files)
+    || !Object.hasOwn(files, WORKFLOW_PATH)
+    || Object.entries(files).some(([relative, sha]) =>
+      !isConfigurationReadPath(relative, policy) || !/^[0-9a-f]{64}$/.test(sha))) return null;
+  if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
+    || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
+    || Object.entries(assets).some(([relative, descriptor]) =>
+      descriptor?.sha256 !== files[relative]
+      || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
+      || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')))) return null;
+  return { kind: 'verified-state-mirror', ref, commit, manifest };
+}
+
+function remoteNameForAuthorityRef(ref) {
+  const prefix = 'refs/remotes/';
+  if (!ref.startsWith(prefix)) return null;
+  for (const branch of [CONFIGURATION_BRANCH, STATE_BRANCH]) {
+    const suffix = `/${branch}`;
+    if (ref.endsWith(suffix)) return ref.slice(prefix.length, -suffix.length);
+  }
+  return null;
+}
+
+function approvedConfigurationAuthority(root, {
+  allowLocalHeads = true,
+  canonicalRemote = null
+} = {}) {
+  const listed = run('git', [
     'for-each-ref', '--format=%(refname)',
+    `refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`,
     `refs/remotes/*/${STATE_BRANCH}`, `refs/heads/${STATE_BRANCH}`
-  ], { cwd: root, allowFailure: true }).stdout.trim().split('\n')
-    .map((entry) => entry.trim()).filter(Boolean)
-    .sort((left, right) => (left === `refs/remotes/origin/${STATE_BRANCH}` ? -1 : 0)
-      - (right === `refs/remotes/origin/${STATE_BRANCH}` ? -1 : 0) || left.localeCompare(right));
-  for (const ref of stateRefs) {
-    const commit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
-      cwd: root, allowFailure: true
-    }).stdout.trim();
-    if (!/^[0-9a-f]{40,64}$/.test(commit)) continue;
-    const shown = run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
-    if (shown.status !== 0) continue;
-    let manifest;
-    try { manifest = JSON.parse(shown.stdout); } catch { continue; }
-    const files = manifest?.files;
-    const assets = manifest?.assets ?? null;
-    const policy = assetPolicyAtCommit(root, commit);
-    if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
-      || manifest?.source?.branch !== CONFIGURATION_BRANCH
-      || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
-      || !files || typeof files !== 'object' || Array.isArray(files)
-      || !Object.hasOwn(files, WORKFLOW_PATH)
-      || Object.entries(files).some(([relative, sha]) =>
-        !isConfigurationReadPath(relative, policy) || !/^[0-9a-f]{64}$/.test(sha))) continue;
-    if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
-      || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
-      || Object.entries(assets).some(([relative, descriptor]) =>
-        descriptor?.sha256 !== files[relative]
-        || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
-        || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')))) continue;
-    return { kind: 'verified-state-mirror', ref, commit, manifest };
+  ], { cwd: root, allowFailure: true });
+  if (listed.status !== 0) return null;
+  const priority = (ref) => {
+    if (ref === `refs/remotes/origin/${CONFIGURATION_BRANCH}`) return 0;
+    if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)) return 1;
+    if (ref === `refs/remotes/origin/${STATE_BRANCH}`) return 2;
+    return 3;
+  };
+  const refs = listed.stdout.trim().split('\n').map((entry) => entry.trim()).filter(Boolean)
+    .filter((ref) => allowLocalHeads || !ref.startsWith('refs/heads/'))
+    .filter((ref) => canonicalRemote == null
+      || remoteNameForAuthorityRef(ref) === canonicalRemote)
+    .sort((left, right) => priority(left) - priority(right) || left.localeCompare(right));
+  for (const ref of refs) {
+    const authority = configurationAuthorityAtRef(root, ref);
+    if (authority) return authority;
   }
   return null;
 }
@@ -101,10 +118,14 @@ function approvedConfigurationAuthority(root) {
  * reviewed configuration authority; `state` is recovery-only and is accepted later only after its
  * complete manifest and every declared byte have been verified.
  */
-function refreshApprovedConfigurationAuthority(root) {
+function refreshApprovedConfigurationAuthority(root, {
+  allowLocalHeads = true,
+  canonicalRemote = null
+} = {}) {
   const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
   if (listed.status !== 0) return null;
   const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean)
+    .filter((remote) => canonicalRemote == null || remote === canonicalRemote)
     .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
       || left.localeCompare(right));
   for (const remote of remotes) {
@@ -113,30 +134,55 @@ function refreshApprovedConfigurationAuthority(root) {
       `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
     ], { cwd: root, operation: 'remote-probe' });
     if (advertised.status !== 0) continue;
-    const branches = new Set(advertised.stdout.split(/\r?\n/).map((line) => line.trim().split(/\s+/)[1])
-      .filter(Boolean));
+    const branches = new Map(advertised.stdout.split(/\r?\n/).map((line) => {
+      const [commit, ref] = line.trim().split(/\s+/);
+      return /^[a-f0-9]{40,64}$/.test(commit ?? '') && ref ? [ref, commit] : null;
+    }).filter(Boolean));
     for (const branch of [CONFIGURATION_BRANCH, STATE_BRANCH]) {
-      if (!branches.has(`refs/heads/${branch}`)) continue;
+      const source = `refs/heads/${branch}`;
+      const advertisedCommit = branches.get(source);
+      if (!advertisedCommit) continue;
       const destination = `refs/remotes/${remote}/${branch}`;
       const validRef = run('git', ['check-ref-format', destination], { cwd: root, allowFailure: true });
       if (validRef.status !== 0) continue;
-      const fetched = runRemoteGit([
-        'fetch', '--quiet', '--no-tags', '--force', '--', remote,
-        `+refs/heads/${branch}:${destination}`
-      ], { cwd: root, operation: 'remote-configuration' });
-      if (fetched.status !== 0) continue;
-      const authority = approvedConfigurationAuthority(root);
+      const localCommit = run('git', ['rev-parse', '--verify', `${destination}^{commit}`], {
+        cwd: root, allowFailure: true
+      }).stdout.trim();
+      if (localCommit !== advertisedCommit) {
+        const fetched = runRemoteGit([
+          'fetch', '--quiet', '--no-tags', '--force', '--', remote,
+          `+${source}:${destination}`
+        ], { cwd: root, operation: 'remote-configuration' });
+        if (fetched.status !== 0) continue;
+        const fetchedCommit = run('git', ['rev-parse', '--verify', `${destination}^{commit}`], {
+          cwd: root, allowFailure: true
+        }).stdout.trim();
+        // The branch moved between advertisement and fetch. Do not bind a commit that this exact
+        // proof round did not observe; the next operation will negotiate the new head.
+        if (fetchedCommit !== advertisedCommit) continue;
+      }
+      // Bind the result to the exact ref just advertised and fetched. Selecting a generic cached
+      // ref here would let a locally forged `refs/remotes/origin/*` win after another remote was
+      // successfully contacted.
+      const authority = configurationAuthorityAtRef(root, destination);
       if (authority) return authority;
     }
   }
   return null;
 }
 
-async function extractConfiguration(root, authority, destination) {
+async function extractConfiguration(root, authority, destination, { selectPaths = null } = {}) {
   const policy = assetPolicyAtCommit(root, authority.commit);
+  const selected = selectPaths == null ? null : [...new Set(selectPaths)].sort();
+  if (selected != null && (!selected.includes(WORKFLOW_PATH)
+      || selected.some((relative) => !isConfigurationReadPath(relative, policy)))) {
+    throw new SingularityFlowError('Approved configuration selection contains an unsupported path.', {
+      code: 'APPROVED_CONFIGURATION_SELECTION_INVALID'
+    });
+  }
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', authority.commit, '--',
-    ...configurationAssetSearchRoots(policy)
+    ...(selected ?? configurationAssetSearchRoots(policy))
   ], { cwd: root });
   const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
@@ -144,6 +190,16 @@ async function extractConfiguration(root, authority, destination) {
     return { mode: line.slice(0, first), oid: line.slice(first + 1, second), file: line.slice(second + 1) };
   }).filter((entry) => /^100(?:644|755)$/.test(entry.mode)
     && isConfigurationReadPath(entry.file, policy));
+  if (selected != null) {
+    const available = new Set(entries.map((entry) => entry.file));
+    const missing = selected.filter((relative) => !available.has(relative));
+    if (missing.length) {
+      throw new SingularityFlowError(
+        `Approved configuration ${authority.ref} does not contain '${missing[0]}'.`,
+        { code: 'APPROVED_CONFIGURATION_INCOMPLETE', details: { missing } }
+      );
+    }
+  }
   if (!entries.some((entry) => entry.file === WORKFLOW_PATH)) {
     throw new SingularityFlowError(
       `Approved configuration ${authority.ref} does not contain ${WORKFLOW_PATH}.`,
@@ -188,8 +244,13 @@ async function extractConfiguration(root, authority, destination) {
   if (authority.kind === 'verified-state-mirror') {
     const declared = Object.keys(authority.manifest.files).sort();
     const copied = entries.map((entry) => entry.file).sort();
-    if (JSON.stringify(declared) !== JSON.stringify(copied)) {
+    if (selected == null && JSON.stringify(declared) !== JSON.stringify(copied)) {
       throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.', {
+        code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+      });
+    }
+    if (copied.some((relative) => !declared.includes(relative))) {
+      throw new SingularityFlowError('Selected state configuration file is absent from its manifest.', {
         code: 'STATE_CONFIGURATION_MIRROR_INVALID'
       });
     }
@@ -224,20 +285,37 @@ async function extractConfiguration(root, authority, destination) {
  * reading its immutable pinned configuration, while new-work intake must see the latest approved
  * catalog even when launched from that older Story checkout.
  */
-export async function withApprovedConfigurationRead(root, fn, { preferAuthority = false } = {}) {
+export async function withApprovedConfigurationRead(root, fn, {
+  preferAuthority = false,
+  allowLocalHeads = true,
+  refreshAuthority = true,
+  requireAuthorityRefresh = false,
+  canonicalRemote = null,
+  selectPaths = null
+} = {}) {
   const workflow = await lstat(path.join(root, WORKFLOW_PATH)).catch((error) => {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
     throw error;
   });
   if (workflow && !preferAuthority) return fn({ kind: 'working-tree', ref: null, commit: null });
   const authority = preferAuthority
-    ? refreshApprovedConfigurationAuthority(root) ?? approvedConfigurationAuthority(root)
-    : approvedConfigurationAuthority(root) ?? refreshApprovedConfigurationAuthority(root);
+    ? (refreshAuthority
+      ? refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
+        ?? (requireAuthorityRefresh
+          ? null
+          : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+      : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+    : (requireAuthorityRefresh
+      ? null
+      : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+      ?? (refreshAuthority
+        ? refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
+        : null);
   if (!authority && workflow) return fn({ kind: 'working-tree', ref: null, commit: null });
   if (!authority) return fn(null);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-read-'));
   try {
-    const assetPolicy = await extractConfiguration(root, authority, temporaryRoot);
+    const assetPolicy = await extractConfiguration(root, authority, temporaryRoot, { selectPaths });
     return await withConfigurationReadRoot(root, temporaryRoot, authority, () => fn(authority), {
       assetPolicy
     });

@@ -89,9 +89,9 @@ function humanView(process, task, request) {
     },
     dataRef: `sfref:sgos-human-request:${request.requestSha256}`,
     actions: [{
-      id: 'respond',
+      id: 'request.respond',
       label: 'Respond',
-      operation: 'human-request.respond',
+      operation: 'request.respond',
       inputSchema: {
         type: 'object',
         properties: {

@@ -17,7 +17,7 @@ import {
 import { compareSgosCodePoints as codePointCompare } from './order.mjs';
 
 export const SGOS_COMPILER_ID = 'sflow-gvm-compiler';
-export const SGOS_COMPILER_VERSION = '1';
+export const SGOS_COMPILER_VERSION = '2';
 
 export const GVM_OPCODES = CONTRACT_GVM_OPCODES;
 
@@ -113,8 +113,8 @@ function deepFreeze(value) {
 function present(value) {
   if (value == null || value === false) return false;
   if (typeof value === 'string') return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (plainObject(value)) return Object.keys(value).length > 0;
+  if (Array.isArray(value)) return value.some(present);
+  if (plainObject(value)) return Object.values(value).some(present);
   return true;
 }
 
@@ -473,7 +473,12 @@ function taskKindAndOpcode(task, catalog) {
 
 function operationContract(task) {
   const raw = task.operation ?? task.operationRef ?? task.taskKind ?? task.execution?.operation ?? null;
-  if (typeof raw === 'string') return { id: raw, version: String(task.operationVersion ?? '1') };
+  if (typeof raw === 'string') {
+    return {
+      id: raw,
+      version: String(task.operationVersion ?? task.metadata?.operationVersion ?? '1')
+    };
+  }
   if (plainObject(raw)) {
     const result = clone(raw);
     if (!result.id && result.name) result.id = result.name;
@@ -632,6 +637,16 @@ function taskTemplate(workflow, taskId, rawTask, catalog) {
       taskId, operationId
     });
   }
+  const registeredOperation = operationId ? catalog.operations.get(operationId) : null;
+  if (registeredOperation && operation?.version != null
+      && String(operation.version) !== String(registeredOperation.version)) {
+    fail('SGOS_TASK_OPERATION_VERSION_MISMATCH',
+      `Task '${taskId}' operation '${operationId}' version does not match the pinned registry.`, {
+        taskId, operationId,
+        expected: String(registeredOperation.version),
+        received: String(operation.version)
+      });
+  }
   const verification = task.verification ?? task.metadata?.verification;
   const verificationOperation = typeof verification?.operation === 'string'
     ? verification.operation
@@ -640,6 +655,21 @@ function taskTemplate(workflow, taskId, rawTask, catalog) {
     fail('SGOS_TASK_OPERATION_UNKNOWN',
       `Task '${taskId}' references unknown verification operation '${verificationOperation}'.`, {
         taskId, operationId: String(verificationOperation), role: 'verification'
+      });
+  }
+  const registeredVerificationOperation = verificationOperation == null
+    ? null
+    : catalog.operations.get(String(verificationOperation));
+  const requestedVerificationVersion = typeof verification?.operation === 'object'
+    ? verification.operation.version
+    : verification?.operationVersion;
+  if (registeredVerificationOperation && requestedVerificationVersion != null
+      && String(requestedVerificationVersion) !== String(registeredVerificationOperation.version)) {
+    fail('SGOS_TASK_OPERATION_VERSION_MISMATCH',
+      `Task '${taskId}' verification operation '${verificationOperation}' version does not match the pinned registry.`, {
+        taskId, operationId: String(verificationOperation), role: 'verification',
+        expected: String(registeredVerificationOperation.version),
+        received: String(requestedVerificationVersion)
       });
   }
   if (opcode === 'DEVICE') {
@@ -670,14 +700,24 @@ function taskTemplate(workflow, taskId, rawTask, catalog) {
     ...clone(task.metadata ?? {}),
     sourceConstruct: String(sourceKind).toLowerCase()
   };
-  if (operation?.version != null) metadata.operationVersion = String(operation.version);
+  if (registeredOperation) {
+    metadata.operationVersion = String(registeredOperation.version);
+    metadata.operationManifestSha256 = registeredOperation.manifestSha256;
+  }
   if (task.verification != null) metadata.verification = clone(task.verification);
+  if (registeredVerificationOperation) {
+    metadata.verificationOperationVersion = String(registeredVerificationOperation.version);
+    metadata.verificationOperationManifestSha256 = registeredVerificationOperation.manifestSha256;
+  }
   if (task.budgets != null) metadata.budgets = clone(task.budgets);
   if (task.parameters != null || task.arguments != null) metadata.parameters = clone(task.parameters ?? task.arguments);
   if (task.condition != null || task.when != null) metadata.condition = clone(task.condition ?? task.when);
   if (task.bounds != null) metadata.bounds = clone(task.bounds);
   if (task.joinPolicy != null) metadata.joinPolicy = clone(task.joinPolicy);
-  if (task.humanRequest != null || task.request != null) metadata.humanRequest = clone(task.humanRequest ?? task.request);
+  // Strict Workflow IR carries construct-specific data only under metadata. Reading a top-level
+  // humanRequest/request here advertised an input shape the contract had already (correctly)
+  // refused, so keep the compiler and the public contract on one canonical representation.
+  if (task.metadata?.humanRequest != null) metadata.humanRequest = clone(task.metadata.humanRequest);
   if (task.compilerInvariant != null || task.insertedByCompiler != null) {
     metadata.compilerInvariant = clone(task.compilerInvariant ?? task.insertedByCompiler);
   }

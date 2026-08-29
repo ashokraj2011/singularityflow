@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/sgos-contract.schema.json",
-  "title": "SingularityFlow SGOS durable contracts v1",
+  "title": "SingularityFlow SGOS durable contracts",
   "oneOf": [
     { "$ref": "#/$defs/intentEnvelope" },
     { "$ref": "#/$defs/intentIr" },
@@ -12,6 +12,10 @@
     { "$ref": "#/$defs/processBinding" },
     { "$ref": "#/$defs/gvmProgram" },
     { "$ref": "#/$defs/gvmProcess" },
+    { "$ref": "#/$defs/sgosRecordIndex" },
+    { "$ref": "#/$defs/sgosControlEvent" },
+    { "$ref": "#/$defs/sgosControlSuccessor" },
+    { "$ref": "#/$defs/sgosTransitionIntent" },
     { "$ref": "#/$defs/gvmTaskAttempt" },
     { "$ref": "#/$defs/gvmTaskReceipt" },
     { "$ref": "#/$defs/gvmCheckpoint" },
@@ -36,6 +40,148 @@
         "email": { "type": "string", "minLength": 1 },
         "authoritySha256": { "$ref": "#/$defs/sha256" }
       },
+      "additionalProperties": false
+    },
+    "configurationAuthority": {
+      "type": "object",
+      "required": ["kind", "ref", "commit", "workflowBlobSha256"],
+      "properties": {
+        "kind": { "enum": ["approved-configuration-ref", "verified-state-mirror"] },
+        "ref": { "type": "string", "pattern": "^refs/(?:heads|remotes)/[A-Za-z0-9._/-]+$" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "workflowBlobSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "storySubjectAuthority": {
+      "type": "object",
+      "required": ["kind", "subjectId", "revision", "path", "blobSha256", "stateSha256"],
+      "properties": {
+                "kind": { "enum": ["governed-story-baseline"] },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+                "path": { "type": "string", "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$)).+[^/]$" },
+        "blobSha256": { "$ref": "#/$defs/sha256" },
+        "stateSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "executionAdmissionSource": {
+      "type": "object",
+      "required": ["kind", "ref", "commit", "sourceCommit", "path", "blobSha256", "configurationAuthority"],
+      "properties": {
+        "kind": { "enum": ["approved-configuration-ref", "verified-state-mirror"] },
+        "ref": { "type": "string", "pattern": "^refs/(?:heads|remotes)/[A-Za-z0-9._/-]+$" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "path": { "type": "string", "minLength": 1 },
+        "blobSha256": { "$ref": "#/$defs/sha256" },
+        "configurationAuthority": { "$ref": "#/$defs/configurationAuthority" }
+      },
+      "additionalProperties": false
+    },
+    "executionAdmission": {
+      "type": "object",
+      "required": ["admitted", "programId", "programSha256", "provenance", "safety"],
+      "properties": {
+        "admitted": { "const": true },
+        "programId": { "type": "string", "pattern": "^PRG-" },
+        "programSha256": { "$ref": "#/$defs/sha256" },
+        "provenance": {
+          "type": "object",
+          "required": ["method", "programSha256", "ratificationSha256", "source"],
+          "properties": {
+            "method": { "enum": ["approved-program-authority", "approved-authority+deterministic-recompilation"] },
+            "programSha256": { "$ref": "#/$defs/sha256" },
+            "intentIrSha256": { "$ref": "#/$defs/sha256" },
+            "workflowSha256": { "$ref": "#/$defs/sha256" },
+            "ratificationSha256": { "$ref": "#/$defs/sha256" },
+            "source": { "$ref": "#/$defs/executionAdmissionSource" }
+          },
+          "additionalProperties": false
+        },
+        "safety": {
+          "type": "object",
+          "required": ["safe", "programId", "programSha256", "compiler", "graph", "registry"],
+          "properties": {
+            "safe": { "const": true },
+            "programId": { "type": "string", "pattern": "^PRG-" },
+            "programSha256": { "$ref": "#/$defs/sha256" },
+            "compiler": {
+              "type": "object",
+              "required": ["id", "version"],
+              "properties": { "id": { "type": "string" }, "version": { "type": "string" } },
+              "additionalProperties": false
+            },
+            "graph": {
+              "type": "object",
+              "required": ["taskCount", "edgeCount", "roots", "terminalTaskIds", "topologicalOrder"],
+              "properties": {
+                "taskCount": { "type": "integer", "minimum": 0 },
+                "edgeCount": { "type": "integer", "minimum": 0 },
+                "roots": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                "terminalTaskIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+                "topologicalOrder": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+              },
+              "additionalProperties": false
+            },
+            "registry": {
+              "type": "object",
+              "required": ["verified", "registrySnapshotSha256"],
+              "properties": {
+                "verified": { "type": "boolean" },
+                "registrySnapshotSha256": { "$ref": "#/$defs/sha256" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "humanAuthorityRequirement": {
+      "type": "object",
+      "required": ["kind", "id", "minimumAssurance", "authoritySha256"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "minimumAssurance": { "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] },
+        "authoritySha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "processAuthorityBinding": {
+      "type": "object",
+      "required": ["kind", "subjectId", "subjectAuthority", "branch", "baselineRevision", "baselineSnapshotSha256", "authority", "configurationAuthority", "humanAuthorityRequirements", "executionAdmission"],
+      "properties": {
+        "kind": { "enum": ["story", "repository"] },
+        "subjectId": { "type": "string", "minLength": 1 },
+        "subjectAuthority": { "oneOf": [{ "$ref": "#/$defs/storySubjectAuthority" }, { "type": "null" }] },
+        "branch": { "type": "string", "minLength": 1 },
+        "baselineRevision": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "baselineSnapshotSha256": { "$ref": "#/$defs/sha256" },
+        "authority": { "enum": ["existing-story-lifecycle", "existing-repository-baseline"] },
+        "configurationAuthority": { "$ref": "#/$defs/configurationAuthority" },
+        "humanAuthorityRequirements": { "type": "array", "items": { "$ref": "#/$defs/humanAuthorityRequirement" } },
+        "executionAdmission": { "$ref": "#/$defs/executionAdmission" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": { "const": "story" },
+            "subjectAuthority": { "$ref": "#/$defs/storySubjectAuthority" },
+            "authority": { "const": "existing-story-lifecycle" }
+          }
+        },
+        {
+          "properties": {
+            "kind": { "const": "repository" },
+            "subjectAuthority": { "type": "null" },
+            "authority": { "const": "existing-repository-baseline" }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "subject": {
@@ -218,10 +364,12 @@
     },
     "processBinding": {
       "type": "object",
-      "required": ["schemaVersion", "kind", "processId", "subjectId", "repositoryIdentity", "gitCommonDirectory", "worktreeGitDirectory", "canonicalWorktreeRoot", "branch", "baselineRevision", "expectedProcessRevision", "bindingSha256"],
+      "required": ["schemaVersion", "kind", "processId", "subjectId", "subjectAuthority", "configurationAuthority", "repositoryIdentity", "gitCommonDirectory", "worktreeGitDirectory", "canonicalWorktreeRoot", "branch", "baselineRevision", "expectedProcessRevision", "bindingSha256"],
       "properties": {
-        "schemaVersion": { "const": 1 }, "kind": { "const": "process-binding" },
+        "schemaVersion": { "const": 2 }, "kind": { "const": "process-binding" },
         "processId": { "type": "string", "pattern": "^PROC-" }, "subjectId": { "type": "string" },
+        "subjectAuthority": { "oneOf": [{ "$ref": "#/$defs/storySubjectAuthority" }, { "type": "null" }] },
+        "configurationAuthority": { "oneOf": [{ "$ref": "#/$defs/configurationAuthority" }, { "type": "null" }] },
         "repositoryIdentity": { "type": "string" }, "gitCommonDirectory": { "type": "string" },
         "worktreeGitDirectory": { "type": "string" }, "canonicalWorktreeRoot": { "type": "string" },
         "branch": { "type": "string" }, "baselineRevision": { "type": "string" },
@@ -247,18 +395,147 @@
     },
     "gvmProcess": {
       "type": "object",
-      "required": ["schemaVersion", "kind", "processId", "programSha256", "policySnapshotSha256", "processBindingSha256", "status", "taskInstances", "activeExecutions", "openHumanRequests", "activeLeases", "currentCheckpointSha256", "processRevision", "processSha256"],
+      "required": ["schemaVersion", "kind", "processId", "programSha256", "policySnapshotSha256", "processBindingSha256", "status", "taskInstances", "activeExecutions", "openHumanRequests", "activeLeases", "currentCheckpointSha256", "controlEventSha256", "recordIndexSha256", "processRevision", "authorityBinding", "taskContractSha256", "createdAt", "updatedAt", "processSha256"],
       "properties": {
-        "schemaVersion": { "const": 1 }, "kind": { "const": "gvm-process" },
+        "schemaVersion": { "const": 3 }, "kind": { "const": "gvm-process" },
         "processId": { "type": "string", "pattern": "^PROC-" }, "programSha256": { "$ref": "#/$defs/sha256" },
         "policySnapshotSha256": { "$ref": "#/$defs/sha256" }, "processBindingSha256": { "$ref": "#/$defs/sha256" },
         "status": { "enum": ["queued", "running", "waiting-human", "blocked", "paused", "succeeded", "failed", "cancelled", "recovery-required"] },
         "taskInstances": { "type": "object" }, "activeExecutions": { "type": "array" },
         "openHumanRequests": { "type": "array", "items": { "$ref": "#/$defs/sha256" } }, "activeLeases": { "type": "array" },
         "currentCheckpointSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
-        "processRevision": { "type": "integer", "minimum": 0 }, "authorityBinding": { "type": "object" },
+        "controlEventSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "recordIndexSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "processRevision": { "type": "integer", "minimum": 1 }, "authorityBinding": { "$ref": "#/$defs/processAuthorityBinding" },
         "taskContractSha256": { "$ref": "#/$defs/sha256" }, "createdAt": { "$ref": "#/$defs/timestamp" },
         "updatedAt": { "$ref": "#/$defs/timestamp" }, "processSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "sgosRecordIndexDelta": {
+      "type": "object",
+      "required": ["family", "recordSha256", "bytes"],
+      "properties": {
+        "family": { "enum": ["action-evidence", "candidate-snapshot", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "process-binding"] },
+        "recordSha256": { "$ref": "#/$defs/sha256" },
+        "attemptId": { "type": "string", "pattern": "^ATT-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
+        "taskInstanceId": { "type": "string", "minLength": 1 },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 }
+      },
+      "additionalProperties": false
+    },
+    "sgosRecordIndexFamilyCounts": {
+      "type": "object",
+      "properties": {
+        "action-evidence": { "type": "integer", "minimum": 1 },
+        "candidate-snapshot": { "type": "integer", "minimum": 1 },
+        "gvm-checkpoint": { "type": "integer", "minimum": 1 },
+        "gvm-program": { "type": "integer", "minimum": 1 },
+        "gvm-task-attempt": { "type": "integer", "minimum": 1 },
+        "gvm-task-receipt": { "type": "integer", "minimum": 1 },
+        "human-request": { "type": "integer", "minimum": 1 },
+        "human-response": { "type": "integer", "minimum": 1 },
+        "process-binding": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "sgosRecordIndex": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "processId", "sequence", "priorIndexSha256", "delta", "familyCounts", "totalRecordCount", "totalBytes", "recordIndexSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "sgos-record-index" },
+        "processId": { "type": "string", "pattern": "^PROC-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "priorIndexSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "delta": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/sgosRecordIndexDelta" } },
+        "familyCounts": { "$ref": "#/$defs/sgosRecordIndexFamilyCounts" },
+        "totalRecordCount": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "totalBytes": { "type": "integer", "minimum": 0, "maximum": 268435456 },
+        "recordIndexSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "sgosControlEvent": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "processId", "processCoreSha256", "priorControlEventSha256", "beforeProcessSha256", "beforeProcessRevision", "controlDepth", "operatorTransitionCount", "recordIndexSha256", "action", "result", "createdAt", "controlEventSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "kind": { "const": "sgos-control-event" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "processCoreSha256": { "$ref": "#/$defs/sha256" },
+        "priorControlEventSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "beforeProcessSha256": { "$ref": "#/$defs/sha256" },
+        "beforeProcessRevision": { "type": "integer", "minimum": 1 },
+        "controlDepth": { "type": "integer", "minimum": 1 },
+        "operatorTransitionCount": { "type": "integer", "minimum": 0 },
+        "recordIndexSha256": { "$ref": "#/$defs/sha256" },
+        "action": { "enum": ["process-transition", "process-paused", "process-resumed", "execution-started", "execution-finished", "human-requested", "human-resolved", "recovery-required", "recovery-resolved"] },
+        "result": {
+          "type": "object",
+          "required": ["status", "taskInstances", "activeExecutions", "openHumanRequests", "activeLeases", "currentCheckpointSha256", "processRevision", "updatedAt"],
+          "properties": {
+            "status": { "enum": ["queued", "running", "waiting-human", "blocked", "paused", "succeeded", "failed", "cancelled", "recovery-required"] },
+            "taskInstances": { "type": "object" },
+            "activeExecutions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "openHumanRequests": { "type": "array", "items": { "$ref": "#/$defs/sha256" }, "uniqueItems": true },
+            "activeLeases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "currentCheckpointSha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+            "processRevision": { "type": "integer", "minimum": 2 },
+            "updatedAt": { "$ref": "#/$defs/timestamp" }
+          },
+          "additionalProperties": false
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "controlEventSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "sgosControlSuccessor": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "processId", "beforeProcessSha256", "controlEventSha256", "controlDepth", "operatorTransitionCount", "cumulativeInfrastructureBytes", "cumulativeInfrastructureRecords", "successorSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "kind": { "const": "sgos-control-successor" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "beforeProcessSha256": { "$ref": "#/$defs/sha256" },
+        "controlEventSha256": { "$ref": "#/$defs/sha256" },
+        "controlDepth": { "type": "integer", "minimum": 1 },
+        "operatorTransitionCount": { "type": "integer", "minimum": 0 },
+        "cumulativeInfrastructureBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "cumulativeInfrastructureRecords": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "successorSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
+    "sgosTransitionReservation": {
+      "type": "object",
+      "required": ["family", "recordSha256", "bytes"],
+      "properties": {
+        "family": { "enum": ["action-evidence", "candidate-snapshot", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "process-binding"] },
+        "recordSha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 }
+      },
+      "additionalProperties": false
+    },
+    "sgosTransitionIntent": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "processId", "beforeProcessSha256", "beforeProcessRevision", "priorRecordIndexSha256", "reservations", "nextRecordIndexSha256", "controlEvent", "successorSha256", "candidateProcessSha256", "intentSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "sgos-transition-intent" },
+        "processId": { "type": "string", "pattern": "^PROC-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
+        "beforeProcessSha256": { "$ref": "#/$defs/sha256" },
+        "beforeProcessRevision": { "type": "integer", "minimum": 1 },
+        "priorRecordIndexSha256": { "$ref": "#/$defs/sha256" },
+        "reservations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/$defs/sgosTransitionReservation" }
+        },
+        "nextRecordIndexSha256": { "$ref": "#/$defs/sha256" },
+        "controlEvent": { "$ref": "#/$defs/sgosControlEvent" },
+        "successorSha256": { "$ref": "#/$defs/sha256" },
+        "candidateProcessSha256": { "$ref": "#/$defs/sha256" },
+        "intentSha256": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },
@@ -272,18 +549,20 @@
         "parentAttemptId": { "type": ["string", "null"] },
         "reason": { "enum": ["initial", "retry", "verification-failed", "execution-failed", "timeout", "lease-lost", "recovery", "invalidated", "manual"] },
         "taskContractSha256": { "$ref": "#/$defs/sha256" }, "executionHandleSha256": { "$ref": "#/$defs/sha256" },
-        "status": { "type": "string" }, "startedAt": { "$ref": "#/$defs/timestamp" },
-        "completedAt": { "$ref": "#/$defs/timestamp" }, "attemptSha256": { "$ref": "#/$defs/sha256" }
+        "status": { "type": "string" },
+        "startedAt": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "completedAt": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+        "attemptSha256": { "$ref": "#/$defs/sha256" }
       },
       "additionalProperties": false
     },
     "gvmTaskReceipt": {
       "type": "object",
-      "required": ["schemaVersion", "kind", "processId", "taskInstanceId", "attemptId", "inputRefs", "outputRefs", "candidateSha256", "evidenceRefs", "effectRefs", "humanDecisionRefs", "verification", "completedAt", "receiptSha256"],
+      "required": ["schemaVersion", "kind", "processId", "taskInstanceId", "attemptId", "attemptSha256", "inputRefs", "outputRefs", "candidateSha256", "evidenceRefs", "effectRefs", "humanDecisionRefs", "verification", "completedAt", "receiptSha256"],
       "properties": {
-        "schemaVersion": { "const": 1 }, "kind": { "const": "gvm-task-receipt" },
+        "schemaVersion": { "const": 2 }, "kind": { "const": "gvm-task-receipt" },
         "processId": { "type": "string", "pattern": "^PROC-" }, "taskInstanceId": { "type": "string" },
-        "attemptId": { "type": "string", "pattern": "^ATT-" }, "inputRefs": { "type": "array" },
+        "attemptId": { "type": "string", "pattern": "^ATT-" }, "attemptSha256": { "$ref": "#/$defs/sha256" }, "inputRefs": { "type": "array" },
         "outputRefs": { "type": "array" }, "candidateSha256": { "$ref": "#/$defs/sha256" },
         "evidenceRefs": { "type": "array" }, "effectRefs": { "type": "array" }, "humanDecisionRefs": { "type": "array" },
         "verification": { "$ref": "#/$defs/verification" }, "completedAt": { "$ref": "#/$defs/timestamp" },
@@ -308,14 +587,14 @@
     },
     "humanRequest": {
       "type": "object",
-      "required": ["schemaVersion", "kind", "requestId", "requestType", "processId", "taskInstanceId", "checkpointSha256", "requestedBy", "authorityRequired", "prompt", "options", "inputSchema", "sensitiveMode", "externalUrl", "secretBroker", "subjectSha256", "policySnapshotSha256", "status", "createdAt", "expiresAt", "requestSha256"],
+      "required": ["schemaVersion", "kind", "requestId", "requestType", "processId", "taskInstanceId", "checkpointSha256", "requestedBy", "authorityRequired", "configurationAuthority", "prompt", "options", "inputSchema", "sensitiveMode", "externalUrl", "secretBroker", "subjectSha256", "policySnapshotSha256", "status", "createdAt", "expiresAt", "requestSha256"],
       "properties": {
-        "schemaVersion": { "const": 1 }, "kind": { "const": "human-request" },
+        "schemaVersion": { "const": 2 }, "kind": { "const": "human-request" },
         "requestId": { "type": "string", "pattern": "^HRQ-" },
         "requestType": { "enum": ["clarification", "approval", "credential", "exception", "policy-choice", "conflict-resolution", "interpretation", "evidence-review", "scope-expansion", "production-authority", "scientific-judgment", "legal-judgment"] },
         "processId": { "type": "string", "pattern": "^PROC-" }, "taskInstanceId": { "type": "string" },
         "checkpointSha256": { "$ref": "#/$defs/sha256" }, "requestedBy": { "$ref": "#/$defs/principal" },
-        "authorityRequired": { "type": "object" }, "prompt": { "type": "object" }, "options": { "type": "array" },
+        "authorityRequired": { "type": "object" }, "configurationAuthority": { "$ref": "#/$defs/configurationAuthority" }, "prompt": { "type": "object" }, "options": { "type": "array" },
         "inputSchema": { "type": ["object", "null"] }, "sensitiveMode": { "enum": ["none", "external-url", "secret-broker"] },
         "externalUrl": { "type": ["string", "null"] }, "secretBroker": { "type": ["string", "null"] },
         "subjectSha256": { "$ref": "#/$defs/sha256" }, "policySnapshotSha256": { "$ref": "#/$defs/sha256" },

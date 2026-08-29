@@ -5,9 +5,11 @@
  * `sgos/compiler.mjs`.  It never imports compiler implementation details and never writes Story
  * authority: KERNEL handlers must use the existing governed kernel for any lifecycle mutation.
  */
+import { randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { head } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
@@ -25,28 +27,64 @@ import {
 } from './evidence.mjs';
 import {
   buildSgosProcessBinding,
+  consumeRootedSgosRecordReservations,
   createSgosProcess,
   listSgosProcesses,
+  listSgosImmutableRecordsByField,
   mutateSgosProcess,
   putSgosImmutableRecord,
+  readSgosExecutionLease,
   readSgosCheckpoint,
   readSgosImmutableRecord,
   readSgosProcess,
   readSgosProgram,
+  readSgosPendingReservedRecordByField,
+  recoverPendingSgosTransition,
+  reconcileSgosExecutionLeases,
   sealSgosImmutableRecord,
-  sgosProcessDirectory
+  sgosProcessDirectory,
+  removeSgosExecutionLease,
+  removeSgosExecutionLeaseIfUnreferenced,
+  currentSgosExecutionOwnerFingerprint,
+  isSgosExecutionOwnerLive,
+  registerSgosExecutionOwner,
+  unregisterSgosExecutionOwner,
+  writeSgosExecutionLease
 } from './store.mjs';
 import { compareSgosCodePoints } from './order.mjs';
+import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
+import {
+  assertSgosProcessMaterialization, taskInstancesForSgosProgram
+} from './materialization.mjs';
+import {
+  currentSgosHumanActor, loadApprovedSgosHumanAuthorityContext
+} from './human-authority.mjs';
+import {
+  assertSgosProgramExecutionAdmission, loadApprovedSgosProgramAuthority,
+  assertSgosInstalledProgramLimits, validateSgosProgramStaticSafety
+} from './program-trust.mjs';
+import {
+  assertSgosStoryAuthority, loadSgosStoryAuthority
+} from './story-authority.mjs';
+import { createSgosBuiltinAdapters } from './builtin-adapters.mjs';
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
+const RECORD_RESERVATION_BY_RECORD = new WeakMap();
+
+function reservationOf(record) {
+  return record != null && typeof record === 'object'
+    ? RECORD_RESERVATION_BY_RECORD.get(record) ?? null
+    : null;
+}
 const HUMAN_REQUEST_TYPES = new Set([
   'clarification', 'approval', 'credential', 'exception', 'policy-choice',
   'conflict-resolution', 'interpretation', 'evidence-review', 'scope-expansion',
   'production-authority', 'scientific-judgment', 'legal-judgment'
 ]);
 const HUMAN_DECISIONS = new Set(['approved', 'rejected', 'selected', 'provided', 'cancelled']);
-const SUCCESS_PREDECESSOR_STATES = new Set(['succeeded', 'skipped']);
+const SUCCESS_PREDECESSOR_STATES = new Set(['succeeded']);
 const PROCESS_TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
+const SUBJECT_KINDS = new Set(['story', 'repository']);
 const SUPPORTED_PROGRAM_OPCODES = new Set([
   'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'CHECKPOINT', 'END', 'AGENT', 'DEVICE'
 ]);
@@ -69,6 +107,7 @@ const RUNTIME_EVIDENCE_KINDS = new Set([
   'verification', 'verification-result', 'deterministic-verification',
   'action-evidence', 'receipt', 'task-receipt'
 ]);
+const EXECUTION_LEASE_HEARTBEAT_MS = 5_000;
 
 export const SGOS_SEQUENTIAL_OPCODES = Object.freeze([
   'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'CHECKPOINT', 'END'
@@ -87,6 +126,10 @@ function instant(clock = null) {
   const value = typeof clock === 'function' ? clock() : (clock ?? nowIso());
   if (!Number.isFinite(Date.parse(value))) fail('SGOS runtime clock returned an invalid timestamp.', 'SGOS_CLOCK_INVALID');
   return new Date(value).toISOString();
+}
+
+function operationalInstant() {
+  return new Date().toISOString();
 }
 
 function requireSha256(label, value) {
@@ -162,6 +205,7 @@ function assertProgram(program) {
   try { validateGvmProgram(program); } catch {
     fail('The compiled GVM Program failed its integrity check.', 'SGOS_PROGRAM_CORRUPT');
   }
+  assertSgosInstalledProgramLimits(program);
   if (program.programSha256 !== programCoreHash(program)) {
     fail('The compiled GVM Program failed its integrity check.', 'SGOS_PROGRAM_CORRUPT');
   }
@@ -173,11 +217,6 @@ function assertProgram(program) {
     if (!SUPPORTED_PROGRAM_OPCODES.has(task.opcode)) {
       fail(`Opcode '${task.opcode}' requires runtime control-flow semantics that are not installed.`, 'SGOS_PROGRAM_SEMANTICS_UNSUPPORTED', {
         opcode: task.opcode, taskTemplateId: task.taskTemplateId
-      });
-    }
-    if (retryCeiling(task) !== 1) {
-      fail(`Task '${task.taskTemplateId}' requests retries, but this sequential slice cannot safely reschedule them.`, 'SGOS_PROGRAM_SEMANTICS_UNSUPPORTED', {
-        semantic: 'retry', taskTemplateId: task.taskTemplateId
       });
     }
     ids.add(task.taskTemplateId);
@@ -202,10 +241,17 @@ function assertProgram(program) {
     });
   }
   const maximumAttempts = program.budgets?.maximumAttempts;
-  if (maximumAttempts != null && maximumAttempts !== 1) {
-    fail('Program retries are not supported by this sequential slice.', 'SGOS_PROGRAM_SEMANTICS_UNSUPPORTED', {
-      semantic: 'retry', maximumAttempts
-    });
+  if (maximumAttempts != null && (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1)) {
+    fail('Program maximumAttempts must be a positive integer.', 'SGOS_PROGRAM_BUDGET_INVALID');
+  }
+  for (const task of program.taskTemplates) {
+    if (maximumAttempts != null && retryCeiling(task) > maximumAttempts) {
+      fail(`Task '${task.taskTemplateId}' exceeds the Program retry ceiling.`, 'SGOS_PROGRAM_BUDGET_EXCEEDED', {
+        taskTemplateId: task.taskTemplateId,
+        taskMaximumAttempts: retryCeiling(task),
+        programMaximumAttempts: maximumAttempts
+      });
+    }
   }
   return program;
 }
@@ -213,21 +259,70 @@ function assertProgram(program) {
 async function resolveProgram(root, process, supplied = null) {
   const program = supplied ?? (await readSgosProgram(root, process.processId, process.programSha256)).record;
   assertProgram(program);
+  validateSgosProgramStaticSafety(program, {
+    supportedOpcodes: [...SUPPORTED_PROGRAM_OPCODES],
+    maximumAttempts: SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask
+  });
   if (program.programSha256 !== process.programSha256
       || program.policySnapshotSha256 !== process.policySnapshotSha256) {
     fail('The loaded Program or policy does not match the Process binding.', 'SGOS_PROGRAM_STALE');
   }
-  return program;
-}
-
-function edgeDependencies(program) {
-  const dependencies = new Map(program.taskTemplates.map((task) => [task.taskTemplateId, new Set(task.dependsOn ?? [])]));
-  for (const edge of program.edges ?? []) {
-    const from = Array.isArray(edge) ? edge[0] : (edge?.from ?? edge?.source ?? edge?.predecessor);
-    const to = Array.isArray(edge) ? edge[1] : (edge?.to ?? edge?.target ?? edge?.successor);
-    if (from && to && dependencies.has(to)) dependencies.get(to).add(from);
+  assertSgosProcessMaterialization(program, process);
+  // Process creation is not the execution choke point: a corrupt sidecar or a caller importing the
+  // low-level store module could otherwise persist a self-consistent Process without ever passing
+  // startSgosProcess. Reload the independently approved Program authority on every operation that
+  // can dispatch, answer, resume, or recover work, then compare it with the immutable admission
+  // receipt pinned into this Process.
+  // A remote-tracking ref name is not authority by itself: a local process can update that
+  // namespace directly. Every mutating execution boundary therefore refreshes the exact advertised
+  // remote authority before trusting its bytes. Remote-less repositories use the explicit offline
+  // local-authority profile enforced by authority-trust.mjs.
+  const programAuthority = await loadApprovedSgosProgramAuthority(root, program);
+  const currentAdmission = assertSgosProgramExecutionAdmission(program, {
+    programAuthority,
+    supportedOpcodes: [...SUPPORTED_PROGRAM_OPCODES],
+    maximumAttempts: SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask
+  });
+  const storedAdmission = process.authorityBinding?.executionAdmission;
+  ownKeysOnly(storedAdmission, [
+    'admitted', 'programId', 'programSha256', 'provenance', 'safety'
+  ], 'authorityBinding.executionAdmission', 'SGOS_PROGRAM_ADMISSION_INVALID');
+  ownKeysOnly(storedAdmission.provenance, [
+    'method', 'programSha256', 'intentIrSha256', 'workflowSha256',
+    'ratificationSha256', 'source'
+  ], 'authorityBinding.executionAdmission.provenance', 'SGOS_PROGRAM_ADMISSION_INVALID');
+  const provenanceMethod = storedAdmission.provenance.method;
+  const provenanceMatches = ['approved-program-authority', 'approved-authority+deterministic-recompilation']
+    .includes(provenanceMethod)
+    && storedAdmission.provenance.programSha256 === program.programSha256
+    && storedAdmission.provenance.ratificationSha256 === program.ratificationSha256
+    && (provenanceMethod !== 'approved-authority+deterministic-recompilation'
+      || (storedAdmission.provenance.intentIrSha256 === program.intentIrSha256
+        && storedAdmission.provenance.workflowSha256 === program.workflowSha256))
+    && canonicalJson(storedAdmission.provenance.source)
+      === canonicalJson(currentAdmission.provenance.source);
+  // A start request may include the full registry snapshot and therefore prove `verified:true`.
+  // Dispatch deliberately does not accept a caller-supplied registry. Preserve that stronger
+  // immutable proof while rechecking every other safety invariant and the exact registry digest.
+  const storedSafety = clone(storedAdmission.safety);
+  const currentSafety = clone(currentAdmission.safety);
+  if (storedSafety?.registry) storedSafety.registry.verified = false;
+  if (currentSafety?.registry) currentSafety.registry.verified = false;
+  const admissionMatches = storedAdmission.admitted === true
+    && storedAdmission.programId === program.programId
+    && storedAdmission.programSha256 === program.programSha256
+    && provenanceMatches
+    && canonicalJson(storedSafety) === canonicalJson(currentSafety)
+    && canonicalJson(process.authorityBinding?.configurationAuthority ?? null)
+      === canonicalJson(currentAdmission.provenance.source?.configurationAuthority ?? null);
+  if (!admissionMatches) {
+    fail('The Process does not carry the exact currently approved Program admission.',
+      'SGOS_PROGRAM_ADMISSION_INVALID', {
+        processId: process.processId,
+        programSha256: program.programSha256
+      });
   }
-  return dependencies;
+  return program;
 }
 
 function stableId(prefix, value) {
@@ -301,45 +396,14 @@ async function createAndReloadCandidate(root, process, { resources = [], created
       cause: error?.message ?? String(error)
     });
   }
-  await putSgosCandidateSnapshot(root, process.processId, candidate);
-  return (await readSgosCandidateSnapshot(root, process.processId, candidate.candidateSha256)).record;
-}
-
-function templateRefs(values = []) {
-  return [...new Set((Array.isArray(values) ? values : []).map((value) => {
-    if (typeof value === 'string') return value;
-    if (typeof value?.ref === 'string') return value.ref;
-    return sgosSha256(value);
-  }))].sort();
-}
-
-function taskInstancesForProgram(program, processId) {
-  const dependencies = edgeDependencies(program);
-  const taskIds = new Map(program.taskTemplates.map((task) => [
-    task.taskTemplateId,
-    stableId('TSK', { processId, taskTemplateId: task.taskTemplateId })
-  ]));
-  return Object.fromEntries([...program.taskTemplates]
-    .sort((left, right) => compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId))
-    .map((template) => {
-      const taskInstanceId = taskIds.get(template.taskTemplateId);
-      const predecessors = [...(dependencies.get(template.taskTemplateId) ?? [])]
-        .map((id) => taskIds.get(id))
-        .filter(Boolean)
-        .sort();
-      return [taskInstanceId, {
-        taskInstanceId,
-        taskTemplateId: template.taskTemplateId,
-        state: predecessors.length ? 'waiting' : 'ready',
-        predecessorTaskInstanceIds: predecessors,
-        inputRefs: templateRefs(template.inputs ?? template.inputRefs ?? []),
-        outputRefs: [],
-        attemptIds: [],
-        receiptSha256: null,
-        invalidatedBy: null,
-        revision: 1
-      }];
-    }));
+  const publication = await putSgosCandidateSnapshot(root, process.processId, candidate);
+  const reloaded = (await readSgosCandidateSnapshot(
+    root, process.processId, candidate.candidateSha256
+  )).record;
+  if (publication.reservationToken != null) {
+    RECORD_RESERVATION_BY_RECORD.set(reloaded, publication.reservationToken);
+  }
+  return reloaded;
 }
 
 function templateById(program) {
@@ -415,45 +479,50 @@ function resolveTaskContractSha256({ taskContract = null, taskContractSha256 = n
   return requireSha256('taskContractSha256', reference);
 }
 
-function normalizeTrustedAuthority(value, index = 0) {
-  const label = `trustedAuthorities[${index}]`;
-  ownKeysOnly(value, [
-    'kind', 'id', 'principalId', 'principalKind', 'assurance', 'authoritySha256'
-  ], label, 'SGOS_AUTHORITY_BINDING_INVALID');
-  for (const field of ['kind', 'id', 'principalId', 'principalKind', 'assurance']) {
+function normalizeHumanAuthorityRequirement(value, index = 0) {
+  const label = `humanAuthorityRequirements[${index}]`;
+  ownKeysOnly(value, ['kind', 'id', 'minimumAssurance', 'authoritySha256'], label,
+    'SGOS_AUTHORITY_BINDING_INVALID');
+  for (const field of ['kind', 'id']) {
     if (typeof value[field] !== 'string' || !value[field].trim()) {
       fail(`${label}.${field} must be a non-empty string.`, 'SGOS_AUTHORITY_BINDING_INVALID');
     }
+  }
+  if (value.minimumAssurance != null
+      && (typeof value.minimumAssurance !== 'string' || !value.minimumAssurance.trim())) {
+    fail(`${label}.minimumAssurance must be null or a non-empty string.`,
+      'SGOS_AUTHORITY_BINDING_INVALID');
   }
   requireSha256(`${label}.authoritySha256`, value.authoritySha256);
   return {
     kind: value.kind,
     id: value.id,
-    principalId: value.principalId,
-    principalKind: value.principalKind,
-    assurance: value.assurance,
+    minimumAssurance: value.minimumAssurance ?? null,
     authoritySha256: value.authoritySha256
   };
 }
 
-function normalizeTrustedAuthorities(values = []) {
-  if (!Array.isArray(values)) fail('trustedAuthorities must be an array.', 'SGOS_AUTHORITY_BINDING_INVALID');
-  const normalized = values.map(normalizeTrustedAuthority).sort((left, right) =>
-    compareSgosCodePoints(left.kind, right.kind)
-      || compareSgosCodePoints(left.id, right.id)
-      || compareSgosCodePoints(left.principalId, right.principalId)
-      || compareSgosCodePoints(left.principalKind, right.principalKind));
-  const identities = normalized.map((entry) => `${entry.kind}\0${entry.id}\0${entry.principalKind}\0${entry.principalId}`);
-  if (new Set(identities).size !== identities.length) {
-    fail('trustedAuthorities contains duplicate authority/principal bindings.', 'SGOS_AUTHORITY_BINDING_INVALID');
+function normalizeHumanAuthorityRequirements(values = []) {
+  if (!Array.isArray(values)) {
+    fail('humanAuthorityRequirements must be an array.', 'SGOS_AUTHORITY_BINDING_INVALID');
+  }
+  const normalized = values.map(normalizeHumanAuthorityRequirement).sort((left, right) =>
+    compareSgosCodePoints(left.kind, right.kind) || compareSgosCodePoints(left.id, right.id));
+  if (new Set(normalized.map((entry) => `${entry.kind}\0${entry.id}`)).size !== normalized.length) {
+    fail('humanAuthorityRequirements contains duplicate authority bindings.',
+      'SGOS_AUTHORITY_BINDING_INVALID');
   }
   return normalized;
 }
 
-function currentProcessBinding(root, { processId, subject, supplied = null }) {
+function currentProcessBinding(root, {
+  processId, subject, subjectAuthority = null, configurationAuthority = null, supplied = null
+}) {
   const current = buildSgosProcessBinding(root, {
     processId,
     subjectId: subject.id,
+    subjectAuthority,
+    configurationAuthority,
     expectedProcessRevision: 0
   });
   if (subject.branch != null && subject.branch !== current.branch) {
@@ -478,12 +547,59 @@ function currentProcessBinding(root, { processId, subject, supplied = null }) {
     'canonicalWorktreeRoot', 'branch', 'baselineRevision', 'expectedProcessRevision', 'bindingSha256'
   ];
   const stale = fields.filter((field) => validated[field] !== current[field]);
+  if (canonicalJson(validated.subjectAuthority) !== canonicalJson(current.subjectAuthority)) {
+    stale.push('subjectAuthority');
+  }
+  if (canonicalJson(validated.configurationAuthority) !== canonicalJson(current.configurationAuthority)) {
+    stale.push('configurationAuthority');
+  }
   if (stale.length) {
     fail('The supplied Process Binding does not describe the current repository/worktree/branch/HEAD.', 'SGOS_PROCESS_BINDING_STALE', {
       fields: stale
     });
   }
   return validated;
+}
+
+async function assertCurrentStoredProcessBinding(root, process) {
+  const { record: stored } = await readSgosImmutableRecord(
+    root, process.processId, 'process-binding', process.processBindingSha256
+  );
+  let subjectAuthority = null;
+  if (process.authorityBinding?.kind === 'story') {
+    subjectAuthority = loadSgosStoryAuthority(root, {
+      subjectId: process.authorityBinding.subjectId,
+      revision: stored.baselineRevision
+    }).authority;
+    assertSgosStoryAuthority(stored.subjectAuthority, subjectAuthority);
+    assertSgosStoryAuthority(process.authorityBinding.subjectAuthority, subjectAuthority);
+  } else if (stored.subjectAuthority !== null || process.authorityBinding?.subjectAuthority != null) {
+    fail('A non-Story Process cannot claim governed Story authority.',
+      'SGOS_STORY_AUTHORITY_MISMATCH');
+  }
+  const current = buildSgosProcessBinding(root, {
+    processId: process.processId,
+    subjectId: process.authorityBinding?.subjectId,
+    subjectAuthority,
+    configurationAuthority: stored.configurationAuthority,
+    expectedProcessRevision: stored.expectedProcessRevision
+  });
+  const fields = [
+    'processId', 'subjectId', 'repositoryIdentity', 'gitCommonDirectory', 'worktreeGitDirectory',
+    'canonicalWorktreeRoot', 'branch', 'baselineRevision'
+  ];
+  const stale = fields.filter((field) => stored[field] !== current[field]);
+  if (canonicalJson(stored.subjectAuthority) !== canonicalJson(current.subjectAuthority)) {
+    stale.push('subjectAuthority');
+  }
+  if (stale.length) {
+    fail('The repository, worktree, branch, or HEAD changed after this Process was bound.',
+      'SGOS_PROCESS_BINDING_STALE', {
+        fields: stale,
+        processBindingSha256: process.processBindingSha256
+      });
+  }
+  return stored;
 }
 
 function updateReadinessAndStatus(process, program) {
@@ -504,11 +620,13 @@ function updateReadinessAndStatus(process, program) {
     process.status = 'running';
   } else if (process.openHumanRequests.length) {
     process.status = 'waiting-human';
+  } else if (Object.values(process.taskInstances).some((task) => task.state === 'cancelled')) {
+    process.status = 'cancelled';
   } else if (Object.values(process.taskInstances).some((task) => task.state === 'blocked')) {
     process.status = 'blocked';
   } else if (Object.values(process.taskInstances).some((task) => task.state === 'failed')) {
     process.status = 'failed';
-  } else if (Object.values(process.taskInstances).every((task) => ['succeeded', 'skipped'].includes(task.state))) {
+  } else if (Object.values(process.taskInstances).every((task) => task.state === 'succeeded')) {
     const templates = templateById(program);
     const endSucceeded = Object.values(process.taskInstances)
       .some((task) => templates.get(task.taskTemplateId)?.opcode === 'END' && task.state === 'succeeded');
@@ -518,29 +636,89 @@ function updateReadinessAndStatus(process, program) {
   }
 }
 
-export async function startSgosProcess(root, {
-  program,
-  taskContract = null,
-  taskContractSha256 = null,
-  processId = null,
-  subject,
-  processBinding = null,
-  trustedAuthorities = [],
-  clock = null
+async function settlePendingTransitionBeforeMutation(root, processId, operation, {
+  allowMissing = false
 } = {}) {
+  let recovery;
+  try { recovery = await recoverPendingSgosTransition(root, processId); } catch (error) {
+    if (allowMissing && ['ENOENT', 'SGOS_PROCESS_NOT_FOUND'].includes(error?.code)) return null;
+    throw error;
+  }
+  if (!recovery.recovered) return recovery.process;
+  fail(`A prior exact SGOS transition was recovered before '${operation}'. Retry against the recovered revision.`,
+    'SGOS_TRANSITION_RECOVERED_RETRY', {
+      operation,
+      processId,
+      processRevision: recovery.process.processRevision,
+      processSha256: recovery.process.processSha256,
+      intentSha256: recovery.intentSha256
+    });
+}
+
+export async function startSgosProcess(root, options = {}) {
+  if (Object.hasOwn(options, 'trustedAuthorities') || Object.hasOwn(options, 'configurationAuthority')) {
+    fail('Caller-supplied Human or configuration authority is not accepted; SGOS loads the exact approved authority itself.',
+      'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
+  }
+  const {
+    program,
+    compilerRequest = null,
+    taskContract = null,
+    taskContractSha256 = null,
+    processId = null,
+    subject,
+    processBinding = null,
+    clock = null
+  } = options;
+  const programAuthority = await loadApprovedSgosProgramAuthority(root, program);
+  const humanAuthority = await loadApprovedSgosHumanAuthorityContext(root, program, {
+    // Program admission just refreshed and pinned this authority; read the same local ref so the
+    // two resolutions form one stable start boundary without a second remote round trip.
+    refreshAuthority: false
+  });
+  const configurationAuthority = humanAuthority.configurationAuthority;
+  if (canonicalJson(programAuthority.source.configurationAuthority)
+      !== canonicalJson(configurationAuthority)) {
+    fail('Approved configuration authority changed between Human authority resolution and Program admission.',
+      'SGOS_APPROVED_CONFIGURATION_CHANGED', {
+        humanAuthority: configurationAuthority,
+        programAuthority: programAuthority.source.configurationAuthority
+      });
+  }
+  const executionAdmission = assertSgosProgramExecutionAdmission(program, {
+    compilerRequest,
+    programAuthority,
+    supportedOpcodes: [...SUPPORTED_PROGRAM_OPCODES],
+    maximumAttempts: SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask
+  });
   assertProgram(program);
   if (!subject?.id) fail('An SGOS process must bind an existing governed subject.', 'SGOS_SUBJECT_REQUIRED');
+  const subjectKind = subject.kind ?? 'story';
+  if (!SUBJECT_KINDS.has(subjectKind)) {
+    fail(`Unsupported SGOS subject kind '${subjectKind}'. Allowed: story, repository.`,
+      'SGOS_SUBJECT_KIND_INVALID', { subjectKind });
+  }
   const id = processId ?? stableId('PROC', {
     programSha256: program.programSha256,
-    subject: { kind: subject.kind ?? 'story', id: subject.id, branch: subject.branch ?? null }
+    subject: { kind: subjectKind, id: subject.id, branch: subject.branch ?? null }
   });
   const contractSha256 = resolveTaskContractSha256({ taskContract, taskContractSha256, program });
   await assertSafeSgosSidecar(root, id);
-  const binding = currentProcessBinding(root, { processId: id, subject, supplied: processBinding });
-  const pinnedAuthorities = normalizeTrustedAuthorities(trustedAuthorities);
+  await settlePendingTransitionBeforeMutation(root, id, 'start', { allowMissing: true });
+  const baselineRevision = head(root);
+  const subjectAuthority = subjectKind === 'story'
+    ? loadSgosStoryAuthority(root, { subjectId: subject.id, revision: baselineRevision }).authority
+    : null;
+  const binding = currentProcessBinding(root, {
+    processId: id, subject, subjectAuthority, configurationAuthority, supplied: processBinding
+  });
+  const pinnedAuthorityRequirements = normalizeHumanAuthorityRequirements(
+    humanAuthority.humanAuthorityRequirements
+  );
   const authorityBinding = {
-    kind: subject.kind ?? 'story',
+    kind: subjectKind,
     subjectId: subject.id,
+    subjectAuthority,
     branch: binding.branch,
     baselineRevision: binding.baselineRevision,
     baselineSnapshotSha256: sgosSha256({
@@ -548,11 +726,19 @@ export async function startSgosProcess(root, {
       processBindingSha256: binding.bindingSha256,
       revision: binding.baselineRevision
     }),
-    authority: 'existing-story-lifecycle',
-    humanAuthorities: pinnedAuthorities
+    authority: subjectKind === 'story'
+      ? 'existing-story-lifecycle'
+      : 'existing-repository-baseline',
+    configurationAuthority: clone(configurationAuthority),
+    humanAuthorityRequirements: pinnedAuthorityRequirements,
+    executionAdmission
   };
-  const programRecord = (await putSgosImmutableRecord(root, id, 'gvm-program', program)).record;
-  const bindingRecord = (await putSgosImmutableRecord(root, id, 'process-binding', binding)).record;
+  const programPublication = await putSgosImmutableRecord(root, id, 'gvm-program', program);
+  const bindingPublication = await putSgosImmutableRecord(
+    root, id, 'process-binding', binding
+  );
+  const programRecord = programPublication.record;
+  const bindingRecord = bindingPublication.record;
   const createdAt = instant(clock);
   let created;
   try {
@@ -564,7 +750,7 @@ export async function startSgosProcess(root, {
       policySnapshotSha256: program.policySnapshotSha256,
       processBindingSha256: bindingRecord.bindingSha256,
       status: 'running',
-      taskInstances: taskInstancesForProgram(program, id),
+      taskInstances: taskInstancesForSgosProgram(program, id),
       activeExecutions: [],
       openHumanRequests: [],
       activeLeases: [],
@@ -581,16 +767,51 @@ export async function startSgosProcess(root, {
         || existing.processBindingSha256 !== bindingRecord.bindingSha256
         || existing.taskContractSha256 !== contractSha256
         || canonicalJson(existing.authorityBinding) !== canonicalJson(authorityBinding)) throw error;
-    const checkpoint = existing.currentCheckpointSha256
-      ? (await readSgosCheckpoint(root, id, existing.currentCheckpointSha256)).record : null;
-    return Object.freeze({ process: existing, program: programRecord, binding: bindingRecord, checkpoint, created: false });
+    // Genesis may have committed state immediately before reservation cleanup. Exact retry
+    // consumes only Program/Binding reservations proven present in rooted index history.
+    await consumeRootedSgosRecordReservations(root, id, [
+      programPublication.reservationToken,
+      bindingPublication.reservationToken
+    ]);
+    if (existing.currentCheckpointSha256) {
+      const checkpoint = (await readSgosCheckpoint(root, id, existing.currentCheckpointSha256)).record;
+      return Object.freeze({ process: existing, program: programRecord, binding: bindingRecord, checkpoint, created: false });
+    }
+    // A crash can occur after Process creation but before the initial checkpoint CAS. Rebuild that
+    // exact boundary from the persisted creation time; never leave a half-started Process or invent
+    // a second checkpoint identity on retry.
+    const checkpoint = buildCheckpoint(existing, program, {
+      createdAt: existing.createdAt,
+      priorCheckpointSha256: null
+    });
+    const checkpointPublication = await putSgosImmutableRecord(
+      root, id, 'gvm-checkpoint', checkpoint, { reserveExisting: true }
+    );
+    const repaired = await mutateSgosProcess(root, id, (draft) => {
+      draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
+    }, {
+      expectedRevision: existing.processRevision,
+      expectedProcessSha256: existing.processSha256,
+      updatedAt: existing.updatedAt,
+      recordReservations: [checkpointPublication.reservationToken].filter(Boolean)
+    });
+    return Object.freeze({
+      process: repaired, program: programRecord, binding: bindingRecord,
+      checkpoint, created: false, recoveredStart: true
+    });
   }
 
   const checkpoint = buildCheckpoint(created, program, { createdAt, priorCheckpointSha256: null });
-  await putSgosImmutableRecord(root, id, 'gvm-checkpoint', checkpoint);
+  const checkpointPublication = await putSgosImmutableRecord(
+    root, id, 'gvm-checkpoint', checkpoint
+  );
   const process = await mutateSgosProcess(root, id, (draft) => {
     draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
-  }, { expectedRevision: created.processRevision, updatedAt: createdAt });
+  }, {
+    expectedRevision: created.processRevision,
+    updatedAt: createdAt,
+    recordReservations: [checkpointPublication.reservationToken].filter(Boolean)
+  });
   return Object.freeze({ process, program: programRecord, binding: bindingRecord, checkpoint, created: true });
 }
 
@@ -642,21 +863,32 @@ async function invokeHandlerWithTimeout(handler, context, timeoutMs) {
   }
   const controller = new AbortController();
   let timer;
-  const timedOut = new Promise((resolve, reject) => {
+  const handlerSettlement = Promise.resolve()
+    .then(() => handler(Object.freeze({ ...context, signal: controller.signal })))
+    .then(
+      (value) => ({ status: 'fulfilled', value }),
+      (error) => ({ status: 'rejected', error })
+    );
+  const timedOut = new Promise((resolve) => {
     timer = setTimeout(() => {
-      controller.abort();
       const error = new SingularityFlowError(`Task exceeded its ${timeoutMs}ms execution ceiling.`, {
         code: 'SGOS_TASK_TIMEOUT', details: { timeoutMs }
       });
       error.uncertainEffect = true;
-      reject(error);
+      // Abort is advisory for an in-process handler. The lease remains owned until the handler
+      // actually settles, because removing it sooner would let recovery retry code that still runs.
+      controller.abort(error);
+      resolve({ status: 'timed-out', error });
     }, timeoutMs);
   });
   try {
-    return await Promise.race([
-      Promise.resolve().then(() => handler(Object.freeze({ ...context, signal: controller.signal }))),
-      timedOut
-    ]);
+    const first = await Promise.race([handlerSettlement, timedOut]);
+    if (first.status === 'timed-out') {
+      await handlerSettlement;
+      throw first.error;
+    }
+    if (first.status === 'rejected') throw first.error;
+    return first.value;
   } finally {
     clearTimeout(timer);
   }
@@ -681,7 +913,13 @@ async function captureCandidate(root, process, context, observation, captureCand
   }
   return createAndReloadCandidate(root, process, {
     resources: normalized.resources,
-    createdBy: normalized.createdBy ?? null,
+    createdBy: normalized.createdBy == null
+      ? { id: `sgos-attempt:${context.attemptId}`, kind: 'system' }
+      : {
+          ...normalized.createdBy,
+          name: normalized.createdBy.name
+            ?? `SGOS attempt ${context.attemptId}`
+        },
     createdAt
   });
 }
@@ -763,7 +1001,7 @@ async function trustedHandlerOutcome(root, process, context, rawOutcome, capture
 async function trustedRuntimeOutcome(root, process, context, outcome, method, createdAt) {
   const candidate = await createAndReloadCandidate(root, process, {
     resources: [],
-    createdBy: { id: 'sgos-runtime', kind: 'system' },
+    createdBy: { id: `sgos-runtime:${context.attemptId}`, kind: 'system' },
     createdAt
   });
   return {
@@ -825,6 +1063,18 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
   if (settings.authorityRequired == null) {
     fail(`HUMAN_REQUEST task '${task.taskTemplateId}' has no explicit authority.`, 'SGOS_HUMAN_REQUEST_AUTHORITY_REQUIRED');
   }
+  const pinnedRequirement = process.authorityBinding?.humanAuthorityRequirements?.find((entry) =>
+    entry.kind === settings.authorityRequired.kind && entry.id === settings.authorityRequired.id);
+  if (pinnedRequirement == null) {
+    fail(`HUMAN_REQUEST task '${task.taskTemplateId}' is not bound to an approved Human authority definition.`,
+      'SGOS_HUMAN_REQUEST_AUTHORITY_REQUIRED');
+  }
+  settings.authorityRequired = clone(pinnedRequirement);
+  const configurationAuthority = process.authorityBinding?.configurationAuthority;
+  if (configurationAuthority == null) {
+    fail(`HUMAN_REQUEST task '${task.taskTemplateId}' has no immutable approved configuration authority.`,
+      'SGOS_APPROVED_CONFIGURATION_REQUIRED');
+  }
   const identity = {
     processId: process.processId,
     taskInstanceId: task.taskInstanceId,
@@ -843,6 +1093,7 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
     checkpointSha256: process.currentCheckpointSha256,
     requestedBy: clone(settings.requestedBy ?? { kind: 'system', id: 'sgos-runtime' }),
     authorityRequired: clone(settings.authorityRequired),
+    configurationAuthority: clone(configurationAuthority),
     prompt: clone(settings.prompt ?? { title: 'Human decision required', detail: '' }),
     options: clone(settings.options ?? []),
     inputSchema: clone(settings.inputSchema ?? null),
@@ -857,16 +1108,28 @@ function humanRequestFor(process, task, template, attemptId, createdAt) {
   });
 }
 
-async function finalizeHumanRequest(root, begun, task, request, program, clock) {
-  await putSgosImmutableRecord(root, begun.processId, 'human-request', request);
+async function finalizeHumanRequest(
+  root, begun, task, request, program, clock, executionLease, recordReservations = []
+) {
+  const requestPublication = await putSgosImmutableRecord(
+    root, begun.processId, 'human-request', request
+  );
   const process = await mutateSgosProcess(root, begun.processId, (draft) => {
     const target = draft.taskInstances[task.taskInstanceId];
     target.state = 'waiting-human';
     target.revision += 1;
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== task.attemptId);
+    draft.activeLeases = draft.activeLeases.filter((id) => id !== executionLease.leaseId);
     draft.openHumanRequests = [...new Set([...draft.openHumanRequests, request.requestSha256])].sort();
     updateReadinessAndStatus(draft, program);
-  }, { expectedRevision: begun.processRevision, expectedProcessSha256: begun.processSha256, updatedAt: instant(clock) });
+  }, {
+    expectedRevision: begun.processRevision,
+    expectedProcessSha256: begun.processSha256,
+    updatedAt: instant(clock),
+    recordReservations: [
+      ...recordReservations, requestPublication.reservationToken
+    ].filter(Boolean)
+  });
   return Object.freeze({ status: 'waiting-human', taskInstanceId: task.taskInstanceId, request, process });
 }
 
@@ -876,6 +1139,68 @@ function executionHandle(process, task, attemptId) {
     taskInstanceId: task.taskInstanceId,
     attemptId
   });
+}
+
+function createExecutionLease(before, task, attemptId) {
+  const ownerId = `OWNER-${randomUUID()}`;
+  const leaseId = `LEASE-${randomUUID()}`;
+  const timestamp = operationalInstant();
+  return Object.freeze({
+    kind: 'sgos-execution-lease',
+    leaseId,
+    processId: before.processId,
+    attemptId,
+    taskInstanceId: task.taskInstanceId,
+    ownerId,
+    ownerPid: process.pid,
+    ownerStartFingerprint: currentSgosExecutionOwnerFingerprint(),
+    beforeProcessSha256: before.processSha256,
+    beforeProcessRevision: before.processRevision,
+    executionHandleSha256: executionHandle(before, task, attemptId),
+    acquiredAt: timestamp,
+    heartbeatAt: timestamp
+  });
+}
+
+async function assertOwnedExecutionLease(root, context) {
+  if (context.heartbeatError?.()) {
+    const error = new SingularityFlowError('SGOS execution lease heartbeat could not be persisted.', {
+      code: 'SGOS_EXECUTION_LEASE_LOST',
+      details: { cause: context.heartbeatError().message ?? String(context.heartbeatError()) }
+    });
+    error.uncertainEffect = true;
+    throw error;
+  }
+  const lease = await readSgosExecutionLease(
+    root, context.begun.processId, context.executionLease.leaseId
+  );
+  if (!lease || lease.ownerId !== context.executionLease.ownerId
+      || lease.attemptId !== context.attemptId || lease.ownerPid !== process.pid
+      || lease.ownerStartFingerprint !== context.executionLease.ownerStartFingerprint) {
+    const error = new SingularityFlowError('SGOS execution ownership was lost before publication.', {
+      code: 'SGOS_EXECUTION_LEASE_LOST',
+      details: {
+        leaseId: context.executionLease.leaseId,
+        leaseAvailable: lease != null,
+        ownerMatches: lease?.ownerId === context.executionLease.ownerId,
+        attemptMatches: lease?.attemptId === context.attemptId,
+        processMatches: lease?.ownerPid === process.pid,
+        processStartMatches: lease?.ownerStartFingerprint
+          === context.executionLease.ownerStartFingerprint
+      }
+    });
+    error.uncertainEffect = true;
+    throw error;
+  }
+  if (!isSgosExecutionOwnerLive(lease)) {
+    const error = new SingularityFlowError('SGOS execution owner is no longer live.', {
+      code: 'SGOS_EXECUTION_LEASE_LOST',
+      details: { leaseId: lease.leaseId, ownerId: lease.ownerId }
+    });
+    error.uncertainEffect = true;
+    throw error;
+  }
+  return lease;
 }
 
 async function persistAttemptAndEvidence(root, {
@@ -890,20 +1215,44 @@ async function persistAttemptAndEvidence(root, {
   verification,
   outcome = {},
   evidenceContext = {},
+  attemptReason = null,
+  existingAttempt = null,
+  executionHandleSha256 = null,
+  preState = null,
+  startedAt = null,
   completedAt
 }) {
-  const attempt = buildSgosTaskAttempt({
+  const proposedAttempt = buildSgosTaskAttempt({
     attemptId,
     processId: begun.processId,
     taskInstanceId: task.taskInstanceId,
     attemptNumber,
     parentAttemptId: task.attemptIds.filter((id) => id !== attemptId).at(-1) ?? null,
-    reason: attemptNumber === 1 ? 'initial' : 'retry',
+    reason: attemptReason ?? (attemptNumber === 1 ? 'initial' : 'retry'),
     taskContractSha256: begun.taskContractSha256,
-    executionHandleSha256: executionHandle(before, task, attemptId),
-    status
+    executionHandleSha256: executionHandleSha256 ?? executionHandle(before, task, attemptId),
+    status,
+    startedAt,
+    completedAt
   });
-  await putSgosImmutableRecord(root, begun.processId, 'gvm-task-attempt', attempt);
+  if (existingAttempt != null && canonicalJson(existingAttempt) !== canonicalJson(proposedAttempt)) {
+    fail('Existing terminal attempt does not exactly match the attempted replay.',
+      'SGOS_RECORD_LINEAGE_INVALID', {
+        attemptId,
+        existingStatus: existingAttempt.status,
+        proposedStatus: status
+      });
+  }
+  const attempt = existingAttempt ?? proposedAttempt;
+  const recordReservations = [];
+  if (existingAttempt == null) {
+    const publication = await putSgosImmutableRecord(
+      root, begun.processId, 'gvm-task-attempt', attempt
+    );
+    if (publication.reservationToken != null) {
+      recordReservations.push(publication.reservationToken);
+    }
+  }
   const evidence = compileSgosActionEvidence({
     processId: begun.processId,
     taskInstanceId: task.taskInstanceId,
@@ -915,7 +1264,7 @@ async function persistAttemptAndEvidence(root, {
     executionUnitManifest: evidenceContext.executionUnitManifest ?? null,
     deviceManifest: evidenceContext.deviceManifest ?? null,
     arguments: template.operation ?? {},
-    preState: { processSha256: before.processSha256, processRevision: before.processRevision },
+    preState: preState ?? { processSha256: before.processSha256, processRevision: before.processRevision },
     rawResult,
     postState: outcome.candidateSnapshot?.candidateSha256
       ?? outcome.postState?.candidateSha256
@@ -934,8 +1283,13 @@ async function persistAttemptAndEvidence(root, {
     requiresDevice: template.opcode === 'DEVICE',
     createdAt: completedAt
   });
-  await putSgosImmutableRecord(root, begun.processId, 'action-evidence', evidence);
-  return { attempt, evidence };
+  const evidencePublication = await putSgosImmutableRecord(
+    root, begun.processId, 'action-evidence', evidence
+  );
+  if (evidencePublication.reservationToken != null) {
+    recordReservations.push(evidencePublication.reservationToken);
+  }
+  return { attempt, evidence, recordReservations };
 }
 
 async function finalizeFailure(root, context, error, program, clock) {
@@ -945,7 +1299,7 @@ async function finalizeFailure(root, context, error, program, clock) {
   }] };
   const completedAt = instant(clock);
   const rawResult = { status: 'failed', error: { code: error?.code ?? null, message: error?.message ?? String(error) } };
-  const { attempt, evidence } = await persistAttemptAndEvidence(root, {
+  const { attempt, evidence, recordReservations } = await persistAttemptAndEvidence(root, {
     ...context,
     status: 'failed',
     rawResult,
@@ -953,25 +1307,38 @@ async function finalizeFailure(root, context, error, program, clock) {
     completedAt
   });
   const uncertain = error?.uncertainEffect === true
-    || (context.template.resources?.externalEffects?.length ?? 0) > 0;
+    || (context.template.resources?.externalEffects?.length ?? 0) > 0
+    || (context.template.resources?.writes?.length ?? 0) > 0
+    || (context.template.resources?.devices?.length ?? 0) > 0;
+  const retryReady = !uncertain && context.attemptNumber < retryCeiling(context.template);
   const process = await mutateSgosProcess(root, context.begun.processId, (draft) => {
     const task = draft.taskInstances[context.task.taskInstanceId];
-    task.state = uncertain ? 'recovery-required' : 'failed';
+    task.state = uncertain ? 'recovery-required' : retryReady ? 'ready' : 'failed';
     task.revision += 1;
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== context.attemptId);
+    draft.activeLeases = draft.activeLeases.filter((id) => id !== context.executionLease.leaseId);
     updateReadinessAndStatus(draft, program);
   }, {
     expectedRevision: context.begun.processRevision,
     expectedProcessSha256: context.begun.processSha256,
-    updatedAt: completedAt
+    updatedAt: completedAt,
+    recordReservations: [
+      ...(context.recordReservations ?? []),
+      ...recordReservations,
+      reservationOf(context.outcome?.candidateSnapshot ?? context.outcome?.candidate)
+    ].filter(Boolean)
   });
   return Object.freeze({
-    status: uncertain ? 'recovery-required' : 'failed',
+    status: uncertain ? 'recovery-required' : retryReady ? 'retry-ready' : 'failed',
     taskInstanceId: context.task.taskInstanceId,
     process,
     attempt,
     evidence,
-    error: Object.freeze({ code: error?.code ?? 'SGOS_TASK_FAILED', message: error?.message ?? String(error) })
+    error: Object.freeze({
+      code: error?.code ?? 'SGOS_TASK_FAILED',
+      message: error?.message ?? String(error),
+      details: error?.details ?? null
+    })
   });
 }
 
@@ -995,6 +1362,14 @@ function assertRequiredTaskEvidence(template, outcome) {
 }
 
 async function finalizeSuccess(root, context, outcome, program, clock, checkpoint = null) {
+  try {
+    await assertOwnedExecutionLease(root, context);
+    await assertCurrentStoredProcessBinding(root, context.begun);
+  } catch (error) {
+    if (error?.code === 'SGOS_PROCESS_BINDING_STALE') error.uncertainEffect = true;
+    return finalizeFailure(root, { ...context, outcome }, error, program, clock);
+  }
+  const candidateReservation = reservationOf(outcome.candidateSnapshot);
   let candidate;
   try { candidate = validateCandidateSnapshot(outcome.candidateSnapshot); } catch {
     const error = new SingularityFlowError('Task success has no immutable contract-valid Candidate Snapshot.', {
@@ -1013,7 +1388,7 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     return finalizeFailure(root, { ...context, outcome }, error, program, clock);
   }
   const completedAt = instant(clock);
-  const { attempt, evidence } = await persistAttemptAndEvidence(root, {
+  const { attempt, evidence, recordReservations } = await persistAttemptAndEvidence(root, {
     ...context,
     status: 'succeeded',
     rawResult: outcome.rawResult ?? outcome,
@@ -1029,6 +1404,7 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     processId: context.begun.processId,
     taskInstanceId: context.task.taskInstanceId,
     attemptId: context.attemptId,
+    attemptSha256: attempt.attemptSha256,
     inputRefs: context.task.inputRefs,
     outputRefs,
     candidateSha256: candidate.candidateSha256,
@@ -1040,7 +1416,9 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     completedAt
   });
   // The receipt crosses the immutable boundary before the mutable process can say `succeeded`.
-  await putSgosImmutableRecord(root, context.begun.processId, 'gvm-task-receipt', receipt);
+  const receiptPublication = await putSgosImmutableRecord(
+    root, context.begun.processId, 'gvm-task-receipt', receipt
+  );
   const process = await mutateSgosProcess(root, context.begun.processId, (draft) => {
     const task = draft.taskInstances[context.task.taskInstanceId];
     task.state = 'succeeded';
@@ -1048,12 +1426,19 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     task.receiptSha256 = receipt.receiptSha256;
     task.revision += 1;
     draft.activeExecutions = draft.activeExecutions.filter((id) => id !== context.attemptId);
+    draft.activeLeases = draft.activeLeases.filter((id) => id !== context.executionLease.leaseId);
     if (checkpoint) draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
     updateReadinessAndStatus(draft, program);
   }, {
     expectedRevision: context.begun.processRevision,
     expectedProcessSha256: context.begun.processSha256,
-    updatedAt: completedAt
+    updatedAt: completedAt,
+    recordReservations: [
+      ...(context.recordReservations ?? []),
+      ...recordReservations,
+      candidateReservation,
+      receiptPublication.reservationToken
+    ].filter(Boolean)
   });
   return Object.freeze({ status: 'succeeded', taskInstanceId: context.task.taskInstanceId, process, attempt, receipt, evidence, checkpoint });
 }
@@ -1061,10 +1446,22 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
 function allOtherTasksTerminal(process, taskInstanceId) {
   return Object.values(process.taskInstances)
     .filter((task) => task.taskInstanceId !== taskInstanceId)
-    .every((task) => ['succeeded', 'skipped'].includes(task.state));
+    .every((task) => task.state === 'succeeded');
 }
 
-/** Execute at most one ready task, selected canonically. */
+function isSgosTransitionRecoveryError(error) {
+  return [
+    'SGOS_TRANSITION_RECOVERED_RETRY',
+    'SGOS_TRANSITION_RECOVERY_REQUIRED'
+  ].includes(error?.code);
+}
+
+/**
+ * Execute at most one ready task, selected canonically.
+ *
+ * @internal Raw adapter injection is an interpreter test seam. Supported callers use
+ * `stepSgosProcess`, which constructs the closed installed adapter registry.
+ */
 export async function runNextSgosTask(root, processId, {
   program: suppliedProgram = null,
   expectedRevision = null,
@@ -1075,7 +1472,10 @@ export async function runNextSgosTask(root, processId, {
   clock = null
 } = {}) {
   await assertSafeSgosSidecar(root, processId);
+  await settlePendingTransitionBeforeMutation(root, processId, 'step');
+  await reconcileSgosExecutionLeases(root, processId);
   const before = await readSgosProcess(root, processId);
+  await assertCurrentStoredProcessBinding(root, before);
   const program = await resolveProgram(root, before, suppliedProgram);
   if (expectedRevision != null && before.processRevision !== expectedRevision) {
     fail(`SGOS process '${processId}' changed before dispatch.`, 'SGOS_PROCESS_REVISION_STALE', {
@@ -1105,10 +1505,10 @@ export async function runNextSgosTask(root, processId, {
   }
   const handlerKind = template.opcode === 'KERNEL' ? 'kernel' : template.opcode === 'VERIFY' ? 'verify' : null;
   if (handlerKind && !operationHandler(handlers, handlerKind, template)) {
-    return blockTask(root, before, task, {
+    return Object.freeze({ status: 'unavailable', reason: Object.freeze({
       code: `SGOS_${template.opcode}_HANDLER_REQUIRED`,
       message: `${template.opcode} '${template.operation ?? task.taskTemplateId}' has no governed handler.`
-    }, clock);
+    }), taskInstanceId: task.taskInstanceId, process: before });
   }
   if (template.opcode === 'END' && !allOtherTasksTerminal(before, task.taskInstanceId)) {
     return blockTask(root, before, task, {
@@ -1123,18 +1523,75 @@ export async function runNextSgosTask(root, processId, {
     taskInstanceId: task.taskInstanceId,
     attemptNumber
   });
-  const begun = await mutateSgosProcess(root, before.processId, (draft) => {
-    const target = draft.taskInstances[task.taskInstanceId];
-    target.state = template.opcode === 'VERIFY' ? 'verifying' : 'running';
-    target.attemptIds = [...target.attemptIds, attemptId];
-    target.revision += 1;
-    draft.activeExecutions = [...draft.activeExecutions, attemptId];
-    draft.status = 'running';
-  }, {
-    expectedRevision: before.processRevision,
-    expectedProcessSha256: before.processSha256,
-    updatedAt: instant(clock)
+  const pendingRunningAttempt = await readSgosPendingReservedRecordByField(
+    root, before.processId, 'gvm-task-attempt', 'attemptId', attemptId
+  );
+  const startedAt = pendingRunningAttempt?.startedAt ?? instant(clock);
+  const executionLeaseSeed = createExecutionLease(before, task, attemptId);
+  const runningAttempt = pendingRunningAttempt ?? buildSgosTaskAttempt({
+    attemptId,
+    processId: before.processId,
+    taskInstanceId: task.taskInstanceId,
+    attemptNumber,
+    parentAttemptId: task.attemptIds.at(-1) ?? null,
+    reason: attemptNumber === 1 ? 'initial' : 'retry',
+    taskContractSha256: before.taskContractSha256,
+    executionHandleSha256: executionLeaseSeed.executionHandleSha256,
+    status: 'running',
+    startedAt,
+    completedAt: null
   });
+  if (runningAttempt.processId !== before.processId
+      || runningAttempt.taskInstanceId !== task.taskInstanceId
+      || runningAttempt.attemptNumber !== attemptNumber
+      || runningAttempt.parentAttemptId !== (task.attemptIds.at(-1) ?? null)
+      || runningAttempt.taskContractSha256 !== before.taskContractSha256
+      || runningAttempt.executionHandleSha256 !== executionLeaseSeed.executionHandleSha256
+      || runningAttempt.status !== 'running' || runningAttempt.completedAt !== null) {
+    throw new SingularityFlowError('Pending SGOS attempt intent does not match the exact retry boundary.', {
+      code: 'SGOS_RECORD_LINEAGE_INVALID',
+      details: { attemptId }
+    });
+  }
+  const executionLease = Object.freeze({
+    ...executionLeaseSeed,
+    attemptSha256: runningAttempt.attemptSha256
+  });
+  registerSgosExecutionOwner(executionLease);
+  let begun;
+  try {
+    begun = await mutateSgosProcess(root, before.processId, async (draft) => {
+      // Lease, exact running-attempt intent, and active-state CAS share the Process lock. Competing
+      // dispatchers therefore cannot publish divergent records for the same stable attemptId.
+      await writeSgosExecutionLease(root, before.processId, executionLease);
+      await putSgosImmutableRecord(root, before.processId, 'gvm-task-attempt', runningAttempt);
+      const target = draft.taskInstances[task.taskInstanceId];
+      target.state = template.opcode === 'VERIFY' ? 'verifying' : 'running';
+      target.attemptIds = [...target.attemptIds, attemptId];
+      target.revision += 1;
+      draft.activeExecutions = [...draft.activeExecutions, attemptId];
+      draft.activeLeases = [...draft.activeLeases, executionLease.leaseId];
+      draft.status = 'running';
+    }, {
+      expectedRevision: before.processRevision,
+      expectedProcessSha256: before.processSha256,
+      updatedAt: startedAt
+    });
+  } catch (error) {
+    unregisterSgosExecutionOwner(executionLease);
+    await removeSgosExecutionLeaseIfUnreferenced(root, before.processId, executionLease);
+    throw error;
+  }
+  let heartbeatError = null;
+  let heartbeatPromise = Promise.resolve();
+  let lastLease = executionLease;
+  const heartbeat = setInterval(() => {
+    heartbeatPromise = heartbeatPromise.then(async () => {
+      lastLease = { ...lastLease, heartbeatAt: operationalInstant() };
+      await writeSgosExecutionLease(root, before.processId, lastLease);
+    }).catch((error) => { heartbeatError = error; });
+  }, EXECUTION_LEASE_HEARTBEAT_MS);
+  heartbeat.unref?.();
   const context = {
     begun,
     before,
@@ -1142,39 +1599,52 @@ export async function runNextSgosTask(root, processId, {
     template,
     attemptId,
     attemptNumber,
+    startedAt,
+    executionLease,
+    heartbeatError: () => heartbeatError,
     evidenceContext,
     handlers,
     handlerKind
   };
 
   try {
+    context.recordReservations = [];
+    await assertOwnedExecutionLease(root, context);
     if (template.opcode === 'HUMAN_REQUEST') {
       const request = humanRequestFor(before, task, template, attemptId, instant(clock));
-      return finalizeHumanRequest(root, begun, context.task, request, program, clock);
+      return await finalizeHumanRequest(
+        root, begun, context.task, request, program, clock, executionLease,
+        context.recordReservations
+      );
     }
     if (template.opcode === 'CHECKPOINT') {
       const checkpoint = buildCheckpoint(before, program, {
         priorCheckpointSha256: before.currentCheckpointSha256,
         createdAt: instant(clock)
       });
-      await putSgosImmutableRecord(root, before.processId, 'gvm-checkpoint', checkpoint);
+      const checkpointPublication = await putSgosImmutableRecord(
+        root, before.processId, 'gvm-checkpoint', checkpoint
+      );
+      if (checkpointPublication.reservationToken != null) {
+        context.recordReservations.push(checkpointPublication.reservationToken);
+      }
       const outcome = await trustedRuntimeOutcome(root, begun, context, {
         outputRefs: [checkpoint.checkpointSha256],
         rawResult: { status: 'completed', checkpointSha256: checkpoint.checkpointSha256 }
       }, 'kernel-checkpoint-integrity', instant(clock));
-      return finalizeSuccess(root, context, outcome, program, clock, checkpoint);
+      return await finalizeSuccess(root, context, outcome, program, clock, checkpoint);
     }
     if (template.opcode === 'NOOP') {
       const outcome = await trustedRuntimeOutcome(root, begun, context, {
         rawResult: { status: 'completed', opcode: 'NOOP' }
       }, 'kernel-noop', instant(clock));
-      return finalizeSuccess(root, context, outcome, program, clock);
+      return await finalizeSuccess(root, context, outcome, program, clock);
     }
     if (template.opcode === 'END') {
       const outcome = await trustedRuntimeOutcome(root, begun, context, {
         rawResult: { status: 'completed', opcode: 'END' }
       }, 'kernel-terminal-condition', instant(clock));
-      return finalizeSuccess(root, context, outcome, program, clock);
+      return await finalizeSuccess(root, context, outcome, program, clock);
     }
     const handler = operationHandler(handlers, handlerKind, template);
     const rawOutcome = await invokeHandlerWithTimeout(handler, {
@@ -1188,10 +1658,38 @@ export async function runNextSgosTask(root, processId, {
     const outcome = await trustedHandlerOutcome(
       root, begun, context, rawOutcome, captureCandidates, verifiers, instant(clock)
     );
-    return finalizeSuccess(root, context, outcome ?? {}, program, clock);
+    return await finalizeSuccess(root, context, outcome ?? {}, program, clock);
   } catch (error) {
-    return finalizeFailure(root, context, error, program, clock);
+    if (isSgosTransitionRecoveryError(error)) throw error;
+    const pendingTerminalAttempt = await readSgosPendingReservedRecordByField(
+      root, before.processId, 'gvm-task-attempt', 'attemptId', attemptId
+    );
+    if (pendingTerminalAttempt != null && pendingTerminalAttempt.status !== 'running') {
+      fail('A terminal SGOS attempt is already durable, but its exact final Process transition did not complete. Recover that immutable terminal lineage before retrying execution.',
+        'SGOS_EXECUTION_FINALIZATION_RECOVERY_REQUIRED', {
+          attemptId,
+          attemptSha256: pendingTerminalAttempt.attemptSha256,
+          status: pendingTerminalAttempt.status,
+          causeCode: error?.code ?? null
+        });
+    }
+    return await finalizeFailure(root, context, error, program, clock);
+  } finally {
+    clearInterval(heartbeat);
+    await heartbeatPromise;
+    unregisterSgosExecutionOwner(executionLease);
+    await removeSgosExecutionLeaseIfUnreferenced(root, before.processId, executionLease);
   }
+}
+
+/** Execute one canonical step using only installed, manifest-checked adapters. */
+export async function stepSgosProcess(root, processId, options = {}) {
+  ownKeysOnly(options, ['program', 'expectedRevision'], 'SGOS step options', 'SGOS_STEP_OPTIONS_INVALID');
+  return runNextSgosTask(root, processId, {
+    program: options.program ?? null,
+    expectedRevision: options.expectedRevision ?? null,
+    ...createSgosBuiltinAdapters(root)
+  });
 }
 
 function durablePrincipal(actor, authoritySha256 = null) {
@@ -1203,7 +1701,7 @@ function durablePrincipal(actor, authoritySha256 = null) {
   return principal;
 }
 
-async function resolveResponseAuthority(request, actor, process, authorityResolver) {
+async function resolveResponseAuthority(request, actor, authorities) {
   if (typeof actor?.id !== 'string' || !actor.id || typeof actor?.kind !== 'string' || !actor.kind) {
     fail('Human Request response requires a typed principal.', 'SGOS_HUMAN_REQUEST_UNAUTHORIZED');
   }
@@ -1211,24 +1709,11 @@ async function resolveResponseAuthority(request, actor, process, authorityResolv
     fail('Human Request actor kind is not a contract principal kind.', 'SGOS_HUMAN_REQUEST_UNAUTHORIZED');
   }
   const required = request.authorityRequired;
-  let assertion;
-  if (typeof authorityResolver === 'function') {
-    const resolved = await authorityResolver(Object.freeze({
-      request: clone(request),
-      actor: durablePrincipal(actor),
-      authorityBinding: clone(process.authorityBinding)
-    }));
-    if (resolved == null || typeof resolved !== 'object' || Array.isArray(resolved)) {
-      fail('Trusted authority resolver must return a typed authority assertion, never a boolean.', 'SGOS_AUTHORITY_RESOLVER_INVALID');
-    }
-    assertion = normalizeTrustedAuthority(resolved, 'resolver');
-  } else {
-    assertion = (process.authorityBinding?.humanAuthorities ?? []).find((entry) =>
-      entry.principalId === actor.id
-      && entry.principalKind === actor.kind
-      && entry.kind === required.kind
-      && entry.id === required.id) ?? null;
-  }
+  const assertion = (authorities ?? []).find((entry) =>
+    entry.principalId === actor.id
+    && entry.principalKind === actor.kind
+    && entry.kind === required.kind
+    && entry.id === required.id) ?? null;
   if (assertion == null
       || assertion.principalId !== actor.id
       || assertion.principalKind !== actor.kind
@@ -1402,53 +1887,84 @@ async function openRequestById(root, process, requestId) {
 }
 
 /** Compare-and-swap a typed response against the exact request, checkpoint, task, and policy. */
-export async function respondToSgosHumanRequest(root, processId, {
-  requestId,
-  requestSha256,
-  expectedRevision,
-  actor,
-  decision,
-  input = null,
-  authorityResolver = null,
-  authorize = null,
-  program: suppliedProgram = null,
-  clock = null
-} = {}) {
+export async function respondToSgosHumanRequest(root, processId, options = {}) {
+  if (Object.hasOwn(options, 'authorityResolver') || Object.hasOwn(options, 'authorize')) {
+    fail('Caller-supplied Human authority resolvers are not accepted; SGOS uses only the approved authority pinned at Process start.',
+      'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
+  }
+  const {
+    requestId,
+    requestSha256,
+    expectedRevision,
+    actor,
+    decision,
+    input = null,
+    program: suppliedProgram = null,
+    clock = null
+  } = options;
   await assertSafeSgosSidecar(root, processId);
+  await settlePendingTransitionBeforeMutation(root, processId, 'respond');
   if (!Number.isInteger(expectedRevision)) fail('Human response requires expectedRevision.', 'SGOS_PROCESS_REVISION_REQUIRED');
   if (!HUMAN_DECISIONS.has(decision)) fail(`Unknown Human Request decision '${decision}'.`, 'SGOS_HUMAN_RESPONSE_INVALID');
   const process = await readSgosProcess(root, processId);
+  await assertCurrentStoredProcessBinding(root, process);
   if (process.processRevision !== expectedRevision) {
     fail('Human Request response is stale because the Process revision changed.', 'SGOS_HUMAN_REQUEST_STALE');
   }
   const program = await resolveProgram(root, process, suppliedProgram);
+  // Persisted Human assertions are a cache, not authority. Recompute membership from the exact
+  // approved configuration that resolveProgram just refreshed, require byte-for-byte agreement
+  // with the immutable Process binding, and authorize from the fresh proof.
+  const freshHumanAuthority = await loadApprovedSgosHumanAuthorityContext(root, program, {
+    refreshAuthority: false
+  });
+  if (canonicalJson(freshHumanAuthority.configurationAuthority)
+        !== canonicalJson(process.authorityBinding?.configurationAuthority ?? null)
+      || canonicalJson(freshHumanAuthority.humanAuthorityRequirements)
+        !== canonicalJson(process.authorityBinding?.humanAuthorityRequirements ?? [])) {
+    fail('Pinned Human authority no longer matches the exact approved configuration.',
+      'SGOS_HUMAN_AUTHORITY_BINDING_INVALID', { processId: process.processId });
+  }
   const request = await openRequestById(root, process, requestId);
   if (!request || request.requestSha256 !== requestSha256) {
     fail('Human Request is no longer open or its exact hash does not match.', 'SGOS_HUMAN_REQUEST_STALE');
-  }
-  const respondedAt = instant(clock);
-  if (request.expiresAt != null && Date.parse(respondedAt) >= Date.parse(request.expiresAt)) {
-    fail('Human Request has expired and cannot be answered.', 'SGOS_HUMAN_REQUEST_EXPIRED');
   }
   const task = process.taskInstances[request.taskInstanceId];
   if (!task || task.state !== 'waiting-human'
       || request.checkpointSha256 !== process.currentCheckpointSha256
       || request.policySnapshotSha256 !== process.policySnapshotSha256
+      || canonicalJson(request.configurationAuthority)
+        !== canonicalJson(process.authorityBinding?.configurationAuthority ?? null)
       || request.subjectSha256 !== taskSubjectSha256(process, task)) {
     fail('Human Request subject, policy, checkpoint, or task state is stale.', 'SGOS_HUMAN_REQUEST_STALE');
   }
+  const observedActor = currentSgosHumanActor(root, actor);
   const trustedAuthority = await resolveResponseAuthority(
-    request, actor, process, authorityResolver ?? authorize
+    request, observedActor, freshHumanAuthority.humanAuthorities
   );
   validateHumanDecision(request, decision, input);
-  const responseActor = durablePrincipal(actor, trustedAuthority.authoritySha256);
+  const responseActor = durablePrincipal(observedActor, trustedAuthority.authoritySha256);
+  const priorResponses = await listSgosImmutableRecordsByField(
+    root, process.processId, 'human-response', 'requestSha256', requestSha256
+  );
+  if (priorResponses.length > 1) {
+    fail('Human Request has ambiguous immutable response lineage.', 'SGOS_RECORD_LINEAGE_INVALID');
+  }
+  const priorResponse = priorResponses[0] ?? null;
+  // Authorization time is runtime-owned. A caller-injected test clock must never make an expired
+  // request answerable; a prior immutable response retains its original durable timestamp.
+  const authorizationAt = operationalInstant();
+  if (request.expiresAt != null && Date.parse(authorizationAt) >= Date.parse(request.expiresAt)) {
+    fail('Human Request has expired and cannot be answered.', 'SGOS_HUMAN_REQUEST_EXPIRED');
+  }
+  const respondedAt = priorResponse?.respondedAt ?? authorizationAt;
   const responseIdentity = {
     requestSha256,
     actor: responseActor,
     decision,
     input: clone(input)
   };
-  const response = sealSgosImmutableRecord('human-response', {
+  const proposedResponse = sealSgosImmutableRecord('human-response', {
     schemaVersion: currentSchemaVersion('human-response'),
     kind: 'human-response',
     responseId: stableId('HRS', responseIdentity),
@@ -1460,9 +1976,25 @@ export async function respondToSgosHumanRequest(root, processId, {
     input: clone(input),
     respondedAt
   });
-  await putSgosImmutableRecord(root, process.processId, 'human-response', response);
+  if (priorResponse && canonicalJson(priorResponse) !== canonicalJson(proposedResponse)) {
+    fail('Human Request already has a different immutable response.',
+      'SGOS_HUMAN_REQUEST_ALREADY_RESPONDED', {
+        requestSha256,
+        responseSha256: priorResponse.responseSha256
+      });
+  }
+  const response = priorResponse ?? proposedResponse;
   const attemptId = task.attemptIds.at(-1);
   const attemptNumber = task.attemptIds.length;
+  const attemptLineage = await listSgosImmutableRecordsByField(
+    root, process.processId, 'gvm-task-attempt', 'attemptId', attemptId
+  );
+  const runningAttempt = attemptLineage.find((record) => record.status === 'running');
+  const terminalAttempts = attemptLineage.filter((record) => record.status !== 'running');
+  if (!runningAttempt || attemptLineage.filter((record) => record.status === 'running').length !== 1
+      || terminalAttempts.length > 1) {
+    fail('Human Request attempt lineage is missing or ambiguous.', 'SGOS_RECORD_LINEAGE_INVALID');
+  }
   const template = templateById(program).get(task.taskTemplateId);
   const context = {
     begun: process,
@@ -1473,54 +2005,83 @@ export async function respondToSgosHumanRequest(root, processId, {
     attemptNumber,
     evidenceContext: { principal: responseActor }
   };
-  const candidate = await createAndReloadCandidate(root, process, {
-    resources: [],
-    createdBy: responseActor,
-    createdAt: respondedAt
-  });
-  const verification = boundVerification({
-    method: 'typed-human-response-cas',
-    candidate,
-    task,
-    programSha256: process.programSha256,
-    rawVerdict: { status: 'passed', checks: { requestSha256, responseSha256: response.responseSha256 } }
-  });
-  const humanOutcome = {
-    evidenceRefs: [response.responseSha256],
-    humanDecisionRefs: [response.responseSha256],
-    postState: candidate,
-    candidateSnapshot: candidate
-  };
-  assertRequiredTaskEvidence(template, humanOutcome);
-  const { attempt, evidence } = await persistAttemptAndEvidence(root, {
-    ...context,
-    status: 'succeeded',
-    rawResult: response,
-    verification,
-    outcome: humanOutcome,
-    completedAt: respondedAt
-  });
-  const receipt = buildSgosTaskReceipt({
-    processId: process.processId,
-    taskInstanceId: task.taskInstanceId,
-    attemptId,
-    inputRefs: task.inputRefs,
-    outputRefs: [response.responseSha256],
-    candidateSha256: candidate.candidateSha256,
-    evidenceRefs: [candidate.candidateSha256, evidence.evidenceSha256],
-    humanDecisionRefs: [response.responseSha256],
-    verification,
-    completedAt: respondedAt
-  });
-  await putSgosImmutableRecord(root, process.processId, 'gvm-task-receipt', receipt);
-  const next = await mutateSgosProcess(root, process.processId, (draft) => {
+  const accepted = ['approved', 'provided', 'selected'].includes(decision);
+  const taskOutcome = accepted ? 'succeeded' : decision === 'cancelled' ? 'cancelled' : 'failed';
+  const terminalAttempt = terminalAttempts[0] ?? null;
+  if (terminalAttempt && terminalAttempt.status !== taskOutcome) {
+    fail('Human Request terminal attempt conflicts with its immutable response.',
+      'SGOS_RECORD_LINEAGE_INVALID');
+  }
+  let candidate;
+  let verification;
+  let attempt;
+  let evidence;
+  let receipt;
+  // Hold the Process CAS lock while publishing every immutable response record.  Concurrent
+  // responders must not be able to create divergent terminal lineage for one attemptId before
+  // one of their final CAS operations loses.
+  const next = await mutateSgosProcess(root, process.processId, async (draft) => {
     const target = draft.taskInstances[task.taskInstanceId];
     if (target.state !== 'waiting-human' || !draft.openHumanRequests.includes(request.requestSha256)) {
       fail('Human Request changed before its response committed.', 'SGOS_HUMAN_REQUEST_STALE');
     }
-    target.state = 'succeeded';
-    target.outputRefs = [response.responseSha256];
-    target.receiptSha256 = receipt.receiptSha256;
+    await putSgosImmutableRecord(root, process.processId, 'human-response', response);
+    candidate = await createAndReloadCandidate(root, process, {
+      resources: [],
+      createdBy: {
+        ...responseActor,
+        name: responseActor.name ?? `SGOS response ${attemptId}`
+      },
+      createdAt: respondedAt
+    });
+    verification = boundVerification({
+      method: 'typed-human-response-cas',
+      candidate,
+      task,
+      programSha256: process.programSha256,
+      rawVerdict: { status: 'passed', checks: { requestSha256, responseSha256: response.responseSha256 } }
+    });
+    const humanOutcome = {
+      evidenceRefs: [response.responseSha256],
+      humanDecisionRefs: [response.responseSha256],
+      postState: candidate,
+      candidateSnapshot: candidate
+    };
+    assertRequiredTaskEvidence(template, humanOutcome);
+    ({ attempt, evidence } = await persistAttemptAndEvidence(root, {
+      ...context,
+      status: taskOutcome,
+      rawResult: response,
+      verification,
+      outcome: humanOutcome,
+      existingAttempt: terminalAttempt,
+      executionHandleSha256: runningAttempt.executionHandleSha256,
+      startedAt: runningAttempt.startedAt,
+      completedAt: respondedAt
+    }));
+    receipt = accepted ? buildSgosTaskReceipt({
+        processId: process.processId,
+        taskInstanceId: task.taskInstanceId,
+        attemptId,
+        attemptSha256: attempt.attemptSha256,
+        inputRefs: task.inputRefs,
+        outputRefs: [response.responseSha256],
+        candidateSha256: candidate.candidateSha256,
+        evidenceRefs: [candidate.candidateSha256, evidence.evidenceSha256],
+        humanDecisionRefs: [response.responseSha256],
+        verification,
+        completedAt: respondedAt
+      }) : null;
+    if (receipt) await putSgosImmutableRecord(root, process.processId, 'gvm-task-receipt', receipt);
+    target.state = taskOutcome;
+    // A Human Response is durable evidence for every terminal decision, but it is a task output
+    // only when the task succeeds.  Failed/cancelled transitions must preserve the empty output
+    // and receipt bindings; assertImmutableCore deliberately permits introducing those bindings
+    // only on an exact success transition.
+    if (accepted) {
+      target.outputRefs = [response.responseSha256];
+      target.receiptSha256 = receipt.receiptSha256;
+    }
     target.revision += 1;
     draft.openHumanRequests = draft.openHumanRequests.filter((sha256) => sha256 !== request.requestSha256);
     updateReadinessAndStatus(draft, program);
@@ -1529,13 +2090,421 @@ export async function respondToSgosHumanRequest(root, processId, {
     expectedProcessSha256: process.processSha256,
     updatedAt: respondedAt
   });
-  return Object.freeze({ status: 'succeeded', process: next, request, response, candidate, attempt, receipt, evidence });
+  return Object.freeze({ status: taskOutcome, process: next, request, response, candidate, attempt, receipt, evidence });
+}
+
+function interruptedExecution(process) {
+  if (process.activeExecutions.length !== 1) {
+    fail('Sequential SGOS recovery requires exactly one interrupted execution.',
+      'SGOS_EXECUTION_RECOVERY_INVALID', { activeExecutions: process.activeExecutions });
+  }
+  const attemptId = process.activeExecutions[0];
+  const matches = Object.values(process.taskInstances)
+    .filter((task) => task.attemptIds.includes(attemptId));
+  if (matches.length !== 1) {
+    fail('The interrupted execution is not bound to exactly one task.',
+      'SGOS_EXECUTION_RECOVERY_INVALID', { attemptId, taskCount: matches.length });
+  }
+  return { attemptId, task: matches[0] };
+}
+
+function recoverableExecution(process) {
+  if (process.activeExecutions.length) {
+    return { ...interruptedExecution(process), active: true };
+  }
+  const matches = Object.values(process.taskInstances)
+    .filter((task) => task.state === 'recovery-required' && task.attemptIds.length > 0);
+  if (matches.length !== 1) {
+    fail('Sequential SGOS recovery requires exactly one active or recovery-required task.',
+      'SGOS_EXECUTION_RECOVERY_INVALID', { recoveryRequiredTasks: matches.length });
+  }
+  return { attemptId: matches[0].attemptIds.at(-1), task: matches[0], active: false };
+}
+
+function recoveryConfirmation(process, attemptId, resolution) {
+  return sgosSha256({
+    kind: 'sgos-interrupted-execution-recovery',
+    processId: process.processId,
+    processSha256: process.processSha256,
+    checkpointSha256: process.currentCheckpointSha256,
+    attemptId,
+    resolution
+  });
+}
+
+async function recoveryLease(root, process, attemptId) {
+  if (process.activeLeases.length > 1) {
+    fail('Sequential SGOS recovery found more than one execution lease.',
+      'SGOS_EXECUTION_RECOVERY_INVALID', { activeLeases: process.activeLeases });
+  }
+  const leaseId = process.activeLeases[0] ?? null;
+  const lease = leaseId == null
+    ? null
+    : await readSgosExecutionLease(root, process.processId, leaseId);
+  if (lease && (lease.attemptId !== attemptId || lease.processId !== process.processId)) {
+    fail('The active execution lease is bound to another attempt.',
+      'SGOS_EXECUTION_LEASE_CORRUPT', { leaseId, attemptId });
+  }
+  return Object.freeze({
+    leaseId,
+    lease,
+    status: lease == null ? 'missing' : isSgosExecutionOwnerLive(lease) ? 'live' : 'owner-exited'
+  });
+}
+
+async function recoveryLineage(root, processId, attemptId) {
+  const attempts = await listSgosImmutableRecordsByField(
+    root, processId, 'gvm-task-attempt', 'attemptId', attemptId
+  );
+  const receipts = await listSgosImmutableRecordsByField(
+    root, processId, 'gvm-task-receipt', 'attemptId', attemptId
+  );
+  const evidence = await listSgosImmutableRecordsByField(
+    root, processId, 'action-evidence', 'attemptId', attemptId
+  );
+  const running = attempts.filter((record) => record.status === 'running');
+  const terminal = attempts.filter((record) => record.status !== 'running');
+  if (running.length > 1 || terminal.length > 1 || receipts.length > 1 || evidence.length > 1) {
+    fail('Interrupted execution has ambiguous immutable lineage.',
+      'SGOS_RECORD_LINEAGE_INVALID', {
+        attemptId, running: running.length, terminal: terminal.length,
+        receipts: receipts.length, evidence: evidence.length
+      });
+  }
+  if (receipts.length && terminal[0]?.status !== 'succeeded') {
+    fail('Interrupted execution receipt is not bound to one successful terminal attempt.',
+      'SGOS_RECORD_LINEAGE_INVALID', { attemptId });
+  }
+  if (running[0] && terminal[0]
+      && running[0].executionHandleSha256 !== terminal[0].executionHandleSha256) {
+    fail('Interrupted execution start and terminal records have different handles.',
+      'SGOS_RECORD_LINEAGE_INVALID', { attemptId });
+  }
+  return Object.freeze({
+    attempts, running: running[0] ?? null, terminal: terminal[0] ?? null,
+    receipt: receipts[0] ?? null, evidence: evidence[0] ?? null
+  });
+}
+
+async function reassertRecoveryLineageReservations(root, processId, lineage) {
+  for (const record of lineage.attempts ?? []) {
+    await putSgosImmutableRecord(
+      root, processId, 'gvm-task-attempt', record, { reserveExisting: true }
+    );
+  }
+  if (lineage.evidence) {
+    await putSgosImmutableRecord(
+      root, processId, 'action-evidence', lineage.evidence, { reserveExisting: true }
+    );
+  }
+  if (lineage.receipt) {
+    await putSgosImmutableRecord(
+      root, processId, 'gvm-task-receipt', lineage.receipt, { reserveExisting: true }
+    );
+    const { record: candidate } = await readSgosImmutableRecord(
+      root, processId, 'candidate-snapshot', lineage.receipt.candidateSha256
+    );
+    await putSgosImmutableRecord(
+      root, processId, 'candidate-snapshot', candidate, { reserveExisting: true }
+    );
+    for (const responseSha256 of lineage.receipt.humanDecisionRefs ?? []) {
+      const { record: response } = await readSgosImmutableRecord(
+        root, processId, 'human-response', responseSha256
+      );
+      await putSgosImmutableRecord(
+        root, processId, 'human-response', response, { reserveExisting: true }
+      );
+    }
+  }
+}
+
+export async function planSgosProcessRecovery(root, processId) {
+  await assertSafeSgosSidecar(root, processId);
+  const process = await readSgosProcess(root, processId);
+  let bindingStatus = 'current';
+  let bindingDetails = null;
+  try {
+    await assertCurrentStoredProcessBinding(root, process);
+  } catch (error) {
+    if (error?.code !== 'SGOS_PROCESS_BINDING_STALE') throw error;
+    bindingStatus = 'stale';
+    bindingDetails = error.details ?? null;
+  }
+  const recoveryRequiredTasks = Object.values(process.taskInstances)
+    .filter((task) => task.state === 'recovery-required');
+  if (!process.activeExecutions.length && !recoveryRequiredTasks.length) {
+    return Object.freeze({
+      processId,
+      processRevision: process.processRevision,
+      status: process.status,
+      bindingStatus,
+      bindingDetails,
+      interrupted: false,
+      actions: []
+    });
+  }
+  const program = await resolveProgram(root, process);
+  const { attemptId, task, active } = recoverableExecution(process);
+  const lease = await recoveryLease(root, process, attemptId);
+  if (active && lease.status === 'live') {
+    return Object.freeze({
+      processId,
+      processRevision: process.processRevision,
+      status: process.status,
+      bindingStatus,
+      bindingDetails,
+      interrupted: false,
+      executionStatus: 'active',
+      attemptId,
+      taskInstanceId: task.taskInstanceId,
+      leaseId: lease.leaseId,
+      actions: []
+    });
+  }
+  const template = templateById(program).get(task.taskTemplateId);
+  const attemptNumber = task.attemptIds.indexOf(attemptId) + 1;
+  const lineage = await recoveryLineage(root, process.processId, attemptId);
+  const externalEffects = [...(template.resources?.externalEffects ?? [])];
+  const writes = [...(template.resources?.writes ?? [])];
+  const devices = [...(template.resources?.devices ?? [])];
+  const retryContract = template.recovery?.interruptedExecution ?? null;
+  // A failed terminal attempt plus its exact Action Evidence is a complete failure lineage; the
+  // mutable Process may still need a final fail transition. Every other terminal-without-receipt
+  // shape is incomplete and cannot be reinterpreted or overwritten by recovery.
+  const completeTerminalFailure = lineage.terminal?.status === 'failed'
+    && lineage.receipt == null && lineage.evidence != null;
+  const unresolvedTerminal = lineage.terminal != null
+    && lineage.receipt == null && !completeTerminalFailure;
+  const retryAllowed = bindingStatus === 'current'
+    && lease.lease != null
+    && externalEffects.length === 0
+    && writes.length === 0
+    && devices.length === 0
+    && retryContract === 'retry-safe'
+    && lineage.receipt == null
+    && !unresolvedTerminal
+    && attemptNumber < retryCeiling(template);
+  const reconcileAllowed = bindingStatus === 'current' && lineage.receipt != null;
+  const actions = unresolvedTerminal ? [] : reconcileAllowed ? [{
+    resolution: 'reconcile-success',
+    confirmationSha256: recoveryConfirmation(process, attemptId, 'reconcile-success'),
+    effect: 'bind-the-existing-verified-receipt-and-complete-the-interrupted-task'
+  }] : [{
+    resolution: 'fail',
+    confirmationSha256: recoveryConfirmation(process, attemptId, 'fail'),
+    effect: 'record-the-interrupted-attempt-and-stop-the-process'
+  }];
+  if (retryAllowed && !reconcileAllowed) actions.unshift({
+    resolution: 'retry-safe',
+    confirmationSha256: recoveryConfirmation(process, attemptId, 'retry-safe'),
+    effect: 'record-the-interrupted-attempt-and-return-the-task-to-ready'
+  });
+  return Object.freeze({
+    processId,
+    processRevision: process.processRevision,
+    status: process.status,
+    bindingStatus,
+    bindingDetails,
+    interrupted: true,
+    attemptId,
+    taskInstanceId: task.taskInstanceId,
+    taskTemplateId: task.taskTemplateId,
+    attemptNumber,
+    maximumAttempts: retryCeiling(template),
+    executionStatus: active
+      ? lease.status === 'owner-exited' ? 'owner-exited' : 'lease-missing'
+      : 'uncertain-effect',
+    leaseId: lease.leaseId,
+    externalEffects,
+    writes,
+    devices,
+    retryContract,
+    completedReceiptSha256: lineage.receipt?.receiptSha256 ?? null,
+    blockedReason: unresolvedTerminal
+      ? 'incomplete-terminal-lineage-requires-archival-review'
+      : null,
+    retryAllowed,
+    actions
+  });
+}
+
+export async function recoverInterruptedSgosExecution(root, processId, {
+  attemptId,
+  resolution,
+  confirmationSha256,
+  expectedRevision = null,
+  clock = null
+} = {}) {
+  if (!['retry-safe', 'fail', 'reconcile-success'].includes(resolution)) {
+    fail("Interrupted execution recovery requires resolution 'retry-safe', 'reconcile-success', or 'fail'.",
+      'SGOS_EXECUTION_RECOVERY_RESOLUTION_REQUIRED');
+  }
+  await settlePendingTransitionBeforeMutation(root, processId, 'recover');
+  const plan = await planSgosProcessRecovery(root, processId);
+  if (!plan.interrupted && plan.executionStatus === 'active') {
+    fail('The execution owner is still alive; stop it and prove quiescence before recovery.',
+      'SGOS_EXECUTION_STILL_ACTIVE', { attemptId: plan.attemptId, leaseId: plan.leaseId });
+  }
+  if (!plan.interrupted || plan.attemptId !== attemptId) {
+    fail('The interrupted execution changed before recovery.', 'SGOS_EXECUTION_RECOVERY_STALE');
+  }
+  if (expectedRevision != null && expectedRevision !== plan.processRevision) {
+    fail('The Process revision changed before recovery.', 'SGOS_PROCESS_REVISION_STALE', {
+      expectedRevision,
+      actualRevision: plan.processRevision
+    });
+  }
+  const action = plan.actions.find((entry) => entry.resolution === resolution);
+  if (!action) {
+    fail('Safe retry is unavailable because effects may be uncertain or the retry ceiling was reached.',
+      'SGOS_EXECUTION_RETRY_UNSAFE', {
+        attemptId,
+        externalEffects: plan.externalEffects,
+        attemptNumber: plan.attemptNumber,
+        maximumAttempts: plan.maximumAttempts
+      });
+  }
+  if (confirmationSha256 !== action.confirmationSha256) {
+    fail(`Recovery confirmation must equal ${action.confirmationSha256}.`,
+      'SGOS_EXECUTION_RECOVERY_CONFIRMATION_REQUIRED', {
+        expected: action.confirmationSha256,
+        received: confirmationSha256 ?? null
+      });
+  }
+
+  const process = await readSgosProcess(root, processId);
+  if (resolution !== 'fail') await assertCurrentStoredProcessBinding(root, process);
+  const program = await resolveProgram(root, process);
+  const current = recoverableExecution(process);
+  if (current.attemptId !== attemptId || process.processRevision !== plan.processRevision) {
+    fail('The interrupted execution changed before recovery committed.', 'SGOS_EXECUTION_RECOVERY_STALE');
+  }
+  const template = templateById(program).get(current.task.taskTemplateId);
+  const leaseState = await recoveryLease(root, process, attemptId);
+  if (leaseState.status === 'live') {
+    fail('The execution owner is still alive; stop it and prove quiescence before recovery.',
+      'SGOS_EXECUTION_STILL_ACTIVE', { leaseId: leaseState.leaseId });
+  }
+  const lineage = await recoveryLineage(root, processId, attemptId);
+  const completedAt = instant(clock);
+
+  if (resolution === 'reconcile-success') {
+    if (!lineage.receipt || lineage.terminal?.status !== 'succeeded') {
+      fail('The successful immutable receipt changed before reconciliation.',
+        'SGOS_EXECUTION_RECOVERY_STALE');
+    }
+    const next = await mutateSgosProcess(root, processId, async (draft) => {
+      await reassertRecoveryLineageReservations(root, processId, lineage);
+      const target = draft.taskInstances[current.task.taskInstanceId];
+      if ((current.active && !draft.activeExecutions.includes(attemptId))
+          || (!current.active && target.state !== 'recovery-required')
+          || !target.attemptIds.includes(attemptId)) {
+        fail('The interrupted execution changed before recovery committed.',
+          'SGOS_EXECUTION_RECOVERY_STALE');
+      }
+      target.state = 'succeeded';
+      target.outputRefs = [...lineage.receipt.outputRefs];
+      target.receiptSha256 = lineage.receipt.receiptSha256;
+      target.revision += 1;
+      draft.activeExecutions = draft.activeExecutions.filter((value) => value !== attemptId);
+      draft.activeLeases = draft.activeLeases.filter((value) => value !== leaseState.leaseId);
+      updateReadinessAndStatus(draft, program);
+    }, {
+      expectedRevision: process.processRevision,
+      expectedProcessSha256: process.processSha256,
+      updatedAt: completedAt
+    });
+    if (leaseState.leaseId) {
+      await removeSgosExecutionLease(root, processId, leaseState.leaseId);
+    }
+    return Object.freeze({
+      status: 'succeeded', resolution, taskInstanceId: current.task.taskInstanceId,
+      process: next, attempt: lineage.terminal, receipt: lineage.receipt
+    });
+  }
+
+  const verification = {
+    status: 'failed',
+    findings: [{
+      code: 'SGOS_EXECUTION_INTERRUPTED',
+      detail: `Execution '${attemptId}' ended without a durable result and was resolved as '${resolution}'.`
+    }]
+  };
+  const priorAttempt = lineage.terminal;
+  let attempt;
+  let evidence;
+  // Recovery record publication and the Process transition share one subject lock.  Two recovery
+  // callers therefore cannot publish competing terminal records for the same interrupted attempt.
+  const next = await mutateSgosProcess(root, processId, async (draft) => {
+    const target = draft.taskInstances[current.task.taskInstanceId];
+    if ((current.active && !draft.activeExecutions.includes(attemptId))
+        || (!current.active && target.state !== 'recovery-required')
+        || !target.attemptIds.includes(attemptId)) {
+      fail('The interrupted execution changed before recovery committed.', 'SGOS_EXECUTION_RECOVERY_STALE');
+    }
+    if (priorAttempt?.status === 'failed' && lineage.evidence != null) {
+      await reassertRecoveryLineageReservations(root, processId, lineage);
+      attempt = priorAttempt;
+      evidence = lineage.evidence;
+    } else {
+      ({ attempt, evidence } = await persistAttemptAndEvidence(root, {
+        begun: process,
+        before: process,
+        task: current.task,
+        template,
+        attemptId,
+        attemptNumber: plan.attemptNumber,
+        attemptReason: 'recovery',
+        status: 'failed',
+        executionHandleSha256: leaseState.lease?.executionHandleSha256
+          ?? lineage.running?.executionHandleSha256
+          ?? null,
+        preState: leaseState.lease == null ? null : {
+          processSha256: leaseState.lease.beforeProcessSha256,
+          processRevision: leaseState.lease.beforeProcessRevision
+        },
+        startedAt: lineage.running?.startedAt ?? leaseState.lease?.acquiredAt ?? null,
+        rawResult: {
+          status: 'failed',
+          error: { code: 'SGOS_EXECUTION_INTERRUPTED', resolution }
+        },
+        verification,
+        outcome: { executionEvents: [] },
+        completedAt
+      }));
+    }
+    target.state = resolution === 'retry-safe' ? 'ready' : 'failed';
+    target.revision += 1;
+    draft.activeExecutions = draft.activeExecutions.filter((value) => value !== attemptId);
+    draft.activeLeases = draft.activeLeases.filter((value) => value !== leaseState.leaseId);
+    updateReadinessAndStatus(draft, program);
+  }, {
+    expectedRevision: process.processRevision,
+    expectedProcessSha256: process.processSha256,
+    updatedAt: completedAt
+  });
+  if (leaseState.leaseId) {
+    await removeSgosExecutionLease(root, processId, leaseState.leaseId);
+  }
+  return Object.freeze({
+    status: resolution === 'retry-safe' ? 'retry-ready' : 'failed',
+    resolution,
+    taskInstanceId: current.task.taskInstanceId,
+    process: next,
+    attempt,
+    evidence
+  });
 }
 
 export async function pauseSgosProcess(root, processId, { expectedRevision, clock = null } = {}) {
+  await settlePendingTransitionBeforeMutation(root, processId, 'pause');
   const process = await readSgosProcess(root, processId);
+  await assertCurrentStoredProcessBinding(root, process);
   if (process.activeExecutions.length) fail('Cannot pause while an execution may still be active.', 'SGOS_PROCESS_NOT_QUIESCENT');
   if (PROCESS_TERMINAL.has(process.status)) fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
+  if (process.status === 'paused') {
+    fail('Process is already paused.', 'SGOS_PROCESS_ALREADY_PAUSED');
+  }
   return mutateSgosProcess(root, processId, (draft) => { draft.status = 'paused'; }, {
     expectedRevision: expectedRevision ?? process.processRevision,
     expectedProcessSha256: process.processSha256,
@@ -1549,7 +2518,23 @@ export async function resumeSgosProcess(root, processId, {
   program: suppliedProgram = null,
   clock = null
 } = {}) {
+  await settlePendingTransitionBeforeMutation(root, processId, 'resume');
   const process = await readSgosProcess(root, processId);
+  await assertCurrentStoredProcessBinding(root, process);
+  if (process.activeExecutions.length || process.activeLeases.length) {
+    fail('Cannot resume while an execution owner may still be active.',
+      'SGOS_PROCESS_NOT_QUIESCENT', {
+        activeExecutions: process.activeExecutions,
+        activeLeases: process.activeLeases
+      });
+  }
+  if (PROCESS_TERMINAL.has(process.status)) {
+    fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
+  }
+  if (process.status !== 'paused') {
+    fail(`Process is ${process.status}; only a paused Process can resume.`,
+      'SGOS_PROCESS_NOT_PAUSED', { status: process.status });
+  }
   if (checkpointSha256 !== process.currentCheckpointSha256) {
     fail('Resume requires the exact current checkpoint hash.', 'SGOS_CHECKPOINT_STALE');
   }
@@ -1560,24 +2545,12 @@ export async function resumeSgosProcess(root, processId, {
       || checkpoint.processBindingSha256 !== process.processBindingSha256) {
     fail('Checkpoint bindings do not match the current Process.', 'SGOS_CHECKPOINT_STALE');
   }
-  if (process.activeExecutions.length) {
-    return mutateSgosProcess(root, processId, (draft) => {
-      for (const task of Object.values(draft.taskInstances)) {
-        if (task.attemptIds.some((id) => draft.activeExecutions.includes(id))) {
-          task.state = 'recovery-required';
-          task.revision += 1;
-        }
-      }
-      draft.status = 'recovery-required';
-    }, {
-      expectedRevision: expectedRevision ?? process.processRevision,
-      expectedProcessSha256: process.processSha256,
-      updatedAt: instant(clock)
-    });
-  }
-  if (PROCESS_TERMINAL.has(process.status)) fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
   return mutateSgosProcess(root, processId, (draft) => {
-    if (draft.status === 'paused') draft.status = 'running';
+    if (draft.status !== 'paused' || draft.activeExecutions.length || draft.activeLeases.length) {
+      fail('Process changed before it could resume from a quiescent paused state.',
+        'SGOS_PROCESS_NOT_QUIESCENT');
+    }
+    draft.status = 'running';
     updateReadinessAndStatus(draft, program);
   }, {
     expectedRevision: expectedRevision ?? process.processRevision,
@@ -1587,5 +2560,4 @@ export async function resumeSgosProcess(root, processId, {
 }
 
 export { listSgosProcesses, readSgosProcess };
-export const stepSgosProcess = runNextSgosTask;
 export const respondToHumanRequest = respondToSgosHumanRequest;

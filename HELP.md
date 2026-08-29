@@ -2876,9 +2876,26 @@ singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTIO
 singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
 singularity-flow intent capture|show|validate|compile ...
 singularity-flow program show|validate|explain|simulate <PROGRAM.json> [--json]
-singularity-flow process start|status|graph|step|pause|resume|recover ...
+# Before start, review the exact Program authority record under
+# singularity/sgos/program-authorities/<PROGRAM-SHA256-WITHOUT-PREFIX>.json on sflow/config.
+singularity-flow process start <PROGRAM.json> [--compiler-request <COMPILER-REQUEST.json>]
+  [--subject ID] [--subject-kind story|repository] [--json]
+singularity-flow process status|graph|step|pause|resume|recover ...
+singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
+  --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
+singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
+# Preview first. Quarantine preserves exact bytes and never retries, restores, resumes, or claims
+# success. It accepts exact unreadable legacy authority, a current-v3 zero-progress creation seed
+# interrupted before genesis, or one supported incomplete-terminal crash. Recognized writer
+# leftovers remain digest-bound opaque bytes and are never parsed. Process listing keeps healthy
+# peers visible while returning refused private Processes as explicit unavailable diagnostics.
+# `process archive` remains a compatibility alias that returns quarantine-labelled output.
 singularity-flow task list|show|evidence <PROCESS-ID> [TASK-ID] [--json]
-singularity-flow request list|show|respond [REQUEST-ID] [--process PROCESS-ID] [--json]
+singularity-flow request list|show [REQUEST-ID] [--process PROCESS-ID] [--json]
+singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
+  (--decision approved|rejected|provided|cancelled | --option <DECLARED-OPTION-ID>)
+  [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
+  --confirm <REQUEST-SHA256> [--json]
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]
 singularity-flow run [--task TEXT] [--yes]
 singularity-flow run --repair-on-fault [--max-attempts N] [--allow-path PATH]... -- <COMMAND> [ARGUMENTS...]

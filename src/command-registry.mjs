@@ -225,7 +225,10 @@ const CAPABILITY_SUBCOMMANDS = Object.freeze([
 const SGOS_SUBCOMMANDS = Object.freeze({
   intent: Object.freeze({ read: ['show', 'validate'], mutation: ['capture', 'compile'] }),
   program: Object.freeze({ read: ['show', 'validate', 'simulate', 'explain'], mutation: [] }),
-  process: Object.freeze({ read: ['status', 'graph'], mutation: ['start', 'step', 'pause', 'resume', 'recover'] }),
+  process: Object.freeze({
+    read: ['status', 'graph'],
+    mutation: ['start', 'step', 'pause', 'resume', 'recover', 'quarantine', 'archive']
+  }),
   task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: [] }),
   request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] })
 });

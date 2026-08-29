@@ -5,7 +5,7 @@ import path from 'node:path';
 import { branch, head, identity, repoRoot } from '../git.mjs';
 import { canonicalJson } from '../records.mjs';
 import {
-  createIntentEnvelope, sha256, validateGvmProgram, validateSgosRecord
+  cloneSgosValue, createIntentEnvelope, sha256, validateGvmProgram, validateSgosRecord
 } from '../sgos/contracts.mjs';
 import {
   compileSgosProgram, explainSgosProgram, simulateSgosProgram
@@ -14,14 +14,17 @@ import { sgosSha256 } from '../sgos/evidence.mjs';
 import { compareSgosCodePoints } from '../sgos/order.mjs';
 import { projectSgosWorkObjects } from '../sgos/projection.mjs';
 import {
-  listSgosProcesses, pauseSgosProcess, readSgosProcess, respondToSgosHumanRequest,
-  resumeSgosProcess, runNextSgosTask, startSgosProcess
+  listSgosProcesses, pauseSgosProcess, planSgosProcessRecovery, readSgosProcess,
+  recoverInterruptedSgosExecution, respondToSgosHumanRequest, resumeSgosProcess,
+  startSgosProcess, stepSgosProcess
 } from '../sgos/runtime.mjs';
 import {
+  fsckSgosProcess, planSgosProcessQuarantine, quarantineSgosProcess,
   readSgosImmutableRecord, readSgosProgram
 } from '../sgos/store.mjs';
 import {
-  SingularityFlowError, nowIso, optionBoolean, optionString, secureRepositoryPath, writeAtomic
+  SingularityFlowError, nowIso, optionBoolean, optionString,
+  secureRepositoryPath, writeAtomic
 } from '../util.mjs';
 import {
   commandResult, effects, noEffects, succeeded
@@ -30,6 +33,7 @@ import { emitCommandResult } from '../narration/emit.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const DECISIONS = new Set(['approved', 'rejected', 'selected', 'provided', 'cancelled']);
+const MAX_HUMAN_INPUT_BYTES = 64 * 1024;
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -38,6 +42,7 @@ function fail(message, code, details = null) {
 const MUTATION_OPERATIONS = new Set([
   'intent.capture', 'intent.compile',
   'process.start', 'process.step', 'process.pause', 'process.resume', 'process.recover',
+  'process.quarantine', 'process.archive',
   'request.respond'
 ]);
 
@@ -80,6 +85,33 @@ async function jsonFile(root, value, label) {
     }
     throw error;
   }
+}
+
+async function compilerRequestForStart(root, options) {
+  const bundled = optionString(options, 'compiler-request');
+  if (bundled) return jsonFile(root, bundled, '--compiler-request');
+  const names = ['intent', 'workflow', 'ratification', 'policy', 'registry'];
+  const supplied = names.filter((name) => optionString(options, name) != null);
+  if (!supplied.length) return null;
+  if (supplied.length !== names.length) {
+    fail(`Execution admission requires all compiler inputs: ${names.map((name) => `--${name}`).join(', ')}.`,
+      'SGOS_PROGRAM_PROVENANCE_REQUIRED', { supplied, missing: names.filter((name) => !supplied.includes(name)) });
+  }
+  const intentIr = await jsonFile(root, optionString(options, 'intent'), '--intent');
+  const workflow = await jsonFile(root, optionString(options, 'workflow'), '--workflow');
+  const ratification = await jsonFile(root, optionString(options, 'ratification'), '--ratification');
+  const policy = await jsonFile(root, optionString(options, 'policy'), '--policy');
+  const registrySnapshot = await jsonFile(root, optionString(options, 'registry'), '--registry');
+  validateSgosRecord(policy);
+  return {
+    intentIr,
+    workflow,
+    ratification,
+    policySnapshotSha256: policy.snapshotSha256,
+    registrySnapshotSha256: ratification.registrySnapshotSha256,
+    registrySnapshot,
+    storageProfileSha256: ratification.storageProfileSha256
+  };
 }
 
 async function emit(value, options, text, {
@@ -128,6 +160,21 @@ function actorFor(root) {
   return {
     kind: 'human', id, name: current.name, email: current.email
   };
+}
+
+function jsonInput(options, key, label) {
+  const raw = optionString(options, key);
+  if (raw == null) return { present: false, value: null };
+  const bytes = Buffer.byteLength(raw, 'utf8');
+  if (bytes > MAX_HUMAN_INPUT_BYTES) {
+    fail(`${label} exceeds the ${MAX_HUMAN_INPUT_BYTES}-byte command boundary.`,
+      'SGOS_HUMAN_RESPONSE_INPUT_TOO_LARGE', { bytes, maximumBytes: MAX_HUMAN_INPUT_BYTES });
+  }
+  try {
+    return { present: true, value: cloneSgosValue(JSON.parse(raw)) };
+  } catch (error) {
+    fail(`${label} must be valid safe JSON: ${error.message}.`, 'SGOS_HUMAN_RESPONSE_INPUT_INVALID');
+  }
 }
 
 function processSummary(process) {
@@ -239,14 +286,21 @@ async function programCommand(root, positionals, options) {
 async function processCommand(root, positionals, options) {
   const action = positionals[1] ?? 'status';
   if (action === 'start') {
+    const subjectKind = optionString(options, 'subject-kind', 'repository');
+    if (!['story', 'repository'].includes(subjectKind)) {
+      fail(`Unsupported SGOS subject kind '${subjectKind}'. Allowed: story, repository.`,
+        'SGOS_SUBJECT_KIND_INVALID', { subjectKind });
+    }
     const program = await jsonFile(root, positionals[2], 'GVM Program');
     validateGvmProgram(program);
     const bindingFile = optionString(options, 'binding');
     const processBinding = bindingFile ? await jsonFile(root, bindingFile, '--binding') : null;
     if (processBinding) validateSgosRecord(processBinding);
     const subjectId = optionString(options, 'subject', program.programId);
+    const compilerRequest = await compilerRequestForStart(root, options);
     const result = await startSgosProcess(root, {
       program,
+      compilerRequest,
       processBinding,
       processId: optionString(options, 'process-id'),
       taskContractSha256: sgosSha256({
@@ -255,21 +309,53 @@ async function processCommand(root, positionals, options) {
         taskTemplateSha256: program.taskTemplates.map((task) => task.taskTemplateSha256).sort()
       }),
       subject: {
-        kind: optionString(options, 'subject-kind', 'repository'), id: subjectId,
+        kind: subjectKind, id: subjectId,
         branch: branch(root), baselineRevision: head(root)
       }
     });
     return emit(result, options,
       (value) => `${processSummary(value.process)} · checkpoint ${value.checkpoint.checkpointSha256}`,
-      { operation: 'process.start', changed: result.created });
+      { operation: 'process.start', changed: Boolean(result.created || result.recoveredStart) });
   }
   const processId = positionals[2];
   if (!processId) fail(`process ${action} requires a Process ID.`, 'SGOS_PROCESS_ID_REQUIRED');
+  if (action === 'quarantine' || action === 'archive') {
+    const confirmationSha256 = optionString(options, 'confirm');
+    const result = confirmationSha256
+      ? await quarantineSgosProcess(root, processId, { confirmationSha256 })
+      : await planSgosProcessQuarantine(root, processId);
+    const withNext = {
+      ...result,
+      compatibilityAlias: action === 'archive' ? 'process archive' : null,
+      next: result.quarantined
+        ? [`singularity-flow process start <PROGRAM> --subject <SUBJECT>`]
+        : [`singularity-flow process quarantine ${processId} --confirm ${result.confirmationSha256}`]
+    };
+    return emit(withNext, options,
+      (value) => value.quarantined
+        ? `Quarantined ${value.processId} without rewriting ${value.fileCount} preserved file(s), including ${value.pendingWriterLeftovers.length} opaque pending-writer leftover(s). No success, retry, or recovery was inferred; start a new Process from an approved Program.`
+        : value.reason === 'interrupted-creation-seed'
+          ? `${value.processId} is an interrupted private creation seed with no genesis authority. It is not runnable or successful. Review ${value.fileCount} file(s), then confirm ${value.confirmationSha256} to quarantine it.`
+          : value.reason === 'failed-terminal-before-evidence'
+            ? `${value.processId} has one interrupted failed terminal attempt with no evidence or receipt. It is neither successful nor retryable. Review ${value.fileCount} file(s), then confirm ${value.confirmationSha256} to quarantine it.`
+            : value.reason === 'terminal-attempt-before-receipt'
+              ? `${value.processId} has one interrupted readable Process terminal attempt without a receipt. The task did not succeed. Review ${value.fileCount} file(s), then confirm ${value.confirmationSha256} to quarantine it.`
+              : `${value.processId} has unreadable legacy-v1 authority bytes. Review ${value.fileCount} file(s), then confirm ${value.confirmationSha256} to quarantine them.`,
+      { operation: `process.${action}`, changed: Boolean(result.quarantined) });
+  }
   if (action === 'status') {
     const process = await readSgosProcess(root, processId);
     const requests = await openRequests(root, process);
     return emit({ process, workObjects: projectSgosWorkObjects(process, { humanRequests: requests }) }, options,
       (value) => processSummary(value.process), { operation: 'process.status' });
+  }
+  if (action === 'fsck') {
+    const result = await fsckSgosProcess(root, processId);
+    return emit(result, options, (value) =>
+      `${value.processId}: ${value.status}; ${value.indexedRecordCount} indexed record(s), `
+        + `${value.orphans.length} orphan(s), ${value.pendingReservations.length} pending reservation(s), `
+        + `${value.errors.length + value.missing.length} integrity issue(s).`,
+    { operation: 'process.fsck' });
   }
   if (action === 'graph') {
     const process = await readSgosProcess(root, processId);
@@ -280,7 +366,7 @@ async function processCommand(root, positionals, options) {
       { operation: 'process.graph' });
   }
   if (action === 'step') {
-    const result = await runNextSgosTask(root, processId);
+    const result = await stepSgosProcess(root, processId);
     return emit(result, options, (value) => value.taskInstanceId
       ? `${value.taskInstanceId}: ${value.status}. ${processSummary(value.process)}`
       : `No task dispatched. ${processSummary(value.process)}`,
@@ -297,21 +383,133 @@ async function processCommand(root, positionals, options) {
     return emit(value, options, processSummary, { operation: 'process.resume', changed: true });
   }
   if (action === 'recover') {
-    const process = await readSgosProcess(root, processId);
-    const result = {
-      processId, status: process.status, processRevision: process.processRevision,
-      checkpointSha256: process.currentCheckpointSha256,
-      recoverable: process.status === 'paused' && process.activeExecutions.length === 0,
-      next: process.status === 'paused'
-        ? `singularity-flow process resume ${processId} --confirm ${process.currentCheckpointSha256}`
-        : process.status === 'recovery-required'
-          ? 'A typed execution reconciler is required; no external effect will be retried automatically.'
-          : `singularity-flow process status ${processId}`
-    };
-    return emit(result, options, (value) => `${value.status}. ${value.next}`,
-      { operation: 'process.recover' });
+    const resolution = optionString(options, 'resolution');
+    if (resolution) {
+      const result = await recoverInterruptedSgosExecution(root, processId, {
+        attemptId: optionString(options, 'attempt-id'),
+        resolution,
+        confirmationSha256: optionString(options, 'confirm')
+      });
+      return emit(result, options,
+        (value) => `${value.taskInstanceId}: ${value.status}; interrupted execution recorded as ${value.resolution}.`,
+        { operation: 'process.recover', changed: true });
+    }
+    const result = await planSgosProcessRecovery(root, processId);
+    const next = result.interrupted
+      ? result.actions.map((entry) =>
+        `singularity-flow process recover ${processId} --attempt-id ${result.attemptId} --resolution ${entry.resolution} --confirm ${entry.confirmationSha256}`)
+      : [`singularity-flow process status ${processId}`];
+    return emit({ ...result, next }, options,
+      (value) => value.interrupted
+        ? `${value.taskTemplateId} has one recoverable execution boundary; ${value.actions.length} exact recovery action(s) available.`
+        : `${value.status}. No interrupted execution requires recovery.`,
+    { operation: 'process.recover' });
   }
   fail(`Unknown process action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
+}
+
+async function optionalImmutableRecord(root, processId, family, reference) {
+  if (!HASH.test(String(reference ?? ''))) {
+    return {
+      reference,
+      family,
+      status: 'unavailable',
+      errorCode: 'SGOS_EXTERNAL_REFERENCE',
+      record: null
+    };
+  }
+  try {
+    return {
+      reference,
+      family,
+      status: 'available',
+      record: (await readSgosImmutableRecord(root, processId, family, reference)).record
+    };
+  } catch (error) {
+    if (error?.code !== 'SGOS_RECORD_NOT_FOUND') throw error;
+    return { reference, family, status: 'unavailable', errorCode: error.code, record: null };
+  }
+}
+
+async function taskInspection(root, process, task) {
+  const program = (await readSgosProgram(root, process.processId, process.programSha256)).record;
+  const taskTemplate = program.taskTemplates.find((entry) => entry.taskTemplateId === task.taskTemplateId) ?? null;
+  const receipt = task.receiptSha256
+    ? (await readSgosImmutableRecord(root, process.processId, 'gvm-task-receipt', task.receiptSha256)).record
+    : null;
+  return {
+    processId: process.processId,
+    processRevision: process.processRevision,
+    programSha256: process.programSha256,
+    policySnapshotSha256: process.policySnapshotSha256,
+    taskContractSha256: process.taskContractSha256 ?? null,
+    task,
+    taskTemplate,
+    attemptLineage: {
+      attemptIds: [...task.attemptIds],
+      count: task.attemptIds.length,
+      latestAttemptId: task.attemptIds.at(-1) ?? null
+    },
+    receipt
+  };
+}
+
+async function taskEvidenceInspection(root, inspection) {
+  const { processId, task, receipt } = inspection;
+  if (!receipt) {
+    return {
+      ...inspection,
+      status: 'unavailable',
+      reason: 'task-has-no-receipt',
+      references: null,
+      candidate: null,
+      actionEvidence: [],
+      humanResponses: [],
+      unresolvedEvidenceRefs: [],
+      unresolvedEffectRefs: []
+    };
+  }
+  const candidate = await optionalImmutableRecord(
+    root, processId, 'candidate-snapshot', receipt.candidateSha256
+  );
+  const humanResponses = [];
+  for (const reference of receipt.humanDecisionRefs ?? []) {
+    humanResponses.push(await optionalImmutableRecord(root, processId, 'human-response', reference));
+  }
+  const humanReferences = new Set((receipt.humanDecisionRefs ?? []));
+  const actionEvidence = [];
+  const unresolvedEvidenceRefs = [];
+  for (const reference of receipt.evidenceRefs ?? []) {
+    if (reference === receipt.candidateSha256 || humanReferences.has(reference)) continue;
+    const resolved = await optionalImmutableRecord(root, processId, 'action-evidence', reference);
+    if (resolved.status === 'available') actionEvidence.push(resolved);
+    else unresolvedEvidenceRefs.push({
+      reference,
+      status: 'unavailable',
+      reason: 'not-a-local-action-evidence-record'
+    });
+  }
+  return {
+    ...inspection,
+    status: 'available',
+    integrity: 'validated-on-read',
+    references: {
+      receiptSha256: task.receiptSha256,
+      candidateSha256: receipt.candidateSha256,
+      evidenceRefs: [...receipt.evidenceRefs],
+      effectRefs: [...receipt.effectRefs],
+      humanDecisionRefs: [...receipt.humanDecisionRefs]
+    },
+    candidate,
+    actionEvidence,
+    humanResponses,
+    unresolvedEvidenceRefs,
+    unresolvedEffectRefs: (receipt.effectRefs ?? []).map((reference) => ({
+      reference,
+      status: 'unavailable',
+      reason: 'effect-record-not-supported-by-this-runtime-profile'
+    }))
+  };
 }
 
 async function taskCommand(root, positionals, options) {
@@ -326,21 +524,18 @@ async function taskCommand(root, positionals, options) {
   const requested = positionals[3];
   const task = tasks.find((entry) => entry.taskInstanceId === requested || entry.taskTemplateId === requested);
   if (!task) fail(`Task '${requested}' was not found in ${processId}.`, 'SGOS_TASK_NOT_FOUND');
-  if (action === 'show') return emit({ processId, task }, options,
+  const inspection = await taskInspection(root, process, task);
+  if (action === 'show') return emit(inspection, options,
     (value) => `${value.task.taskTemplateId} · ${value.task.state} · revision ${value.task.revision}`,
   { operation: 'task.show' });
   if (action === 'evidence') {
-    if (!task.receiptSha256) return emit({ processId, task, status: 'unavailable', reason: 'task-has-no-receipt' }, options,
+    const evidence = await taskEvidenceInspection(root, inspection);
+    if (!task.receiptSha256) return emit(evidence, options,
       () => `${task.taskTemplateId} has no immutable receipt yet.`, { operation: 'task.evidence' });
-    const receipt = (await readSgosImmutableRecord(root, processId, 'gvm-task-receipt', task.receiptSha256)).record;
-    const evidence = [];
-    for (const reference of receipt.evidenceRefs ?? []) {
-      if (HASH.test(String(reference))) {
-        try { evidence.push((await readSgosImmutableRecord(root, processId, 'action-evidence', reference)).record); } catch { /* Preserve the missing reference in the receipt. */ }
-      }
-    }
-    return emit({ processId, task, receipt, evidence }, options,
-      (value) => `${task.taskTemplateId}: verification ${value.receipt.verification.status}; evidence ${value.evidence.length}/${value.receipt.evidenceRefs.length}.`,
+    return emit(evidence, options,
+      (value) => `${task.taskTemplateId}: verification ${value.receipt.verification.status}; `
+        + `candidate ${value.candidate.status}; action evidence ${value.actionEvidence.length}; `
+        + `unresolved references ${value.unresolvedEvidenceRefs.length + value.unresolvedEffectRefs.length}.`,
     { operation: 'task.evidence' });
   }
   fail(`Unknown task action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
@@ -369,13 +564,52 @@ async function requestCommand(root, positionals, options) {
         'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
     }
     const option = optionString(options, 'option');
+    const declaredDecision = optionString(options, 'decision');
     const confirmation = optionString(options, 'confirm');
-    if (!option) fail('request respond requires --option.', 'SGOS_HUMAN_RESPONSE_OPTION_REQUIRED');
     if (confirmation !== found.request.requestSha256) {
       fail(`Response confirmation must equal ${found.request.requestSha256}.`, 'SGOS_HUMAN_REQUEST_STALE');
     }
-    const decision = DECISIONS.has(option) ? option : 'selected';
-    const input = decision === 'selected' ? { option } : null;
+    if (declaredDecision != null && !DECISIONS.has(declaredDecision)) {
+      fail(`Unknown Human Request decision '${declaredDecision}'. Allowed: ${[...DECISIONS].join(', ')}.`,
+        'SGOS_HUMAN_RESPONSE_INVALID');
+    }
+    if (option != null && declaredDecision != null && declaredDecision !== 'selected') {
+      fail('--option selects a declared option and cannot be combined with a different --decision.',
+        'SGOS_HUMAN_RESPONSE_INVALID');
+    }
+    const decision = declaredDecision ?? (option != null ? 'selected' : null);
+    if (decision == null) {
+      fail('request respond requires --decision or --option.', 'SGOS_HUMAN_RESPONSE_DECISION_REQUIRED');
+    }
+    if (decision === 'selected' && option == null) {
+      fail("Decision 'selected' requires --option with one exact option ID.", 'SGOS_HUMAN_RESPONSE_OPTION_REQUIRED');
+    }
+    if (option != null && !found.request.options.some((entry) => entry.id === option)) {
+      fail(`Option '${option}' is not declared by this request. Allowed: ${found.request.options.map((entry) => entry.id).join(', ') || 'none'}.`,
+        'SGOS_HUMAN_RESPONSE_INVALID');
+    }
+    const typed = jsonInput(options, 'input-json', '--input-json');
+    const sensitive = jsonInput(options, 'sensitive-handle', '--sensitive-handle');
+    if (typed.present && sensitive.present) {
+      fail('Use only one of --input-json or --sensitive-handle.', 'SGOS_HUMAN_RESPONSE_INPUT_INVALID');
+    }
+    if (found.request.sensitiveMode !== 'none' && typed.present) {
+      fail('Sensitive Human Requests refuse --input-json. Pass only a non-secret typed reference through --sensitive-handle.',
+        'SGOS_HUMAN_RESPONSE_SENSITIVE_VALUE_REFUSED');
+    }
+    if (found.request.sensitiveMode === 'none' && sensitive.present) {
+      fail('--sensitive-handle is valid only when the request declares an external URL or secret broker.',
+        'SGOS_HUMAN_RESPONSE_INPUT_INVALID');
+    }
+    if (decision !== 'provided' && (typed.present || sensitive.present)) {
+      fail(`Decision '${decision}' cannot carry --input-json or --sensitive-handle.`,
+        'SGOS_HUMAN_RESPONSE_INPUT_INVALID');
+    }
+    const input = decision === 'selected'
+      ? { optionId: option }
+      : decision === 'provided'
+        ? (sensitive.present ? sensitive.value : typed.present ? typed.value : null)
+        : null;
     const result = await respondToSgosHumanRequest(root, found.process.processId, {
       requestId,
       requestSha256: confirmation,

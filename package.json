@@ -15,6 +15,11 @@
     "sf-reinstall": "bin/sf-reinstall.mjs",
     "sflow-wm-minimal": "bin/sflow-wm-minimal.mjs"
   },
+  "exports": {
+    "./src/api.mjs": "./src/api.mjs",
+    "./sgos": "./src/sgos/index.mjs",
+    "./package.json": "./package.json"
+  },
   "files": [
     "bin/",
     "src/",

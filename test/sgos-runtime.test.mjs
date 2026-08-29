@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import YAML from 'yaml';
 
+import { initializeDefinition } from '../src/config.mjs';
+import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import {
   createCandidateSnapshot,
   createIntentIr,
@@ -22,29 +25,54 @@ import {
   validateProcessBinding,
   validateWorkObject
 } from '../src/sgos/contracts.mjs';
-import { compileSgosProgram, registrySnapshotDigest } from '../src/sgos/compiler.mjs';
-import { buildSgosTaskReceipt, compileSgosActionEvidence } from '../src/sgos/evidence.mjs';
+import {
+  compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID, SGOS_COMPILER_VERSION
+} from '../src/sgos/compiler.mjs';
+import {
+  buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence, sgosSha256
+} from '../src/sgos/evidence.mjs';
 import { projectSgosWorkObjects } from '../src/sgos/projection.mjs';
+import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import {
   deterministicSgosReadySet,
   listSgosProcesses,
   pauseSgosProcess,
+  planSgosProcessRecovery,
   readySetFromSgosCheckpoint,
   readSgosCandidateSnapshot,
   respondToSgosHumanRequest,
+  recoverInterruptedSgosExecution,
   resumeSgosProcess,
   runNextSgosTask,
   startSgosProcess
 } from '../src/sgos/runtime.mjs';
 import {
   buildSgosProcessBinding,
+  createSgosProcess,
+  currentSgosExecutionOwnerFingerprint,
+  fsckSgosProcess,
+  inspectSgosControlLineage,
+  listSgosImmutableRecordsByField,
   mutateSgosProcess,
+  planSgosProcessQuarantine,
   putSgosImmutableRecord,
+  quarantineSgosProcess,
+  reconcileSgosExecutionLeases,
+  registerSgosExecutionOwner,
   readSgosCheckpoint,
+  readSgosControlSuccessor,
+  readSgosExecutionLease,
   readSgosImmutableRecord,
   readSgosProcess,
-  readSgosProgram
+  readSgosProgram,
+  setSgosStoreFaultBoundaryForTests,
+  sgosProcessDirectory,
+  sgosProcessStatePath,
+  upgradeSgosProcessControlLineage,
+  unregisterSgosExecutionOwner,
+  writeSgosExecutionLease
 } from '../src/sgos/store.mjs';
+import { publishSgosProgramAuthority } from './helpers/sgos-authority.mjs';
 
 const HASH = Object.freeze({
   intent: `sha256:${'1'.repeat(64)}`,
@@ -72,6 +100,15 @@ async function repository(storyId = 'SGOS-STORY-1') {
   git(['init', '-b', 'main'], root);
   git(['config', 'user.name', 'SGOS Tester'], root);
   git(['config', 'user.email', 'sgos@example.test'], root);
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.approvalAuthorities.reviewer = {
+    label: 'SGOS runtime reviewers',
+    allowAnyGitIdentity: false,
+    members: [{ name: 'SGOS Tester', email: 'sgos@example.test' }]
+  };
+  await writeFile(workflowPath, YAML.stringify(workflow));
   const storyDirectory = path.join(root, 'singularity', 'work-items', storyId);
   await mkdir(storyDirectory, { recursive: true });
   await writeFile(path.join(storyDirectory, 'workflow.json'), `${JSON.stringify({
@@ -86,22 +123,29 @@ async function repository(storyId = 'SGOS-STORY-1') {
 }
 
 function task(taskTemplateId, opcode, dependsOn = [], extra = {}) {
+  const material = extra.material ?? !['NOOP', 'CHECKPOINT', 'END'].includes(opcode);
+  const metadata = {
+    sourceConstruct: 'task',
+    operationVersion: '1',
+    operationManifestSha256: HASH.candidate,
+    ...(extra.metadata ?? {})
+  };
   const result = {
     taskTemplateId,
     opcode,
     operation: extra.operation ?? `kernel.${opcode.toLowerCase().replaceAll('_', '-')}`,
     dependsOn,
     resources: extra.resources ?? { reads: [], writes: [], devices: [], externalEffects: [] },
-    evidence: extra.evidence ?? {},
+    evidence: extra.evidence ?? (material ? { required: ['candidate', 'verification-result'] } : {}),
     authority: extra.authority ?? {},
     recovery: extra.recovery ?? {},
     intentClauseIds: [],
     inputs: extra.inputs ?? [],
     outputs: extra.outputs ?? [],
-    retry: { maximumAttempts: 1 },
+    retry: extra.retry ?? { maximumAttempts: 1 },
     policySnapshotSha256: HASH.policy,
-    material: extra.material ?? false,
-    metadata: extra.metadata ?? { sourceConstruct: 'task' }
+    material,
+    metadata
   };
   if (extra.timeoutMs != null) result.timeoutMs = extra.timeoutMs;
   return result;
@@ -118,10 +162,13 @@ function program(taskTemplates) {
     taskTemplates,
     edges: taskTemplates.flatMap((entry) => entry.dependsOn.map((from) => ({ from, to: entry.taskTemplateId }))),
     joins: [],
-    budgets: { maximumTasks: taskTemplates.length },
+    budgets: {
+      maximumTasks: taskTemplates.length,
+      maximumAttempts: Math.max(...taskTemplates.map((entry) => entry.retry?.maximumAttempts ?? 1))
+    },
     recoveryPolicy: { mode: 'fail-closed' },
-    terminalConditions: [{ taskTemplateId: taskTemplates.at(-1).taskTemplateId }],
-    compiler: { id: 'test-gvm-compiler', version: '1' }
+    terminalConditions: [{ taskTemplateId: taskTemplates.at(-1).taskTemplateId, state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
   });
 }
 
@@ -197,25 +244,174 @@ function compilerProducedProgram() {
   }).program;
 }
 
-async function start(root, storyId, compiled, options = {}) {
+async function start(root, storyId, compiled) {
+  await publishSgosProgramAuthority(root, compiled);
   return startSgosProcess(root, {
     program: compiled,
     taskContractSha256: HASH.contract,
     subject: { kind: 'story', id: storyId, branch: 'main', baselineRevision: git(['rev-parse', 'HEAD'], root) },
-    trustedAuthorities: options.trustedAuthorities ?? [],
     clock: T0
   });
 }
 
-function trustedReviewer(overrides = {}) {
+const V2_SOURCE_RECORD_INDEX = new WeakMap();
+
+async function replaceProcessWithV2(root, process) {
+  const statePath = sgosProcessStatePath(root, process.processId);
+  const processDirectory = path.dirname(statePath);
+  await rm(path.join(processDirectory, 'control-events'), { recursive: true, force: true });
+  await rm(path.join(processDirectory, 'control-next'), { recursive: true, force: true });
+  const legacy = JSON.parse(await readFile(statePath, 'utf8'));
+  const sourceRecordIndexSha256 = legacy.recordIndexSha256;
+  delete legacy.processSha256;
+  delete legacy.controlEventSha256;
+  delete legacy.recordIndexSha256;
+  legacy.schemaVersion = 2;
+  legacy.processSha256 = sgosSha256(legacy);
+  V2_SOURCE_RECORD_INDEX.set(legacy, sourceRecordIndexSha256);
+  await writeFile(statePath, JSON.stringify(legacy));
+  return { legacy, statePath };
+}
+
+function v2RootControlEvent(legacy, { beforeProcessSha256 = legacy.processSha256 } = {}) {
   return {
-    kind: 'role',
-    id: 'reviewer',
-    principalId: 'reviewer',
-    principalKind: 'human',
-    assurance: 'host-observed',
-    authoritySha256: HASH.authority,
-    ...overrides
+    kind: 'sgos-control-event',
+    processId: legacy.processId,
+    processCoreSha256: sgosSha256({
+      processId: legacy.processId,
+      programSha256: legacy.programSha256,
+      policySnapshotSha256: legacy.policySnapshotSha256,
+      processBindingSha256: legacy.processBindingSha256,
+      taskContractSha256: legacy.taskContractSha256,
+      authorityBinding: structuredClone(legacy.authorityBinding),
+      createdAt: legacy.createdAt
+    }),
+    priorControlEventSha256: null,
+    beforeProcessSha256,
+    beforeProcessRevision: legacy.processRevision,
+    controlDepth: 1,
+    operatorTransitionCount: 0,
+    recordIndexSha256: V2_SOURCE_RECORD_INDEX.get(legacy),
+    action: 'process-transition',
+    result: {
+      status: legacy.status,
+      taskInstances: structuredClone(legacy.taskInstances),
+      activeExecutions: structuredClone(legacy.activeExecutions),
+      openHumanRequests: structuredClone(legacy.openHumanRequests),
+      activeLeases: structuredClone(legacy.activeLeases),
+      currentCheckpointSha256: legacy.currentCheckpointSha256,
+      processRevision: legacy.processRevision + 1,
+      updatedAt: legacy.updatedAt
+    },
+    createdAt: legacy.updatedAt
+  };
+}
+
+function processAtControlEvent(current, event) {
+  const result = {
+    ...structuredClone(current),
+    ...structuredClone(event.result),
+    schemaVersion: 3,
+    kind: 'gvm-process',
+    controlEventSha256: event.controlEventSha256,
+    recordIndexSha256: event.recordIndexSha256
+  };
+  delete result.processSha256;
+  result.processSha256 = sgosSha256(result);
+  return result;
+}
+
+function unrootedSeedAtControlEvent(current, event) {
+  const seed = processAtControlEvent(current, event);
+  seed.controlEventSha256 = null;
+  seed.processRevision = 1;
+  delete seed.processSha256;
+  seed.processSha256 = sgosSha256(seed);
+  return seed;
+}
+
+function exitedOwnerPid() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const child = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+    assert.equal(child.status, 0);
+    try { process.kill(child.pid, 0); } catch (error) {
+      if (error?.code === 'ESRCH') return child.pid;
+      throw error;
+    }
+  }
+  throw new Error('Unable to obtain an exited child PID for the execution-lease fixture.');
+}
+
+async function markSgosExecutionInterrupted(root, process, taskTemplateId) {
+  const before = await readSgosProcess(root, process.processId);
+  const task = Object.values(before.taskInstances)
+    .find((entry) => entry.taskTemplateId === taskTemplateId);
+  assert.ok(task, taskTemplateId);
+  const attemptId = `ATT-crashed-${before.processId.slice('PROC-'.length)}`;
+  const leaseId = `LEASE-crashed-${before.processId.slice('PROC-'.length)}`;
+  const executionHandleSha256 = sgosSha256({
+    processSha256: before.processSha256,
+    taskInstanceId: task.taskInstanceId,
+    attemptId
+  });
+  const runningAttempt = buildSgosTaskAttempt({
+    attemptId,
+    processId: before.processId,
+    taskInstanceId: task.taskInstanceId,
+    attemptNumber: task.attemptIds.length + 1,
+    parentAttemptId: task.attemptIds.at(-1) ?? null,
+    reason: task.attemptIds.length ? 'retry' : 'initial',
+    taskContractSha256: before.taskContractSha256,
+    executionHandleSha256,
+    status: 'running',
+    startedAt: T0,
+    completedAt: null
+  });
+  const lease = {
+    kind: 'sgos-execution-lease',
+    leaseId,
+    processId: before.processId,
+    attemptId,
+    taskInstanceId: task.taskInstanceId,
+    ownerId: `OWNER-crashed-${before.processId.slice('PROC-'.length)}`,
+    ownerPid: exitedOwnerPid(),
+    ownerStartFingerprint: HASH.authority,
+    beforeProcessSha256: before.processSha256,
+    beforeProcessRevision: before.processRevision,
+    executionHandleSha256,
+    attemptSha256: runningAttempt.attemptSha256,
+    acquiredAt: T0,
+    heartbeatAt: T0
+  };
+  await writeSgosExecutionLease(root, before.processId, lease);
+  const runningPublication = await putSgosImmutableRecord(
+    root, before.processId, 'gvm-task-attempt', runningAttempt
+  );
+  const interrupted = await mutateSgosProcess(root, before.processId, (draft) => {
+    const target = draft.taskInstances[task.taskInstanceId];
+    target.state = 'running';
+    target.attemptIds = [...target.attemptIds, attemptId];
+    target.revision += 1;
+    draft.activeExecutions = [attemptId];
+    draft.activeLeases = [leaseId];
+    draft.status = 'running';
+  }, {
+    expectedRevision: before.processRevision,
+    expectedProcessSha256: before.processSha256,
+    updatedAt: T0,
+    recordReservations: [runningPublication.reservationToken]
+  });
+  return { before, interrupted, task, attemptId, lease, runningAttempt };
+}
+
+function governedKernel(operation, handler) {
+  return {
+    handlers: { kernel: { [operation]: handler } },
+    captureCandidates: { [operation]: async () => ({ resources: [] }) },
+    verifiers: { [operation]: async ({ candidateSha256 }) => ({
+      status: 'passed', candidateSha256, checksSha256: HASH.checks
+    }) },
+    clock: T1
   };
 }
 
@@ -233,6 +429,14 @@ test('sequential runtime preserves Story authority and succeeds only through imm
   assert.equal(started.created, true);
   validateGvmProcess(started.process);
   validateProcessBinding(started.binding);
+  assert.deepEqual(started.process.authorityBinding.subjectAuthority, started.binding.subjectAuthority);
+  assert.equal(started.binding.subjectAuthority.kind, 'governed-story-baseline');
+  assert.equal(started.binding.subjectAuthority.subjectId, fixture.storyId);
+  assert.equal(started.binding.subjectAuthority.revision, fixture.head);
+  assert.equal(started.binding.subjectAuthority.path,
+    `singularity/work-items/${fixture.storyId}/workflow.json`);
+  assert.match(started.binding.subjectAuthority.blobSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(started.binding.subjectAuthority.stateSha256, /^sha256:[a-f0-9]{64}$/);
   validateGvmCheckpoint(started.checkpoint);
   assert.deepEqual(deterministicSgosReadySet(compiled, started.process).map((entry) => entry.taskTemplateId), ['00-noop']);
   assert.equal((await readSgosProgram(fixture.root, started.process.processId, compiled.programSha256)).record.programSha256, compiled.programSha256);
@@ -301,6 +505,64 @@ test('sequential runtime preserves Story authority and succeeds only through imm
   assert.deepEqual((await listSgosProcesses(fixture.root)).map((entry) => entry.processId), [final.processId]);
 });
 
+test('Process start refuses nonexistent and mismatched Story subjects before even a NOOP can run', async () => {
+  const compiled = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
+
+  const missing = await repository('SGOS-STORY-EXISTS');
+  await assert.rejects(
+    () => start(missing.root, 'SGOS-STORY-MISSING', compiled),
+    (error) => error.code === 'SGOS_STORY_STATE_UNAVAILABLE'
+  );
+  assert.deepEqual(await listSgosProcesses(missing.root), []);
+
+  const mismatched = await repository('SGOS-STORY-EXPECTED');
+  await writeFile(mismatched.workflowPath, `${JSON.stringify({
+    schemaVersion: 2,
+    workItem: { id: 'SGOS-STORY-OTHER', title: 'Wrong Story authority' },
+    currentPhase: 'implement'
+  }, null, 2)}\n`);
+  git(['add', '.'], mismatched.root);
+  git(['commit', '-m', 'Commit mismatched Story identity'], mismatched.root);
+  await assert.rejects(
+    () => start(mismatched.root, mismatched.storyId, compiled),
+    (error) => error.code === 'SGOS_STORY_STATE_SUBJECT_MISMATCH'
+  );
+  assert.deepEqual(await listSgosProcesses(mismatched.root), []);
+});
+
+test('start retry consumes exact Program and Binding reservations left after genesis state commit', async () => {
+  const fixture = await repository('SGOS-STORY-GENESIS-CLEANUP');
+  const compiled = program([
+    task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+  ]);
+  await publishSgosProgramAuthority(fixture.root, compiled);
+  const startOptions = {
+    program: compiled,
+    taskContractSha256: HASH.contract,
+    subject: {
+      kind: 'story', id: fixture.storyId, branch: 'main',
+      baselineRevision: git(['rev-parse', 'HEAD'], fixture.root)
+    },
+    clock: T0
+  };
+  setSgosStoreFaultBoundaryForTests('genesis-state', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      () => startSgosProcess(fixture.root, startOptions),
+      (error) => error.code === 'EIO'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  const recovered = await startSgosProcess(fixture.root, startOptions);
+  assert.equal(recovered.created, false);
+  assert.equal(recovered.recoveredStart, true);
+  const report = await fsckSgosProcess(fixture.root, recovered.process.processId);
+  assert.equal(report.status, 'ok', canonicalJson(report));
+  assert.deepEqual(report.pendingReservations, []);
+  assert.deepEqual(report.orphans, []);
+});
+
 test('durable checkpoint guards quiescent resume and process revisions are compare-and-swap', async () => {
   const fixture = await repository('SGOS-STORY-CHECKPOINT');
   const compiled = program([
@@ -313,7 +575,7 @@ test('durable checkpoint guards quiescent resume and process revisions are compa
   await assert.rejects(() => mutateSgosProcess(fixture.root, started.process.processId, (draft) => {
     draft.taskInstances[firstTask.taskInstanceId].state = 'succeeded';
   }, { expectedRevision: started.process.processRevision, updatedAt: T1 }),
-  (error) => error.code === 'SGOS_SUCCESS_WITHOUT_RECEIPT');
+  (error) => error.code === 'SGOS_TASK_TRANSITION_INVALID');
   assert.equal((await readSgosProcess(fixture.root, started.process.processId)).processSha256, started.process.processSha256);
   const checkpointStep = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
   validateGvmCheckpoint(checkpointStep.checkpoint);
@@ -327,6 +589,17 @@ test('durable checkpoint guards quiescent resume and process revisions are compa
     clock: T1
   });
   assert.equal(paused.status, 'paused');
+  await assert.rejects(
+    () => pauseSgosProcess(fixture.root, started.process.processId, {
+      expectedRevision: paused.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_PROCESS_ALREADY_PAUSED'
+  );
+  const afterRepeatedPause = await readSgosProcess(fixture.root, paused.processId);
+  assert.equal(afterRepeatedPause.processRevision, paused.processRevision);
+  assert.equal(afterRepeatedPause.processSha256, paused.processSha256,
+    'a repeated pause must not consume revision or control-lineage capacity');
   const resumed = await resumeSgosProcess(fixture.root, started.process.processId, {
     checkpointSha256: paused.currentCheckpointSha256,
     expectedRevision: paused.processRevision,
@@ -334,6 +607,17 @@ test('durable checkpoint guards quiescent resume and process revisions are compa
   });
   assert.equal(resumed.status, 'running');
   assert.deepEqual(deterministicSgosReadySet(compiled, resumed).map((entry) => entry.taskTemplateId), ['10-noop']);
+
+  await assert.rejects(
+    () => resumeSgosProcess(fixture.root, resumed.processId, {
+      checkpointSha256: resumed.currentCheckpointSha256,
+      expectedRevision: resumed.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_PROCESS_NOT_PAUSED'
+  );
+  assert.equal((await readSgosProcess(fixture.root, resumed.processId)).processSha256,
+    resumed.processSha256, 'a repeated resume must not mutate a running Process');
 
   const expectedRevision = resumed.processRevision;
   const mutations = await Promise.allSettled([
@@ -343,6 +627,654 @@ test('durable checkpoint guards quiescent resume and process revisions are compa
   assert.equal(mutations.filter((entry) => entry.status === 'fulfilled').length, 1);
   const rejected = mutations.find((entry) => entry.status === 'rejected');
   assert.equal(rejected.reason.code, 'SGOS_PROCESS_REVISION_STALE');
+});
+
+test('immutable control lineage replays an exact pause rollback without mutating on read', async () => {
+  const fixture = await repository('SGOS-STORY-PAUSE-ROLLBACK');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+  const beforePauseBytes = await readFile(statePath, 'utf8');
+  const paused = await pauseSgosProcess(fixture.root, started.process.processId, {
+    expectedRevision: started.process.processRevision,
+    clock: T1
+  });
+  await writeFile(statePath, beforePauseBytes);
+
+  const replayed = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(replayed.processSha256, paused.processSha256);
+  assert.equal(replayed.status, 'paused');
+  assert.equal(await readFile(statePath, 'utf8'), beforePauseBytes,
+    'read-only reconciliation must not rewrite the rolled-back state file');
+  await assert.rejects(
+    () => runNextSgosTask(fixture.root, replayed.processId, { expectedRevision: replayed.processRevision }),
+    (error) => error.code === 'SGOS_PROCESS_NOT_RUNNABLE'
+  );
+});
+
+test('public task execution recovers one exact successful transition across every durable publication boundary', async () => {
+  const boundaries = [
+    'transition-intent', 'record-index', 'control-event',
+    'control-successor', 'state', 'reservation-cleanup', 'intent-removal'
+  ];
+  for (const boundary of boundaries) {
+    const fixture = await repository(`SGOS-STORY-SUCCESS-CRASH-${boundary}`);
+    const compiled = program([
+      task('00-kernel', 'KERNEL', [], { operation: 'crash.success' }),
+      task('90-end', 'END', ['00-kernel'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    let handlerCalls = 0;
+    const adapters = governedKernel('crash.success', async () => {
+      handlerCalls += 1;
+      return { rawResult: { status: 'completed', boundary } };
+    });
+    setSgosStoreFaultBoundaryForTests(boundary, { occurrence: 2, code: 'EIO' });
+    try {
+      await assert.rejects(
+        () => runNextSgosTask(fixture.root, started.process.processId, adapters),
+        (error) => error.details?.causeCode === 'EIO'
+          && error.code === (boundary === 'intent-removal'
+            ? 'SGOS_TRANSITION_RECOVERED_RETRY'
+            : 'SGOS_TRANSITION_RECOVERY_REQUIRED'),
+        boundary
+      );
+      assert.equal(handlerCalls, 1, `${boundary}: governed handler runs once`);
+      if (boundary !== 'intent-removal') {
+        await assert.rejects(
+          () => runNextSgosTask(fixture.root, started.process.processId, adapters),
+          (error) => error.code === 'SGOS_TRANSITION_RECOVERED_RETRY',
+          boundary
+        );
+      }
+      assert.equal(handlerCalls, 1, `${boundary}: recovery never replays the handler`);
+      const recovered = await readSgosProcess(fixture.root, started.process.processId);
+      assert.equal(recovered.status, 'running', boundary);
+      const completedTask = Object.values(recovered.taskInstances)
+        .find((entry) => entry.taskTemplateId === '00-kernel');
+      assert.equal(completedTask.state, 'succeeded', boundary);
+      const attempts = await listSgosImmutableRecordsByField(
+        fixture.root, recovered.processId, 'gvm-task-attempt',
+        'attemptId', completedTask.attemptIds[0]
+      );
+      assert.deepEqual(attempts.map((attempt) => attempt.status).sort(),
+        ['running', 'succeeded'], `${boundary}: no conflicting failed terminal attempt`);
+      const evidence = await listSgosImmutableRecordsByField(
+        fixture.root, recovered.processId, 'action-evidence',
+        'attemptId', completedTask.attemptIds[0]
+      );
+      assert.equal(evidence.length, 1, `${boundary}: one exact success evidence record`);
+      assert.equal(evidence[0].verification.status, 'passed', boundary);
+      await reconcileSgosExecutionLeases(fixture.root, recovered.processId);
+      const report = await fsckSgosProcess(fixture.root, recovered.processId);
+      assert.equal(report.status, 'ok', `${boundary}: ${canonicalJson(report)}`);
+      assert.equal(report.transitionIntent, null, boundary);
+      assert.deepEqual(report.pendingReservations, [], boundary);
+      assert.deepEqual(report.orphans, [], boundary);
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+  }
+});
+
+test('public task execution never invokes a handler when execution-start publication is interrupted', async () => {
+  const boundaries = [
+    'transition-intent', 'record-index', 'control-event',
+    'control-successor', 'state', 'reservation-cleanup', 'intent-removal'
+  ];
+  for (const boundary of boundaries) {
+    const fixture = await repository(`SGOS-STORY-START-CRASH-${boundary}`);
+    const compiled = program([
+      task('00-kernel', 'KERNEL', [], { operation: 'crash.start' }),
+      task('90-end', 'END', ['00-kernel'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    let handlerCalls = 0;
+    const adapters = governedKernel('crash.start', async () => {
+      handlerCalls += 1;
+      return { rawResult: { status: 'completed', boundary } };
+    });
+    setSgosStoreFaultBoundaryForTests(boundary, { code: 'EIO' });
+    try {
+      await assert.rejects(
+        () => runNextSgosTask(fixture.root, started.process.processId, adapters),
+        (error) => error.details?.causeCode === 'EIO'
+          && error.code === (boundary === 'intent-removal'
+            ? 'SGOS_TRANSITION_RECOVERED_RETRY'
+            : 'SGOS_TRANSITION_RECOVERY_REQUIRED'),
+        boundary
+      );
+      assert.equal(handlerCalls, 0, `${boundary}: no handler before committed execution start`);
+      if (boundary !== 'intent-removal') {
+        await assert.rejects(
+          () => runNextSgosTask(fixture.root, started.process.processId, adapters),
+          (error) => error.code === 'SGOS_TRANSITION_RECOVERED_RETRY',
+          boundary
+        );
+      }
+      assert.equal(handlerCalls, 0, `${boundary}: transition recovery is side-effect free`);
+      const recovered = await readSgosProcess(fixture.root, started.process.processId);
+      assert.equal(recovered.activeExecutions.length, 1, boundary);
+      const attemptId = recovered.activeExecutions[0];
+      const attempts = await listSgosImmutableRecordsByField(
+        fixture.root, recovered.processId, 'gvm-task-attempt', 'attemptId', attemptId
+      );
+      assert.deepEqual(attempts.map((attempt) => attempt.status), ['running'], boundary);
+      const evidence = await listSgosImmutableRecordsByField(
+        fixture.root, recovered.processId, 'action-evidence', 'attemptId', attemptId
+      );
+      assert.deepEqual(evidence, [], boundary);
+      const report = await fsckSgosProcess(fixture.root, recovered.processId);
+      assert.equal(report.status, 'ok', `${boundary}: ${canonicalJson(report)}`);
+      assert.equal(report.transitionIntent, null, boundary);
+      assert.deepEqual(report.pendingReservations, [], boundary);
+      assert.deepEqual(report.orphans, [], boundary);
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+  }
+});
+
+test('fsck returns a structured failure when the current control head is missing', async () => {
+  const fixture = await repository('SGOS-STORY-FSCK-MISSING-HEAD');
+  const compiled = program([
+    task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const eventPath = path.join(
+    path.dirname(sgosProcessStatePath(fixture.root, started.process.processId)),
+    'control-events', `${started.process.controlEventSha256.slice('sha256:'.length)}.json`
+  );
+  await unlink(eventPath);
+  const report = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(report.status, 'failed');
+  assert.equal(report.cumulativeInfrastructureBytes, null);
+  assert.equal(report.cumulativeInfrastructureRecords, null);
+  assert.ok(report.errors.some((error) =>
+    ['SGOS_RECORD_NOT_FOUND', 'SGOS_CONTROL_LINEAGE_INVALID'].includes(error.code)));
+});
+
+test('fsck rejects self-rehashed mutable state that does not reconstruct from its control head', async () => {
+  const fixture = await repository('SGOS-STORY-FSCK-STATE-DRIFT');
+  const compiled = program([
+    task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+  const changed = JSON.parse(await readFile(statePath, 'utf8'));
+  delete changed.processSha256;
+  changed.status = 'paused';
+  changed.processSha256 = `sha256:${recordSha256(changed)}`;
+  await writeFile(statePath, canonicalJson(changed));
+
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, started.process.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+  const report = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(report.status, 'failed');
+  assert.ok(report.errors.some((error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'));
+});
+
+test('only an unreplayable transition intent can be moved byte-for-byte to quarantine', async () => {
+  const fixture = await repository('SGOS-STORY-INTENT-QUARANTINE');
+  const compiled = program([
+    task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  setSgosStoreFaultBoundaryForTests('transition-intent', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      () => pauseSgosProcess(fixture.root, started.process.processId, {
+        expectedRevision: started.process.processRevision, clock: T1
+      }),
+      (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  await assert.rejects(
+    () => planSgosProcessQuarantine(fixture.root, started.process.processId),
+    (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+  );
+  const processDirectory = sgosProcessDirectory(fixture.root, started.process.processId);
+  const corruptIntentBytes = Buffer.from('not a valid transition intent\n');
+  await writeFile(path.join(processDirectory, 'transition-intent.json'), corruptIntentBytes);
+  const plan = await planSgosProcessQuarantine(fixture.root, started.process.processId);
+  assert.equal(plan.reason, 'unreplayable-transition-intent');
+  assert.equal(plan.transitionIntent.failureCode, 'SGOS_TRANSITION_INTENT_CORRUPT');
+  assert.equal(plan.retryable, false);
+  assert.equal(plan.resumable, false);
+  assert.equal(plan.successClaimed, false);
+  const quarantined = await quarantineSgosProcess(fixture.root, started.process.processId, {
+    confirmationSha256: plan.confirmationSha256
+  });
+  const quarantineDirectory = path.join(
+    fixture.root, '.git', 'singularity-flow',
+    ...quarantined.quarantine.slice('$git/'.length).split('/')
+  );
+  assert.deepEqual(
+    await readFile(path.join(quarantineDirectory, 'transition-intent.json')),
+    corruptIntentBytes
+  );
+});
+
+test('every public Process mutator settles an older transition before semantic preconditions', async () => {
+  for (const operation of ['start', 'respond', 'recover', 'pause', 'resume']) {
+    const fixture = await repository(`SGOS-STORY-PREFLIGHT-${operation}`);
+    const compiled = program([
+      task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    setSgosStoreFaultBoundaryForTests('transition-intent', { code: 'EIO' });
+    try {
+      await assert.rejects(
+        () => pauseSgosProcess(fixture.root, started.process.processId, {
+          expectedRevision: started.process.processRevision, clock: T1
+        }),
+        (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+      );
+    } finally {
+      setSgosStoreFaultBoundaryForTests(null);
+    }
+    const invoke = {
+      start: () => startSgosProcess(fixture.root, {
+        program: compiled,
+        taskContractSha256: HASH.contract,
+        subject: {
+          kind: 'story', id: fixture.storyId, branch: 'main',
+          baselineRevision: git(['rev-parse', 'HEAD'], fixture.root)
+        },
+        clock: T0
+      }),
+      respond: () => respondToSgosHumanRequest(
+        fixture.root, started.process.processId, {
+          requestId: 'HRQ-NOTOPEN', requestSha256: HASH.intent,
+          expectedRevision: started.process.processRevision,
+          actor: { id: 'sgos@example.test', kind: 'human' },
+          decision: 'approved', clock: T1
+        }
+      ),
+      recover: () => recoverInterruptedSgosExecution(
+        fixture.root, started.process.processId, {
+          attemptId: 'ATT-NOTINTERRUPTED', resolution: 'fail',
+          confirmationSha256: HASH.intent,
+          expectedRevision: started.process.processRevision, clock: T1
+        }
+      ),
+      pause: () => pauseSgosProcess(fixture.root, started.process.processId, {
+        expectedRevision: started.process.processRevision, clock: T1
+      }),
+      resume: () => resumeSgosProcess(fixture.root, started.process.processId, {
+        checkpointSha256: started.process.currentCheckpointSha256,
+        expectedRevision: started.process.processRevision,
+        program: compiled, clock: T1
+      })
+    }[operation];
+    await assert.rejects(
+      invoke,
+      (error) => error.code === 'SGOS_TRANSITION_RECOVERED_RETRY'
+        && error.details?.operation === operation,
+      operation
+    );
+    const recovered = await readSgosProcess(fixture.root, started.process.processId);
+    assert.equal(recovered.status, 'paused', operation);
+    assert.equal((await fsckSgosProcess(fixture.root, recovered.processId)).status, 'ok', operation);
+  }
+});
+
+test('current control-lineage inspection is O(1) after many prior transitions', async () => {
+  const fixture = await repository('SGOS-STORY-CONTROL-LOOKUP');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let current = started.process;
+  for (let index = 0; index < 50; index += 1) {
+    current = await mutateSgosProcess(fixture.root, current.processId, (draft) => {
+      draft.status = draft.status === 'paused' ? 'running' : 'paused';
+    }, {
+      expectedRevision: current.processRevision,
+      expectedProcessSha256: current.processSha256,
+      updatedAt: T1
+    });
+  }
+  const inspection = await inspectSgosControlLineage(fixture.root, current.processId);
+  assert.equal(inspection.replayedTransitions, 0);
+  assert.equal(inspection.successorLookups, 1,
+    'a current Process checks only its exact successor edge, not every historical event');
+});
+
+test('operator pause-resume churn is refused before consuming reserved control capacity', async () => {
+  const fixture = await repository('SGOS-STORY-OPERATOR-CONTROL-CAP');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let current = started.process;
+  for (let index = 0; index < SGOS_INSTALLED_LIMITS.maximumOperatorControlTransitions; index += 1) {
+    current = await mutateSgosProcess(fixture.root, current.processId, (draft) => {
+      draft.status = draft.status === 'paused' ? 'running' : 'paused';
+    }, {
+      expectedRevision: current.processRevision,
+      expectedProcessSha256: current.processSha256,
+      updatedAt: T1
+    });
+  }
+  const beforeEvents = await listSgosImmutableRecordsByField(
+    fixture.root, current.processId, 'sgos-control-event', 'processId', current.processId
+  );
+  await assert.rejects(
+    () => mutateSgosProcess(fixture.root, current.processId, (draft) => {
+      draft.status = draft.status === 'paused' ? 'running' : 'paused';
+    }, {
+      expectedRevision: current.processRevision,
+      expectedProcessSha256: current.processSha256,
+      updatedAt: T1
+    }),
+    (error) => error.code === 'SGOS_OPERATOR_CONTROL_LIMIT'
+  );
+  const after = await readSgosProcess(fixture.root, current.processId);
+  const afterEvents = await listSgosImmutableRecordsByField(
+    fixture.root, current.processId, 'sgos-control-event', 'processId', current.processId
+  );
+  assert.equal(after.processSha256, current.processSha256);
+  assert.equal(afterEvents.length, beforeEvents.length,
+    'capacity refusal must happen before event publication');
+});
+
+test('a current Process head is refused when its authoritative successor edge is deleted', async () => {
+  const fixture = await repository('SGOS-STORY-CONTROL-EDGE-DELETED');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const head = (await readSgosImmutableRecord(
+    fixture.root, started.process.processId, 'sgos-control-event',
+    started.process.controlEventSha256
+  )).record;
+  const successorPath = path.join(
+    path.dirname(sgosProcessStatePath(fixture.root, started.process.processId)),
+    'control-next', `${head.beforeProcessSha256.slice('sha256:'.length)}.json`
+  );
+  await unlink(successorPath);
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, started.process.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+});
+
+test('a genesis state and event without their exact successor are not authoritative', async () => {
+  const fixture = await repository('SGOS-STORY-GENESIS-EDGE-MISSING');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const roots = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'sgos-control-event',
+    'priorControlEventSha256', null
+  );
+  const genesis = roots.find((event) => event.beforeProcessRevision === 1);
+  assert.ok(genesis);
+  const rooted = processAtControlEvent(started.process, genesis);
+  const processDirectory = path.dirname(sgosProcessStatePath(fixture.root, rooted.processId));
+  await unlink(path.join(
+    processDirectory, 'control-next',
+    `${genesis.beforeProcessSha256.slice('sha256:'.length)}.json`
+  ));
+  await writeFile(sgosProcessStatePath(fixture.root, rooted.processId), canonicalJson(rooted));
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, rooted.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+});
+
+test('a strict successor record that points at another event cannot authorize the head', async () => {
+  const fixture = await repository('SGOS-STORY-CONTROL-EDGE-MISMATCH');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const head = (await readSgosImmutableRecord(
+    fixture.root, started.process.processId, 'sgos-control-event',
+    started.process.controlEventSha256
+  )).record;
+  const roots = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'sgos-control-event',
+    'priorControlEventSha256', null
+  );
+  const other = roots.find((event) => event.controlEventSha256 !== head.controlEventSha256);
+  assert.ok(other);
+  const successorPath = path.join(
+    path.dirname(sgosProcessStatePath(fixture.root, started.process.processId)),
+    'control-next', `${head.beforeProcessSha256.slice('sha256:'.length)}.json`
+  );
+  const successor = JSON.parse(await readFile(successorPath, 'utf8'));
+  successor.controlEventSha256 = other.controlEventSha256;
+  successor.controlDepth = other.controlDepth;
+  successor.operatorTransitionCount = other.operatorTransitionCount;
+  delete successor.successorSha256;
+  successor.successorSha256 = sgosSha256(successor);
+  await writeFile(successorPath, canonicalJson(successor));
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, started.process.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+});
+
+test('a rooted Process resumes safely after a crash before its initial checkpoint CAS', async () => {
+  const fixture = await repository('SGOS-STORY-GENESIS-CHECKPOINT-CRASH');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const roots = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'sgos-control-event',
+    'priorControlEventSha256', null
+  );
+  const genesis = roots.find((event) => event.beforeProcessRevision === 1);
+  assert.ok(genesis, 'creation must publish one rev1 genesis event');
+  const rooted = processAtControlEvent(started.process, genesis);
+  assert.equal(rooted.processRevision, 2);
+  assert.equal(rooted.currentCheckpointSha256, null);
+  const statePath = sgosProcessStatePath(fixture.root, rooted.processId);
+  const checkpointSuccessor = path.join(
+    path.dirname(statePath), 'control-next', `${rooted.processSha256.slice('sha256:'.length)}.json`
+  );
+  await unlink(checkpointSuccessor);
+  await writeFile(statePath, canonicalJson(rooted));
+
+  const interrupted = await readSgosProcess(fixture.root, rooted.processId);
+  assert.equal(interrupted.processSha256, rooted.processSha256);
+  assert.equal(interrupted.currentCheckpointSha256, null);
+  const recovered = await startSgosProcess(fixture.root, {
+    program: compiled,
+    taskContractSha256: HASH.contract,
+    subject: {
+      kind: 'story', id: fixture.storyId, branch: 'main',
+      baselineRevision: git(['rev-parse', 'HEAD'], fixture.root)
+    },
+    clock: T0
+  });
+  assert.equal(recovered.recoveredStart, true);
+  assert.match(recovered.process.currentCheckpointSha256, /^sha256:/);
+  assert.notEqual(recovered.process.controlEventSha256, null);
+  assert.equal((await readSgosProcess(fixture.root, rooted.processId)).processSha256,
+    recovered.process.processSha256);
+});
+
+test('unrooted creation seeds cannot fabricate skipped completion or mutable authority', async () => {
+  for (const mode of ['skipped-succeeded', 'open-request', 'checkpoint']) {
+    const fixture = await repository(`SGOS-STORY-GENESIS-TAMPER-${mode.toUpperCase()}`);
+    const compiled = program([
+      task('00-noop', 'NOOP'),
+      task('90-end', 'END', ['00-noop'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const roots = await listSgosImmutableRecordsByField(
+      fixture.root, started.process.processId, 'sgos-control-event',
+      'priorControlEventSha256', null
+    );
+    const genesis = roots.find((event) => event.beforeProcessRevision === 1);
+    assert.ok(genesis, mode);
+    const honestSeed = unrootedSeedAtControlEvent(started.process, genesis);
+    const tampered = structuredClone(honestSeed);
+    if (mode === 'skipped-succeeded') {
+      tampered.status = 'succeeded';
+      for (const task of Object.values(tampered.taskInstances)) {
+        task.state = 'skipped';
+        task.receiptSha256 = null;
+      }
+    } else if (mode === 'open-request') {
+      tampered.openHumanRequests = [HASH.intent];
+    } else {
+      tampered.currentCheckpointSha256 = HASH.candidate;
+    }
+    delete tampered.processSha256;
+    tampered.processSha256 = sgosSha256(tampered);
+    const statePath = sgosProcessStatePath(fixture.root, tampered.processId);
+    await writeFile(statePath, canonicalJson(tampered));
+
+    await assert.rejects(
+      () => readSgosProcess(fixture.root, tampered.processId),
+      (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID',
+      mode
+    );
+    const listed = await listSgosProcesses(fixture.root);
+    const unavailable = listed.find((entry) => entry.processId === tampered.processId);
+    assert.equal(unavailable?.kind, 'sgos-process-unavailable', mode);
+    assert.equal(unavailable?.error?.code, 'SGOS_CONTROL_LINEAGE_INVALID', mode);
+    assert.equal(unavailable?.successClaimed, false, mode);
+    assert.equal(unavailable?.resumable, false, mode);
+    const requested = structuredClone(honestSeed);
+    delete requested.processSha256;
+    await assert.rejects(
+      () => createSgosProcess(fixture.root, requested),
+      (error) => error.code === 'SGOS_PROCESS_CREATION_SEED_CONFLICT',
+      mode
+    );
+  }
+});
+
+test('v2 Process reads fail closed until an exact lock-bound control upgrade', async () => {
+  const fixture = await repository('SGOS-STORY-V2-CONTROL-UPGRADE');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const { legacy, statePath } = await replaceProcessWithV2(fixture.root, started.process);
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, legacy.processId),
+    (error) => error.code === 'SGOS_PROCESS_CONTROL_UPGRADE_REQUIRED'
+      && error.details?.expectedProcessSha256 === legacy.processSha256
+  );
+  assert.equal(JSON.parse(await readFile(statePath, 'utf8')).schemaVersion, 2);
+
+  const upgraded = await upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
+    expectedProcessSha256: legacy.processSha256
+  });
+  assert.equal(upgraded.schemaVersion, 3);
+  assert.match(upgraded.controlEventSha256, /^sha256:/);
+  assert.equal(upgraded.processRevision, legacy.processRevision + 1);
+  assert.equal((await readSgosProcess(fixture.root, legacy.processId)).processSha256,
+    upgraded.processSha256);
+  const idempotent = await upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
+    expectedProcessSha256: legacy.processSha256
+  });
+  assert.equal(idempotent.processSha256, upgraded.processSha256);
+});
+
+test('v2 control upgrade refuses forged binding and Program materialization before publication', async () => {
+  for (const mode of ['binding', 'skipped-task']) {
+    const fixture = await repository(`SGOS-STORY-V2-FORGED-${mode.toUpperCase()}`);
+    const compiled = program([
+      task('00-noop', 'NOOP'),
+      task('90-end', 'END', ['00-noop'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const { legacy, statePath } = await replaceProcessWithV2(fixture.root, started.process);
+    delete legacy.processSha256;
+    if (mode === 'binding') {
+      legacy.authorityBinding.branch = 'forged-branch';
+    } else {
+      Object.values(legacy.taskInstances)[0].state = 'skipped';
+    }
+    legacy.processSha256 = sgosSha256(legacy);
+    await writeFile(statePath, JSON.stringify(legacy));
+
+    await assert.rejects(
+      () => upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
+        expectedProcessSha256: legacy.processSha256
+      }),
+      (error) => error.code === (mode === 'binding'
+        ? 'SGOS_PROCESS_BINDING_INVALID'
+        : 'SGOS_PROCESS_MATERIALIZATION_INVALID'),
+      mode
+    );
+    assert.equal(
+      await readSgosControlSuccessor(fixture.root, legacy.processId, legacy.processSha256),
+      null,
+      mode
+    );
+    assert.deepEqual(JSON.parse(await readFile(statePath, 'utf8')), legacy, mode);
+  }
+});
+
+test('an unrelated orphan control event cannot authorize an unupgraded v2 Process', async () => {
+  const fixture = await repository('SGOS-STORY-V2-ORPHAN-EVENT');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const { legacy } = await replaceProcessWithV2(fixture.root, started.process);
+  await putSgosImmutableRecord(fixture.root, legacy.processId, 'sgos-control-event',
+    v2RootControlEvent(legacy, { beforeProcessSha256: `sha256:${'a'.repeat(64)}` }));
+
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, legacy.processId),
+    (error) => error.code === 'SGOS_PROCESS_CONTROL_UPGRADE_REQUIRED'
+  );
+  const upgraded = await upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
+    expectedProcessSha256: legacy.processSha256
+  });
+  assert.match(upgraded.controlEventSha256, /^sha256:/);
+  assert.equal(upgraded.processRevision, legacy.processRevision + 1);
+});
+
+test('v2 upgrade resumes an exact event-before-successor crash without a null head', async () => {
+  const fixture = await repository('SGOS-STORY-V2-EVENT-CRASH');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const { legacy } = await replaceProcessWithV2(fixture.root, started.process);
+  const staged = await putSgosImmutableRecord(
+    fixture.root, legacy.processId, 'sgos-control-event', v2RootControlEvent(legacy)
+  );
+
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, legacy.processId),
+    (error) => error.code === 'SGOS_PROCESS_CONTROL_UPGRADE_REQUIRED'
+  );
+  const upgraded = await upgradeSgosProcessControlLineage(fixture.root, legacy.processId, {
+    expectedProcessSha256: legacy.processSha256
+  });
+  assert.notEqual(upgraded.controlEventSha256, staged.record.controlEventSha256);
+  assert.notEqual(upgraded.controlEventSha256, null);
+  assert.equal((await readSgosProcess(fixture.root, legacy.processId)).processSha256,
+    upgraded.processSha256);
 });
 
 test('runtime dispatches actual compiler output and reloads its persisted Program on each step', async () => {
@@ -368,6 +1300,90 @@ test('runtime dispatches actual compiler output and reloads its persisted Progra
   assert.deepEqual(kernel.receipt.inputRefs, ['sfref:compiler-input']);
   const ended = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
   assert.equal(ended.process.status, 'succeeded');
+});
+
+test('dispatch independently rejects a forged Process admission even when low-level storage was used', async () => {
+  const fixture = await repository('SGOS-STORY-DISPATCH-ADMISSION');
+  const compiled = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const processId = 'PROC-FORGED-ADMISSION-1';
+  const binding = buildSgosProcessBinding(fixture.root, {
+    processId,
+    subjectId: fixture.storyId,
+    subjectAuthority: started.binding.subjectAuthority,
+    configurationAuthority: started.binding.configurationAuthority,
+    branchName: started.binding.branch,
+    baselineRevision: started.binding.baselineRevision,
+    expectedProcessRevision: 0
+  });
+  await putSgosImmutableRecord(fixture.root, processId, 'gvm-program', compiled);
+  await putSgosImmutableRecord(fixture.root, processId, 'process-binding', binding);
+  const forged = structuredClone(started.process);
+  delete forged.processSha256;
+  forged.processId = processId;
+  forged.processBindingSha256 = binding.bindingSha256;
+  forged.currentCheckpointSha256 = null;
+  forged.authorityBinding.baselineSnapshotSha256 = sgosSha256({
+    kind: 'sgos-process-baseline',
+    processBindingSha256: binding.bindingSha256,
+    revision: binding.baselineRevision
+  });
+  const remappedIds = new Map(Object.values(forged.taskInstances).map((instance) => [
+    instance.taskInstanceId,
+    `TSK-${sgosSha256({
+      processId, taskTemplateId: instance.taskTemplateId
+    }).slice('sha256:'.length, 'sha256:'.length + 24).toUpperCase()}`
+  ]));
+  forged.taskInstances = Object.fromEntries(Object.values(forged.taskInstances).map((instance) => {
+    const taskInstanceId = remappedIds.get(instance.taskInstanceId);
+    return [taskInstanceId, {
+      ...instance,
+      taskInstanceId,
+      predecessorTaskInstanceIds: instance.predecessorTaskInstanceIds.map((id) => remappedIds.get(id))
+    }];
+  }));
+  // Keep the admission contract-valid while binding it to authority bytes that were never loaded
+  // from the approved configuration. A public record constructor must not turn this into authority.
+  forged.authorityBinding.executionAdmission.provenance.source.blobSha256 = HASH.authority;
+  const created = await createSgosProcess(fixture.root, forged);
+  await assert.rejects(
+    () => runNextSgosTask(fixture.root, processId, { clock: T1 }),
+    (error) => error.code === 'SGOS_PROGRAM_ADMISSION_INVALID'
+  );
+  const after = await readSgosProcess(fixture.root, processId);
+  assert.equal(after.processRevision, created.processRevision);
+  assert.deepEqual(after.activeExecutions, []);
+});
+
+test('dispatch refuses a low-level Process mutation that removes or skips compiled work', async () => {
+  for (const mode of ['remove', 'skip']) {
+    const fixture = await repository(`SGOS-STORY-MATERIALIZATION-${mode.toUpperCase()}`);
+    const compiled = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const first = Object.values(started.process.taskInstances)
+      .find((entry) => entry.taskTemplateId === '00-noop');
+    if (mode === 'remove') {
+      await assert.rejects(
+        () => mutateSgosProcess(fixture.root, started.process.processId, (draft) => {
+          delete draft.taskInstances[first.taskInstanceId];
+        }, { expectedRevision: started.process.processRevision, updatedAt: T1 }),
+        (error) => error.code === 'SGOS_TASK_SET_CHANGED'
+      );
+      const unchanged = await readSgosProcess(fixture.root, started.process.processId);
+      assert.equal(unchanged.processRevision, started.process.processRevision);
+      continue;
+    }
+    await assert.rejects(
+      () => mutateSgosProcess(fixture.root, started.process.processId, (draft) => {
+        draft.taskInstances[first.taskInstanceId].state = 'skipped';
+      }, { expectedRevision: started.process.processRevision, updatedAt: T1 }),
+      (error) => error.code === 'SGOS_TASK_TRANSITION_INVALID',
+      mode
+    );
+    const after = await readSgosProcess(fixture.root, started.process.processId);
+    assert.equal(after.processRevision, started.process.processRevision);
+    assert.deepEqual(after.activeExecutions, []);
+  }
 });
 
 test('operation handlers cannot self-declare verification or an arbitrary candidate digest', async () => {
@@ -454,7 +1470,7 @@ test('succeeded state revalidates attempt, candidate, and Action Evidence lineag
   await unlink(storedAttempt.path);
   await assert.rejects(
     () => readSgosProcess(missingFixture.root, completed.process.processId),
-    (error) => error.code === 'SGOS_RECORD_LINEAGE_INVALID'
+    (error) => ['SGOS_RECORD_LINEAGE_INVALID', 'SGOS_RECEIPT_LINEAGE_INVALID'].includes(error.code)
   );
 
   const mismatchFixture = await repository('SGOS-STORY-CANDIDATE-LINEAGE');
@@ -482,6 +1498,7 @@ test('succeeded state revalidates attempt, candidate, and Action Evidence lineag
     processId: original.receipt.processId,
     taskInstanceId: original.receipt.taskInstanceId,
     attemptId: original.receipt.attemptId,
+    attemptSha256: original.receipt.attemptSha256,
     inputRefs: original.receipt.inputRefs,
     outputRefs: original.receipt.outputRefs,
     candidateSha256: otherCandidate.candidateSha256,
@@ -499,12 +1516,15 @@ test('succeeded state revalidates attempt, candidate, and Action Evidence lineag
     original.process.processId,
     (draft) => { draft.taskInstances[original.taskInstanceId].receiptSha256 = forgedReceipt.receiptSha256; },
     { expectedRevision: original.process.processRevision, updatedAt: T1 }
-  ), (error) => error.code === 'SGOS_RECEIPT_LINEAGE_INVALID');
-  assert.equal(
-    (await readSgosProcess(mismatchFixture.root, original.process.processId))
-      .taskInstances[original.taskInstanceId].receiptSha256,
-    original.receipt.receiptSha256
-  );
+  ), (error) => ['SGOS_RECORD_LINEAGE_INVALID', 'SGOS_RECEIPT_LINEAGE_INVALID'].includes(error.code));
+  assert.equal((await readSgosProcess(
+    mismatchFixture.root, original.process.processId
+  )).processSha256, original.process.processSha256);
+  const fsck = await fsckSgosProcess(mismatchFixture.root, original.process.processId);
+  assert.equal(fsck.status, 'attention');
+  assert.ok(fsck.orphans.some((entry) =>
+    entry.family === 'gvm-task-receipt'
+      && entry.recordSha256 === forgedReceipt.receiptSha256));
 });
 
 test('typed Human Requests survive restart, reject stale responses, and project without authority', async () => {
@@ -512,7 +1532,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
   const human = (id) => task(id, 'HUMAN_REQUEST', [], {
     operation: 'human.approval',
     authority: {
-      kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+      kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
     },
     metadata: {
       sourceConstruct: 'human-request',
@@ -520,7 +1540,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
         requestType: 'approval',
         requestedBy: { id: 'sgos-runtime', kind: 'system' },
         authorityRequired: {
-          kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+          kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
         },
         prompt: { title: `Approve ${id}`, detail: 'Bind a decision to this exact checkpoint.' },
         options: [
@@ -531,7 +1551,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
         sensitiveMode: 'none',
         externalUrl: null,
         secretBroker: null,
-        expiresAt: '2026-08-30T00:00:00.000Z'
+        expiresAt: '2099-08-30T00:00:00.000Z'
       }
     }
   });
@@ -540,9 +1560,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     human('10-human-b'),
     task('90-end', 'END', ['00-human-a', '10-human-b'])
   ]);
-  const started = await start(fixture.root, fixture.storyId, compiled, {
-    trustedAuthorities: [trustedReviewer()]
-  });
+  const started = await start(fixture.root, fixture.storyId, compiled);
   const first = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
   assert.equal(first.status, 'waiting-human');
   assert.equal(first.process.status, 'running', 'an independent ready task may continue');
@@ -560,6 +1578,8 @@ test('typed Human Requests survive restart, reject stale responses, and project 
   const objects = projectSgosWorkObjects(restarted, { humanRequests: requests });
   assert.equal(objects.length, 2);
   for (const object of objects) validateWorkObject(object);
+  assert.equal(objects[0].view.actions[0].id, 'request.respond');
+  assert.equal(objects[0].view.actions[0].operation, 'request.respond');
   assert.throws(() => { objects[0].view.actions.push({}); }, TypeError);
   assert.equal((await readSgosProcess(fixture.root, restarted.processId)).processSha256, restarted.processSha256);
 
@@ -567,25 +1587,16 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
     expectedRevision: restarted.processRevision - 1,
-    actor: { id: 'reviewer', kind: 'human' },
+    actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
   }), (error) => error.code === 'SGOS_HUMAN_REQUEST_STALE');
-
-  await assert.rejects(() => respondToSgosHumanRequest(fixture.root, restarted.processId, {
-    requestId: requests[0].requestId,
-    requestSha256: requests[0].requestSha256,
-    expectedRevision: restarted.processRevision,
-    actor: { id: 'reviewer', kind: 'human' },
-    decision: 'approved',
-    clock: '2026-08-31T00:00:00.000Z'
-  }), (error) => error.code === 'SGOS_HUMAN_REQUEST_EXPIRED');
 
   const answered = await respondToSgosHumanRequest(fixture.root, restarted.processId, {
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
     expectedRevision: restarted.processRevision,
-    actor: { id: 'reviewer', kind: 'human' },
+    actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
   });
@@ -595,7 +1606,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
     expectedRevision: answered.process.processRevision,
-    actor: { id: 'reviewer', kind: 'human' },
+    actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
   }), (error) => error.code === 'SGOS_HUMAN_REQUEST_STALE');
@@ -605,7 +1616,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     requestId: remaining.requestId,
     requestSha256: remaining.requestSha256,
     expectedRevision: answered.process.processRevision,
-    actor: { id: 'reviewer', kind: 'human' },
+    actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
   });
@@ -616,24 +1627,185 @@ test('typed Human Requests survive restart, reject stale responses, and project 
   assert.equal(ended.process.status, 'succeeded');
 });
 
-test('Human Request authority ignores actor self-claims and accepts only a pinned or resolver assertion', async () => {
+test('concurrent Human Request responders publish exactly one terminal attempt lineage', async () => {
+  const fixture = await repository('SGOS-STORY-HUMAN-RACE');
+  const compiled = program([
+    task('00-human', 'HUMAN_REQUEST', [], {
+      operation: 'human.approval',
+      authority: {
+        kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+      },
+      metadata: {
+        sourceConstruct: 'human-request',
+        humanRequest: {
+          requestType: 'approval',
+          requestedBy: { id: 'sgos-runtime', kind: 'system' },
+          authorityRequired: {
+            kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+          },
+          prompt: {
+            title: 'Choose one terminal response',
+            detail: 'Concurrent responders must not create divergent attempt lineage.'
+          },
+          options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
+          secretBroker: null, expiresAt: '2099-08-30T00:00:00.000Z'
+        }
+      }
+    }),
+    task('90-end', 'END', ['00-human'])
+  ]);
+  await assert.rejects(() => startSgosProcess(fixture.root, {
+    program: compiled,
+    taskContractSha256: HASH.contract,
+    subject: {
+      kind: 'story', id: fixture.storyId, branch: 'main',
+      baselineRevision: git(['rev-parse', 'HEAD'], fixture.root)
+    },
+    // These legacy caller assertions are deliberately unsupported and cannot change the pinned
+    // approved configuration or add a principal.
+    trustedAuthorities: [{
+      kind: 'role', id: 'reviewer', principalId: 'forged@example.test',
+      principalKind: 'human', assurance: 'configured-local', authoritySha256: HASH.authority
+    }],
+    configurationAuthority: {
+      kind: 'approved-configuration-ref', ref: 'refs/heads/sflow/config',
+      commit: '0'.repeat(40), workflowBlobSha256: HASH.authority
+    },
+    clock: T0
+  }), (error) => error.code === 'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
+  const expectedRevision = waiting.process.processRevision;
+  const attemptId = waiting.process.taskInstances[waiting.taskInstanceId].attemptIds.at(-1);
+  const response = (decision) => respondToSgosHumanRequest(
+    fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision,
+      clock: T1
+    }
+  );
+  const results = await Promise.allSettled([response('approved'), response('rejected')]);
+  const fulfilled = results.filter((entry) => entry.status === 'fulfilled');
+  const rejected = results.filter((entry) => entry.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.ok(
+    ['SGOS_PROCESS_REVISION_STALE', 'SGOS_HUMAN_REQUEST_STALE',
+      'SGOS_HUMAN_REQUEST_ALREADY_RESPONDED']
+      .includes(rejected[0].reason?.code),
+    rejected[0].reason?.code
+  );
+
+  const winner = fulfilled[0].value;
+  const final = await readSgosProcess(fixture.root, waiting.process.processId);
+  const taskState = final.taskInstances[waiting.taskInstanceId];
+  assert.equal(taskState.state, winner.status);
+  assert.deepEqual(final.openHumanRequests, []);
+  const attempts = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'gvm-task-attempt', 'attemptId', attemptId
+  );
+  assert.deepEqual(attempts.map((entry) => entry.status).sort(), ['running', winner.status].sort());
+  assert.equal(attempts.filter((entry) => entry.status !== 'running').length, 1);
+  const responses = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'human-response', 'requestSha256', waiting.request.requestSha256
+  );
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].responseSha256, winner.response.responseSha256);
+  const receipts = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'gvm-task-receipt', 'attemptId', attemptId
+  );
+  assert.equal(receipts.length, winner.status === 'succeeded' ? 1 : 0);
+});
+
+test('rejected and cancelled Human Requests terminate without publishing success outputs', async () => {
+  for (const decision of ['rejected', 'cancelled']) {
+    const fixture = await repository(`SGOS-STORY-HUMAN-${decision.toUpperCase()}`);
+    const compiled = program([
+      task('00-human', 'HUMAN_REQUEST', [], {
+        operation: 'human.approval',
+        authority: {
+          kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+        },
+        metadata: {
+          sourceConstruct: 'human-request',
+          humanRequest: {
+            requestType: 'approval',
+            requestedBy: { id: 'sgos-runtime', kind: 'system' },
+            authorityRequired: {
+              kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
+            },
+            prompt: {
+              title: 'Choose a non-success response',
+              detail: 'The response remains evidence without becoming a successful task output.'
+            },
+            options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
+            secretBroker: null, expiresAt: '2099-08-30T00:00:00.000Z'
+          }
+        }
+      }),
+      task('90-end', 'END', ['00-human'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
+    const attemptId = waiting.process.taskInstances[waiting.taskInstanceId].attemptIds.at(-1);
+    const answered = await respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision,
+      clock: T1
+    });
+
+    const expectedStatus = decision === 'cancelled' ? 'cancelled' : 'failed';
+    assert.equal(answered.status, expectedStatus);
+    assert.equal(answered.process.status, expectedStatus);
+    assert.equal(answered.process.taskInstances[waiting.taskInstanceId].state, expectedStatus);
+    assert.deepEqual(answered.process.taskInstances[waiting.taskInstanceId].outputRefs, []);
+    assert.equal(answered.process.taskInstances[waiting.taskInstanceId].receiptSha256, null);
+    assert.deepEqual(answered.process.openHumanRequests, []);
+    assert.equal(answered.receipt, null);
+
+    const attempts = await listSgosImmutableRecordsByField(
+      fixture.root, answered.process.processId, 'gvm-task-attempt', 'attemptId', attemptId
+    );
+    assert.deepEqual(attempts.map((entry) => entry.status).sort(), ['running', expectedStatus].sort());
+    const responses = await listSgosImmutableRecordsByField(
+      fixture.root, answered.process.processId, 'human-response', 'requestSha256', waiting.request.requestSha256
+    );
+    assert.equal(responses.length, 1);
+    assert.equal(responses[0].responseSha256, answered.response.responseSha256);
+    const receipts = await listSgosImmutableRecordsByField(
+      fixture.root, answered.process.processId, 'gvm-task-receipt', 'attemptId', attemptId
+    );
+    assert.deepEqual(receipts, []);
+    const report = await fsckSgosProcess(fixture.root, answered.process.processId);
+    assert.equal(report.status, 'ok');
+    assert.deepEqual(report.orphans, []);
+  }
+});
+
+test('Human Request authority ignores actor and resolver forgeries and accepts only the runtime-observed pinned identity', async () => {
   const fixture = await repository('SGOS-STORY-HUMAN-AUTHORITY');
   const compiled = program([
     task('00-human', 'HUMAN_REQUEST', [], {
       operation: 'human.approval',
       authority: {
-        kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+        kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
       },
       metadata: {
         humanRequest: {
           requestType: 'approval',
           requestedBy: { id: 'sgos-runtime', kind: 'system' },
           authorityRequired: {
-            kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+            kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
           },
           prompt: { title: 'Approve', detail: 'Authority must come from a trusted boundary.' },
           options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
-          secretBroker: null, expiresAt: '2026-08-30T00:00:00.000Z'
+          secretBroker: null, expiresAt: '2099-08-30T00:00:00.000Z'
         }
       }
     }),
@@ -658,24 +1830,151 @@ test('Human Request authority ignores actor self-claims and accepts only a pinne
   );
   await assert.rejects(
     () => respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
-      ...response, authorityResolver: async () => true
-    }),
-    (error) => error.code === 'SGOS_AUTHORITY_RESOLVER_INVALID'
-  );
-  await assert.rejects(
-    () => respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
       ...response,
-      authorityResolver: async () => trustedReviewer({ assurance: 'self-asserted' })
+      authorityResolver: async () => ({
+        kind: 'role', id: 'reviewer', principalId: 'reviewer', principalKind: 'human',
+        assurance: 'configured-local', authoritySha256: HASH.authority
+      }),
+      authorize: async () => true
     }),
-    (error) => error.code === 'SGOS_HUMAN_REQUEST_UNAUTHORIZED'
+    (error) => error.code === 'SGOS_AUTHORITY_SELF_CLAIM_REFUSED'
   );
   const answered = await respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
     ...response,
-    authorityResolver: async () => trustedReviewer()
+    actor: { id: 'sgos@example.test', kind: 'human' }
   });
   assert.equal(answered.status, 'succeeded');
-  assert.equal(answered.response.actor.authoritySha256, HASH.authority);
+  assert.equal(answered.response.actor.authoritySha256,
+    started.process.authorityBinding.humanAuthorityRequirements[0].authoritySha256);
   assert.equal(answered.receipt.candidateSha256, answered.candidate.candidateSha256);
+});
+
+test('a different currently authorized reviewer can answer a request without inheriting the starter identity', async () => {
+  const fixture = await repository('SGOS-STORY-HUMAN-HANDOFF');
+  const workflow = YAML.parse(await readFile(fixture.workflowPath.replace(
+    `/work-items/${fixture.storyId}/workflow.json`, '/workflow.yml'
+  ), 'utf8'));
+  workflow.approvalAuthorities.reviewer.members.push({
+    name: 'Second Reviewer', email: 'second-reviewer@example.test'
+  });
+  await writeFile(path.join(fixture.root, 'singularity', 'workflow.yml'), YAML.stringify(workflow));
+  git(['add', 'singularity/workflow.yml'], fixture.root);
+  git(['commit', '-m', 'Authorize second SGOS reviewer'], fixture.root);
+
+  const compiled = program([
+    task('00-human', 'HUMAN_REQUEST', [], {
+      operation: 'human.approval',
+      authority: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+      metadata: {
+        humanRequest: {
+          requestType: 'approval',
+          requestedBy: { id: 'sgos-runtime', kind: 'system' },
+          authorityRequired: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+          prompt: { title: 'Approve handoff', detail: 'Any currently authorized reviewer may answer.' },
+          options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
+          secretBroker: null, expiresAt: '2099-08-30T00:00:00.000Z'
+        }
+      }
+    }),
+    task('90-end', 'END', ['00-human'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
+  git(['config', 'user.name', 'Second Reviewer'], fixture.root);
+  git(['config', 'user.email', 'second-reviewer@example.test'], fixture.root);
+
+  const answered = await respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
+    requestId: waiting.request.requestId,
+    requestSha256: waiting.request.requestSha256,
+    expectedRevision: waiting.process.processRevision,
+    actor: { id: 'second-reviewer@example.test', kind: 'human' },
+    decision: 'approved',
+    clock: T1
+  });
+  assert.equal(answered.status, 'succeeded');
+  assert.equal(answered.response.actor.id, 'second-reviewer@example.test');
+  assert.equal(answered.response.actor.authoritySha256,
+    started.process.authorityBinding.humanAuthorityRequirements[0].authoritySha256);
+});
+
+test('Human Request expiry uses the runtime clock and cannot be bypassed by a caller clock', async () => {
+  const fixture = await repository('SGOS-STORY-HUMAN-EXPIRED');
+  const compiled = program([
+    task('00-human', 'HUMAN_REQUEST', [], {
+      operation: 'human.approval',
+      authority: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+      metadata: {
+        humanRequest: {
+          requestType: 'approval',
+          requestedBy: { id: 'sgos-runtime', kind: 'system' },
+          authorityRequired: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+          prompt: { title: 'Expired request', detail: 'This request is intentionally expired.' },
+          options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
+          secretBroker: null, expiresAt: '2000-01-01T00:00:00.000Z'
+        }
+      }
+    }),
+    task('90-end', 'END', ['00-human'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
+  await assert.rejects(
+    () => respondToSgosHumanRequest(fixture.root, waiting.process.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: waiting.process.processRevision,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'approved',
+      clock: '1999-01-01T00:00:00.000Z'
+    }),
+    (error) => error.code === 'SGOS_HUMAN_REQUEST_EXPIRED'
+  );
+});
+
+test('Human Request response re-derives authority and rejects forged persisted membership', async () => {
+  const fixture = await repository('SGOS-STORY-HUMAN-PERSISTED-FORGERY');
+  const compiled = program([
+    task('00-human', 'HUMAN_REQUEST', [], {
+      operation: 'human.approval',
+      authority: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+      metadata: {
+        humanRequest: {
+          requestType: 'approval',
+          requestedBy: { id: 'sgos-runtime', kind: 'system' },
+          authorityRequired: { kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local' },
+          prompt: { title: 'Approve', detail: 'Persisted assertions are not authority.' },
+          options: [], inputSchema: null, sensitiveMode: 'none', externalUrl: null,
+          secretBroker: null, expiresAt: '2099-08-30T00:00:00.000Z'
+        }
+      }
+    }),
+    task('90-end', 'END', ['00-human'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
+  const forged = structuredClone(waiting.process);
+  delete forged.processSha256;
+  forged.authorityBinding.humanAuthorityRequirements[0].authoritySha256 = HASH.authority;
+  forged.processSha256 = sgosSha256(forged);
+  // Simulate direct machine-local sidecar tampering, bypassing mutateSgosProcess's immutable-field
+  // guard. Runtime authorization must still derive membership from approved configuration.
+  await writeFile(sgosProcessStatePath(fixture.root, forged.processId), canonicalJson(forged));
+  await assert.rejects(
+    () => respondToSgosHumanRequest(fixture.root, forged.processId, {
+      requestId: waiting.request.requestId,
+      requestSha256: waiting.request.requestSha256,
+      expectedRevision: forged.processRevision,
+      actor: { id: 'sgos@example.test', kind: 'human' },
+      decision: 'approved',
+      clock: T1
+    }),
+    (error) => ['SGOS_HUMAN_AUTHORITY_BINDING_INVALID', 'SGOS_CONTROL_LINEAGE_INVALID']
+      .includes(error.code)
+  );
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, forged.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
 });
 
 test('typed Human Response schema and sensitive-channel handles fail closed', async () => {
@@ -695,32 +1994,30 @@ test('typed Human Response schema and sensitive-channel handles fail closed', as
     task('00-secret', 'HUMAN_REQUEST', [], {
       operation: 'human.credential',
       authority: {
-        kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+        kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
       },
       metadata: {
         humanRequest: {
           requestType: 'credential',
           requestedBy: { id: 'sgos-runtime', kind: 'system' },
           authorityRequired: {
-            kind: 'role', id: 'reviewer', minimumAssurance: 'host-observed', authoritySha256: HASH.authority
+            kind: 'role', id: 'reviewer', minimumAssurance: 'configured-local'
           },
           prompt: { title: 'Credential handle', detail: 'Return only an external broker handle.' },
           options: [], inputSchema: handleSchema, sensitiveMode: 'secret-broker',
-          externalUrl: null, secretBroker: 'vault:test', expiresAt: '2026-08-30T00:00:00.000Z'
+          externalUrl: null, secretBroker: 'vault:test', expiresAt: '2099-08-30T00:00:00.000Z'
         }
       }
     }),
     task('90-end', 'END', ['00-secret'])
   ]);
-  const started = await start(fixture.root, fixture.storyId, compiled, {
-    trustedAuthorities: [trustedReviewer()]
-  });
+  const started = await start(fixture.root, fixture.storyId, compiled);
   const waiting = await runNextSgosTask(fixture.root, started.process.processId, { clock: T0 });
   const base = {
     requestId: waiting.request.requestId,
     requestSha256: waiting.request.requestSha256,
     expectedRevision: waiting.process.processRevision,
-    actor: { id: 'reviewer', kind: 'human' },
+    actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'provided',
     clock: T1
   };
@@ -749,6 +2046,7 @@ test('typed Human Response schema and sensitive-channel handles fail closed', as
 test('runtime rejects stale Process Bindings, unsupported control flow, and execution timeouts', async () => {
   const bindingFixture = await repository('SGOS-STORY-BINDING');
   const simple = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
+  await publishSgosProgramAuthority(bindingFixture.root, simple);
   await assert.rejects(() => startSgosProcess(bindingFixture.root, {
     program: simple,
     taskContractSha256: HASH.contract,
@@ -808,6 +2106,727 @@ test('runtime rejects stale Process Bindings, unsupported control flow, and exec
   assert.equal(Object.values(timedOut.process.taskInstances).some((entry) => entry.receiptSha256), false);
 });
 
+test('timeout aborts and awaits an in-process handler before releasing its lease or exposing recovery', async () => {
+  const fixture = await repository('SGOS-STORY-TIMEOUT-QUIESCENCE');
+  const operation = 'story.abort-ignoring';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], {
+      operation,
+      timeoutMs: 5,
+      retry: { maximumAttempts: 2 },
+      recovery: { interruptedExecution: 'retry-safe' }
+    }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let observedSignal = null;
+  let reportAbort;
+  let releaseHandler;
+  let lateMutations = 0;
+  const aborted = new Promise((resolve) => { reportAbort = resolve; });
+  const held = new Promise((resolve) => {
+    releaseHandler = () => {
+      lateMutations += 1;
+      resolve({ rawResult: { status: 'completed-after-timeout' } });
+    };
+  });
+  const running = runNextSgosTask(fixture.root, started.process.processId, {
+    handlers: { kernel: { [operation]: async ({ signal }) => {
+      observedSignal = signal;
+      if (signal.aborted) reportAbort();
+      else signal.addEventListener('abort', reportAbort, { once: true });
+      return held;
+    } } },
+    captureCandidates: { [operation]: async () => ({ resources: [] }) },
+    verifiers: { [operation]: async ({ candidateSha256 }) => ({
+      status: 'passed', candidateSha256, checksSha256: HASH.checks
+    }) },
+    clock: T1
+  });
+  await Promise.race([
+    aborted,
+    new Promise((resolve, reject) => setTimeout(() => reject(new Error('handler was not abort-signaled')), 1_000))
+  ]);
+  assert.equal(observedSignal.aborted, true);
+
+  const active = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(active.activeExecutions.length, 1);
+  assert.equal(active.activeLeases.length, 1);
+  const whileRunning = await planSgosProcessRecovery(fixture.root, active.processId);
+  assert.equal(whileRunning.executionStatus, 'active');
+  assert.equal(whileRunning.interrupted, false);
+  assert.deepEqual(whileRunning.actions, []);
+  const premature = await Promise.race([
+    running.then(() => 'returned'),
+    new Promise((resolve) => setTimeout(() => resolve('still-running'), 50))
+  ]);
+  assert.equal(premature, 'still-running', 'timeout must not return while ignored abort work is live');
+
+  releaseHandler();
+  const timedOut = await running;
+  assert.equal(lateMutations, 1, 'the post-deadline mutation must settle before command return');
+  assert.equal(timedOut.status, 'recovery-required');
+  assert.equal(timedOut.error.code, 'SGOS_TASK_TIMEOUT');
+  assert.deepEqual(timedOut.process.activeExecutions, []);
+  assert.deepEqual(timedOut.process.activeLeases, []);
+  assert.equal(await readSgosExecutionLease(fixture.root, active.processId, active.activeLeases[0]), null);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(lateMutations, 1, 'no handler mutation may occur after the command has returned');
+
+  const recovery = await planSgosProcessRecovery(fixture.root, active.processId);
+  assert.equal(recovery.interrupted, true);
+  assert.equal(recovery.executionStatus, 'uncertain-effect');
+  assert.equal(recovery.retryAllowed, false);
+  assert.equal(recovery.actions.some((action) => action.resolution === 'retry-safe'), false);
+});
+
+test('dispatch-time binding rejects HEAD drift without creating an attempt or changing Process state', async () => {
+  const fixture = await repository('SGOS-STORY-DISPATCH-BINDING');
+  const compiled = program([task('00-noop', 'NOOP'), task('90-end', 'END', ['00-noop'])]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const before = await readSgosProcess(fixture.root, started.process.processId);
+
+  await writeFile(path.join(fixture.root, 'advanced-after-start.mjs'), 'export const advanced = true;\n');
+  git(['add', 'advanced-after-start.mjs'], fixture.root);
+  git(['commit', '-m', 'Advance HEAD after SGOS Process start'], fixture.root);
+
+  await assert.rejects(
+    () => runNextSgosTask(fixture.root, started.process.processId, { clock: T1 }),
+    (error) => error.code === 'SGOS_PROCESS_BINDING_STALE'
+      && error.details?.fields?.includes('baselineRevision')
+  );
+  const after = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(after.processRevision, before.processRevision);
+  assert.equal(after.processSha256, before.processSha256);
+  assert.deepEqual(after.activeExecutions, []);
+  assert.deepEqual(Object.values(after.taskInstances).flatMap((entry) => entry.attemptIds), []);
+
+  const recovery = await planSgosProcessRecovery(fixture.root, started.process.processId);
+  assert.equal(recovery.interrupted, false);
+  assert.equal(recovery.bindingStatus, 'stale');
+  assert.deepEqual(recovery.bindingDetails.fields, ['baselineRevision']);
+  await assert.rejects(
+    () => pauseSgosProcess(fixture.root, started.process.processId, { expectedRevision: after.processRevision }),
+    (error) => error.code === 'SGOS_PROCESS_BINDING_STALE'
+  );
+});
+
+test('a live execution lease cannot be planned or authorized as interrupted recovery', async () => {
+  const fixture = await repository('SGOS-STORY-LIVE-LEASE');
+  const operation = 'story.live-observation';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let enter;
+  let release;
+  let handlerCalls = 0;
+  const entered = new Promise((resolve) => { enter = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const running = runNextSgosTask(fixture.root, started.process.processId,
+    governedKernel(operation, async () => {
+      handlerCalls += 1;
+      enter();
+      await held;
+      return { rawResult: { status: 'completed' } };
+    }));
+  await entered;
+
+  const active = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(active.activeExecutions.length, 1);
+  assert.equal(active.activeLeases.length, 1);
+  await assert.rejects(
+    () => resumeSgosProcess(fixture.root, active.processId, {
+      checkpointSha256: active.currentCheckpointSha256,
+      expectedRevision: active.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_PROCESS_NOT_QUIESCENT'
+  );
+  const afterResumeRefusal = await readSgosProcess(fixture.root, active.processId);
+  assert.equal(afterResumeRefusal.processSha256, active.processSha256);
+  assert.deepEqual(afterResumeRefusal.activeLeases, active.activeLeases);
+  assert.notEqual(await readSgosExecutionLease(
+    fixture.root, active.processId, active.activeLeases[0]
+  ), null);
+  const plan = await planSgosProcessRecovery(fixture.root, active.processId);
+  assert.equal(plan.interrupted, false);
+  assert.equal(plan.executionStatus, 'active');
+  assert.equal(plan.attemptId, active.activeExecutions[0]);
+  assert.deepEqual(plan.actions, []);
+  await assert.rejects(
+    () => recoverInterruptedSgosExecution(fixture.root, active.processId, {
+      attemptId: active.activeExecutions[0],
+      resolution: 'fail',
+      confirmationSha256: HASH.candidate,
+      expectedRevision: active.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_EXECUTION_STILL_ACTIVE'
+  );
+
+  release();
+  const completed = await running;
+  assert.equal(completed.status, 'succeeded');
+  assert.equal(handlerCalls, 1);
+  assert.equal(await readSgosExecutionLease(fixture.root, active.processId, active.activeLeases[0]), null);
+});
+
+test('dispatch lock-reconciles dead orphan leases but refuses a live process-instance owner', async () => {
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const deadFixture = await repository('SGOS-STORY-DEAD-ORPHAN-LEASE');
+  const deadStarted = await start(deadFixture.root, deadFixture.storyId, compiled);
+  const deadLease = {
+    kind: 'sgos-execution-lease',
+    leaseId: 'LEASE-dead-orphan-owner',
+    processId: deadStarted.process.processId,
+    attemptId: 'ATT-dead-orphan-owner',
+    taskInstanceId: Object.keys(deadStarted.process.taskInstances)[0],
+    ownerId: 'OWNER-dead-orphan-owner',
+    ownerPid: exitedOwnerPid(),
+    ownerStartFingerprint: HASH.authority,
+    beforeProcessSha256: deadStarted.process.processSha256,
+    beforeProcessRevision: deadStarted.process.processRevision,
+    executionHandleSha256: HASH.candidate,
+    attemptSha256: HASH.intent,
+    acquiredAt: T0,
+    heartbeatAt: T0
+  };
+  await writeSgosExecutionLease(deadFixture.root, deadStarted.process.processId, deadLease);
+  const completed = await runNextSgosTask(
+    deadFixture.root, deadStarted.process.processId, { clock: T1 }
+  );
+  assert.equal(completed.status, 'succeeded');
+  assert.equal(await readSgosExecutionLease(
+    deadFixture.root, deadStarted.process.processId, deadLease.leaseId
+  ), null);
+
+  const liveFixture = await repository('SGOS-STORY-LIVE-ORPHAN-LEASE');
+  const liveStarted = await start(liveFixture.root, liveFixture.storyId, compiled);
+  const liveLease = {
+    kind: 'sgos-execution-lease',
+    leaseId: 'LEASE-live-orphan-owner',
+    processId: liveStarted.process.processId,
+    attemptId: 'ATT-live-orphan-owner',
+    taskInstanceId: Object.keys(liveStarted.process.taskInstances)[0],
+    ownerId: 'OWNER-live-orphan-owner',
+    ownerPid: process.pid,
+    ownerStartFingerprint: currentSgosExecutionOwnerFingerprint(),
+    beforeProcessSha256: liveStarted.process.processSha256,
+    beforeProcessRevision: liveStarted.process.processRevision,
+    executionHandleSha256: HASH.candidate,
+    attemptSha256: HASH.intent,
+    acquiredAt: T0,
+    heartbeatAt: T0
+  };
+  registerSgosExecutionOwner({ ...liveLease, schemaVersion: 1 });
+  await writeSgosExecutionLease(liveFixture.root, liveStarted.process.processId, liveLease);
+  await assert.rejects(
+    () => runNextSgosTask(liveFixture.root, liveStarted.process.processId, { clock: T1 }),
+    (error) => error.code === 'SGOS_EXECUTION_LEASE_BUSY'
+  );
+  assert.equal((await readSgosProcess(liveFixture.root, liveStarted.process.processId)).processSha256,
+    liveStarted.process.processSha256);
+  assert.notEqual(await readSgosExecutionLease(
+    liveFixture.root, liveStarted.process.processId, liveLease.leaseId
+  ), null);
+  unregisterSgosExecutionOwner(liveLease);
+  const reconciled = await reconcileSgosExecutionLeases(
+    liveFixture.root, liveStarted.process.processId
+  );
+  assert.deepEqual(reconciled.removed, [liveLease.leaseId]);
+});
+
+test('dispatch refuses an unbounded execution-lease sidecar before any Process mutation', async () => {
+  const fixture = await repository('SGOS-STORY-LEASE-CAPACITY');
+  const compiled = program([
+    task('00-noop', 'NOOP'),
+    task('90-end', 'END', ['00-noop'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const deadPid = exitedOwnerPid();
+  const taskInstanceId = Object.keys(started.process.taskInstances)[0];
+  for (let index = 0; index <= SGOS_INSTALLED_LIMITS.maximumExecutionLeases; index += 1) {
+    await writeSgosExecutionLease(fixture.root, started.process.processId, {
+      kind: 'sgos-execution-lease',
+      leaseId: `LEASE-capacity-${String(index).padStart(2, '0')}`,
+      processId: started.process.processId,
+      attemptId: `ATT-capacity-${String(index).padStart(2, '0')}`,
+      taskInstanceId,
+      ownerId: `OWNER-capacity-${String(index).padStart(2, '0')}`,
+      ownerPid: deadPid,
+      ownerStartFingerprint: HASH.authority,
+      beforeProcessSha256: started.process.processSha256,
+      beforeProcessRevision: started.process.processRevision,
+      executionHandleSha256: HASH.candidate,
+      attemptSha256: HASH.intent,
+      acquiredAt: T0,
+      heartbeatAt: T0
+    });
+  }
+  await assert.rejects(
+    () => runNextSgosTask(fixture.root, started.process.processId, { clock: T1 }),
+    (error) => error.code === 'SGOS_EXECUTION_LEASE_LIMIT'
+      && error.details?.maximum === SGOS_INSTALLED_LIMITS.maximumExecutionLeases
+  );
+  assert.equal((await readSgosProcess(fixture.root, started.process.processId)).processSha256,
+    started.process.processSha256);
+});
+
+test('executor cleanup retains a lease while durable Process state still references its attempt', async () => {
+  const fixture = await repository('SGOS-STORY-CONDITIONAL-LEASE-CLEANUP');
+  const operation = 'story.conditional-cleanup';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let enter;
+  let release;
+  const entered = new Promise((resolve) => { enter = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const running = runNextSgosTask(fixture.root, started.process.processId,
+    governedKernel(operation, async () => {
+      enter();
+      await held;
+      throw new Error('handler ended after concurrent Process revision');
+    }));
+  await entered;
+  const active = await readSgosProcess(fixture.root, started.process.processId);
+  await mutateSgosProcess(fixture.root, active.processId, () => {}, {
+    expectedRevision: active.processRevision,
+    expectedProcessSha256: active.processSha256,
+    updatedAt: T1
+  });
+  release();
+  await assert.rejects(
+    () => running,
+    (error) => error.code === 'SGOS_PROCESS_REVISION_STALE'
+  );
+  const retained = await readSgosProcess(fixture.root, active.processId);
+  assert.deepEqual(retained.activeExecutions, active.activeExecutions);
+  assert.deepEqual(retained.activeLeases, active.activeLeases);
+  assert.notEqual(await readSgosExecutionLease(
+    fixture.root, retained.processId, active.activeLeases[0]
+  ), null, 'cleanup must not delete a lease still referenced by durable Process state');
+  const recovery = await planSgosProcessRecovery(fixture.root, retained.processId);
+  assert.notEqual(recovery.executionStatus, 'active',
+    'the completed local coroutine must no longer claim live ownership');
+});
+
+test('active execution and lease state survive exact rollback and reject self-hashed clearing', async () => {
+  const fixture = await repository('SGOS-STORY-ACTIVE-ROLLBACK');
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation: 'story.active-rollback' }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+  const beforeExecutionBytes = await readFile(statePath, 'utf8');
+  const crashed = await markSgosExecutionInterrupted(
+    fixture.root, started.process, '00-kernel'
+  );
+  await writeFile(statePath, beforeExecutionBytes);
+  const replayed = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(replayed.processSha256, crashed.interrupted.processSha256);
+  assert.deepEqual(replayed.activeExecutions, [crashed.attemptId]);
+  assert.deepEqual(replayed.activeLeases, [crashed.lease.leaseId]);
+
+  const forged = structuredClone(replayed);
+  delete forged.processSha256;
+  forged.activeExecutions = [];
+  forged.activeLeases = [];
+  forged.status = 'running';
+  forged.processSha256 = sgosSha256(forged);
+  await writeFile(statePath, canonicalJson(forged));
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, forged.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+});
+
+test('recovery-required state cannot be rolled back or forged into retry-ready state', async () => {
+  const fixture = await repository('SGOS-STORY-RECOVERY-ROLLBACK');
+  const operation = 'story.uncertain-write';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], {
+      operation,
+      resources: { reads: [], writes: ['src'], devices: [], externalEffects: [] }
+    }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const statePath = sgosProcessStatePath(fixture.root, started.process.processId);
+  const beforeExecutionBytes = await readFile(statePath, 'utf8');
+  const failed = await runNextSgosTask(fixture.root, started.process.processId,
+    governedKernel(operation, async () => { throw new Error('uncertain write failure'); }));
+  assert.equal(failed.status, 'recovery-required');
+  assert.equal(failed.process.status, 'recovery-required');
+
+  await writeFile(statePath, beforeExecutionBytes);
+  const replayed = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(replayed.processSha256, failed.process.processSha256);
+  assert.equal(replayed.status, 'recovery-required');
+  await assert.rejects(
+    () => runNextSgosTask(fixture.root, replayed.processId, {
+      expectedRevision: replayed.processRevision
+    }),
+    (error) => error.code === 'SGOS_PROCESS_NOT_RUNNABLE'
+  );
+
+  const forged = structuredClone(replayed);
+  delete forged.processSha256;
+  const target = Object.values(forged.taskInstances)
+    .find((entry) => entry.taskTemplateId === '00-kernel');
+  target.state = 'ready';
+  target.revision += 1;
+  forged.status = 'running';
+  forged.processSha256 = sgosSha256(forged);
+  await writeFile(statePath, canonicalJson(forged));
+  await assert.rejects(
+    () => readSgosProcess(fixture.root, forged.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+});
+
+test('HEAD drift during a handler prevents a success receipt and moves the task to recovery', async () => {
+  const fixture = await repository('SGOS-STORY-MIDFLIGHT-BINDING');
+  const operation = 'story.midflight-observation';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let enter;
+  let release;
+  const entered = new Promise((resolve) => { enter = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  const running = runNextSgosTask(fixture.root, started.process.processId,
+    governedKernel(operation, async () => {
+      enter();
+      await held;
+      return { rawResult: { status: 'completed' } };
+    }));
+  await entered;
+  await writeFile(path.join(fixture.root, 'advanced-during-handler.mjs'), 'export const advanced = true;\n');
+  git(['add', 'advanced-during-handler.mjs'], fixture.root);
+  git(['commit', '-m', 'Advance HEAD during SGOS handler'], fixture.root);
+  release();
+
+  const result = await running;
+  assert.equal(result.status, 'recovery-required');
+  assert.equal(result.error.code, 'SGOS_PROCESS_BINDING_STALE');
+  assert.equal(result.process.status, 'recovery-required');
+  const taskState = result.process.taskInstances[result.taskInstanceId];
+  assert.equal(taskState.state, 'recovery-required');
+  assert.equal(taskState.receiptSha256, null);
+  assert.deepEqual(result.process.activeExecutions, []);
+  assert.deepEqual(result.process.activeLeases, []);
+  assert.deepEqual(await listSgosImmutableRecordsByField(
+    fixture.root, result.process.processId, 'gvm-task-receipt', 'attemptId', result.attempt.attemptId
+  ), []);
+  const plan = await planSgosProcessRecovery(fixture.root, result.process.processId);
+  assert.equal(plan.interrupted, true);
+  assert.equal(plan.executionStatus, 'uncertain-effect');
+  assert.equal(plan.bindingStatus, 'stale');
+  assert.deepEqual(plan.actions.map((entry) => entry.resolution), ['fail']);
+  const stabilized = await recoverInterruptedSgosExecution(fixture.root, result.process.processId, {
+    attemptId: result.attempt.attemptId,
+    resolution: 'fail',
+    confirmationSha256: plan.actions[0].confirmationSha256,
+    expectedRevision: plan.processRevision,
+    clock: T1
+  });
+  assert.equal(stabilized.status, 'failed');
+  assert.equal(stabilized.process.status, 'failed');
+});
+
+test('an owner-exited execution can be failed exactly once with immutable start and terminal lineage', async () => {
+  const fixture = await repository('SGOS-STORY-EXITED-LEASE');
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation: 'story.crashed-observation' }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const crashed = await markSgosExecutionInterrupted(
+    fixture.root, started.process, '00-kernel'
+  );
+  const plan = await planSgosProcessRecovery(fixture.root, crashed.interrupted.processId);
+  assert.equal(plan.interrupted, true);
+  assert.equal(plan.executionStatus, 'owner-exited');
+  assert.equal(plan.retryAllowed, false);
+  assert.deepEqual(plan.actions.map((entry) => entry.resolution), ['fail']);
+
+  const failed = await recoverInterruptedSgosExecution(
+    fixture.root, crashed.interrupted.processId, {
+      attemptId: crashed.attemptId,
+      resolution: 'fail',
+      confirmationSha256: plan.actions[0].confirmationSha256,
+      expectedRevision: plan.processRevision,
+      clock: T1
+    }
+  );
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.process.status, 'failed');
+  assert.deepEqual(failed.process.activeExecutions, []);
+  assert.deepEqual(failed.process.activeLeases, []);
+  assert.equal(await readSgosExecutionLease(
+    fixture.root, failed.process.processId, crashed.lease.leaseId
+  ), null);
+  const attempts = await listSgosImmutableRecordsByField(
+    fixture.root, failed.process.processId, 'gvm-task-attempt', 'attemptId', crashed.attemptId
+  );
+  assert.deepEqual(attempts.map((entry) => entry.status).sort(), ['failed', 'running']);
+  assert.equal(new Set(attempts.map((entry) => entry.executionHandleSha256)).size, 1);
+});
+
+test('recovery fails closed when a terminal attempt exists without its required receipt', async () => {
+  const fixture = await repository('SGOS-STORY-TERMINAL-WITHOUT-RECEIPT');
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation: 'story.crashed-after-terminal' }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const crashed = await markSgosExecutionInterrupted(
+    fixture.root, started.process, '00-kernel'
+  );
+  const terminal = buildSgosTaskAttempt({
+    attemptId: crashed.attemptId,
+    processId: crashed.interrupted.processId,
+    taskInstanceId: crashed.task.taskInstanceId,
+    attemptNumber: 1,
+    parentAttemptId: null,
+    reason: 'initial',
+    taskContractSha256: crashed.interrupted.taskContractSha256,
+    executionHandleSha256: crashed.lease.executionHandleSha256,
+    status: 'succeeded',
+    startedAt: T0,
+    completedAt: T1
+  });
+  await putSgosImmutableRecord(
+    fixture.root, crashed.interrupted.processId, 'gvm-task-attempt', terminal
+  );
+  const plan = await planSgosProcessRecovery(fixture.root, crashed.interrupted.processId);
+  assert.equal(plan.interrupted, true);
+  assert.equal(plan.blockedReason,
+    'incomplete-terminal-lineage-requires-archival-review');
+  assert.equal(plan.retryAllowed, false);
+  assert.deepEqual(plan.actions, []);
+  await assert.rejects(
+    () => recoverInterruptedSgosExecution(fixture.root, crashed.interrupted.processId, {
+      attemptId: crashed.attemptId,
+      resolution: 'fail',
+      confirmationSha256: HASH.candidate,
+      expectedRevision: plan.processRevision,
+      clock: T1
+    }),
+    (error) => error.code === 'SGOS_EXECUTION_RETRY_UNSAFE'
+  );
+  const after = await readSgosProcess(fixture.root, crashed.interrupted.processId);
+  assert.equal(after.processRevision, plan.processRevision);
+  assert.deepEqual(after.activeExecutions, [crashed.attemptId]);
+});
+
+test('interrupted retry requires an explicit read-only retry-safe contract', async () => {
+  const cases = [
+    { name: 'undeclared', recovery: {}, resources: { reads: [], writes: [], devices: [], externalEffects: [] }, allowed: false },
+    {
+      name: 'writes', recovery: { interruptedExecution: 'retry-safe' },
+      resources: { reads: [], writes: ['src'], devices: [], externalEffects: [] }, allowed: false
+    },
+    {
+      name: 'read-only', recovery: { interruptedExecution: 'retry-safe' },
+      resources: { reads: ['src'], writes: [], devices: [], externalEffects: [] }, allowed: true
+    }
+  ];
+  for (const entry of cases) {
+    const fixture = await repository(`SGOS-STORY-RETRY-${entry.name.toUpperCase()}`);
+    const compiled = program([
+      task('00-kernel', 'KERNEL', [], {
+        operation: `story.${entry.name}`,
+        resources: entry.resources,
+        recovery: entry.recovery,
+        retry: { maximumAttempts: 2 }
+      }),
+      task('90-end', 'END', ['00-kernel'])
+    ]);
+    const started = await start(fixture.root, fixture.storyId, compiled);
+    const crashed = await markSgosExecutionInterrupted(
+      fixture.root, started.process, '00-kernel'
+    );
+    const plan = await planSgosProcessRecovery(fixture.root, crashed.interrupted.processId);
+    assert.equal(plan.retryAllowed, entry.allowed, entry.name);
+    assert.equal(plan.actions.some((action) => action.resolution === 'retry-safe'), entry.allowed, entry.name);
+    if (!entry.allowed) {
+      await assert.rejects(
+        () => recoverInterruptedSgosExecution(fixture.root, crashed.interrupted.processId, {
+          attemptId: crashed.attemptId,
+          resolution: 'retry-safe',
+          confirmationSha256: HASH.candidate,
+          expectedRevision: plan.processRevision,
+          clock: T1
+        }),
+        (error) => error.code === 'SGOS_EXECUTION_RETRY_UNSAFE',
+        entry.name
+      );
+      continue;
+    }
+    const action = plan.actions.find((candidate) => candidate.resolution === 'retry-safe');
+    const retried = await recoverInterruptedSgosExecution(
+      fixture.root, crashed.interrupted.processId, {
+        attemptId: crashed.attemptId,
+        resolution: 'retry-safe',
+        confirmationSha256: action.confirmationSha256,
+        expectedRevision: plan.processRevision,
+        clock: T1
+      }
+    );
+    assert.equal(retried.status, 'retry-ready');
+    assert.equal(retried.process.status, 'running');
+    assert.equal(retried.process.taskInstances[crashed.task.taskInstanceId].state, 'ready');
+    assert.deepEqual(retried.process.activeExecutions, []);
+    assert.deepEqual(retried.process.activeLeases, []);
+  }
+});
+
+test('concurrent recovery resolutions publish one terminal attempt and cannot poison lineage', async () => {
+  const fixture = await repository('SGOS-STORY-RECOVERY-RACE');
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], {
+      operation: 'story.concurrent-recovery',
+      resources: { reads: ['src'], writes: [], devices: [], externalEffects: [] },
+      recovery: { interruptedExecution: 'retry-safe' },
+      retry: { maximumAttempts: 2 }
+    }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const crashed = await markSgosExecutionInterrupted(
+    fixture.root, started.process, '00-kernel'
+  );
+  const plan = await planSgosProcessRecovery(fixture.root, crashed.interrupted.processId);
+  const failAction = plan.actions.find((entry) => entry.resolution === 'fail');
+  const retryAction = plan.actions.find((entry) => entry.resolution === 'retry-safe');
+  assert.ok(failAction);
+  assert.ok(retryAction);
+  const apply = (resolution, confirmationSha256) => recoverInterruptedSgosExecution(
+    fixture.root, crashed.interrupted.processId, {
+      attemptId: crashed.attemptId,
+      resolution,
+      confirmationSha256,
+      expectedRevision: plan.processRevision,
+      clock: T1
+    }
+  );
+  const results = await Promise.allSettled([
+    apply('retry-safe', retryAction.confirmationSha256),
+    apply('fail', failAction.confirmationSha256)
+  ]);
+  const fulfilled = results.filter((entry) => entry.status === 'fulfilled');
+  const rejected = results.filter((entry) => entry.status === 'rejected');
+  assert.equal(fulfilled.length, 1);
+  assert.equal(rejected.length, 1);
+  assert.ok(
+    ['SGOS_PROCESS_REVISION_STALE', 'SGOS_EXECUTION_RECOVERY_STALE',
+      'SGOS_EXECUTION_RECOVERY_INVALID'].includes(rejected[0].reason?.code),
+    rejected[0].reason?.code
+  );
+
+  const winner = fulfilled[0].value;
+  const final = await readSgosProcess(fixture.root, crashed.interrupted.processId);
+  const taskState = final.taskInstances[crashed.task.taskInstanceId];
+  assert.equal(taskState.state, winner.resolution === 'retry-safe' ? 'ready' : 'failed');
+  assert.equal(final.status, winner.resolution === 'retry-safe' ? 'running' : 'failed');
+  assert.deepEqual(final.activeExecutions, []);
+  assert.deepEqual(final.activeLeases, []);
+  const attempts = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'gvm-task-attempt', 'attemptId', crashed.attemptId
+  );
+  assert.deepEqual(attempts.map((entry) => entry.status).sort(), ['failed', 'running']);
+  assert.equal(attempts.filter((entry) => entry.status !== 'running').length, 1);
+  assert.equal(new Set(attempts.map((entry) => entry.executionHandleSha256)).size, 1);
+  const evidence = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'action-evidence', 'attemptId', crashed.attemptId
+  );
+  assert.equal(evidence.length, 1);
+  const receipts = await listSgosImmutableRecordsByField(
+    fixture.root, final.processId, 'gvm-task-receipt', 'attemptId', crashed.attemptId
+  );
+  assert.deepEqual(receipts, []);
+});
+
+test('mutable rollback cannot fabricate an interrupted success-reconciliation boundary', async () => {
+  const fixture = await repository('SGOS-STORY-RECONCILE-SUCCESS');
+  const operation = 'story.reconcile-observation';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], { operation }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const completed = await runNextSgosTask(
+    fixture.root, started.process.processId,
+    governedKernel(operation, async () => ({ rawResult: { status: 'completed' } }))
+  );
+  assert.equal(completed.status, 'succeeded');
+  const taskState = completed.process.taskInstances[completed.taskInstanceId];
+  const leaseId = `LEASE-reconcile-${completed.process.processId.slice('PROC-'.length)}`;
+  const deadLease = {
+    kind: 'sgos-execution-lease',
+    leaseId,
+    processId: completed.process.processId,
+    attemptId: completed.attempt.attemptId,
+    taskInstanceId: completed.taskInstanceId,
+    ownerId: `OWNER-reconcile-${completed.process.processId.slice('PROC-'.length)}`,
+    ownerPid: exitedOwnerPid(),
+    ownerStartFingerprint: HASH.authority,
+    beforeProcessSha256: completed.process.processSha256,
+    beforeProcessRevision: completed.process.processRevision,
+    executionHandleSha256: completed.attempt.executionHandleSha256,
+    attemptSha256: completed.attempt.attemptSha256,
+    acquiredAt: T0,
+    heartbeatAt: T0
+  };
+  await writeSgosExecutionLease(fixture.root, completed.process.processId, deadLease);
+  // Reconstruct the exact crash boundary: the verified receipt reached durable immutable storage,
+  // but the final mutable-state CAS did not. Public mutation APIs correctly refuse rolling a
+  // succeeded task backwards, so this fixture writes a self-hashed interrupted snapshot directly.
+  const interrupted = structuredClone(completed.process);
+  delete interrupted.processSha256;
+  const target = interrupted.taskInstances[completed.taskInstanceId];
+  target.state = 'running';
+  target.outputRefs = [];
+  target.receiptSha256 = null;
+  target.revision += 1;
+  for (const candidate of Object.values(interrupted.taskInstances)) {
+    if (candidate.taskInstanceId !== target.taskInstanceId && candidate.state === 'ready') {
+      candidate.state = 'waiting';
+      candidate.revision += 1;
+    }
+  }
+  interrupted.activeExecutions = [completed.attempt.attemptId];
+  interrupted.activeLeases = [leaseId];
+  interrupted.status = 'running';
+  interrupted.processRevision += 1;
+  interrupted.updatedAt = T1;
+  interrupted.processSha256 = sgosSha256(interrupted);
+  await writeFile(
+    sgosProcessStatePath(fixture.root, completed.process.processId),
+    canonicalJson(interrupted)
+  );
+  assert.equal(interrupted.taskInstances[completed.taskInstanceId].receiptSha256, null);
+
+  await assert.rejects(
+    () => planSgosProcessRecovery(fixture.root, interrupted.processId),
+    (error) => error.code === 'SGOS_CONTROL_LINEAGE_INVALID'
+  );
+  assert.notEqual(completed.process.taskInstances[completed.taskInstanceId].receiptSha256, null);
+  assert.equal(taskState.attemptIds.length, 1);
+});
+
 test('SGOS immutable store refuses symbolic-link ancestors before publication', async () => {
   const fixture = await repository('SGOS-STORY-SYMLINK');
   const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-outside-'));
@@ -849,7 +2868,7 @@ test('AGENT and DEVICE opcodes fail closed without a success receipt', async () 
       }),
       task('90-end', 'END', [`00-${opcode.toLowerCase()}`])
     ]);
-    const started = await start(fixture.root, `${fixture.storyId}-${opcode}`, compiled);
+    const started = await start(fixture.root, fixture.storyId, compiled);
     const result = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
     assert.equal(result.status, 'blocked');
     assert.equal(result.reason.code.includes(opcode), true);

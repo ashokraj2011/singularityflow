@@ -8,8 +8,9 @@ import { familyForStoredPath, migrationRegistrySnapshot } from './schema-migrati
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 
-async function jsonFiles(base, prefix, files, { maximumFiles }) {
+async function jsonFiles(base, prefix, files, { maximumFiles, excludedDirectories = [] }) {
   if (!(await exists(base))) return;
+  const excluded = new Set(excludedDirectories.map((directory) => path.resolve(directory)));
   async function visit(directory, relative = '') {
     const entries = (await readdir(directory, { withFileTypes: true }))
       .sort((left, right) => left.name.localeCompare(right.name));
@@ -19,7 +20,7 @@ async function jsonFiles(base, prefix, files, { maximumFiles }) {
       const nested = relative ? `${relative}/${entry.name}` : entry.name;
       const info = await lstat(absolute);
       if (info.isSymbolicLink()) continue;
-      if (info.isDirectory()) await visit(absolute, nested);
+      if (info.isDirectory() && !excluded.has(path.resolve(absolute))) await visit(absolute, nested);
       else if (info.isFile() && (entry.name.endsWith('.json') || entry.name.endsWith('.jsonl'))) {
         files.push({ absolute, relative: `${prefix}${nested}`, bytes: info.size });
       }
@@ -81,7 +82,17 @@ export async function schemaCensus(root, { maximumFiles = 20_000, maximumRecords
     await jsonFiles(selected.absolute, `${selected.relative.replaceAll('\\', '/').replace(/\/+$/, '')}/`, files, { maximumFiles });
   }
   const gitState = path.join(gitCommonDir(root), 'singularity-flow');
-  await jsonFiles(gitState, '$git/', files, { maximumFiles });
+  // Managed SGOS quarantine contains preserved opaque or incomplete bytes which this build must
+  // not reinterpret. Only active Process state participates in migration readiness; quarantined
+  // bytes can never be restored or resumed as current authority. Exclude the preview-era archive
+  // directory too so an existing installation remains healthy after upgrading the command label.
+  await jsonFiles(gitState, '$git/', files, {
+    maximumFiles,
+    excludedDirectories: [
+      path.join(gitState, 'sgos', 'archives'),
+      path.join(gitState, 'sgos', 'quarantine')
+    ]
+  });
 
   const families = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, resultFor(entry)]));
   const unregistered = [];

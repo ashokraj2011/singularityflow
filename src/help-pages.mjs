@@ -157,15 +157,35 @@ const PAGES = Object.freeze({
       'Process state is machine-local operational state under the Git common directory. It is guarded',
       'by a subject lock, expected revision, atomic replacement, and content hash. It cannot advance',
       'a Story or become Git authority.',
+      'At start, Human Request roles are matched against approved repository authority groups and',
+      'the current Git identity is pinned only when configured membership proves it. No command-line',
+      'authority value can add a reviewer or upgrade identity assurance.',
+      'The exact Program must also have a matching authority record under',
+      '`singularity/sgos/program-authorities/` on the approved configuration ref. Compiler inputs,',
+      'working-tree bytes, and a copied Program digest cannot authorize execution.',
       '',
       'The initial runtime executes deterministic kernel, verification, checkpoint, human-request,',
       'no-op, and end tasks sequentially. Agent and device opcodes stop with an explicit adapter',
-      'refusal. A task is never successful without an immutable verification-bound receipt.'
+      'refusal. A task is never successful without an immutable verification-bound receipt.',
+      '',
+      'v1 Process state, a v1 Process Binding, or a v1 Human Request cannot be upgraded into',
+      'a trusted v2 authority claim.',
+      '`process quarantine` previews an exact bounded tree digest, then moves the unchanged',
+      'machine-local Process into managed quarantine only after that digest is confirmed. The same',
+      'fail-closed path accepts an exact current-v3 zero-progress creation seed interrupted before',
+      'genesis, one exact readable Process crash with a latest terminal attempt but no receipt, or a',
+      'failed terminal with neither evidence nor receipt, and no live owner. Creation seeds must match',
+      'their readable Program, Binding, and deterministic task materialization. Failed terminal gaps',
+      'are never retryable. Exact writer leftovers are digest-bound opaque bytes, never parsed or',
+      'restored. Listing keeps healthy peers visible and labels refused private Processes unavailable.',
+      'It never deletes, rewrites, restores, resumes, or claims success.',
+      '`process archive` is retained only as a compatibility alias and produces quarantine-labelled output.'
     ],
     options: [['--confirm SHA256', 'Bind resume to the exact current checkpoint.'], ['--json', 'Emit the complete process/checkpoint projection.']],
     examples: [
-      ['singularity-flow process start program.json', 'Create a repository-bound operational Process.'],
-      ['singularity-flow process step PROC-...', 'Execute at most one deterministic ready task.']
+      ['singularity-flow process start program.json --compiler-request compiler-request.json', 'Create a repository-bound operational Process after its exact Program authority is approved.'],
+      ['singularity-flow process step PROC-...', 'Execute at most one deterministic ready task.'],
+      ['singularity-flow process quarantine PROC-...', 'Preview non-runnable preservation of supported legacy bytes, an interrupted private creation seed, or an exact incomplete-terminal crash, then rerun with its exact confirmation digest.']
     ],
     seeAlso: ['program', 'task', 'request', 'recover']
   },
@@ -186,8 +206,19 @@ const PAGES = Object.freeze({
       'and what resumes afterward. A response uses compare-and-swap and binds the exact request hash;',
       'expired, stale, unauthorized, or generic continue responses are refused.'
     ],
-    options: [['--option ID', 'Select one declared option.'], ['--confirm SHA256', 'Confirm the exact current request hash.'], ['--json', 'Emit request or response records.']],
-    examples: [['singularity-flow request respond HRQ-... --process PROC-... --option approve --confirm sha256:...', 'Answer one current request without bypassing its authority contract.']],
+    options: [
+      ['--decision DECISION', 'Record approved, rejected, provided, or cancelled when the request type permits it.'],
+      ['--option ID', 'Select one exact option ID declared by the current request; this records decision=selected.'],
+      ['--input-json JSON', 'Provide bounded typed JSON for a non-sensitive request with an input schema.'],
+      ['--sensitive-handle JSON', 'Provide only a typed, non-secret external URL or broker handle for a sensitive request.'],
+      ['--confirm SHA256', 'Confirm the exact current request hash.'],
+      ['--json', 'Emit request or response records.']
+    ],
+    examples: [
+      ['singularity-flow request respond HRQ-... --process PROC-... --decision approved --confirm sha256:...', 'Approve one current approval request using authority pinned from repository configuration.'],
+      ['singularity-flow request respond HRQ-... --process PROC-... --option exact-option-id --confirm sha256:...', 'Select an option using the exact ID shown by request show.'],
+      [`singularity-flow request respond HRQ-... --process PROC-... --decision provided --input-json '{"answer":"bounded text"}' --confirm sha256:...`, 'Provide schema-validated non-sensitive input.']
+    ],
     seeAlso: ['process', 'task', 'approve']
   },
   auto: {

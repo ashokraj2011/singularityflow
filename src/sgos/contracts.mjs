@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
+import { canonicalizeSgosAbsolutePath } from './paths.mjs';
 
 export const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
@@ -51,7 +53,9 @@ export const WORK_OBJECT_VIEW_TYPES = Object.freeze([
 ]);
 
 export const WORK_OBJECT_OPERATIONS = Object.freeze([
-  'human-request.respond', 'process.pause', 'process.resume', 'candidate.review',
+  // `human-request.respond` remains readable for v1 projections emitted before the CLI operation
+  // IDs were unified. New projections emit the registered `request.respond` command ID.
+  'request.respond', 'human-request.respond', 'process.pause', 'process.resume', 'candidate.review',
   'evidence.inspect', 'work-object.refresh'
 ]);
 
@@ -71,6 +75,10 @@ const CONTRACTS = Object.freeze({
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
   'gvm-program': Object.freeze({ kind: 'gvm-program', hash: 'programSha256', id: 'programId', prefix: 'PRG' }),
   'gvm-process': Object.freeze({ kind: 'gvm-process', hash: 'processSha256', id: 'processId', prefix: 'PROC' }),
+  'sgos-record-index': Object.freeze({ kind: 'sgos-record-index', hash: 'recordIndexSha256' }),
+  'sgos-control-event': Object.freeze({ kind: 'sgos-control-event', hash: 'controlEventSha256' }),
+  'sgos-control-successor': Object.freeze({ kind: 'sgos-control-successor', hash: 'successorSha256' }),
+  'sgos-transition-intent': Object.freeze({ kind: 'sgos-transition-intent', hash: 'intentSha256' }),
   'gvm-task-attempt': Object.freeze({ kind: 'gvm-task-attempt', hash: 'attemptSha256', id: 'attemptId', prefix: 'ATT' }),
   'gvm-task-receipt': Object.freeze({ kind: 'gvm-task-receipt', hash: 'receiptSha256' }),
   'gvm-checkpoint': Object.freeze({ kind: 'gvm-checkpoint', hash: 'checkpointSha256', id: 'checkpointId', prefix: 'CHK' }),
@@ -215,10 +223,11 @@ function repositoryPath(value, label) {
 
 function absolutePath(value, label) {
   string(value, label);
-  const posixAbsolute = value.startsWith('/');
-  const windowsAbsolute = /^[A-Za-z]:\/[A-Za-z0-9._ -]/.test(value);
-  if ((!posixAbsolute && !windowsAbsolute) || value.includes('\\') || value.includes('/./')
-      || value.split('/').includes('..') || (value.length > 1 && value.endsWith('/'))) {
+  let canonical;
+  try { canonical = canonicalizeSgosAbsolutePath(value); } catch {
+    canonical = null;
+  }
+  if (canonical !== value) {
     fail(`${label} must be a canonical absolute path using '/' separators.`);
   }
 }
@@ -638,16 +647,41 @@ export function validateCandidateSnapshot(value) {
 
 function validateProcessBindingRecord(record, requireHash) {
   validateBase(record, 'process-binding', [
-    'processId', 'subjectId', 'repositoryIdentity', 'gitCommonDirectory',
+    'processId', 'subjectId', 'subjectAuthority', 'configurationAuthority', 'repositoryIdentity', 'gitCommonDirectory',
     'worktreeGitDirectory', 'canonicalWorktreeRoot', 'branch', 'baselineRevision',
     'expectedProcessRevision'
   ], [
-    'processId', 'subjectId', 'repositoryIdentity', 'gitCommonDirectory',
+    'processId', 'subjectId', 'subjectAuthority', 'configurationAuthority', 'repositoryIdentity', 'gitCommonDirectory',
     'worktreeGitDirectory', 'canonicalWorktreeRoot', 'branch', 'baselineRevision',
     'expectedProcessRevision'
   ], requireHash);
   identifier(record.processId, 'PROC', 'process-binding.processId');
   string(record.subjectId, 'process-binding.subjectId');
+  if (record.subjectAuthority !== null) {
+    exactKeys(record.subjectAuthority, [
+      'kind', 'subjectId', 'revision', 'path', 'blobSha256', 'stateSha256'
+    ], 'process-binding.subjectAuthority');
+    requireKeys(record.subjectAuthority, [
+      'kind', 'subjectId', 'revision', 'path', 'blobSha256', 'stateSha256'
+    ], 'process-binding.subjectAuthority');
+    if (record.subjectAuthority.kind !== 'governed-story-baseline') {
+      fail("process-binding.subjectAuthority.kind must be 'governed-story-baseline'.");
+    }
+    string(record.subjectAuthority.subjectId, 'process-binding.subjectAuthority.subjectId');
+    string(record.subjectAuthority.revision, 'process-binding.subjectAuthority.revision', {
+      pattern: /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
+    });
+    repositoryPath(record.subjectAuthority.path, 'process-binding.subjectAuthority.path');
+    digest(record.subjectAuthority.blobSha256, 'process-binding.subjectAuthority.blobSha256');
+    digest(record.subjectAuthority.stateSha256, 'process-binding.subjectAuthority.stateSha256');
+    if (record.subjectAuthority.subjectId !== record.subjectId
+        || record.subjectAuthority.revision !== record.baselineRevision) {
+      fail('process-binding.subjectAuthority must identify the bound subject and baseline revision.');
+    }
+  }
+  configurationAuthority(record.configurationAuthority, 'process-binding.configurationAuthority', {
+    nullable: true
+  });
   string(record.repositoryIdentity, 'process-binding.repositoryIdentity');
   absolutePath(record.gitCommonDirectory, 'process-binding.gitCommonDirectory');
   absolutePath(record.worktreeGitDirectory, 'process-binding.worktreeGitDirectory');
@@ -750,18 +784,188 @@ function validateTaskInstance(value, label, keyedId) {
   if (value.invalidatedBy !== null) string(value.invalidatedBy, `${label}.invalidatedBy`);
   integer(value.revision, `${label}.revision`);
   if (value.state === 'succeeded' && value.receiptSha256 === null) fail(`${label} cannot be succeeded without receiptSha256.`);
+  if (value.state !== 'succeeded' && value.receiptSha256 !== null) fail(`${label} cannot retain receiptSha256 outside succeeded state.`);
+}
+
+function validateExecutionAdmissionSource(value, label) {
+  exactKeys(value, [
+    'kind', 'ref', 'commit', 'sourceCommit', 'path', 'blobSha256',
+    'configurationAuthority'
+  ], label);
+  requireKeys(value, [
+    'kind', 'ref', 'commit', 'sourceCommit', 'path', 'blobSha256',
+    'configurationAuthority'
+  ], label);
+  enumeration(value.kind, ['approved-configuration-ref', 'verified-state-mirror'], `${label}.kind`);
+  string(value.ref, `${label}.ref`, { pattern: /^refs\/(?:heads|remotes)\/[A-Za-z0-9._/-]+$/ });
+  string(value.commit, `${label}.commit`, { pattern: /^[a-f0-9]{40,64}$/ });
+  string(value.sourceCommit, `${label}.sourceCommit`, { pattern: /^[a-f0-9]{40,64}$/ });
+  repositoryPath(value.path, `${label}.path`);
+  digest(value.blobSha256, `${label}.blobSha256`);
+  configurationAuthority(value.configurationAuthority, `${label}.configurationAuthority`);
+}
+
+function validateExecutionAdmission(value, label) {
+  exactKeys(value, ['admitted', 'programId', 'programSha256', 'provenance', 'safety'], label);
+  requireKeys(value, ['admitted', 'programId', 'programSha256', 'provenance', 'safety'], label);
+  if (value.admitted !== true) fail(`${label}.admitted must be true.`);
+  identifier(value.programId, 'PRG', `${label}.programId`);
+  digest(value.programSha256, `${label}.programSha256`);
+
+  exactKeys(value.provenance, [
+    'method', 'programSha256', 'intentIrSha256', 'workflowSha256',
+    'ratificationSha256', 'source'
+  ], `${label}.provenance`);
+  requireKeys(value.provenance, [
+    'method', 'programSha256', 'ratificationSha256', 'source'
+  ], `${label}.provenance`);
+  enumeration(value.provenance.method, [
+    'approved-program-authority', 'approved-authority+deterministic-recompilation'
+  ], `${label}.provenance.method`);
+  digest(value.provenance.programSha256, `${label}.provenance.programSha256`);
+  digest(value.provenance.ratificationSha256, `${label}.provenance.ratificationSha256`);
+  validateExecutionAdmissionSource(value.provenance.source, `${label}.provenance.source`);
+  if (value.provenance.method === 'approved-authority+deterministic-recompilation') {
+    digest(value.provenance.intentIrSha256, `${label}.provenance.intentIrSha256`);
+    digest(value.provenance.workflowSha256, `${label}.provenance.workflowSha256`);
+  } else if (value.provenance.intentIrSha256 != null || value.provenance.workflowSha256 != null) {
+    fail(`${label}.provenance cannot claim recompilation digests without recompilation.`);
+  }
+
+  exactKeys(value.safety, [
+    'safe', 'programId', 'programSha256', 'compiler', 'graph', 'registry'
+  ], `${label}.safety`);
+  requireKeys(value.safety, [
+    'safe', 'programId', 'programSha256', 'compiler', 'graph', 'registry'
+  ], `${label}.safety`);
+  if (value.safety.safe !== true) fail(`${label}.safety.safe must be true.`);
+  identifier(value.safety.programId, 'PRG', `${label}.safety.programId`);
+  digest(value.safety.programSha256, `${label}.safety.programSha256`);
+  exactKeys(value.safety.compiler, ['id', 'version'], `${label}.safety.compiler`);
+  requireKeys(value.safety.compiler, ['id', 'version'], `${label}.safety.compiler`);
+  string(value.safety.compiler.id, `${label}.safety.compiler.id`);
+  string(value.safety.compiler.version, `${label}.safety.compiler.version`);
+  exactKeys(value.safety.graph, [
+    'taskCount', 'edgeCount', 'roots', 'terminalTaskIds', 'topologicalOrder'
+  ], `${label}.safety.graph`);
+  requireKeys(value.safety.graph, [
+    'taskCount', 'edgeCount', 'roots', 'terminalTaskIds', 'topologicalOrder'
+  ], `${label}.safety.graph`);
+  integer(value.safety.graph.taskCount, `${label}.safety.graph.taskCount`);
+  integer(value.safety.graph.edgeCount, `${label}.safety.graph.edgeCount`);
+  for (const field of ['roots', 'terminalTaskIds', 'topologicalOrder']) {
+    stringArray(value.safety.graph[field], `${label}.safety.graph.${field}`);
+  }
+  exactKeys(value.safety.registry, [
+    'verified', 'registrySnapshotSha256'
+  ], `${label}.safety.registry`);
+  requireKeys(value.safety.registry, [
+    'verified', 'registrySnapshotSha256'
+  ], `${label}.safety.registry`);
+  if (typeof value.safety.registry.verified !== 'boolean') {
+    fail(`${label}.safety.registry.verified must be boolean.`);
+  }
+  digest(value.safety.registry.registrySnapshotSha256,
+    `${label}.safety.registry.registrySnapshotSha256`);
+  if (value.programId !== value.safety.programId
+      || value.programSha256 !== value.safety.programSha256
+      || value.programSha256 !== value.provenance.programSha256) {
+    fail(`${label} Program identities must agree.`);
+  }
+}
+
+function validateProcessAuthorityBinding(value, label) {
+  exactKeys(value, [
+    'kind', 'subjectId', 'subjectAuthority', 'branch', 'baselineRevision',
+    'baselineSnapshotSha256', 'authority', 'configurationAuthority', 'humanAuthorityRequirements',
+    'executionAdmission'
+  ], label);
+  requireKeys(value, [
+    'kind', 'subjectId', 'subjectAuthority', 'branch', 'baselineRevision',
+    'baselineSnapshotSha256', 'authority', 'configurationAuthority', 'humanAuthorityRequirements',
+    'executionAdmission'
+  ], label);
+  enumeration(value.kind, ['story', 'repository'], `${label}.kind`);
+  string(value.subjectId, `${label}.subjectId`);
+  string(value.branch, `${label}.branch`);
+  string(value.baselineRevision, `${label}.baselineRevision`, { pattern: /^[a-f0-9]{40,64}$/ });
+  digest(value.baselineSnapshotSha256, `${label}.baselineSnapshotSha256`);
+  const storyProcess = value.kind === 'story';
+  const expectedAuthority = storyProcess
+    ? 'existing-story-lifecycle'
+    : 'existing-repository-baseline';
+  if (value.authority !== expectedAuthority) {
+    fail(`${label}.authority must be '${expectedAuthority}' for a ${value.kind} Process.`);
+  }
+  configurationAuthority(value.configurationAuthority, `${label}.configurationAuthority`);
+  if (!Array.isArray(value.humanAuthorityRequirements)) {
+    fail(`${label}.humanAuthorityRequirements must be an array.`);
+  }
+  value.humanAuthorityRequirements.forEach((entry, index) => {
+    const authorityLabel = `${label}.humanAuthorityRequirements[${index}]`;
+    exactKeys(entry, [
+      'kind', 'id', 'minimumAssurance', 'authoritySha256'
+    ], authorityLabel);
+    requireKeys(entry, [
+      'kind', 'id', 'minimumAssurance', 'authoritySha256'
+    ], authorityLabel);
+    for (const field of ['kind', 'id']) {
+      string(entry[field], `${authorityLabel}.${field}`);
+    }
+    if (entry.minimumAssurance != null) {
+      string(entry.minimumAssurance, `${authorityLabel}.minimumAssurance`);
+    }
+    digest(entry.authoritySha256, `${authorityLabel}.authoritySha256`);
+  });
+  if (value.subjectAuthority === null) {
+    if (storyProcess) fail(`${label}.subjectAuthority is required for a Story Process.`);
+  } else {
+    if (!storyProcess) fail(`${label}.subjectAuthority must be null for a repository Process.`);
+    exactKeys(value.subjectAuthority, [
+      'kind', 'subjectId', 'revision', 'path', 'blobSha256', 'stateSha256'
+    ], `${label}.subjectAuthority`);
+    requireKeys(value.subjectAuthority, [
+      'kind', 'subjectId', 'revision', 'path', 'blobSha256', 'stateSha256'
+    ], `${label}.subjectAuthority`);
+    if (value.subjectAuthority.kind !== 'governed-story-baseline') {
+      fail(`${label}.subjectAuthority.kind must be 'governed-story-baseline'.`);
+    }
+    string(value.subjectAuthority.subjectId, `${label}.subjectAuthority.subjectId`);
+    string(value.subjectAuthority.revision, `${label}.subjectAuthority.revision`, {
+      pattern: /^[a-f0-9]{40,64}$/
+    });
+    repositoryPath(value.subjectAuthority.path, `${label}.subjectAuthority.path`);
+    digest(value.subjectAuthority.blobSha256, `${label}.subjectAuthority.blobSha256`);
+    digest(value.subjectAuthority.stateSha256, `${label}.subjectAuthority.stateSha256`);
+    if (value.subjectAuthority.subjectId !== value.subjectId
+        || value.subjectAuthority.revision !== value.baselineRevision) {
+      fail(`${label}.subjectAuthority must identify the bound subject and baseline revision.`);
+    }
+  }
+  validateExecutionAdmission(value.executionAdmission, `${label}.executionAdmission`);
+  if (value.executionAdmission.provenance.source.configurationAuthority.kind
+      !== value.configurationAuthority.kind
+      || value.executionAdmission.provenance.source.configurationAuthority.ref
+        !== value.configurationAuthority.ref
+      || value.executionAdmission.provenance.source.configurationAuthority.commit
+        !== value.configurationAuthority.commit
+      || value.executionAdmission.provenance.source.configurationAuthority.workflowBlobSha256
+        !== value.configurationAuthority.workflowBlobSha256) {
+    fail(`${label}.executionAdmission must use the bound configuration authority.`);
+  }
 }
 
 function validateGvmProcessRecord(record, requireHash) {
   validateBase(record, 'gvm-process', [
     'processId', 'programSha256', 'policySnapshotSha256', 'processBindingSha256', 'status',
     'taskInstances', 'activeExecutions', 'openHumanRequests', 'activeLeases',
-    'currentCheckpointSha256', 'processRevision', 'authorityBinding', 'taskContractSha256',
+    'currentCheckpointSha256', 'controlEventSha256', 'recordIndexSha256', 'processRevision', 'authorityBinding', 'taskContractSha256',
     'createdAt', 'updatedAt'
   ], [
     'processId', 'programSha256', 'policySnapshotSha256', 'processBindingSha256', 'status',
     'taskInstances', 'activeExecutions', 'openHumanRequests', 'activeLeases',
-    'currentCheckpointSha256', 'processRevision'
+    'currentCheckpointSha256', 'controlEventSha256', 'recordIndexSha256', 'processRevision', 'authorityBinding', 'taskContractSha256',
+    'createdAt', 'updatedAt'
   ], requireHash);
   identifier(record.processId, 'PROC', 'gvm-process.processId');
   for (const field of ['programSha256', 'policySnapshotSha256', 'processBindingSha256']) digest(record[field], `gvm-process.${field}`);
@@ -772,21 +976,312 @@ function validateGvmProcessRecord(record, requireHash) {
   stringArray(record.openHumanRequests, 'gvm-process.openHumanRequests', { digests: true });
   stringArray(record.activeLeases, 'gvm-process.activeLeases');
   if (record.currentCheckpointSha256 !== null) digest(record.currentCheckpointSha256, 'gvm-process.currentCheckpointSha256');
+  if (record.controlEventSha256 !== null) digest(record.controlEventSha256, 'gvm-process.controlEventSha256');
+  if (record.recordIndexSha256 !== null) digest(record.recordIndexSha256, 'gvm-process.recordIndexSha256');
   integer(record.processRevision, 'gvm-process.processRevision');
-  if (record.authorityBinding != null) object(record.authorityBinding, 'gvm-process.authorityBinding');
-  if (record.taskContractSha256 != null) digest(record.taskContractSha256, 'gvm-process.taskContractSha256');
-  if (record.createdAt != null) timestamp(record.createdAt, 'gvm-process.createdAt');
-  if (record.updatedAt != null) timestamp(record.updatedAt, 'gvm-process.updatedAt');
+  validateProcessAuthorityBinding(record.authorityBinding, 'gvm-process.authorityBinding');
+  digest(record.taskContractSha256, 'gvm-process.taskContractSha256');
+  timestamp(record.createdAt, 'gvm-process.createdAt');
+  timestamp(record.updatedAt, 'gvm-process.updatedAt');
 }
 
 export function createGvmProcess(value) {
   return createContract('gvm-process', value, validateGvmProcessRecord, {
+    prepare: (record) => ({
+      ...record,
+      controlEventSha256: record.controlEventSha256 ?? null,
+      recordIndexSha256: record.recordIndexSha256 ?? null
+    }),
     identity: (record) => ({ programSha256: record.programSha256, processBindingSha256: record.processBindingSha256, createdAt: record.createdAt ?? null })
   });
 }
 
 export function validateGvmProcess(value) {
   return returnValidated(value, validateGvmProcessRecord);
+}
+
+export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
+  'action-evidence', 'candidate-snapshot', 'gvm-checkpoint', 'gvm-program',
+  'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
+  'process-binding'
+]);
+
+export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
+  SGOS_INSTALLED_LIMITS.maximumRecordIndexDeltaEntries;
+export const MAXIMUM_SGOS_PROCESS_RECORD_COUNT = SGOS_INSTALLED_LIMITS.maximumProcessRecords;
+export const MAXIMUM_SGOS_PROCESS_RECORD_BYTES = SGOS_INSTALLED_LIMITS.maximumProcessRecordBytes;
+export const MAXIMUM_SGOS_RECORD_BYTES = SGOS_INSTALLED_LIMITS.maximumRecordBytes;
+
+function sgosRecordIndexEntryKey(entry) {
+  return [
+    entry.family, entry.recordSha256, entry.attemptId ?? '', entry.taskInstanceId ?? ''
+  ].join('\u0000');
+}
+
+function validateSgosRecordIndexRecord(record, requireHash) {
+  validateBase(record, 'sgos-record-index', [
+    'processId', 'sequence', 'priorIndexSha256', 'delta', 'familyCounts',
+    'totalRecordCount', 'totalBytes'
+  ], [
+    'processId', 'sequence', 'priorIndexSha256', 'delta', 'familyCounts',
+    'totalRecordCount', 'totalBytes'
+  ], requireHash);
+  identifier(record.processId, 'PROC', 'sgos-record-index.processId');
+  integer(record.sequence, 'sgos-record-index.sequence');
+  if (record.priorIndexSha256 !== null) {
+    digest(record.priorIndexSha256, 'sgos-record-index.priorIndexSha256');
+  }
+  if ((record.sequence === 0) !== (record.priorIndexSha256 === null)) {
+    fail('sgos-record-index sequence 0 must be the sole null-predecessor genesis index.');
+  }
+  if (!Array.isArray(record.delta)) fail('sgos-record-index.delta must be an array.');
+  if (record.delta.length > MAXIMUM_SGOS_RECORD_INDEX_DELTA) {
+    fail(`sgos-record-index.delta exceeds the ${MAXIMUM_SGOS_RECORD_INDEX_DELTA}-record transition bound.`);
+  }
+  const allowedFamilies = new Set(SGOS_RECORD_INDEX_FAMILIES);
+  const deltaCounts = new Map();
+  let deltaBytes = 0;
+  let priorKey = null;
+  const uniqueRecords = new Set();
+  record.delta.forEach((entry, index) => {
+    const label = `sgos-record-index.delta[${index}]`;
+    exactKeys(entry, ['family', 'recordSha256', 'attemptId', 'taskInstanceId', 'bytes'], label);
+    requireKeys(entry, ['family', 'recordSha256', 'bytes'], label);
+    enumeration(entry.family, SGOS_RECORD_INDEX_FAMILIES, `${label}.family`);
+    digest(entry.recordSha256, `${label}.recordSha256`);
+    if (Object.hasOwn(entry, 'attemptId')) identifier(entry.attemptId, 'ATT', `${label}.attemptId`);
+    if (Object.hasOwn(entry, 'taskInstanceId')) string(entry.taskInstanceId, `${label}.taskInstanceId`);
+    integer(entry.bytes, `${label}.bytes`, { minimum: 1 });
+    if (entry.bytes > MAXIMUM_SGOS_RECORD_BYTES) {
+      fail(`${label}.bytes exceeds the installed ${MAXIMUM_SGOS_RECORD_BYTES}-byte record bound.`);
+    }
+    const identity = `${entry.family}\u0000${entry.recordSha256}`;
+    if (uniqueRecords.has(identity)) fail('sgos-record-index.delta must not contain duplicate records.');
+    uniqueRecords.add(identity);
+    const key = sgosRecordIndexEntryKey(entry);
+    if (priorKey !== null && compareSgosCodePoints(priorKey, key) >= 0) {
+      fail('sgos-record-index.delta must be strictly sorted by family and record identity.');
+    }
+    priorKey = key;
+    deltaCounts.set(entry.family, (deltaCounts.get(entry.family) ?? 0) + 1);
+    deltaBytes += entry.bytes;
+    if (!Number.isSafeInteger(deltaBytes)) fail('sgos-record-index.delta byte total exceeds safe integer range.');
+  });
+  object(record.familyCounts, 'sgos-record-index.familyCounts');
+  let countedRecords = 0;
+  for (const [family, count] of Object.entries(record.familyCounts)) {
+    if (!allowedFamilies.has(family)) fail(`sgos-record-index.familyCounts contains unknown family '${family}'.`);
+    integer(count, `sgos-record-index.familyCounts.${family}`, { minimum: 1 });
+    if (count < (deltaCounts.get(family) ?? 0)) {
+      fail(`sgos-record-index.familyCounts.${family} cannot be smaller than the current delta.`);
+    }
+    countedRecords += count;
+    if (!Number.isSafeInteger(countedRecords)) fail('sgos-record-index family count total exceeds safe integer range.');
+  }
+  for (const [family, count] of deltaCounts) {
+    if ((record.familyCounts[family] ?? 0) < count) {
+      fail(`sgos-record-index.familyCounts.${family} cannot be smaller than the current delta.`);
+    }
+  }
+  integer(record.totalRecordCount, 'sgos-record-index.totalRecordCount');
+  integer(record.totalBytes, 'sgos-record-index.totalBytes');
+  if (record.totalRecordCount !== countedRecords) {
+    fail('sgos-record-index.totalRecordCount must equal the cumulative familyCounts total.');
+  }
+  if (record.totalRecordCount > MAXIMUM_SGOS_PROCESS_RECORD_COUNT) {
+    fail(`sgos-record-index.totalRecordCount exceeds the ${MAXIMUM_SGOS_PROCESS_RECORD_COUNT}-record Process bound.`);
+  }
+  if (record.totalBytes < deltaBytes) {
+    fail('sgos-record-index.totalBytes cannot be smaller than the current delta byte total.');
+  }
+  if (record.totalBytes > MAXIMUM_SGOS_PROCESS_RECORD_BYTES) {
+    fail(`sgos-record-index.totalBytes exceeds the ${MAXIMUM_SGOS_PROCESS_RECORD_BYTES}-byte Process bound.`);
+  }
+  if (record.sequence === 0 && (record.delta.length !== 0
+      || record.totalRecordCount !== 0 || record.totalBytes !== 0
+      || Object.keys(record.familyCounts).length !== 0)) {
+    fail('sgos-record-index genesis must be an empty cumulative index.');
+  }
+}
+
+export function createSgosRecordIndex(value) {
+  return createContract('sgos-record-index', value, validateSgosRecordIndexRecord);
+}
+
+export function validateSgosRecordIndex(value) {
+  return returnValidated(value, validateSgosRecordIndexRecord);
+}
+
+const CONTROL_EVENT_ACTIONS = Object.freeze([
+  'process-transition', 'process-paused', 'process-resumed', 'execution-started',
+  'execution-finished', 'human-requested', 'human-resolved', 'recovery-required',
+  'recovery-resolved'
+]);
+
+function validateSgosMutableProcessState(value, label) {
+  exactKeys(value, [
+    'status', 'taskInstances', 'activeExecutions', 'openHumanRequests', 'activeLeases',
+    'currentCheckpointSha256', 'processRevision', 'updatedAt'
+  ], label);
+  requireKeys(value, [
+    'status', 'taskInstances', 'activeExecutions', 'openHumanRequests', 'activeLeases',
+    'currentCheckpointSha256', 'processRevision', 'updatedAt'
+  ], label);
+  enumeration(value.status, PROCESS_STATES, `${label}.status`);
+  object(value.taskInstances, `${label}.taskInstances`);
+  for (const [id, instance] of Object.entries(value.taskInstances)) {
+    validateTaskInstance(instance, `${label}.taskInstances.${id}`, id);
+  }
+  stringArray(value.activeExecutions, `${label}.activeExecutions`);
+  stringArray(value.openHumanRequests, `${label}.openHumanRequests`, { digests: true });
+  stringArray(value.activeLeases, `${label}.activeLeases`);
+  if (value.currentCheckpointSha256 !== null) {
+    digest(value.currentCheckpointSha256, `${label}.currentCheckpointSha256`);
+  }
+  integer(value.processRevision, `${label}.processRevision`, { minimum: 2 });
+  timestamp(value.updatedAt, `${label}.updatedAt`);
+}
+
+function validateSgosControlEventRecord(record, requireHash) {
+  validateBase(record, 'sgos-control-event', [
+    'processId', 'processCoreSha256', 'priorControlEventSha256', 'beforeProcessSha256',
+    'beforeProcessRevision', 'controlDepth', 'operatorTransitionCount', 'recordIndexSha256', 'action', 'result',
+    'createdAt'
+  ], [
+    'processId', 'processCoreSha256', 'priorControlEventSha256', 'beforeProcessSha256',
+    'beforeProcessRevision', 'controlDepth', 'operatorTransitionCount', 'recordIndexSha256', 'action', 'result',
+    'createdAt'
+  ], requireHash);
+  identifier(record.processId, 'PROC', 'sgos-control-event.processId');
+  digest(record.processCoreSha256, 'sgos-control-event.processCoreSha256');
+  if (record.priorControlEventSha256 !== null) {
+    digest(record.priorControlEventSha256, 'sgos-control-event.priorControlEventSha256');
+  }
+  digest(record.beforeProcessSha256, 'sgos-control-event.beforeProcessSha256');
+  integer(record.beforeProcessRevision, 'sgos-control-event.beforeProcessRevision', { minimum: 1 });
+  integer(record.controlDepth, 'sgos-control-event.controlDepth', { minimum: 1 });
+  integer(record.operatorTransitionCount, 'sgos-control-event.operatorTransitionCount', {
+    minimum: 0
+  });
+  if (record.operatorTransitionCount > record.controlDepth) {
+    fail('sgos-control-event operatorTransitionCount cannot exceed controlDepth.');
+  }
+  digest(record.recordIndexSha256, 'sgos-control-event.recordIndexSha256');
+  enumeration(record.action, CONTROL_EVENT_ACTIONS, 'sgos-control-event.action');
+  validateSgosMutableProcessState(record.result, 'sgos-control-event.result');
+  if (record.result.processRevision !== record.beforeProcessRevision + 1) {
+    fail('sgos-control-event result revision must immediately follow beforeProcessRevision.');
+  }
+  timestamp(record.createdAt, 'sgos-control-event.createdAt');
+  if (record.createdAt !== record.result.updatedAt) {
+    fail('sgos-control-event.createdAt must equal the resulting Process updatedAt.');
+  }
+}
+
+export function createSgosControlEvent(value) {
+  return createContract('sgos-control-event', value, validateSgosControlEventRecord);
+}
+
+export function validateSgosControlEvent(value) {
+  return returnValidated(value, validateSgosControlEventRecord);
+}
+
+function validateSgosControlSuccessorRecord(record, requireHash) {
+  validateBase(record, 'sgos-control-successor', [
+    'processId', 'beforeProcessSha256', 'controlEventSha256', 'controlDepth',
+    'operatorTransitionCount', 'cumulativeInfrastructureBytes',
+    'cumulativeInfrastructureRecords'
+  ], [
+    'processId', 'beforeProcessSha256', 'controlEventSha256', 'controlDepth',
+    'operatorTransitionCount', 'cumulativeInfrastructureBytes',
+    'cumulativeInfrastructureRecords'
+  ], requireHash);
+  identifier(record.processId, 'PROC', 'sgos-control-successor.processId');
+  digest(record.beforeProcessSha256, 'sgos-control-successor.beforeProcessSha256');
+  digest(record.controlEventSha256, 'sgos-control-successor.controlEventSha256');
+  integer(record.controlDepth, 'sgos-control-successor.controlDepth', { minimum: 1 });
+  integer(record.operatorTransitionCount, 'sgos-control-successor.operatorTransitionCount', {
+    minimum: 0
+  });
+  if (record.operatorTransitionCount > record.controlDepth) {
+    fail('sgos-control-successor operatorTransitionCount cannot exceed controlDepth.');
+  }
+  integer(record.cumulativeInfrastructureBytes,
+    'sgos-control-successor.cumulativeInfrastructureBytes');
+  integer(record.cumulativeInfrastructureRecords,
+    'sgos-control-successor.cumulativeInfrastructureRecords');
+}
+
+export function createSgosControlSuccessor(value) {
+  return createContract('sgos-control-successor', value, validateSgosControlSuccessorRecord);
+}
+
+export function validateSgosControlSuccessor(value) {
+  return returnValidated(value, validateSgosControlSuccessorRecord);
+}
+
+function validateSgosTransitionIntentRecord(record, requireHash) {
+  validateBase(record, 'sgos-transition-intent', [
+    'processId', 'beforeProcessSha256', 'beforeProcessRevision',
+    'priorRecordIndexSha256', 'reservations', 'nextRecordIndexSha256',
+    'controlEvent', 'successorSha256', 'candidateProcessSha256'
+  ], [
+    'processId', 'beforeProcessSha256', 'beforeProcessRevision',
+    'priorRecordIndexSha256', 'reservations', 'nextRecordIndexSha256',
+    'controlEvent', 'successorSha256', 'candidateProcessSha256'
+  ], requireHash);
+  identifier(record.processId, 'PROC', 'sgos-transition-intent.processId');
+  for (const field of [
+    'beforeProcessSha256', 'priorRecordIndexSha256', 'nextRecordIndexSha256',
+    'successorSha256', 'candidateProcessSha256'
+  ]) digest(record[field], `sgos-transition-intent.${field}`);
+  integer(record.beforeProcessRevision, 'sgos-transition-intent.beforeProcessRevision', {
+    minimum: 1
+  });
+  if (!Array.isArray(record.reservations)
+      || record.reservations.length > MAXIMUM_SGOS_RECORD_INDEX_DELTA) {
+    fail(`sgos-transition-intent.reservations must contain at most ${MAXIMUM_SGOS_RECORD_INDEX_DELTA} exact entries.`);
+  }
+  let priorIdentity = null;
+  const seen = new Set();
+  for (const [position, reservation] of record.reservations.entries()) {
+    const label = `sgos-transition-intent.reservations[${position}]`;
+    exactKeys(reservation, ['family', 'recordSha256', 'bytes'], label);
+    requireKeys(reservation, ['family', 'recordSha256', 'bytes'], label);
+    enumeration(reservation.family, SGOS_RECORD_INDEX_FAMILIES, `${label}.family`);
+    digest(reservation.recordSha256, `${label}.recordSha256`);
+    integer(reservation.bytes, `${label}.bytes`, {
+      minimum: 1
+    });
+    if (reservation.bytes > MAXIMUM_SGOS_RECORD_BYTES) {
+      fail(`${label}.bytes exceeds the installed ${MAXIMUM_SGOS_RECORD_BYTES}-byte record bound.`);
+    }
+    const identity = `${reservation.family}\u0000${reservation.recordSha256}`;
+    if (seen.has(identity) || (priorIdentity !== null
+        && compareSgosCodePoints(priorIdentity, identity) >= 0)) {
+      fail('sgos-transition-intent.reservations must be unique and canonically sorted.');
+    }
+    seen.add(identity);
+    priorIdentity = identity;
+  }
+  if (!plainObject(record.controlEvent)) {
+    fail('sgos-transition-intent.controlEvent must be an exact SGOS control event.');
+  }
+  validateSgosControlEventRecord(record.controlEvent, true);
+  if (record.controlEvent.processId !== record.processId
+      || record.controlEvent.beforeProcessSha256 !== record.beforeProcessSha256
+      || record.controlEvent.beforeProcessRevision !== record.beforeProcessRevision
+      || record.controlEvent.recordIndexSha256 !== record.nextRecordIndexSha256) {
+    fail('sgos-transition-intent.controlEvent does not bind its predecessor and index.');
+  }
+}
+
+export function createSgosTransitionIntent(value) {
+  return createContract('sgos-transition-intent', value, validateSgosTransitionIntentRecord);
+}
+
+export function validateSgosTransitionIntent(value) {
+  return returnValidated(value, validateSgosTransitionIntentRecord);
 }
 
 function validateGvmTaskAttemptRecord(record, requireHash) {
@@ -826,15 +1321,16 @@ function verification(value, label) {
 
 function validateGvmTaskReceiptRecord(record, requireHash) {
   validateBase(record, 'gvm-task-receipt', [
-    'processId', 'taskInstanceId', 'attemptId', 'inputRefs', 'outputRefs', 'candidateSha256',
+    'processId', 'taskInstanceId', 'attemptId', 'attemptSha256', 'inputRefs', 'outputRefs', 'candidateSha256',
     'evidenceRefs', 'effectRefs', 'humanDecisionRefs', 'verification', 'completedAt'
   ], [
-    'processId', 'taskInstanceId', 'attemptId', 'inputRefs', 'outputRefs', 'candidateSha256',
+    'processId', 'taskInstanceId', 'attemptId', 'attemptSha256', 'inputRefs', 'outputRefs', 'candidateSha256',
     'evidenceRefs', 'effectRefs', 'humanDecisionRefs', 'verification', 'completedAt'
   ], requireHash);
   identifier(record.processId, 'PROC', 'gvm-task-receipt.processId');
   string(record.taskInstanceId, 'gvm-task-receipt.taskInstanceId');
   identifier(record.attemptId, 'ATT', 'gvm-task-receipt.attemptId');
+  digest(record.attemptSha256, 'gvm-task-receipt.attemptSha256');
   for (const field of ['inputRefs', 'outputRefs', 'evidenceRefs', 'effectRefs', 'humanDecisionRefs']) stringArray(record[field], `gvm-task-receipt.${field}`);
   digest(record.candidateSha256, 'gvm-task-receipt.candidateSha256');
   verification(record.verification, 'gvm-task-receipt.verification');
@@ -896,15 +1392,25 @@ function authorityRequirement(value, label) {
   if (value.authoritySha256 != null) digest(value.authoritySha256, `${label}.authoritySha256`);
 }
 
+function configurationAuthority(value, label, { nullable = false } = {}) {
+  if (nullable && value === null) return;
+  exactKeys(value, ['kind', 'ref', 'commit', 'workflowBlobSha256'], label);
+  requireKeys(value, ['kind', 'ref', 'commit', 'workflowBlobSha256'], label);
+  enumeration(value.kind, ['approved-configuration-ref', 'verified-state-mirror'], `${label}.kind`);
+  string(value.ref, `${label}.ref`, { pattern: /^refs\/(?:heads|remotes)\/[A-Za-z0-9._/-]+$/ });
+  string(value.commit, `${label}.commit`, { pattern: /^[a-f0-9]{40,64}$/ });
+  digest(value.workflowBlobSha256, `${label}.workflowBlobSha256`);
+}
+
 function validateHumanRequestRecord(record, requireHash) {
   validateBase(record, 'human-request', [
     'requestId', 'requestType', 'processId', 'taskInstanceId', 'checkpointSha256',
-    'requestedBy', 'authorityRequired', 'prompt', 'options', 'inputSchema', 'sensitiveMode',
+    'requestedBy', 'authorityRequired', 'configurationAuthority', 'prompt', 'options', 'inputSchema', 'sensitiveMode',
     'externalUrl', 'secretBroker', 'subjectSha256', 'policySnapshotSha256', 'status',
     'createdAt', 'expiresAt'
   ], [
     'requestId', 'requestType', 'processId', 'taskInstanceId', 'checkpointSha256',
-    'requestedBy', 'authorityRequired', 'prompt', 'options', 'inputSchema', 'sensitiveMode',
+    'requestedBy', 'authorityRequired', 'configurationAuthority', 'prompt', 'options', 'inputSchema', 'sensitiveMode',
     'externalUrl', 'secretBroker', 'subjectSha256', 'policySnapshotSha256', 'status',
     'createdAt', 'expiresAt'
   ], requireHash);
@@ -915,6 +1421,7 @@ function validateHumanRequestRecord(record, requireHash) {
   digest(record.checkpointSha256, 'human-request.checkpointSha256');
   principal(record.requestedBy, 'human-request.requestedBy');
   authorityRequirement(record.authorityRequired, 'human-request.authorityRequired');
+  configurationAuthority(record.configurationAuthority, 'human-request.configurationAuthority');
   exactKeys(record.prompt, ['title', 'detail'], 'human-request.prompt');
   requireKeys(record.prompt, ['title', 'detail'], 'human-request.prompt');
   string(record.prompt.title, 'human-request.prompt.title');
@@ -1061,6 +1568,10 @@ const VALIDATORS = Object.freeze({
   'process-binding': validateProcessBinding,
   'gvm-program': validateGvmProgram,
   'gvm-process': validateGvmProcess,
+  'sgos-record-index': validateSgosRecordIndex,
+  'sgos-control-event': validateSgosControlEvent,
+  'sgos-control-successor': validateSgosControlSuccessor,
+  'sgos-transition-intent': validateSgosTransitionIntent,
   'gvm-task-attempt': validateGvmTaskAttempt,
   'gvm-task-receipt': validateGvmTaskReceipt,
   'gvm-checkpoint': validateGvmCheckpoint,

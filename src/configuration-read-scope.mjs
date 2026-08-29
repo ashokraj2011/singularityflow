@@ -7,31 +7,26 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
+import {
+  DEFAULT_CONFIGURATION_ASSET_POLICY, isConfigurationAssetPath
+} from './configuration-assets.mjs';
 
 const scopes = new AsyncLocalStorage();
-const RUNTIME_ROOTS = new Set([
-  'initiatives', 'work-items', 'seeds', 'world-model', 'knowledge', 'pins',
-  'identity-reservations', 'telemetry'
-]);
 
-export function isConfigurationReadPath(value) {
-  const relative = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
-  if (!relative || relative.startsWith('/') || relative.includes('\0')
-    || path.posix.normalize(relative) !== relative || relative.split('/').includes('..')) return false;
-  if (relative === 'singularity/configuration-source.json') return false;
-  if (relative === '.github/agents' || relative.startsWith('.github/agents/')) return true;
-  if (!relative.startsWith('singularity/')) return false;
-  const root = relative.slice('singularity/'.length).split('/')[0];
-  return Boolean(root) && !RUNTIME_ROOTS.has(root);
+export function isConfigurationReadPath(value, policy = scopes.getStore()?.assetPolicy) {
+  return isConfigurationAssetPath(value, policy ?? DEFAULT_CONFIGURATION_ASSET_POLICY);
 }
 
-export function withConfigurationReadRoot(applicationRoot, configurationRoot, authority, fn) {
+export function withConfigurationReadRoot(applicationRoot, configurationRoot, authority, fn, {
+  assetPolicy = DEFAULT_CONFIGURATION_ASSET_POLICY
+} = {}) {
   const current = scopes.getStore();
   if (current) return fn();
   return scopes.run({
     applicationRoot: path.resolve(applicationRoot),
     configurationRoot: path.resolve(configurationRoot),
-    authority
+    authority,
+    assetPolicy
   }, fn);
 }
 

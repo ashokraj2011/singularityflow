@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -16,7 +16,7 @@ import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
-import { SingularityFlowError, exists, posix, run, snapshot } from './util.mjs';
+import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
   applicationPathContext, isApplicationChangeEntry, isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
@@ -103,9 +103,11 @@ export async function acceptanceIds(root, config, workflow, phase) {
       config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
       prior.requiredArtifact.path
     ));
-    const absolute = path.join(root, relative);
-    if (!(await exists(absolute))) continue;
-    const text = legacySpecificationText(await readFile(absolute, 'utf8'));
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Acceptance specification source', type: 'file'
+    });
+    if (!secured.exists) continue;
+    const text = legacySpecificationText(await readFile(secured.absolute, 'utf8'));
     for (const match of text.matchAll(/\b(?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+\b/gi)) {
       const value = match[0].toUpperCase();
       ids.add(value.includes(':') ? value : namespace ? `${namespace}:${value}` : value);
@@ -122,9 +124,11 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
   const exactSources = new Map();
   const bareSources = new Map();
   for (const relative of testPaths) {
-    const absolute = path.join(root, relative);
-    if (!(await exists(absolute))) continue;
-    const text = await readFile(absolute, 'utf8');
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Acceptance test source', type: 'file'
+    });
+    if (!secured.exists) continue;
+    const text = await readFile(secured.absolute, 'utf8');
     for (const match of text.matchAll(/@ac:\s*((?:[A-Z0-9][A-Z0-9._-]{0,63}:)?AC-\d+)/gi)) {
       const value = match[1].toUpperCase();
       const target = value.includes(':') ? exact : bare;
@@ -201,8 +205,11 @@ export async function taggedAcceptanceIds(root, testPaths, requiredIds = [], {
 async function pathEvidence(root, paths, { changeSet = null } = {}) {
   const records = [];
   for (const relative of paths) {
-    const absolute = path.join(root, relative);
-    const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Delivery evidence path', allowFinalSymlink: true
+    });
+    const absolute = secured.absolute;
+    const info = secured.entry;
     const current = info?.isSymbolicLink()
       ? { exists: true, size: info.size, sha256: null }
       : await snapshot(absolute);
@@ -476,7 +483,9 @@ export function isTestQualityCommand(command) {
 
 /** Repository-native, deterministic defaults. No model is needed to identify a build manifest. */
 export async function inferRepositoryTestCommands(root) {
-  const regular = async (relative) => await exists(path.join(root, relative));
+  const regular = async (relative) => (await secureRepositoryPath(root, relative, {
+    label: 'Repository test manifest', type: 'file'
+  })).exists;
   if (await regular('mvnw')) return [{ id: 'maven-tests', argv: ['./mvnw', '-q', 'test'], modelPolicy: 'never' }];
   if (await regular('pom.xml')) return [{ id: 'maven-tests', argv: ['mvn', '-q', 'test'], modelPolicy: 'never' }];
   if (await regular('gradlew')) return [{ id: 'gradle-tests', argv: ['./gradlew', 'test'], modelPolicy: 'never' }];

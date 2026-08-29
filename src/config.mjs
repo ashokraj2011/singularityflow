@@ -5,6 +5,8 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
+  ensureSecureRepositoryDirectory,
+  repoRelative,
   secureRepositoryPath,
   SingularityFlowError,
   posix,
@@ -24,7 +26,7 @@ import {
   validateAgentCatalog
 } from './agents.mjs';
 import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
-import { normalizeStorage } from './initiative-config.mjs';
+import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -794,6 +796,36 @@ async function loadDefinitionUncached(root) {
       throw error;
     }
     validateAgentCatalog(agents, definition);
+    const portfolio = await loadPortfolio(definitionRoot, { required: false });
+    const governedRoots = [...new Set([
+      ...GOVERNED_ROOTS,
+      definition.workItemRoot,
+      definition.templatesRoot,
+      definition.agentPromptsRoot,
+      definition.worldModel?.outputDir ?? 'singularity/world-model',
+      portfolio?.initiativeRoot,
+      portfolio?.templatesRoot
+    ].filter(Boolean))].sort();
+    // These are derived runtime context, not workflow.yml fields. Keep them available to every
+    // path classifier without making YAML round-trips invent unsupported configuration keys.
+    Object.defineProperties(definition, {
+      initiativeRoot: { value: portfolio?.initiativeRoot ?? 'singularity/initiatives', enumerable: false },
+      governedRoots: { value: Object.freeze(governedRoots), enumerable: false }
+    });
+    for (const [relative, label] of [
+      [definition.workItemRoot, 'Story state root'],
+      [definition.templatesRoot, 'Repository templates root'],
+      [definition.worldModel?.outputDir ?? 'singularity/world-model', 'World-model output root'],
+      [definition.agentPromptsRoot, 'Governed-agent prompt root'],
+      [portfolio?.initiativeRoot, 'Initiative state root'],
+      [portfolio?.templatesRoot, 'Initiative templates root']
+    ]) {
+      if (!relative) continue;
+      const secured = await secureRepositoryPath(root, relative, { label });
+      if (secured.exists && !secured.entry?.isDirectory()) {
+        throw new SingularityFlowError(`${label} must be a directory: ${secured.relative}`);
+      }
+    }
     for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
       if (isAgentTemplateReference(phase.template)) continue;
       const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
@@ -847,17 +879,33 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
 // so template files added to the package in later versions never reach a repository initialized by
 // an earlier one. This merges them in while preserving every local edit. Returns the relative paths
 // that were installed.
-export async function copyMissingFiles(source, destination, installed = [], relative = '') {
+export async function copyMissingFiles(source, destination, installed = [], relative = '', repositoryRoot = null) {
   if (!existsSync(source)) return installed;
+  if (repositoryRoot) {
+    await ensureSecureRepositoryDirectory(repositoryRoot, repoRelative(repositoryRoot, destination), {
+      label: 'Repository template directory'
+    });
+  }
   for (const entry of await readdir(source, { withFileTypes: true })) {
     const from = path.join(source, entry.name);
     const to = path.join(destination, entry.name);
     const key = relative ? `${relative}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) await copyMissingFiles(from, to, installed, key);
-    else if (entry.isFile() && !existsSync(to)) {
-      await mkdir(path.dirname(to), { recursive: true });
-      await cp(from, to);
-      installed.push(key);
+    if (entry.isDirectory()) await copyMissingFiles(from, to, installed, key, repositoryRoot);
+    else if (entry.isFile()) {
+      if (repositoryRoot) {
+        await secureRepositoryPath(repositoryRoot, repoRelative(repositoryRoot, to), {
+          label: 'Repository template target'
+        });
+      }
+      if (!existsSync(to)) {
+        if (repositoryRoot) {
+          await ensureSecureRepositoryDirectory(repositoryRoot, repoRelative(repositoryRoot, path.dirname(to)), {
+            label: 'Repository template parent'
+          });
+        } else await mkdir(path.dirname(to), { recursive: true });
+        await cp(from, to);
+        installed.push(key);
+      }
     }
   }
   return installed;
@@ -871,12 +919,25 @@ export async function copyMissingFiles(source, destination, installed = [], rela
 export async function ensureRepositoryTemplates(root, definition = null, { templatesRoot = null } = {}) {
   const target = templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates';
   assertRelative(target, 'templatesRoot');
-  return copyMissingFiles(path.join(PACKAGE_ROOT, 'templates', 'artifacts'), path.join(root, target));
+  await ensureSecureRepositoryDirectory(root, target, { label: 'Repository templates root' });
+  return copyMissingFiles(
+    path.join(PACKAGE_ROOT, 'templates', 'artifacts'), path.join(root, target), [], '', root
+  );
 }
 
-async function copyIfMissing(source, destination) {
+async function copyIfMissing(source, destination, repositoryRoot = null) {
+  if (repositoryRoot) {
+    await secureRepositoryPath(repositoryRoot, repoRelative(repositoryRoot, destination), {
+      label: 'Configuration initialization target'
+    });
+    await ensureSecureRepositoryDirectory(
+      repositoryRoot,
+      repoRelative(repositoryRoot, path.dirname(destination)),
+      { label: 'Configuration initialization parent' }
+    );
+  }
   if (existsSync(destination)) return false;
-  await mkdir(path.dirname(destination), { recursive: true });
+  if (!repositoryRoot) await mkdir(path.dirname(destination), { recursive: true });
   await cp(source, destination, { recursive: true });
   return true;
 }
@@ -887,14 +948,18 @@ export async function initializeDefinition(root) {
   }
   const wrote = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
-    if (await copyIfMissing(path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination))) wrote.push(destination);
+    if (await copyIfMissing(
+      path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination), root
+    )) wrote.push(destination);
   }
   // Directory mappings above are skipped once the destination exists, so re-running init on a
   // repository created by an earlier version would never receive template files added since.
   // Merge in any missing ones without overwriting local edits.
   for (const [source, destination] of [['artifacts', 'singularity/templates'], ['agents', '.github/agents']]) {
     if (wrote.includes(destination)) continue;
-    for (const file of await copyMissingFiles(path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination))) {
+    for (const file of await copyMissingFiles(
+      path.join(PACKAGE_ROOT, 'templates', source), path.join(root, destination), [], '', root
+    )) {
       wrote.push(path.posix.join(destination, file));
     }
   }
@@ -1073,6 +1138,11 @@ export async function snapshotResolution(root, definition, resolved) {
     // workflow aggregate (visual evidence, reference handles, recovery) cannot safely fall back to
     // the product default when a repository selected a different governed location.
     workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
+    initiativeRoot: definition.initiativeRoot ?? 'singularity/initiatives',
+    templatesRoot: definition.templatesRoot,
+    agentPromptsRoot: definition.agentPromptsRoot ?? '.github/agents',
+    worldModelOutputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
+    governedRoots: [...(definition.governedRoots ?? GOVERNED_ROOTS)],
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
     worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
     worldModelMaterialization: materializationPolicy(definition),

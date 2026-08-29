@@ -35,8 +35,10 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  verifyPendingPublicationCommit,
 } from './publication-pending.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -1376,13 +1378,14 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
 }
 
 export async function syncInitiativePublication(root, portfolio, initiative) {
-  const pending = await readPendingPublication(root, {
-    kind: 'initiative',
-    id: initiative.initiative.id,
+  const subject = { kind: 'initiative', id: initiative.initiative.id };
+  const pendingOptions = {
+    ...subject,
     legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
-  });
+  };
+  const pending = await readPendingPublication(root, pendingOptions);
   if (!pending) {
-    return { pending: false, pushed: null, ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id }) };
+    return { pending: false, pushed: null, noOp: true, ledger: null };
   }
   const record = pending.record;
   if (record.recoveryStage === 'publication-recovery-diverged') {
@@ -1420,20 +1423,49 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
     );
   }
-  const result = record.commit
-    ? pushCommitToBranch(root, record.remote, record.commit, record.branch)
-    : pushBranch(root, record.remote, record.branch);
-  if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
-  await clearPendingPublication(root, {
-    kind: 'initiative',
-    id: initiative.initiative.id,
-    legacyPath: legacyInitiativePendingPublicationPath(root, portfolio, initiative.initiative.id)
+  return withSubjectLock(root, subject, async () => {
+    const current = await readPendingPublication(root, pendingOptions);
+    if (!current) return { pending: false, pushed: null, noOp: true, ledger: null };
+    const currentRecord = current.record;
+    if (currentRecord.recoveryStage === 'publication-recovery-diverged') {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' recovery diverged and was stopped safely. ${currentRecord.error} `
+        + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
+        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: currentRecord }
+      );
+    }
+    if (currentRecord.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' recovery state changed while synchronization was acquiring its lock. `
+        + 'Run singularity-flow initiative sync again; no commit was pushed.',
+        { code: 'PUBLICATION_RECOVERY_CHANGED' }
+      );
+    }
+    const verification = verifyPendingPublicationCommit(root, currentRecord, {
+      subject,
+      branch: initiative.initiative.branch,
+      remote: portfolio.git?.remote ?? 'origin'
+    });
+    if (!verification.valid) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' pending publication marker does not prove one exact governed commit: `
+        + `${verification.failures.join('; ')}. The marker was retained and no commit was pushed. `
+        + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
+        {
+          code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
+          details: { subject, markerPath: current.path, failures: verification.failures }
+        }
+      );
+    }
+    const result = pushCommitToBranch(root, currentRecord.remote, currentRecord.commit, currentRecord.branch);
+    if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
+    await clearPendingPublication(root, pendingOptions);
+    return {
+      pending: false,
+      pushed: currentRecord.commit,
+      remote: currentRecord.remote,
+      branch: currentRecord.branch,
+      ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
+    };
   });
-  return {
-    pending: false,
-    pushed: record.commit ?? head(root),
-    remote: record.remote,
-    branch: record.branch,
-    ledger: await reconcileLedger(root, initiative.resolution?.ledger ?? {}, { workId: initiative.initiative.id })
-  };
 }

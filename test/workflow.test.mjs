@@ -737,6 +737,10 @@ test('completed work can be reopened only through an authorized governed change 
   const reopened = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(reopened.status, 'in_progress'); assert.equal(reopened.currentPhase, 'implementation');
   assert.equal(reopened.phases.implementation.status, 'in_progress');
+  assert.equal(reopened.phases.implementation.generationPolicy.task, 'analyze',
+    'reopen must preserve the pinned non-code chore contract');
+  assert.equal(reopened.resolution.phases.find((phase) => phase.id === 'implementation').generation.task,
+    'analyze');
   assert.equal(reopened.phases.verification.status, 'not_started');
   assert.equal(reopened.changeRequests[0].status, 'open');
   assert.equal(reopened.changeRequests[0].comment, 'Production feedback requires safer rollback behavior');

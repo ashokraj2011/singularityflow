@@ -20,7 +20,7 @@ import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, opti
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
@@ -1162,7 +1162,10 @@ export async function startCommand(positionals, options) {
   } catch (error) {
     if (workflow) {
       await retainCapabilityPublicationRecovery(root, id, {
-        remote, branch: canonicalBranch, commit: head(root)
+        remote,
+        branch: canonicalBranch,
+        commit: publication?.sha ?? head(root),
+        event: publication?.event ?? null
       }, capabilityPublications, error);
     }
     throw error;
@@ -1185,7 +1188,10 @@ export async function startCommand(positionals, options) {
     });
   } catch (error) {
     await retainCapabilityPublicationRecovery(root, id, {
-      remote, branch: canonicalBranch, commit: head(root)
+      remote,
+      branch: canonicalBranch,
+      commit: publication.sha ?? head(root),
+      event: publication.event ?? null
     }, capabilityPublications, error);
     throw error;
   }
@@ -1194,7 +1200,10 @@ export async function startCommand(positionals, options) {
     // Make the cross-repository tail crash-recoverable before the first sibling ref moves. The root
     // Story is already durable; `sync` can now finish the exact remaining refs after interruption.
     await retainCapabilityPublicationRecovery(root, id, {
-      remote, branch: canonicalBranch, commit: head(root)
+      remote,
+      branch: canonicalBranch,
+      commit: publication.sha ?? head(root),
+      event: publication.event ?? null
     }, capabilityPublications, new Error('Capability Story branch publication is in progress.'), {
       rootPublished: true
     });
@@ -1207,14 +1216,20 @@ export async function startCommand(positionals, options) {
         { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
       );
       await retainCapabilityPublicationRecovery(root, id, {
-        remote, branch: canonicalBranch, commit: head(root)
+        remote,
+        branch: canonicalBranch,
+        commit: publication.sha ?? head(root),
+        event: publication.event ?? null
       }, capabilityPublication.pending, failure, { rootPublished: true });
       throw failure;
     }
     await clearPendingPublication(root, { kind: 'story', id });
   } else if (!publication.pushed && capabilityPublications.length) {
     await retainCapabilityPublicationRecovery(root, id, {
-      remote, branch: canonicalBranch, commit: head(root)
+      remote,
+      branch: canonicalBranch,
+      commit: publication.sha ?? head(root),
+      event: publication.event ?? null
     }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
   }
   const astWarm = await scheduleStoryStartAstWarm(root, config, workflow);
@@ -3532,7 +3547,11 @@ async function phaseCommand(positionals, options) {
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
     const plan = await generationRecovery(
       root, workflow, phase,
-      (repositoryRoot, selectedPhase) => generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
+      async (repositoryRoot, selectedPhase) => await generationResultMatches(
+        repositoryRoot, config, workflow, selectedPhase
+      )
+        ? selectedPhase.generationIntent.publication.resultDigest
+        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
     );
     if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
       throw new SingularityFlowError(
@@ -3631,8 +3650,7 @@ async function phaseCommand(positionals, options) {
   if (phaseRequiresCodeDelivery(requestedPhase)
       && requestedPhase.generationIntent?.status === 'consumed'
       && Number(requestedPhase.generationIntent.generation) === Number(requestedPhase.generation)) {
-    const digest = await generationResultDigest(root, config, workflow, requestedPhase);
-    if (digest !== requestedPhase.generationIntent.publication?.resultDigest) {
+    if (!(await generationResultMatches(root, config, workflow, requestedPhase))) {
       throw new SingularityFlowError(
         `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
         { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
@@ -3832,7 +3850,9 @@ async function artifactCommand(positionals, options) {
     if (!paths.length) throw new SingularityFlowError('Provide at least one artifact path.');
     const records = await storyDraftTransaction(root, config, workflow, `artifact-add:${phaseId ?? workflow.currentPhase}`, async () => {
       const registered = [];
-      for (const candidate of paths) registered.push(await registerArtifact(root, workflow, candidate, { phaseId, kind: optionString(options, 'kind') }));
+      for (const candidate of paths) registered.push(await registerArtifact(root, workflow, candidate, {
+        phaseId, kind: optionString(options, 'kind'), config
+      }));
       await saveStoryDraft(root, config, workflow);
       return registered;
     });
@@ -4899,6 +4919,8 @@ async function syncCommand(positionals = []) {
     console.log(`Run singularity-flow nextsteps ${workflow.workItem.id} before retrying.`);
   } else if (result.recoveredPrepared) {
     console.log(`Cleared the interrupted pre-commit publication for ${workflow.workItem.id}; HEAD and the working tree already matched its exact baseline. Retry the original command.`);
+  } else if (result.noOp) {
+    console.log(`Story ${workflow.workItem.id} has no pending publication; nothing was pushed.`);
   } else console.log(`Pushed ${result.pushed.slice(0, 8)} to ${result.remote}/${result.branch}.`);
 }
 

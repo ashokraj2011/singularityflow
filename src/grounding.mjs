@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readlink, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { head } from './git.mjs';
 import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
-import { exists, mapLimit, posix, run, SingularityFlowError, snapshot } from './util.mjs';
+import { exists, mapLimit, posix, run, secureRepositoryPath, SingularityFlowError, snapshot } from './util.mjs';
 import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -16,6 +16,7 @@ import {
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
+import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -119,8 +120,12 @@ function objectSizes(root, objectIds) {
 }
 
 async function visibleRecord(root, relative, indexed = null, { compareToIndex = true } = {}) {
-  const absolute = path.join(root, relative);
-  if (!existsSync(absolute)) {
+  const secured = await secureRepositoryPath(root, relative, {
+    label: 'World-model source path',
+    allowFinalSymlink: true
+  });
+  const absolute = secured.absolute;
+  if (!secured.exists) {
     if (indexed?.skipWorktree) {
       return {
         path: relative, status: 'present', materialization: 'sparse-absent', mode: indexed.mode,
@@ -129,8 +134,15 @@ async function visibleRecord(root, relative, indexed = null, { compareToIndex = 
     }
     return { path: relative, status: 'deleted', materialization: 'absent', mode: indexed?.mode ?? null, objectId: null, size: 0, sha256: null };
   }
+  if (indexed?.mode === '160000') {
+    throw new SingularityFlowError(
+      `World-model source contains a changed or dirty Git submodule at ${relative}. Commit and `
+        + 'stage the submodule pointer with a clean nested worktree before generating the model.',
+      { code: 'WORLD_MODEL_GITLINK_DIRTY', details: { path: relative } }
+    );
+  }
   if (indexed && compareToIndex) {
-    const stat = await lstat(absolute);
+    const stat = secured.entry;
     if (stat.isFile()) {
       const object = run('git', ['hash-object', '--no-filters', '--', relative], {
         cwd: root, allowFailure: true
@@ -143,6 +155,18 @@ async function visibleRecord(root, relative, indexed = null, { compareToIndex = 
         };
       }
     }
+  }
+  if (secured.entry?.isSymbolicLink()) {
+    const target = Buffer.from(await readlink(absolute));
+    return {
+      path: relative,
+      status: 'present',
+      materialization: indexed ? 'worktree' : 'untracked',
+      mode: '120000',
+      objectId: `sha256:${createHash('sha256').update(target).digest('hex')}`,
+      size: target.length,
+      sha256: createHash('sha256').update(target).digest('hex')
+    };
   }
   const info = await snapshot(absolute);
   if (!info.sha256) return null;
@@ -218,6 +242,7 @@ async function gitSourceRecords(root, { definition = {}, excludeGovernance = tru
 }
 
 export async function worldModelSourceSnapshot(root, definition = {}) {
+  assertNoHiddenWorktreeChanges(root, 'World-model source capture');
   const effectiveDefinition = await withInitiativeRoot(root, definition);
   const records = await gitSourceRecords(root, { definition: effectiveDefinition, excludeGovernance: true });
   const scope = worldModelSourceScope(effectiveDefinition);

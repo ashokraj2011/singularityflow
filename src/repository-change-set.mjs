@@ -4,7 +4,8 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { SingularityFlowError, posix, run } from './util.mjs';
+import { SingularityFlowError, posix, run, secureRepositoryPath } from './util.mjs';
+import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 
 const STATUS = Object.freeze({
   A: 'added', C: 'copied', D: 'deleted', M: 'modified', R: 'renamed',
@@ -69,9 +70,13 @@ export function parseRawDiff(value) {
 
 async function currentContent(root, relative) {
   if (!relative) return null;
-  const absolute = path.join(root, relative);
+  const secured = await secureRepositoryPath(root, relative, {
+    label: 'Repository change-set path',
+    allowFinalSymlink: true
+  });
+  const absolute = secured.absolute;
   try {
-    const info = await lstat(absolute);
+    const info = secured.entry ?? await lstat(absolute);
     if (info.isSymbolicLink()) {
       const target = Buffer.from(await readlink(absolute));
       return { kind: 'symlink', sha256: sha256(target), bytes: target.length };
@@ -94,7 +99,12 @@ async function untrackedEntries(root) {
   const names = nullFields(git(root, ['ls-files', '--others', '--exclude-standard', '-z']).stdout);
   return Promise.all(names.map(async (name) => {
     const relative = normalizeRepositoryPath(name);
-    const info = await lstat(path.join(root, relative));
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Untracked repository path',
+      mustExist: true,
+      allowFinalSymlink: true
+    });
+    const info = secured.entry;
     return {
       status: 'added', similarity: null, oldPath: null, newPath: relative,
       oldMode: '000000', newMode: untrackedMode(info), oldObject: null, newObject: null,
@@ -144,6 +154,7 @@ export async function buildRepositoryChangeSet(root, {
   subject = null
 } = {}) {
   if (!baseCommit) throw new SingularityFlowError('A baseline commit is required for a repository change set.');
+  assertNoHiddenWorktreeChanges(root, 'Repository change-set capture');
   const unmerged = git(root, ['ls-files', '--unmerged', '-z'], { allowFailure: true });
   if (unmerged.status !== 0 || unmerged.stdout) {
     throw new SingularityFlowError('The repository index contains unresolved merge entries.', { code: 'CHANGE_SET_UNMERGED' });

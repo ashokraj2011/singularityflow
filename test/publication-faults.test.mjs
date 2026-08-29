@@ -10,14 +10,18 @@ import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
 import { commitIsolated, gitDir, governedCommitIdentity } from '../src/git.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
-  recoverPreparedPublication, recoverPreparedPublicationBySubject
+  recoverPreparedPublication, recoverPreparedPublicationBySubject, writePendingPublication
 } from '../src/publication-pending.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from '../src/publication-recovery.mjs';
-import { beginPublicationJournal, publicationJournalPath } from '../src/publication-journal.mjs';
+import {
+  beginPublicationJournal, publicationJournalPath, readPublicationJournal
+} from '../src/publication-journal.mjs';
 import { acquireSubjectLock, releaseSubjectLock, subjectLockPath } from '../src/subject-lock.mjs';
 import { runDraftTransaction } from '../src/draft-unit-of-work.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { syncPublication } from '../src/state.mjs';
+import { syncInitiativePublication } from '../src/initiative-state.mjs';
+import { retainCapabilityPublicationRecovery } from '../src/capability-publication-recovery.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -70,6 +74,48 @@ async function crashPublication(root, subject, target, stage, { mode = 'required
 async function pathExists(target) {
   try { await access(target); return true; }
   catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
+}
+
+function storyFor(subject) {
+  return {
+    workItem: { id: subject.id, branch: subject.branch },
+    lineage: { canonicalBranch: subject.branch, childBranches: [] },
+    resolution: { ledger: { enabled: false } }
+  };
+}
+
+function initiativeFor(subject) {
+  return {
+    initiative: { id: subject.id, branch: subject.branch },
+    resolution: { ledger: { enabled: false } }
+  };
+}
+
+async function retainedPublication(kind, id) {
+  const root = await repository(`sflow-${kind}-verified-sync-`);
+  const remote = await mkdtemp(path.join(os.tmpdir(), `sflow-${kind}-verified-origin-`));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const subject = { kind, id, branch: 'main' };
+  const target = `${kind}-state.json`;
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', `${kind} canonical state`], root);
+  git(['push', 'origin', 'main'], root);
+  const remoteBaseline = git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root);
+  git(['remote', 'set-url', 'origin', `${remote}-unreachable`], root);
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: `[${id}] retained exact publication` },
+    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    allowedPaths: [target],
+    state: { write: () => writeFile(path.join(root, target), '{"status":"pending"}\n') }
+  }), /retained locally but push failed/);
+  const pending = await readPendingPublication(root, subject);
+  git(['remote', 'set-url', 'origin', remote], root);
+  return { root, remote, remoteBaseline, subject, marker: structuredClone(pending.record) };
 }
 
 test('Story and Initiative publications have the same recovery boundary at every fault stage', async (t) => {
@@ -147,6 +193,143 @@ test('an active publication does not diagnose its own prewritten journal as pend
 
   assert.equal(pendingSeenInsideValidation, null);
   assert.equal(await pathExists(publicationJournalPath(root, subject.kind, subject.id)), false);
+});
+
+test('Story and Initiative sync are true no-ops without a pending marker even after manual HEAD advances', async (t) => {
+  for (const kind of ['story', 'initiative']) {
+    await t.test(kind, async () => {
+      const root = await repository(`sflow-${kind}-sync-no-marker-`);
+      const remote = await mkdtemp(path.join(os.tmpdir(), `sflow-${kind}-sync-no-marker-origin-`));
+      git(['init', '--bare', '-q'], remote);
+      git(['remote', 'add', 'origin', remote], root);
+      git(['push', '-u', 'origin', 'main'], root);
+      const published = git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root);
+      await writeFile(path.join(root, 'manual.txt'), 'not a governed publication\n');
+      git(['add', 'manual.txt'], root);
+      git(['commit', '-m', 'manual local commit'], root);
+      const manualHead = git(['rev-parse', 'HEAD'], root);
+      assert.notEqual(manualHead, published);
+      const subject = { kind, id: `${kind.toUpperCase()}-NO-MARKER`, branch: 'main' };
+
+      const result = kind === 'story'
+        ? await syncPublication(root, { git: { remote: 'origin' }, ledger: { enabled: false } }, storyFor(subject))
+        : await syncInitiativePublication(root, { git: { remote: 'origin' } }, initiativeFor(subject));
+
+      assert.equal(result.noOp, true);
+      assert.equal(result.pushed, null);
+      assert.equal(result.ledger, null);
+      assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), published,
+        `${kind} sync pushed an unrelated manual HEAD`);
+    });
+  }
+});
+
+test('Story sync rejects every mutable identity mismatch and retains the recovery marker', async () => {
+  const fixture = await retainedPublication('story', 'STORY-MARKER-MISMATCH');
+  const { root, remote, remoteBaseline, subject, marker } = fixture;
+  const changedDigest = (value) => `${value.slice(0, -1)}${value.endsWith('0') ? '1' : '0'}`;
+  const mismatches = [
+    ['subject', (record) => { record.subject.id = 'OTHER-STORY'; }],
+    ['branch', (record) => { record.branch = 'other-branch'; }],
+    ['remote', (record) => { record.remote = 'unreviewed-remote'; }],
+    ['commit', (record) => { record.commit = git(['rev-parse', 'HEAD^'], root); }],
+    ['tree', (record) => { record.tree = changedDigest(record.tree); }],
+    ['transaction', (record) => { record.transactionId = `${record.transactionId}-tampered`; }],
+    ['event digest', (record) => { record.eventSha256 = changedDigest(record.eventSha256); }],
+    ['state digest', (record) => { record.stateSha256 = changedDigest(record.stateSha256); }],
+    ['publication mode', (record) => { record.publicationMode = 'warn'; }],
+    ['event body', (record) => { record.event.payload = { tampered: true }; }],
+    ['event source', (record) => { record.event.sourceCommit = git(['rev-parse', 'HEAD^'], root); }]
+  ];
+
+  for (const [label, mutate] of mismatches) {
+    const changed = structuredClone(marker);
+    mutate(changed);
+    await writePendingPublication(root, { ...subject, record: changed });
+    await assert.rejects(
+      () => syncPublication(
+        root,
+        { git: { remote: 'origin' }, ledger: { enabled: false } },
+        storyFor(subject)
+      ),
+      (error) => error?.code === 'PENDING_PUBLICATION_IDENTITY_INVALID',
+      label
+    );
+    assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), remoteBaseline,
+      `${label} marker advanced the remote`);
+    assert.ok(await readPendingPublication(root, subject), `${label} marker was discarded`);
+  }
+
+  await writePendingPublication(root, { ...subject, record: marker });
+  const synced = await syncPublication(
+    root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(subject)
+  );
+  assert.equal(synced.pushed, marker.commit);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), marker.commit);
+  assert.equal(await readPendingPublication(root, subject), null);
+});
+
+test('Initiative sync rejects a mismatched marker and retries only its verified exact commit', async () => {
+  const fixture = await retainedPublication('initiative', 'INIT-MARKER-MISMATCH');
+  const { root, remote, remoteBaseline, subject, marker } = fixture;
+  const changed = structuredClone(marker);
+  changed.stateSha256 = `${changed.stateSha256.slice(0, -1)}${changed.stateSha256.endsWith('0') ? '1' : '0'}`;
+  await writePendingPublication(root, { ...subject, record: changed });
+
+  await assert.rejects(
+    () => syncInitiativePublication(root, { git: { remote: 'origin' } }, initiativeFor(subject)),
+    (error) => error?.code === 'PENDING_PUBLICATION_IDENTITY_INVALID'
+  );
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), remoteBaseline);
+  assert.ok(await readPendingPublication(root, subject));
+
+  await writePendingPublication(root, { ...subject, record: marker });
+  const synced = await syncInitiativePublication(
+    root,
+    { git: { remote: 'origin' } },
+    initiativeFor(subject)
+  );
+  assert.equal(synced.pushed, marker.commit);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), marker.commit);
+  assert.equal(await readPendingPublication(root, subject), null);
+});
+
+test('capability recovery cannot hide a still-pending Story lifecycle commit', async () => {
+  const fixture = await retainedPublication('story', 'STORY-ROOT-AND-CAPABILITY');
+  const { root, remote, remoteBaseline, subject, marker } = fixture;
+  const sibling = await repository('sflow-capability-root-pending-');
+  const siblingRemote = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-root-pending-origin-'));
+  git(['init', '--bare', '-q'], siblingRemote);
+  git(['remote', 'add', 'origin', siblingRemote], sibling);
+  git(['push', '-u', 'origin', 'main'], sibling);
+  const siblingCommit = git(['rev-parse', 'HEAD'], sibling);
+
+  await retainCapabilityPublicationRecovery(root, subject.id, {
+    remote: 'origin', branch: 'main', commit: marker.commit, event: marker.event
+  }, [{
+    schemaVersion: 1,
+    repository: 'sibling',
+    root: sibling,
+    remote: 'origin',
+    branch: 'main',
+    commit: siblingCommit,
+    destinationRef: 'refs/heads/main'
+  }], new Error('both lifecycle and capability publication remain pending'));
+  const retained = await readPendingPublication(root, subject);
+  assert.equal(retained.record.rootPublished, false);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), remoteBaseline);
+
+  const synced = await syncPublication(
+    root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(subject)
+  );
+  assert.equal(synced.pushed, marker.commit);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), marker.commit);
+  assert.equal(git(['--git-dir', siblingRemote, 'rev-parse', 'refs/heads/main'], sibling), siblingCommit);
+  assert.equal(await readPendingPublication(root, subject), null);
 });
 
 test('push-failure recovery binds a finalized event digest to its exact governed commit', async () => {
@@ -867,6 +1050,117 @@ test('a failure after branch ref advancement records the exact commit for public
   }
 });
 
+test('an unrelated HEAD advancement cannot erase a draft recovery journal', async () => {
+  const root = await repository('sflow-draft-unrelated-head-');
+  const subject = { kind: 'story', id: 'DRAFT-UNRELATED-HEAD', branch: 'main' };
+  const target = 'draft-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'draft baseline'], root);
+  const expectedHead = git(['rev-parse', 'HEAD'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'draft-with-unrelated-commit',
+    allowedPaths: [target],
+    write: async () => {
+      await writeFile(path.join(root, target), '{"status":"partial"}\n');
+      git(['add', target], root);
+      git(['commit', '-m', 'manual unrelated advancement'], root);
+      throw new Error('draft writer failed after unrelated commit');
+    }
+  }), (error) => error?.code === 'DRAFT_RECOVERY_DIVERGED');
+
+  const observedHead = git(['rev-parse', 'HEAD'], root);
+  assert.notEqual(observedHead, expectedHead);
+  const retained = await readPublicationJournal(root, subject);
+  assert.ok(retained, 'unrelated HEAD advancement erased the draft journal');
+  assert.equal(retained.record.transactionKind, 'draft');
+  assert.equal(retained.record.expectedHead, expectedHead);
+  assert.equal(retained.record.stage, 'draft-head-diverged');
+  assert.equal(retained.record.observedHead, observedHead);
+});
+
+test('a nested pending commit must equal HEAD before the outer draft can release its journal', async () => {
+  const root = await repository('sflow-draft-nested-then-unrelated-');
+  const subject = { kind: 'story', id: 'DRAFT-NESTED-THEN-UNRELATED', branch: 'main' };
+  const target = 'draft-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'nested divergence baseline'], root);
+  const expectedHead = git(['rev-parse', 'HEAD'], root);
+  let nestedCommit = null;
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'nested-then-unrelated',
+    allowedPaths: [target, 'unrelated.txt'],
+    write: async () => {
+      try {
+        await new GitPublicationUnitOfWork(root).execute({
+          subject,
+          event: lifecycleEvent({
+            type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
+          }),
+          commit: { message: '[DRAFT-NESTED-THEN-UNRELATED] nested publication' },
+          publication: { mode: 'required', branch: 'main', remote: 'origin' },
+          allowedPaths: [target],
+          state: { write: () => writeFile(path.join(root, target), '{"status":"nested"}\n') }
+        });
+      } catch (error) {
+        nestedCommit = git(['rev-parse', 'HEAD'], root);
+        await writeFile(path.join(root, 'unrelated.txt'), 'advanced after nested recovery\n');
+        git(['add', 'unrelated.txt'], root);
+        git(['commit', '-m', 'unrelated descendant'], root);
+        throw error;
+      }
+    }
+  }), (error) => error?.code === 'DRAFT_RECOVERY_DIVERGED');
+
+  const observedHead = git(['rev-parse', 'HEAD'], root);
+  assert.notEqual(nestedCommit, expectedHead);
+  assert.notEqual(observedHead, nestedCommit);
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.record.commit, nestedCommit, 'the exact nested publication marker changed');
+  const retained = await readPublicationJournal(root, subject);
+  assert.ok(retained, 'the outer draft journal was erased by an ancestor pending marker');
+  assert.equal(retained.record.transactionKind, 'draft');
+  assert.equal(retained.record.expectedHead, expectedHead);
+  assert.equal(retained.record.observedHead, observedHead);
+  assert.equal(retained.record.stage, 'draft-head-diverged');
+});
+
+test('an exact completed nested publication remains the stable boundary when outer validation fails', async () => {
+  const root = await repository('sflow-draft-exact-nested-complete-');
+  const subject = { kind: 'story', id: 'DRAFT-EXACT-NESTED-COMPLETE', branch: 'main' };
+  const target = 'draft-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'completed nested baseline'], root);
+  const expectedHead = git(['rev-parse', 'HEAD'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'completed-nested-then-validation',
+    allowedPaths: [target],
+    write: () => new GitPublicationUnitOfWork(root).execute({
+      subject,
+      event: lifecycleEvent({
+        type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
+      }),
+      commit: { message: '[DRAFT-EXACT-NESTED-COMPLETE] nested publication' },
+      publication: { mode: 'off', branch: 'main' },
+      allowedPaths: [target],
+      state: { write: () => writeFile(path.join(root, target), '{"status":"committed"}\n') }
+    }),
+    validate: () => { throw new Error('outer validation failed after nested completion'); }
+  }), /outer validation failed after nested completion/);
+
+  assert.notEqual(git(['rev-parse', 'HEAD'], root), expectedHead);
+  assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"committed"}\n');
+  assert.equal(await readPublicationJournal(root, subject), null);
+});
+
 test('an outer draft cannot erase a nested publication recovery record', async () => {
   const root = await repository('sflow-nested-publication-');
   const subject = { kind: 'story', id: 'NESTED-RECOVERY', branch: 'main' };
@@ -901,6 +1195,8 @@ test('an outer draft cannot erase a nested publication recovery record', async (
   assert.ok(pending, 'the outer draft erased the nested publication recovery marker');
   assert.equal(pending.record.commit, git(['rev-parse', 'HEAD'], root));
   assert.equal(pending.record.recoveryStage, 'branch-ref-advanced-before-publication');
+  assert.equal(await readPublicationJournal(root, subject), null,
+    'the verified nested marker should replace the completed outer draft recovery boundary');
 });
 
 test('preimages are content-addressed and reject oversized files and directory depth', async () => {

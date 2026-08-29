@@ -37,17 +37,22 @@ import {
   appendLedgerIntent, createLedgerIntent, initializeLedger, publishToStateBranch
 } from './ledger.mjs';
 import {
-  CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT, STATE_CONFIGURATION_MANIFEST,
+  CONFIGURATION_BRANCH, STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_FORMAT,
+  STATE_CONFIGURATION_MANIFEST,
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
-  ensureConfigurationBranch, isConfigurationAsset,
+  configurationAssetPolicyFromRef, configurationTreeEntries,
+  ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
   remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
+import { mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
   classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
-import { GitRemoteSession, runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
+import {
+  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+} from './git-execution.mjs';
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
@@ -111,6 +116,60 @@ function proposalChangedFiles(root, base, proposal) {
   return { names, statuses };
 }
 
+/** Paths whose final Git identities prove a squash/rebase applied this exact proposal content. */
+function proposalContentPaths(root, base, proposal) {
+  return run('git', [
+    'diff', '--no-renames', '--name-only', '-z', `${base}..${proposal}`
+  ], { cwd: root }).stdout.split('\0').filter(Boolean);
+}
+
+function proposalContentIsPresent(root, base, proposal, target = 'HEAD') {
+  const paths = proposalContentPaths(root, base, proposal);
+  if (!paths.length) return false;
+  return run('git', ['diff', '--quiet', target, proposal, '--', ...paths], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+}
+
+/** Resolve the immutable proposal base encoded in every generated review-branch name. */
+function proposalBaseCommit(root, proposalBranch, ref) {
+  const prefix = proposalBranch.match(/-([0-9a-f]{8})$/)?.[1] ?? null;
+  const revision = run('git', ['rev-list', '--parents', '-n', '1', ref], {
+    cwd: root, allowFailure: true
+  }).stdout.trim().split(/\s+/);
+  const history = prefix
+    ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, allowFailure: true })
+        .stdout.split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
+    : [];
+  if (revision.length !== 2 || history.length !== 1 || history[0] === revision[0]) {
+    throw new SingularityFlowError(
+      `Capability proposal '${proposalBranch}' no longer has the exact configuration base encoded by its review branch.`, {
+        code: 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
+      }
+    );
+  }
+  return history[0];
+}
+
+function proposalConfigurationError(root, ref) {
+  try {
+    const capabilities = run('git', ['show', `${ref}:${CAPABILITIES_PATH}`], {
+      cwd: root, allowFailure: true
+    });
+    if (capabilities.status !== 0) return `missing ${CAPABILITIES_PATH}`;
+    const portfolio = run('git', ['show', `${ref}:${PORTFOLIO_PATH}`], {
+      cwd: root, allowFailure: true
+    });
+    validateCapabilities(
+      YAML.parse(capabilities.stdout),
+      portfolio.status === 0 ? YAML.parse(portfolio.stdout) : null
+    );
+    return null;
+  } catch (error) {
+    return redactDiagnosticText(error?.message ?? String(error));
+  }
+}
+
 /**
  * Portable protection probe: ask the server whether this exact proposal could update the authority
  * ref, but use Git's dry-run transport so no ref moves. A rejection proves enforcement in the
@@ -134,7 +193,53 @@ function commitIdentity(root, ref) {
   return { name: name || null, email: email || null };
 }
 
-async function withCapabilityProposalCheckout(url, branch, operation) {
+function fullCommit(value) {
+  const commit = String(value ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{40,64}$/.test(commit) ? commit : null;
+}
+
+function proposalAssetPolicy(root, ...refs) {
+  return mergeConfigurationAssetPolicies(...refs.filter(Boolean)
+    .map((ref) => configurationAssetPolicyFromRef(root, ref)));
+}
+
+/** Recover a deleted review branch from its exact reviewed commit, when the remote still retains it. */
+function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
+  const commit = fullCommit(expectedCommit);
+  if (!commit) return null;
+  const ref = `refs/singularity/capability-proposal-recovery/${commit}`;
+  const available = () => run('git', ['cat-file', '-e', `${commit}^{commit}`], {
+    cwd: root, allowFailure: true
+  }).status === 0;
+  const contained = () => available() && run('git', [
+    'merge-base', '--is-ancestor', commit, 'HEAD'
+  ], { cwd: root, allowFailure: true }).status === 0;
+  if (!available()) {
+    // GitHub and many office providers retain a just-merged review commit after deleting its source
+    // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
+    // recovery stays fail-closed rather than guessing from the target tree.
+    const recovered = runRemoteGit([
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+      `${commit}:${ref}`
+    ], { cwd: root, operation: 'remote-configuration' });
+    if (recovered.status !== 0 || !available()) return null;
+  }
+  // `confirm` is caller input, not a durable branch receipt. Bind it back to the immutable base
+  // encoded in the proposal branch before treating an arbitrary approved ancestor as its deleted
+  // source. This also supports a proposal that accumulated multiple reviewed commits while refusing
+  // merge commits, unrelated history, and invented branch/commit pairs.
+  let base;
+  try { base = proposalBaseCommit(root, proposalBranch, commit); }
+  catch { return null; }
+  const changed = proposalChangedFiles(root, base, commit).names;
+  const policy = proposalAssetPolicy(root, base, commit);
+  if (!changed.length || changed.some((relative) => !isConfigurationAsset(relative, policy))) return null;
+  if (!contained() && !proposalContentIsPresent(root, base, commit)) return null;
+  run('git', ['update-ref', ref, commit], { cwd: root });
+  return ref;
+}
+
+async function withCapabilityProposalCheckout(url, branch, operation, { expectedCommit = null } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -177,7 +282,10 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
       cwd: scratch, operation: 'remote-configuration'
     });
-    if (fetched.status !== 0) {
+    const proposalRef = fetched.status === 0
+      ? `refs/remotes/origin/${proposalBranch}`
+      : recoverMergedProposalRef(scratch, expectedCommit, proposalBranch);
+    if (!proposalRef) {
       throw new SingularityFlowError(
         `Capability proposal '${proposalBranch}' does not exist on '${sanitizeRemote(remote)}'. Refresh the proposal list before retrying.`, {
           code: 'CAPABILITY_PROPOSAL_NOT_FOUND',
@@ -188,8 +296,7 @@ async function withCapabilityProposalCheckout(url, branch, operation) {
           })
         });
     }
-    return await operation(scratch, remote, proposalBranch,
-      `refs/remotes/origin/${proposalBranch}`);
+    return await operation(scratch, remote, proposalBranch, proposalRef);
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -275,7 +382,9 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  * caller mutates the checkout and says what the commit is for; pushing and cleaning up happen here
  * so that no caller can forget either.
  */
-async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
+async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
+  remoteSession = new GitRemoteSession()
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED',
@@ -285,7 +394,6 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
     })
   });
 
-  const remoteSession = new GitRemoteSession();
   const approvedHead = configurationBranchHead(remote, { session: remoteSession });
   if (!approvedHead.exists) {
     await ensureConfigurationBranch(remote, { remoteSession, observedHead: approvedHead });
@@ -399,13 +507,20 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate) {
  */
 function observedDefaultBranch(url, session = new GitRemoteSession()) {
   const observed = session.observe(url, { includeHead: true });
-  if (!observed.ok) return 'main';
+  requireRemoteObservation(observed, `capability repository '${sanitizeRemote(url)}'`);
   if (observed.defaultBranch) return observed.defaultBranch;
   const fallback = session.observe(url, { includeHead: true, includeAllHeads: true });
-  return fallback.defaultBranch
+  requireRemoteObservation(fallback, `capability repository '${sanitizeRemote(url)}'`);
+  const branch = fallback.defaultBranch
     ?? fallback.branches.find((branch) => branch === 'main' || branch === 'master')
-    ?? fallback.branches[0]
-    ?? 'main';
+    ?? fallback.branches[0];
+  if (branch) return branch;
+  throw new SingularityFlowError(
+    `Capability repository '${sanitizeRemote(url)}' has no advertised default or application branch. Create and publish its initial branch before mapping it.`, {
+      code: 'CAPABILITY_REPOSITORY_DEFAULT_BRANCH_UNKNOWN',
+      details: { remote: sanitizeRemote(url), recoverable: true }
+    }
+  );
 }
 
 async function leadApplicationBranch(root, url, session = new GitRemoteSession()) {
@@ -441,27 +556,131 @@ async function repairLeadDefaultBranch(root, url, session = new GitRemoteSession
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 }
 
-/** Read the state-branch capability mirror without moving any checkout. A missing mirror is normal. */
-async function capabilityMapFromState(remote, branch = 'state') {
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-state-'));
+function configurationAssetsFromRef(root, ref = 'HEAD') {
+  return configurationTreeEntries(root, ref);
+}
+
+function configurationAssetsMatch(stateAssets, configuredAssets, configuredPaths) {
+  const statePaths = Object.keys(stateAssets ?? {}).sort();
+  if (JSON.stringify(statePaths) !== JSON.stringify([...configuredPaths].sort())) return false;
+  return statePaths.every((relative) => {
+    const state = stateAssets[relative];
+    const configured = configuredAssets.get(relative);
+    return configured && state.object === configured.object && state.mode === configured.mode;
+  });
+}
+
+async function loadCapabilityStateSnapshot(remote, branch, commit) {
+  if (branch === STATE_CONFIGURATION_BRANCH) {
+    return loadStoryConfigurationSnapshot({
+      remote, branch, commit, source: 'verified-state-mirror'
+    });
+  }
+  // Ledger branches are configurable. The Story snapshot reader intentionally recognizes only the
+  // product's canonical `state` authority, so verify an explicitly configured alternative here with
+  // the same complete-file, digest, Git-identity, source-commit, and operational-definition gates.
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-custom-state-'));
   try {
-    run('git', ['init', '--quiet', '--bare', scratch]);
-    const fetched = runRemoteGit([
-      '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', '--filter=blob:none', remote,
-      `refs/heads/${branch}:refs/heads/read-state`
+    const cloned = runRemoteGit([
+      '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      '--depth', '1', '--filter=blob:none', '--branch', branch, remote, scratch
     ], { operation: 'remote-configuration' });
-    if (fetched.status !== 0) return null;
-    const shown = run('git', [
-      '--git-dir', scratch, 'show', `refs/heads/read-state:${CAPABILITIES_PATH}`
-    ], { allowFailure: true });
-    if (shown.status !== 0) return null;
+    if (cloned.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot read configured state branch '${branch}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`
+      );
+    }
+    const observedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    if (observedCommit !== commit) {
+      throw new SingularityFlowError(
+        `Configured state branch '${branch}' moved from ${commit} to ${observedCommit} while it was being verified.`
+      );
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(await readFile(path.join(scratch, STATE_CONFIGURATION_MANIFEST), 'utf8'));
+    } catch (error) {
+      throw new SingularityFlowError(`State configuration manifest is unreadable: ${error.message}`);
+    }
+    if (manifest?.format !== STATE_CONFIGURATION_FORMAT || manifest?.layout !== 'canonical-paths'
+      || manifest?.source?.branch !== CONFIGURATION_BRANCH
+      || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+      || !manifest?.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)
+      || !manifest?.assets || typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)) {
+      throw new SingularityFlowError(
+        `State configuration manifest must be ${STATE_CONFIGURATION_FORMAT} with canonical files, Git identities, and an exact ${CONFIGURATION_BRANCH} source.`
+      );
+    }
+    const paths = await configurationAssetPaths(scratch);
+    const declared = Object.keys(manifest.files).sort();
+    if (JSON.stringify(paths) !== JSON.stringify(declared)
+      || JSON.stringify(Object.keys(manifest.assets).sort()) !== JSON.stringify(declared)) {
+      throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.');
+    }
+    const canonical = await canonicalConfigurationAssets(scratch, paths);
+    for (const relative of paths) {
+      const asset = canonical.get(relative);
+      const declaredAsset = manifest.assets[relative];
+      if (manifest.files[relative] !== asset.sha256
+        || declaredAsset?.sha256 !== asset.sha256
+        || declaredAsset?.object !== asset.object
+        || declaredAsset?.mode !== asset.mode) {
+        throw new SingularityFlowError(
+          `State configuration mirror identity does not match for '${relative}'.`
+        );
+      }
+    }
+    await loadDefinition(scratch);
     return {
-      text: shown.stdout,
-      commit: run('git', ['--git-dir', scratch, 'rev-parse', 'refs/heads/read-state']).stdout.trim(),
-      branch
+      observedCommit,
+      sourceCommit: manifest.source.commit,
+      assets: paths.map((relative) => {
+        const asset = canonical.get(relative);
+        return {
+          relative, contents: asset.contents, sha256: asset.sha256,
+          object: asset.object, gitMode: asset.mode
+        };
+      })
     };
   } finally {
     await removeTemporaryTree(scratch);
+  }
+}
+
+/** Read and completely verify the state-branch configuration mirror without moving a checkout. */
+async function capabilityMapFromState(remote, branch = 'state') {
+  const observed = new GitRemoteSession().observe(remote, {
+    includeHead: false, refs: [`refs/heads/${branch}`]
+  });
+  if (!observed.ok) {
+    return {
+      invalid: true, branch, commit: null,
+      error: `State configuration could not be read. ${observed.failure?.advice ?? 'Git remote access failed.'}`
+    };
+  }
+  const commit = observed.refs.get(`refs/heads/${branch}`) ?? null;
+  if (!commit) return null;
+  try {
+    const snapshot = await loadCapabilityStateSnapshot(remote, branch, commit);
+    const capability = snapshot.assets.find((entry) => entry.relative === CAPABILITIES_PATH);
+    if (!capability) {
+      return { invalid: true, branch, commit, error: `State configuration is missing ${CAPABILITIES_PATH}.` };
+    }
+    return {
+      text: capability.contents.toString('utf8'),
+      commit: snapshot.observedCommit,
+      configurationCommit: snapshot.sourceCommit,
+      assets: Object.fromEntries(snapshot.assets.map((entry) => [entry.relative, {
+        sha256: entry.sha256, object: entry.object, mode: entry.gitMode
+      }])),
+      branch,
+      invalid: false
+    };
+  } catch (error) {
+    return {
+      invalid: true, branch, commit,
+      error: redactDiagnosticText(error?.message ?? String(error))
+    };
   }
 }
 
@@ -516,7 +735,9 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     await writeOrganisationCache(remote, null, empty);
     return { ...empty, cached: false, stale: false, cacheAgeMs: 0, remoteError: null };
   }
-  if (!refresh && cached?.tipSha === tip.sha) {
+  // Older cache records predate complete state-mirror verification. Refresh them once instead of
+  // preserving a capability-only projection verdict indefinitely under an unchanged config tip.
+  if (!refresh && cached?.tipSha === tip.sha && cached.organisation?.stateProjection) {
     return {
       ...cached.organisation,
       cached: true,
@@ -542,25 +763,50 @@ export async function readOrganisation(url, { refresh = false } = {}) {
           })
         });
     }
+    // The authority can advance between the cache probe and this clone. Bind every comparison and
+    // the resulting cache entry to the revision actually cloned; the next read will observe and
+    // refresh again if the remote has already advanced beyond it.
+    const configurationCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
     const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], { cwd: scratch, allowFailure: true });
     const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], { cwd: scratch, allowFailure: true });
     const stateBranch = workflow.status === 0
       ? (YAML.parse(workflow.stdout)?.ledger?.branch ?? 'state')
       : 'state';
     const state = configured.status === 0 ? await capabilityMapFromState(remote, stateBranch) : null;
+    const configuredAssets = configured.status === 0
+      ? configurationAssetsFromRef(scratch) : new Map();
+    const configuredPaths = [...configuredAssets.keys()].sort();
     // The state branch is a mirror, never a second authority. An interrupted projection may leave
     // it behind `sflow/config`; in that case read the approved bytes rather than presenting stale
-    // mirror contents as fresh merely because the remote itself is reachable.
-    const currentState = state?.text === configured.stdout ? state : null;
+    // mirror contents as fresh merely because the capability file happens to match.
+    const currentState = state && !state.invalid
+      && state.configurationCommit === configurationCommit
+      && state.text === configured.stdout
+      && configurationAssetsMatch(state.assets, configuredAssets, configuredPaths)
+      ? state : null;
+    const sameSourceButDifferentAssets = state && !state.invalid
+      && state.configurationCommit === configurationCommit && !currentState;
+    const stateProjection = currentState
+      ? { status: 'current', branch: currentState.branch, commit: currentState.commit, error: null }
+      : state?.invalid
+        ? { status: 'invalid', branch: state.branch, commit: state.commit, error: state.error }
+        : sameSourceButDifferentAssets
+          ? {
+              status: 'invalid', branch: state.branch, commit: state.commit,
+              error: `State configuration claims ${CONFIGURATION_BRANCH}@${configurationCommit}, but its complete asset set does not match that approved commit.`
+            }
+        : state
+          ? { status: 'stale', branch: state.branch, commit: state.commit, error: null }
+          : { status: 'missing', branch: stateBranch, commit: null, error: null };
     const shown = currentState ?? (configured.status === 0
-      ? { text: configured.stdout, commit: tip.sha, branch }
+      ? { text: configured.stdout, commit: configurationCommit, branch }
       : null);
     if (!shown) {
       const empty = {
-        url: remote, branch, sourceBranch: null, sourceCommit: tip.sha,
-        capabilities: [], repositories: {}, governed: false
+        url: remote, branch, sourceBranch: null, sourceCommit: configurationCommit,
+        capabilities: [], repositories: {}, governed: false, stateProjection
       };
-      await writeOrganisationCache(remote, tip.sha, empty);
+      await writeOrganisationCache(remote, configurationCommit, empty);
       return { ...empty, cached: false, stale: false, cacheAgeMs: 0, remoteError: null };
     }
 
@@ -571,11 +817,12 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       branch,
       sourceBranch: shown.branch,
       sourceCommit: shown.commit,
+      stateProjection,
       capabilities: capabilityTree(definition),
       repositories: portfolio.status === 0 ? (YAML.parse(portfolio.stdout)?.repositories ?? {}) : {},
       governed: true
     };
-    await writeOrganisationCache(remote, tip.sha, organisation);
+    await writeOrganisationCache(remote, configurationCommit, organisation);
     return {
       ...organisation,
       cached: false,
@@ -627,6 +874,15 @@ export async function mapCapability(leadUrl, {
   const cloneStrategy = clone == null
     ? null
     : normalizeCloneStrategy(clone, `Capability '${capabilityId}' clone strategy`);
+  // Prove every delivery repository before initializing or changing the lead authority. A failed
+  // first mapping must not create `sflow/config`, and a reachable but empty remote must not be
+  // silently recorded as `main`. Reuse this operation-scoped session throughout the proposal so
+  // the successful probes are not repeated across office proxies.
+  const urls = [...new Set([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls])];
+  const remoteSession = new GitRemoteSession();
+  const observedBranches = new Map(urls.map((url) => [
+    sanitizeRemote(url), observedDefaultBranch(url, remoteSession)
+  ]));
 
   return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
     `capability/map-${capabilityId}`, async (root, _baseBranch, leadRemoteSession) => {
@@ -651,7 +907,6 @@ export async function mapCapability(leadUrl, {
 
     // Every repository this capability ships from, declared in the portfolio so the capability may
     // name them. A capability commonly has one; a product with a web app and a service has two.
-    const urls = [...new Set([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls])];
     const effectiveKind = kind ?? (urls.length ? 'delivery' : 'collection');
     const repositoryIds = [];
     if (urls.length) {
@@ -660,10 +915,7 @@ export async function mapCapability(leadUrl, {
       for (const url of urls) {
         const id = repositoryIdOf(url);
         repositoryIds.push(id);
-        const branch = observedDefaultBranch(
-          url,
-          sanitizeRemote(url) === sanitizeRemote(leadUrl) ? leadRemoteSession : new GitRemoteSession()
-        );
+        const branch = observedBranches.get(sanitizeRemote(url));
         const existing = portfolio.getIn(['repositories', id], true)?.toJSON?.() ?? {};
         const repository = { ...existing, url, defaultBranch: branch, required: true };
         if (cloneStrategy) {
@@ -724,7 +976,7 @@ export async function mapCapability(leadUrl, {
       parent: parent || null,
       state: { published: false, reason: 'awaiting review and merge' }
     };
-  });
+  }, { remoteSession });
 }
 
 /** Add one shipping repository to an existing delivery capability as a reviewed proposal. */
@@ -844,8 +1096,9 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
       'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
       `+refs/heads/${ledger.branch}:${remoteRef}`
     ], { cwd: root, operation: 'remote-configuration' });
-    const tracked = run('git', [
-      'ls-tree', '-r', '-z', '--name-only', remoteRef, '--', 'singularity', '.github/agents', 'configuration'
+    const trackedAssets = [...configurationTreeEntries(root, remoteRef).keys()];
+    const trackedMetadata = run('git', [
+      'ls-tree', '-r', '-z', '--name-only', remoteRef, '--', 'configuration'
     ], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean);
     const previousManifest = run('git', ['show', `${remoteRef}:${STATE_CONFIGURATION_MANIFEST}`], {
       cwd: root, allowFailure: true
@@ -858,9 +1111,10 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     }
     configurationFiles[STATE_CONFIGURATION_MANIFEST] = `${JSON.stringify(manifest, null, 2)}\n`;
     const desired = new Set(configurationPaths);
-    const removePaths = tracked.filter((relative) =>
-      (isConfigurationAsset(relative) && !desired.has(relative))
-        || relative.startsWith('configuration/files/'));
+    const removePaths = [
+      ...trackedAssets.filter((relative) => !desired.has(relative)),
+      ...trackedMetadata.filter((relative) => relative.startsWith('configuration/files/'))
+    ];
     const result = await publishToStateBranch(
       root, ledger, configurationFiles, message, {
         replaceRoots: ['configuration'], removePaths
@@ -1050,14 +1304,19 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { 
         })
       });
   }
-  const proposalBase = run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim();
+  const proposalBase = proposalBaseCommit(root, proposalBranch, ref);
   const mergeBase = mergeBaseResult.stdout.trim();
-  const merged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+  const ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
     cwd: root, allowFailure: true
   }).status === 0;
+  const contentMerged = !ancestryMerged && proposalContentIsPresent(root, proposalBase, ref);
+  const merged = ancestryMerged || contentMerged;
   const reviewBase = merged ? proposalBase : mergeBase;
   const changed = proposalChangedFiles(root, reviewBase, ref);
-  const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
+  const policy = proposalAssetPolicy(root, reviewBase, ref);
+  const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
+  const configurationError = proposalConfigurationError(root, ref);
+  const valid = invalidFiles.length === 0 && changed.names.length > 0 && !configurationError;
   const diff = includeDiff
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
         cwd: root
@@ -1072,7 +1331,11 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { 
     proposalBase,
     mergeBase,
     merged,
-    valid: invalidFiles.length === 0 && changed.names.length > 0,
+    mergeEvidence: ancestryMerged ? 'commit-ancestry' : contentMerged ? 'content-equivalent' : null,
+    valid,
+    discardable: !merged && !valid,
+    status: merged ? 'merged' : valid ? 'pending-review' : 'invalid',
+    configurationError,
     invalidFiles,
     changedFiles: changed.statuses,
     diff: diff == null ? null
@@ -1116,13 +1379,20 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
         `Approved capability configuration is readable from '${organisation.branch}'.`,
         { branch: organisation.branch }
       ));
-      const projected = organisation.sourceBranch !== CONFIGURATION_BRANCH;
+      const projection = organisation.stateProjection ?? {
+        status: organisation.sourceBranch !== CONFIGURATION_BRANCH ? 'current' : 'missing',
+        branch: organisation.sourceBranch, commit: organisation.sourceCommit, error: null
+      };
+      const projected = projection.status === 'current';
+      const invalidProjection = projection.status === 'invalid';
       checks.push(capabilityFsckCheck(
-        'state-projection', projected ? 'pass' : 'warn',
+        'state-projection', projected ? 'pass' : invalidProjection ? 'fail' : 'warn',
         projected
-          ? `The capability read mirror is current on '${organisation.sourceBranch}'.`
-          : 'The approved map is readable, but its state-branch mirror is absent or stale.',
-        projected ? { branch: organisation.sourceBranch, commit: organisation.sourceCommit } : {
+          ? `The approved configuration mirror is current on '${projection.branch}'.`
+          : invalidProjection
+            ? `The state-branch configuration mirror is invalid: ${projection.error}`
+            : 'The approved configuration is readable, but its state-branch mirror is absent or stale.',
+        projected ? { branch: projection.branch, commit: projection.commit } : {
           remediation: capabilityCommand('publish', { remote })
         }
       ));
@@ -1410,14 +1680,19 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
-      const alreadyMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
+      const proposalBase = proposalBaseCommit(root, proposalBranch, ref);
+      const ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
         cwd: root, allowFailure: true
       }).status === 0;
+      const contentMerged = !ancestryMerged && proposalContentIsPresent(root, proposalBase, ref);
+      const alreadyMerged = ancestryMerged || contentMerged;
+      const mergeEvidence = ancestryMerged ? 'commit-ancestry'
+        : contentMerged ? 'content-equivalent' : null;
       // An externally merged generated proposal is a single commit and its merge-base with HEAD is
       // now the proposal itself. Retrospective activation still needs the reviewed file set for the
       // audit, so use that proposal commit's parent in the already-merged case.
       const reviewBase = alreadyMerged
-        ? run('git', ['rev-parse', `${ref}^`], { cwd: root }).stdout.trim()
+        ? proposalBase
         : mergeBaseResult.stdout.trim();
       // Once a provider merged the branch, this process can prove the resulting target but cannot
       // honestly reconstruct the authority tip immediately before that external action.
@@ -1434,7 +1709,8 @@ export async function activateCapabilityProposal(url, branch, {
           })
         });
       }
-      const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file));
+      const policy = proposalAssetPolicy(root, reviewBase, ref);
+      const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
       if (invalidFiles.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
         throw new SingularityFlowError(
@@ -1608,6 +1884,7 @@ export async function activateCapabilityProposal(url, branch, {
           proposalCommit,
           targetBefore: auditedTargetBefore,
           targetCommit,
+          mergeEvidence,
           changedFiles: changed.statuses,
           protection,
           unprotectedAcknowledged: protection.enforced === false && acknowledgeUnprotected === true
@@ -1646,6 +1923,7 @@ export async function activateCapabilityProposal(url, branch, {
         targetBefore: auditedTargetBefore,
         targetCommit,
         alreadyMerged,
+        mergeEvidence,
         changedFiles: changed.statuses,
         protection,
         audit: {
@@ -1657,7 +1935,7 @@ export async function activateCapabilityProposal(url, branch, {
           duplicate: audit.duplicate
         }
       };
-    });
+    }, { expectedCommit: confirm });
   if (!reviewed.activated) return reviewed;
   try {
     const projection = await publishOrganisationCapabilityMap(url);

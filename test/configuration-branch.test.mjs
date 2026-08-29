@@ -16,6 +16,7 @@ import {
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
@@ -33,6 +34,8 @@ test('configuration asset paths cannot traverse the repository', () => {
   assert.equal(isConfigurationAsset('singularity/../outside.txt'), false);
   assert.equal(isConfigurationAsset('singularity/../../outside.txt'), false);
   assert.equal(isConfigurationAsset('/singularity/workflow.yml'), false);
+  assert.equal(isConfigurationAsset('singularity/world-model/manifest.json'), false,
+    'the stock generated world model remains runtime, not approved configuration');
 });
 
 async function repositoryFixture({ branch = 'main' } = {}) {
@@ -132,6 +135,60 @@ test('concurrent configuration bootstrap never reports a losing capability as pu
     ], { cwd: fixture.remote }).stdout);
     assert.equal(Object.keys(map.capabilities).length, 1, 'only the winning capability is governed');
     assert.ok(['alpha', 'beta'].includes(Object.keys(map.capabilities)[0]));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a same-ID bootstrap race does not accept different winning capability values', async () => {
+  const fixture = await repositoryFixture();
+  const capability = (capabilityName) => ({
+    capabilityId: 'alpha', capabilityName, kind: 'collection',
+    repositoryId: 'application', jiraProject: null, teams: []
+  });
+  try {
+    const results = await Promise.allSettled([
+      ensureConfigurationBranch(fixture.remote, { capability: capability('Alpha Platform') }),
+      ensureConfigurationBranch(fixture.remote, { capability: capability('Different Alpha') })
+    ]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+    assert.match(results.find((result) => result.status === 'rejected').reason.message,
+      /created concurrently.*values do not match/);
+    const approved = YAML.parse(run('git', [
+      'show', `${CONFIGURATION_BRANCH}:singularity/capabilities.yml`
+    ], { cwd: fixture.remote }).stdout).capabilities.alpha;
+    assert.ok(['Alpha Platform', 'Different Alpha'].includes(approved.name));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('repeated bootstrap accepts reviewed evolution of an existing capability', async () => {
+  const fixture = await repositoryFixture();
+  const requested = {
+    capabilityId: 'alpha', capabilityName: 'Alpha', kind: 'collection',
+    repositoryId: 'application', jiraProject: null, teams: []
+  };
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability: requested });
+    const checkout = path.join(fixture.root, 'reviewed-capability-change');
+    run('git', ['clone', '-q', '--branch', CONFIGURATION_BRANCH, fixture.remote, checkout]);
+    run('git', ['config', 'user.name', 'Configuration Reviewer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'reviewer@example.test'], { cwd: checkout });
+    const file = path.join(checkout, 'singularity/capabilities.yml');
+    const definition = YAML.parseDocument(await readFile(file, 'utf8'));
+    definition.setIn(['capabilities', 'alpha', 'name'], 'Reviewed Alpha Platform');
+    definition.setIn(['capabilities', 'alpha', 'jira', 'projectKey'], 'ALPHA');
+    definition.setIn(['capabilities', 'alpha', 'teams'], ['platform-team']);
+    await writeFile(file, definition.toString());
+    run('git', ['add', 'singularity/capabilities.yml'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'Evolve approved capability metadata'], { cwd: checkout });
+    run('git', ['push', '-q', 'origin', `HEAD:${CONFIGURATION_BRANCH}`], { cwd: checkout });
+
+    const repeated = await ensureConfigurationBranch(fixture.remote, { capability: requested });
+    assert.equal(repeated.created, false);
+    assert.equal(repeated.branch, CONFIGURATION_BRANCH);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -243,6 +300,84 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
       /Pinned configuration asset changed after materialization/
     );
     assert.equal(await readFile(path.join(checkout, 'README.md'), 'utf8'), '# Application\n');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('custom configuration roots materialize while custom world-model output remains runtime', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const publisher = path.join(fixture.root, 'custom-root-publisher');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, publisher], {
+      cwd: fixture.root
+    });
+    run('git', ['config', 'user.name', 'Custom Root Publisher'], { cwd: publisher });
+    run('git', ['config', 'user.email', 'custom-roots@example.com'], { cwd: publisher });
+
+    const workflowFile = path.join(publisher, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.templatesRoot = 'governance/templates';
+    workflow.worldModel.outputDir = 'governance/world-model';
+    workflow.worldModel.promptSource = 'governance/prompts/worldmodel-builder.md';
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    const portfolioFile = path.join(publisher, 'singularity/portfolio.yml');
+    const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+    portfolio.templatesRoot = 'governance/templates';
+    await writeFile(portfolioFile, YAML.stringify(portfolio));
+
+    await cp(path.join(publisher, 'singularity/templates'), path.join(publisher, 'governance/templates'), {
+      recursive: true
+    });
+    await mkdir(path.join(publisher, 'governance/prompts'), { recursive: true });
+    await cp(
+      path.join(publisher, 'singularity/prompts/worldmodel-builder.md'),
+      path.join(publisher, 'governance/prompts/worldmodel-builder.md')
+    );
+    await mkdir(path.join(publisher, 'governance/world-model'), { recursive: true });
+    await writeFile(path.join(publisher, 'governance/world-model/manifest.json'), '{"custom":true}\n');
+    await writeFile(path.join(publisher, 'governance/application.txt'), 'must not be transported\n');
+    await mkdir(path.join(publisher, 'singularity/world-model'), { recursive: true });
+    await writeFile(path.join(publisher, 'singularity/world-model/manifest.json'),
+      '{"generated":"stock-runtime"}\n');
+    await rm(path.join(publisher, 'singularity/templates'), { recursive: true });
+    run('git', ['add', '-A'], { cwd: publisher });
+    run('git', ['commit', '-qm', 'use custom governed roots'], { cwd: publisher });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: publisher });
+
+    const approvedPaths = await configurationAssetPaths(publisher);
+    assert.ok(approvedPaths.includes('governance/templates/common/implementation.md'));
+    assert.ok(approvedPaths.includes('governance/prompts/worldmodel-builder.md'));
+    assert.equal(approvedPaths.includes('governance/world-model/manifest.json'), false);
+    assert.ok(approvedPaths.includes('.github/agents/developer.agent.md'));
+    assert.equal(approvedPaths.includes('governance/application.txt'), false);
+    assert.equal(approvedPaths.includes('singularity/world-model/manifest.json'), false);
+
+    const checkout = path.join(fixture.root, 'custom-root-checkout');
+    run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, checkout], {
+      cwd: fixture.root
+    });
+    const readDefinition = await withApprovedConfigurationRead(checkout, () => loadDefinition(checkout), {
+      preferAuthority: true
+    });
+    assert.equal(readDefinition.templatesRoot, 'governance/templates');
+    assert.equal(readDefinition.worldModel.outputDir, 'governance/world-model');
+
+    run('git', ['switch', '-q', '-c', 'CUSTOM-ROOTS'], { cwd: checkout });
+    await mkdir(path.join(checkout, 'governance/world-model'), { recursive: true });
+    await writeFile(path.join(checkout, 'governance/world-model/manifest.json'),
+      '{"runtime":"preserve-me"}\n');
+    const materialized = await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
+    assert.ok(materialized.paths.includes('governance/templates/common/implementation.md'));
+    assert.equal(materialized.paths.includes('governance/world-model/manifest.json'), false);
+    assert.ok(materialized.paths.includes('.github/agents/developer.agent.md'));
+    assert.equal(materialized.paths.includes('governance/application.txt'), false);
+    assert.equal(materialized.paths.includes('singularity/world-model/manifest.json'), false);
+    assert.equal(JSON.parse(await readFile(
+      path.join(checkout, 'governance/world-model/manifest.json'), 'utf8'
+    )).runtime, 'preserve-me');
+    assert.equal((await readConfigurationSource(checkout, { verify: true })).commit, materialized.commit);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

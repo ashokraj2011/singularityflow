@@ -1,11 +1,14 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { gitDir } from './git.mjs';
-import { exists, nowIso, readJson, writeAtomic } from './util.mjs';
+import { gitCommonDir } from './git.mjs';
+import { nowIso, readJson, SingularityFlowError, writeAtomic } from './util.mjs';
 import { unlink } from 'node:fs/promises';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSubjectLockOwner } from './subject-lock.mjs';
+import {
+  prepareSharedPublicationStorage, resolveSharedPublicationFile
+} from './publication-storage.mjs';
 
 const PROCESS_OWNER_ID = randomUUID();
 
@@ -18,13 +21,25 @@ function safeId(id) {
 }
 
 export function publicationJournalPath(root, kind, id) {
-  return path.join(gitDir(root), 'singularity-flow', 'publication-journal', `${kind}--${safeId(id)}.json`);
+  return path.join(gitCommonDir(root), 'singularity-flow', 'publication-journal', `${kind}--${safeId(id)}.json`);
 }
 
-export async function readPublicationJournal(root, subject) {
-  const target = publicationJournalPath(root, subject.kind, subject.id);
-  if (!(await exists(target))) return null;
-  return { path: target, record: readRecord('publication-journal', await readJson(target)).record };
+export async function readPublicationJournal(root, subject, { migrate = true } = {}) {
+  const resolved = await resolveSharedPublicationFile(root, {
+    directory: 'publication-journal',
+    name: `${subject.kind}--${safeId(subject.id)}.json`,
+    label: `Publication journal for ${subject.kind} '${subject.id}'`,
+    read: async (target) => readRecord('publication-journal', await readJson(target)).record,
+    identity: recordSha256,
+    migrate
+  });
+  if (!resolved) return null;
+  return {
+    path: resolved.path,
+    record: resolved.value,
+    migrated: resolved.migrated,
+    ...(resolved.migratedFrom?.length ? { migratedFrom: resolved.migratedFrom } : {})
+  };
 }
 
 export async function beginPublicationJournal(root, {
@@ -40,6 +55,22 @@ export async function beginPublicationJournal(root, {
   transactionId = randomUUID(),
   lockOwner = currentSubjectLockOwner(root, subject)
 }) {
+  // Surface or consolidate any worktree-private journal before the shared record is replaced. A
+  // divergent legacy transaction is a recovery decision, never stale scratch to overwrite.
+  const existing = await readPublicationJournal(root, subject);
+  const parentJournal = existing && publicationJournalOwnedByCurrentProcess(existing.record, root)
+    ? existing.record
+    : null;
+  if (existing && !parentJournal) {
+    throw new SingularityFlowError(
+      `${subject.kind} '${subject.id}' already has a publication journal owned by another transaction. `
+      + 'Recover it before starting another write.',
+      { code: 'PUBLICATION_JOURNAL_CONFLICT', details: { subject, path: existing.path } }
+    );
+  }
+  await prepareSharedPublicationStorage(
+    root, 'publication-journal', `Publication journal for ${subject.kind} '${subject.id}'`
+  );
   const record = {
     schemaVersion: currentSchemaVersion('publication-journal'),
     kind: 'publication-transaction-journal',
@@ -67,7 +98,12 @@ export async function beginPublicationJournal(root, {
     createdAt: nowIso(),
     updatedAt: nowIso(),
     commit: null,
-    recoveryPreimage
+    recoveryPreimage,
+    // A draft may deliberately hand its preimage to the first governed publication. Both
+    // transactions share the subject lease, but not the same crash boundary. Preserve the outer
+    // journal durably before replacing the one shared path so clearing the nested transaction
+    // restores its parent instead of erasing it.
+    parentJournal
   };
   await writePrivateJson(publicationJournalPath(root, subject.kind, subject.id), record);
   return record;
@@ -91,12 +127,27 @@ export async function updatePublicationJournal(root, subject, updates, { transac
 }
 
 export async function clearPublicationJournal(root, subject, { transactionId = null } = {}) {
-  const target = publicationJournalPath(root, subject.kind, subject.id);
-  if (!(await exists(target))) return false;
+  const current = await readPublicationJournal(root, subject);
+  if (!current) return false;
   if (transactionId) {
-    const current = await readPublicationJournal(root, subject);
-    if (!current || current.record.transactionId !== transactionId) return false;
+    if (current.record.transactionId !== transactionId) return false;
   }
-  await unlink(target);
+  if (current.record.parentJournal) {
+    const parent = current.record.parentJournal;
+    const sameSubject = parent.subject?.kind === subject.kind && parent.subject?.id === subject.id;
+    const sameLease = parent.owner?.lockToken === current.record.owner?.lockToken
+      && parent.owner?.processToken === current.record.owner?.processToken;
+    if (!sameSubject || !sameLease || !String(parent.transactionId ?? '').trim()
+      || parent.transactionId === current.record.transactionId) {
+      throw new SingularityFlowError(
+        `Nested publication journal for ${subject.kind} '${subject.id}' has an invalid parent recovery record. `
+        + 'The journal was retained and must be inspected before another mutation.',
+        { code: 'PUBLICATION_JOURNAL_PARENT_INVALID', details: { subject, path: current.path } }
+      );
+    }
+    await writePrivateJson(current.path, parent);
+    return true;
+  }
+  await unlink(current.path);
   return true;
 }

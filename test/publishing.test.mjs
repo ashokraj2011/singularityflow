@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { storyPublicationPending } from '../src/state.mjs';
-import { writePendingPublication } from '../src/publication-pending.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { bindLifecycleEvent } from '../src/lifecycle-event.mjs';
+import { retainCapabilityPublicationRecovery } from '../src/capability-publication-recovery.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); const bin = path.join(packageRoot, 'bin/singularity-flow.mjs');
 function run(command, args, cwd, { fail = false, actor = 'Publisher' } = {}) {
@@ -57,6 +58,12 @@ test('sync completes an exact pending capability sibling branch publication', as
   run('git', ['commit', '-m', 'init'], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
   flow(root, ['start', 'CAPSYNC-1', '--from-branch', 'main']);
+  const lifecycleCommit = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const workflow = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/CAPSYNC-1/workflow.json'),
+    'utf8'
+  ));
+  const lifecycleEvent = bindLifecycleEvent(workflow.publicationProjections.at(-1).event, lifecycleCommit);
 
   const siblingRemote = path.join(base, 'sibling.git');
   const sibling = path.join(base, 'sibling');
@@ -69,19 +76,12 @@ test('sync completes an exact pending capability sibling branch publication', as
   run('git', ['push', '-u', 'origin', 'main'], sibling);
   run('git', ['switch', '-c', 'CAPSYNC-1'], sibling);
   const siblingCommit = run('git', ['rev-parse', 'HEAD'], sibling).stdout.trim();
-  await writePendingPublication(root, {
-    kind: 'story', id: 'CAPSYNC-1',
-    record: {
-      schemaVersion: 2,
-      subject: { kind: 'story', id: 'CAPSYNC-1' },
-      remote: 'origin', branch: 'CAPSYNC-1', commit: run('git', ['rev-parse', 'HEAD'], root).stdout.trim(),
-      event: null, createdAt: new Date().toISOString(), recoveryStage: 'capability-publication-pending',
-      capabilityPublications: [{
-        schemaVersion: 1, repository: 'sibling', root: sibling, remote: 'origin',
-        branch: 'CAPSYNC-1', commit: siblingCommit, destinationRef: 'refs/heads/CAPSYNC-1'
-      }]
-    }
-  });
+  await retainCapabilityPublicationRecovery(root, 'CAPSYNC-1', {
+    remote: 'origin', branch: 'CAPSYNC-1', commit: lifecycleCommit, event: lifecycleEvent
+  }, [{
+    schemaVersion: 1, repository: 'sibling', root: sibling, remote: 'origin',
+    branch: 'CAPSYNC-1', commit: siblingCommit, destinationRef: 'refs/heads/CAPSYNC-1'
+  }], new Error('Capability Story branch publication is in progress.'), { rootPublished: true });
   run('git', ['config', 'remote.origin.receivepack', '/usr/bin/false'], sibling);
   const failed = flow(root, ['sync'], { fail: true });
   assert.equal(failed.status, 1);

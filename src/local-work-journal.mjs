@@ -12,7 +12,7 @@ import {
   appendFile, chmod, mkdir, readdir, readFile, rm, stat
 } from 'node:fs/promises';
 
-import { gitDir } from './git.mjs';
+import { gitCommonDir, gitDir } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { localChangesFor } from './gateway/planners/work-continue.mjs';
 import {
@@ -266,9 +266,16 @@ export async function appendJournalEvent(input, options = {}) {
 }
 
 async function pendingPublication(root) {
-  const directory = path.join(gitDir(root), 'singularity-flow', 'pending-publication');
-  try { return (await readdir(directory)).some((name) => name.endsWith('.json')); }
-  catch { return false; }
+  const directories = [...new Set([gitCommonDir(root), gitDir(root)])]
+    .map((directory) => path.join(directory, 'singularity-flow', 'pending-publication'));
+  for (const directory of directories) {
+    try {
+      if ((await readdir(directory)).some((name) => name.endsWith('.json'))) return true;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return false;
 }
 
 async function mergeState(root) {

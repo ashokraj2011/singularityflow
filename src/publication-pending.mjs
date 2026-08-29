@@ -3,7 +3,7 @@ import os from 'node:os';
 import { readFileSync, statSync } from 'node:fs';
 import { readdir, unlink } from 'node:fs/promises';
 import {
-  branch, changes, commitIsAncestor, gitDir, governedCommitIdentity, head, remoteContains
+  branch, changes, commitIsAncestor, gitCommonDir, governedCommitIdentity, head, remoteContains
 } from './git.mjs';
 import {
   clearPublicationJournal,
@@ -12,12 +12,16 @@ import {
   updatePublicationJournal
 } from './publication-journal.mjs';
 import { bindLifecycleEvent } from './lifecycle-event.mjs';
+import { recordSha256 } from './records.mjs';
 import { exists, readJson, writeJson } from './util.mjs';
 import { subjectRef } from './subject-ref.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { subjectLockPath } from './subject-lock.mjs';
+import {
+  prepareSharedPublicationStorage, resolveSharedPublicationFile
+} from './publication-storage.mjs';
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
 
@@ -35,7 +39,18 @@ function displayMarkerPath(root, absolute) {
 }
 
 export function localPendingPublicationPath(root, kind, id) {
-  return path.join(gitDir(root), 'singularity-flow', 'pending-publication', `${kind}--${safeId(id)}.json`);
+  return path.join(gitCommonDir(root), 'singularity-flow', 'pending-publication', `${kind}--${safeId(id)}.json`);
+}
+
+async function sharedPendingPublication(root, kind, id, { migrate = true } = {}) {
+  return resolveSharedPublicationFile(root, {
+    directory: 'pending-publication',
+    name: `${kind}--${safeId(id)}.json`,
+    label: `Pending publication for ${kind} '${id}'`,
+    read: async (target) => readRecord(PENDING_PUBLICATION_FAMILY, await readJson(target)).record,
+    identity: recordSha256,
+    migrate
+  });
 }
 
 /**
@@ -107,6 +122,109 @@ function verifiedJournalCommit(root, journal) {
     : { valid: true, identity };
 }
 
+function fullObjectId(value) {
+  return typeof value === 'string' && /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value);
+}
+
+function sha256Digest(value) {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value);
+}
+
+/**
+ * Verify that a durable post-commit recovery marker names one exact governed transaction.
+ *
+ * A pending marker is transport authority: `sync` is allowed to move a remote ref solely because
+ * this record says a prior governed transaction crossed its local commit boundary. Schema-version
+ * validation alone does not prove that claim. Bind every mutable marker field back to the immutable
+ * commit object and its trailers before exposing the commit to a push command.
+ */
+export function verifyPendingPublicationCommit(root, record, {
+  subject = null,
+  branch: expectedBranch = null,
+  remote: expectedRemote = null,
+  allowPublicationOff = false
+} = {}) {
+  const failures = [];
+  const publicationModes = allowPublicationOff ? ['off', 'required', 'warn'] : ['required', 'warn'];
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    return Object.freeze({ valid: false, failures: ['marker is not an object'], identity: null });
+  }
+  if (!record.subject || typeof record.subject !== 'object' || Array.isArray(record.subject)) {
+    failures.push('subject is missing');
+  } else {
+    if (!['story', 'initiative'].includes(record.subject.kind)) failures.push('subject kind is invalid');
+    if (!String(record.subject.id ?? '').trim()) failures.push('subject ID is missing');
+    if (subject?.kind && record.subject.kind !== subject.kind) failures.push('subject kind does not match the requested subject');
+    if (subject?.id && record.subject.id !== subject.id) failures.push('subject ID does not match the requested subject');
+  }
+  if (!String(record.branch ?? '').trim()) failures.push('publication branch is missing');
+  if (expectedBranch && record.branch !== expectedBranch) failures.push('publication branch does not match the requested branch');
+  if (record.subject?.branch && record.subject.branch !== record.branch) failures.push('subject branch does not match the publication branch');
+  if (!String(record.remote ?? '').trim()) failures.push('publication remote is missing');
+  if (expectedRemote && record.remote !== expectedRemote) failures.push('publication remote does not match the configured remote');
+  if (!fullObjectId(record.commit)) failures.push('commit is not a full lowercase Git object ID');
+  if (!fullObjectId(record.tree)) failures.push('tree is not a full lowercase Git object ID');
+  if (!String(record.transactionId ?? '').trim()) failures.push('transaction ID is missing');
+  if (!sha256Digest(record.eventSha256)) failures.push('event digest is invalid');
+  if (!sha256Digest(record.stateSha256)) failures.push('state digest is invalid');
+  if (!publicationModes.includes(record.publicationMode)) failures.push('publication mode is invalid');
+  if (!record.event || typeof record.event !== 'object' || Array.isArray(record.event)) {
+    failures.push('bound lifecycle event is missing');
+  } else {
+    if (record.event.subject?.kind !== record.subject?.kind
+      || record.event.subject?.id !== record.subject?.id) failures.push('event subject does not match the marker subject');
+    if (record.event.subject?.branch && record.event.subject.branch !== record.branch) {
+      failures.push('event branch does not match the publication branch');
+    }
+    const transactionEvent = {
+      ...record.event,
+      sourceCommit: null,
+      idempotencyKey: null,
+      idempotencyHash: null
+    };
+    const eventSha256 = `sha256:${recordSha256(transactionEvent)}`;
+    if (record.eventSha256 !== eventSha256) failures.push('event digest does not match the bound lifecycle event');
+    if (fullObjectId(record.commit)) {
+      try {
+        const rebound = bindLifecycleEvent(transactionEvent, record.commit);
+        if (record.event.sourceCommit !== rebound.sourceCommit) failures.push('event source commit does not match the recorded commit');
+        if (record.event.idempotencyKey !== rebound.idempotencyKey) failures.push('event idempotency key is invalid');
+        if (record.event.idempotencyHash !== rebound.idempotencyHash) failures.push('event idempotency digest is invalid');
+      } catch {
+        failures.push('event transport binding is invalid');
+      }
+    }
+  }
+
+  const identity = fullObjectId(record.commit) ? governedCommitIdentity(root, record.commit) : null;
+  if (!identity) failures.push('recorded commit is unavailable');
+  else {
+    if (identity.commit !== record.commit) failures.push('commit does not resolve to the exact recorded object ID');
+    if (identity.parents.length !== 1) failures.push('governed transaction commit must have exactly one parent');
+    if (identity.tree !== record.tree) failures.push('commit tree does not match the marker tree');
+    if (identity.transactionId !== record.transactionId) failures.push('commit transaction trailer does not match the marker');
+    if (identity.eventSha256 !== record.eventSha256) failures.push('commit event trailer does not match the marker');
+    if (identity.stateSha256 !== record.stateSha256) failures.push('commit state trailer does not match the marker');
+    if (identity.publicationMode !== record.publicationMode) failures.push('commit publication-mode trailer does not match the marker');
+    if (identity.parents.length === 1
+      && fullObjectId(record.tree)
+      && String(record.transactionId ?? '').trim()
+      && sha256Digest(record.eventSha256)
+      && publicationModes.includes(record.publicationMode)) {
+      const stateSha256 = `sha256:${recordSha256({
+        transactionId: record.transactionId,
+        expectedHead: identity.parents[0],
+        branch: record.branch,
+        tree: record.tree,
+        eventSha256: record.eventSha256,
+        publicationMode: record.publicationMode
+      })}`;
+      if (record.stateSha256 !== stateSha256) failures.push('state digest does not match the governed transaction identity');
+    }
+  }
+  return Object.freeze({ valid: failures.length === 0, failures: Object.freeze(failures), identity });
+}
+
 /**
  * Read the machine-local recovery marker, migrating the pre-kernel governed-tree
  * marker on first access. The rename to .git was deliberately a state-plane
@@ -115,9 +233,13 @@ function verifiedJournalCommit(root, journal) {
  */
 export async function readPendingPublication(root, { kind, id, legacyPath = null, roots = {}, migrate = true } = {}) {
   const local = localPendingPublicationPath(root, kind, id);
-  if (await exists(local)) return { path: local, record: readRecord(PENDING_PUBLICATION_FAMILY, await readJson(local)).record, migrated: false };
+  const shared = await sharedPendingPublication(root, kind, id, { migrate });
+  if (shared) return {
+    path: shared.path, record: shared.value, migrated: shared.migrated,
+    ...(shared.migratedFrom?.length ? { migratedFrom: shared.migratedFrom } : {})
+  };
   const subject = { kind, id };
-  const journal = await readPublicationJournal(root, subject);
+  const journal = await readPublicationJournal(root, subject, { migrate });
   if (journal) {
     // State validation runs inside the transaction after its journal is durable. That transaction
     // must not diagnose its own marker as a previous crash; every other process still sees it.
@@ -184,6 +306,9 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       error: 'The process stopped after creating the exact governed commit and before publication completed.'
     });
     if (migrate) {
+      await prepareSharedPublicationStorage(
+        root, 'pending-publication', `Pending publication for ${kind} '${id}'`
+      );
       await writeJson(local, record);
       await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return { path: local, record, migrated: true, migratedFrom: journal.path };
@@ -197,6 +322,9 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
     // mutates the working tree while capturing it fails its own did-anything-change check — so the
     // first snapshot after an upgrade hard-errored, blaming a concurrent writer that did not exist.
     if (!migrate) return { path: legacy, record, migrated: false, pendingMigrationFrom: legacy };
+    await prepareSharedPublicationStorage(
+      root, 'pending-publication', `Pending publication for ${kind} '${id}'`
+    );
     await writeJson(local, record);
     await unlink(legacy);
     return { path: local, record, migrated: true, migratedFrom: legacy };
@@ -239,14 +367,18 @@ export async function inspectPendingPublication(root, options = {}) {
 }
 
 export async function writePendingPublication(root, { kind, id, record } = {}) {
+  await sharedPendingPublication(root, kind, id);
+  await prepareSharedPublicationStorage(
+    root, 'pending-publication', `Pending publication for ${kind} '${id}'`
+  );
   const target = localPendingPublicationPath(root, kind, id);
   await writeJson(target, stampCurrentRecord(PENDING_PUBLICATION_FAMILY, record));
   return target;
 }
 
 export async function clearPendingPublication(root, { kind, id, legacyPath = null } = {}) {
-  const local = localPendingPublicationPath(root, kind, id);
-  if (await exists(local)) await unlink(local);
+  const local = await sharedPendingPublication(root, kind, id);
+  if (local) await unlink(local.path);
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath })) {
     if (await exists(legacy)) await unlink(legacy);
   }

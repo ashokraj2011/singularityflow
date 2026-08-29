@@ -1,4 +1,4 @@
-import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdtemp, copyFile, mkdir, readFile, readlink, readdir, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -8,8 +8,8 @@ import {
   refExists, validBranch
 } from './git.mjs';
 import {
-  SingularityFlowError, optionBoolean, optionNumber, optionString, posix, run, snapshot,
-  writeJson
+  ensureSecureRepositoryDirectory, SingularityFlowError, optionBoolean, optionNumber, optionString,
+  posix, repoRelative, run, secureRepositoryPath, snapshot, writeJson
 } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { nullLogger, repositoryLogger } from './logging.mjs';
@@ -867,6 +867,17 @@ async function installWorldModel(staging, target) {
   }
 }
 
+async function secureWorldModelTarget(root, outputDir) {
+  const target = await secureRepositoryPath(root, outputDir, { label: 'World-model output root' });
+  if (target.exists && !target.entry?.isDirectory()) {
+    throw new SingularityFlowError(`World-model output root must be a directory: ${target.relative}`);
+  }
+  await ensureSecureRepositoryDirectory(root, repoRelative(root, path.dirname(target.absolute)), {
+    label: 'World-model output parent'
+  });
+  return target.absolute;
+}
+
 async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
   const located = await resolveWorldModelSource(root, config);
   if (located.diverged) {
@@ -1125,7 +1136,10 @@ async function publishWorldModelRecovery(root, id, options) {
       root, config, inspected.sourceHash, inspected.phase,
       { directory, plan: recoveryPlan }
     );
-    await installWorldModel(governed?.directory ?? directory, path.join(root, config.outputDir));
+    await installWorldModel(
+      governed?.directory ?? directory,
+      await secureWorldModelTarget(root, config.outputDir)
+    );
     const publication = await publishWorldModel(
       root, config, config.workflow, inspected.sourceHash, inspected.phase,
       { local: false, quiet: optionBoolean(options, 'json') }
@@ -1536,7 +1550,7 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
     generationRouting: generationRouting.identity
   };
   const key = sha256(JSON.stringify(identity));
-  const outputDirectory = path.join(root, config.outputDir);
+  const outputDirectory = await secureWorldModelTarget(root, config.outputDir);
   const checkpointRoot = path.join(outputDirectory, '.checkpoints');
   const directory = path.join(checkpointRoot, key);
   const packetDirectory = path.join(directory, 'packets');
@@ -2089,7 +2103,7 @@ async function buildLight(root, config, options) {
       requiredSelections: plan.selections,
       requireEvidence: true
     });
-    const target = path.join(root, config.outputDir);
+    const target = await secureWorldModelTarget(root, config.outputDir);
     const merged = path.join(temporary, 'merged');
     await mergeWorldModelSnapshot({
       existingDirectory: existingWorldModelDirectory ?? target,
@@ -2214,10 +2228,44 @@ async function build(root, config, options) {
   let buildSucceeded = false;
   let buildErrorCode = null;
   try {
+    for (const entry of sourceState.files.filter((item) => item.mode === '120000' && item.status !== 'deleted')) {
+      const link = await secureRepositoryPath(analysisRoot, entry.path, {
+        label: 'World-model analysis symbolic link',
+        mustExist: true,
+        allowFinalSymlink: true
+      });
+      if (!link.entry?.isSymbolicLink()) continue;
+      const target = await readlink(link.absolute);
+      const resolvedTarget = path.resolve(path.dirname(link.absolute), target);
+      try {
+        await secureRepositoryPath(analysisRoot, resolvedTarget, {
+          label: `World-model symbolic-link target for ${entry.path}`
+        });
+      } catch (error) {
+        throw new SingularityFlowError(
+          `World-model analysis refuses symbolic link '${entry.path}' because its target leaves the `
+            + 'repository. Replace it with a repository-internal link before invoking a model.',
+          { code: 'WORLD_MODEL_SYMLINK_ESCAPE', details: { path: entry.path }, cause: error }
+        );
+      }
+    }
     for (const relative of changedFiles(root)) {
-      const sourceFile = path.join(root, relative);
+      const secured = await secureRepositoryPath(root, relative, {
+        label: 'World-model analysis source',
+        allowFinalSymlink: true
+      });
+      const sourceFile = secured.absolute;
       const destination = path.join(analysisRoot, relative);
-      if (existsSync(sourceFile)) {
+      if (secured.exists) {
+        if (secured.entry?.isSymbolicLink()) {
+          // A changed link is not copied into the model worktree: the provider could otherwise
+          // traverse its target even though source hashing correctly bound only the link text.
+          throw new SingularityFlowError(
+            `World-model analysis cannot include a changed symbolic link at ${relative}. Commit a `
+              + 'repository-internal link and rebuild from the committed revision.',
+            { code: 'WORLD_MODEL_CHANGED_SYMLINK', details: { path: relative } }
+          );
+        }
         await mkdir(path.dirname(destination), { recursive: true });
         await cp(sourceFile, destination, { recursive: true, force: true });
       } else await rm(destination, { recursive: true, force: true });
@@ -2565,7 +2613,7 @@ source evidence. Do not search or reread the application repository during synth
     await validateWorldModelDirectory(staging, {
       expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
     });
-    const target = path.join(root, config.outputDir);
+    const target = await secureWorldModelTarget(root, config.outputDir);
     const merged = path.join(temporary, 'merged');
     await mergeWorldModelSnapshot({
       existingDirectory: existingWorldModelDirectory ?? target,
@@ -2737,10 +2785,16 @@ async function withTargetBranch(root, options, operation) {
       );
     }
     worktreeAdded = true;
+    // `mkdtemp` can return a lexical macOS alias below `/var` while `realpath`, Git, and the secure
+    // path guard identify the same worktree below `/private/var`. Passing the lexical spelling as
+    // the repository root and later feeding a canonical secured path back into `repoRelative`
+    // falsely made an in-repository parent look like an escape. Establish one canonical root at the
+    // worktree boundary; all subsequent path containment checks then compare the same identity.
+    const operationRoot = realpathSync(targetRoot);
     console.error(
-      `World-model target: ${branchName} @ ${head(targetRoot).slice(0, 10)} (isolated worktree; active checkout unchanged).`
+      `World-model target: ${branchName} @ ${head(operationRoot).slice(0, 10)} (isolated worktree; active checkout unchanged).`
     );
-    return await operation(targetRoot);
+    return await operation(operationRoot);
   } finally {
     if (worktreeAdded) {
       run('git', ['worktree', 'remove', '--force', targetRoot], { cwd: root, allowFailure: true });

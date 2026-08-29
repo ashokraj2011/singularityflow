@@ -1,5 +1,7 @@
 import { branch, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
-import { currentPhase, generationResultDigest, syncPublication } from './state-stores.mjs';
+import {
+  currentPhase, generationResultDigest, generationResultMatches, syncPublication
+} from './state-stores.mjs';
 import { inspectPendingPublication } from './publication-pending.mjs';
 import { recordSha256 } from './records.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
@@ -91,9 +93,11 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
   });
   const phaseRecovery = phase
     ? await inspectPhaseRecovery(root, config, workflow, phase, {
-      generationDigest: (repositoryRoot, selectedPhase) => generationResultDigest(
+      generationDigest: async (repositoryRoot, selectedPhase) => await generationResultMatches(
         repositoryRoot, config, workflow, selectedPhase
       )
+        ? selectedPhase.generationIntent.publication.resultDigest
+        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
     })
     : { blockers: [], actions: [], requiresLifecycleRecovery: false };
   blockers.push(...phaseRecovery.blockers);

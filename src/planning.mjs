@@ -897,7 +897,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   const previous = await existingText(target);
   const authored = preserveManagedMetadata(previous, content, WORK_ITEM_METADATA);
   await writeText(target, authored);
-  await registerArtifact(root, workflow, target, { phaseId: phase.id });
+  await registerArtifact(root, workflow, target, { phaseId: phase.id, config: definition });
   const current = await snapshot(target);
   const auditDirectory = path.join(workDir(root, definition, workflow.workItem.id), 'context', 'planning', `${phase.id}-gen${phase.generation + 1}`, sessionId);
   await ensureDir(auditDirectory);

@@ -652,7 +652,17 @@ export async function loadPortfolio(root, { required = true } = {}) {
   let parsed;
   try { parsed = YAML.parse(await readFile(file.absolute, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to parse ${PORTFOLIO_PATH}: ${error.message}`); }
-  return validatePortfolio(parsed);
+  const portfolio = validatePortfolio(parsed);
+  for (const [relative, label] of [
+    [portfolio.initiativeRoot, 'Initiative state root'],
+    [portfolio.templatesRoot, 'Initiative templates root']
+  ]) {
+    const secured = await secureRepositoryPath(root, relative, { label });
+    if (secured.exists && !secured.entry?.isDirectory()) {
+      throw new SingularityFlowError(`${label} must be a directory: ${secured.relative}`);
+    }
+  }
+  return portfolio;
 }
 
 export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) {

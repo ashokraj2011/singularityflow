@@ -239,6 +239,7 @@ export async function consumeGenerationIntent(root, phase, publication) {
     generation: publication.generation,
     changeSetDigest: publication.changeSetDigest,
     resultDigest: publication.resultDigest ?? null,
+    resultDigestVersion: publication.resultDigestVersion ?? 1,
     generationStartSha256: phase.generationIntent.receiptSha256
   };
   return phase.generationIntent;

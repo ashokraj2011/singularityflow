@@ -9,6 +9,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import YAML from 'yaml';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile
 } from 'node:fs/promises';
@@ -29,6 +30,11 @@ import {
 } from './transport-intents.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import {
+  configurationAssetPolicy, configurationAssetSearchRoots, DEFAULT_CONFIGURATION_ASSET_POLICY,
+  isConfigurationAssetPath,
+  mergeConfigurationAssetPolicies
+} from './configuration-assets.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
@@ -36,38 +42,69 @@ export const STATE_CONFIGURATION_BRANCH = 'state';
 export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 export const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';
 
-// These directories are lifecycle state or generated evidence, never shared configuration.
-const RUNTIME_ROOTS = new Set([
-  'initiatives', 'work-items', 'seeds', 'world-model', 'knowledge', 'pins',
-  'identity-reservations', 'telemetry',
-  // Product refresh metadata belongs only to the configuration authority. Story branches pin the
-  // approved configuration bytes, not the package baseline used to decide how a later release may
-  // merge them, so this directory must never be materialized into lifecycle history.
-  '.product'
-]);
-
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 
 function slash(value) { return value.split(path.sep).join('/'); }
 
-export function isConfigurationAsset(relative) {
-  const value = slash(String(relative ?? '').replace(/^\.\//, ''));
-  if (!value || value.startsWith('/') || value.includes('\0')
-    || path.posix.normalize(value) !== value || value.split('/').includes('..')) return false;
-  if (value === CONFIGURATION_SOURCE_PATH) return false;
-  if (value === '.github/agents' || value.startsWith('.github/agents/')) return true;
-  if (!value.startsWith('singularity/')) return false;
-  const root = value.slice('singularity/'.length).split('/')[0];
-  return Boolean(root) && !RUNTIME_ROOTS.has(root);
+export function isConfigurationAsset(relative, policy = DEFAULT_CONFIGURATION_ASSET_POLICY) {
+  return isConfigurationAssetPath(relative, policy);
 }
 
-async function filesBelow(root, relative = '', output = []) {
+function yamlAtRef(root, ref, relative) {
+  const shown = run('git', ['show', `${ref}:${relative}`], { cwd: root, allowFailure: true });
+  if (shown.status !== 0) return {};
+  return YAML.parse(shown.stdout) ?? {};
+}
+
+async function yamlInDirectory(root, relative) {
+  const target = path.join(root, relative);
+  const info = await lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!info) return {};
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new SingularityFlowError(`Configuration policy source must be a regular file: ${relative}`);
+  }
+  return YAML.parse(await readFile(target, 'utf8')) ?? {};
+}
+
+export function configurationAssetPolicyFromRef(root, ref = 'HEAD') {
+  return configurationAssetPolicy(
+    yamlAtRef(root, ref, 'singularity/workflow.yml'),
+    yamlAtRef(root, ref, 'singularity/portfolio.yml')
+  );
+}
+
+export async function configurationAssetPolicyFromDirectory(root) {
+  return configurationAssetPolicy(
+    await yamlInDirectory(root, 'singularity/workflow.yml'),
+    await yamlInDirectory(root, 'singularity/portfolio.yml')
+  );
+}
+
+async function filesBelow(root, relative, policy, output = []) {
   const directory = path.join(root, relative);
-  for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
-    if (relative === '' && entry.name === '.git') continue;
+  const rootInfo = await lstat(directory).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (!rootInfo) return output;
+  if (rootInfo.isSymbolicLink()) {
+    throw new SingularityFlowError(`Configuration asset root must not be a symbolic link: ${relative}`);
+  }
+  if (rootInfo.isFile()) {
+    if (isConfigurationAsset(relative, policy)) output.push(slash(relative));
+    return output;
+  }
+  if (!rootInfo.isDirectory()) {
+    throw new SingularityFlowError(`Configuration asset root must be a directory or regular file: ${relative}`);
+  }
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
     const child = path.join(relative, entry.name);
-    if (entry.isDirectory()) await filesBelow(root, child, output);
-    else if (entry.isFile() && isConfigurationAsset(child)) output.push(slash(child));
+    if (entry.isDirectory()) {
+      const portable = slash(child);
+      const containsExplicit = [...policy.roots, ...policy.files]
+        .some((configured) => configured.startsWith(`${portable}/`));
+      if (isConfigurationAsset(portable, policy) || containsExplicit) {
+        await filesBelow(root, child, policy, output);
+      }
+    }
+    else if (entry.isFile() && isConfigurationAsset(child, policy)) output.push(slash(child));
   }
   return output;
 }
@@ -79,14 +116,15 @@ async function filesBelow(root, relative = '', output = []) {
  * enumeration keeps materialization and mirroring from growing two subtly different definitions
  * of "configuration" as new governed files are introduced.
  */
-export async function configurationAssetPaths(root) {
+export async function configurationAssetPaths(root, policy = null) {
+  const selectedPolicy = policy ?? await configurationAssetPolicyFromDirectory(root);
   // Do not walk the application tree (especially node_modules/build output) to discover two
-  // bounded configuration roots. Large monorepos otherwise pay this cost on every refresh and
-  // capability publication.
-  return [
-    ...await filesBelow(root, 'singularity'),
-    ...await filesBelow(root, '.github/agents')
-  ].sort();
+  // bounded configuration roots. Custom roots remain bounded pathspecs from the reviewed workflow.
+  const output = [];
+  for (const relative of configurationAssetSearchRoots(selectedPolicy)) {
+    await filesBelow(root, relative, selectedPolicy, output);
+  }
+  return [...new Set(output)].sort();
 }
 
 /**
@@ -146,10 +184,11 @@ export async function canonicalConfigurationAssets(root, paths = null) {
   }
 }
 
-function configurationTreeEntries(root, ref = 'HEAD') {
+export function configurationTreeEntries(root, ref = 'HEAD', policy = null) {
+  const selectedPolicy = policy ?? configurationAssetPolicyFromRef(root, ref);
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
-    'singularity', '.github/agents'
+    ...configurationAssetSearchRoots(selectedPolicy)
   ], { cwd: root, allowFailure: true });
   if (listed.status !== 0) return new Map();
   return new Map(listed.stdout.split('\0').filter(Boolean).map((line) => {
@@ -161,7 +200,8 @@ function configurationTreeEntries(root, ref = 'HEAD') {
       relative: slash(line.slice(second + 1))
     };
     return [entry.relative, entry];
-  }).filter(([, entry]) => /^100(?:644|755)$/.test(entry.mode) && isConfigurationAsset(entry.relative)));
+  }).filter(([, entry]) => /^100(?:644|755)$/.test(entry.mode)
+    && isConfigurationAsset(entry.relative, selectedPolicy)));
 }
 
 async function copyAssets(source, destination) {
@@ -190,9 +230,10 @@ async function copyAssets(source, destination) {
  * one `cat-file --batch` asks the promisor remote only for those blobs.
  */
 async function copyConfigurationAssetsFromRef(source, ref, destination) {
+  const policy = configurationAssetPolicyFromRef(source, ref);
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
-    'singularity', '.github/agents'
+    ...configurationAssetSearchRoots(policy)
   ], { cwd: source });
   const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
@@ -202,7 +243,8 @@ async function copyConfigurationAssetsFromRef(source, ref, destination) {
       oid: line.slice(first + 1, second),
       file: line.slice(second + 1)
     };
-  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode) && isConfigurationAsset(entry.file));
+  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode)
+    && isConfigurationAsset(entry.file, policy));
   if (!entries.length) return [];
 
   const batch = run('git', ['cat-file', '--batch'], {
@@ -236,13 +278,13 @@ async function copyConfigurationAssetsFromRef(source, ref, destination) {
 }
 
 async function clearConfigurationAssets(root) {
-  const removed = await filesBelow(root);
+  const removed = await configurationAssetPaths(root);
   for (const relative of removed) await rm(path.join(root, relative), { force: true });
   return removed;
 }
 
 async function configurationStatePaths(root) {
-  const files = await filesBelow(root);
+  const files = await configurationAssetPaths(root);
   const provenance = path.join(root, CONFIGURATION_SOURCE_PATH);
   const provenanceInfo = await lstat(provenance).catch(() => null);
   if (provenanceInfo) {
@@ -332,7 +374,7 @@ function sameStrings(left = [], right = []) {
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 }
 
-function assertRequestedCapability(capabilities, capability, remote) {
+function assertRequestedCapability(capabilities, capability, remote, { exactBootstrap = false } = {}) {
   if (!capability) return;
   const id = String(capability.capabilityId ?? '').trim();
   const configured = capabilities?.capabilities?.[id];
@@ -341,6 +383,11 @@ function assertRequestedCapability(capabilities, capability, remote) {
       `${CONFIGURATION_BRANCH} already exists on '${remote}' but does not define requested capability '${id}'. `
       + 'Propose the capability through the governed capability-map workflow instead of re-running bootstrap.');
   }
+  // Existing approved values win. Name, kind, repositories, Jira and teams can all evolve through
+  // reviewed capability proposals; repeating an old bootstrap request on a new laptop must not turn
+  // that legitimate evolution into an initialization blocker. This guard exists only to prove that
+  // a create race did not publish a *different capability ID*.
+  if (!exactBootstrap) return;
   const expected = {
     name: capability.capabilityName ?? id,
     kind: capability.kind,
@@ -355,17 +402,17 @@ function assertRequestedCapability(capabilities, capability, remote) {
     && sameStrings(configured.teams ?? [], expected.teams);
   if (!matches) {
     throw new SingularityFlowError(
-      `${CONFIGURATION_BRANCH} already defines capability '${id}', but its governed values differ from this bootstrap request. `
-      + 'Inspect the approved capability map and propose changes through the capability-map workflow.');
+      `${CONFIGURATION_BRANCH} was created concurrently with capability '${id}', but its values do not match this bootstrap request. `
+      + 'Inspect the winning approved capability map before retrying.');
   }
 }
 
-async function inspectApprovedConfiguration(remote, capability = null) {
+async function inspectApprovedConfiguration(remote, capability = null, options = {}) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-inspect-'));
   try {
     const commit = await cloneConfiguration(remote, scratch);
     const capabilities = await loadCapabilities(scratch, { required: Boolean(capability) });
-    assertRequestedCapability(capabilities, capability, remote);
+    assertRequestedCapability(capabilities, capability, remote, options);
     return { branch: CONFIGURATION_BRANCH, commit, created: false };
   } finally {
     await removeTemporaryTree(scratch);
@@ -383,7 +430,7 @@ async function inspectApprovedConfiguration(remote, capability = null) {
  */
 export async function ensureConfigurationBranch(remote, {
   sourceBranch = null, capability = null, grounding = null,
-  publisherRoot = null, transport = {}, remoteSession = null, observedHead = null
+  sourceCommit = null, publisherRoot = null, transport = {}, remoteSession = null, observedHead = null
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
@@ -445,6 +492,16 @@ export async function ensureConfigurationBranch(remote, {
     if (clone.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${url}': ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`);
+    }
+    const importedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    if (sourceCommit && importedCommit !== sourceCommit) {
+      throw new SingularityFlowError(
+        `The '${importBranch}' source branch changed after configuration preview. Preview the refresh again before creating '${CONFIGURATION_BRANCH}'.`,
+        {
+          code: 'CONFIGURATION_BOOTSTRAP_SOURCE_CHANGED',
+          details: { expectedCommit: sourceCommit, actualCommit: importedCommit, branch: importBranch }
+        }
+      );
     }
     const imported = await copyConfigurationAssetsFromRef(scratch, 'HEAD', seed);
     const importedCapabilityMap = imported.includes('singularity/capabilities.yml');
@@ -517,7 +574,7 @@ export async function ensureConfigurationBranch(remote, {
       }
       // Another bootstrap won the create race. It is success only when the winning authority
       // contains the exact capability this caller requested; branch existence alone proves nothing.
-      return await inspectApprovedConfiguration(url, capability);
+      return await inspectApprovedConfiguration(url, capability, { exactBootstrap: true });
     }
     return {
       branch: CONFIGURATION_BRANCH, commit, created: true, importedFrom: importBranch,
@@ -591,13 +648,14 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       );
     }
     const declared = Object.keys(manifest.files).sort();
+    const policy = configurationAssetPolicyFromRef(source, 'HEAD');
     if (!declared.includes('singularity/workflow.yml') || declared.some((relative) =>
-      !isConfigurationAsset(relative) || !/^[0-9a-f]{64}$/.test(manifest.files[relative] ?? ''))) {
+      !isConfigurationAsset(relative, policy) || !/^[0-9a-f]{64}$/.test(manifest.files[relative] ?? ''))) {
       throw new SingularityFlowError('State configuration manifest contains an invalid or incomplete file set.', {
         code: 'STATE_CONFIGURATION_MIRROR_INVALID'
       });
     }
-    const treeEntries = configurationTreeEntries(source, 'HEAD');
+    const treeEntries = configurationTreeEntries(source, 'HEAD', policy);
     const declaredAssets = manifest.assets ?? null;
     if (declaredAssets != null) {
       if (typeof declaredAssets !== 'object' || Array.isArray(declaredAssets)
@@ -984,9 +1042,10 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
   if (!assetEntries || typeof assetEntries !== 'object' || Array.isArray(assetEntries)) {
     throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} has no valid asset catalog.`);
   }
+  const policy = await configurationAssetPolicyFromDirectory(root);
   for (const [relative, descriptor] of Object.entries(assetEntries)) {
     const expected = descriptor?.sha256 ?? record.files?.[relative];
-    if (!isConfigurationAsset(relative) || !/^[0-9a-f]{64}$/.test(expected)) {
+    if (!isConfigurationAsset(relative, policy) || !/^[0-9a-f]{64}$/.test(expected)) {
       throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid asset entry '${relative}'.`);
     }
     if (descriptor?.object != null && !/^[0-9a-f]{40,64}$/.test(descriptor.object)) {
@@ -1016,8 +1075,11 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
         `Pinned configuration asset changed after materialization: ${relative}. Start from the approved configuration again.`);
     }
   }
+  const removalPolicy = record.baseCommit
+    ? mergeConfigurationAssetPolicies(policy, configurationAssetPolicyFromRef(root, record.baseCommit))
+    : policy;
   for (const [relative, descriptor] of Object.entries(record.removed ?? {})) {
-    if (!isConfigurationAsset(relative)
+    if (!isConfigurationAsset(relative, removalPolicy)
         || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
         || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')) {
       throw new SingularityFlowError(`${CONFIGURATION_SOURCE_PATH} contains an invalid approved removal '${relative}'.`);

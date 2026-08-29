@@ -279,12 +279,32 @@ test('governance material does not consume a work interval', () => {
   for (const root of GOVERNED_ROOTS) assert.equal(isApplicationPath(`${root}/anything.md`), false);
 
   const configured = applicationPathContext(
-    { workItemRoot: 'governed/story-state' },
-    { resolution: { initiativeRoot: 'portfolio/initiative-state' } }
+    {
+      workItemRoot: 'governed/story-state',
+      templatesRoot: 'governed/templates',
+      agentPromptsRoot: 'governed/agents',
+      worldModel: { outputDir: 'governed/repository-model' }
+    },
+    {
+      resolution: {
+        initiativeRoot: 'portfolio/initiative-state',
+        governedRoots: ['governed/pinned-root'],
+        worldModelOutputDir: 'governed/pinned-model',
+        templates: { specification: { path: 'historical/templates/specification.md' } },
+        configurationSource: { files: { 'historical/config/workflow.yml': 'a'.repeat(64) } }
+      }
+    }
   );
   for (const governed of [
     'governed/story-state/CUSTOM-1/workflow.json',
-    'portfolio/initiative-state/INIT-1/state.json'
+    'portfolio/initiative-state/INIT-1/state.json',
+    'governed/templates/common/specification.md',
+    'governed/agents/developer.agent.md',
+    'governed/repository-model/manifest.json',
+    'governed/pinned-root/evidence.json',
+    'governed/pinned-model/manifest.json',
+    'historical/templates/specification.md',
+    'historical/config/workflow.yml'
   ]) {
     assert.equal(isApplicationPath(governed, configured), false,
       `${governed} follows its configured governance root`);
@@ -294,17 +314,81 @@ test('governance material does not consume a work interval', () => {
     'a similarly named application directory is not excluded without an exact configured root');
 });
 
+test('application paths use strict portable identities and repository case policy', () => {
+  const insensitive = applicationPathContext({
+    workItemRoot: 'governed/story-state',
+    templatesRoot: 'governed/templates',
+    target: { caseInsensitivePaths: true }
+  });
+  assert.equal(insensitive.caseInsensitivePaths, true);
+  assert.equal(isApplicationPath('GOVERNED/STORY-STATE/CASE-1/workflow.json', insensitive), false);
+  assert.equal(isApplicationPath('Governed/Templates/Common/Specification.md', insensitive), false);
+  assert.equal(isApplicationPath('SRC/App.js', insensitive), true);
+
+  const sensitive = applicationPathContext({ workItemRoot: 'governed/story-state' });
+  assert.equal(isApplicationPath('GOVERNED/STORY-STATE/CASE-1/workflow.json', sensitive), true,
+    'a case-sensitive repository keeps differently-cased application paths distinct');
+
+  for (const invalid of [
+    '../outside.txt', '/tmp/outside.txt', '//server/share/outside.txt',
+    'C:/outside.txt', 'C:outside.txt', './src/app.js',
+    'src//app.js', 'src/../app.js', 'src\\app.js', 'src/app.js\n'
+  ]) {
+    assert.throws(() => isApplicationPath(invalid, insensitive), {
+      code: 'REPOSITORY_PATH_INVALID'
+    }, `${JSON.stringify(invalid)} is not a canonical portable repository path`);
+    assert.throws(() => isApplicationChangePath(invalid, insensitive), {
+      code: 'REPOSITORY_PATH_INVALID'
+    });
+  }
+});
+
 test('configured governance roots do not perturb the application source tree hash', async (t) => {
   const root = await repository('main');
   t.after(() => rm(root, { recursive: true, force: true }));
-  const config = { workItemRoot: 'governed/story-state' };
+  const config = {
+    workItemRoot: 'governed/story-state',
+    initiativeRoot: 'governed/initiative-state',
+    templatesRoot: 'governed/templates',
+    agentPromptsRoot: 'governed/agents',
+    worldModel: { outputDir: 'governed/repository-model' }
+  };
   const before = await sourceTreeHash(root, config);
-  await mkdir(path.join(root, config.workItemRoot, 'CUSTOM-1'), { recursive: true });
-  await writeFile(path.join(root, config.workItemRoot, 'CUSTOM-1', 'workflow.json'), '{"status":"in_progress"}\n');
-  run('git', ['add', config.workItemRoot], { cwd: root });
+  const governedFiles = [
+    `${config.workItemRoot}/CUSTOM-1/workflow.json`,
+    `${config.initiativeRoot}/INIT-1/state.json`,
+    `${config.templatesRoot}/common/specification.md`,
+    `${config.agentPromptsRoot}/developer.agent.md`,
+    `${config.worldModel.outputDir}/manifest.json`
+  ];
+  for (const relative of governedFiles) {
+    await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await writeFile(path.join(root, relative), '{}\n');
+  }
+  run('git', ['add', '--', ...governedFiles], { cwd: root });
 
   assert.equal(await sourceTreeHash(root, config), before,
-    'Story lifecycle projection is excluded even after it is staged');
+    'all configured governance material is excluded even after it is staged');
   assert.notEqual(await sourceTreeHash(root), before,
     'without the configured boundary the same tracked bytes would be mistaken for application source');
+});
+
+test('source hashing refuses bytes hidden by assume-unchanged or skip-worktree', async (t) => {
+  const root = await repository('main');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const readme = path.join(root, 'README.md');
+
+  run('git', ['update-index', '--assume-unchanged', 'README.md'], { cwd: root });
+  await writeFile(readme, '# hidden by assume-unchanged\n');
+  await assert.rejects(() => sourceTreeHash(root), (error) =>
+    error?.code === 'WORKTREE_HIDDEN_CHANGE'
+      && error?.details?.paths?.includes('README.md'));
+
+  run('git', ['update-index', '--no-assume-unchanged', 'README.md'], { cwd: root });
+  await writeFile(readme, '# fixture\n');
+  run('git', ['update-index', '--skip-worktree', 'README.md'], { cwd: root });
+  await writeFile(readme, '# hidden by skip-worktree\n');
+  await assert.rejects(() => sourceTreeHash(root), (error) =>
+    error?.code === 'WORKTREE_HIDDEN_CHANGE'
+      && error?.details?.paths?.includes('README.md'));
 });

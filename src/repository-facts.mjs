@@ -20,7 +20,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lineNumbers } from './text-lines.mjs';
-import { mapLimit, posix, run } from './util.mjs';
+import { mapLimit, posix, run, secureRepositoryPath } from './util.mjs';
 
 const READ_CONCURRENCY = 12;
 /** Beyond this a file is almost certainly generated or vendored; scanning it buys nothing. */
@@ -290,8 +290,12 @@ export async function deriveRepositoryFacts(root, sourceState, { churn = true } 
     const reader = MANIFEST_READERS.get(path.basename(file.path).toLowerCase());
     if (!reader) continue;
     try {
-      manifests.push(await reader(await readFile(path.join(root, file.path), 'utf8'), file.path));
-    } catch {
+      const secured = await secureRepositoryPath(root, file.path, {
+        label: 'Repository fact source', mustExist: true, type: 'file'
+      });
+      manifests.push(await reader(await readFile(secured.absolute, 'utf8'), file.path));
+    } catch (error) {
+      if (error?.code === 'REPOSITORY_PATH_UNSAFE') throw error;
       // A manifest that will not parse is still evidence the build system exists; it is listed
       // without its contents rather than guessed at.
       manifests.push({ kind: 'unreadable', assurance: 'unavailable', path: file.path, name: null, dependencies: [], entries: [], commands: [], workspaces: [] });
@@ -315,9 +319,13 @@ export async function deriveRepositoryFacts(root, sourceState, { churn = true } 
 
   const scanned = await mapLimit(scannable, READ_CONCURRENCY, async (file) => {
     try {
-      const text = await readFile(path.join(root, file.path), 'utf8');
+      const secured = await secureRepositoryPath(root, file.path, {
+        label: 'Repository fact source', mustExist: true, type: 'file'
+      });
+      const text = await readFile(secured.absolute, 'utf8');
       return { path: file.path, symbols: extractSymbols(text, file.path), imports: extractImports(text) };
-    } catch {
+    } catch (error) {
+      if (error?.code === 'REPOSITORY_PATH_UNSAFE') throw error;
       return { path: file.path, unreadable: true, symbols: [], imports: [] };
     }
   });

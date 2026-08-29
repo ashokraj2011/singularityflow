@@ -288,7 +288,14 @@ test('initiative creation and loading reject symlink escapes from the repository
   run('git', ['switch', '-c', 'INIT-ESCAPE'], { cwd: root });
   await assert.rejects(
     () => createInitiative(root, { id: 'INIT-ESCAPE', profile: 'initiative-lite' }),
-    /initiative.*resolves outside the repository/i
+    (error) => {
+      assert.equal(error.code, 'REPOSITORY_PATH_UNSAFE');
+      assert.deepEqual(error.details, {
+        path: 'singularity/initiatives', reason: 'symbolic-link'
+      });
+      assert.match(error.message, /Initiative state root cannot be a symbolic link/i);
+      return true;
+    }
   );
   await assert.rejects(
     () => stat(path.join(outside, 'INIT-ESCAPE/state.json')),

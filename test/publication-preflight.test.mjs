@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
 import {
   commitAndPublish, createWorkflow, inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
-  publishGeneration, scanArtifacts, submitPhase
+  generationResultMatches, publishGeneration, registerArtifact, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 
 const ACTOR = { name: 'Template Author', email: 'author@example.invalid', login: null };
@@ -92,7 +92,8 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
     name: 'delivery-fixture', private: true, scripts: { test: 'node test-runner.mjs' }
   }, null, 2)}\n`);
   await writeFile(path.join(root, 'test-runner.mjs'), [
-    "import { writeFileSync } from 'node:fs';",
+    "import { appendFileSync, existsSync, writeFileSync } from 'node:fs';",
+    "if (existsSync('.sflow/results/mutate-source')) appendFileSync('src/app.java', '// changed by test command\\n');",
     "writeFileSync('.sflow/results/unit.json', JSON.stringify({ run: Date.now(), tests: { discovered: 1, passed: 1, failed: 0, skipped: 0 } }));",
     ''
   ].join('\n'));
@@ -175,6 +176,49 @@ function inContext(root, run) {
     command: 'test'
   }, run);
 }
+
+test('phase preparation refuses a symlinked required artifact without reading its target', async (t) => {
+  const context = await fixture('artifact-symlink');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const outside = path.join(os.tmpdir(), `sflow-artifact-secret-${process.pid}-${Date.now()}.md`);
+  t.after(() => rm(outside, { force: true }));
+  await writeFile(outside, '# Outside repository\n\nThis content must never become governed evidence.\n');
+  await mkdir(path.dirname(context.target), { recursive: true });
+  await unlink(context.target);
+  await symlink(outside, context.target);
+
+  await assert.rejects(
+    () => inContext(context.root, () => preparePhaseInputs(
+      context.root, context.config, context.workflow, 'intake'
+    )),
+    (error) => error?.code === 'REPOSITORY_PATH_UNSAFE' && /symbolic link/.test(error.message)
+  );
+  assert.match(await readFile(outside, 'utf8'), /must never become governed evidence/);
+});
+
+test('artifact registration cannot adopt another Story or governed configuration', async (t) => {
+  const context = await fixture('cross-story-artifact');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const other = path.join(
+    context.root, 'singularity', 'work-items', 'OTHER-STORY', 'artifacts', 'intake', 'intake.md'
+  );
+  await mkdir(path.dirname(other), { recursive: true });
+  await writeFile(other, '# Other Story\n');
+
+  await assert.rejects(
+    () => registerArtifact(context.root, context.workflow, other, {
+      phaseId: 'intake', config: context.config
+    }),
+    (error) => error?.code === 'ARTIFACT_PATH_OUTSIDE_STORY'
+      && error?.details?.path?.includes('OTHER-STORY')
+  );
+  await assert.rejects(
+    () => registerArtifact(context.root, context.workflow, 'singularity/workflow.yml', {
+      phaseId: 'intake', config: context.config
+    }),
+    (error) => error?.code === 'ARTIFACT_PATH_OUTSIDE_STORY'
+  );
+});
 
 const AUTHORSHIP = buildGenerationAuthorship({
   options: normalizeAuthorshipOptions({ producer: 'human', channel: 'manual-in-place', externalAiUse: 'none' }),
@@ -734,6 +778,29 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.match(adoption.command, /^singularity-flow phase rollover implementation --confirm sha256:/);
 });
 
+test('a passing quality command cannot mutate unregistered application source', async () => {
+  const context = await codeFixture('mutating-quality-command');
+  await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
+  await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');
+  await writeFile(path.join(context.root, 'src', 'test', 'AppTest.java'),
+    '/** @ac:DELIVERY-1:AC-001 */\nfinal class AppTest {}\n');
+  await inContext(context.root, () => publishCodeGoverned(
+    context.root, context.config, context.workflow, 'implementation'
+  ));
+  await writeFile(path.join(context.root, '.sflow', 'results', 'mutate-source'), 'trigger\n');
+  await inContext(context.root, () => assert.rejects(
+    () => submitPhase(context.root, context.config, context.workflow, {
+      phaseId: 'implementation', runChecks: true, persist: false
+    }),
+    (error) => error.code === 'QUALITY_COMMAND_SOURCE_MUTATION'
+      && /changed application source or tests/.test(error.message)
+  ));
+  assert.equal(context.phase.status, 'in_progress');
+  assert.equal(context.phase.submittedAt, null);
+  assert.match(await readFile(path.join(context.root, 'src', 'app.java'), 'utf8'),
+    /changed by test command/);
+});
+
 test('tracked volatile SFlow test output is restored and never blocks publish or submit', async () => {
   const context = await codeFixture('tracked-result', { trackedResult: true });
   const resultPath = path.join(context.root, '.sflow', 'results', 'unit.json');
@@ -768,6 +835,9 @@ test('tracked volatile SFlow test output is restored and never blocks publish or
   assert.doesNotMatch(git(context.root, 'status', '--short'), /\.sflow\/results\/unit\.json/);
   assert.equal(context.phase.deliveryEvidence.testExecutions.length, 1,
     'submission did not replace raw output with a durable normalized test receipt');
+  assert.equal(await generationResultMatches(
+    context.root, context.config, context.workflow, context.phase
+  ), true, 'managed submission projections made a clean generation look changed');
 });
 
 test('prepare refuses a consumed code generation before writing next-generation state', async () => {

@@ -7,8 +7,12 @@ import YAML from 'yaml';
 import { BUILD_INFO } from './build-info.mjs';
 import {
   canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
+  configurationAssetPolicyFromDirectory, configurationAssetPolicyFromRef,
   ensureConfigurationBranch, isConfigurationAsset
 } from './configuration-branch.mjs';
+import {
+  configurationAssetSearchRoots, mergeConfigurationAssetPolicies
+} from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import { publishToStateBranch } from './ledger.mjs';
@@ -541,10 +545,10 @@ function stateConfiguration(approved) {
   };
 }
 
-function stateTree(root, ref) {
+function stateTree(root, ref, policy) {
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
-    'configuration', 'singularity', '.github/agents'
+    'configuration', ...configurationAssetSearchRoots(policy)
   ], { cwd: root });
   const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
@@ -595,7 +599,8 @@ function fetchStateRef(root, config) {
 }
 
 async function desiredStateProjection(root) {
-  const paths = await configurationAssetPaths(root);
+  const policy = await configurationAssetPolicyFromDirectory(root);
+  const paths = await configurationAssetPaths(root, policy);
   const files = {};
   const hashes = {};
   const assets = {};
@@ -613,6 +618,7 @@ async function desiredStateProjection(root) {
     hashes: Object.fromEntries(Object.entries(hashes).sort(([left], [right]) => left.localeCompare(right))),
     assets: Object.fromEntries(Object.entries(assets).sort(([left], [right]) => left.localeCompare(right))),
     approved,
+    policy,
     stateConfig: stateConfiguration(approved)
   };
 }
@@ -625,9 +631,22 @@ function observeStateProjection(root, desired, sourceCommit, product) {
       missingPaths: desired.paths, changedPaths: [], extraPaths: [], legacyPaths: [], manifest: null
     };
   }
-  const tree = stateTree(root, stateCommit);
+  // Search both the incoming policy and the policy currently mirrored on state. A configuration
+  // upgrade can move templates or agents from one custom root to another; looking only under the
+  // new roots would declare the projection current while silently leaving the retired root behind.
+  let statePolicy = desired.policy;
+  try {
+    statePolicy = mergeConfigurationAssetPolicies(
+      desired.policy,
+      configurationAssetPolicyFromRef(root, stateCommit)
+    );
+  } catch {
+    // A malformed old state workflow is repairable. The valid incoming policy remains authoritative,
+    // and manifest/source mismatch below forces replacement instead of making refresh unrecoverable.
+  }
+  const tree = stateTree(root, stateCommit, statePolicy);
   const paths = [...tree.keys()].sort();
-  const canonical = paths.filter(isConfigurationAsset);
+  const canonical = paths.filter((relative) => isConfigurationAsset(relative, statePolicy));
   const desiredSet = new Set(desired.paths);
   const missingPaths = desired.paths.filter((relative) => !canonical.includes(relative));
   const changedPaths = desired.paths.filter((relative) => {
@@ -722,6 +741,7 @@ function refreshPlanId(candidates, resolutions) {
     repositories: candidates.map((candidate) => ({
       remote: candidate.repository.displayRemote,
       configurationCommit: candidate.sourceCommit,
+      bootstrapCommit: candidate.bootstrapCommit ?? null,
       stateCommit: candidate.stateBefore.stateCommit,
       productRevision: candidate.refresh.product.revision
     })).sort((left, right) => left.remote.localeCompare(right.remote)),
@@ -848,6 +868,7 @@ async function publishCandidate(candidate) {
     }
   }
 
+  try {
   const projection = configurationChanged ? await desiredStateProjection(root) : desired;
   const stateBefore = observeStateProjection(root, projection, approvedCommit, refresh.product);
   const mirrored = { ...projection.files };
@@ -909,6 +930,22 @@ async function publishCandidate(candidate) {
     files: refresh.files,
     conflicts: refresh.conflicts
   };
+  } catch (error) {
+    // Configuration and state are two remote publications. If the first succeeded, never report
+    // the repository as unchanged merely because the second failed: that hides the exact durable
+    // progress a retry must resume from and led operators to repeat configuration publication.
+    if (configurationChanged) {
+      error.details = {
+        ...(error?.details && typeof error.details === 'object' ? error.details : {}),
+        partialPublication: {
+          configurationChanged: true,
+          configurationCommit: approvedCommit,
+          stateChanged: false
+        }
+      };
+    }
+    throw error;
+  }
 }
 
 /**
@@ -938,9 +975,21 @@ export async function refreshWorkspaceConfigurations({
   const observations = await mapLimit(targets, workers, async (repository) => {
     try {
       const commit = await remoteHead(repository.remote);
-      return { repository, commit, error: null };
+      // A missing configuration authority is seeded from the application default branch. Bind the
+      // preview to that exact revision as well: otherwise main can move after preview and the apply
+      // operation can silently approve bytes the user never reviewed.
+      const bootstrapCommit = commit
+        ? null
+        : await remoteHead(repository.remote, repository.defaultBranch);
+      if (!commit && !bootstrapCommit) {
+        throw new SingularityFlowError(
+          `Cannot initialize '${repository.id}': remote branch '${repository.defaultBranch}' does not exist.`,
+          { code: 'CONFIGURATION_BOOTSTRAP_SOURCE_MISSING' }
+        );
+      }
+      return { repository, commit, bootstrapCommit, error: null };
     } catch (error) {
-      return { repository, commit: null, error };
+      return { repository, commit: null, bootstrapCommit: null, error };
     }
   });
   const unreachable = observations.filter((item) => item.error);
@@ -962,6 +1011,7 @@ export async function refreshWorkspaceConfigurations({
       if (!observation.commit) {
         const planCandidate = {
           repository: observation.repository, sourceCommit: null,
+          bootstrapCommit: observation.bootstrapCommit,
           stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
         };
         return { planCandidate, result: {
@@ -1022,6 +1072,7 @@ export async function refreshWorkspaceConfigurations({
       if (!observation.commit) {
         return { observation, candidate: {
           repository: observation.repository, sourceCommit: null,
+          bootstrapCommit: observation.bootstrapCommit,
           stateBefore: { stateCommit: null }, refresh: { product: productIdentity() }
         }, retained: false, error: null };
       }
@@ -1077,7 +1128,8 @@ export async function refreshWorkspaceConfigurations({
     observations.filter((item) => !item.commit), workers, async (observation) => {
     try {
       await ensureConfigurationBranch(observation.repository.remote, {
-        sourceBranch: observation.repository.defaultBranch
+        sourceBranch: observation.repository.defaultBranch,
+        sourceCommit: observation.bootstrapCommit
       });
       return { observation, error: null };
     } catch (error) {
@@ -1149,10 +1201,14 @@ export async function refreshWorkspaceConfigurations({
     results = await mapLimit(candidates, workers, async (candidate) => {
       try { return await publishCandidate(candidate); }
       catch (error) {
+        const partial = error?.details?.partialPublication ?? {};
         return {
           status: 'failed', repository: candidate.repository.id,
           remote: candidate.repository.displayRemote, memberships: candidate.repository.memberships,
-          configurationChanged: false, stateChanged: false, error: error.message
+          configurationChanged: partial.configurationChanged === true,
+          configurationCommit: partial.configurationCommit ?? null,
+          stateChanged: partial.stateChanged === true,
+          error: error.message
         };
       }
     });

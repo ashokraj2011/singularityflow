@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { scopedReadSync } from './read-scope.mjs';
-import { run } from './util.mjs';
+import { run, SingularityFlowError } from './util.mjs';
 
 export const WORKTREE_FINGERPRINT_ALGORITHM = 'sflow-worktree-v2';
 
@@ -42,6 +42,20 @@ function fileEntry(root, relative, { sparseAbsent = false } = {}) {
   const absolute = path.join(root, relative);
   let stat;
   try {
+    // lstat only protects the final component.  Walk every existing ancestor first so replacing a
+    // tracked directory with a symlink cannot make a fingerprint read bytes outside the checkout.
+    let cursor = path.resolve(root);
+    for (const segment of String(relative).replaceAll('\\', '/').split('/').slice(0, -1)) {
+      cursor = path.join(cursor, segment);
+      const ancestor = lstatSync(cursor);
+      if (ancestor.isSymbolicLink()) {
+        throw new SingularityFlowError(
+          `Tracked repository path has a symbolic-link ancestor: ${relative}`,
+          { code: 'WORKTREE_PATH_ESCAPE', details: { path: relative } }
+        );
+      }
+      if (!ancestor.isDirectory()) break;
+    }
     stat = lstatSync(absolute);
   } catch (error) {
     if (error?.code === 'ENOENT') return {
@@ -87,6 +101,23 @@ function fileEntry(root, relative, { sparseAbsent = false } = {}) {
     };
   }
   return { path: relative, type: 'other', mode: String(stat.mode), object: null };
+}
+
+function hiddenWorktreeChangePaths(root) {
+  const indexManifest = indexEntries(
+    run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout,
+    run('git', ['ls-files', '-v', '-z'], { cwd: root }).stdout
+  );
+  const hidden = indexManifest.filter((entry) => entry.stage === 0
+    && (entry.assumeUnchanged || entry.skipWorktree));
+  return hidden.filter((entry) => {
+    const current = fileEntry(root, entry.path, { sparseAbsent: entry.skipWorktree });
+    if (current.type === 'sparse-absent' && entry.skipWorktree) return false;
+    if (!['file', 'symlink', 'directory'].includes(current.type)) return true;
+    if (current.mode !== entry.mode) return true;
+    if (current.type === 'directory') return current.object !== entry.object || current.dirty === true;
+    return current.object !== sha256(indexedBytes(root, entry.object));
+  }).map((entry) => entry.path);
 }
 
 function indexEntries(listing, flagsListing) {
@@ -188,4 +219,26 @@ export function worktreeFingerprint(root, { fresh = false, dirty = null, visible
   // fingerprint inside a scoped operation, but caching the coordinator's before/after values under
   // one key would make a mid-read edit invisible.
   return fresh ? compute() : scopedReadSync(`git.worktree-fingerprint:${root}`, compute);
+}
+
+/**
+ * Refuse visible source changes hidden from ordinary Git diff/status by index flags.
+ *
+ * `assume-unchanged` and `skip-worktree` are performance hints, not governance authority.  A
+ * modified file carrying either flag can otherwise be executed by tests while every generation,
+ * delivery, and source-tree receipt records the old indexed blob.  Legitimately absent sparse
+ * entries are not returned by `worktreeFingerprint` and therefore remain supported.
+ */
+export function assertNoHiddenWorktreeChanges(root, operation = 'Governed source inspection') {
+  const hiddenChanges = hiddenWorktreeChangePaths(root);
+  if (!hiddenChanges.length) return Object.freeze({ hiddenChanges: Object.freeze([]) });
+  throw new SingularityFlowError(
+    `${operation} cannot continue because Git index flags hide visible changes in: `
+      + `${hiddenChanges.join(', ')}. Clear assume-unchanged/skip-worktree for these `
+      + 'paths, review the resulting Git diff, and retry.',
+    {
+      code: 'WORKTREE_HIDDEN_CHANGE',
+      details: { paths: [...hiddenChanges], diagnosticCodes: ['WORKTREE_HIDDEN_CHANGE'] }
+    }
+  );
 }

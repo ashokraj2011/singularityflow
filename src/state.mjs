@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  SingularityFlowError, exists, invariant, nowIso, posix, readJson, repoRelative,
-  run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
+  SingularityFlowError, ensureSecureRepositoryDirectory, exists, invariant, nowIso, posix, readJson,
+  repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
   branch, changedFiles, gitCommonDir, head, identity, pushBranch, pushCommitToBranch, remoteContains, untrackedFiles
@@ -75,9 +75,11 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  verifyPendingPublicationCommit,
   writePendingPublication,
 } from './publication-pending.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 import { publishCapabilityRepositories } from './capability-start.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
@@ -93,7 +95,7 @@ import {
 } from './impact.mjs';
 import { evaluateQuickFixWaiver } from './quick-fix-policy.mjs';
 import {
-  applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
+  applicationChangeSetProjection, applicationPathContext, closeWorkInterval, ensureWorkIntervalBaseline,
   isApplicationChangePath, isApplicationPath,
   isGeneratedOutputPath, isTransientTestResultPath, phaseUsesWorkInterval, reconcileWorkInterval,
   recordFinalReconciliation
@@ -119,6 +121,7 @@ import {
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
 } from './repository-change-set.mjs';
+import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import {
   artifactFindingMessage, authoredArtifactFingerprint, authoredArtifactText,
   inspectRequiredArtifactContent, requiredArtifactRepoPath,
@@ -285,6 +288,114 @@ function phaseState(definition, index) {
   };
 }
 
+/**
+ * Operational phase policy appears twice in the aggregate: the immutable resolved definition and
+ * the mutable execution state. Keep one canonical projection so a hand-edited workflow cannot
+ * weaken approval, generation, scope, test, or artifact requirements by changing the latter.
+ */
+function resolvedPhasePolicy(definition, index) {
+  return {
+    id: definition.id,
+    label: definition.label,
+    order: index,
+    defaultAgent: definition.defaultAgent ?? null,
+    requiredArtifact: structuredClone(definition.artifact),
+    template: definition.template,
+    worldModel: structuredClone(definition.worldModel ?? {}),
+    writeScope: definition.writeScope ?? 'artifact-only',
+    sourceBoundary: normalizeSourceBoundary(definition.sourceBoundary, definition.id),
+    comparison: structuredClone(definition.comparison ?? {}),
+    mcp: structuredClone(definition.mcp ?? { requiredServers: [], requireSmoke: false, evidence: [] }),
+    repairBudget: structuredClone(definition.repairBudget ?? null),
+    inputs: structuredClone(definition.inputs ?? []),
+    generationPolicy: structuredClone(definition.generation ?? { requirement: 'required', producer: 'agent' }),
+    approvalPolicy: structuredClone(definition.approval ?? {
+      authorities: [DEFAULT_APPROVAL_AUTHORITY], minimum: 1, rejectTo: [definition.id]
+    }),
+    qualityCommands: [...(definition.qualityCommands ?? [])]
+  };
+}
+
+function currentPhasePolicy(phase) {
+  return resolvedPhasePolicy({
+    id: phase.id,
+    label: phase.label,
+    artifact: phase.requiredArtifact,
+    template: phase.template,
+    defaultAgent: phase.defaultAgent,
+    worldModel: phase.worldModel,
+    writeScope: phase.writeScope,
+    sourceBoundary: phase.sourceBoundary,
+    comparison: phase.comparison,
+    mcp: phase.mcp,
+    repairBudget: phase.repairBudget,
+    inputs: phase.inputs,
+    generation: phase.generationPolicy,
+    approval: phase.approvalPolicy,
+    qualityCommands: phase.qualityCommands
+  }, phase.order);
+}
+
+function resolutionPolicySha256(resolution) {
+  const policy = structuredClone(resolution ?? {});
+  delete policy.policySha256;
+  return `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}`;
+}
+
+function committedResolutionPolicySha256(root, config, workId) {
+  const relative = workDirRelative(config, workId);
+  const workflowRelative = `${relative}/workflow.json`;
+  const history = run('git', [
+    'log', '--format=%H', '--diff-filter=A', '--reverse', '--', workflowRelative
+  ], { cwd: root, allowFailure: true }).stdout.trim().split(/\r?\n/).filter(Boolean);
+  if (!history.length) return null;
+  const stored = run('git', ['show', `${history[0]}:${workflowRelative}`], {
+    cwd: root, allowFailure: true
+  });
+  if (stored.status !== 0) {
+    throw new SingularityFlowError(
+      `The immutable creation policy for Story '${workId}' cannot be read from ${history[0]}.`,
+      { code: 'STORY_POLICY_ANCHOR_UNREADABLE' }
+    );
+  }
+  let initial;
+  try { initial = JSON.parse(stored.stdout); }
+  catch {
+    throw new SingularityFlowError(
+      `The immutable creation policy for Story '${workId}' is not valid JSON.`,
+      { code: 'STORY_POLICY_ANCHOR_INVALID' }
+    );
+  }
+  const anchor = initial?.resolution?.policySha256;
+  // Stories created before policy anchoring are deliberately compatible. Their schema migration
+  // adds normalized resolution fields that did not exist in the creation bytes, so comparing the
+  // migrated projection with a digest those bytes never declared would make every legacy Story
+  // look manually weakened. Only an explicit, well-formed creation anchor opts into this gate.
+  if (anchor == null) return null;
+  if (typeof anchor !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(anchor)) {
+    throw new SingularityFlowError(
+      `The immutable creation policy anchor for Story '${workId}' is malformed.`,
+      {
+        code: 'STORY_POLICY_ANCHOR_INVALID',
+        details: { workId, commit: history[0], actual: anchor }
+      }
+    );
+  }
+  // Recompute from the committed bytes. Trusting a digest field stored beside the policy would
+  // accept a stale or hand-edited receipt without proving that it describes those exact bytes.
+  const derived = resolutionPolicySha256(initial.resolution);
+  if (anchor !== derived) {
+    throw new SingularityFlowError(
+      `The immutable creation policy anchor for Story '${workId}' does not match its committed resolution bytes.`,
+      {
+        code: 'STORY_POLICY_ANCHOR_INVALID',
+        details: { workId, commit: history[0], expected: derived, actual: anchor }
+      }
+    );
+  }
+  return anchor;
+}
+
 export function storyArtifactMetadata(workflow, phase) {
   return {
     schemaVersion: 1,
@@ -412,6 +523,11 @@ export function storyStatusMarkdown(workflow) {
 }
 
 export async function saveWorkflow(root, config, workflow) {
+  await ensureSecureRepositoryDirectory(
+    root,
+    workDirRelative(config, workflow.workItem.id),
+    { label: `Story '${workflow.workItem.id}' state directory` }
+  );
   const file = workflowPath(root, config, workflow.workItem.id);
   await writeJson(file, workflow);
   await writeText(statusPath(root, config, workflow.workItem.id), storyStatusMarkdown(workflow));
@@ -428,6 +544,11 @@ export async function createWorkflow(root, config, {
   executionOrigin = null
 } = {}) {
   validateId(config, id);
+  // Prove the configured storage boundary before any capability materialization or generated
+  // artifact can create files beneath it. A symlinked Story root is never a repository namespace.
+  await secureRepositoryPath(root, config.workItemRoot ?? 'singularity/work-items', {
+    label: 'Story state root'
+  });
   if (branch(root) !== canonicalBranch) {
     throw new SingularityFlowError(`Current branch ${branch(root)} must match the canonical Story branch ${canonicalBranch}.`);
   }
@@ -617,6 +738,7 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
+  workflow.resolution.policySha256 = resolutionPolicySha256(workflow.resolution);
   await writeJson(sourcePath(root, config, id), source);
   await writeText(userStoryPath(root, config, id), sourceMarkdown(source));
   await writeText(path.join(workDir(root, config, id), 'README.md'), `# ${id} — ${workflow.workItem.title}\n\nDurable ${selectedType} workflow state for branch \`${id}\`.\n\n- [workflow.json](./workflow.json) — machine state\n- [STATUS.md](./STATUS.md) — human status\n- [source.json](./source.json) — source context\n- [USER-STORY.md](./USER-STORY.md) — ${source.type === 'jira' ? 'Jira' : 'manual'} story snapshot\n- [documents.json](./documents.json) — supporting-document catalog (created on first upload)\n- [inputs/](./inputs/) — uploaded files (created on first upload)\n- [context/](./context/) — per-generation prompt-grounding audit records\n- [telemetry/](./telemetry/) — sanitized per-generation model, token, and cost records\n- [artifacts/](./artifacts/) — generated phase artifacts\n- [approvals/](./approvals/) — append-only decisions\n`);
@@ -688,6 +810,18 @@ function normalizeCurrentWorkflow(workflow) {
   return workflow;
 }
 
+function attachLegacyGovernedRoots(workflow, config) {
+  if (!Array.isArray(workflow.resolution?.governedRoots)
+      && Array.isArray(config?.governedRoots)) {
+    Object.defineProperty(workflow.resolution, 'governedRoots', {
+      value: config.governedRoots,
+      enumerable: false,
+      configurable: true
+    });
+  }
+  return workflow;
+}
+
 export async function loadWorkflow(root, config, id = undefined) {
   const index = await buildRepositorySubjectIndex(root, { definition: config });
   let selected = resolveContext(index, {
@@ -712,7 +846,7 @@ export async function loadWorkflow(root, config, id = undefined) {
     );
   }
   const file = path.join(root, selected.location.path);
-  const workflow = normalizeCurrentWorkflow(await readJson(file));
+  const workflow = attachLegacyGovernedRoots(normalizeCurrentWorkflow(await readJson(file)), config);
   invariant(workflow.workItem?.id === selected.id, `Workflow ID does not match indexed Story ${selected.id}.`);
   if (id == null && !workflowBranchAllowed(workflow, branch(root))) {
     throw new SingularityFlowError(`Current branch '${branch(root)}' is not registered for Story '${workflow.workItem.id}'. Run singularity-flow story branch attach --parent ${workflow.workItem.id}.`);
@@ -726,7 +860,7 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   const index = await buildRepositorySubjectIndex(root, { definition: config });
   const indexed = resolveContext(index, { reference: requested, kind: 'story', required: false });
   if (indexed) {
-    const workflow = normalizeCurrentWorkflow(indexed.state);
+    const workflow = attachLegacyGovernedRoots(normalizeCurrentWorkflow(indexed.state), config);
     return {
       workId: workflow.workItem.id,
       branch: indexed.canonicalBranch,
@@ -788,8 +922,8 @@ function requiredRepoPath(config, workflow, phase) { return requiredArtifactRepo
 
 /** The artifact's text, or empty when it is not there yet — a missing artifact is `validatePhase`'s. */
 async function readArtifactText(root, relative) {
-  const absolute = path.join(root, relative);
-  return await exists(absolute) ? readFile(absolute, 'utf8') : '';
+  const info = await repositoryArtifactSnapshot(root, relative);
+  return info.exists ? readRepositoryArtifactText(root, relative) : '';
 }
 
 
@@ -853,8 +987,12 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       itemRelative
     });
   }
-  const target = path.join(itemDirectory, phase.requiredArtifact.path);
-  const artifactExistedBeforePreparation = await exists(target);
+  const targetRelative = posix(path.relative(root, path.join(itemDirectory, phase.requiredArtifact.path)));
+  const securedTarget = await secureRepositoryPath(root, targetRelative, {
+    label: `Required artifact for phase '${phase.id}'`
+  });
+  const target = securedTarget.absolute;
+  const artifactExistedBeforePreparation = securedTarget.exists;
   const session = await loadSession(root, { required: false });
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
@@ -982,6 +1120,44 @@ export function inferKind(relativePath) {
 
 function artifactFor(phase, relativePath) { return phase.artifacts.find((item) => item.path === relativePath); }
 
+/**
+ * Snapshot a repository artifact without ever following its final symlink.
+ *
+ * Git records a symbolic link's link text, not the bytes of its target.  Treating a symlink like a
+ * regular file here used to let registration, approval, and generation hashing read arbitrary
+ * files outside the repository.  Link text may still be indexed as evidence, but every caller that
+ * needs authored text must use readRepositoryArtifactText(), which requires a regular file.
+ */
+async function repositoryArtifactSnapshot(root, relativePath) {
+  const secured = await secureRepositoryPath(root, relativePath, {
+    label: 'Governed artifact',
+    allowFinalSymlink: true
+  });
+  if (!secured.entry) return { exists: false, size: 0, sha256: null };
+  if (secured.entry.isSymbolicLink()) {
+    const link = Buffer.from(await readlink(secured.absolute));
+    return {
+      exists: true,
+      size: link.length,
+      sha256: createHash('sha256').update(link).digest('hex'),
+      symbolicLink: true
+    };
+  }
+  if (!secured.entry.isFile()) {
+    return { exists: true, size: secured.entry.size, sha256: null };
+  }
+  return snapshot(secured.absolute);
+}
+
+async function readRepositoryArtifactText(root, relativePath) {
+  const secured = await secureRepositoryPath(root, relativePath, {
+    label: 'Governed artifact',
+    mustExist: true,
+    type: 'file'
+  });
+  return readFile(secured.absolute, 'utf8');
+}
+
 const ARTIFACT_METADATA_PATTERN = /^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/;
 
 function exactAuthoredArtifactSha256(text) {
@@ -1006,7 +1182,7 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
 } = {}) {
   const relativePath = requiredRepoPath(config, workflow, phase);
   const registered = artifactFor(phase, relativePath) ?? null;
-  const current = await snapshot(path.join(root, relativePath));
+  const current = await repositoryArtifactSnapshot(root, relativePath);
   if (Number(phase.generation) < 1) return { status: 'not-applicable', reason: 'unpublished', path: relativePath, registered, current };
   if (phaseNeedsGeneration(workflow, phase)) {
     return { status: 'not-applicable', reason: 'fresh-generation-required', path: relativePath, registered, current };
@@ -1021,7 +1197,7 @@ export async function inspectRequiredArtifactRegistration(root, config, workflow
     generationCommit: exactCommit
   };
 
-  const currentText = await readFile(path.join(root, relativePath), 'utf8');
+  const currentText = await readRepositoryArtifactText(root, relativePath);
   const publishedText = publishedResult.stdout;
   const currentAuthoredSha256 = exactAuthoredArtifactSha256(currentText);
   const publishedAuthoredSha256 = exactAuthoredArtifactSha256(publishedText);
@@ -1110,10 +1286,24 @@ function repairRequiredArtifactRegistration(workflow, phase, inspection, session
   return repair;
 }
 
-export async function registerArtifact(root, workflow, candidate, { phaseId, kind } = {}) {
+export async function registerArtifact(root, workflow, candidate, { phaseId, kind, config = null } = {}) {
   const phase = await assertPhaseSequence(root, workflow, 'register artifacts', { requestedPhase: phaseId });
   const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
-  const info = await snapshot(absolute); const existing = artifactFor(phase, relativePath); const timestamp = nowIso();
+  const itemRoot = workDirRelative(config ?? workflow.resolution ?? {}, workflow.workItem.id);
+  const phaseArtifacts = `${itemRoot}/artifacts/`;
+  if (!relativePath.startsWith(phaseArtifacts)
+      && !isApplicationPath(relativePath, applicationPathContext(config, workflow))) {
+    throw new SingularityFlowError(
+      `Artifact '${relativePath}' is outside Story '${workflow.workItem.id}' ownership. Register `
+        + `application source or a file below ${phaseArtifacts}; another Story, Initiative, template, `
+        + 'world-model, or configuration path cannot be adopted by this phase.',
+      {
+        code: 'ARTIFACT_PATH_OUTSIDE_STORY',
+        details: { path: relativePath, workId: workflow.workItem.id, artifactRoot: phaseArtifacts }
+      }
+    );
+  }
+  const info = await repositoryArtifactSnapshot(root, relativePath); const existing = artifactFor(phase, relativePath); const timestamp = nowIso();
   const record = { path: relativePath, kind: kind ?? inferKind(relativePath), status: 'pending', exists: info.exists, size: info.size, sha256: info.sha256, registeredAt: existing?.registeredAt ?? timestamp, updatedAt: timestamp };
   if (existing) Object.assign(existing, record); else phase.artifacts.push(record);
   phase.artifacts.sort((a, b) => a.path.localeCompare(b.path));
@@ -1127,7 +1317,11 @@ function ignored(config, workflow, relativePath, { untracked = false } = {}) {
   if (relativePath.startsWith('singularity/world-model/')) return true;
   if (['.git/', '.idea/', '.vscode/'].some((prefix) => relativePath.startsWith(prefix))) return true;
   const itemRoot = workDirRelative(config, workflow.workItem.id);
-  return relativePath.startsWith(`${itemRoot}/`) && !relativePath.startsWith(`${itemRoot}/artifacts/`);
+  if (relativePath.startsWith(`${itemRoot}/artifacts/`)) return false;
+  if (relativePath.startsWith(`${itemRoot}/`)) return true;
+  return !isApplicationChangePath(relativePath, {
+    ...applicationPathContext(config, workflow), untracked
+  });
 }
 
 export async function scanArtifacts(root, config, workflow, phaseId = undefined) {
@@ -1145,7 +1339,7 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
   const discoveredPaths = new Set(discovered);
   for (const file of discovered) {
-    records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id }));
+    records.push(await registerArtifact(root, workflow, file, { phaseId: phase.id, config }));
     if (untracked.has(file) && file !== requiredArtifact) adopted.push(file);
   }
   // A prior SFlow build or lifecycle transition may have committed managed metadata while leaving
@@ -1155,7 +1349,7 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // retaining the explicit scan boundary for contributor-authored changes.
   for (const artifact of phase.artifacts.filter((entry) => !isTransientTestResultPath(entry.path))) {
     if (discoveredPaths.has(artifact.path)) continue;
-    const current = await snapshot(path.join(root, artifact.path));
+    const current = await repositoryArtifactSnapshot(root, artifact.path);
     if (current.exists === artifact.exists && current.size === artifact.size && current.sha256 === artifact.sha256) continue;
     Object.assign(artifact, { ...current, updatedAt: nowIso() });
     records.push(artifact);
@@ -1191,7 +1385,7 @@ async function validatePhase(root, config, workflow, phase, { placeholders = tru
     errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
   }
   for (const artifact of phase.artifacts.filter((entry) => !isTransientTestResultPath(entry.path))) {
-    const current = await snapshot(path.join(root, artifact.path));
+    const current = await repositoryArtifactSnapshot(root, artifact.path);
     if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) errors.push(`Artifact changed after registration: ${artifact.path}. Run singularity-flow artifact scan.`);
   }
   /**
@@ -1276,6 +1470,7 @@ function rebuildUsageAggregates(workflow) {
 }
 
 export async function sourceTreeHash(root, ...governanceSources) {
+  assertNoHiddenWorktreeChanges(root, 'Application source hashing');
   const pathContext = applicationPathContext(...governanceSources);
   const indexed = run('git', ['ls-files', '--stage', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean)
     .map((line) => {
@@ -1303,8 +1498,12 @@ export async function sourceTreeHash(root, ...governanceSources) {
       manifest.push({ path: entry.path, mode: entry.mode, kind: entry.mode === '120000' ? 'symlink' : 'git-object', object: entry.object });
       continue;
     }
-    const absolute = path.join(root, entry.path);
-    const info = await lstat(absolute).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+    const secured = await secureRepositoryPath(root, entry.path, {
+      label: 'Application source path',
+      allowFinalSymlink: true
+    });
+    const absolute = secured.absolute;
+    const info = secured.entry;
     if (!info) {
       // The final committed tree does not contain a deleted path. Omitting it now makes the
       // working-state manifest stable when Git commits the exact deletion a moment later.
@@ -1329,24 +1528,27 @@ export async function sourceTreeHash(root, ...governanceSources) {
 }
 
 export async function generationResultDigest(root, config, workflow, phase) {
+  // This digest belongs to the authoring interval. Submission, review, telemetry and reconciliation
+  // legitimately rewrite kernel projections after publication, so none of those files may make a
+  // clean submitted generation appear consumed-and-changed.
+  const required = requiredRepoPath(config, workflow, phase);
   const declaredPaths = [...new Set([
     ...(phase.artifacts ?? []).map((entry) => entry.path),
-    ...(phase.sidecars ?? []).map((entry) => entry.path),
-    ...(phase.clarifications ?? []).filter((entry) => entry.generation === phase.generation).map((entry) => entry.path),
-    ...(phase.agentBriefs ?? []).filter((entry) => entry.generation === phase.generation)
-      .flatMap((entry) => [entry.path, entry.renderedPath]),
-    ...(phase.astGates ?? []).filter((entry) => entry.generation === phase.generation).map((entry) => entry.path),
-    ...(phase.telemetry ?? []).filter((entry) => entry.generation === phase.generation).map((entry) => entry.path),
-    Number(phase.inputContext?.generation) === Number(phase.generation) ? phase.inputContext?.path : null,
-    Number(phase.specIndex?.generation) === Number(phase.generation) ? phase.specIndex?.path : null,
-    phase.deliveryEvidence?.receiptPath,
-    phase.deliveryEvidence?.changeSetPath,
-    phase.workIntervalReconciliation?.path
+    ...(phase.clarifications ?? [])
+      .filter((entry) => entry.generation === phase.generation).map((entry) => entry.path)
   ].filter(Boolean))].sort();
   const publicationFiles = [];
   for (const relative of declaredPaths) {
-    const current = await snapshot(path.join(root, relative));
-    publicationFiles.push({ path: relative, exists: current.exists, sha256: current.sha256, bytes: current.size });
+    const current = await repositoryArtifactSnapshot(root, relative);
+    if (relative === required && current.exists) {
+      publicationFiles.push({
+        path: relative,
+        exists: true,
+        authoredSha256: authoredArtifactFingerprint(await readRepositoryArtifactText(root, relative))
+      });
+    } else {
+      publicationFiles.push({ path: relative, exists: current.exists, sha256: current.sha256, bytes: current.size });
+    }
   }
   return `sha256:${createHash('sha256').update(canonicalJson({
     sourceTreeSha256: await sourceTreeHash(root, config, workflow),
@@ -1363,6 +1565,51 @@ export async function generationResultDigest(root, config, workflow, phase) {
   })).digest('hex')}`;
 }
 
+/**
+ * Compatibility for generations published before the author-owned digest boundary was introduced.
+ * Prove their current application bytes and authored artifact against the exact generation commit;
+ * managed metadata changes alone are then an idempotent retry instead of a forced rollover.
+ */
+export async function generationResultMatches(root, config, workflow, phase) {
+  const expected = phase.generationIntent?.publication?.resultDigest ?? null;
+  const current = await generationResultDigest(root, config, workflow, phase);
+  if (!expected || expected === current) return expected === current;
+  if (Number(phase.generationIntent?.publication?.resultDigestVersion ?? 1) >= 2) return false;
+  let generationCommit;
+  try { generationCommit = publishedGenerationCommit(root, workflow, phase, phase.generation); }
+  catch { return false; }
+  if (!generationCommit) return false;
+  const changeSet = await buildRepositoryChangeSet(root, {
+    baseCommit: generationCommit,
+    subject: {
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      generationIntentId: phase.generationIntent?.id ?? null
+    }
+  });
+  if (applicationChangeSetProjection(
+    changeSet, applicationPathContext(config, workflow)
+  ).entries.length) return false;
+  const required = requiredRepoPath(config, workflow, phase);
+  const committed = run('git', ['show', `${generationCommit}:${required}`], {
+    cwd: root, allowFailure: true
+  });
+  let currentText;
+  try { currentText = await readRepositoryArtifactText(root, required); }
+  catch { return false; }
+  if (committed.status !== 0
+      || authoredArtifactFingerprint(committed.stdout) !== authoredArtifactFingerprint(currentText)) return false;
+  if (phase.artifactSet?.bundleSha256) {
+    const set = resolvedArtifactSet(config, workflow, phase);
+    const catalog = set
+      ? await catalogArtifactSet(root, workDirRelative(config, workflow.workItem.id), phase, set)
+      : null;
+    if (catalog && catalog.bundleSha256 !== phase.artifactSet.bundleSha256) return false;
+  }
+  return true;
+}
+
 function assertRequiredAssignment(workflow, phase) {
   if (workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[phase.id]) {
     throw new SingularityFlowError(`Phase '${phase.id}' requires an assignment. Run singularity-flow assign ${phase.id} <assignee> before publishing.`);
@@ -1377,8 +1624,7 @@ export async function publishGeneration(root, config, workflow, {
   if (phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed'
       && Number(phase.generationIntent.generation) === Number(phase.generation)) {
-    const digest = await generationResultDigest(root, config, workflow, phase);
-    if (digest === phase.generationIntent.publication?.resultDigest) return phase;
+    if (await generationResultMatches(root, config, workflow, phase)) return phase;
     throw new SingularityFlowError(
       `Generation intent ${phase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phase.id} to preview the exact guarded next-generation command.`,
       { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
@@ -1821,7 +2067,8 @@ export async function publishGeneration(root, config, workflow, {
       generation: phase.generation,
       publishedAt,
       changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
-      resultDigest
+      resultDigest,
+      resultDigestVersion: 2
     });
   }
   const generationPublication = {
@@ -1830,6 +2077,7 @@ export async function publishGeneration(root, config, workflow, {
     changeSetDigest: deliveryPreflight?.changeSet?.digest ?? null,
     resultDigest: generationIntent?.publication?.resultDigest
       ?? await generationResultDigest(root, config, workflow, phase),
+    resultDigestVersion: generationIntent?.publication?.resultDigestVersion ?? 2,
     record: null
   };
   phase.generationPublications = [
@@ -2040,6 +2288,20 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
+    const completedTreeSha256 = await sourceTreeHash(root, config);
+    if (completedTreeSha256 !== sourceTreeSha256) {
+      throw new SingularityFlowError(
+        `Quality command '${policy.id}' changed application source or tests. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+        {
+          code: 'QUALITY_COMMAND_SOURCE_MUTATION',
+          details: {
+            commandId: policy.id,
+            beforeSha256: sourceTreeSha256,
+            afterSha256: completedTreeSha256
+          }
+        }
+      );
+    }
     const infrastructureError = result.error
       ? `Unable to run quality command: ${result.error.message}`
       : null;
@@ -2619,7 +2881,7 @@ export async function approvePhase(root, config, workflow, {
   }
   const currentArtifacts = [];
   for (const artifact of phase.artifacts ?? []) {
-    const current = await snapshot(path.join(root, artifact.path));
+    const current = await repositoryArtifactSnapshot(root, artifact.path);
     if (!current.exists || !current.sha256) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' artifact '${artifact.path}' is absent or no longer a regular file. Submit a fresh generation.`,
@@ -2888,7 +3150,7 @@ export async function approvePhase(root, config, workflow, {
 }
 
 async function registerApprovedSnapshot(root, config, workflow, phase) {
-  const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
+  const required = requiredRepoPath(config, workflow, phase); const current = await repositoryArtifactSnapshot(root, required); const existing = artifactFor(phase, required);
   if (existing) Object.assign(existing, { ...current, status: phase.status === 'approved' ? 'approved' : 'pending', approvedAt: phase.approvedAt, approvedBy: phase.approvedBy });
 }
 
@@ -2926,7 +3188,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
 }
 
 async function refreshRequiredArtifact(root, config, workflow, phase, { registerIfMissing = true } = {}) {
-  const required = requiredRepoPath(config, workflow, phase); const current = await snapshot(path.join(root, required)); const existing = artifactFor(phase, required);
+  const required = requiredRepoPath(config, workflow, phase); const current = await repositoryArtifactSnapshot(root, required); const existing = artifactFor(phase, required);
   if (existing) Object.assign(existing, { ...current, updatedAt: nowIso() });
   else if (registerIfMissing) phase.artifacts.push({ path: required, kind: phase.requiredArtifact.kind ?? inferKind(required), status: 'pending', ...current, registeredAt: nowIso(), updatedAt: nowIso() });
 }
@@ -3255,7 +3517,7 @@ function intentAmendmentSummary(workflow, proposalId) {
   return (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId) ?? null;
 }
 
-function intentAmendmentPath(root, config, workflow, relative, label) {
+async function intentAmendmentPath(root, config, workflow, relative, label, { mustExist = false, type = null } = {}) {
   const itemRoot = path.resolve(workDir(root, config, workflow.workItem.id));
   const target = path.resolve(root, relative ?? '');
   if (target === itemRoot || !target.startsWith(`${itemRoot}${path.sep}`)) {
@@ -3263,7 +3525,12 @@ function intentAmendmentPath(root, config, workflow, relative, label) {
       code: 'INTENT_AMENDMENT_INVALID'
     });
   }
-  return target;
+  const secured = await secureRepositoryPath(root, posix(path.relative(root, target)), {
+    label,
+    mustExist,
+    type
+  });
+  return secured.absolute;
 }
 
 /** An approved amendment that this checkout has not yet acknowledged. */
@@ -3274,7 +3541,7 @@ export function pendingIntentAmendmentAcknowledgement(workflow) {
 }
 
 async function persistIntentAmendmentRecord(root, config, workflow, summary, record) {
-  const file = intentAmendmentPath(root, config, workflow, summary.recordPath, 'Intent-amendment record');
+  const file = await intentAmendmentPath(root, config, workflow, summary.recordPath, 'Intent-amendment record');
   await writeJson(file, record);
 }
 
@@ -3376,16 +3643,20 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       code: 'INTENT_AMENDMENT_INVALID'
     });
   }
-  const specificationFile = path.join(root, specificationPath);
-  const current = await snapshot(specificationFile);
+  const specificationFile = (await secureRepositoryPath(root, specificationPath, {
+    label: 'Specification artifact',
+    mustExist: true,
+    type: 'file'
+  })).absolute;
+  const current = await repositoryArtifactSnapshot(root, specificationPath);
   if (!current.exists || current.sha256 !== proposal.specification.beforeSha256) {
     throw new SingularityFlowError(
       `Specification changed after intent amendment '${proposal.id}' was proposed. Create a new proposal against the current generation.`,
       { code: 'INTENT_AMENDMENT_STALE' }
     );
   }
-  const proposedFile = intentAmendmentPath(root, config, workflow,
-    proposal.specification.proposedPath, 'Proposed specification');
+  const proposedFile = await intentAmendmentPath(root, config, workflow,
+    proposal.specification.proposedPath, 'Proposed specification', { mustExist: true, type: 'file' });
   const proposedText = await readFile(proposedFile, 'utf8');
   const proposedSnapshot = await snapshot(proposedFile);
   if (proposedSnapshot.sha256 !== proposal.specification.proposedSha256) {
@@ -3570,8 +3841,8 @@ export async function acknowledgeIntentAmendment(root, config, workflow, proposa
       phase.intentAmendmentRevalidation.acknowledgedAt = at;
     }
   }
-  const record = await readJson(intentAmendmentPath(root, config, workflow, summary.recordPath,
-    'Intent-amendment record'));
+  const record = await readJson(await intentAmendmentPath(root, config, workflow, summary.recordPath,
+    'Intent-amendment record', { mustExist: true, type: 'file' }));
   record.acknowledgedAt = at;
   record.acknowledgedBy = structuredClone(session.actor);
   await persistIntentAmendmentRecord(root, config, workflow, summary, record);
@@ -3595,8 +3866,8 @@ async function markIntentAmendmentRevalidated(root, config, workflow, phase, at,
     summary.status = 'revalidated';
     summary.revalidatedAt = at;
   }
-  const record = await readJson(intentAmendmentPath(root, config, workflow, summary.recordPath,
-    'Intent-amendment record'));
+  const record = await readJson(await intentAmendmentPath(root, config, workflow, summary.recordPath,
+    'Intent-amendment record', { mustExist: true, type: 'file' }));
   record.revalidatedPhases = summary.revalidatedPhases;
   if (summary.revalidatedAt) {
     record.status = 'revalidated';
@@ -3685,16 +3956,11 @@ export async function reopenWorkflow(root, config, workflow, {
   }
   workflow.currentPhase = targetId;
   workflow.status = 'in_progress';
-  // A completed Story created before code-task routing existed is upgraded when a human explicitly
-  // reopens its implementation. Existing in-flight legacy/non-code workflows remain untouched;
-  // the reopened generation receives the current delivery contract instead of repeating the
-  // artifact-only outcome that caused the change request.
-  const reopenedPhase = workflow.phases[targetId];
-  if (reopenedPhase.requiredArtifact?.kind === 'implementation-summary'
-      && (reopenedPhase.writeScope ?? 'artifact-only') === 'source-and-artifact') {
-    reopenedPhase.generationPolicy ??= { requirement: 'required', defaultProducer: 'governed-agent', allowedProducers: ['governed-agent', 'human'] };
-    reopenedPhase.generationPolicy.task = 'code';
-  }
+  // Reopening changes execution state, never the pinned operational contract. Legacy phases with
+  // no task declaration already fail closed through phaseRequiresCodeDelivery and are hydrated by
+  // normalizeCurrentWorkflow; an explicit non-code task such as the chore profile's `analyze` is
+  // an immutable compatibility opt-out and must not be rewritten merely because its artifact kind
+  // is `implementation-summary`.
   await ensureWorkIntervalBaseline(root, config, workflow, {
     phaseId: targetId,
     itemDirectory: workDir(root, config, workflow.workItem.id),
@@ -4256,7 +4522,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
           await registerArtifact(root, workflow, path.join(
             workDirRelative(config, workflow.workItem.id),
             requestedPhase.requiredArtifact.path
-          ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind });
+          ), { phaseId: requestedPhase.id, kind: requestedPhase.requiredArtifact.kind, config });
           const designValidation = await validatePhase(root, config, workflow, requestedPhase);
           if (designValidation.length) {
             throw new SingularityFlowError(`Phase ${requestedPhase.id} design-source binding is not publishable:\n- ${designValidation.join('\n- ')}`);
@@ -4346,10 +4612,24 @@ export async function commitAndPublish(root, config, workflow, event, message, e
 }
 
 export async function syncPublication(root, config, workflow) {
-  const pending = await readPendingPublication(root, {
-    kind: 'story', id: workflow.workItem.id,
+  const subject = { kind: 'story', id: workflow.workItem.id };
+  const pendingOptions = {
+    ...subject,
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
-  });
+  };
+  const pending = await readPendingPublication(root, pendingOptions);
+  // `sync` is a retry operation, not a generic `git push`. In particular, a manual commit made
+  // after a successful publication must never become governed merely because the operator runs a
+  // harmless retry command later.
+  if (!pending) {
+    return {
+      pending: false,
+      pushed: null,
+      noOp: true,
+      capabilityPublished: [],
+      ledger: null
+    };
+  }
   if (pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced') {
     const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
@@ -4378,45 +4658,85 @@ export async function syncPublication(root, config, workflow) {
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
     );
   }
-  const record = pending?.record ?? { remote: config.git?.remote ?? 'origin', branch: workflowPublicationBranch(root, workflow) };
-  if (record.recoveryStage === 'publication-recovery-diverged') {
-    throw new SingularityFlowError(
-      `Story '${workflow.workItem.id}' recovery diverged and was stopped safely. ${record.error} `
-      + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
-      { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
-    );
-  }
-  const capabilityOnly = pending?.record?.recoveryStage === 'capability-publication-pending';
-  if (!capabilityOnly) {
-    const result = record.commit
-      ? pushCommitToBranch(root, record.remote, record.commit, record.branch)
-      : pushBranch(root, record.remote, record.branch);
-    if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
-  }
-  const capability = publishCapabilityRepositories(record.capabilityPublications ?? []);
-  if (capability.pending.length) {
-    await writePendingPublication(root, {
-      kind: 'story', id: workflow.workItem.id,
-      record: {
-        ...record,
-        recoveryStage: 'capability-publication-pending',
-        capabilityPublications: capability.pending,
-        error: capability.error
-      }
+  return withSubjectLock(root, subject, async () => {
+    // The marker may have been completed while this command waited for the subject lease. Re-read
+    // it under the same lock used by lifecycle publication so verification, push, and clearing are
+    // one recovery decision rather than three races.
+    const current = await readPendingPublication(root, pendingOptions);
+    if (!current) {
+      return {
+        pending: false,
+        pushed: null,
+        noOp: true,
+        capabilityPublished: [],
+        ledger: null
+      };
+    }
+    const record = current.record;
+    if (record.recoveryStage === 'publication-recovery-diverged') {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' recovery diverged and was stopped safely. ${record.error} `
+        + 'Run singularity-flow doctor for the exact journal/branch diagnosis; no commit was pushed.',
+        { code: 'PUBLICATION_RECOVERY_DIVERGED', details: record }
+      );
+    }
+    if (record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' recovery state changed while synchronization was acquiring its lock. `
+        + 'Run singularity-flow sync again; no commit was pushed.',
+        { code: 'PUBLICATION_RECOVERY_CHANGED' }
+      );
+    }
+    const expectedBranch = workflowPublicationBranch(root, workflow);
+    const verification = verifyPendingPublicationCommit(root, record, {
+      subject,
+      branch: expectedBranch,
+      remote: config.git?.remote ?? 'origin'
     });
-    throw new SingularityFlowError(
-      `Capability Story publication still fails for '${capability.pending[0].repository}': ${capability.error}`
-    );
-  }
-  await clearPendingPublication(root, {
-    kind: 'story', id: workflow.workItem.id,
-    legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
+    if (!verification.valid) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' pending publication marker does not prove one exact governed commit: `
+        + `${verification.failures.join('; ')}. The marker was retained and no commit was pushed. `
+        + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
+        {
+          code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
+          details: { subject, markerPath: current.path, failures: verification.failures }
+        }
+      );
+    }
+    let rootPushed = record.rootPublished === true;
+    if (!rootPushed) {
+      const result = pushCommitToBranch(root, record.remote, record.commit, record.branch);
+      if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+      rootPushed = true;
+    }
+    const capability = publishCapabilityRepositories(record.capabilityPublications ?? []);
+    if (capability.pending.length) {
+      await writePendingPublication(root, {
+        ...subject,
+        record: {
+          ...record,
+          rootPublished: true,
+          recoveryStage: 'capability-publication-pending',
+          capabilityPublications: capability.pending,
+          error: capability.error
+        }
+      });
+      throw new SingularityFlowError(
+        `Capability Story publication still fails for '${capability.pending[0].repository}': ${capability.error}`
+      );
+    }
+    await clearPendingPublication(root, pendingOptions);
+    const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
+    return {
+      pending: false,
+      pushed: rootPushed ? record.commit : null,
+      remote: record.remote,
+      branch: record.branch,
+      capabilityPublished: capability.published,
+      ledger
+    };
   });
-  const ledger = await reconcileLedger(root, workflow.resolution?.ledger ?? config.ledger ?? {}, { workId: workflow.workItem.id });
-  return {
-    pushed: record.commit ?? head(root), remote: record.remote, branch: record.branch,
-    capabilityPublished: capability.published, ledger
-  };
 }
 
 /**
@@ -4431,6 +4751,16 @@ export async function syncPublication(root, config, workflow) {
  */
 export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
+  const currentPolicySha256 = resolutionPolicySha256(workflow.resolution);
+  let creationPolicySha256 = null;
+  try {
+    creationPolicySha256 = committedResolutionPolicySha256(root, config, workflow.workItem.id);
+    if (creationPolicySha256 && creationPolicySha256 !== currentPolicySha256) {
+      errors.push('Resolved Story policy differs from the immutable creation commit.');
+    }
+  } catch (error) {
+    errors.push(`Story policy anchor: ${error.message}`);
+  }
   if (workflow.resolution?.configurationSource) {
     try {
       const currentSource = await readConfigurationSource(root, { verify: true });
@@ -4468,6 +4798,16 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
   let activeCount = 0;
   for (const phaseId of workflow.phaseOrder) {
     const phase = workflow.phases[phaseId]; if (!phase) { errors.push(`Missing phase ${phaseId}.`); continue; }
+    if (creationPolicySha256) {
+      const pinnedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phaseId);
+      if (!pinnedPhase) {
+        errors.push(`Phase ${phaseId} has no immutable profile snapshot.`);
+      } else if (Object.hasOwn(pinnedPhase, 'artifact')
+        && canonicalJson(currentPhasePolicy(phase))
+          !== canonicalJson(resolvedPhasePolicy(pinnedPhase, phase.order))) {
+        errors.push(`Phase ${phaseId} operational policy differs from the immutable profile snapshot.`);
+      }
+    }
     if (['in_progress', 'awaiting_approval'].includes(phase.status)) activeCount += 1;
     if (phase.status === 'approved' && !(await exists(path.join(root, requiredRepoPath(config, workflow, phase))))) errors.push(`Approved artifact missing: ${requiredRepoPath(config, workflow, phase)}`);
   }

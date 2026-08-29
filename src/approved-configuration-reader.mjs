@@ -3,9 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import YAML from 'yaml';
 import {
   isConfigurationReadPath, withConfigurationReadRoot
 } from './configuration-read-scope.mjs';
+import {
+  configurationAssetPolicy, configurationAssetSearchRoots
+} from './configuration-assets.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 
@@ -16,6 +20,19 @@ const STATE_MANIFEST = 'configuration/manifest.json';
 const STATE_FORMAT = 'singularity-flow-configuration-mirror/v2';
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
+
+function yamlAtCommit(root, commit, relative) {
+  const shown = run('git', ['show', `${commit}:${relative}`], { cwd: root, allowFailure: true });
+  if (shown.status !== 0) return {};
+  return YAML.parse(shown.stdout) ?? {};
+}
+
+function assetPolicyAtCommit(root, commit) {
+  return configurationAssetPolicy(
+    yamlAtCommit(root, commit, WORKFLOW_PATH),
+    yamlAtCommit(root, commit, 'singularity/portfolio.yml')
+  );
+}
 
 function approvedConfigurationAuthority(root) {
   const listed = run('git', [
@@ -57,13 +74,14 @@ function approvedConfigurationAuthority(root) {
     try { manifest = JSON.parse(shown.stdout); } catch { continue; }
     const files = manifest?.files;
     const assets = manifest?.assets ?? null;
+    const policy = assetPolicyAtCommit(root, commit);
     if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
       || manifest?.source?.branch !== CONFIGURATION_BRANCH
       || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
       || !files || typeof files !== 'object' || Array.isArray(files)
       || !Object.hasOwn(files, WORKFLOW_PATH)
       || Object.entries(files).some(([relative, sha]) =>
-        !isConfigurationReadPath(relative) || !/^[0-9a-f]{64}$/.test(sha))) continue;
+        !isConfigurationReadPath(relative, policy) || !/^[0-9a-f]{64}$/.test(sha))) continue;
     if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
       || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
       || Object.entries(assets).some(([relative, descriptor]) =>
@@ -115,15 +133,17 @@ function refreshApprovedConfigurationAuthority(root) {
 }
 
 async function extractConfiguration(root, authority, destination) {
+  const policy = assetPolicyAtCommit(root, authority.commit);
   const listed = run('git', [
     'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', authority.commit, '--',
-    'singularity', '.github/agents'
+    ...configurationAssetSearchRoots(policy)
   ], { cwd: root });
   const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
     const first = line.indexOf(' ');
     const second = line.indexOf(' ', first + 1);
     return { mode: line.slice(0, first), oid: line.slice(first + 1, second), file: line.slice(second + 1) };
-  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode) && isConfigurationReadPath(entry.file));
+  }).filter((entry) => /^100(?:644|755)$/.test(entry.mode)
+    && isConfigurationReadPath(entry.file, policy));
   if (!entries.some((entry) => entry.file === WORKFLOW_PATH)) {
     throw new SingularityFlowError(
       `Approved configuration ${authority.ref} does not contain ${WORKFLOW_PATH}.`,
@@ -192,6 +212,7 @@ async function extractConfiguration(root, authority, destination) {
       }
     }
   }
+  return policy;
 }
 
 /**
@@ -216,8 +237,10 @@ export async function withApprovedConfigurationRead(root, fn, { preferAuthority 
   if (!authority) return fn(null);
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-read-'));
   try {
-    await extractConfiguration(root, authority, temporaryRoot);
-    return await withConfigurationReadRoot(root, temporaryRoot, authority, () => fn(authority));
+    const assetPolicy = await extractConfiguration(root, authority, temporaryRoot);
+    return await withConfigurationReadRoot(root, temporaryRoot, authority, () => fn(authority), {
+      assetPolicy
+    });
   } finally {
     await removeTemporaryTree(temporaryRoot);
   }

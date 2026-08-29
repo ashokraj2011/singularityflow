@@ -384,7 +384,12 @@ export async function startStory(root, {
   });
   if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
   let capabilityPublication = { published: [], pending: [], error: null };
-  const rootPublication = { remote, branch: id, commit: head(root) };
+  const rootPublication = {
+    remote,
+    branch: id,
+    commit: publication.sha ?? head(root),
+    event: publication.event ?? null
+  };
   if (publication.pushed && capabilityPublications.length) {
     await retainCapabilityPublicationRecovery(
       root, id, rootPublication, capabilityPublications,
@@ -453,7 +458,12 @@ export async function startStory(root, {
   } catch (error) {
     if (workflow && capabilityPublications.length) {
       await retainCapabilityPublicationRecovery(
-        root, id, { remote, branch: id, commit: head(root) }, capabilityPublications, error,
+        root, id, {
+          remote,
+          branch: id,
+          commit: publication?.sha ?? head(root),
+          event: publication?.event ?? null
+        }, capabilityPublications, error,
         { rootPublished: publication?.pushed === true }
       ).catch(() => {});
     }

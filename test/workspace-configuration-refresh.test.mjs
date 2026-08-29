@@ -461,12 +461,108 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   // A preview-bound UI apply may also be the first operation to establish sflow/config. Its plan
   // must be checked before initialization, then remain valid across that intentional branch create.
   run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
-  const initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  let initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   assert.equal(initializePreview.results[0].status, 'would-initialize');
+
+  // The application branch is the source of a first authority. Moving it after preview must make
+  // that preview stale; otherwise apply would approve configuration bytes that were never shown.
+  const mover = path.join(root, 'application-mover');
+  run('git', ['clone', '--quiet', remote, mover]);
+  git(mover, ['config', 'user.name', 'Configuration Test']);
+  git(mover, ['config', 'user.email', 'configuration@example.test']);
+  await writeFile(path.join(mover, 'post-preview.txt'), 'move bootstrap source\n');
+  git(mover, ['add', 'post-preview.txt']);
+  git(mover, ['commit', '-m', 'Move application after refresh preview']);
+  git(mover, ['push', 'origin', 'main']);
+  const staleInitialization = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: initializePreview.planId
+  });
+  assert.equal(staleInitialization.status, 'blocked');
+  assert.equal(staleInitialization.results[0].status, 'stale-plan');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', '--verify', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 128, 'a stale preview cannot create configuration authority');
+
+  initializePreview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
   const initialized = await refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: initializePreview.planId
   });
   assert.equal(initialized.status, 'complete');
   assert.match(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config']).stdout.trim(),
     /^[a-f0-9]{40}$/);
+});
+
+test('workspace refresh mirrors and verifies configured asset roots outside conventional directories', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-custom-roots-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote } = await repositoryFixture(root, 'custom-roots');
+
+  const publisher = path.join(root, 'custom-configuration-publisher');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, publisher]);
+  git(publisher, ['config', 'user.name', 'Configuration Test']);
+  git(publisher, ['config', 'user.email', 'configuration@example.test']);
+  const workflowFile = path.join(publisher, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.templatesRoot = 'governed/templates';
+  workflow.agentPromptsRoot = 'governed/agents';
+  workflow.worldModel.outputDir = 'governed/world-model';
+  await writeFile(workflowFile, YAML.stringify(workflow));
+  await mkdir(path.join(publisher, 'governed/templates/common'), { recursive: true });
+  await mkdir(path.join(publisher, 'governed/agents'), { recursive: true });
+  await writeFile(path.join(publisher, 'governed/templates/common/custom.md'), 'custom template\n');
+  await writeFile(path.join(publisher, 'governed/agents/custom.agent.md'), 'custom agent\n');
+  git(publisher, ['add', '-A']);
+  git(publisher, ['commit', '-m', 'Configure external governed roots']);
+  git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
+
+  const statePublisher = path.join(root, 'custom-state-publisher');
+  run('git', ['init', '--initial-branch=state', statePublisher]);
+  git(statePublisher, ['config', 'user.name', 'Configuration Test']);
+  git(statePublisher, ['config', 'user.email', 'configuration@example.test']);
+  await mkdir(path.join(statePublisher, 'governed/world-model'), { recursive: true });
+  const worldModelBytes = Buffer.from('expensive custom world model: preserve exactly\n');
+  await writeFile(path.join(statePublisher, 'governed/world-model/manifest.json'), worldModelBytes);
+  git(statePublisher, ['add', '-A']);
+  git(statePublisher, ['commit', '-m', 'Seed custom world-model state']);
+  git(statePublisher, ['remote', 'add', 'origin', remote]);
+  git(statePublisher, ['push', 'origin', 'HEAD:state']);
+
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'custom-root-workspace',
+    name: 'Custom root workspace',
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'custom-root-workspace', title: 'Custom root workspace' },
+    leadRepository: 'custom-roots',
+    repositories: {
+      'custom-roots': {
+        id: 'custom-roots', url: remote, defaultBranch: 'main', required: true,
+        path: 'repos/custom-roots', role: 'lead', capabilities: []
+      }
+    }
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const applied = await refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId });
+  assert.equal(applied.status, 'complete');
+  assert.equal(applied.results[0].stateChanged, true);
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:governed/templates/common/custom.md'
+  ]).stdout, 'custom template\n');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:governed/agents/custom.agent.md'
+  ]).stdout, 'custom agent\n');
+  assert.deepEqual(run('git', [
+    '--git-dir', remote, 'show', 'state:governed/world-model/manifest.json'
+  ], { encoding: 'buffer' }).stdout, worldModelBytes);
+
+  const current = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(current.results[0].status, 'current');
+  assert.equal(current.results[0].configurationChanged, false);
+  assert.equal(current.results[0].stateChanged, false);
 });

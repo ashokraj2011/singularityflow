@@ -626,16 +626,24 @@ async function lstatOrNull(target) {
 export async function secureRepositoryPath(root, candidate, {
   label = 'Repository path',
   mustExist = false,
-  type = null
+  type = null,
+  allowFinalSymlink = false
 } = {}) {
   const relative = repoRelative(root, candidate);
   const canonicalRoot = await realpath(configurationReadRootForPath(root, relative));
   const absolute = path.resolve(canonicalRoot, relative);
   const entry = await lstatOrNull(absolute);
-  if (entry?.isSymbolicLink()) throw new SingularityFlowError(`${label} cannot be a symbolic link: ${relative}`);
+  if (entry?.isSymbolicLink() && !allowFinalSymlink) {
+    throw new SingularityFlowError(`${label} cannot be a symbolic link: ${relative}`, {
+      code: 'REPOSITORY_PATH_UNSAFE', details: { path: relative, reason: 'symbolic-link' }
+    });
+  }
 
-  let probe = entry ? absolute : path.dirname(absolute);
-  let probeEntry = entry;
+  // A final symlink may be evidence in its own right (Git tracks its link text), but its target is
+  // never repository content.  In that one mode validate the parent rather than realpath'ing the
+  // link itself.  Every ancestor is still proven below the canonical repository root.
+  let probe = entry && !entry.isSymbolicLink() ? absolute : path.dirname(absolute);
+  let probeEntry = entry && !entry.isSymbolicLink() ? entry : null;
   while (!probeEntry) {
     probeEntry = await lstatOrNull(probe);
     if (probeEntry) break;
@@ -646,12 +654,35 @@ export async function secureRepositoryPath(root, candidate, {
   const canonicalProbe = await realpath(probe);
   const probeRelative = path.relative(canonicalRoot, canonicalProbe);
   if (probeRelative.startsWith('..') || path.isAbsolute(probeRelative)) {
-    throw new SingularityFlowError(`${label} resolves outside the repository: ${relative}`);
+    throw new SingularityFlowError(`${label} resolves outside the repository: ${relative}`, {
+      code: 'REPOSITORY_PATH_UNSAFE', details: { path: relative, reason: 'outside-repository' }
+    });
   }
   if (mustExist && !entry) throw new SingularityFlowError(`${label} does not exist: ${relative}`);
   if (entry && type === 'file' && !entry.isFile()) throw new SingularityFlowError(`${label} must be a regular file: ${relative}`);
   if (entry && type === 'directory' && !entry.isDirectory()) throw new SingularityFlowError(`${label} must be a directory: ${relative}`);
   return { root: canonicalRoot, relative, absolute, exists: Boolean(entry), entry };
+}
+
+/**
+ * Create a repository-owned directory without following a pre-existing symlinked root or ancestor.
+ *
+ * The checks on both sides of mkdir close the ordinary "configured root already points outside"
+ * failure and detect a replacement that happens while the directory is being created.  Callers
+ * still write through their normal atomic writers after this guard; no outside path is accepted as
+ * a governed storage root.
+ */
+export async function ensureSecureRepositoryDirectory(root, candidate, { label = 'Repository directory' } = {}) {
+  const before = await secureRepositoryPath(root, candidate, { label });
+  if (before.exists && !before.entry?.isDirectory()) {
+    throw new SingularityFlowError(`${label} must be a directory: ${before.relative}`);
+  }
+  await mkdir(before.absolute, { recursive: true });
+  return secureRepositoryPath(root, candidate, {
+    label,
+    mustExist: true,
+    type: 'directory'
+  });
 }
 
 export function truncate(value, max = 2000) {

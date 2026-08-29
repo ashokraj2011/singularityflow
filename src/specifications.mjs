@@ -11,6 +11,7 @@ import { authoredArtifactText } from './publication-preflight.mjs';
 import {
   applicationPathContext, isApplicationChangePath, isApplicationPath
 } from './application-paths.mjs';
+import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -543,6 +544,7 @@ export function configuredAcceptanceCommandSetSha256(policy = {}, commandIds = [
 }
 
 export async function specificationSourceTreeHash(root, pathContext = null) {
+  assertNoHiddenWorktreeChanges(root, 'Specification source hashing');
   const tracked = run('git', ['ls-files', '-z', '--cached'], { cwd: root, allowFailure: true });
   const untracked = run('git', ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: root, allowFailure: true });
   if (tracked.status !== 0 || untracked.status !== 0) {
@@ -557,9 +559,20 @@ export async function specificationSourceTreeHash(root, pathContext = null) {
   ])].sort();
   const hash = createHash('sha256');
   for (const file of files) {
-    const absolute = path.join(root, file);
-    if (!existsSync(absolute)) continue;
-    const stat = await lstat(absolute);
+    const secured = await secureRepositoryPath(root, file, {
+      label: 'Specification source path',
+      allowFinalSymlink: true
+    });
+    if (!secured.exists) continue;
+    const absolute = secured.absolute;
+    const stat = secured.entry;
+    if (stat.isDirectory()) {
+      throw new SingularityFlowError(
+        `Specification source contains a checked-out or dirty Git submodule at ${file}. `
+          + 'Commit a clean submodule pointer before evaluating acceptance.',
+        { code: 'SPECIFICATION_GITLINK_DIRTY', details: { path: file } }
+      );
+    }
     const mode = stat.isSymbolicLink() ? 'symlink' : stat.mode & 0o111 ? 'executable' : 'file';
     const content = stat.isSymbolicLink() ? Buffer.from(await readlink(absolute)) : await readFile(absolute);
     hash.update(file).update('\0').update(mode).update('\0').update(content).update('\0');

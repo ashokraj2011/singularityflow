@@ -2,8 +2,9 @@ import { constants as fsConstants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { gitCommonDir, gitDir } from './git.mjs';
+import { gitCommonDir } from './git.mjs';
 import { recordSha256 } from './records.mjs';
+import { migratePublicationRescues, sharedPublicationStorageDirectory } from './publication-storage.mjs';
 import {
   exists, posix, secureRepositoryPath, SingularityFlowError, writeAtomic
 } from './util.mjs';
@@ -332,7 +333,7 @@ async function rescueBytes(directory, depth = 0) {
 }
 
 async function pruneRescues(root, subject, incomingBytes) {
-  const parent = path.join(gitDir(root), 'singularity-flow', 'publication-rescues');
+  const parent = await migratePublicationRescues(root);
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const prefix = `${safeId(subject.kind)}--${safeId(subject.id)}--`;
   const entries = [];
@@ -379,7 +380,7 @@ async function preserveInterruptedBytes(root, subject, snapshot) {
   const bytes = snapshotBytes(snapshot);
   await pruneRescues(root, subject, bytes);
   const directory = path.join(
-    gitDir(root), 'singularity-flow', 'publication-rescues',
+    sharedPublicationStorageDirectory(root, 'publication-rescues'),
     `${safeId(subject.kind)}--${safeId(subject.id)}--${Date.now()}--${randomUUID()}`
   );
   await mkdir(directory, { recursive: true, mode: 0o700 });

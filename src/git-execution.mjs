@@ -9,8 +9,9 @@
  */
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText,
-  sanitizeRemote
+  frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn } from 'node:child_process';
 import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
@@ -48,6 +49,30 @@ const timeoutFor = (operation, env) => {
   return timeouts.configuration;
 };
 
+const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']);
+
+/**
+ * Count only closed-vocabulary transport facts. Arguments may contain credentials, repository
+ * paths, refs, and Work IDs, so they must never become timing keys or values.
+ */
+function recordRemoteGitInvocation(args, operation) {
+  incrementCommandCounter('git.remote.total');
+  const operationName = String(operation ?? '').replace(/^remote-/, '');
+  if (['probe', 'configuration', 'push'].includes(operationName)) {
+    incrementCommandCounter(`git.remote.operation.${operationName}`);
+  }
+  const verb = (args ?? []).find((candidate) => REMOTE_GIT_VERBS.has(String(candidate)));
+  if (verb) incrementCommandCounter(`git.remote.command.${verb}`);
+}
+
+function recordRemoteGitOutcome(result) {
+  if (result?.timedOut === true) incrementCommandCounter('git.remote.outcome.timeout');
+  if (result?.outputOverflow === true) incrementCommandCounter('git.remote.outcome.output-overflow');
+  if (result?.status !== 0 || result?.outputOverflow === true) {
+    incrementCommandCounter('git.remote.outcome.failure');
+  }
+}
+
 function throwRemoteFailure(observed) {
   const { failure, operation, timedOut, outputOverflow } = observed;
   throw new SingularityFlowError(
@@ -80,6 +105,7 @@ export function runRemoteGit(args, {
   runCommand = run,
   maxBuffer = undefined
 } = {}) {
+  recordRemoteGitInvocation(args, operation);
   if (networkDisabled(env)) {
     const blocked = {
       status: 1, stdout: '', stderr: '', error: undefined,
@@ -87,6 +113,7 @@ export function runRemoteGit(args, {
     };
     const failure = classifyGitRemoteFailure(blocked);
     const observed = { ...blocked, failure, operation, timeoutMs };
+    recordRemoteGitOutcome(observed);
     if (!allowFailure) throwRemoteFailure(observed);
     return observed;
   }
@@ -99,6 +126,7 @@ export function runRemoteGit(args, {
   });
   const failure = result.status === 0 ? null : classifyGitRemoteFailure(result);
   const observed = { ...result, failure, operation, timeoutMs };
+  recordRemoteGitOutcome(observed);
   if (result.status !== 0 && !allowFailure) throwRemoteFailure(observed);
   return observed;
 }
@@ -120,6 +148,7 @@ export async function runRemoteGitAsync(args, {
       runCommand() { throw new Error('offline Git execution must not spawn'); }
     });
   }
+  recordRemoteGitInvocation(args, operation);
   const result = signal?.aborted
     ? { status: 1, stdout: '', stderr: '', error: signal.reason, timedOut: false, aborted: true }
     : await new Promise((resolve) => {
@@ -187,6 +216,7 @@ export async function runRemoteGitAsync(args, {
     ? null
     : classifyGitRemoteFailure(result);
   const observed = { ...result, failure, operation, timeoutMs };
+  recordRemoteGitOutcome(observed);
   if ((result.status !== 0 || result.outputOverflow) && !allowFailure) throwRemoteFailure(observed);
   return observed;
 }
@@ -204,15 +234,51 @@ function advertisedRefs(stdout) {
   return refs;
 }
 
+function observationPatterns({ refs = [], includeHead = true, includeAllHeads = false } = {}) {
+  return [...new Set([
+    ...(includeHead ? ['HEAD'] : []),
+    ...refs.map((ref) => String(ref).trim()).filter(Boolean),
+    ...(includeAllHeads ? ['refs/heads/*'] : [])
+  ])];
+}
+
+function remoteObservation(url, patterns, result) {
+  const refsByName = advertisedRefs(result.stdout);
+  return Object.freeze({
+    ok: result.status === 0,
+    remote: sanitizeRemote(url),
+    defaultBranch: result.status === 0 ? symrefBranch(result.stdout) : null,
+    refs: refsByName,
+    branches: [...refsByName.keys()].filter((ref) => ref.startsWith('refs/heads/'))
+      .map((ref) => ref.slice('refs/heads/'.length)).sort(),
+    includedHead: patterns.includes('HEAD'),
+    patterns: Object.freeze([...patterns]),
+    failure: result.failure,
+    timedOut: result.timedOut === true,
+    result
+  });
+}
+
 /**
  * A per-operation observation cache. Mutations construct a fresh session and explicitly invalidate
  * it after a successful push; no remote fact is cached across CLI invocations or authority changes.
  */
 export class GitRemoteSession {
-  constructor({ env = process.env, runCommand = run } = {}) {
+  constructor({
+    env = process.env, runCommand = run, runAsyncCommand = runRemoteGitAsync
+  } = {}) {
     this.env = env;
     this.runCommand = runCommand;
+    this.runAsyncCommand = runAsyncCommand;
     this.observations = new Map();
+    this.pendingObservations = new Map();
+    this.observationGenerations = new Map();
+  }
+
+  nextObservationGeneration(key) {
+    const generation = (this.observationGenerations.get(key) ?? 0) + 1;
+    this.observationGenerations.set(key, generation);
+    return generation;
   }
 
   observe(remote, {
@@ -220,37 +286,81 @@ export class GitRemoteSession {
     timeoutMs = gitTimeouts(this.env).probe
   } = {}) {
     const url = assertCredentialFreeRemote(remote);
-    const patterns = [...new Set([
-      ...(includeHead ? ['HEAD'] : []),
-      ...refs.map((ref) => String(ref).trim()).filter(Boolean),
-      ...(includeAllHeads ? ['refs/heads/*'] : [])
-    ])];
+    const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
     if (!refresh && this.observations.has(key)) return this.observations.get(key);
-    const result = runRemoteGit(['ls-remote', '--symref', '--', url, ...patterns], {
-      operation: 'remote-probe', timeoutMs, env: this.env,
+    const generation = this.nextObservationGeneration(key);
+    const pending = this.pendingObservations.get(key);
+    if (pending) pending.invalidated = true;
+    const transport = frozenRemoteTransport(url, { env: this.env });
+    const result = runRemoteGit(['ls-remote', '--symref', '--', transport.remote, ...patterns], {
+      operation: 'remote-probe', timeoutMs, env: transport.env,
       runCommand: this.runCommand, allowFailure: true
     });
-    const refsByName = advertisedRefs(result.stdout);
-    const observation = Object.freeze({
-      ok: result.status === 0,
-      remote: sanitizeRemote(url),
-      defaultBranch: result.status === 0 ? symrefBranch(result.stdout) : null,
-      refs: refsByName,
-      branches: [...refsByName.keys()].filter((ref) => ref.startsWith('refs/heads/'))
-        .map((ref) => ref.slice('refs/heads/'.length)).sort(),
-      failure: result.failure,
-      timedOut: result.timedOut === true,
-      result
-    });
-    this.observations.set(key, observation);
+    const observation = remoteObservation(url, patterns, result);
+    if (this.observationGenerations.get(key) === generation) {
+      this.observations.set(key, observation);
+    }
     return observation;
   }
 
+  /** Async equivalent for independent repository fan-out, sharing the exact same cache contract. */
+  async observeAsync(remote, {
+    refs = [], includeHead = true, includeAllHeads = false, refresh = false,
+    timeoutMs = gitTimeouts(this.env).probe, signal = null
+  } = {}) {
+    const url = assertCredentialFreeRemote(remote);
+    const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
+    const key = JSON.stringify([url, patterns]);
+    if (!refresh && this.observations.has(key)) return this.observations.get(key);
+    if (!refresh && this.pendingObservations.has(key)) {
+      return this.pendingObservations.get(key).promise;
+    }
+    const generation = this.nextObservationGeneration(key);
+    const pendingState = {
+      remoteIdentity: url, promise: null, invalidated: false, generation
+    };
+    const pending = (async () => {
+      const transport = frozenRemoteTransport(url, { env: this.env });
+      const result = await this.runAsyncCommand(
+        ['ls-remote', '--symref', '--', transport.remote, ...patterns],
+        {
+          operation: 'remote-probe', timeoutMs, env: transport.env,
+          allowFailure: true, signal
+        }
+      );
+      const observation = remoteObservation(url, patterns, result);
+      // A successful mutation can invalidate this remote while an older observation is still in
+      // flight. The awaiting caller may use the result it explicitly requested, but that stale
+      // result must never repopulate the operation cache after the mutation boundary.
+      if (!pendingState.invalidated
+        && this.observationGenerations.get(key) === pendingState.generation) {
+        this.observations.set(key, observation);
+      }
+      return observation;
+    })();
+    pendingState.promise = pending;
+    this.pendingObservations.set(key, pendingState);
+    try {
+      return await pending;
+    } finally {
+      if (this.pendingObservations.get(key)?.promise === pending) this.pendingObservations.delete(key);
+    }
+  }
+
   invalidate(remote) {
-    const safe = sanitizeRemote(remote);
-    for (const [key, observation] of this.observations) {
-      if (observation.remote === safe) this.observations.delete(key);
+    const remoteIdentity = assertCredentialFreeRemote(remote);
+    for (const key of this.observations.keys()) {
+      let observedRemote = null;
+      try { [observedRemote] = JSON.parse(key); } catch { /* an invalid private key is unrelated */ }
+      if (observedRemote === remoteIdentity) this.observations.delete(key);
+    }
+    for (const [key, pending] of this.pendingObservations) {
+      if (pending.remoteIdentity === remoteIdentity) {
+        pending.invalidated = true;
+        this.nextObservationGeneration(key);
+        this.pendingObservations.delete(key);
+      }
     }
   }
 }

@@ -23,6 +23,8 @@ export const SNAPSHOT_TIMEOUT_MS = 120_000;
 export const WORLD_MODEL_TIMEOUT_MS = 15 * 60_000;
 /** Remote capability authority may establish or review configuration on a very large monorepo. */
 export const CAPABILITY_AUTHORITY_TIMEOUT_MS = 15 * 60_000;
+/** Workspace materialization may consume several independently bounded Git clone/fetch waves. */
+export const WORKSPACE_MUTATION_TIMEOUT_MS = 30 * 60_000;
 /** Starting governed work may fetch, materialize, commit, and publish several repositories. */
 export const WORK_START_TIMEOUT_MS = 15 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
@@ -219,13 +221,21 @@ function terminalQuote(value: string, platform: NodeJS.Platform): string {
 export function terminalCommand(
   repository: string,
   args: readonly string[],
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  runtime: { executable: string; cli: string } | null = null
 ): string {
-  const quoted = args.map((argument) => terminalQuote(argument, platform)).join(' ');
+  // The extension commonly runs the engine bundled inside the VSIX, where no `singularity-flow`
+  // launcher exists on PATH. A timeout recovery advertised as exact must therefore carry the same
+  // executable and CLI path that were actually spawned. Keep the launcher form only as the public
+  // helper's backwards-compatible default for manually constructed commands.
+  const invocation = runtime
+    ? [runtime.executable, runtime.cli, ...args]
+    : ['singularity-flow', ...args];
+  const quoted = invocation.map((argument) => terminalQuote(argument, platform)).join(' ');
   if (platform === 'win32') {
-    return `Set-Location -LiteralPath ${terminalQuote(repository, platform)}; & 'singularity-flow'${quoted ? ` ${quoted}` : ''}`;
+    return `Set-Location -LiteralPath ${terminalQuote(repository, platform)}; & ${quoted}`;
   }
-  return `cd ${terminalQuote(repository, platform)} && 'singularity-flow'${quoted ? ` ${quoted}` : ''}`;
+  return `cd ${terminalQuote(repository, platform)} && ${quoted}`;
 }
 
 /** A timeout carries the exact invocation so every UI can offer deterministic recovery. */
@@ -589,7 +599,10 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     }
 
     timer = setTimeout(() => {
-      terminate(new CliTimeoutError(timeoutMs, terminalCommand(repository, args)), 'error');
+      terminate(new CliTimeoutError(
+        timeoutMs,
+        terminalCommand(repository, args, process.platform, { executable, cli })
+      ), 'error');
     }, timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
 

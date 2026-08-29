@@ -9,12 +9,14 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, ensureConfigurationBranch,
+  configurationBranchHead,
   configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
   loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
   resolveStoryConfigurationAuthority,
   STATE_CONFIGURATION_MANIFEST
 } from '../src/configuration-branch.mjs';
+import { GitRemoteSession } from '../src/git-execution.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
@@ -212,6 +214,24 @@ test('configuration authority is bootstrapped without changing application histo
       'cat-file', '-e', `${CONFIGURATION_BRANCH}:singularity/work-items/OLD-1/workflow.json`
     ], { cwd: fixture.remote, allowFailure: true }).status, 0, 'runtime state is never imported as configuration');
     assert.equal((await ensureConfigurationBranch(fixture.remote)).created, false, 'bootstrap is idempotent');
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('configuration bootstrap invalidates a reusable remote session after publishing the new branch', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    const session = new GitRemoteSession();
+    assert.equal(configurationBranchHead(fixture.remote, { session }).exists, false,
+      'the shared session begins with a cached absent-branch observation');
+
+    const created = await ensureConfigurationBranch(fixture.remote, { remoteSession: session });
+    assert.equal(created.created, true);
+    const observed = configurationBranchHead(fixture.remote, { session });
+    assert.equal(observed.exists, true,
+      'a successful bootstrap invalidates the negative observation before returning');
+    assert.equal(observed.sha, created.commit);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

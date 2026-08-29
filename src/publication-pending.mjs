@@ -1,7 +1,8 @@
 import path from 'node:path';
 import os from 'node:os';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
-import { readdir, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
   branch, changes, commitIsAncestor, gitCommonDir, governedCommitIdentity, head, remoteContains
 } from './git.mjs';
@@ -13,7 +14,7 @@ import {
 } from './publication-journal.mjs';
 import { bindLifecycleEvent } from './lifecycle-event.mjs';
 import { recordSha256 } from './records.mjs';
-import { exists, readJson, writeJson } from './util.mjs';
+import { exists, readJson, SingularityFlowError, writeJson } from './util.mjs';
 import { subjectRef } from './subject-ref.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
@@ -24,6 +25,65 @@ import {
 } from './publication-storage.mjs';
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
+const PENDING_INTEGRITY_SCHEME = 'machine-local-hmac-sha256-v1';
+
+function pendingIntegrityKeyPath(root) {
+  return path.join(gitCommonDir(root), 'singularity-flow', 'pending-publication-integrity.key');
+}
+
+async function pendingIntegrityKey(root, { create = false } = {}) {
+  const target = pendingIntegrityKeyPath(root);
+  try {
+    const key = Buffer.from((await readFile(target, 'utf8')).trim(), 'base64');
+    return key.length === 32 ? key : null;
+  } catch (error) {
+    if (error?.code !== 'ENOENT' || !create) return null;
+  }
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  const encoded = randomBytes(32).toString('base64');
+  try { await writeFile(target, `${encoded}\n`, { mode: 0o600, flag: 'wx' }); }
+  catch (error) { if (error?.code !== 'EEXIST') throw error; }
+  const key = Buffer.from((await readFile(target, 'utf8')).trim(), 'base64');
+  return key.length === 32 ? key : null;
+}
+
+function pendingIntegrityPayload(record) {
+  const { recoveryIntegrity: _integrity, ...payload } = record ?? {};
+  return `sha256:${recordSha256(payload)}`;
+}
+
+async function sealPendingPublication(root, record) {
+  const key = await pendingIntegrityKey(root, { create: true });
+  if (!key) throw new SingularityFlowError('Pending-publication integrity key is unavailable.');
+  const payload = pendingIntegrityPayload(record);
+  return {
+    ...record,
+    recoveryIntegrity: {
+      scheme: PENDING_INTEGRITY_SCHEME,
+      keyId: createHash('sha256').update(key).digest('hex').slice(0, 16),
+      mac: `sha256:${createHmac('sha256', key).update(payload).digest('hex')}`
+    }
+  };
+}
+
+export async function verifyPendingPublicationIntegrity(root, record) {
+  const integrity = record?.recoveryIntegrity;
+  const key = await pendingIntegrityKey(root);
+  if (!key || integrity?.scheme !== PENDING_INTEGRITY_SCHEME
+    || integrity.keyId !== createHash('sha256').update(key).digest('hex').slice(0, 16)
+    || !/^sha256:[0-9a-f]{64}$/.test(integrity.mac ?? '')) return false;
+  const expected = Buffer.from(
+    createHmac('sha256', key).update(pendingIntegrityPayload(record)).digest('hex'), 'hex'
+  );
+  const actual = Buffer.from(integrity.mac.slice('sha256:'.length), 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function writeSealedPendingPublication(root, target, record) {
+  await writeJson(target, await sealPendingPublication(
+    root, stampCurrentRecord(PENDING_PUBLICATION_FAMILY, record)
+  ));
+}
 
 function safeId(id) {
   return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
@@ -79,10 +139,12 @@ function legacyCandidates(root, { kind, id, legacyPath = null, roots = {} } = {}
 
 function recoveryRecord(journal, updates = {}) {
   return {
+    ...(journal.pendingMetadata ?? {}),
     schemaVersion: currentSchemaVersion(PENDING_PUBLICATION_FAMILY),
     subject: journal.subject,
     branch: journal.branch,
     remote: journal.remote,
+    remoteFingerprint: journal.remoteFingerprint ?? null,
     commit: journal.commit ?? null,
     event: journal.commit ? bindLifecycleEvent(journal.event, journal.commit) : journal.event,
     transactionId: journal.transactionId ?? null,
@@ -90,6 +152,10 @@ function recoveryRecord(journal, updates = {}) {
     eventSha256: journal.eventSha256 ?? null,
     stateSha256: journal.stateSha256 ?? null,
     publicationMode: journal.publicationMode ?? null,
+    pushOutcome: journal.pushOutcome ?? 'not-attempted',
+    ...(journal.expectedRemoteSha !== undefined
+      ? { expectedRemoteSha: journal.expectedRemoteSha }
+      : {}),
     createdAt: journal.createdAt,
     ...updates
   };
@@ -162,12 +228,24 @@ export function verifyPendingPublicationCommit(root, record, {
   if (record.subject?.branch && record.subject.branch !== record.branch) failures.push('subject branch does not match the publication branch');
   if (!String(record.remote ?? '').trim()) failures.push('publication remote is missing');
   if (expectedRemote && record.remote !== expectedRemote) failures.push('publication remote does not match the configured remote');
+  if (record.remoteFingerprint != null
+    && !/^[0-9a-f]{64}$/.test(record.remoteFingerprint)) failures.push('publication remote fingerprint is invalid');
   if (!fullObjectId(record.commit)) failures.push('commit is not a full lowercase Git object ID');
   if (!fullObjectId(record.tree)) failures.push('tree is not a full lowercase Git object ID');
   if (!String(record.transactionId ?? '').trim()) failures.push('transaction ID is missing');
   if (!sha256Digest(record.eventSha256)) failures.push('event digest is invalid');
   if (!sha256Digest(record.stateSha256)) failures.push('state digest is invalid');
   if (!publicationModes.includes(record.publicationMode)) failures.push('publication mode is invalid');
+  const pushOutcomes = ['not-attempted', 'rejected', 'transport-indeterminate'];
+  if (record.pushOutcome !== undefined && !pushOutcomes.includes(record.pushOutcome)) {
+    failures.push('push outcome is invalid');
+  }
+  if (record.expectedRemoteSha === null && !pushOutcomes.includes(record.pushOutcome)) {
+    failures.push('create-only publication is missing its push outcome');
+  }
+  if (record.expectedRemoteSha !== undefined
+    && record.expectedRemoteSha !== null
+    && !fullObjectId(record.expectedRemoteSha)) failures.push('expected remote commit is invalid');
   if (!record.event || typeof record.event !== 'object' || Array.isArray(record.event)) {
     failures.push('bound lifecycle event is missing');
   } else {
@@ -217,7 +295,11 @@ export function verifyPendingPublicationCommit(root, record, {
         branch: record.branch,
         tree: record.tree,
         eventSha256: record.eventSha256,
-        publicationMode: record.publicationMode
+        publicationMode: record.publicationMode,
+        ...(record.remoteFingerprint ? { remoteFingerprint: record.remoteFingerprint } : {}),
+        ...(record.expectedRemoteSha !== undefined
+          ? { expectedRemoteSha: record.expectedRemoteSha }
+          : {})
       })}`;
       if (record.stateSha256 !== stateSha256) failures.push('state digest does not match the governed transaction identity');
     }
@@ -236,6 +318,7 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
   const shared = await sharedPendingPublication(root, kind, id, { migrate });
   if (shared) return {
     path: shared.path, record: shared.value, migrated: shared.migrated,
+    integrityVerified: await verifyPendingPublicationIntegrity(root, shared.value),
     ...(shared.migratedFrom?.length ? { migratedFrom: shared.migratedFrom } : {})
   };
   const subject = { kind, id };
@@ -297,7 +380,12 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return null;
     }
-    if (remoteContains(root, recorded.commit, recorded.remote, recorded.branch)) {
+    // A create-only publication cannot infer ownership from reachability. Another actor may have
+    // created the same ref (or a descendant) while this process was down. Always materialize its
+    // receipt so sync can distinguish an in-flight transport from a known rejection and compare the
+    // exact remote tip rather than accepting ancestry.
+    if (recorded.expectedRemoteSha !== null
+      && remoteContains(root, recorded.commit, recorded.remote, recorded.branch)) {
       if (migrate) await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
       return null;
     }
@@ -309,11 +397,18 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
       await prepareSharedPublicationStorage(
         root, 'pending-publication', `Pending publication for ${kind} '${id}'`
       );
-      await writeJson(local, record);
+      await writeSealedPendingPublication(root, local, record);
       await clearPublicationJournal(root, subject, { transactionId: recorded.transactionId });
-      return { path: local, record, migrated: true, migratedFrom: journal.path };
+      const sealed = readRecord(PENDING_PUBLICATION_FAMILY, await readJson(local)).record;
+      return {
+        path: local, record: sealed, migrated: true, migratedFrom: journal.path,
+        integrityVerified: true
+      };
     }
-    return { path: journal.path, record, migrated: false, journal: true, journalRecord: journal.record };
+    return {
+      path: journal.path, record, migrated: false, journal: true, journalRecord: journal.record,
+      integrityVerified: true
+    };
   }
   for (const legacy of legacyCandidates(root, { kind, id, legacyPath, roots })) {
     if (!(await exists(legacy))) continue;
@@ -325,9 +420,13 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
     await prepareSharedPublicationStorage(
       root, 'pending-publication', `Pending publication for ${kind} '${id}'`
     );
-    await writeJson(local, record);
+    await writeSealedPendingPublication(root, local, record);
     await unlink(legacy);
-    return { path: local, record, migrated: true, migratedFrom: legacy };
+    const sealed = readRecord(PENDING_PUBLICATION_FAMILY, await readJson(local)).record;
+    return {
+      path: local, record: sealed, migrated: true, migratedFrom: legacy,
+      integrityVerified: true
+    };
   }
   return null;
 }
@@ -372,7 +471,7 @@ export async function writePendingPublication(root, { kind, id, record } = {}) {
     root, 'pending-publication', `Pending publication for ${kind} '${id}'`
   );
   const target = localPendingPublicationPath(root, kind, id);
-  await writeJson(target, stampCurrentRecord(PENDING_PUBLICATION_FAMILY, record));
+  await writeSealedPendingPublication(root, target, record);
   return target;
 }
 

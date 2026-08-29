@@ -30,6 +30,7 @@ export interface IntakeTarget {
   workspace: string | null;
   repository: string;
   branch: string | null;
+  inFlight: InFlight[];
   defaults?: IntakeDefaults;
   journey?: StartWizardProgress | null;
 }
@@ -41,6 +42,34 @@ export interface IntakeDefaults {
   summary?: string | null;
 }
 
+/** Project the store's already-fresh lifecycle slice into the compact rows Intake renders. */
+export function intakeInFlight(snapshot: {
+  initiatives?: { id?: string; title?: string; status?: string; currentPhaseLabel?: string | null }[];
+  workItems?: {
+    id?: string; title?: string; status?: string; workType?: string; currentPhase?: string | null;
+  }[];
+} | null | undefined): InFlight[] {
+  const where = (status?: string, phase?: string | null): string =>
+    (phase ? `${status ?? 'in progress'} · ${phase}` : status ?? 'in progress');
+  const completed = (status?: string): boolean =>
+    ['complete', 'completed'].includes(status?.toLowerCase() ?? '');
+  const initiatives = (snapshot?.initiatives ?? []).filter((entry) => entry.id).map((entry) => ({
+    shape: 'initiative' as Shape,
+    id: entry.id!,
+    title: entry.title ?? entry.id!,
+    status: where(entry.status, entry.currentPhaseLabel),
+    completed: completed(entry.status)
+  }));
+  const items = (snapshot?.workItems ?? []).filter((entry) => entry.id).map((entry) => ({
+    shape: (entry.workType === 'epic' ? 'epic' : 'story') as Shape,
+    id: entry.id!,
+    title: entry.title ?? entry.id!,
+    status: where(entry.status, entry.currentPhase),
+    completed: completed(entry.status)
+  }));
+  return [...initiatives, ...items];
+}
+
 export class IntakePanel {
   private static current: IntakePanel | null = null;
 
@@ -50,10 +79,13 @@ export class IntakePanel {
   private readonly onStarted: (started: Started) => Promise<void>;
   private readonly defaults: IntakeDefaults;
   private readonly journey: StartWizardProgress | null;
+  private readonly inFlight: InFlight[];
   private readonly disposables: vscode.Disposable[] = [];
   private form: IntakeForm;
   private preflightVersion = 0;
   private preflightController: AbortController | null = null;
+  private trackerChosen = false;
+  private disposed = false;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -68,6 +100,7 @@ export class IntakePanel {
     this.onStarted = onStarted;
     this.defaults = target.defaults ?? {};
     this.journey = target.journey ?? null;
+    this.inFlight = target.inFlight;
     this.form = {
       ...EMPTY_INTAKE_FORM,
       targetWorkspace: target.workspace,
@@ -130,6 +163,7 @@ export class IntakePanel {
   }
 
   private update(changes: Partial<IntakeForm>): void {
+    if (this.disposed) return;
     this.form = {
       ...this.form,
       ...(Object.hasOwn(changes, 'error') && changes.error === null ? { recoveryCommand: null } : {}),
@@ -144,121 +178,86 @@ export class IntakePanel {
   }
 
   /**
-   * What the repository actually offers: its profiles, whether a tracker is
-   * configured, and what is already under way.
+   * What the repository actually offers, resolved by one governed engine command.
    *
-   * Each is separately best effort, so a temporarily unavailable tracker does not stop local work.
+   * The Store already owns the fresh lifecycle projection used for `inFlight`. Profiles, installed
+   * Story workflows and remote base branches share this aggregate process; Jira is an optional
+   * network integration and is probed only after the local form can render.
    */
   private async load(): Promise<void> {
-    const [profiles, storyWorkflows, tracker, inFlight, baseBranches] = await Promise.all([
-      this.profiles(), this.storyWorkflows(), this.tracker(), this.inFlight(), this.baseBranches()
-    ]);
-    this.update({
-      profiles,
-      // Defaulted so the form is not blocked on a choice with one sensible answer, but still shown,
-      // because it decides the phases for the life of the work.
-      profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
-      storyWorkflows: storyWorkflows.workflows,
-      // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
-      // click; multiple custom workflows remain an explicit, visible choice in the form.
-      workType: storyWorkflows.workflows.find((entry) => entry.id === this.defaults.workType)?.id
-        ?? storyWorkflows.workflows.find((entry) => entry.id === 'feature')?.id
-        ?? storyWorkflows.workflows[0]?.id ?? null,
-      workflowReason: storyWorkflows.reason,
-      baseBranchChoices: baseBranches.choices,
-      // A Story base is an explicit, permanent choice. Even one available branch must be selected.
-      baseBranch: null,
-      baseRemote: baseBranches.remote,
-      baseBranchReason: baseBranches.reason,
-      basePreflightPassed: false,
-      basePreflightChecking: false,
-      basePreflightReason: null,
-      jiraConfigured: tracker.configured,
-      jiraReason: tracker.reason,
-      githubConfigured: true,
-      githubReason: null,
-      // A tracker that is configured is almost always the one being used, so it leads — but "no
-      // tracker" stays a real answer rather than a fallback.
-      tracker: this.defaults.source === 'github-issue' ? 'github'
-        : this.defaults.source === 'manual' ? 'none'
-          : tracker.configured ? 'jira' : 'none',
-      inFlight
-    });
-  }
-
-  private async profiles(): Promise<ProfileChoice[]> {
     try {
       const listed = await this.client.run<{
-        id?: string; label?: string; description?: string; phases?: string[];
-      }[]>(['initiative', 'profiles', '--json']);
-      return listed.filter((entry) => entry.id).map((entry) => ({
+        choices?: BaseBranchChoice[];
+        remote?: string;
+        unreachable?: { repository: string }[];
+        intake?: {
+          profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
+          profileReason?: string | null;
+          storyWorkflows?: {
+            id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
+            installed?: boolean;
+          }[];
+          workflowReason?: string | null;
+        };
+      }>(['workspace', 'branches', '--json', '--intake']);
+      const profiles: ProfileChoice[] = (listed.intake?.profiles ?? []).filter((entry) => entry.id).map((entry) => ({
         id: entry.id!,
         label: entry.label ?? entry.id!,
         description: entry.description ?? '',
         phases: entry.phases ?? []
       }));
-    } catch (error) {
-      this.output.appendLine(`No delivery profiles could be read: ${(error as Error).message}`);
-      return [];
-    }
-  }
-
-  /** Story workflows come from workflow.yml through the engine's unified workflow catalog. */
-  /**
-   * The base branches the capability's repositories publish.
-   *
-   * A separate call rather than a snapshot field: it is several `ls-remote` round trips, and the
-   * snapshot is read on every refresh. Failure is a reason string, not an error — a repository
-   * outside a workspace, or one whose capability is undeclared, is a supported way to work and the
-   * form must still open.
-   */
-  private async baseBranches(): Promise<{
-    choices: BaseBranchChoice[]; remote: string | null; reason: string | null;
-  }> {
-    try {
-      const listed = await this.client.run<{
-        choices?: BaseBranchChoice[]; remote?: string; unreachable?: { repository: string }[];
-      }>(['workspace', 'branches', '--json']);
+      const storyWorkflows: ProfileChoice[] = (listed.intake?.storyWorkflows ?? []).filter((entry) =>
+        entry.id && entry.governs === 'story' && entry.installed !== false).map((entry) => ({
+        id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
+        phases: entry.phases ?? []
+      }));
       const unreachable = listed.unreachable ?? [];
-      return {
-        choices: (listed.choices ?? []).filter((choice) => choice.everywhere),
-        remote: listed.remote ?? null,
+      if (listed.intake?.profileReason) {
+        this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
+      }
+      this.update({
+        profiles,
+        // Defaulted so the form is not blocked on a choice with one sensible answer, but still
+        // shown, because it decides the phases for the life of the work.
+        profile: profiles.find((entry) => entry.id === 'epic-planning')?.id ?? profiles[0]?.id ?? null,
+        storyWorkflows,
+        // `feature` is the familiar starter workflow. A repository with one workflow needs no extra
+        // click; multiple custom workflows remain an explicit, visible choice in the form.
+        workType: storyWorkflows.find((entry) => entry.id === this.defaults.workType)?.id
+          ?? storyWorkflows.find((entry) => entry.id === 'feature')?.id
+          ?? storyWorkflows[0]?.id ?? null,
+        workflowReason: listed.intake?.workflowReason
+          ? `Could not load Story workflows: ${listed.intake.workflowReason}` : null,
+        baseBranchChoices: (listed.choices ?? []).filter((choice) => choice.everywhere),
+        // A Story base is an explicit, permanent choice. Even one available branch must be selected.
+        baseBranch: null,
+        baseRemote: listed.remote ?? null,
         // Named, because a branch missing from the list because a remote was unreachable looks
         // exactly like a branch that does not exist.
-        reason: unreachable.length
+        baseBranchReason: unreachable.length
           ? `Could not read ${unreachable.map((entry) => entry.repository).join(', ')}. Remote access is required before starting a Story.`
-          : null
-      };
+          : null,
+        basePreflightPassed: false,
+        basePreflightChecking: false,
+        basePreflightReason: null,
+        githubConfigured: true,
+        githubReason: null,
+        inFlight: this.inFlight
+      });
     } catch (error) {
-      return { choices: [], remote: null, reason: (error as Error).message };
+      const reason = (error as Error).message;
+      this.output.appendLine(`Intake catalog could not be read: ${reason}`);
+      this.update({
+        profiles: [], profile: null, storyWorkflows: [], workType: null,
+        workflowReason: `Could not load Story workflows: ${reason}`,
+        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason,
+        basePreflightPassed: false, basePreflightChecking: false, basePreflightReason: null,
+        inFlight: this.inFlight
+      });
     }
-  }
-
-  private async storyWorkflows(): Promise<{ workflows: ProfileChoice[]; reason: string | null }> {
-    try {
-      const listed = await this.client.run<{
-        id?: string; label?: string; description?: string; phases?: string[]; governs?: string;
-        installed?: boolean;
-      }[]>(['workflow', 'list', '--json', '--for-start']);
-      return {
-        // `workflow list` is intentionally a catalog: it includes packaged workflows that could be
-        // installed as well as workflows present in the approved repository definition. Intake is
-        // different. It may offer only profiles that Story start can pin. Treating an `available`
-        // catalog row as selectable let the form submit (for example) `spec-driven-standard`, then
-        // fail after Story start materialized the approved configuration because that profile did
-        // not exist there.
-        workflows: listed.filter((entry) =>
-          entry.id && entry.governs === 'story' && entry.installed !== false).map((entry) => ({
-          id: entry.id!, label: entry.label ?? entry.id!, description: entry.description ?? '',
-          phases: entry.phases ?? []
-        })),
-        reason: null
-      };
-    } catch (error) {
-      const reason = `Could not load Story workflows: ${(error as Error).message}`;
-      this.output.appendLine(reason);
-      return { workflows: [], reason };
-    }
+    // Jira is an optional external integration. Do not make its cold process or network probe part
+    // of the form's critical path; its result updates only the tracker controls when it arrives.
+    void this.loadTracker();
   }
 
   /**
@@ -268,50 +267,27 @@ export class IntakePanel {
    * message naming the exact environment variables to set. Reporting that verbatim is more use than
    * "not configured", which tells somebody they have a problem and not how to end it.
    */
+  private async loadTracker(): Promise<void> {
+    const tracker = await this.tracker();
+    let selection = this.form.tracker;
+    if (!this.trackerChosen) {
+      selection = this.defaults.source === 'github-issue' ? 'github'
+        : this.defaults.source === 'manual' ? 'none'
+          : tracker.configured ? 'jira' : 'none';
+    }
+    this.update({
+      jiraConfigured: tracker.configured,
+      jiraReason: tracker.reason,
+      tracker: selection
+    });
+  }
+
   private async tracker(): Promise<{ configured: boolean; reason: string | null }> {
     try {
       await this.client.run<unknown>(['jira', 'status', '--json']);
       return { configured: true, reason: null };
     } catch (error) {
       return { configured: false, reason: (error as Error).message };
-    }
-  }
-
-  /**
-   * What is already started.
-   *
-   * Starting the same thing twice is the mistake this prevents, and it is only preventable if the
-   * screen that starts things knows what has been started.
-   */
-  private async inFlight(): Promise<InFlight[]> {
-    try {
-      const snapshot = await this.client.run<{
-        initiatives?: { id?: string; title?: string; status?: string; currentPhaseLabel?: string | null }[];
-        workItems?: {
-          id?: string; title?: string; status?: string; workType?: string; currentPhase?: string | null;
-        }[];
-      }>(['snapshot', '--json']);
-      // The phase is the useful half of "in progress", so it is said when there is one.
-      const where = (status?: string, phase?: string | null): string =>
-        (phase ? `${status ?? 'in progress'} · ${phase}` : status ?? 'in progress');
-      const completed = (status?: string): boolean => ['complete', 'completed'].includes(status?.toLowerCase() ?? '');
-      const initiatives = (snapshot.initiatives ?? []).filter((entry) => entry.id).map((entry) => ({
-        shape: 'initiative' as Shape,
-        id: entry.id!,
-        title: entry.title ?? entry.id!,
-        status: where(entry.status, entry.currentPhaseLabel),
-        completed: completed(entry.status)
-      }));
-      const items = (snapshot.workItems ?? []).filter((entry) => entry.id).map((entry) => ({
-        shape: (entry.workType === 'epic' ? 'epic' : 'story') as Shape,
-        id: entry.id!,
-        title: entry.title ?? entry.id!,
-        status: where(entry.status, entry.currentPhase),
-        completed: completed(entry.status)
-      }));
-      return [...initiatives, ...items];
-    } catch {
-      return [];
     }
   }
 
@@ -344,6 +320,7 @@ export class IntakePanel {
     tracker: (message) => {
       const value = stringField(message, 'value');
       const tracker = value === 'jira' ? 'jira' : value === 'github' ? 'github' : 'none';
+      this.trackerChosen = true;
       this.preflightVersion += 1;
       this.update({
         tracker: tracker as Tracker, error: null,
@@ -401,16 +378,9 @@ export class IntakePanel {
     if (!workId) return;
     this.update({ busy: true, error: null });
     try {
-      const candidates = await this.client.run<Array<{
-        id?: string; phase?: string; status?: string; commit?: string;
-      }>>(['session', 'candidates', '--json']);
-      if (!candidates.some((candidate) => candidate.id === workId)) {
-        this.update({
-          busy: false,
-          error: `Story ${workId} is not published yet. Let the terminal command finish, then check again.`
-        });
-        return;
-      }
+      // `attach` performs the same fresh fetch, exact remote subject-index resolution and pinned
+      // workflow validation as `candidates`, then binds that exact Story. Listing candidates first
+      // repeated the whole remote/index path and provided no additional authority.
       const attached = await this.client.run<{
         workId?: string; repositoryPath?: string; phase?: string; status?: string;
       }>(['session', 'attach', workId, '--json']);
@@ -420,7 +390,13 @@ export class IntakePanel {
         currentPhase: attached.phase, repositoryPath: attached.repositoryPath
       });
     } catch (error) {
-      this.update({ busy: false, error: (error as Error).message });
+      const message = (error as Error).message;
+      this.update({
+        busy: false,
+        error: /No governed story matches/i.test(message)
+          ? `Story ${workId} is not published yet. Let the terminal command finish, then check again.`
+          : message
+      });
     }
   }
 
@@ -481,7 +457,12 @@ export class IntakePanel {
     this.update({ busy: true, error: null, recoveryCommand: null });
 
     const args = intakeCommand(this.form);
-    this.output.appendLine(`\n$ ${terminalCommand(this.client.repository, args)}`);
+    this.output.appendLine(`\n$ ${terminalCommand(
+      this.client.repository,
+      args,
+      process.platform,
+      this.client.location
+    )}`);
     try {
       type StartPayload = {
         id?: string;
@@ -518,8 +499,10 @@ export class IntakePanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.cancelBasePreflight();
-    IntakePanel.current = null;
+    if (IntakePanel.current === this) IntakePanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

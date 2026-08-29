@@ -285,7 +285,8 @@ export async function main(argv) {
     // `visual` each carry both read and mutating subcommands, so the command-level value calls every
     // one of them a mutation and mis-partitions the DX timing dataset. The VS Code adapter already
     // classifies per subcommand; this keeps the two surfaces telling the same story.
-    commandClass: operation.classification
+    commandClass: operation.classification,
+    operationId: operation.id
   });
   timer.stage('root-dispatch');
   try {

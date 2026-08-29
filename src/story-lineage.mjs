@@ -92,7 +92,8 @@ async function preserveAgent(root, config, workflow) {
 
 export async function attachStoryBranch(root, config, {
   parentStoryId,
-  branchName = branch(root)
+  branchName = branch(root),
+  expectedRemoteSha = undefined
 } = {}) {
   assertNotDefaultBranch(root, config, 'Story branch attachment');
   if (!parentStoryId) throw new SingularityFlowError('Attaching a child branch requires --parent with the canonical Story Work ID.');
@@ -138,7 +139,10 @@ export async function attachStoryBranch(root, config, {
     { type: LIFECYCLE_EVENT.BRANCH_LINKED, payload: { childBranch: current } },
     `[${workflow.workItem.id}][branch:attach] ${current}`,
     [],
-    { beforeStateWrite: async () => { await saveStoryDraft(root, config, workflow); } }
+    {
+      beforeStateWrite: async () => { await saveStoryDraft(root, config, workflow); },
+      ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {})
+    }
   );
   await preserveAgent(root, config, workflow);
   return { workflow, branch: current, canonical: false, created: true, record, publication };
@@ -159,7 +163,14 @@ export async function createStoryBranch(root, config, {
   const switched = run('git', ['switch', '-c', name], { cwd: root, allowFailure: true });
   if (switched.status !== 0) throw new SingularityFlowError(`Unable to create child branch '${name}': ${(switched.stderr || switched.stdout).trim()}`);
   try {
-    return await attachStoryBranch(root, config, { parentStoryId, branchName: name });
+    // This command has just created the child ref locally, so its governed publication owns only
+    // an absent-to-commit transition on the remote child ref. The canonical Story tip is the local
+    // commit parent, not the remote value of this new ref; using it as the lease makes every valid
+    // child creation fail with stale-info. A create-only lease also refuses a concurrent actor that
+    // installs the same or a different child ref before this transaction reaches receive-pack.
+    return await attachStoryBranch(root, config, {
+      parentStoryId, branchName: name, expectedRemoteSha: null
+    });
   } catch (error) {
     // The ref moves before the transaction opens and nothing else unwinds it. Without this, a failed
     // attach left the caller on a branch that existed in the on-disk workflow but in no commit — and

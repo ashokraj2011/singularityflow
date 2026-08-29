@@ -390,7 +390,6 @@ export class WorkspacesPanel {
       this.configuration.result = result;
       this.configuration.applying = false;
       this.render();
-      if (result.status === 'complete') await this.previewConfiguration(this.configuration.scope);
       return;
     } catch (error) {
       this.configuration.error = (error as Error).message;

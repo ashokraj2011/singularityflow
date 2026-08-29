@@ -239,9 +239,11 @@ test('a run that exceeds its timeout is killed and reports the timeout', async (
       assert.match(error.message, /Run this exact command from a terminal/);
       assert.equal(error.terminalCommand, terminalCommand(
         "/work/Rule Engine's UI",
-        ['start', 'WRK-17', '--title', 'Fix $HOME and `checkout`']
+        ['start', 'WRK-17', '--title', 'Fix $HOME and `checkout`'],
+        process.platform,
+        { executable: 'node', cli: '/cli.mjs' }
       ));
-      assert.match(error.terminalCommand, /singularity-flow/);
+      assert.match(error.terminalCommand, /cli\.mjs/);
       assert.match(error.terminalCommand, /WRK-17/);
       return true;
     }
@@ -256,6 +258,13 @@ test('terminal timeout recovery is safely quoted for POSIX and PowerShell', () =
   assert.equal(
     terminalCommand("C:\\Rule Engine's UI", ['start', 'WRK-17', '--title', 'Fix $HOME'], 'win32'),
     "Set-Location -LiteralPath 'C:\\Rule Engine''s UI'; & 'singularity-flow' 'start' 'WRK-17' '--title' 'Fix $HOME'"
+  );
+  assert.equal(
+    terminalCommand(
+      "C:\\Rule Engine's UI", ['start', 'WRK-17'], 'win32',
+      { executable: 'C:\\Program Files\\nodejs\\node.exe', cli: "C:\\SFlow's CLI\\singularity-flow.mjs" }
+    ),
+    "Set-Location -LiteralPath 'C:\\Rule Engine''s UI'; & 'C:\\Program Files\\nodejs\\node.exe' 'C:\\SFlow''s CLI\\singularity-flow.mjs' 'start' 'WRK-17'"
   );
 });
 
@@ -547,7 +556,8 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     location: { executable: 'node', cli: '/cli.mjs', source: 'setting' },
     repository: '/repo'
   });
-  // Observe the timeout by racing it: a 15-minute budget must not fire where a 2-minute one would.
+  // Observe the timeout by racing it: a long mutation budget must not fire where a two-minute one
+  // would, and multi-repository workspace operations get a larger ceiling than one remote review.
   // Asserted through the public surface rather than by reaching into the module's constants.
   const original = globalThis.setTimeout;
   globalThis.setTimeout = (fn, ms, ...rest) => { timeouts.push(ms); return original(fn, 1, ...rest); };
@@ -556,6 +566,8 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
     await client.run(['workspace', 'refresh-configuration', '--dry-run']).catch(() => {});
+    await client.run(['workspace', 'prepare', 'https://example.test/platform.git']).catch(() => {});
+    await client.run(['workspace', 'bootstrap', 'resume', 'wsb-1']).catch(() => {});
     await client.run(['start', 'WRK-17', '--isolated-worktree']).catch(() => {});
     await client.run(['story', 'start', 'WRK-18']).catch(() => {});
     await client.run(['workspace', 'branches', '--preflight-story', 'WRK-19']).catch(() => {});
@@ -567,12 +579,14 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[0], 15 * 60_000);
   assert.equal(timeouts[1], 15 * 60_000);
   assert.equal(timeouts[2], 15 * 60_000);
-  assert.equal(timeouts[3], 15 * 60_000);
-  assert.equal(timeouts[4], 15 * 60_000);
-  assert.equal(timeouts[5], 15 * 60_000);
+  assert.equal(timeouts[3], 30 * 60_000);
+  assert.equal(timeouts[4], 30 * 60_000);
+  assert.equal(timeouts[5], 30 * 60_000);
   assert.equal(timeouts[6], 15 * 60_000);
-  assert.equal(timeouts[7], 30 * 60_000);
-  assert.equal(timeouts[8], 120_000);
+  assert.equal(timeouts[7], 15 * 60_000);
+  assert.equal(timeouts[8], 15 * 60_000);
+  assert.equal(timeouts[9], 30 * 60_000);
+  assert.equal(timeouts[10], 120_000);
 });
 
 test('phases are read in declared order with the state each is in', () => {
@@ -4054,13 +4068,15 @@ test('capability proposals have an exact review and activation UI', async () => 
   assert.match(panel, /--confirm', proposal\.proposalCommit/,
     'activation is bound to the complete reviewed proposal commit');
   assert.match(panel, /--acknowledge-unprotected/,
-    'VS Code can pass the acknowledgement only after the separate unprotected-branch refusal');
-  assert.match(panel, /baseArguments[\s\S]*await this\.run\(baseArguments\)[\s\S]*Acknowledge unprotected branch/,
-    'the first activation attempt preserves the CLI refuse-then-acknowledge ceremony');
+    'VS Code can pass the explicit unprotected-branch acknowledgement to the CLI');
+  assert.match(panel, /Merge and acknowledge[\s\S]*preauthorizedUnprotected[\s\S]*baseArguments[\s\S]*--acknowledge-unprotected[\s\S]*await this\.run\(baseArguments\)/,
+    'an explicit pre-authorization avoids a guaranteed refused network round trip');
+  assert.match(panel, /!preauthorizedUnprotected[\s\S]*Acknowledge unprotected branch/,
+    'the ordinary merge choice remains fail-closed and requires a second acknowledgement after refusal');
   assert.match(panel, /Activation audit:/,
     'the activation receipt is visible rather than discarded');
   assert.match(panel, /application default branch is not part of this operation/i);
-  assert.match(panel, /normal non-force Git push/i);
+  assert.match(panel, /exact leased update/i);
   assert.match(panel, /proposal\.merged \? 'Record merged activation'/,
     'an externally merged exact proposal remains actionable for audit and projection recovery');
   assert.match(panel, /Retry exact activation/,

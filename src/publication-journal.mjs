@@ -47,11 +47,14 @@ export async function beginPublicationJournal(root, {
   expectedHead,
   branch,
   remote,
+  remoteFingerprint = null,
   event,
   recoveryPreimage = null,
   transactionKind = 'publication',
   operation = null,
   publicationMode = null,
+  expectedRemoteSha = undefined,
+  pendingMetadata = null,
   transactionId = randomUUID(),
   lockOwner = currentSubjectLockOwner(root, subject)
 }) {
@@ -78,11 +81,16 @@ export async function beginPublicationJournal(root, {
     expectedHead,
     branch,
     remote,
+    remoteFingerprint,
     event,
     transactionKind,
     transactionId,
     operation,
     publicationMode,
+    ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
+    ...(pendingMetadata && typeof pendingMetadata === 'object'
+      ? { pendingMetadata: structuredClone(pendingMetadata) }
+      : {}),
     eventSha256: event == null ? null : `sha256:${recordSha256(event)}`,
     tree: null,
     stateSha256: null,

@@ -48,7 +48,7 @@ import { mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { normalizeCloneStrategy } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
-  classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
+  assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
@@ -61,12 +61,20 @@ function quoted(value) {
   return JSON.stringify(String(value ?? ''));
 }
 
+/** Preserve an executable authority exactly; unsafe input becomes a non-secret placeholder. */
+function commandRemote(value, fallback = '<LEAD-URL>') {
+  const candidate = String(value ?? '').trim();
+  if (!candidate) return fallback;
+  try { return assertCredentialFreeRemote(candidate); }
+  catch { return fallback; }
+}
+
 function capabilityCommand(action, {
   remote, branch = null, commit = null, acknowledge = false, reason = null
 } = {}) {
   const args = ['singularity-flow', 'capability', action];
   if (branch) args.push(quoted(branch));
-  if (remote) args.push('--lead', quoted(sanitizeRemote(remote)));
+  if (remote) args.push('--lead', quoted(commandRemote(remote)));
   if (commit) args.push('--confirm', quoted(commit));
   if (reason) args.push('--reason', quoted(reason));
   if (acknowledge) args.push('--acknowledge-unprotected');
@@ -170,20 +178,11 @@ function proposalConfigurationError(root, ref) {
   }
 }
 
-/**
- * Portable protection probe: ask the server whether this exact proposal could update the authority
- * ref, but use Git's dry-run transport so no ref moves. A rejection proves enforcement in the
- * current actor's path. Acceptance means the remote would permit a direct update and therefore
- * requires an explicit acknowledgement before Singularity Flow performs its normal merge push.
- */
-function configurationProtectionProbe(root, proposalRef) {
-  const result = runRemoteGit([
-    'push', '--dry-run', '--porcelain', 'origin',
-    `${proposalRef}:refs/heads/${CONFIGURATION_BRANCH}`
-  ], { cwd: root, operation: 'remote-push' });
+/** Git's push --dry-run does not execute receive hooks and therefore cannot prove protection. */
+function configurationProtectionProbe() {
   return {
-    enforced: result.status !== 0,
-    detail: (result.stderr || result.stdout || '').trim()
+    enforced: null,
+    detail: 'branch protection cannot be proven portably without attempting the exact leased update'
   };
 }
 
@@ -253,7 +252,7 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
       code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
       details: capabilityRecovery({
         stage: 'review', state: 'configuration-not-initialized', remote, recoverable: true,
-        nextAction: { command: `singularity-flow capability map <CAPABILITY-ID> --lead ${quoted(sanitizeRemote(remote))} --json`, skill: '/sf-capability-map' }
+        nextAction: { command: `singularity-flow capability map <CAPABILITY-ID> --lead ${quoted(commandRemote(remote))} --json`, skill: '/sf-capability-map' }
       })
     });
   }
@@ -383,7 +382,7 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  * so that no caller can forget either.
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
-  remoteSession = new GitRemoteSession()
+  remoteSession = new GitRemoteSession(), authorityObservation = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -394,7 +393,15 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     })
   });
 
-  const approvedHead = configurationBranchHead(remote, { session: remoteSession });
+  // One combined advertisement answers both questions needed by first-map bootstrap: whether the
+  // configuration authority exists and which application branch HEAD names. Existing authorities
+  // pay the same one probe; new authorities no longer pay a second HEAD round trip.
+  const observedAuthority = authorityObservation ?? await remoteSession.observeAsync(remote, {
+    includeHead: true, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
+  });
+  const approvedHead = configurationBranchHead(remote, {
+    session: remoteSession, observation: observedAuthority
+  });
   if (!approvedHead.exists) {
     await ensureConfigurationBranch(remote, { remoteSession, observedHead: approvedHead });
   }
@@ -411,14 +418,14 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
           details: capabilityRecovery({
             stage: 'proposal', state: 'authority-unavailable', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
             preserved: ['approved-configuration', 'application-branches']
           })
         });
     }
 
     const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
-    const result = await mutate(scratch, baseBranch, remoteSession);
+    const result = await mutate(scratch, baseBranch, remoteSession, observedAuthority);
 
     const staged = run('git', ['add', '-A'], { cwd: scratch, allowFailure: true });
     if (staged.status !== 0) throw new SingularityFlowError('Could not stage the change.');
@@ -475,7 +482,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
           code: 'CAPABILITY_PROPOSAL_PUSH_FAILED',
           details: capabilityRecovery({
             stage: 'proposal', state: 'proposal-not-published', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
             preserved: ['approved-configuration', 'application-branches']
           })
         });
@@ -505,15 +512,20 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
  * is the symptom rather than a preference, so it is not preserved — see `repairLeadDefaultBranch`,
  * which is what actually reaches a repository already affected.
  */
-function observedDefaultBranch(url, session = new GitRemoteSession()) {
-  const observed = session.observe(url, { includeHead: true });
+function selectedDefaultBranch(observed) {
+  return observed.defaultBranch
+    ?? observed.branches.find((branch) => branch === 'main' || branch === 'master')
+    ?? observed.branches[0]
+    ?? null;
+}
+
+function observedDefaultBranch(url, session = new GitRemoteSession(), observation = null) {
+  const observed = observation ?? session.observe(url, { includeHead: true });
   requireRemoteObservation(observed, `capability repository '${sanitizeRemote(url)}'`);
   if (observed.defaultBranch) return observed.defaultBranch;
   const fallback = session.observe(url, { includeHead: true, includeAllHeads: true });
   requireRemoteObservation(fallback, `capability repository '${sanitizeRemote(url)}'`);
-  const branch = fallback.defaultBranch
-    ?? fallback.branches.find((branch) => branch === 'main' || branch === 'master')
-    ?? fallback.branches[0];
+  const branch = selectedDefaultBranch(fallback);
   if (branch) return branch;
   throw new SingularityFlowError(
     `Capability repository '${sanitizeRemote(url)}' has no advertised default or application branch. Create and publish its initial branch before mapping it.`, {
@@ -523,7 +535,23 @@ function observedDefaultBranch(url, session = new GitRemoteSession()) {
   );
 }
 
-async function leadApplicationBranch(root, url, session = new GitRemoteSession()) {
+async function observedDefaultBranchAsync(url, session, observation = null) {
+  const observed = observation ?? await session.observeAsync(url, { includeHead: true });
+  requireRemoteObservation(observed, `capability repository '${sanitizeRemote(url)}'`);
+  if (observed.defaultBranch) return observed.defaultBranch;
+  const fallback = await session.observeAsync(url, { includeHead: true, includeAllHeads: true });
+  requireRemoteObservation(fallback, `capability repository '${sanitizeRemote(url)}'`);
+  const branch = selectedDefaultBranch(fallback);
+  if (branch) return branch;
+  throw new SingularityFlowError(
+    `Capability repository '${sanitizeRemote(url)}' has no advertised default or application branch. Create and publish its initial branch before mapping it.`, {
+      code: 'CAPABILITY_REPOSITORY_DEFAULT_BRANCH_UNKNOWN',
+      details: { remote: sanitizeRemote(url), recoverable: true }
+    }
+  );
+}
+
+async function leadApplicationBranch(root, url, session = new GitRemoteSession(), observation = null) {
   const file = path.join(root, PORTFOLIO_PATH);
   if (existsSync(file)) {
     const declared = YAML.parse(await readFile(file, 'utf8'))
@@ -531,7 +559,7 @@ async function leadApplicationBranch(root, url, session = new GitRemoteSession()
     const branch = typeof declared === 'string' ? declared.trim() : '';
     if (branch && branch !== CONFIGURATION_BRANCH) return branch;
   }
-  return observedDefaultBranch(url, session);
+  return observedDefaultBranch(url, session, observation);
 }
 
 /**
@@ -546,13 +574,17 @@ async function leadApplicationBranch(root, url, session = new GitRemoteSession()
  * Writes only when the declared value is the configuration branch, so a healthy portfolio is
  * untouched and no proposal carries a line nobody asked for.
  */
-async function repairLeadDefaultBranch(root, url, session = new GitRemoteSession()) {
+async function repairLeadDefaultBranch(
+  root, url, session = new GitRemoteSession(), observation = null
+) {
   const file = path.join(root, PORTFOLIO_PATH);
   if (!existsSync(file)) return;
   const id = repositoryIdFromUrl(url);
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
   if (String(document.getIn(['repositories', id, 'defaultBranch']) ?? '') !== CONFIGURATION_BRANCH) return;
-  document.setIn(['repositories', id, 'defaultBranch'], observedDefaultBranch(url, session));
+  document.setIn(['repositories', id, 'defaultBranch'], observedDefaultBranch(
+    url, session, observation
+  ));
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 }
 
@@ -721,7 +753,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
         code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
         details: capabilityRecovery({
           stage: 'organisation-read', state: 'authority-unavailable', remote,
-          nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+          nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
           preserved: ['lead-registry', 'validated-organisation-cache']
         })
       }
@@ -758,7 +790,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
           details: capabilityRecovery({
             stage: 'organisation-read', state: 'authority-unavailable', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(sanitizeRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
             preserved: ['lead-registry', 'validated-organisation-cache']
           })
         });
@@ -867,8 +899,15 @@ export async function mapCapability(leadUrl, {
     code: 'CAPABILITY_ID_REQUIRED',
     details: capabilityRecovery({
       stage: 'proposal', state: 'input-refused', remote: leadUrl, recoverable: true,
-      nextAction: { command: `singularity-flow capability map <lower-case-kebab-id> --lead ${quoted(sanitizeRemote(leadUrl ?? '<LEAD-URL>'))} --json`, skill: '/sf-capability-map' },
+      nextAction: { command: `singularity-flow capability map <lower-case-kebab-id> --lead ${quoted(commandRemote(leadUrl))} --json`, skill: '/sf-capability-map' },
       preserved: ['approved-configuration', 'application-branches']
+    })
+  });
+  if (!String(leadUrl ?? '').trim()) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED',
+    details: capabilityRecovery({
+      stage: 'proposal', state: 'input-refused', recoverable: true,
+      nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
   const cloneStrategy = clone == null
@@ -878,14 +917,41 @@ export async function mapCapability(leadUrl, {
   // first mapping must not create `sflow/config`, and a reachable but empty remote must not be
   // silently recorded as `main`. Reuse this operation-scoped session throughout the proposal so
   // the successful probes are not repeated across office proxies.
-  const urls = [...new Set([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls])];
+  const urls = [...new Map([...(repositoryUrl ? [repositoryUrl] : []), ...repositoryUrls]
+    .map((url) => {
+      const exact = assertCredentialFreeRemote(url);
+      return [exact, exact];
+    })).values()];
   const remoteSession = new GitRemoteSession();
-  const observedBranches = new Map(urls.map((url) => [
-    sanitizeRemote(url), observedDefaultBranch(url, remoteSession)
-  ]));
+  const leadKey = assertCredentialFreeRemote(leadUrl);
+  const deliveryKeys = new Set(urls);
+  const probeTargets = new Map([[leadKey, leadKey], ...urls.map((url) => [url, url])]);
+  const observedEntries = await mapLimit(
+    [...probeTargets], Math.max(1, Math.min(4, probeTargets.size)),
+    async ([key, url]) => {
+      const observation = await remoteSession.observeAsync(url, {
+        includeHead: true,
+        refs: key === leadKey ? [`refs/heads/${CONFIGURATION_BRANCH}`] : []
+      });
+      requireRemoteObservation(observation, key === leadKey
+        ? `capability authority '${sanitizeRemote(url)}'`
+        : `capability repository '${sanitizeRemote(url)}'`);
+      const defaultBranch = deliveryKeys.has(key)
+        ? await observedDefaultBranchAsync(url, remoteSession, observation)
+        : null;
+      return [key, { observation, defaultBranch }];
+    }
+  );
+  const remoteObservations = new Map(observedEntries);
+  const observedBranches = new Map([...remoteObservations]
+    .filter(([key]) => deliveryKeys.has(key))
+    .map(([key, value]) => [key, value.defaultBranch]));
+  const authorityObservation = remoteObservations.get(leadKey)?.observation ?? null;
 
-  return withLeadCheckout(leadUrl, `Map capability ${capabilityId}`,
-    `capability/map-${capabilityId}`, async (root, _baseBranch, leadRemoteSession) => {
+  return withLeadCheckout(leadKey, `Map capability ${capabilityId}`,
+    `capability/map-${capabilityId}`, async (
+      root, _baseBranch, leadRemoteSession, leadAuthorityObservation
+    ) => {
     // The first capability governs the repository it is mapped into.
     //
     // Requiring a governed lead before the first capability could be mapped was the product's one
@@ -897,13 +963,17 @@ export async function mapCapability(leadUrl, {
     if (!governed) {
       await initializeDefinition(root);
       await describeRepository(
-        root, repositoryIdFromUrl(leadUrl), leadUrl,
-        await leadApplicationBranch(root, leadUrl, leadRemoteSession), gitCommitIdentity(root));
+        root, repositoryIdFromUrl(leadKey), leadKey,
+        await leadApplicationBranch(
+          root, leadKey, leadRemoteSession, leadAuthorityObservation
+        ), gitCommitIdentity(root));
       // The orphan branch is named in the definition here. It is not published until this proposal
       // is reviewed and merged; unreviewed configuration must never become an authoritative mirror.
       await enableLedger(root, 'state');
     }
-    await repairLeadDefaultBranch(root, leadUrl, leadRemoteSession);
+    await repairLeadDefaultBranch(
+      root, leadKey, leadRemoteSession, leadAuthorityObservation
+    );
 
     // Every repository this capability ships from, declared in the portfolio so the capability may
     // name them. A capability commonly has one; a product with a web app and a service has two.
@@ -915,7 +985,7 @@ export async function mapCapability(leadUrl, {
       for (const url of urls) {
         const id = repositoryIdOf(url);
         repositoryIds.push(id);
-        const branch = observedBranches.get(sanitizeRemote(url));
+        const branch = observedBranches.get(url);
         const existing = portfolio.getIn(['repositories', id], true)?.toJSON?.() ?? {};
         const repository = { ...existing, url, defaultBranch: branch, required: true };
         if (cloneStrategy) {
@@ -929,9 +999,11 @@ export async function mapCapability(leadUrl, {
     const repositoryId = repositoryIds[0] ?? null;
     // The lead is where this capability's governed state and world model live, so with more than
     // one repository it has to be said rather than inferred from the order they were typed in.
-    const leadRepositoryId = leadRepositoryUrl ? repositoryIdOf(leadRepositoryUrl)
+    const leadRepositoryRemote = leadRepositoryUrl
+      ? assertCredentialFreeRemote(leadRepositoryUrl) : null;
+    const leadRepositoryId = leadRepositoryRemote ? repositoryIdOf(leadRepositoryRemote)
       : repositoryIds.length === 1 ? repositoryIds[0] : null;
-    if (leadRepositoryId && !repositoryIds.includes(leadRepositoryId)) {
+    if (leadRepositoryRemote && !urls.includes(leadRepositoryRemote)) {
       throw new SingularityFlowError(
         `The lead repository must be one of this capability's repositories; '${leadRepositoryId}' is not among ${repositoryIds.join(', ') || 'any'}.`);
     }
@@ -976,7 +1048,7 @@ export async function mapCapability(leadUrl, {
       parent: parent || null,
       state: { published: false, reason: 'awaiting review and merge' }
     };
-  }, { remoteSession });
+  }, { remoteSession, authorityObservation });
 }
 
 /** Add one shipping repository to an existing delivery capability as a reviewed proposal. */
@@ -985,10 +1057,32 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
 } = {}) {
   if (!capabilityId) throw new SingularityFlowError('A capability identifier is required.');
   if (!repositoryUrl) throw new SingularityFlowError('A repository URL is required.');
+  if (!String(leadUrl ?? '').trim()) throw new SingularityFlowError('A lead repository URL is required.', {
+    code: 'CAPABILITY_LEAD_REQUIRED'
+  });
   const cloneStrategy = clone == null ? null
     : normalizeCloneStrategy(clone, `Capability '${capabilityId}' repository clone strategy`);
-  return withLeadCheckout(leadUrl, `Add repository to capability ${capabilityId}`,
-    `capability/repository-add-${capabilityId}`, async (root, _baseBranch, leadRemoteSession) => {
+  const remoteSession = new GitRemoteSession();
+  const leadKey = assertCredentialFreeRemote(leadUrl);
+  const repositoryKey = assertCredentialFreeRemote(repositoryUrl);
+  const targets = new Map([[leadKey, leadKey], [repositoryKey, repositoryKey]]);
+  const observations = new Map(await mapLimit(
+    [...targets], Math.max(1, Math.min(2, targets.size)), async ([key, url]) => {
+      const observation = await remoteSession.observeAsync(url, {
+        includeHead: true,
+        refs: key === leadKey ? [`refs/heads/${CONFIGURATION_BRANCH}`] : []
+      });
+      requireRemoteObservation(observation, key === leadKey
+        ? `capability authority '${sanitizeRemote(url)}'`
+        : `capability repository '${sanitizeRemote(url)}'`);
+      return [key, observation];
+    }
+  ));
+  const defaultBranch = await observedDefaultBranchAsync(
+    repositoryKey, remoteSession, observations.get(repositoryKey)
+  );
+  return withLeadCheckout(leadKey, `Add repository to capability ${capabilityId}`,
+    `capability/repository-add-${capabilityId}`, async (root) => {
       assertGovernanceVisible(root);
       const capabilityFile = path.join(root, CAPABILITIES_PATH);
       const portfolioFile = path.join(root, PORTFOLIO_PATH);
@@ -1002,15 +1096,11 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
         throw new SingularityFlowError(
           `Capability '${capabilityId}' is a collection. Change it to delivery in a reviewed proposal before adding a repository.`);
       }
-      const repositoryId = repositoryIdOf(repositoryUrl);
+      const repositoryId = repositoryIdOf(repositoryKey);
       const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
       const existingRepository = portfolio.getIn(['repositories', repositoryId], true)?.toJSON?.() ?? {};
-      const defaultBranch = observedDefaultBranch(
-        repositoryUrl,
-        sanitizeRemote(repositoryUrl) === sanitizeRemote(leadUrl) ? leadRemoteSession : new GitRemoteSession()
-      );
       const repository = {
-        ...existingRepository, url: repositoryUrl, defaultBranch, required: true
+        ...existingRepository, url: repositoryKey, defaultBranch, required: true
       };
       if (cloneStrategy) {
         if (cloneStrategy.mode === 'full') delete repository.clone;
@@ -1036,7 +1126,7 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
         leadRepositoryId: makeLead ? repositoryId : previousLead,
         state: { published: false, reason: 'awaiting review and merge' }
       };
-    });
+    }, { remoteSession, authorityObservation: observations.get(leadKey) });
 }
 
 /**
@@ -1092,17 +1182,31 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     };
     // Retire configuration paths removed by the reviewed commit without touching runtime roots.
     const remoteRef = `refs/remotes/${ledger.remote}/${ledger.branch}`;
-    runRemoteGit([
+    const stateFetch = runRemoteGit([
       'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
       `+refs/heads/${ledger.branch}:${remoteRef}`
     ], { cwd: root, operation: 'remote-configuration' });
-    const trackedAssets = [...configurationTreeEntries(root, remoteRef).keys()];
-    const trackedMetadata = run('git', [
+    // A successful exact fetch is already the observation publishToStateBranch needs for its CAS.
+    // Bind the publication to that SHA and do not immediately fetch the same ref a second time. If
+    // the fetch failed (including an absent first state branch), retain the ordinary refresh/bootstrap
+    // path rather than trusting a stale local remote-tracking ref.
+    const observedStateSha = stateFetch.status === 0
+      ? run('git', ['rev-parse', '--verify', `${remoteRef}^{commit}`], {
+          cwd: root, allowFailure: true
+        }).stdout.trim()
+      : '';
+    const observedState = /^[0-9a-f]{40,64}$/.test(observedStateSha);
+    const trackedAssets = observedState
+      ? [...configurationTreeEntries(root, remoteRef).keys()]
+      : [];
+    const trackedMetadata = observedState ? run('git', [
       'ls-tree', '-r', '-z', '--name-only', remoteRef, '--', 'configuration'
-    ], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean);
-    const previousManifest = run('git', ['show', `${remoteRef}:${STATE_CONFIGURATION_MANIFEST}`], {
-      cwd: root, allowFailure: true
-    });
+    ], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean) : [];
+    const previousManifest = observedState
+      ? run('git', ['show', `${remoteRef}:${STATE_CONFIGURATION_MANIFEST}`], {
+          cwd: root, allowFailure: true
+        })
+      : { status: 1, stdout: '' };
     if (previousManifest.status === 0) {
       try {
         const previousProduct = JSON.parse(previousManifest.stdout)?.product;
@@ -1117,7 +1221,15 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     ];
     const result = await publishToStateBranch(
       root, ledger, configurationFiles, message, {
-        replaceRoots: ['configuration'], removePaths
+        replaceRoots: ['configuration'], removePaths,
+        guardedRemoteRefs: {
+          [`refs/heads/${CONFIGURATION_BRANCH}`]: configurationCommit
+        },
+        ...(observedState ? {
+          expectedRemoteSha: observedStateSha,
+          baseRef: remoteRef,
+          refreshRemote: false
+        } : {})
       });
     // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
     // branch already agreed with is the ordinary case, not a problem to explain.
@@ -1362,6 +1474,7 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
     code: 'CAPABILITY_LEAD_REQUIRED'
   });
+  const leadIdentity = assertCredentialFreeRemote(remote);
   const lead = sanitizeRemote(remote);
   const checks = [];
   let organisation = null;
@@ -1412,11 +1525,15 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
     return output;
   };
   const knownCapabilities = capabilityIds(organisation?.capabilities);
+  const sameLeadAuthority = (candidate) => {
+    try { return assertCredentialFreeRemote(candidate) === leadIdentity; }
+    catch { return false; }
+  };
   const matchingWorkspaces = workspaces.filter((workspace) => {
     const authority = workspace?.capabilityAuthority?.url;
-    if (authority) return sanitizeRemote(authority) === lead;
+    if (authority) return sameLeadAuthority(authority);
     return Object.values(workspace?.repositories ?? {})
-      .some((repository) => sanitizeRemote(repository?.url) === lead);
+      .some((repository) => sameLeadAuthority(repository?.url));
   });
   for (const workspace of matchingWorkspaces) {
     const requested = [...new Set([
@@ -1633,8 +1750,8 @@ export async function discardStaleCapabilityProposal(url, branch, {
 /**
  * Merge one exact reviewed proposal into the configuration authority, then refresh its projection.
  *
- * This is a normal non-force push. A protected `sflow/config` branch therefore refuses the push
- * and retains the proposal for the repository's PR controls instead of bypassing them.
+ * This is an exact leased push: it can never replace an authority revision that was not reviewed.
+ * A protected `sflow/config` branch refuses it and retains the proposal for repository PR controls.
  */
 export async function activateCapabilityProposal(url, branch, {
   confirm = null,
@@ -1685,8 +1802,8 @@ export async function activateCapabilityProposal(url, branch, {
         cwd: root, allowFailure: true
       }).status === 0;
       const contentMerged = !ancestryMerged && proposalContentIsPresent(root, proposalBase, ref);
-      const alreadyMerged = ancestryMerged || contentMerged;
-      const mergeEvidence = ancestryMerged ? 'commit-ancestry'
+      let alreadyMerged = ancestryMerged || contentMerged;
+      let mergeEvidence = ancestryMerged ? 'commit-ancestry'
         : contentMerged ? 'content-equivalent' : null;
       // An externally merged generated proposal is a single commit and its merge-base with HEAD is
       // now the proposal itself. Retrospective activation still needs the reviewed file set for the
@@ -1696,7 +1813,7 @@ export async function activateCapabilityProposal(url, branch, {
         : mergeBaseResult.stdout.trim();
       // Once a provider merged the branch, this process can prove the resulting target but cannot
       // honestly reconstruct the authority tip immediately before that external action.
-      const auditedTargetBefore = alreadyMerged ? null : targetBefore;
+      let auditedTargetBefore = alreadyMerged ? null : targetBefore;
       const changed = proposalChangedFiles(root, reviewBase, ref);
       if (!changed.names.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
@@ -1778,11 +1895,11 @@ export async function activateCapabilityProposal(url, branch, {
             });
         }
         await validateEffectiveCapabilities();
-        // Probe the prospective merge commit, not the proposal tip. If the authority advanced
-        // after this proposal was created, pushing the proposal itself is non-fast-forward even on
-        // an unprotected server and would produce a false claim that protection was enforced.
-        protection = configurationProtectionProbe(root, 'HEAD');
-        if (!protection.enforced && !acknowledgeUnprotected) {
+        // Git dry-run skips receive hooks, so it cannot distinguish an unprotected authority from a
+        // protected one. Require either external review or an explicit direct-push acknowledgement;
+        // the subsequent exact leased push is the only honest provider observation.
+        protection = configurationProtectionProbe();
+        if (protection.enforced !== true && !acknowledgeUnprotected) {
           const nextAction = {
             command: capabilityCommand('activate', {
               remote, branch: proposalBranch, commit: proposalCommit, acknowledge: true
@@ -1790,9 +1907,9 @@ export async function activateCapabilityProposal(url, branch, {
             skill: '/sf-capability-map'
           };
           throw new SingularityFlowError(
-            `'${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}' accepted the exact dry-run update, so branch `
-            + 'protection is not enforced for this actor. Nothing was changed. Review the proposal '
-            + `externally or explicitly acknowledge the exception. Re-run: ${nextAction.command}`,
+            `Git cannot prove whether '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}' is protected without `
+            + 'attempting the real update. Nothing was changed. Review and merge the proposal externally, '
+            + `or explicitly acknowledge a direct-push attempt. Re-run: ${nextAction.command}`,
             {
               code: 'CAPABILITY_CONFIGURATION_UNPROTECTED',
               details: capabilityRecovery({
@@ -1803,15 +1920,52 @@ export async function activateCapabilityProposal(url, branch, {
             }
           );
         }
-        const pushed = runRemoteGit(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+        const proposedMergeCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+        let pushed = runRemoteGit([
+          'push', '--porcelain',
+          `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${targetBefore}`,
+          'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
+        ], {
           cwd: root, operation: 'remote-push'
         });
+        const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+        const transition = pushed.status === 0
+          ? pushed.stdout.split(/\r?\n/).map((line) => {
+            const [flag, refspec] = line.split('\t');
+            return refspec?.endsWith(`:${targetRef}`) ? flag : null;
+          }).find((flag) => flag !== null)
+          : null;
+        if (pushed.status !== 0 || (transition !== ' ' && transition !== '+')) {
+          // Git can either reject the stale lease or elide an unchanged update as `=` when another
+          // actor acquires the old->new transition around receive-pack. Re-read the exact authority
+          // in both cases. Matching bytes are an external merge, never a direct activation by this
+          // reviewer; any other result takes the ordinary recoverable failure path.
+          const authority = new GitRemoteSession().observe(remote, {
+            includeHead: false, refs: [targetRef], refresh: true
+          });
+          if (authority.ok && authority.refs.get(targetRef) === proposedMergeCommit) {
+            alreadyMerged = true;
+            mergeEvidence = 'concurrent-identical-commit';
+            auditedTargetBefore = null;
+            protection = {
+              enforced: null,
+              detail: 'matching configuration commit was installed by a concurrent external action'
+            };
+            pushed = { ...pushed, status: 0 };
+          } else if (pushed.status === 0) {
+              pushed = {
+                ...pushed,
+                status: 1,
+                stderr: `stale info: '${CONFIGURATION_BRANCH}' did not perform the explicitly leased transition`
+              };
+          }
+        }
         if (pushed.status !== 0) {
           const failure = classifyGitRemoteFailure(pushed);
           const pushDiagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
           const nextAction = {
             command: capabilityCommand('activate', {
-              remote, branch: proposalBranch, commit: proposalCommit
+              remote, branch: proposalBranch, commit: proposalCommit, acknowledge: true
             }),
             skill: '/sf-capability-map'
           };
@@ -1819,11 +1973,12 @@ export async function activateCapabilityProposal(url, branch, {
           // a missing remote, and unsupported transports need their own repair path; only an
           // enforced authority that rejects a non-retryable update is sent to repository review.
           const repositoryRequestedReview = ['authorization-denied', 'unknown'].includes(failure.classification)
-            && /protected branch|review required|pull request|required reviews?|pre-receive hook declined/i
+            && /protected branch|branch protection|review required|pull request|required reviews?/i
               .test(pushDiagnostic);
-          const reviewRequired = repositoryRequestedReview || (protection.enforced === true
-            && !failure.retryable
-            && !['remote-not-found', 'branch-not-found', 'protocol-unsupported'].includes(failure.classification));
+          const reviewRequired = repositoryRequestedReview;
+          protection = reviewRequired
+            ? { enforced: true, detail: 'the real exact update was refused by repository review controls' }
+            : { enforced: null, detail: 'the real exact update failed without review-control evidence' };
           return {
             status: reviewRequired ? 'review-required' : 'activation-pending',
             activated: false,
@@ -1833,7 +1988,7 @@ export async function activateCapabilityProposal(url, branch, {
             targetBranch: CONFIGURATION_BRANCH,
             targetBefore,
             targetCommit: targetBefore,
-            proposedMergeCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(),
+            proposedMergeCommit,
             alreadyMerged: false,
             changedFiles: changed.statuses,
             protection,
@@ -1843,7 +1998,8 @@ export async function activateCapabilityProposal(url, branch, {
               retryable: failure.retryable,
               message: reviewRequired
                 ? `The proposal is preserved. Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
-                : `The proposal is preserved. ${failure.advice}`
+                : `The proposal is preserved. ${failure.advice}`,
+              diagnostic: redactDiagnosticText(pushDiagnostic).trim().slice(0, 4_096) || null
             },
             externalAction: reviewRequired ? {
               action: 'merge-proposal', sourceBranch: proposalBranch,
@@ -1853,6 +2009,12 @@ export async function activateCapabilityProposal(url, branch, {
             preserved: ['proposal-branch', 'approved-configuration', 'application-branches'],
             audit: { recorded: false },
             projection: null
+          };
+        }
+        if (!alreadyMerged) {
+          protection = {
+            enforced: false,
+            detail: 'the real exact leased update was accepted for this actor'
           };
         }
       }
@@ -1887,7 +2049,8 @@ export async function activateCapabilityProposal(url, branch, {
           mergeEvidence,
           changedFiles: changed.statuses,
           protection,
-          unprotectedAcknowledged: protection.enforced === false && acknowledgeUnprotected === true
+          unprotectedAcknowledged: !alreadyMerged
+            && protection.enforced !== true && acknowledgeUnprotected === true
         }
       });
       let audit;
@@ -1913,7 +2076,7 @@ export async function activateCapabilityProposal(url, branch, {
           }
         );
       }
-      return {
+      const activated = {
         status: 'activated',
         activated: true,
         remote,
@@ -1935,35 +2098,55 @@ export async function activateCapabilityProposal(url, branch, {
           duplicate: audit.duplicate
         }
       };
+      // The checkout already contains the exact approved configuration commit this activation just
+      // validated and (when necessary) pushed. Keep it alive through projection instead of deleting
+      // it and cloning the same authority again. Audit remains first: a projection failure therefore
+      // has the same recoverable "activation complete, projection pending" contract as before.
+      try {
+        const projectionAuthority = await new GitRemoteSession().observeAsync(remote, {
+          includeHead: false,
+          refs: [`refs/heads/${CONFIGURATION_BRANCH}`],
+          refresh: true
+        });
+        requireRemoteObservation(projectionAuthority, 'configuration authority before projection');
+        const currentAuthority = projectionAuthority.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null;
+        if (currentAuthority !== targetCommit) {
+          throw new SingularityFlowError(
+            `Approved configuration advanced from ${targetCommit} to ${currentAuthority ?? 'an unavailable ref'} before state projection. Re-publish the current authority instead of mirroring stale bytes.`,
+            { code: 'CAPABILITY_PROJECTION_AUTHORITY_MOVED' }
+          );
+        }
+        const state = await publishCapabilityMap(root, {
+          message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`
+        });
+        const projection = { baseBranch: CONFIGURATION_BRANCH, ...state };
+        const projectionPending = !projection.published && !projection.branch
+          && projection.reason !== 'state publication is disabled';
+        const nextAction = projectionPending
+          ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
+          : null;
+        return {
+          ...activated,
+          status: projectionPending ? 'activation-complete-projection-pending'
+            : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
+          projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
+          nextAction
+        };
+      } catch (error) {
+        const nextAction = { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' };
+        return {
+          ...activated,
+          status: 'activation-complete-projection-pending',
+          projection: {
+            published: false, pending: true,
+            reason: redactDiagnosticText(error?.message ?? String(error)),
+            nextAction
+          },
+          nextAction
+        };
+      }
     }, { expectedCommit: confirm });
-  if (!reviewed.activated) return reviewed;
-  try {
-    const projection = await publishOrganisationCapabilityMap(url);
-    const projectionPending = !projection.published && !projection.branch
-      && projection.reason !== 'state publication is disabled';
-    const nextAction = projectionPending
-      ? { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' }
-      : null;
-    return {
-      ...reviewed,
-      status: projectionPending ? 'activation-complete-projection-pending'
-        : projection.published || projection.branch ? 'activated' : 'activated-without-projection',
-      projection: projectionPending ? { ...projection, pending: true, nextAction } : projection,
-      nextAction
-    };
-  } catch (error) {
-    const nextAction = { command: capabilityCommand('publish', { remote: url }), skill: '/sf-capability-map' };
-    return {
-      ...reviewed,
-      status: 'activation-complete-projection-pending',
-      projection: {
-        published: false, pending: true,
-        reason: redactDiagnosticText(error?.message ?? String(error)),
-        nextAction
-      },
-      nextAction
-    };
-  }
+  return reviewed;
 }
 
 /**
@@ -2183,7 +2366,7 @@ export function resolveWorkspacePlan(organisation, { capabilities = [], leadCapa
   const rows = flattenCapabilityTree(organisation.capabilities ?? []);
   const chosen = new Set(capabilities);
   const inspectAction = {
-    command: `singularity-flow capability organisation ${quoted(sanitizeRemote(organisation.url ?? '<LEAD-URL>'))} --readiness --refresh --json`,
+    command: `singularity-flow capability organisation ${quoted(commandRemote(organisation.url))} --readiness --refresh --json`,
     skill: '/sf-workspace-bootstrap'
   };
   if (!chosen.size) throw new SingularityFlowError('A workspace needs at least one capability.', {

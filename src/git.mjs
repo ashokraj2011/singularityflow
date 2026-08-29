@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import { classifyGitRemoteFailure, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { scanEntries, secretRefusal } from './secrets.mjs';
 
@@ -219,8 +220,8 @@ function cachedGithubAccount(root, { cacheOnly = false } = {}) {
 }
 
 /** The repository's configured presentation name, without account or environment fallbacks. */
-export function localGitDisplayName(root) {
-  return git(['config', '--get', 'user.name'], { cwd: root, allowFailure: true }).stdout.trim() || null;
+export function localGitDisplayName(root, { env = process.env } = {}) {
+  return git(['config', '--get', 'user.name'], { cwd: root, env, allowFailure: true }).stdout.trim() || null;
 }
 
 /**
@@ -231,18 +232,18 @@ export function localGitDisplayName(root) {
  * proposal paid for the same `gh api user` request twice. Commit authorship needs only the two Git
  * configuration values; account membership is resolved separately at approval boundaries.
  */
-export function gitCommitIdentity(root) {
-  if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
+export function gitCommitIdentity(root, { env = process.env } = {}) {
+  if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return {
-      name: process.env.SINGULARITY_FLOW_TEST_IDENTITY,
-      email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+      name: env.SINGULARITY_FLOW_TEST_IDENTITY,
+      email: `${env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
       login: null,
       githubLookup: GITHUB_LOOKUP.NOT_CHECKED
     };
   }
   return {
-    name: localGitDisplayName(root) || process.env.USER || process.env.USERNAME || 'Singularity Flow',
-    email: git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim() || null,
+    name: localGitDisplayName(root, { env }) || env.USER || env.USERNAME || 'Singularity Flow',
+    email: git(['config', '--get', 'user.email'], { cwd: root, env, allowFailure: true }).stdout.trim() || null,
     login: null,
     githubLookup: GITHUB_LOOKUP.NOT_CHECKED
   };
@@ -320,8 +321,8 @@ export function assertClean(root) {
   if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }
 
-export function fetchRemote(root, remote = 'origin') {
-  if (!hasRemote(root, remote)) return;
+export function prepareRemoteBranchTracking(root, remote = 'origin') {
+  if (!hasRemote(root, remote)) return false;
   // Managed workspaces used to be cloned with --single-branch, leaving the configured fetch
   // refspec pinned to main. A normal `git fetch origin` then never discovered Epic and Story
   // branches created by another machine, so the desktop could create a conflicting local branch
@@ -333,8 +334,21 @@ export function fetchRemote(root, remote = 'origin') {
     throw new SingularityFlowError(`Git remote '${remote}' cannot be used as a remote-tracking namespace.`);
   }
   git(['remote', 'set-branches', remote, '*'], { cwd: root });
-  runRemoteGit(['fetch', '--prune', remote], {
-    cwd: root, operation: 'remote-configuration', allowFailure: false
+  return true;
+}
+
+export function fetchRemote(root, remote = 'origin', options = {}) {
+  const transportRemote = options.transportRemote ?? remote;
+  if (!prepareRemoteBranchTracking(root, remote)) return;
+  const frozen = Object.hasOwn(options, 'transportRemote')
+    ? frozenRemoteTransport(transportRemote)
+    : null;
+  runRemoteGit([
+    'fetch', '--prune', frozen?.remote ?? transportRemote,
+    ...(frozen ? [`+refs/heads/*:refs/remotes/${remote}/*`] : [])
+  ], {
+    cwd: root, operation: 'remote-configuration', allowFailure: false,
+    ...(frozen ? { env: frozen.env } : {})
   });
 }
 
@@ -361,28 +375,32 @@ function configureUpstream(root, name, remote) {
 export function checkout(root, name, {
   base = 'main',
   fetch = false,
+  fetched = false,
   existingOnly = false,
   remote = 'origin',
   preferRemoteBase = fetch
 } = {}) {
   validBranch(root, name);
   if (fetch) fetchRemote(root, remote);
+  const synchronize = fetch || fetched;
   if (branch(root) === name) {
-    if (fetch && refExists(root, `refs/remotes/${remote}/${name}`)) {
+    if (synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
       if (!hasUpstream(root)) {
         configureUpstream(root, name, remote);
       }
-      pullFastForward(root);
+      // The exact remote-tracking ref was refreshed above or by the caller. Fast-forward to those
+      // local bytes instead of asking the remote a second time through `git pull`.
+      fastForwardTo(root, `${remote}/${name}`);
     }
     return 'already-current';
   }
   if (refExists(root, `refs/heads/${name}`)) {
     git(['switch', name], { cwd: root, stdio: 'inherit' });
-    if (fetch && refExists(root, `refs/remotes/${remote}/${name}`)) {
+    if (synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
       if (!hasUpstream(root)) {
         configureUpstream(root, name, remote);
       }
-      pullFastForward(root);
+      fastForwardTo(root, `${remote}/${name}`);
     }
     return 'checked-out-local';
   }
@@ -713,7 +731,50 @@ export function pushBranch(root, remote = 'origin', branchName = branch(root)) {
 }
 
 /** Publish one previously proven commit as a Story branch without depending on current HEAD. */
-export function pushCommitToBranch(root, remote, commitSha, branchName) {
+export function publicationPushOutcome(result) {
+  if (result?.status === 0) return 'published';
+  // Git may report a transport failure only after receive-pack has committed the update. Timeouts,
+  // process termination, connection reset, and EOF all leave that boundary indeterminate. A
+  // porcelain rejection/collision has no network-transient classification and remains definitive.
+  const failureClass = result?.failure?.classification
+    ?? classifyGitRemoteFailure(result).classification;
+  if (result?.timedOut === true
+    || Boolean(result?.signal)
+    || failureClass === 'network-transient') return 'transport-indeterminate';
+  return 'rejected';
+}
+
+/** Read one exact remote branch tip while preserving reachability for safe recovery decisions. */
+export function exactRemoteBranchObservation(root, remote, branchName) {
+  validBranch(root, branchName);
+  const expectedRef = `refs/heads/${branchName}`;
+  const frozen = frozenRemoteTransport(remote);
+  const observed = runRemoteGit([
+    'ls-remote', '--heads', '--', frozen.remote, expectedRef
+  ], { cwd: root, operation: 'remote-probe', env: frozen.env });
+  if (observed.status !== 0) {
+    return { reachable: false, sha: null, malformed: false, result: observed };
+  }
+  const advertised = observed.stdout.split(/\r?\n/)
+    .map((line) => line.match(/^([0-9a-f]{40,64})\s+(refs\/heads\/[^\s]+)$/i))
+    .filter((match) => match?.[2] === expectedRef);
+  return {
+    reachable: true,
+    sha: advertised.length === 1 ? advertised[0][1].toLowerCase() : null,
+    malformed: advertised.length > 1,
+    result: observed
+  };
+}
+
+/** Read one exact remote branch tip; malformed or duplicate advertisements are refused as absent. */
+export function exactRemoteBranchHead(root, remote, branchName) {
+  return exactRemoteBranchObservation(root, remote, branchName).sha;
+}
+
+export function pushCommitToBranch(root, remote, commitSha, branchName, options = {}) {
+  const expectedRemoteSha = options.expectedRemoteSha;
+  const transportRemote = options.transportRemote ?? remote;
+  const upstreamRemote = options.upstreamRemote ?? remote;
   validBranch(root, branchName);
   const commit = git(['rev-parse', '--verify', `${commitSha}^{commit}`], {
     cwd: root, allowFailure: true
@@ -721,11 +782,55 @@ export function pushCommitToBranch(root, remote, commitSha, branchName) {
   if (commit.status !== 0) {
     return { ...commit, stderr: commit.stderr || `Commit '${commitSha}' is not available locally.` };
   }
+  const lease = expectedRemoteSha !== undefined
+    ? [`--force-with-lease=refs/heads/${branchName}:${expectedRemoteSha ?? ''}`]
+    : [];
+  const frozen = Object.hasOwn(options, 'transportRemote')
+    ? frozenRemoteTransport(transportRemote, { push: true })
+    : null;
   const result = runRemoteGit([
-    'push', remote, `${commit.stdout.trim()}:refs/heads/${branchName}`
-  ], { cwd: root, operation: 'remote-push' });
-  if (result.status === 0 && refExists(root, `refs/heads/${branchName}`)) {
-    configureUpstream(root, branchName, remote);
+    'push', '--porcelain', ...lease, frozen?.remote ?? transportRemote,
+    `${commit.stdout.trim()}:refs/heads/${branchName}`
+  ], {
+    cwd: root, operation: 'remote-push',
+    ...(frozen ? { env: frozen.env } : {})
+  });
+  // Git elides an update when another actor already installed the identical object ID. It does so
+  // even when an explicit non-null lease names the older ref: receive-pack sees no update and Git
+  // reports `=` / "up to date". An explicit lease is an ownership claim, not merely a desired final
+  // value, so require porcelain proof that this invocation performed the expected transition.
+  if (result.status === 0 && expectedRemoteSha !== undefined
+    && String(expectedRemoteSha ?? '').toLowerCase() !== commit.stdout.trim().toLowerCase()) {
+    const destination = `refs/heads/${branchName}`;
+    const transition = result.stdout.split(/\r?\n/).map((line) => {
+      const [flag, refspec] = line.split('\t');
+      return refspec?.endsWith(`:${destination}`) ? flag : null;
+    }).find((flag) => flag !== null);
+    const acquired = expectedRemoteSha === null
+      ? transition === '*'
+      : transition === ' ' || transition === '+';
+    if (!acquired) {
+      return {
+        ...result,
+        status: 1,
+        stderr: expectedRemoteSha === null
+          ? `Remote branch '${branchName}' already exists; the create-only publication did not acquire it.`
+          : `Remote branch '${branchName}' did not move from the explicitly leased commit; this publication did not acquire the update.`
+      };
+    }
+  }
+  if (result.status === 0) {
+    // A URL transport deliberately bypasses the mutable remote name, so Git does not update the
+    // corresponding remote-tracking ref itself. Record the exact commit just proven published.
+    const trackingRef = `refs/remotes/${upstreamRemote}/${branchName}`;
+    if (git(['check-ref-format', trackingRef], { cwd: root, allowFailure: true }).status === 0) {
+      git(['update-ref', trackingRef, commit.stdout.trim()], { cwd: root });
+    }
+    if (refExists(root, `refs/heads/${branchName}`)) {
+      // Keep the ordinary remote name in branch configuration; persisting a URL there would make
+      // later `git pull` interpret it as a remote name.
+      configureUpstream(root, branchName, upstreamRemote);
+    }
   }
   return result;
 }
@@ -737,12 +842,19 @@ export function pushCommitToBranch(root, remote, commitSha, branchName) {
  * exercises its authentication/authorization path without creating the destination branch. The
  * actual publication still uses HEAD after the governed commit exists.
  */
-export function preflightPushBranch(root, remote, sourceRef, branchName) {
+export function preflightPushBranch(root, remote, sourceRef, branchName, options = {}) {
+  const transportRemote = options.transportRemote ?? remote;
   validBranch(root, branchName);
+  const frozen = Object.hasOwn(options, 'transportRemote')
+    ? frozenRemoteTransport(transportRemote, { push: true })
+    : null;
   return runRemoteGit([
-    'push', '--dry-run', '--porcelain', remote,
+    'push', '--dry-run', '--porcelain', frozen?.remote ?? transportRemote,
     `${sourceRef}:refs/heads/${branchName}`
-  ], { cwd: root, operation: 'remote-push' });
+  ], {
+    cwd: root, operation: 'remote-push',
+    ...(frozen ? { env: frozen.env } : {})
+  });
 }
 
 export function remoteContains(root, sha, remote = 'origin', branchName = branch(root)) {

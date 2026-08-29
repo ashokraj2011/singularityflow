@@ -15,8 +15,9 @@ import {
 } from './git.mjs';
 import {
   capabilityPublicationPlan, preflightStoryRepositories, prepareCapabilityRepositories,
-  preflightIncludesRepository, publishCapabilityRepositories, storyBaseForRepository
+  preflightIncludesRepository, preflightPublicationAuthority, storyBaseForRepository
 } from './capability-start.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish,
@@ -38,8 +39,9 @@ import {
   materializeConfigurationSnapshot, resolveStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
-import { clearPendingPublication } from './publication-pending.mjs';
-import { retainCapabilityPublicationRecovery } from './capability-publication-recovery.mjs';
+import {
+  publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
+} from './capability-publication-recovery.mjs';
 import {
   beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
   serializeConfigurationRestorePoint, updateStoryStartJournal
@@ -114,7 +116,8 @@ export async function startStory(root, {
   expectedBaseCommit = null,
   flightPlan = null,
   auto = null,
-  astWarmLauncher = undefined
+  astWarmLauncher = undefined,
+  afterPublicationAuthorityCapture = null
 } = {}) {
   let checkoutDefinition = null;
   let definitionError = null;
@@ -139,7 +142,16 @@ export async function startStory(root, {
 
   assertClean(root);
   const localExisted = refExists(root, `refs/heads/${id}`);
-  if (!localExisted) fetchRemote(root, remote);
+  if (!localExisted) {
+    const initialFetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+    if (!initialFetchAuthority.url) {
+      throw new SingularityFlowError(
+        `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
+  }
   const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
   const existed = localExisted || remoteExisted;
   if (!existed && configurationAuthority?.branch === CONFIGURATION_BRANCH) {
@@ -177,10 +189,13 @@ export async function startStory(root, {
   let baseCommit = null;
   let capabilityRepositoriesPrepared = null;
   let capabilityPublications = [];
+  let publicationAuthority = null;
   let startJournal = null;
   let configurationSnapshot = null;
   let workflow = null;
   let publication = null;
+  let capabilityPublication = { published: [], pending: [], error: null };
+  let capabilityTailStaged = false;
   let checkoutMode;
   try {
   if (existed) {
@@ -207,7 +222,28 @@ export async function startStory(root, {
       : null;
     capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
     const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
-    if (!rootFetchedByCapabilityPreflight) fetchRemote(root, remote);
+    if (rootFetchedByCapabilityPreflight) {
+      publicationAuthority = preflightPublicationAuthority(capabilityPreflight, root);
+    } else {
+      const fetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+      if (!fetchAuthority.url) {
+        throw new SingularityFlowError(
+          `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+          { code: 'STORY_REMOTE_UNREACHABLE' }
+        );
+      }
+      fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+      if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
+    }
+    if (publishRequired && !publicationAuthority?.url) {
+      throw new SingularityFlowError(
+        `Story remote '${remote}' has no credential-free push authority. Nothing was changed.`,
+        { code: 'STORY_PUBLICATION_REMOTE_MISSING' }
+      );
+    }
+    if (afterPublicationAuthorityCapture) {
+      await afterPublicationAuthorityCapture({ authority: publicationAuthority });
+    }
     const remoteBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
     if (!refExists(root, remoteBaseRef)) {
       throw new SingularityFlowError(
@@ -226,7 +262,9 @@ export async function startStory(root, {
       );
     }
     if (publishRequired && !capabilityPreflight) {
-      const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id);
+      const dryRun = preflightPushBranch(root, remote, remoteBaseRef, id, {
+        transportRemote: publicationAuthority.url
+      });
       if (dryRun.status !== 0) {
         throw new SingularityFlowError(
           `Cannot publish the new Story branch '${id}' to '${remote}'. `
@@ -369,11 +407,51 @@ export async function startStory(root, {
         { type: LIFECYCLE_EVENT.BINDING },
         `[${id}][init] start ${workType} workflow`,
         [...(configurationSnapshot?.paths ?? []), returnLocator.path],
-        { recoveryPreimage: creationPreimage, transactionId: startJournal?.transactionId ?? null }
+        {
+          recoveryPreimage: creationPreimage,
+          transactionId: startJournal?.transactionId ?? null,
+          expectedRemoteSha: null,
+          expectedLocalHead: baseCommit,
+          ...(publicationAuthority ? { publicationAuthority } : {}),
+          ...(capabilityPublications.length ? {
+            publicationTail: {
+              recoveryStage: 'capability-publication-pending',
+              capabilityPublications,
+              error: 'Capability Story branch publication has not started.'
+            }
+          } : {})
+        }
       );
       return { workflow, publication };
     }
   });
+  capabilityTailStaged = publication.pushed === true && capabilityPublications.length > 0;
+  if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
+  const rootPublication = {
+    remote,
+    branch: id,
+    commit: publication.sha ?? head(root),
+    event: publication.event ?? null
+  };
+  if (publication.pushed && capabilityPublications.length) {
+    capabilityPublication = await publishCapabilityRepositoriesDurably(
+      root, id, rootPublication, capabilityPublications, { rootPublished: true }
+    );
+    if (capabilityPublication.pending.length) {
+      const failure = new SingularityFlowError(
+        `Story '${id}' was published in its lifecycle repository, but capability branch publication failed for `
+        + `'${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. The remaining exact `
+        + 'branch publications were retained; run singularity-flow sync after fixing remote access.',
+        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
+      );
+      throw failure;
+    }
+  } else if (!publication.pushed && capabilityPublications.length) {
+    await retainCapabilityPublicationRecovery(
+      root, id, rootPublication, capabilityPublications,
+      new Error('The lifecycle Story branch is still pending publication.')
+    );
+  }
   const documents = await publishInitialStoryDocuments(root, definition, workflow, {
     workId: id,
     operation: 'document-upload',
@@ -382,40 +460,6 @@ export async function startStory(root, {
       ...urls.map((url) => ({ url }))
     ]
   });
-  if (startJournal) await clearStoryStartJournal(root, id, startJournal.transactionId);
-  let capabilityPublication = { published: [], pending: [], error: null };
-  const rootPublication = {
-    remote,
-    branch: id,
-    commit: publication.sha ?? head(root),
-    event: publication.event ?? null
-  };
-  if (publication.pushed && capabilityPublications.length) {
-    await retainCapabilityPublicationRecovery(
-      root, id, rootPublication, capabilityPublications,
-      new Error('Capability Story branch publication is in progress.'),
-      { rootPublished: true }
-    );
-    capabilityPublication = publishCapabilityRepositories(capabilityPublications);
-    if (capabilityPublication.pending.length) {
-      const failure = new SingularityFlowError(
-        `Story '${id}' was published in its lifecycle repository, but capability branch publication failed for `
-        + `'${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. The remaining exact `
-        + 'branch publications were retained; run singularity-flow sync after fixing remote access.',
-        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
-      );
-      await retainCapabilityPublicationRecovery(
-        root, id, rootPublication, capabilityPublication.pending, failure, { rootPublished: true }
-      );
-      throw failure;
-    }
-    await clearPendingPublication(root, { kind: 'story', id });
-  } else if (!publication.pushed && capabilityPublications.length) {
-    await retainCapabilityPublicationRecovery(
-      root, id, rootPublication, capabilityPublications,
-      new Error('The lifecycle Story branch is still pending publication.')
-    );
-  }
   const astWarm = await scheduleStoryStartAstWarm(root, definition, workflow, {
     ...(astWarmLauncher ? { launcher: astWarmLauncher } : {})
   });
@@ -456,7 +500,10 @@ export async function startStory(root, {
     documents
   };
   } catch (error) {
-    if (workflow && capabilityPublications.length) {
+    // Once the root transaction has staged the tail, the durable publisher owns its exact per-ref
+    // outcomes. Replacing that marker with the original plan here would turn a known rejection back
+    // into an ambiguous attempt (or resurrect refs that already succeeded).
+    if (workflow && capabilityPublications.length && !capabilityTailStaged) {
       await retainCapabilityPublicationRecovery(
         root, id, {
           remote,

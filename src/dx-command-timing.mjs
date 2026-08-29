@@ -1,22 +1,12 @@
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { gitDir } from './git.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+export { incrementCommandCounter, withCommandTiming } from './dx-timing-context.mjs';
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_RETENTION_DAYS = 90;
 const LOG_NAME = 'timings.jsonl';
-const commandTimingContext = new AsyncLocalStorage();
-
-export function withCommandTiming(timer, action) {
-  return commandTimingContext.run(timer, action);
-}
-
-export function incrementCommandCounter(name, amount = 1) {
-  return commandTimingContext.getStore()?.increment(name, amount) ?? null;
-}
-
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -58,6 +48,7 @@ export function commandTimer(command, input = {}) {
         event: 'dx.command-timing',
         commandClass: options.commandClass ?? 'unknown',
         command,
+        operationId: options.operationId ?? null,
         startedAt,
         recordedAt: new Date().toISOString(),
         durationMs: Number(ended - started) / 1e6,
@@ -76,7 +67,8 @@ export function writeCommandTimings(event) {
     .map(([name, durationMs]) => `${name}=${durationMs.toFixed(1)}ms`).join(' ');
   const counters = Object.entries(event.counters ?? {})
     .map(([name, count]) => `${name}=${count}`).join(' ');
-  process.stderr.write(`[sflow timing] ${event.command} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
+  const operation = event.operationId ? ` operation=${event.operationId}` : '';
+  process.stderr.write(`[sflow timing] ${event.command}${operation} class=${event.commandClass} outcome=${event.outcome} total=${event.durationMs.toFixed(1)}ms${stages ? ` ${stages}` : ''}${counters ? ` ${counters}` : ''}\n`);
 }
 
 export function commandTimingDirectory(root) {

@@ -4,7 +4,8 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
-  add, branch, fileAtRef, head, identity, localBranches, pushBranch, pushCommitToBranch, remoteBranches
+  branch, exactRemoteBranchHead, exactRemoteBranchObservation, fileAtRef, head, identity,
+  localBranches, publicationPushOutcome, pushCommitToBranch, remoteBranches
 } from './git.mjs';
 import {
   loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
@@ -18,7 +19,6 @@ import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
 } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import {
@@ -36,7 +36,9 @@ import {
   readPendingPublication,
   recoverPreparedPublication,
   verifyPendingPublicationCommit,
+  writePendingPublication,
 } from './publication-pending.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
@@ -53,200 +55,6 @@ export function initiativePublicationMode(portfolio, initiative) {
   if (configured === 'required' || capability === 'required') return 'required';
   if (capability === 'warn') return 'warn';
   return configured;
-}
-
-function stableJson(value) {
-  if (Array.isArray(value)) return value.map(stableJson);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableJson(value[key])]));
-}
-
-function sameValue(left, right) {
-  return JSON.stringify(stableJson(left)) === JSON.stringify(stableJson(right));
-}
-
-function appendOnlyStateShape(value) {
-  const copy = structuredClone(value);
-  delete copy.history;
-  delete copy.publicationProjections;
-  if (copy.sources) {
-    delete copy.sources.records;
-    if (Object.values(copy.sources).every((entry) => entry == null)) delete copy.sources;
-  }
-  return copy;
-}
-
-function mergeAppendOnlyState(base, left, right) {
-  const baseline = appendOnlyStateShape(base);
-  if (!sameValue(appendOnlyStateShape(left), baseline) || !sameValue(appendOnlyStateShape(right), baseline)) {
-    throw new SingularityFlowError(
-      'Concurrent append-only retry also contains a lifecycle-state change; automatic replay was refused.'
-    );
-  }
-  const merged = structuredClone(left);
-  const events = [...(base.history ?? []), ...(left.history ?? []), ...(right.history ?? [])];
-  const unique = new Map(events.map((event) => [JSON.stringify(stableJson(event)), event]));
-  merged.history = [...unique.values()].sort((a, b) => {
-    const byTime = String(a.at ?? '').localeCompare(String(b.at ?? ''));
-    return byTime || JSON.stringify(stableJson(a)).localeCompare(JSON.stringify(stableJson(b)));
-  });
-  const publications = new Map();
-  for (const record of [
-    ...(base.publicationProjections ?? []),
-    ...(left.publicationProjections ?? []),
-    ...(right.publicationProjections ?? [])
-  ]) {
-    const eventId = record.event?.eventId;
-    if (!eventId) throw new SingularityFlowError('Append-only publication projection is missing event.eventId.');
-    const previous = publications.get(eventId);
-    if (previous && !sameValue(previous, record)) {
-      throw new SingularityFlowError(`Concurrent publication event '${eventId}' has different projection recipes.`);
-    }
-    publications.set(eventId, record);
-  }
-  merged.publicationProjections = [...publications.values()].sort((a, b) =>
-    String(a.event?.createdAt ?? '').localeCompare(String(b.event?.createdAt ?? ''))
-      || String(a.event?.eventId ?? '').localeCompare(String(b.event?.eventId ?? '')));
-  if (left.sources || right.sources) {
-    merged.sources = structuredClone(left.sources ?? right.sources);
-    merged.sources.records = Math.max(
-      Number(base.sources?.records ?? 0),
-      Number(left.sources?.records ?? 0),
-      Number(right.sources?.records ?? 0)
-    );
-  }
-  return merged;
-}
-
-function manifestWithoutSources(value) {
-  const copy = structuredClone(value);
-  delete copy.sources;
-  return copy;
-}
-
-function mergeAppendOnlySourceManifest(base, left, right) {
-  const baseline = manifestWithoutSources(base);
-  if (!sameValue(manifestWithoutSources(left), baseline) || !sameValue(manifestWithoutSources(right), baseline)) {
-    throw new SingularityFlowError(
-      'Concurrent source retry changed non-source manifest fields; automatic replay was refused.'
-    );
-  }
-  const sources = new Map();
-  for (const source of [...(base.sources ?? []), ...(left.sources ?? []), ...(right.sources ?? [])]) {
-    const previous = sources.get(source.sourceId);
-    if (previous && !sameValue(previous, source)) {
-      throw new SingularityFlowError(
-        `Concurrent source '${source.sourceId}' has different immutable records; automatic replay was refused.`
-      );
-    }
-    sources.set(source.sourceId, source);
-  }
-  return {
-    ...structuredClone(left),
-    sources: [...sources.values()].sort((a, b) => String(a.sourceId).localeCompare(String(b.sourceId)))
-  };
-}
-
-function rebaseStage(root, stage, relative, parser, fallback = undefined) {
-  const result = run('git', ['show', `:${stage}:${relative}`], { cwd: root, allowFailure: true });
-  if (result.status !== 0) {
-    if (fallback !== undefined) return structuredClone(fallback);
-    throw new SingularityFlowError(`Unable to read concurrent Git stage ${stage} for ${relative}.`);
-  }
-  try {
-    return parser(result.stdout);
-  } catch (error) {
-    throw new SingularityFlowError(`Concurrent ${relative} is invalid: ${error.message}`);
-  }
-}
-
-async function replayAppendOnlyCommit(root, portfolio, initiative, remote, sha) {
-  const remoteRef = `refs/remotes/${remote}/${initiative.initiative.branch}`;
-  const fetched = runRemoteGit([
-    'fetch', remote,
-    `+refs/heads/${initiative.initiative.branch}:${remoteRef}`
-  ], { cwd: root, operation: 'remote-configuration' });
-  if (fetched.status !== 0) return { status: fetched.status, stdout: fetched.stdout, stderr: fetched.stderr };
-
-  const unpublished = run('git', ['rev-list', '--count', `${remoteRef}..HEAD`], {
-    cwd: root,
-    allowFailure: true
-  });
-  if (unpublished.status !== 0 || Number(unpublished.stdout.trim()) !== 1 || head(root) !== sha) {
-    return {
-      status: 1,
-      stdout: '',
-      stderr: 'Automatic append-only replay requires exactly one unpublished local commit.'
-    };
-  }
-
-  const rebased = run('git', ['rebase', remoteRef], { cwd: root, allowFailure: true });
-  if (rebased.status === 0) return { status: 0, stdout: rebased.stdout, stderr: rebased.stderr };
-
-  const conflicted = run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], {
-    cwd: root,
-    allowFailure: true
-  }).stdout.split('\0').filter(Boolean).map(posix);
-  const prefix = `${posix(initiativeRelative(portfolio, initiative.initiative.id))}/`;
-  const statePath = `${prefix}state.json`;
-  const statusPath = `${prefix}STATUS.md`;
-  const sourceManifestPath = `${prefix}sources/manifest.yml`;
-  const supported = new Set([statePath, statusPath, sourceManifestPath]);
-  const abort = (error) => {
-    const aborted = run('git', ['rebase', '--abort'], { cwd: root, allowFailure: true });
-    const detail = error?.message ?? String(error);
-    return {
-      status: 1,
-      stdout: '',
-      stderr: `${detail}${aborted.status === 0 ? '' : `; rebase abort failed: ${(aborted.stderr || aborted.stdout).trim()}`}`
-    };
-  };
-  if (!conflicted.length || conflicted.some((file) => !supported.has(file))) {
-    return abort(new SingularityFlowError(
-      `Automatic append-only replay found unsupported conflicts: ${conflicted.join(', ') || 'unknown conflict'}.`
-    ));
-  }
-
-  try {
-    let mergedManifest = null;
-    if (conflicted.includes(sourceManifestPath)) {
-      mergedManifest = mergeAppendOnlySourceManifest(
-        rebaseStage(root, 1, sourceManifestPath, YAML.parse, {
-          version: 1,
-          initiativeId: initiative.initiative.id,
-          sources: []
-        }),
-        rebaseStage(root, 2, sourceManifestPath, YAML.parse),
-        rebaseStage(root, 3, sourceManifestPath, YAML.parse)
-      );
-      await writeText(path.join(root, sourceManifestPath), YAML.stringify(mergedManifest));
-    }
-    const mergedState = conflicted.includes(statePath)
-      ? mergeAppendOnlyState(
-        rebaseStage(root, 1, statePath, JSON.parse),
-        rebaseStage(root, 2, statePath, JSON.parse),
-        rebaseStage(root, 3, statePath, JSON.parse)
-      )
-      : JSON.parse(await readFile(path.join(root, statePath), 'utf8'));
-    if (mergedManifest) {
-      mergedState.sources ??= { records: 0, verifiedAt: null };
-      mergedState.sources.records = mergedManifest.sources.length;
-    }
-    await saveInitiative(root, portfolio, mergedState);
-    add(root, [initiativeRelative(portfolio, initiative.initiative.id)]);
-    const staged = run('git', ['diff', '--cached', '--quiet'], { cwd: root, allowFailure: true }).status !== 0;
-    const continued = run(
-      'git',
-      staged ? ['rebase', '--continue'] : ['rebase', '--skip'],
-      { cwd: root, env: { ...process.env, GIT_EDITOR: 'true' }, allowFailure: true }
-    );
-    if (continued.status !== 0) return abort(new SingularityFlowError(
-      `Automatic append-only replay could not continue: ${(continued.stderr || continued.stdout).trim()}`
-    ));
-    return { status: 0, stdout: continued.stdout, stderr: continued.stderr };
-  } catch (error) {
-    return abort(error);
-  }
 }
 
 // Restore any packaged initiative template the repository is missing, into the portfolio's own
@@ -1246,9 +1054,14 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   eventFromResult = null,
   transactionId = null,
   rollbackInitiative = null,
-  recoveryPreimage = null
+  recoveryPreimage = null,
+  afterRemoteObservation = null
 } = {}) {
   if (branch(root) !== initiative.initiative.branch) throw new SingularityFlowError(`Current branch ${branch(root)} must match initiative branch ${initiative.initiative.branch}.`);
+  // Bind both absent-ref creation and ordinary advancement to the local parent visible when the
+  // Initiative command began. A null remote lease protects only absence; without this independent
+  // local CAS, a concurrent ref move could change the history published under that new branch.
+  const publicationParent = head(root);
   const pending = await readPendingPublication(root, {
     kind: 'initiative',
     id: initiative.initiative.id,
@@ -1293,6 +1106,40 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   }
   const mode = initiativePublicationMode(portfolio, initiative);
   const remote = portfolio.git?.remote ?? 'origin';
+  let expectedRemoteSha;
+  let publicationAuthority = null;
+  if (mode !== 'off') {
+    publicationAuthority = configuredRemoteAuthority(root, remote);
+    if (!publicationAuthority.url) {
+      throw new SingularityFlowError(
+        `Initiative publication remote '${remote}' is not configured with a credential-free authority.`,
+        { code: 'INITIATIVE_PUBLICATION_REMOTE_MISSING' }
+      );
+    }
+    const observation = exactRemoteBranchObservation(
+      root, publicationAuthority.url, initiative.initiative.branch
+    );
+    if (!observation.reachable || observation.malformed) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' cannot bind its publication to one exact remote branch state. `
+        + (observation.malformed
+          ? 'The remote returned an ambiguous branch advertisement.'
+          : 'The remote branch authority is currently unavailable.'),
+        {
+          code: observation.malformed
+            ? 'INITIATIVE_PUBLICATION_REMOTE_AMBIGUOUS'
+            : 'INITIATIVE_PUBLICATION_REMOTE_UNAVAILABLE'
+        }
+      );
+    }
+    // A non-null lease names the local parent that this governed transaction extends, not a live
+    // divergent remote tip. Using the latter would authorize a force overwrite. Absence is an
+    // explicit create-only precondition.
+    expectedRemoteSha = observation.sha === null ? null : publicationParent;
+    if (afterRemoteObservation) {
+      await afterRemoteObservation({ authority: publicationAuthority, observation, expectedRemoteSha });
+    }
+  }
   // The transition may update source manifests, prompt-composition records, detach decisions and
   // projections as well as state.json. Capture the complete governed Initiative directory so a
   // pre-commit failure cannot leave any part of an unpublished decision behind.
@@ -1355,15 +1202,20 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
         ...recoveryOptions
       })
     },
-    publication: { mode, remote, branch: initiative.initiative.branch },
+    publication: {
+      mode, remote, branch: initiative.initiative.branch,
+      expectedLocalHead: publicationParent,
+      ...(publicationAuthority ? { authority: publicationAuthority } : {}),
+      ...(mode !== 'off' ? { expectedRemoteSha } : {})
+    },
     pendingRecord: () => ({ initiativeId: initiative.initiative.id, appendOnly }),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: initiativeRelative(portfolio, initiative.initiative.id) },
-    conflictStrategy: appendOnly ? async ({ sourceCommit }) => {
-      const rebased = await replayAppendOnlyCommit(root, portfolio, initiative, remote, sourceCommit);
-      if (rebased.status !== 0) return { result: rebased, replayed: false, publishedCommit: sourceCommit };
-      const pushed = pushBranch(root, remote, initiative.initiative.branch);
-      return { result: pushed, replayed: pushed.status === 0, publishedCommit: head(root) };
-    } : null,
+    // Append-only replay used to rebase the governed commit after its transaction digest was
+    // sealed, then publish the rewritten object with trailers authenticating the old parent/tree.
+    // A crash around its second transport also left recovery bound to the old commit and lease.
+    // Until replay is a first-class journaled transaction, concurrent appends fail closed and keep
+    // the original exact commit/lease as the only recovery authority.
+    conflictStrategy: null,
     recoveryPreimage,
     transactionId
   });
@@ -1377,7 +1229,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
   return result;
 }
 
-export async function syncInitiativePublication(root, portfolio, initiative) {
+export async function syncInitiativePublication(root, portfolio, initiative, { fault = null } = {}) {
   const subject = { kind: 'initiative', id: initiative.initiative.id };
   const pendingOptions = {
     ...subject,
@@ -1457,8 +1309,126 @@ export async function syncInitiativePublication(root, portfolio, initiative) {
         }
       );
     }
-    const result = pushCommitToBranch(root, currentRecord.remote, currentRecord.commit, currentRecord.branch);
-    if (result.status !== 0) throw new SingularityFlowError(`Initiative push still fails: ${(result.stderr || result.stdout).trim()}`);
+    let remoteAuthority = null;
+    try {
+      remoteAuthority = configuredRemoteAuthority(root, currentRecord.remote);
+    } catch {
+      // An unsafe or unreadable configured remote is authority drift, not permission to fall back to
+      // the display-safe marker value or to attempt a push through Git's ambient configuration.
+    }
+    if (!currentRecord.remoteFingerprint || !remoteAuthority?.url
+      || remoteAuthority.fingerprint !== currentRecord.remoteFingerprint) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' publication remote '${currentRecord.remote}' changed after the governed commit was retained. `
+        + 'The marker was retained and no ref was pushed.',
+        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
+      );
+    }
+    if (fault) await fault('after-root-authority-capture', {
+      record: currentRecord, remoteFingerprint: remoteAuthority.fingerprint
+    });
+    if (currentRecord.rootPublished === true && current.integrityVerified !== true) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' pending root publication progress integrity is invalid. `
+        + 'The marker was retained and no ref was pushed.',
+        {
+          code: 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID',
+          details: {
+            subject, markerPath: current.path,
+            failures: ['pending root publication progress integrity is invalid']
+          }
+        }
+      );
+    }
+    if (!Object.hasOwn(currentRecord, 'expectedRemoteSha')) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' pending publication predates exact remote leases. `
+        + 'The marker was retained and no ref was pushed; migrate or reconcile this legacy publication explicitly.',
+        {
+          code: 'PENDING_PUBLICATION_REMOTE_LEASE_MISSING',
+          details: { subject, markerPath: current.path }
+        }
+      );
+    }
+
+    let rootPublished = currentRecord.rootPublished === true;
+    if (rootPublished) {
+      const remoteCommit = exactRemoteBranchHead(
+        root, remoteAuthority.url, currentRecord.branch
+      );
+      if (remoteCommit !== currentRecord.commit) {
+        throw new SingularityFlowError(
+          `Initiative '${initiative.initiative.id}' pending marker says its ref was published, but remote '${currentRecord.remote}' `
+          + `does not advertise exact commit ${currentRecord.commit}. The marker was retained.`,
+          { code: 'PENDING_PUBLICATION_ROOT_UNPROVEN', details: { subject, markerPath: current.path } }
+        );
+      }
+    } else {
+      // Only the previously machine-sealed progress value may authorize equality from an older
+      // attempt. The in-flight write below must not launder a hand-edited outcome into authority.
+      const priorOutcome = current.integrityVerified === true
+        ? currentRecord.pushOutcome ?? 'not-attempted'
+        : 'not-attempted';
+      const inFlightRecord = {
+        ...currentRecord,
+        rootPublished: false,
+        pushOutcome: 'transport-indeterminate',
+        error: 'Initiative publication retry is in flight.'
+      };
+      // This sealed marker is the recovery boundary for a process death after receive-pack changes
+      // the ref but before Git returns. It must be durable before the network operation begins.
+      await writePendingPublication(root, { ...subject, record: inFlightRecord });
+      if (fault) await fault('after-recovery-push-intent', { record: inFlightRecord });
+
+      const pushOptions = {
+        expectedRemoteSha: currentRecord.expectedRemoteSha,
+        transportRemote: remoteAuthority.url,
+        upstreamRemote: remoteAuthority.remote
+      };
+      const result = pushCommitToBranch(
+        root, currentRecord.remote, currentRecord.commit, currentRecord.branch, pushOptions
+      );
+      if (result.status !== 0) {
+        const pushOutcome = publicationPushOutcome(result);
+        // Either an older sealed ambiguity or this attempt's own ambiguous transport permits one
+        // exact remote-tip reconciliation. A definitive collision without either authority must not
+        // claim another actor's byte-identical update.
+        const mayReconcile = priorOutcome === 'transport-indeterminate'
+          || pushOutcome === 'transport-indeterminate';
+        const reconciled = mayReconcile
+          && exactRemoteBranchHead(root, remoteAuthority.url, currentRecord.branch) === currentRecord.commit;
+        if (!reconciled) {
+          const error = (result.stderr || result.stdout).trim();
+          // The pre-attempt marker already records an ambiguous result. Only a definitive outcome
+          // supersedes it; persist that rejection before returning control to another sync process.
+          if (pushOutcome !== 'transport-indeterminate') {
+            await writePendingPublication(root, {
+              ...subject,
+              record: {
+                ...currentRecord,
+                rootPublished: false,
+                pushOutcome: 'rejected',
+                error: error || 'Initiative publication retry failed.'
+              }
+            });
+          }
+          throw new SingularityFlowError(`Initiative push still fails: ${error}`);
+        }
+      }
+      rootPublished = true;
+      if (fault) await fault('after-recovery-push', { record: inFlightRecord, result });
+
+      const publishedRecord = {
+        ...currentRecord,
+        rootPublished: true,
+        pushOutcome: 'not-attempted',
+        error: 'Initiative publication reached its exact remote ref; local recovery cleanup is pending.'
+      };
+      // Persist success before clearing the recovery authority. A crash after this write can verify
+      // the exact remote ref and finish locally without attempting the governed update again.
+      await writePendingPublication(root, { ...subject, record: publishedRecord });
+      if (fault) await fault('after-root-published', { record: publishedRecord });
+    }
     await clearPendingPublication(root, pendingOptions);
     return {
       pending: false,

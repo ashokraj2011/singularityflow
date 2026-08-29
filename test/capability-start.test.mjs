@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,6 +14,18 @@ import { branch as currentBranch } from '../src/git.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd, allowFailure: false });
+
+async function waitForRemoteRef(remote, ref, expected, { timeoutMs = 5_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const observed = run('git', ['--git-dir', remote, 'rev-parse', '--verify', ref], {
+      allowFailure: true
+    });
+    if (observed.status === 0 && observed.stdout.trim() === expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(git(remote, '--git-dir', remote, 'rev-parse', '--verify', ref).stdout.trim(), expected);
+}
 
 /** A bare origin with the named branches, and a working clone of it. */
 async function repository(base, id, branches) {
@@ -72,10 +84,17 @@ test('capability remote inventory is bounded, concurrent, and returns manifest o
   const repositories = Array.from({ length: 6 }, (_, index) => ({
     id: `repository-${index}`, url: `https://example.invalid/repository-${index}.git`
   }));
-  const runGit = async (args) => {
+  const runGit = async (args, options) => {
     active += 1;
     maximum = Math.max(maximum, active);
-    const index = Number(args.at(-1).match(/repository-(\d+)/)[1]);
+    const alias = args.at(-1);
+    const count = Number(options.env.GIT_CONFIG_COUNT ?? 0);
+    const key = Array.from({ length: count }, (_, offset) => offset)
+      .find((offset) => options.env[`GIT_CONFIG_VALUE_${offset}`] === alias
+        && options.env[`GIT_CONFIG_KEY_${offset}`]?.endsWith('.insteadOf'));
+    const configured = options.env[`GIT_CONFIG_KEY_${key}`];
+    const url = configured.slice('url.'.length, -'.insteadOf'.length);
+    const index = Number(url.match(/repository-(\d+)/)[1]);
     await new Promise((resolve) => setTimeout(resolve, (6 - index) * 3));
     active -= 1;
     return {
@@ -144,6 +163,42 @@ test('capability sibling Story branches are published for another machine', asyn
   }).status, 0);
 });
 
+test('capability publication keeps the verified remote authority when a pre-push hook retargets its name', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-authority-race-'));
+  const repositories = [
+    await repository(base, 'lead', ['main']),
+    await repository(base, 'sibling', ['main'])
+  ];
+  const alternate = path.join(base, 'alternate.git');
+  git(base, 'init', '--bare', '--initial-branch=main', alternate);
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const plan = { repositories, resolution };
+  const checked = await preflightStoryRepositories(base, plan, 'S-AUTHORITY-RACE');
+  prepareCapabilityRepositories(base, plan, 'S-AUTHORITY-RACE');
+  const leadRoot = path.join(base, repositories[0].path);
+  const entries = capabilityPublicationPlan(checked, leadRoot);
+  const sibling = path.join(base, repositories[1].path);
+  const hook = path.join(sibling, '.git', 'hooks', 'pre-push');
+  await writeFile(hook, `#!/bin/sh\ngit remote set-url origin ${JSON.stringify(alternate)}\n`);
+  await chmod(hook, 0o755);
+
+  const result = publishCapabilityRepositories(entries);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.pending, []);
+  assert.match(git(sibling, 'config', '--get', 'remote.origin.url').stdout, /alternate\.git/);
+  assert.equal(
+    git(base, '--git-dir', repositories[1].url, 'rev-parse', 'refs/heads/S-AUTHORITY-RACE').stdout.trim(),
+    entries[0].commit,
+    'the exact authority captured before the push received the Story ref'
+  );
+  assert.equal(run('git', ['--git-dir', alternate, 'show-ref', '--verify', '--quiet',
+    'refs/heads/S-AUTHORITY-RACE'], { cwd: base, allowFailure: true }).status, 1,
+  'the retargeted remote name received nothing');
+});
+
 test('a post-preflight sibling publication failure returns an exact resumable remainder', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
   const repositories = [
@@ -159,18 +214,73 @@ test('a post-preflight sibling publication failure returns an exact resumable re
   prepareCapabilityRepositories(base, plan, 'S-RECOVER');
   const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
-  git(sibling, 'config', 'remote.origin.receivepack', '/usr/bin/false');
+  const rejectHook = path.join(repositories[1].url, 'hooks', 'pre-receive');
+  await writeFile(rejectHook, '#!/bin/sh\nexit 1\n');
+  await chmod(rejectHook, 0o755);
   const failed = publishCapabilityRepositories(entries);
   assert.equal(failed.pending.length, 1);
   assert.equal(failed.pending[0].repository, 'sibling');
+  assert.equal(failed.pending[0].pushOutcome, 'rejected');
   assert.match(failed.error, /false|receive|failed|fatal/i);
 
-  git(sibling, 'config', '--unset', 'remote.origin.receivepack');
+  await writeFile(rejectHook, '#!/bin/sh\nexit 0\n');
+  // A known rejection cannot later claim an identical ref that somebody else published.
+  git(sibling, 'push', 'origin', `${failed.pending[0].commit}:refs/heads/S-RECOVER`);
+  const collision = publishCapabilityRepositories(failed.pending);
+  assert.equal(collision.pending.length, 1);
+  assert.equal(collision.pending[0].pushOutcome, 'rejected');
+  git(sibling, 'push', 'origin', ':refs/heads/S-RECOVER');
   const recovered = publishCapabilityRepositories(failed.pending);
   assert.equal(recovered.error, null);
   assert.deepEqual(recovered.pending, []);
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/S-RECOVER'], { cwd: sibling }).stdout.trim(),
     failed.pending[0].commit);
+});
+
+test('an indeterminate sibling push reconciles only its exact remote Story ref', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-indeterminate-'));
+  const repositories = [
+    await repository(base, 'lead', ['main']),
+    await repository(base, 'sibling', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const plan = { repositories, resolution };
+  const checked = await preflightStoryRepositories(base, plan, 'S-INDETERMINATE');
+  prepareCapabilityRepositories(base, plan, 'S-INDETERMINATE');
+  const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
+  const sibling = path.join(base, repositories[1].path);
+  const hook = path.join(repositories[1].url, 'hooks/post-receive');
+  // Under the full Git-heavy suite, 50 ms can expire before receive-pack even reaches the hook.
+  // Give it a deterministic window to install the ref, then hold post-receive long enough for the
+  // client to cross the indeterminate transport boundary.
+  await writeFile(hook, '#!/bin/sh\nsleep 10\n');
+  await chmod(hook, 0o755);
+  const previousTimeout = process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+  process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = '2000';
+  let failed;
+  try {
+    failed = publishCapabilityRepositories(entries);
+  } finally {
+    if (previousTimeout === undefined) delete process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+    else process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = previousTimeout;
+  }
+  assert.equal(failed.pending.length, 1);
+  assert.equal(failed.pending[0].pushOutcome, 'transport-indeterminate');
+
+  await waitForRemoteRef(
+    repositories[1].url, 'refs/heads/S-INDETERMINATE', failed.pending[0].commit
+  );
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  const recovered = publishCapabilityRepositories(failed.pending);
+  assert.equal(recovered.error, null);
+  assert.deepEqual(recovered.pending, []);
+  assert.equal(recovered.published[0].reconciled, true);
+  assert.equal(run('git', ['ls-remote', 'origin', 'refs/heads/S-INDETERMINATE'], {
+    cwd: sibling
+  }).stdout.trim().split(/\s+/)[0], failed.pending[0].commit);
 });
 
 test('a repository the workspace has not cloned is named, not skipped in silence', async () => {
@@ -232,7 +342,7 @@ test('publication preflight checks every required repository before any branch m
     repositories: published, selection: parseBaseSelection(['main'])
   });
   const blocked = path.join(base, repositories[1].path);
-  git(blocked, 'config', 'remote.origin.receivepack', '/usr/bin/false');
+  git(blocked, 'config', 'remote.origin.pushurl', path.join(base, 'unreachable-push.git'));
 
   await assert.rejects(
     () => preflightStoryRepositories(base, { repositories, resolution }, 'S-READONLY'),
@@ -245,6 +355,36 @@ test('publication preflight checks every required repository before any branch m
       cwd: root, allowFailure: true
     }).status, 1);
   }
+});
+
+test('publication dry-run probes use bounded concurrency and preserve repository order', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-'));
+  const repositories = await Promise.all(Array.from({ length: 5 }, (_, index) =>
+    repository(base, `repository-${index}`, ['main'])));
+  const resolution = resolveCapabilityBase({
+    repositories: Object.fromEntries(repositories.map((entry) => [entry.id, ['main']])),
+    selection: parseBaseSelection(['main'])
+  });
+  let active = 0;
+  let maximum = 0;
+  let pushes = 0;
+  const runGit = async (args) => {
+    if (args[0] === 'fetch') return { status: 0, stdout: '', stderr: '' };
+    assert.equal(args[0], 'push');
+    pushes += 1;
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    active -= 1;
+    return { status: 0, stdout: '', stderr: '' };
+  };
+
+  const checked = await preflightStoryRepositories(
+    base, { repositories, resolution }, 'S-CONCURRENT', { workers: 2, runGit }
+  );
+  assert.equal(pushes, repositories.length);
+  assert.equal(maximum, 2);
+  assert.deepEqual(checked.map((entry) => entry.repository), repositories.map((entry) => entry.id));
 });
 
 test('publication preflight refuses a required repository that is not cloned', async () => {
@@ -329,6 +469,9 @@ test('Story preflight resolves a valid capability from code-only application bra
     repositories: { ruleengine: ['main'] },
     selection: parseBaseSelection(['main'])
   });
+  // A read/local-only Story policy needs fetch authority but must not be blocked by an unusable
+  // push destination that it will never contact.
+  git(lifecycleRoot, 'config', 'remote.origin.pushurl', 'https://user:secret@example.invalid/unused.git');
 
   const checked = await preflightStoryRepositories(base, {
     repositories: [repositoryEntry],

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
@@ -372,6 +372,87 @@ test('a governed file can be published to the state branch, and republishing the
   }, 'Update capability commerce');
   assert.equal(changed.changed, true);
   assert.notEqual(changed.commit, first.commit);
+});
+
+test('a state projection is not reported current when its source authority already moved', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const approved = git(root, ['rev-parse', 'main']).stdout.trim();
+  const stateBefore = git(root, ['rev-parse', 'state']).stdout.trim();
+
+  const concurrent = path.join(parent, 'concurrent-source');
+  run('git', ['clone', '-q', '--branch', 'main', remote, concurrent]);
+  git(concurrent, ['config', 'user.name', 'Concurrent Configurer']);
+  git(concurrent, ['config', 'user.email', 'concurrent@example.com']);
+  await writeFile(path.join(concurrent, 'README.md'), '# concurrently advanced application\n');
+  git(concurrent, ['add', 'README.md']);
+  git(concurrent, ['commit', '-m', 'Advance source authority']);
+  git(concurrent, ['push', 'origin', 'main']);
+  const advanced = git(concurrent, ['rev-parse', 'HEAD']).stdout.trim();
+
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {
+      'configuration/manifest.json': `${JSON.stringify({ source: approved })}\n`
+    }, 'Publish stale projection', {
+      guardedRemoteRefs: { 'refs/heads/main': approved }
+    }),
+    (error) => error?.code === 'state_branch.source_authority_changed'
+  );
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'main']).stdout.trim(), advanced);
+  assert.notEqual(run('git', ['--git-dir', remote, 'rev-parse', 'state']).stdout.trim(), stateBefore,
+    'the exact state lease can succeed, but the stale projection must still be reported as failure');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:configuration/manifest.json'
+  ]).stdout, `${JSON.stringify({ source: approved })}\n`);
+});
+
+test('a source move after advertisement is detected after the exact state CAS', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const approved = git(root, ['rev-parse', 'main']).stdout.trim();
+  const stateBefore = git(root, ['rev-parse', 'state']).stdout.trim();
+
+  // Put the future source commit in the remote object database without advancing the authority yet.
+  // The receive hook below moves `main` only after the state push has received its advertisement,
+  // reproducing the window in which Git elides an up-to-date no-op guard refspec.
+  const concurrent = path.join(parent, 'source-race');
+  run('git', ['clone', '-q', '--branch', 'main', remote, concurrent]);
+  git(concurrent, ['config', 'user.name', 'Concurrent Configurer']);
+  git(concurrent, ['config', 'user.email', 'concurrent@example.com']);
+  await writeFile(path.join(concurrent, 'README.md'), '# moved during state receive\n');
+  git(concurrent, ['add', 'README.md']);
+  git(concurrent, ['commit', '-m', 'Prepare concurrent source authority']);
+  const advanced = git(concurrent, ['rev-parse', 'HEAD']).stdout.trim();
+  git(concurrent, ['push', 'origin', 'HEAD:refs/heads/source-race-object']);
+
+  const hook = path.join(remote, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+while read old new ref; do
+  if [ "$ref" = "refs/heads/state" ]; then
+    unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+    git --git-dir=${JSON.stringify(remote)} update-ref refs/heads/main ${advanced} ${approved} || exit 1
+  fi
+done
+exit 0
+`);
+  await chmod(hook, 0o755);
+
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {
+      'configuration/manifest.json': `${JSON.stringify({ source: approved })}\n`
+    }, 'Publish projection across source race', {
+      expectedRemoteSha: stateBefore,
+      guardedRemoteRefs: { 'refs/heads/main': approved }
+    }),
+    (error) => error?.code === 'state_branch.source_authority_changed'
+      && error?.details?.phase === 'during state publication'
+  );
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'main']).stdout.trim(), advanced);
+  assert.notEqual(run('git', ['--git-dir', remote, 'rev-parse', 'state']).stdout.trim(), stateBefore,
+    'the exact state lease succeeded before the cross-ref race was discovered');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show', 'state:configuration/manifest.json'
+  ]).stdout, `${JSON.stringify({ source: approved })}\n`);
 });
 
 test('an explicit state-branch replacement root prunes stale tracked files and preserves unrelated state', async () => {

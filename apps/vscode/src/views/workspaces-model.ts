@@ -250,7 +250,7 @@ export function restoreCommand(row: WorkspaceRow): string[] {
 
 /** Preview or apply the exact configuration/state refresh rendered by the Workspaces page. */
 export function configurationRefreshCommand(
-  row: WorkspaceRow | null,
+  row: Pick<WorkspaceRow, 'directory'> | null,
   {
     dryRun,
     planId = null,

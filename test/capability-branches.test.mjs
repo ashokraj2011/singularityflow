@@ -199,7 +199,23 @@ test('the editor can list the branches, because it cannot answer a prompt', asyn
   assert.match(registry, /WORKSPACE_NEVER_OPERATIONS = new Set\(\[\s*\n\s*'branches'/);
 
   const panel = await source('apps/vscode/src/views/intake-panel.ts');
-  assert.match(panel, /\['workspace', 'branches', '--json'\]/, 'the intake panel never asks for the choices');
+  assert.match(panel, /\['workspace', 'branches', '--json', '--intake'\]/,
+    'the intake panel never asks for the aggregate choices');
+  const load = panel.slice(panel.indexOf('private async load()'), panel.indexOf('private async loadTracker()'));
+  assert.equal((load.match(/this\.client\.run/g) ?? []).length, 1,
+    'the intake critical path starts more than one engine process');
+  assert.doesNotMatch(load, /\['snapshot'|\['initiative'|\['workflow'|\['jira'/,
+    'the aggregate regressed to independent cold CLI calls');
+  assert.match(load, /void this\.loadTracker\(\)/,
+    'the optional tracker probe blocks the local intake catalog');
+  const recovery = panel.slice(panel.indexOf('private async recoverStartedStory()'), panel.indexOf('private writableField'));
+  assert.match(recovery, /\['session', 'attach', workId, '--json'\]/);
+  assert.doesNotMatch(recovery, /session', 'candidates'/,
+    'timeout recovery fetches and indexes all remote Stories twice');
+
+  const extension = await source('apps/vscode/src/extension.ts');
+  assert.match(extension, /inFlight: intakeInFlight\(store\.current\.snapshot\)/,
+    'the panel discarded the Store lifecycle snapshot and launched another full snapshot');
   const form = await source('apps/vscode/src/views/intake-form.ts');
   assert.match(form, /form\.baseBranch \? \['--from-branch', form\.baseBranch\] : \[\]/,
     'the intake form collects a base branch and does not pass it');

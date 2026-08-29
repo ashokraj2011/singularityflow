@@ -11,7 +11,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 4
+version: 5
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -30,7 +30,7 @@ Use this topic when the current goal matches **capability management**. Start in
 1. Read the current map with `sflow capability organisation <LEAD-URL>`. Add `--refresh` when an explicit remote recheck is required.
 2. Create a governed proposal with `sflow capability map` or `sflow capability edit --lead <LEAD-URL>`. Local `capability add`, `set`, and `remove` author only the checkout and never publish governed state.
 3. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
-4. Activate the exact reviewed commit. Flow dry-runs the push to `sflow/config`; if the remote permits the direct update, CLI callers must add `--acknowledge-unprotected` after reviewing that fact.
+4. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
 5. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
 
 Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
@@ -58,7 +58,7 @@ To remove a capability that still has children, choose where those direct childr
 
 ## State and safety
 
-The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Governed changes use proposal branches and exact activation. Activation uses a normal non-force push and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path.
+The approved map lives on `sflow/config`; its orphan state-branch copy is a read mirror, not an independent write authority. Governed changes use proposal branches and exact activation. Activation uses an exact leased update and appends a tamper-evident event containing proposer, approver, proposal and target commits, changed files, and the protection result. A provider rejection leaves the proposal available for its normal pull-request path; only explicit pull-request, review, or protection evidence is classified as review-required.
 
 Organisation reads prefer the state mirror, fall back to `sflow/config`, and cache validated results by the exact configuration commit. When the remote is unavailable, a cached result is marked `stale` and carries its age and remote error. `--refresh` bypasses a current cache entry; it cannot manufacture connectivity.
 

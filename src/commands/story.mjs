@@ -26,7 +26,7 @@ import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { resolveWorkType } from '../config.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import { advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection, serializeConvergence } from '../convergence.mjs';
-import { assertClean, branch, changedFiles, changes, checkout, commit, identity, repoRoot } from '../git.mjs';
+import { assertClean, branch, changedFiles, changes, checkout, commit, identity, refHead, repoRoot } from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
@@ -218,6 +218,13 @@ export async function storyFetchCommand(positionals, options) {
     fetch: true,
     existingOnly: true
   });
+  const expectedStoryCommit = refHead(target, `refs/remotes/origin/${storyKey}`);
+  if (!expectedStoryCommit) {
+    throw new SingularityFlowError(
+      `Published Story branch 'origin/${storyKey}' disappeared after checkout. Refresh Jira Story intake and retry; nothing was published.`,
+      { code: 'STORY_BRANCH_STALE' }
+    );
+  }
   if (capabilityBase) {
     // After the delivery repository, for the same reason `start` does it in this order: if the Story
     // cannot be fetched here there is no reason to have moved its siblings.
@@ -261,7 +268,15 @@ export async function storyFetchCommand(positionals, options) {
       resolved: resolvedWorkType,
       capabilityId: optionString(options, 'capability')
     });
-    await commitAndPublish(target, config, workflow, { type: LIFECYCLE_EVENT.BINDING }, `[${storyKey}][init] start governed Story workflow`);
+    await commitAndPublish(
+      target,
+      config,
+      workflow,
+      { type: LIFECYCLE_EVENT.BINDING },
+      `[${storyKey}][init] start governed Story workflow`,
+      [],
+      { expectedRemoteSha: expectedStoryCommit }
+    );
   }
   if (optionBoolean(options, 'json')) {
     return console.log(JSON.stringify({ storyKey, repository: repositoryId, directory: target, workflow: workflow.workItem, property }, null, 2));

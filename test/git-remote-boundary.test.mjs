@@ -22,7 +22,10 @@ test('remote Git cannot bypass the bounded non-interactive execution boundary', 
     'configuration-branch.mjs:fetch',
     'configuration-people.mjs:fetch',
     'first-run-guide.mjs:clone',
-    'workspace-impact.mjs:clone'
+    'workspace-impact.mjs:clone',
+    // The refresh cache copies from its already-validated local disposable checkout; it never
+    // addresses a transport authority and apply re-observes the exact remote SHAs independently.
+    'workspace-configuration-refresh.mjs:clone'
   ]);
   const violations = [];
   const direct = /run\('git',\s*\[\s*['"](ls-remote|fetch|push|pull|clone)['"]/g;

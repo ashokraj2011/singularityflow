@@ -77,10 +77,12 @@ test('Story-start warming schedules the configured source scope and the worker r
   };
   const reused = await scheduleStoryStartAstWarm(root, synchronous, workflow());
   assert.equal(reused.status, 'complete');
-  assert.equal(reused.blocking, false);
+  assert.equal(reused.blocking, true);
   assert.ok(reused.result.cacheHits >= 1);
   assert.equal(reused.result.cacheMisses, 0);
-  assert.equal((await readStoryStartAstWarmStatus(root, 'STORY-AST')).status, 'complete');
+  const status = await readStoryStartAstWarmStatus(root, 'STORY-AST');
+  assert.equal(status.status, 'complete');
+  assert.equal(status.blocking, true);
 });
 
 test('Story-start warming is skipped when AST is off and never throws when local cache writes fail', async () => {

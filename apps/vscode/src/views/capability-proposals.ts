@@ -86,7 +86,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
       <div class="summary-card"><strong>${ready}</strong><span>Ready for review</span></div>
       <div class="summary-card${blocked ? ' governance-warning' : ''}"><strong>${includeMerged ? merged : blocked}</strong><span>${includeMerged ? 'Merged history' : 'Blocked'}</span></div>
     </div>
-    <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Activation uses a normal non-force push to <code>sflow/config</code>; the application default branch is never changed.</p></div>
+    <div class="notice"><p>Opening a proposal shows its exact commit, changed files, and complete diff. Activation can attempt one exact leased update to <code>sflow/config</code>; server review controls and hooks remain authoritative, and the application default branch is never changed.</p></div>
     ${integrityHtml}
     ${failures.map((failure) => `<div class="notice error"><p><strong>${escape(failure.lead)}</strong>: ${escape(failure.message)}</p></div>`).join('')}
     ${busy && !entries.length ? `<div class="empty">${icon('wait')} Reading registered lead repositories and pending proposals…</div>`

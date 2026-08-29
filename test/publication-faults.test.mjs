@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, stat, symlink, truncate, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -7,7 +7,12 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
-import { commitIsolated, gitDir, governedCommitIdentity } from '../src/git.mjs';
+import {
+  commitIsolated, gitDir, governedCommitIdentity, publicationPushOutcome
+} from '../src/git.mjs';
+import {
+  classifyGitRemoteFailure, configuredRemoteFingerprint
+} from '../src/git-remote-diagnostics.mjs';
 import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
   recoverPreparedPublication, recoverPreparedPublicationBySubject, writePendingPublication
@@ -21,7 +26,10 @@ import { runDraftTransaction } from '../src/draft-unit-of-work.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { syncPublication } from '../src/state.mjs';
 import { syncInitiativePublication } from '../src/initiative-state.mjs';
-import { retainCapabilityPublicationRecovery } from '../src/capability-publication-recovery.mjs';
+import {
+  capabilityPublicationPlanSha256, publishCapabilityRepositoriesDurably,
+  retainCapabilityPublicationRecovery
+} from '../src/capability-publication-recovery.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -42,6 +50,26 @@ async function repository(prefix) {
   return root;
 }
 
+async function ensurePublicationOrigin(root) {
+  const configured = spawnSync('git', ['remote', 'get-url', '--push', 'origin'], {
+    cwd: root,
+    encoding: 'utf8'
+  });
+  if (configured.status === 0 && configured.stdout.trim()) return configured.stdout.trim();
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-publication-fault-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  return remote;
+}
+
+async function rejectPushes(remote) {
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook, '#!/bin/sh\nexit 1\n');
+  await chmod(hook, 0o755);
+  return () => rm(hook, { force: true });
+}
+
 const stages = ['after-state-write', 'after-commit', 'after-push', 'after-ledger'];
 const kinds = ['story', 'initiative'];
 const publicationModule = pathToFileURL(path.join(packageRoot, 'src/publication-unit-of-work.mjs')).href;
@@ -50,6 +78,10 @@ const eventModule = pathToFileURL(path.join(packageRoot, 'src/lifecycle-event.mj
 const recoveryModule = pathToFileURL(path.join(packageRoot, 'src/publication-recovery.mjs')).href;
 
 async function crashPublication(root, subject, target, stage, { mode = 'required' } = {}) {
+  // Required publication now refuses before opening its journal unless one exact push authority is
+  // configured. These tests exercise later crash boundaries, so give only those cases a disposable
+  // local authority; mode-off recovery must remain independent of remote configuration.
+  if (mode !== 'off') await ensurePublicationOrigin(root);
   const script = [
     `import { writeFile } from 'node:fs/promises';`,
     `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
@@ -76,6 +108,18 @@ async function pathExists(target) {
   catch (error) { if (error?.code === 'ENOENT') return false; throw error; }
 }
 
+async function waitForRemoteRef(remote, ref, expected, { timeoutMs = 5_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const observed = spawnSync('git', ['--git-dir', remote, 'rev-parse', '--verify', ref], {
+      encoding: 'utf8'
+    });
+    if (observed.status === 0 && observed.stdout.trim() === expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(git(['--git-dir', remote, 'rev-parse', '--verify', ref], remote), expected);
+}
+
 function storyFor(subject) {
   return {
     workItem: { id: subject.id, branch: subject.branch },
@@ -91,7 +135,7 @@ function initiativeFor(subject) {
   };
 }
 
-async function retainedPublication(kind, id) {
+async function retainedPublication(kind, id, { eventPayload = {}, exactLease = false } = {}) {
   const root = await repository(`sflow-${kind}-verified-sync-`);
   const remote = await mkdtemp(path.join(os.tmpdir(), `sflow-${kind}-verified-origin-`));
   git(['init', '--bare', '-q'], remote);
@@ -104,19 +148,118 @@ async function retainedPublication(kind, id) {
   git(['commit', '-m', `${kind} canonical state`], root);
   git(['push', 'origin', 'main'], root);
   const remoteBaseline = git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root);
-  git(['remote', 'set-url', 'origin', `${remote}-unreachable`], root);
+  const allowPushes = await rejectPushes(remote);
   await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
     subject,
-    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    event: lifecycleEvent({
+      type: 'artifact-generated', subject, phaseId: 'intake', generation: 1,
+      payload: eventPayload
+    }),
     commit: { message: `[${id}] retained exact publication` },
-    publication: { mode: 'required', branch: 'main', remote: 'origin' },
+    publication: {
+      mode: 'required', branch: 'main', remote: 'origin',
+      ...(kind === 'story' || exactLease ? { expectedRemoteSha: remoteBaseline } : {})
+    },
     allowedPaths: [target],
     state: { write: () => writeFile(path.join(root, target), '{"status":"pending"}\n') }
   }), /retained locally but push failed/);
   const pending = await readPendingPublication(root, subject);
-  git(['remote', 'set-url', 'origin', remote], root);
+  await allowPushes();
   return { root, remote, remoteBaseline, subject, marker: structuredClone(pending.record) };
 }
+
+async function capabilityTailFixture(id, { siblingCount = 1 } = {}) {
+  const root = await repository(`sflow-capability-tail-root-${id}-`);
+  const remote = await mkdtemp(path.join(os.tmpdir(), `sflow-capability-tail-root-origin-${id}-`));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  git(['switch', '-c', id], root);
+
+  const siblings = [];
+  const siblingRemotes = [];
+  const entries = [];
+  for (let index = 0; index < siblingCount; index += 1) {
+    const sibling = await repository(`sflow-capability-tail-sibling-${id}-${index}-`);
+    const siblingRemote = await mkdtemp(path.join(
+      os.tmpdir(), `sflow-capability-tail-sibling-origin-${id}-${index}-`
+    ));
+    git(['init', '--bare', '-q'], siblingRemote);
+    git(['remote', 'add', 'origin', siblingRemote], sibling);
+    git(['push', '-u', 'origin', 'main'], sibling);
+    siblings.push(sibling);
+    siblingRemotes.push(siblingRemote);
+    entries.push({
+      schemaVersion: 1,
+      repository: `sibling-${index + 1}`,
+      root: sibling,
+      remote: 'origin',
+      branch: id,
+      commit: git(['rev-parse', 'HEAD'], sibling),
+      destinationRef: `refs/heads/${id}`,
+      remoteFingerprint: configuredRemoteFingerprint(sibling, 'origin'),
+      expectedRemoteSha: null,
+      pushOutcome: 'not-attempted'
+    });
+  }
+  const target = 'story-state.json';
+  const subject = { kind: 'story', id, branch: id };
+  const event = lifecycleEvent({
+    type: 'binding', subject,
+    payload: { capabilityPublicationPlanSha256: capabilityPublicationPlanSha256(entries) }
+  });
+  const pendingMetadata = {
+    workId: id,
+    recoveryStage: 'capability-publication-pending',
+    capabilityPublicationPlan: entries,
+    capabilityPublications: entries,
+    error: 'Capability Story branch publication has not started.'
+  };
+  return {
+    root, remote,
+    sibling: siblings[0], siblingRemote: siblingRemotes[0], entry: entries[0],
+    siblings, siblingRemotes, entries,
+    target, subject, event, pendingMetadata
+  };
+}
+
+async function publishCapabilityTailRoot(fixture) {
+  const publication = await new GitPublicationUnitOfWork(fixture.root).execute({
+    subject: fixture.subject,
+    event: fixture.event,
+    commit: { message: `[${fixture.subject.id}][init] start governed Story workflow` },
+    publication: {
+      mode: 'required', branch: fixture.subject.branch, remote: 'origin', expectedRemoteSha: null
+    },
+    allowedPaths: [fixture.target],
+    state: {
+      write: () => writeFile(path.join(fixture.root, fixture.target), '{"status":"ready"}\n')
+    },
+    pendingMetadata: fixture.pendingMetadata,
+    retainPendingOnSuccess: true
+  });
+  return publication;
+}
+
+test('push outcome distinguishes ambiguous transport loss from definitive rejection', () => {
+  assert.equal(publicationPushOutcome({ status: 0 }), 'published');
+  assert.equal(publicationPushOutcome({ status: 1, timedOut: true }), 'transport-indeterminate');
+  for (const stderr of [
+    'fatal: early EOF',
+    'send-pack: unexpected disconnect while reading sideband packet',
+    'fatal: the remote end hung up unexpectedly',
+    'error: RPC failed; curl 56 Recv failure: Connection was reset',
+    'write error: Broken pipe'
+  ]) {
+    const result = { status: 1, stderr };
+    assert.equal(classifyGitRemoteFailure(result).classification, 'network-transient', stderr);
+    assert.equal(publicationPushOutcome(result), 'transport-indeterminate', stderr);
+  }
+  assert.equal(publicationPushOutcome({
+    status: 1, failure: { classification: 'authorization-denied' }, stderr: 'rejected'
+  }), 'rejected');
+  assert.equal(publicationPushOutcome({ status: 1, stderr: 'stale info' }), 'rejected');
+});
 
 test('Story and Initiative publications have the same recovery boundary at every fault stage', async (t) => {
   for (const kind of kinds) {
@@ -238,6 +381,7 @@ test('Story sync rejects every mutable identity mismatch and retains the recover
     ['event digest', (record) => { record.eventSha256 = changedDigest(record.eventSha256); }],
     ['state digest', (record) => { record.stateSha256 = changedDigest(record.stateSha256); }],
     ['publication mode', (record) => { record.publicationMode = 'warn'; }],
+    ['expected remote commit', (record) => { record.expectedRemoteSha = '0'.repeat(40); }],
     ['event body', (record) => { record.event.payload = { tampered: true }; }],
     ['event source', (record) => { record.event.sourceCommit = git(['rev-parse', 'HEAD^'], root); }]
   ];
@@ -271,8 +415,565 @@ test('Story sync rejects every mutable identity mismatch and retains the recover
   assert.equal(await readPendingPublication(root, subject), null);
 });
 
+test('fresh Story publication and known-rejection sync both refuse an identical concurrent ref', async () => {
+  const root = await repository('sflow-story-create-only-cas-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-create-only-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  git(['switch', '-c', 'STORY-CREATE-ONLY'], root);
+  const subject = { kind: 'story', id: 'STORY-CREATE-ONLY', branch: 'STORY-CREATE-ONLY' };
+  const target = 'story-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'binding', subject }),
+    commit: { message: '[STORY-CREATE-ONLY][init] start governed Story workflow' },
+    publication: {
+      mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha: null
+    },
+    allowedPaths: [target],
+    state: { write: () => writeFile(path.join(root, target), '{"status":"ready"}\n') },
+    fault: (stage, { sourceCommit } = {}) => {
+      if (stage === 'after-commit') {
+        // The other actor publishes the identical object after our local transaction commit but
+        // before its network publication. Git would normally call the later push "up to date".
+        git(['push', 'origin', `${sourceCommit}:refs/heads/${subject.branch}`], root);
+      }
+    }
+  }), /retained locally but push failed/);
+
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.record.expectedRemoteSha, null);
+  assert.equal(pending.record.pushOutcome, 'rejected');
+  assert.equal(git(['--git-dir', remote, 'rev-parse', `refs/heads/${subject.branch}`], root), pending.record.commit);
+
+  await assert.rejects(
+    () => syncPublication(
+      root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(subject)
+    ),
+    /Push still fails: Remote branch 'STORY-CREATE-ONLY' already exists/
+  );
+  assert.ok(await readPendingPublication(root, subject), 'known collision receipt is retained');
+
+  const retained = await readPendingPublication(root, subject);
+  const raw = JSON.parse(await readFile(retained.path, 'utf8'));
+  raw.pushOutcome = 'transport-indeterminate';
+  await writeFile(retained.path, `${JSON.stringify(raw, null, 2)}\n`);
+  await assert.rejects(
+    () => syncPublication(
+      root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(subject)
+    ),
+    /Push still fails: Remote branch 'STORY-CREATE-ONLY' already exists/
+  );
+  assert.ok(await readPendingPublication(root, subject), 'tampered outcome cannot authorize equality');
+});
+
+test('a non-null Story lease cannot claim another actor identical update', async () => {
+  const root = await repository('sflow-story-update-cas-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-update-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const expectedRemoteSha = git(['rev-parse', 'HEAD'], root);
+  const subject = { kind: 'story', id: 'STORY-UPDATE-CAS', branch: 'main' };
+  const target = 'story-state.json';
+
+  await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'artifact-generated', subject, phaseId: 'intake', generation: 1 }),
+    commit: { message: '[STORY-UPDATE-CAS][intake] publish governed state' },
+    publication: {
+      mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha
+    },
+    allowedPaths: [target],
+    state: { write: () => writeFile(path.join(root, target), '{"status":"ready"}\n') },
+    fault: (stage, { sourceCommit } = {}) => {
+      if (stage === 'after-commit') {
+        // Another actor wins the old->new transition with the exact object this transaction made.
+        // Git reports our subsequent leased push as "up to date" unless porcelain ownership is
+        // checked for non-null leases too.
+        git(['push', 'origin', `${sourceCommit}:refs/heads/main`], root);
+      }
+    }
+  }), /retained locally but push failed/);
+
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(pending.record.expectedRemoteSha, expectedRemoteSha);
+  assert.equal(pending.record.pushOutcome, 'rejected');
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), pending.record.commit);
+  await assert.rejects(
+    () => syncPublication(
+      root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(subject)
+    ),
+    /did not move from the explicitly leased commit/
+  );
+  assert.ok(await readPendingPublication(root, subject), 'known non-null collision is retained');
+});
+
+test('publication uses its captured authority across remote-name and URL-rewrite races', async () => {
+  const root = await repository('sflow-publication-authority-race-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-publication-authority-origin-'));
+  const alternate = await mkdtemp(path.join(os.tmpdir(), 'sflow-publication-authority-alternate-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['init', '--bare', '-q'], alternate);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  const expectedRemoteSha = git(['rev-parse', 'HEAD'], root);
+  const subject = { kind: 'story', id: 'STORY-AUTHORITY-RACE', branch: 'main' };
+
+  const result = await new GitPublicationUnitOfWork(root).execute({
+    subject,
+    event: lifecycleEvent({ type: 'binding', subject }),
+    commit: { message: '[STORY-AUTHORITY-RACE] exact authority' },
+    publication: {
+      mode: 'required', branch: 'main', remote: 'origin', expectedRemoteSha
+    },
+    allowedPaths: ['story-state.json'],
+    state: { write: () => writeFile(path.join(root, 'story-state.json'), '{"status":"ready"}\n') },
+    fault: (stage) => {
+      if (stage === 'after-commit') {
+        git(['remote', 'set-url', 'origin', alternate], root);
+        // Git reapplies url.* rewrites to literal arguments. Without the invocation-local frozen
+        // alias, this rule redirects the already captured path even though no remote name is used.
+        git(['config', `url.${alternate}.insteadOf`, remote], root);
+      }
+    }
+  });
+
+  assert.equal(result.pushed, true);
+  assert.equal(
+    git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), result.sha,
+    'the authority captured before the transaction received the governed commit'
+  );
+  assert.equal(spawnSync('git', [
+    '--git-dir', alternate, 'show-ref', '--verify', '--quiet', 'refs/heads/main'
+  ]).status, 1, 'the retargeted remote name received nothing');
+});
+
+test('Story sync accepts exact remote equality only after an indeterminate push transport', async () => {
+  const root = await repository('sflow-story-indeterminate-cas-');
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-indeterminate-origin-'));
+  git(['init', '--bare', '-q'], remote);
+  git(['remote', 'add', 'origin', remote], root);
+  git(['push', '-u', 'origin', 'main'], root);
+  git(['switch', '-c', 'STORY-INDETERMINATE'], root);
+  const subject = { kind: 'story', id: 'STORY-INDETERMINATE', branch: 'STORY-INDETERMINATE' };
+  const target = 'story-state.json';
+  const hook = path.join(remote, 'hooks/post-receive');
+  // Leave enough time for receive-pack to install the ref even when this file runs beside the
+  // other Git-heavy fault suites. The much longer post-receive delay still guarantees that the
+  // client crosses its timeout boundary only after the authoritative ref update.
+  await writeFile(hook, '#!/bin/sh\nsleep 10\n');
+  await chmod(hook, 0o755);
+  const previousTimeout = process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+  let conflictCalls = 0;
+  process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = '2000';
+  try {
+    await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+      subject,
+      event: lifecycleEvent({ type: 'binding', subject }),
+      commit: { message: '[STORY-INDETERMINATE][init] start governed Story workflow' },
+      publication: {
+        mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha: null
+      },
+      conflictStrategy: () => {
+        conflictCalls += 1;
+        throw new Error('an indeterminate transport must never enter local replay');
+      },
+      allowedPaths: [target],
+      state: { write: () => writeFile(path.join(root, target), '{"status":"ready"}\n') }
+    }), /retained locally but push failed/);
+  } finally {
+    if (previousTimeout === undefined) delete process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
+    else process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = previousTimeout;
+  }
+
+  const pending = await readPendingPublication(root, subject);
+  assert.equal(conflictCalls, 0);
+  assert.equal(pending.record.pushOutcome, 'transport-indeterminate');
+  assert.equal(pending.record.expectedRemoteSha, null);
+  // The ref is updated before post-receive runs. Give the timed-out local transport's server-side
+  // hook time to finish, then remove the artificial delay from the recovery probe.
+  await waitForRemoteRef(remote, `refs/heads/${subject.branch}`, pending.record.commit);
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+  assert.equal(git(['--git-dir', remote, 'rev-parse', `refs/heads/${subject.branch}`], root), pending.record.commit);
+
+  const synced = await syncPublication(
+    root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(subject)
+  );
+  assert.equal(synced.pushed, pending.record.commit);
+  assert.equal(await readPendingPublication(root, subject), null);
+});
+
+test('Story sync durably recovers a crash after its root retry reached receive-pack', async () => {
+  const fixture = await retainedPublication('story', 'STORY-SYNC-ROOT-CRASH');
+  const { root, remote, subject, marker } = fixture;
+  assert.equal(marker.pushOutcome, 'rejected');
+
+  await assert.rejects(
+    () => syncPublication(
+      root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(subject),
+      {
+        fault: (stage) => {
+          if (stage === 'after-root-push-before-receipt') {
+            throw new Error('simulated hard crash after root receive-pack');
+          }
+        }
+      }
+    ),
+    /simulated hard crash/
+  );
+
+  const interrupted = await readPendingPublication(root, subject);
+  assert.equal(interrupted.record.pushOutcome, 'transport-indeterminate');
+  assert.notEqual(interrupted.record.rootPublished, true);
+  assert.equal(
+    git(['--git-dir', remote, 'rev-parse', `refs/heads/${subject.branch}`], root),
+    marker.commit
+  );
+
+  const recovered = await syncPublication(
+    root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(subject)
+  );
+  assert.equal(recovered.pushed, marker.commit);
+  assert.equal(await readPendingPublication(root, subject), null);
+});
+
+test('a hard crash after the root push retains the complete authenticated sibling plan', async () => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-ROOT-CRASH');
+  const publicationModuleUrl = JSON.stringify(publicationModule);
+  const eventModuleUrl = JSON.stringify(eventModule);
+  const script = [
+    `import { writeFile } from 'node:fs/promises';`,
+    `import { GitPublicationUnitOfWork } from ${publicationModuleUrl};`,
+    `import { lifecycleEvent } from ${eventModuleUrl};`,
+    `const fixture = ${JSON.stringify({
+      root: fixture.root,
+      subject: fixture.subject,
+      event: fixture.event,
+      target: fixture.target,
+      pendingMetadata: fixture.pendingMetadata
+    })};`,
+    `await new GitPublicationUnitOfWork(fixture.root).execute({`,
+    `  subject: fixture.subject, event: fixture.event,`,
+    `  commit: { message: '[STORY-TAIL-ROOT-CRASH][init] start governed Story workflow' },`,
+    `  publication: { mode: 'required', branch: fixture.subject.branch, remote: 'origin', expectedRemoteSha: null },`,
+    `  allowedPaths: [fixture.target],`,
+    `  state: { write: () => writeFile(fixture.root + '/' + fixture.target, '{"status":"ready"}\\n') },`,
+    `  pendingMetadata: fixture.pendingMetadata, retainPendingOnSuccess: true,`,
+    `  fault: (stage) => { if (stage === 'after-push-before-pending-retention') process.exit(77); }`,
+    `});`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.status, 77, child.stderr);
+
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.notEqual(pending.record.rootPublished, true);
+  assert.deepEqual(pending.record.capabilityPublicationPlan, [fixture.entry]);
+  assert.deepEqual(pending.record.capabilityPublications, [fixture.entry]);
+  assert.equal(
+    git(['--git-dir', fixture.remote, 'rev-parse', `refs/heads/${fixture.subject.id}`], fixture.root),
+    pending.record.commit
+  );
+
+  const synced = await syncPublication(
+    fixture.root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(fixture.subject)
+  );
+  assert.equal(synced.capabilityPublished.length, 1);
+  assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+});
+
+test('a post-receive hard crash recovers only the exact in-flight sibling ref', async () => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-SIBLING-CRASH');
+  const publication = await publishCapabilityTailRoot(fixture);
+  const hook = path.join(fixture.siblingRemote, 'hooks/post-receive');
+  await writeFile(hook, '#!/bin/sh\nkill -KILL "$SFLOW_TEST_CLIENT_PID"\nexit 0\n');
+  await chmod(hook, 0o755);
+  const recoveryModuleUrl = pathToFileURL(
+    path.join(packageRoot, 'src/capability-publication-recovery.mjs')
+  ).href;
+  const childScript = [
+    `import { publishCapabilityRepositoriesDurably } from ${JSON.stringify(recoveryModuleUrl)};`,
+    `process.env.SFLOW_TEST_CLIENT_PID = String(process.pid);`,
+    `await publishCapabilityRepositoriesDurably(`,
+    `  ${JSON.stringify(fixture.root)}, ${JSON.stringify(fixture.subject.id)},`,
+    `  ${JSON.stringify({
+      remote: 'origin', branch: fixture.subject.branch, commit: publication.sha, event: publication.event
+    })},`,
+    `  ${JSON.stringify([fixture.entry])}, { rootPublished: true }`,
+    `);`
+  ].join('\n');
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', childScript], {
+    cwd: packageRoot, encoding: 'utf8'
+  });
+  assert.equal(child.signal, 'SIGKILL', child.stderr);
+
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.record.capabilityPublications[0].pushOutcome, 'transport-indeterminate');
+  assert.equal(
+    git(['--git-dir', fixture.siblingRemote, 'rev-parse', `refs/heads/${fixture.subject.id}`], fixture.sibling),
+    fixture.entry.commit
+  );
+  await writeFile(hook, '#!/bin/sh\nexit 0\n');
+
+  const synced = await syncPublication(
+    fixture.root,
+    { git: { remote: 'origin' }, ledger: { enabled: false } },
+    storyFor(fixture.subject)
+  );
+  assert.equal(synced.capabilityPublished[0].reconciled, true);
+  assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+});
+
+test('Story sync rejects tampering with every sibling publication authority field', async (t) => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-TAMPER');
+  await publishCapabilityTailRoot(fixture);
+  const original = (await readPendingPublication(fixture.root, fixture.subject)).record;
+  const mutations = {
+    schemaVersion: 2,
+    repository: 'other-sibling',
+    root: `${fixture.entry.root}-other`,
+    remote: 'upstream',
+    branch: 'OTHER-STORY',
+    commit: `${fixture.entry.commit.slice(0, -1)}${fixture.entry.commit.endsWith('0') ? '1' : '0'}`,
+    destinationRef: 'refs/heads/OTHER-STORY',
+    expectedRemoteSha: '0'.repeat(40),
+    pushOutcome: 'published'
+  };
+  for (const [field, value] of Object.entries(mutations)) {
+    await t.test(field, async () => {
+      const changed = structuredClone(original);
+      changed.capabilityPublications[0][field] = value;
+      await writePendingPublication(fixture.root, { ...fixture.subject, record: changed });
+      await assert.rejects(
+        () => syncPublication(
+          fixture.root,
+          { git: { remote: 'origin' }, ledger: { enabled: false } },
+          storyFor(fixture.subject)
+        ),
+        (error) => error?.code === 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID'
+      );
+      assert.equal(
+        spawnSync('git', [
+          '--git-dir', fixture.siblingRemote, 'show-ref', '--verify', '--quiet',
+          `refs/heads/${fixture.subject.id}`
+        ]).status,
+        1,
+        `tampering with ${field} moved the sibling ref`
+      );
+    });
+  }
+  await writePendingPublication(fixture.root, { ...fixture.subject, record: original });
+});
+
+test('signed progress cannot omit an unproven sibling publication', async (t) => {
+  for (const [label, siblingCount, pendingCount] of [
+    ['empty', 1, 0],
+    ['subset', 2, 1]
+  ]) {
+    await t.test(label, async () => {
+      const fixture = await capabilityTailFixture(`STORY-TAIL-OMIT-${label.toUpperCase()}`, { siblingCount });
+      await publishCapabilityTailRoot(fixture);
+      const current = await readPendingPublication(fixture.root, fixture.subject);
+      const changed = structuredClone(current.record);
+      changed.capabilityPublications = changed.capabilityPublications.slice(0, pendingCount);
+      // Use the engine writer so this is a structurally valid receipt. Recovery must still prove
+      // every omitted destination ref rather than trusting a shorter list.
+      await writePendingPublication(fixture.root, { ...fixture.subject, record: changed });
+      await assert.rejects(
+        () => syncPublication(
+          fixture.root,
+          { git: { remote: 'origin' }, ledger: { enabled: false } },
+          storyFor(fixture.subject)
+        ),
+        (error) => error?.code === 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID'
+      );
+      for (let index = 0; index < siblingCount; index += 1) {
+        assert.equal(spawnSync('git', [
+          '--git-dir', fixture.siblingRemotes[index], 'show-ref', '--verify', '--quiet',
+          `refs/heads/${fixture.subject.id}`
+        ]).status, 1);
+      }
+    });
+  }
+});
+
+test('tampering rejected sibling progress into indeterminate cannot claim an identical ref', async () => {
+  const fixture = await capabilityTailFixture('STORY-TAIL-OUTCOME-TAMPER');
+  await publishCapabilityTailRoot(fixture);
+  const allowPushes = await rejectPushes(fixture.siblingRemote);
+  const rejected = await publishCapabilityRepositoriesDurably(
+    fixture.root, fixture.subject.id,
+    {
+      remote: 'origin', branch: fixture.subject.branch,
+      commit: git(['rev-parse', 'HEAD'], fixture.root), event: fixture.event
+    }, fixture.entries, { rootPublished: true }
+  );
+  assert.equal(rejected.pending[0].pushOutcome, 'rejected');
+  await allowPushes();
+  git(['push', 'origin', `${fixture.entry.commit}:refs/heads/${fixture.subject.id}`], fixture.sibling);
+
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  const raw = JSON.parse(await readFile(pending.path, 'utf8'));
+  raw.capabilityPublications[0].pushOutcome = 'transport-indeterminate';
+  await writeFile(pending.path, `${JSON.stringify(raw, null, 2)}\n`);
+  await assert.rejects(
+    () => syncPublication(
+      fixture.root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(fixture.subject)
+    ),
+    (error) => error?.code === 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID'
+  );
+  assert.ok(await readPendingPublication(fixture.root, fixture.subject));
+});
+
+test('a retargeted root or sibling remote receives no pending Story commit', async (t) => {
+  await t.test('root', async () => {
+    const fixture = await retainedPublication('story', 'STORY-ROOT-REMOTE-RETARGET');
+    const alternate = await mkdtemp(path.join(os.tmpdir(), 'sflow-root-retarget-alternate-'));
+    git(['init', '--bare', '-q'], alternate);
+    git(['remote', 'set-url', 'origin', alternate], fixture.root);
+    await assert.rejects(
+      () => syncPublication(
+        fixture.root,
+        { git: { remote: 'origin' }, ledger: { enabled: false } },
+        storyFor(fixture.subject)
+      ),
+      (error) => error?.code === 'PENDING_PUBLICATION_REMOTE_CHANGED'
+    );
+    assert.equal(spawnSync('git', [
+      '--git-dir', alternate, 'show-ref', '--verify', '--quiet', 'refs/heads/main'
+    ]).status, 1);
+  });
+
+  await t.test('sibling', async () => {
+    const fixture = await capabilityTailFixture('STORY-SIBLING-REMOTE-RETARGET');
+    await publishCapabilityTailRoot(fixture);
+    const alternate = await mkdtemp(path.join(os.tmpdir(), 'sflow-sibling-retarget-alternate-'));
+    git(['init', '--bare', '-q'], alternate);
+    git(['remote', 'set-url', 'origin', alternate], fixture.sibling);
+    await assert.rejects(
+      () => syncPublication(
+        fixture.root,
+        { git: { remote: 'origin' }, ledger: { enabled: false } },
+        storyFor(fixture.subject)
+      ),
+      (error) => error?.code === 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID'
+    );
+    assert.equal(spawnSync('git', [
+      '--git-dir', alternate, 'show-ref', '--verify', '--quiet',
+      `refs/heads/${fixture.subject.id}`
+    ]).status, 1);
+  });
+
+  await t.test('literal local-path suffix', async () => {
+    const root = await repository('sflow-root-retarget-literal-suffix-');
+    const authorities = await mkdtemp(path.join(os.tmpdir(), 'sflow-literal-authorities-'));
+    const original = path.join(authorities, 'authority?blue.git');
+    const alternate = path.join(authorities, 'authority');
+    git(['init', '--bare', '-q', original], root);
+    git(['init', '--bare', '-q', alternate], root);
+    git(['remote', 'add', 'origin', original], root);
+    git(['push', '-u', 'origin', 'main'], root);
+    git(['switch', '-c', 'STORY-LITERAL-REMOTE'], root);
+    const allowPushes = await rejectPushes(original);
+    const subject = { kind: 'story', id: 'STORY-LITERAL-REMOTE', branch: 'STORY-LITERAL-REMOTE' };
+    await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
+      subject,
+      event: lifecycleEvent({ type: 'binding', subject }),
+      commit: { message: '[STORY-LITERAL-REMOTE][init] start governed Story workflow' },
+      publication: { mode: 'required', branch: subject.branch, remote: 'origin', expectedRemoteSha: null },
+      allowedPaths: ['story-state.json'],
+      state: { write: () => writeFile(path.join(root, 'story-state.json'), '{"status":"ready"}\n') }
+    }), /retained locally but push failed/);
+    await allowPushes();
+    git(['remote', 'set-url', 'origin', alternate], root);
+    await assert.rejects(
+      () => syncPublication(
+        root, { git: { remote: 'origin' }, ledger: { enabled: false } }, storyFor(subject)
+      ),
+      (error) => error?.code === 'PENDING_PUBLICATION_REMOTE_CHANGED'
+    );
+    assert.equal(spawnSync('git', [
+      '--git-dir', alternate, 'show-ref', '--verify', '--quiet', `refs/heads/${subject.id}`
+    ]).status, 1);
+  });
+});
+
+test('rootPublished cannot skip an unpublished exact root ref', async () => {
+  const fixture = await retainedPublication('story', 'STORY-ROOT-PUBLISHED-TAMPER');
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  await writePendingPublication(fixture.root, {
+    ...fixture.subject,
+    record: { ...pending.record, rootPublished: true }
+  });
+  await assert.rejects(
+    () => syncPublication(
+      fixture.root,
+      { git: { remote: 'origin' }, ledger: { enabled: false } },
+      storyFor(fixture.subject)
+    ),
+    (error) => error?.code === 'PENDING_PUBLICATION_ROOT_UNPROVEN'
+  );
+  assert.ok(await readPendingPublication(fixture.root, fixture.subject));
+});
+
+test('raw rootPublished progress cannot claim an exact Story or Initiative ref', async (t) => {
+  for (const kind of ['story', 'initiative']) {
+    await t.test(kind, async () => {
+      const fixture = await retainedPublication(kind, `${kind.toUpperCase()}-RAW-ROOT-PUBLISHED`, {
+        exactLease: true
+      });
+      git(['push', 'origin', `${fixture.marker.commit}:refs/heads/main`], fixture.root);
+
+      const pending = await readPendingPublication(fixture.root, fixture.subject);
+      const raw = JSON.parse(await readFile(pending.path, 'utf8'));
+      raw.rootPublished = true;
+      await writeFile(pending.path, `${JSON.stringify(raw, null, 2)}\n`);
+
+      const sync = kind === 'story'
+        ? () => syncPublication(
+          fixture.root,
+          { git: { remote: 'origin' }, ledger: { enabled: false } },
+          storyFor(fixture.subject)
+        )
+        : () => syncInitiativePublication(
+          fixture.root, { git: { remote: 'origin' } }, initiativeFor(fixture.subject)
+        );
+      await assert.rejects(
+        sync,
+        (error) => error?.code === 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID'
+      );
+      const retained = await readPendingPublication(fixture.root, fixture.subject);
+      assert.equal(retained.integrityVerified, false);
+      assert.equal(retained.record.rootPublished, true);
+    });
+  }
+});
+
 test('Initiative sync rejects a mismatched marker and retries only its verified exact commit', async () => {
-  const fixture = await retainedPublication('initiative', 'INIT-MARKER-MISMATCH');
+  const fixture = await retainedPublication('initiative', 'INIT-MARKER-MISMATCH', {
+    exactLease: true
+  });
   const { root, remote, remoteBaseline, subject, marker } = fixture;
   const changed = structuredClone(marker);
   changed.stateSha256 = `${changed.stateSha256.slice(0, -1)}${changed.stateSha256.endsWith('0') ? '1' : '0'}`;
@@ -296,27 +997,199 @@ test('Initiative sync rejects a mismatched marker and retries only its verified 
   assert.equal(await readPendingPublication(root, subject), null);
 });
 
+test('Initiative sync refuses a retargeted configured remote before retrying publication', async () => {
+  const fixture = await retainedPublication('initiative', 'INIT-REMOTE-RETARGET');
+  const alternate = await mkdtemp(path.join(os.tmpdir(), 'sflow-initiative-retarget-alternate-'));
+  git(['init', '--bare', '-q'], alternate);
+  git(['remote', 'set-url', 'origin', alternate], fixture.root);
+
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiativeFor(fixture.subject)
+    ),
+    (error) => error?.code === 'PENDING_PUBLICATION_REMOTE_CHANGED'
+  );
+  assert.equal(spawnSync('git', [
+    '--git-dir', alternate, 'show-ref', '--verify', '--quiet', 'refs/heads/main'
+  ]).status, 1, 'the retargeted authority received no ref');
+  assert.ok(await readPendingPublication(fixture.root, fixture.subject), 'the sealed marker remains');
+});
+
+test('Story and Initiative recovery keep their captured authority through a remote-name race', async (t) => {
+  for (const kind of ['story', 'initiative']) {
+    await t.test(kind, async () => {
+      const fixture = await retainedPublication(kind, `${kind.toUpperCase()}-RECOVERY-AUTHORITY-RACE`, {
+        exactLease: true
+      });
+      const alternate = await mkdtemp(path.join(os.tmpdir(), `sflow-${kind}-recovery-race-alternate-`));
+      git(['init', '--bare', '-q'], alternate);
+      let retargeted = false;
+      const options = {
+        fault: (stage) => {
+          if (stage === 'after-root-authority-capture' && !retargeted) {
+            retargeted = true;
+            git(['remote', 'set-url', 'origin', alternate], fixture.root);
+          }
+        }
+      };
+      const result = kind === 'story'
+        ? await syncPublication(
+          fixture.root,
+          { git: { remote: 'origin' }, ledger: { enabled: false } },
+          storyFor(fixture.subject),
+          options
+        )
+        : await syncInitiativePublication(
+          fixture.root,
+          { git: { remote: 'origin' } },
+          initiativeFor(fixture.subject),
+          options
+        );
+
+      assert.equal(result.pushed, fixture.marker.commit);
+      assert.equal(
+        git(['--git-dir', fixture.remote, 'rev-parse', 'refs/heads/main'], fixture.root),
+        fixture.marker.commit,
+        'the recovery receipt authority received the exact governed commit'
+      );
+      assert.equal(spawnSync('git', [
+        '--git-dir', alternate, 'show-ref', '--verify', '--quiet', 'refs/heads/main'
+      ]).status, 1, 'the retargeted remote name received nothing');
+      assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+    });
+  }
+});
+
+test('Initiative exact-lease recovery cannot claim another actor identical update', async () => {
+  const fixture = await retainedPublication('initiative', 'INIT-EXACT-LEASE-COLLISION', {
+    exactLease: true
+  });
+  git(['push', 'origin', `${fixture.marker.commit}:refs/heads/main`], fixture.root);
+
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiativeFor(fixture.subject)
+    ),
+    /did not move from the explicitly leased commit/
+  );
+  let pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.record.pushOutcome, 'rejected');
+  assert.notEqual(pending.record.rootPublished, true);
+
+  const raw = JSON.parse(await readFile(pending.path, 'utf8'));
+  raw.pushOutcome = 'transport-indeterminate';
+  await writeFile(pending.path, `${JSON.stringify(raw, null, 2)}\n`);
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiativeFor(fixture.subject)
+    ),
+    /did not move from the explicitly leased commit/
+  );
+  pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.integrityVerified, true, 'the definitive rejection is resealed');
+  assert.equal(pending.record.pushOutcome, 'rejected', 'raw ambiguity was not laundered');
+});
+
+test('a legacy Initiative receipt without an exact lease cannot claim another actor identical update', async () => {
+  const fixture = await retainedPublication('initiative', 'INIT-LEGACY-NO-LEASE');
+  assert.equal(Object.hasOwn(fixture.marker, 'expectedRemoteSha'), false);
+  git(['push', 'origin', `${fixture.marker.commit}:refs/heads/main`], fixture.root);
+
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiativeFor(fixture.subject)
+    ),
+    (error) => error?.code === 'PENDING_PUBLICATION_REMOTE_LEASE_MISSING'
+  );
+  const pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.record.commit, fixture.marker.commit);
+  assert.equal(Object.hasOwn(pending.record, 'expectedRemoteSha'), false);
+  assert.notEqual(pending.record.rootPublished, true);
+  assert.equal(
+    git(['--git-dir', fixture.remote, 'rev-parse', 'refs/heads/main'], fixture.root),
+    fixture.marker.commit,
+    'sync did not move or reclassify the other actor\'s exact ref'
+  );
+});
+
+test('Initiative recovery survives both post-receive and post-success-marker crashes', async () => {
+  const fixture = await retainedPublication('initiative', 'INIT-RECOVERY-CRASH', {
+    exactLease: true
+  });
+  const initiative = initiativeFor(fixture.subject);
+
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiative, {
+        fault: (stage) => {
+          if (stage === 'after-recovery-push') throw new Error('fault:after-recovery-push');
+        }
+      }
+    ),
+    /fault:after-recovery-push/
+  );
+  let pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.integrityVerified, true);
+  assert.equal(pending.record.pushOutcome, 'transport-indeterminate');
+  assert.notEqual(pending.record.rootPublished, true);
+  assert.equal(pending.record.expectedRemoteSha, fixture.remoteBaseline);
+  assert.equal(
+    git(['--git-dir', fixture.remote, 'rev-parse', 'refs/heads/main'], fixture.root),
+    pending.record.commit,
+    'receive-pack advanced the exact leased ref before the simulated crash'
+  );
+
+  await assert.rejects(
+    () => syncInitiativePublication(
+      fixture.root, { git: { remote: 'origin' } }, initiative, {
+        fault: (stage) => {
+          if (stage === 'after-root-published') throw new Error('fault:after-root-published');
+        }
+      }
+    ),
+    /fault:after-root-published/
+  );
+  pending = await readPendingPublication(fixture.root, fixture.subject);
+  assert.equal(pending.integrityVerified, true);
+  assert.equal(pending.record.rootPublished, true);
+  assert.equal(pending.record.pushOutcome, 'not-attempted');
+
+  const synced = await syncInitiativePublication(
+    fixture.root, { git: { remote: 'origin' } }, initiative
+  );
+  assert.equal(synced.pushed, pending.record.commit);
+  assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
+});
+
 test('capability recovery cannot hide a still-pending Story lifecycle commit', async () => {
-  const fixture = await retainedPublication('story', 'STORY-ROOT-AND-CAPABILITY');
-  const { root, remote, remoteBaseline, subject, marker } = fixture;
   const sibling = await repository('sflow-capability-root-pending-');
   const siblingRemote = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-root-pending-origin-'));
   git(['init', '--bare', '-q'], siblingRemote);
   git(['remote', 'add', 'origin', siblingRemote], sibling);
   git(['push', '-u', 'origin', 'main'], sibling);
   const siblingCommit = git(['rev-parse', 'HEAD'], sibling);
-
-  await retainCapabilityPublicationRecovery(root, subject.id, {
-    remote: 'origin', branch: 'main', commit: marker.commit, event: marker.event
-  }, [{
+  const siblingPublication = {
     schemaVersion: 1,
     repository: 'sibling',
     root: sibling,
     remote: 'origin',
-    branch: 'main',
+    branch: 'STORY-ROOT-AND-CAPABILITY',
     commit: siblingCommit,
-    destinationRef: 'refs/heads/main'
-  }], new Error('both lifecycle and capability publication remain pending'));
+    destinationRef: 'refs/heads/STORY-ROOT-AND-CAPABILITY',
+    remoteFingerprint: configuredRemoteFingerprint(sibling, 'origin'),
+    expectedRemoteSha: null,
+    pushOutcome: 'not-attempted'
+  };
+  const fixture = await retainedPublication('story', 'STORY-ROOT-AND-CAPABILITY', {
+    eventPayload: {
+      capabilityPublicationPlanSha256: capabilityPublicationPlanSha256([siblingPublication])
+    }
+  });
+  const { root, remote, remoteBaseline, subject, marker } = fixture;
+
+  await retainCapabilityPublicationRecovery(root, subject.id, {
+    remote: 'origin', branch: 'main', commit: marker.commit, event: marker.event
+  }, [siblingPublication], new Error('both lifecycle and capability publication remain pending'));
   const retained = await readPendingPublication(root, subject);
   assert.equal(retained.record.rootPublished, false);
   assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), remoteBaseline);
@@ -328,7 +1201,7 @@ test('capability recovery cannot hide a still-pending Story lifecycle commit', a
   );
   assert.equal(synced.pushed, marker.commit);
   assert.equal(git(['--git-dir', remote, 'rev-parse', 'refs/heads/main'], root), marker.commit);
-  assert.equal(git(['--git-dir', siblingRemote, 'rev-parse', 'refs/heads/main'], sibling), siblingCommit);
+  assert.equal(git(['--git-dir', siblingRemote, 'rev-parse', `refs/heads/${subject.id}`], sibling), siblingCommit);
   assert.equal(await readPendingPublication(root, subject), null);
 });
 
@@ -354,7 +1227,7 @@ test('push-failure recovery binds a finalized event digest to its exact governed
     payload: { documentId: 'DOC-0001' }
   };
   const originalSha256 = `sha256:${recordSha256(original)}`;
-  git(['remote', 'set-url', 'origin', `${remote}-unreachable`], root);
+  const allowPushes = await rejectPushes(remote);
 
   await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
     subject,
@@ -388,7 +1261,7 @@ test('push-failure recovery binds a finalized event digest to its exact governed
   assert.equal(marker.eventSha256, finalizedSha256);
   assert.equal(marker.eventSha256, commitIdentity.eventSha256);
 
-  git(['remote', 'set-url', 'origin', remote], root);
+  await allowPushes();
   const synced = await syncPublication(root, {
     git: { remote: 'origin' }, ledger: { enabled: false }
   }, {
@@ -466,6 +1339,7 @@ test('prewritten journals make hard process death discoverable before and after 
         git(['add', target], root);
         git(['commit', '-m', 'canonical state'], root);
         const canonical = git(['rev-parse', 'HEAD'], root);
+        await ensurePublicationOrigin(root);
         const script = [
           `import { writeFile } from 'node:fs/promises';`,
           `import { GitPublicationUnitOfWork } from ${JSON.stringify(publicationModule)};`,
@@ -1020,6 +1894,7 @@ test('a failure after branch ref advancement records the exact commit for public
       git(['add', target], root);
       git(['commit', '-m', 'canonical state'], root);
       const canonical = git(['rev-parse', 'HEAD'], root);
+      await ensurePublicationOrigin(root);
 
       await assert.rejects(() => new GitPublicationUnitOfWork(root).execute({
         subject,
@@ -1081,7 +1956,7 @@ test('an unrelated HEAD advancement cannot erase a draft recovery journal', asyn
   assert.equal(retained.record.observedHead, observedHead);
 });
 
-test('a nested pending commit must equal HEAD before the outer draft can release its journal', async () => {
+test('a nested pending commit must equal HEAD before the outer draft can release its journal', async (t) => {
   const root = await repository('sflow-draft-nested-then-unrelated-');
   const subject = { kind: 'story', id: 'DRAFT-NESTED-THEN-UNRELATED', branch: 'main' };
   const target = 'draft-state.json';
@@ -1089,6 +1964,9 @@ test('a nested pending commit must equal HEAD before the outer draft can release
   git(['add', target], root);
   git(['commit', '-m', 'nested divergence baseline'], root);
   const expectedHead = git(['rev-parse', 'HEAD'], root);
+  const remote = await ensurePublicationOrigin(root);
+  const allowPushes = await rejectPushes(remote);
+  t.after(allowPushes);
   let nestedCommit = null;
 
   await assert.rejects(() => runDraftTransaction(root, {
@@ -1168,6 +2046,7 @@ test('an outer draft cannot erase a nested publication recovery record', async (
   await writeFile(path.join(root, target), '{"status":"before"}\n');
   git(['add', target], root);
   git(['commit', '-m', 'nested baseline'], root);
+  await ensurePublicationOrigin(root);
 
   await assert.rejects(() => runDraftTransaction(root, {
     subject,

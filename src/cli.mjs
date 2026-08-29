@@ -93,6 +93,7 @@ import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, reposi
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
@@ -188,7 +189,9 @@ import { consumeActionAuthorization, issueActionAuthorization } from './action-a
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
 import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
-import { retainCapabilityPublicationRecovery } from './capability-publication-recovery.mjs';
+import {
+  publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
+} from './capability-publication-recovery.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
 import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
@@ -804,7 +807,7 @@ export async function startCommand(positionals, options) {
   const {
     storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
-    preflightIncludesRepository, publishCapabilityRepositories
+    preflightIncludesRepository, preflightPublicationAuthority
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -838,6 +841,7 @@ export async function startCommand(positionals, options) {
   const publishRequired = (config?.git?.publish ?? 'required') !== 'off';
   let capabilityPreflight = null;
   let capabilityPublications = [];
+  let publicationAuthority = null;
   // A published configuration authority always governs a new Story, including when start was
   // launched from an older pinned Story or an application base still contains a legacy workflow.
   // The legacy base remains a fallback only when no usable sflow/config/state mirror exists.
@@ -911,7 +915,25 @@ export async function startCommand(positionals, options) {
   // Listing branches establishes read access; this dry-run additionally establishes that the
   // configured publication remote will accept the new Story ref.
   const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
-  if (!rootFetchedByCapabilityPreflight) fetchRemote(root, remote);
+  if (rootFetchedByCapabilityPreflight) {
+    publicationAuthority = preflightPublicationAuthority(capabilityPreflight, root);
+  } else {
+    const fetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+    if (!fetchAuthority.url) {
+      throw new SingularityFlowError(
+        `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+    if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
+  }
+  if (publishRequired && !publicationAuthority?.url) {
+    throw new SingularityFlowError(
+      `Story remote '${remote}' has no credential-free push authority. Nothing was changed.`,
+      { code: 'STORY_PUBLICATION_REMOTE_MISSING' }
+    );
+  }
   const remoteBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
   if (!materializedSeed && !refExists(root, remoteBaseRef)) {
     throw new SingularityFlowError(
@@ -933,7 +955,8 @@ export async function startCommand(positionals, options) {
   const recoveryBaseCommit = materializedSeed ? refHead(root, remoteStoryRef) : baseCommitAtStart;
   if (publishRequired && !capabilityPreflight) {
     const dryRun = preflightPushBranch(
-      root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch
+      root, remote, materializedSeed ? remoteStoryRef : remoteBaseRef, canonicalBranch,
+      { transportRemote: publicationAuthority.url }
     );
     if (dryRun.status !== 0) {
       throw new SingularityFlowError(
@@ -1154,7 +1177,22 @@ export async function startCommand(positionals, options) {
           } : {} },
           `[${id}][init] start ${workType} workflow`,
           [...(configurationSnapshot?.paths ?? []), returnLocator.path],
-          { recoveryPreimage: creationPreimage, transactionId: startJournal.transactionId }
+          {
+            recoveryPreimage: creationPreimage,
+            transactionId: startJournal.transactionId,
+            // Ordinary Story start creates a ref. A materialized Epic Story already has one exact
+            // seed commit, so its first lifecycle commit advances only that reviewed revision.
+            expectedRemoteSha: materializedSeed ? recoveryBaseCommit : null,
+            expectedLocalHead: recoveryBaseCommit,
+            ...(publicationAuthority ? { publicationAuthority } : {}),
+            ...(capabilityPublications.length ? {
+              publicationTail: {
+                recoveryStage: 'capability-publication-pending',
+                capabilityPublications,
+                error: 'Capability Story branch publication has not started.'
+              }
+            } : {})
+          }
         );
         return { workflow, publication };
       }
@@ -1171,6 +1209,30 @@ export async function startCommand(positionals, options) {
     throw error;
   }
   await clearStoryStartJournal(root, id, startJournal.transactionId);
+  let capabilityPublication = { published: [], pending: [], error: null };
+  if (publication.pushed && capabilityPublications.length) {
+    capabilityPublication = await publishCapabilityRepositoriesDurably(root, id, {
+      remote,
+      branch: canonicalBranch,
+      commit: publication.sha ?? head(root),
+      event: publication.event ?? null
+    }, capabilityPublications, { rootPublished: true });
+    if (capabilityPublication.pending.length) {
+      throw new SingularityFlowError(
+        `Story '${id}' was published in its lifecycle repository, but capability branch publication `
+        + `failed for '${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. `
+        + 'The remaining exact branch publications were retained; run singularity-flow sync after fixing remote access.',
+        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
+      );
+    }
+  } else if (!publication.pushed && capabilityPublications.length) {
+    await retainCapabilityPublicationRecovery(root, id, {
+      remote,
+      branch: canonicalBranch,
+      commit: publication.sha ?? head(root),
+      event: publication.event ?? null
+    }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
+  }
   // Spent once the start has landed, not before it is attempted.
   if (receiptToken) {
     try { await consumeSelectionReceipt(root, receiptToken); }
@@ -1181,57 +1243,10 @@ export async function startCommand(positionals, options) {
       console.warn(`Warning: Story start succeeded, but selection receipt cleanup is pending: ${error.message}`);
     }
   }
-  try {
-    await publishInitialStoryDocuments(root, config, workflow, {
-      workId: id,
-      inputs: supportingDocuments
-    });
-  } catch (error) {
-    await retainCapabilityPublicationRecovery(root, id, {
-      remote,
-      branch: canonicalBranch,
-      commit: publication.sha ?? head(root),
-      event: publication.event ?? null
-    }, capabilityPublications, error);
-    throw error;
-  }
-  let capabilityPublication = { published: [], pending: [], error: null };
-  if (publication.pushed && capabilityPublications.length) {
-    // Make the cross-repository tail crash-recoverable before the first sibling ref moves. The root
-    // Story is already durable; `sync` can now finish the exact remaining refs after interruption.
-    await retainCapabilityPublicationRecovery(root, id, {
-      remote,
-      branch: canonicalBranch,
-      commit: publication.sha ?? head(root),
-      event: publication.event ?? null
-    }, capabilityPublications, new Error('Capability Story branch publication is in progress.'), {
-      rootPublished: true
-    });
-    capabilityPublication = publishCapabilityRepositories(capabilityPublications);
-    if (capabilityPublication.pending.length) {
-      const failure = new SingularityFlowError(
-        `Story '${id}' was published in its lifecycle repository, but capability branch publication `
-        + `failed for '${capabilityPublication.pending[0].repository}': ${capabilityPublication.error}. `
-        + 'The remaining exact branch publications were retained; run singularity-flow sync after fixing remote access.',
-        { code: 'STORY_CAPABILITY_PUBLICATION_PENDING' }
-      );
-      await retainCapabilityPublicationRecovery(root, id, {
-        remote,
-        branch: canonicalBranch,
-        commit: publication.sha ?? head(root),
-        event: publication.event ?? null
-      }, capabilityPublication.pending, failure, { rootPublished: true });
-      throw failure;
-    }
-    await clearPendingPublication(root, { kind: 'story', id });
-  } else if (!publication.pushed && capabilityPublications.length) {
-    await retainCapabilityPublicationRecovery(root, id, {
-      remote,
-      branch: canonicalBranch,
-      commit: publication.sha ?? head(root),
-      event: publication.event ?? null
-    }, capabilityPublications, new Error('The lifecycle Story branch is still pending publication.'));
-  }
+  await publishInitialStoryDocuments(root, config, workflow, {
+    workId: id,
+    inputs: supportingDocuments
+  });
   const astWarm = await scheduleStoryStartAstWarm(root, config, workflow);
   const startResult = commandResult({
     operation: { id: 'start', classification: 'mutation' },
@@ -1427,7 +1442,11 @@ async function resumeCommand(positionals, options) {
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
   const targetBranch = resolved.selectedBranch ?? resolved.branch;
   if (branch(root) !== targetBranch && !optionBoolean(options, 'allow-dirty')) assertClean(root);
-  checkout(root, targetBranch, { base: initialConfig.defaultBaseBranch, fetch, existingOnly: true, remote });
+  // Discovery has already fetched every remote ref. Reuse that exact observation for the local
+  // fast-forward; asking `checkout` to fetch again used to add a second fetch and then a pull.
+  checkout(root, targetBranch, {
+    base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote
+  });
   const config = await loadConfig(root);
   validateId(config, resolved.workId);
   const workflow = await loadStoryAggregate(root, config, resolved.workId);
@@ -9315,11 +9334,45 @@ async function workspaceCommand(positionals, options) {
    */
   if (subcommand === 'branches') {
     const root = repoRoot();
+    const intakeRequested = optionBoolean(options, 'intake');
+    // Initiative and local Epic start still resolve profiles from the execution checkout. Read the
+    // same catalog before entering the approved-configuration overlay; otherwise an older Story
+    // checkout could offer a newly approved profile that its immediately following start rejects.
+    const localIntakeProfiles = intakeRequested
+      ? await loadPortfolio(root)
+        .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
+        .catch((error) => ({
+          profiles: [], profileReason: error instanceof Error ? error.message : String(error)
+        }))
+      : null;
     return withApprovedConfigurationRead(root, async () => {
       const definition = await loadConfig(root);
       const {
         storyBaseCatalog, storyBaseForRepository, preflightStoryRepositories
       } = await import('./capability-start.mjs');
+      // Story workflows deliberately come from the latest approved definition because Story start
+      // consumes that same authority. Keep the two execution contracts explicit in one response.
+      // A configuration-free application branch cannot supply Initiative/Epic profiles locally.
+      // In that case the approved read scope already mounted the exact sflow/config snapshot, so
+      // recover the profiles from that same authority instead of returning an empty selector. A
+      // malformed local portfolio is not hidden: when local configuration exists, this second read
+      // resolves to the same checkout and preserves its validation error.
+      const intakeProfiles = intakeRequested && localIntakeProfiles.profiles.length === 0
+        ? await loadPortfolio(root)
+          .then((portfolio) => ({ profiles: initiativeProfileChoices(portfolio), profileReason: null }))
+          .catch(() => localIntakeProfiles)
+        : localIntakeProfiles;
+      const intake = intakeRequested ? {
+          ...intakeProfiles,
+          // Intake may offer only installed work types: these are the exact profiles Story start can
+          // pin from this already-validated approved definition. Re-reading the packaged workflow
+          // catalog would load configuration again only to filter every uninstalled row back out.
+          storyWorkflows: Object.entries(definition.workTypes).map(([id, workflow]) => ({
+            id, label: workflow.label ?? id, phases: workflow.phases ?? [],
+            governs: 'story', installed: true
+          })),
+          workflowReason: null
+        } : null;
       const catalog = await storyBaseCatalog(root, {
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
@@ -9334,7 +9387,8 @@ async function workspaceCommand(positionals, options) {
           interactive: false,
           remote: definition.git?.remote ?? 'origin',
           defaultBranch: definition.defaultBaseBranch,
-          capabilityId: optionString(options, 'capability')
+          capabilityId: optionString(options, 'capability'),
+          catalog
         });
         const repositories = await preflightStoryRepositories(
           selected.workspaceRoot, selected.plan, storyId,
@@ -9374,7 +9428,8 @@ async function workspaceCommand(positionals, options) {
         // say which repositories it could not reach, not show an empty list or an error dialog.
         unreachable: catalog.unreachable,
         choices: catalog.choices,
-        preflight
+        preflight,
+        ...(intake ? { intake } : {})
       };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
       console.log(catalog.scope === 'capability'
@@ -9386,7 +9441,7 @@ async function workspaceCommand(positionals, options) {
       }
       for (const entry of catalog.unreachable) console.warn(`Warning: could not read ${entry.repository} (${entry.url || catalog.remote}).`);
       return result;
-    });
+    }, { preferAuthority: optionBoolean(options, 'intake') });
   }
   if (subcommand === 'prune') {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(compatibility, null, 2));
@@ -9961,6 +10016,30 @@ async function workspaceCommand(positionals, options) {
   }
   if (subcommand === 'status') {
     const status = await workspaceStatus(workspacePath);
+    if (optionBoolean(options, 'archive-readiness')) {
+      const fetchReadiness = optionBoolean(options, 'fetch', true);
+      try {
+        status.archiveReadiness = await workspaceArchiveReadiness(workspacePath, {
+          fetch: fetchReadiness,
+          status
+        });
+      } catch (error) {
+        // Workspace details remain useful when one readiness/index check is damaged. Preserve the
+        // former VS Code failure isolation inside the aggregate engine result and make archive fail
+        // closed with the exact blocker instead of rejecting the whole details screen.
+        status.archiveReadiness = {
+          workspace: {
+            id: status.workspace.id, name: status.workspace.name, path: status.workspace.path
+          },
+          eligible: false,
+          checkedAt: new Date().toISOString(),
+          fetched: fetchReadiness,
+          activeStories: [],
+          blockers: [error instanceof Error ? error.message : String(error)],
+          repositories: []
+        };
+      }
+    }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
     return renderWorkspaceStatus(status);
   }

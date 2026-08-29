@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
@@ -52,7 +52,7 @@ export function sanitizeRemote(value) {
 export function assertCredentialFreeRemote(value) {
   const remote = String(value ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository remote is required.', { code: 'BOOTSTRAP_REMOTE_REQUIRED' });
-  if (remote.startsWith('-') || /^[a-z][a-z0-9+.-]*::/i.test(remote)) {
+  if (/[\0\r\n]/.test(remote) || remote.startsWith('-') || /^[a-z][a-z0-9+.-]*::/i.test(remote)) {
     throw new SingularityFlowError(
       'The repository remote uses an option-like or external-helper transport that workspace bootstrap does not permit.',
       { code: 'BOOTSTRAP_REMOTE_PROTOCOL_UNSAFE' }
@@ -60,7 +60,10 @@ export function assertCredentialFreeRemote(value) {
   }
   try {
     const parsed = new URL(remote);
-    if (['http:', 'https:'].includes(parsed.protocol) && (parsed.username || parsed.password)) {
+    // An SSH URL may legitimately carry a transport login (`ssh://git@host/repo`), but a password
+    // component is credential material under every URL scheme. Reject it before any bootstrap,
+    // transport intent, workspace manifest, or refresh cache can persist the exact remote string.
+    if (parsed.password || (['http:', 'https:'].includes(parsed.protocol) && parsed.username)) {
       throw new SingularityFlowError(
         'Repository URLs containing credentials cannot be stored in a bootstrap session. Configure a Git credential helper and use the credential-free URL.',
         { code: 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL' }
@@ -94,6 +97,58 @@ export function remoteFingerprint(value) {
   return createHash('sha256').update(String(value ?? '').trim()).digest('hex');
 }
 
+/** Resolve and freeze the credential-free fetch or push authority behind one local remote name. */
+export function configuredRemoteAuthority(root, remote = 'origin', { direction = 'push' } = {}) {
+  if (!['fetch', 'push'].includes(direction)) {
+    throw new SingularityFlowError(`Unsupported Git remote direction '${direction}'.`);
+  }
+  const result = run('git', [
+    'remote', 'get-url', ...(direction === 'push' ? ['--push'] : []), remote
+  ], { cwd: root, allowFailure: true });
+  const url = result.status === 0 ? assertCredentialFreeRemote(result.stdout.trim()) : null;
+  return Object.freeze({
+    remote: String(remote),
+    direction,
+    url,
+    fingerprint: url ? remoteFingerprint(url) : null
+  });
+}
+
+/** Fingerprint the credential-free fetch or push authority configured behind one remote name. */
+export function configuredRemoteFingerprint(root, remote = 'origin', options = {}) {
+  return configuredRemoteAuthority(root, remote, options).fingerprint;
+}
+
+/**
+ * Address one exact URL without allowing Git to apply a later mutable url.* rewrite to it.
+ *
+ * Git applies insteadOf/pushInsteadOf even when the caller passes a literal URL, so merely replacing
+ * a remote name with its captured value does not freeze transport authority. Route a random,
+ * invocation-local alias through an exact command configuration rule instead. URL rewriting is a
+ * single pass: the captured URL produced by this rule is the transport result, not new rewrite
+ * input. The unguessable full-length alias also wins longest-prefix selection over ambient rules.
+ */
+export function frozenRemoteTransport(remote, { push = false, env = process.env } = {}) {
+  const url = assertCredentialFreeRemote(remote);
+  const alias = `sflow-frozen-${randomUUID()}:`;
+  const inheritedCount = Number(env.GIT_CONFIG_COUNT ?? 0);
+  const start = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
+  const entries = [
+    [`url.${url}.insteadOf`, alias],
+    ...(push ? [[`url.${url}.pushInsteadOf`, alias]] : [])
+  ];
+  const transportEnv = { ...env, GIT_CONFIG_COUNT: String(start + entries.length) };
+  for (let index = 0; index < entries.length; index += 1) {
+    transportEnv[`GIT_CONFIG_KEY_${start + index}`] = entries[index][0];
+    transportEnv[`GIT_CONFIG_VALUE_${start + index}`] = entries[index][1];
+  }
+  return Object.freeze({
+    url,
+    remote: alias,
+    env: Object.freeze(transportEnv)
+  });
+}
+
 function outputFor(result) {
   return [result?.stderr, result?.stdout, result?.error?.message]
     .filter(Boolean).map(String).join('\n');
@@ -116,7 +171,8 @@ export function classifyGitRemoteFailure(result, { branch = null } = {}) {
   const output = outputFor(result);
   let classification = 'unknown';
   if (result?.blocked || /network.+disabled|offline/i.test(output)) classification = 'offline';
-  else if (result?.timedOut || /timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect/i.test(output)) classification = 'network-transient';
+  else if (result?.timedOut
+    || /timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
   else if (/rate.?limit|too many requests|http[^\n]*429/i.test(output)) classification = 'rate-limited';
   else if (/proxy authentication|required proxy|unable to access[^\n]*proxy|could not resolve proxy/i.test(output)) classification = 'proxy-configuration';
   else if (/certificate|ssl certificate|tls|schannel|unknown ca|self.signed/i.test(output)) classification = 'tls-trust';
@@ -142,7 +198,7 @@ function symrefBranch(stdout) {
 
 function headBranches(stdout) {
   return [...new Set(String(stdout ?? '').split('\n').map((line) => {
-    const match = line.match(/\srefs\/heads\/(.+)$/);
+    const match = line.trim().match(/^[0-9a-f]{40,64}\s+refs\/heads\/([^\s]+)$/i);
     return match?.[1] ?? null;
   }).filter(Boolean))].sort();
 }
@@ -171,10 +227,13 @@ export function probeGitRemote(remote, {
       failure: { ...classifyGitRemoteFailure(blocked, { branch }), evidence: failureEvidence(blocked) }
     };
   }
-  const result = runCommand('git', ['ls-remote', '--symref', '--', url, 'HEAD', 'refs/heads/*'], {
+  const transport = frozenRemoteTransport(url, { env });
+  const result = runCommand('git', [
+    'ls-remote', '--symref', '--', transport.remote, 'HEAD', 'refs/heads/*'
+  ], {
     allowFailure: true,
     timeoutMs,
-    env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' }
+    env: { ...transport.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' }
   });
   if (result.status !== 0) {
     return {

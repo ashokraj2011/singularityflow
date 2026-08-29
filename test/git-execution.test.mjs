@@ -7,6 +7,7 @@ import {
   GitRemoteSession, gitTimeouts, nonInteractiveGitEnvironment, runRemoteGit,
   runRemoteGitAsync, requireRemoteObservation
 } from '../src/git-execution.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 test('one remote session reuses an exact observation and parses the advertised authority', () => {
   const calls = [];
@@ -41,6 +42,145 @@ test('one remote session reuses an exact observation and parses the advertised a
   assert.equal(calls.length, 2);
 });
 
+test('remote-session invalidation uses exact transport identity rather than a display-sanitized URL', () => {
+  const calls = [];
+  const blue = '/tmp/repository.git?blue';
+  const red = '/tmp/repository.git?red';
+  const runCommand = (_command, args, options) => {
+    const transport = args[args.indexOf('--') + 1];
+    const valueEntry = Object.entries(options.env).find(([key, value]) =>
+      /^GIT_CONFIG_VALUE_\d+$/.test(key) && value === transport);
+    const index = valueEntry?.[0].match(/\d+$/)?.[0];
+    const key = index == null ? '' : options.env[`GIT_CONFIG_KEY_${index}`];
+    const remote = key.startsWith('url.') && key.endsWith('.insteadOf')
+      ? key.slice('url.'.length, -'.insteadOf'.length)
+      : transport;
+    calls.push(remote);
+    return {
+      status: 0,
+      stdout: `${remote === blue ? 'a'.repeat(40) : 'b'.repeat(40)}\trefs/heads/main\n`,
+      stderr: ''
+    };
+  };
+  const session = new GitRemoteSession({ runCommand });
+  session.observe(blue, { refs: ['refs/heads/main'], includeHead: false });
+  session.observe(red, { refs: ['refs/heads/main'], includeHead: false });
+  session.invalidate(blue);
+  session.observe(red, { refs: ['refs/heads/main'], includeHead: false });
+  session.observe(blue, { refs: ['refs/heads/main'], includeHead: false });
+
+  assert.deepEqual(calls, [blue, red, blue],
+    'invalidating one exact endpoint retains a distinct endpoint that has the same display URL');
+});
+
+test('one remote session coalesces exact async observations while distinct remotes run concurrently', async () => {
+  const calls = [];
+  const releases = [];
+  let active = 0;
+  let maximumActive = 0;
+  const runAsyncCommand = (args) => new Promise((resolve) => {
+    calls.push(args);
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    releases.push(() => {
+      active -= 1;
+      resolve({
+        status: 0,
+        stdout: `ref: refs/heads/main\tHEAD\n${'1'.repeat(40)}\tHEAD\n${'2'.repeat(40)}\trefs/heads/main`,
+        stderr: '', timedOut: false, failure: null
+      });
+    });
+  });
+  const session = new GitRemoteSession({ runAsyncCommand });
+  const first = session.observeAsync('https://example.com/acme/one.git');
+  const duplicate = session.observeAsync('https://example.com/acme/one.git');
+  const independent = session.observeAsync('https://example.com/acme/two.git');
+
+  await Promise.resolve();
+  assert.equal(calls.length, 2, 'the exact duplicate shares one in-flight ls-remote');
+  assert.equal(maximumActive, 2, 'independent authorities are observed concurrently');
+  releases.splice(0).forEach((release) => release());
+  const [one, same, two] = await Promise.all([first, duplicate, independent]);
+  assert.equal(one, same);
+  assert.equal(one.defaultBranch, 'main');
+  assert.equal(two.defaultBranch, 'main');
+
+  assert.equal(await session.observeAsync('https://example.com/acme/one.git'), one);
+  assert.equal(calls.length, 2, 'the completed exact observation remains operation-scoped cached');
+});
+
+test('invalidating a remote prevents its older in-flight observation from repopulating the cache', async () => {
+  const releases = [];
+  let calls = 0;
+  const session = new GitRemoteSession({
+    runAsyncCommand: () => new Promise((resolve) => {
+      calls += 1;
+      releases.push(() => resolve({
+        status: 0,
+        stdout: `ref: refs/heads/main\tHEAD\n${String(calls).repeat(40)}\tHEAD`,
+        stderr: '', timedOut: false, failure: null
+      }));
+    })
+  });
+  const remote = 'https://example.com/acme/repository.git';
+  const stale = session.observeAsync(remote);
+  session.invalidate(remote);
+  releases.shift()();
+  await stale;
+
+  const fresh = session.observeAsync(remote);
+  assert.equal(calls, 2, 'invalidation forces a new observation after the stale request completes');
+  releases.shift()();
+  await fresh;
+});
+
+test('out-of-order refreshed observations never replace the newest requested generation', async () => {
+  const releases = [];
+  let calls = 0;
+  const session = new GitRemoteSession({
+    runAsyncCommand: () => new Promise((resolve) => {
+      calls += 1;
+      const sha = String(calls).repeat(40);
+      releases.push(() => resolve({
+        status: 0, stdout: `ref: refs/heads/main\tHEAD\n${sha}\tHEAD`,
+        stderr: '', timedOut: false, failure: null
+      }));
+    })
+  });
+  const remote = 'https://example.com/acme/refresh-order.git';
+  const older = session.observeAsync(remote, { refresh: true });
+  const newer = session.observeAsync(remote, { refresh: true });
+  releases[1]();
+  const newestObservation = await newer;
+  releases[0]();
+  await older;
+
+  assert.equal(await session.observeAsync(remote), newestObservation,
+    'an older request completing last cannot overwrite the newer generation');
+});
+
+test('a synchronous observation supersedes an older asynchronous request', async () => {
+  let release;
+  const session = new GitRemoteSession({
+    runCommand: () => ({
+      status: 0, stdout: `ref: refs/heads/main\tHEAD\n${'2'.repeat(40)}\tHEAD`,
+      stderr: '', timedOut: false
+    }),
+    runAsyncCommand: () => new Promise((resolve) => {
+      release = () => resolve({
+        status: 0, stdout: `ref: refs/heads/main\tHEAD\n${'1'.repeat(40)}\tHEAD`,
+        stderr: '', timedOut: false, failure: null
+      });
+    })
+  });
+  const remote = 'https://example.com/acme/sync-wins.git';
+  const older = session.observeAsync(remote);
+  const newest = session.observe(remote, { refresh: true });
+  release();
+  await older;
+  assert.equal(session.observe(remote), newest);
+});
+
 test('remote execution is bounded, non-interactive, and classifies failures once', () => {
   let invocation;
   const result = runRemoteGit(['fetch', 'origin'], {
@@ -71,6 +211,41 @@ test('remote execution honors the offline contract without spawning Git', () => 
   assert.equal(called, false);
   assert.equal(result.blocked, true);
   assert.equal(result.failure.classification, 'offline');
+});
+
+test('remote execution records privacy-safe operation, verb, and outcome counters', async () => {
+  const timer = commandTimer('capability', { commandClass: 'mutation' });
+  await withCommandTiming(timer, async () => {
+    runRemoteGit(['fetch', 'origin'], {
+      operation: 'remote-configuration',
+      runCommand: () => ({ status: 0, stdout: '', stderr: '', timedOut: false })
+    });
+    runRemoteGit(['push', 'origin', 'HEAD:refs/heads/example'], {
+      operation: 'remote-push',
+      runCommand: () => ({ status: 1, stdout: '', stderr: 'remote rejected', timedOut: false })
+    });
+    await runRemoteGitAsync(['ls-remote', 'origin'], {
+      operation: 'remote-probe',
+      spawnCommand() {
+        const child = new EventEmitter();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.kill = () => true;
+        queueMicrotask(() => child.emit('close', 0, null));
+        return child;
+      }
+    });
+  });
+  assert.deepEqual(timer.finish().counters, {
+    'git.remote.total': 3,
+    'git.remote.operation.configuration': 1,
+    'git.remote.command.fetch': 1,
+    'git.remote.operation.push': 1,
+    'git.remote.command.push': 1,
+    'git.remote.outcome.failure': 1,
+    'git.remote.operation.probe': 1,
+    'git.remote.command.ls-remote': 1
+  });
 });
 
 test('remote observation refusals distinguish unreachable from unreadable authorities', () => {

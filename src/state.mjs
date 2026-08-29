@@ -8,7 +8,8 @@ import {
   repoRelative, run, secureRepositoryPath, snapshot, stateFingerprint, truncate, writeJson, writeText
 } from './util.mjs';
 import {
-  branch, changedFiles, gitCommonDir, head, identity, pushBranch, pushCommitToBranch, remoteContains, untrackedFiles
+  branch, changedFiles, exactRemoteBranchHead, gitCommonDir, head, identity, pushBranch,
+  publicationPushOutcome, pushCommitToBranch, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -80,7 +81,12 @@ import {
 } from './publication-pending.mjs';
 import { restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
-import { publishCapabilityRepositories } from './capability-start.mjs';
+import {
+  capabilityPublicationEntrySha256, capabilityPublicationPlanSha256,
+  publishCapabilityRepositoriesDurably,
+  verifyCapabilityPublicationRecoveryPlan
+} from './capability-publication-recovery.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 import { deliverLifecycleNotifications, warnNotificationFailures } from './notifications.mjs';
@@ -4399,13 +4405,29 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   worktreeGuard = null,
   transactionId = null,
   rollbackWorkflow = null,
-  recoveryPreimage = null
+  recoveryPreimage = null,
+  expectedRemoteSha = undefined,
+  expectedLocalHead = undefined,
+  publicationAuthority = null,
+  publicationTail = null
 } = {}) {
+  // Capture before the first asynchronous read. Even aggregates loaded through a legacy path that
+  // lacks a STATE_REVISION receipt must not silently move onto a different local parent while this
+  // transaction is checking pending publication and ledger state.
+  const invocationHead = head(root);
   if (await storyPublicationPending(root, config, workflow.workItem.id)) await assertNoPendingPublication(root, config, workflow, 'create another lifecycle commit');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
   const requestedPhaseId = event?.phaseId ?? workflow.currentPhase ?? null;
   const requestedPhase = requestedPhaseId ? workflow.phases?.[requestedPhaseId] : null;
   const decision = [...(requestedPhase?.approvals ?? [])].reverse().find((item) => !item.invalidatedAt) ?? null;
+  const authenticatedPublicationTail = publicationTail?.capabilityPublications?.length ? {
+    ...publicationTail,
+    capabilityPublicationPlan: publicationTail.capabilityPublicationPlan
+      ?? publicationTail.capabilityPublications,
+    capabilityPublicationPlanSha256: capabilityPublicationPlanSha256(
+      publicationTail.capabilityPublicationPlan ?? publicationTail.capabilityPublications
+    )
+  } : publicationTail;
   const envelope = lifecycleEvent({
     ...event,
     subject: { kind: 'story', id: workflow.workItem.id, branch: workflowPublicationBranch(root, workflow) },
@@ -4414,7 +4436,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     actor: event?.actor ?? decision?.actor ?? identity(root),
     agent: event?.agent ?? decision?.agent ?? requestedPhase?.generatedAgent ?? null,
     authorityGroup: event?.authorityGroup ?? decision?.authorityGroup ?? null,
-    payload: { ...(event?.payload ?? {}), decision: decision?.decision ?? null, reviewPacketSha256: decision?.reviewPacketSha256 ?? null }
+    payload: {
+      ...(event?.payload ?? {}),
+      ...(authenticatedPublicationTail?.capabilityPublicationPlanSha256 ? {
+        capabilityPublicationPlanSha256: authenticatedPublicationTail.capabilityPublicationPlanSha256
+      } : {}),
+      decision: decision?.decision ?? null,
+      reviewPacketSha256: decision?.reviewPacketSha256 ?? null
+    }
   });
   let ledgerIntent = null;
   if (ledgerConfig.enabled) {
@@ -4445,6 +4474,18 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     });
   }
   const targetBranch = workflowPublicationBranch(root, workflow);
+  const publicationMode = workflowPublicationMode(config, workflow);
+  const governedLocalParent = expectedLocalHead
+    ?? workflow[Symbol.for('singularity-flow.state-revision')]?.head
+    ?? invocationHead;
+  // Every ordinary lifecycle update extends the exact local revision that was loaded and validated
+  // by this transaction. Use that parent as the remote compare-and-swap baseline unless a creation
+  // path explicitly supplies absence (`null`) or a materialized seed commit. Leaving this undefined
+  // turns Git's fast-forward check into a value-only success and lets an identical concurrent
+  // install be reported as this transaction's ref transition.
+  const governedExpectedRemoteSha = expectedRemoteSha !== undefined
+    ? expectedRemoteSha
+    : governedLocalParent;
   const priorWorkflow = rollbackWorkflow ?? structuredClone(workflow);
   // The whole work directory, not just `workflow.json`.
   //
@@ -4455,6 +4496,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   // blamed the operator) and a complete approved decision on disk for an approval that was undone —
   // which the next successful governed commit would then sweep into signed, pushed, attested history.
   const workDirectory = workDirRelative(config, workflow.workItem.id);
+  const pendingMetadata = {
+    workId: workflow.workItem.id,
+    ...(authenticatedPublicationTail ?? {})
+  };
   const result = await publishLifecycleChange(root, {
     subject: envelope.subject,
     expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
@@ -4589,8 +4634,17 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         }
       }
     },
-    publication: { mode: workflowPublicationMode(config, workflow), remote: config.git?.remote ?? 'origin', branch: targetBranch },
-    pendingRecord: () => ({ workId: workflow.workItem.id }),
+    publication: {
+      mode: publicationMode,
+      remote: config.git?.remote ?? 'origin',
+      branch: targetBranch,
+      expectedLocalHead: governedLocalParent,
+      ...(publicationAuthority ? { authority: publicationAuthority } : {}),
+      ...(publicationMode !== 'off' ? { expectedRemoteSha: governedExpectedRemoteSha } : {})
+    },
+    pendingMetadata,
+    pendingRecord: () => pendingMetadata,
+    retainPendingOnSuccess: Boolean(publicationTail),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
@@ -4599,7 +4653,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   if (workflow[Symbol.for('singularity-flow.state-revision')]) {
     workflow[Symbol.for('singularity-flow.state-revision')].head = result.sha;
   }
-  if (result.pushed) await clearPendingPublication(root, {
+  if (result.pushed && !publicationTail) await clearPendingPublication(root, {
     kind: 'story', id: workflow.workItem.id,
     legacyPath: legacyPendingPublicationPath(root, config, workflow.workItem.id)
   });
@@ -4611,7 +4665,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
   return { ...result, notifications };
 }
 
-export async function syncPublication(root, config, workflow) {
+export async function syncPublication(root, config, workflow, { fault = null } = {}) {
   const subject = { kind: 'story', id: workflow.workItem.id };
   const pendingOptions = {
     ...subject,
@@ -4672,7 +4726,7 @@ export async function syncPublication(root, config, workflow) {
         ledger: null
       };
     }
-    const record = current.record;
+    let record = current.record;
     if (record.recoveryStage === 'publication-recovery-diverged') {
       throw new SingularityFlowError(
         `Story '${workflow.workItem.id}' recovery diverged and was stopped safely. ${record.error} `
@@ -4704,24 +4758,147 @@ export async function syncPublication(root, config, workflow) {
         }
       );
     }
+    let rootRemoteAuthority = null;
+    try { rootRemoteAuthority = configuredRemoteAuthority(root, record.remote); }
+    catch { /* Unsafe credential-bearing replacement is authority drift. */ }
+    if (!record.remoteFingerprint || !rootRemoteAuthority?.url
+      || rootRemoteAuthority.fingerprint !== record.remoteFingerprint) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' publication remote '${record.remote}' changed after the governed commit was retained. `
+        + 'The marker was retained and no ref was pushed.',
+        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
+      );
+    }
+    if (fault) await fault('after-root-authority-capture', {
+      record, remoteFingerprint: rootRemoteAuthority.fingerprint
+    });
+    const markerCarriesCapabilityProgress = record.capabilityPublicationPlan !== undefined
+      || record.capabilityPublications !== undefined;
+    if (markerCarriesCapabilityProgress && current.integrityVerified !== true) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' pending capability publication progress integrity is invalid. `
+        + 'The marker was retained and no root or sibling ref was pushed.',
+        {
+          code: 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID',
+          details: {
+            subject, markerPath: current.path,
+            failures: ['pending capability publication progress integrity is invalid']
+          }
+        }
+      );
+    }
+    if (record.rootPublished === true && current.integrityVerified !== true) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' pending root publication progress integrity is invalid. `
+        + 'The marker was retained and no root or sibling ref was pushed.',
+        {
+          code: 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID',
+          details: {
+            subject, markerPath: current.path,
+            failures: ['pending root publication progress integrity is invalid']
+          }
+        }
+      );
+    }
     let rootPushed = record.rootPublished === true;
+    if (rootPushed) {
+      const remoteCommit = exactRemoteBranchHead(root, rootRemoteAuthority.url, record.branch);
+      if (remoteCommit !== record.commit) {
+        throw new SingularityFlowError(
+          `Story '${workflow.workItem.id}' pending marker says its root ref was published, but remote '${record.remote}' `
+          + `does not advertise exact commit ${record.commit}. The marker was retained and no sibling ref was pushed.`,
+          { code: 'PENDING_PUBLICATION_ROOT_UNPROVEN', details: { subject, markerPath: current.path } }
+        );
+      }
+    }
     if (!rootPushed) {
-      const result = pushCommitToBranch(root, record.remote, record.commit, record.branch);
-      if (result.status !== 0) throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+      // Recovery is itself a transport attempt. Make its ambiguous crash boundary durable before
+      // invoking Git, just as the original publication unit does. Without this write, a successful
+      // create-only retry followed by process death left the older `rejected` receipt in place; the
+      // next sync then refused exact equality forever even though this machine had performed the
+      // successful update.
+      // Only the machine-sealed receipt may authorize equality from an earlier attempt. Rewriting
+      // the marker for this new attempt must not launder a hand-edited `transport-indeterminate`
+      // value into trusted recovery state.
+      const priorPushOutcome = current.integrityVerified === true
+        ? record.pushOutcome ?? 'not-attempted'
+        : 'not-attempted';
+      record = { ...record, pushOutcome: 'transport-indeterminate' };
+      await writePendingPublication(root, { ...subject, record });
+      const result = pushCommitToBranch(root, record.remote, record.commit, record.branch, {
+        expectedRemoteSha: record.expectedRemoteSha,
+        transportRemote: rootRemoteAuthority.url,
+        upstreamRemote: rootRemoteAuthority.remote
+      });
+      if (result.status !== 0) {
+        const pushOutcome = publicationPushOutcome(result);
+        // A transport may have accepted the exact governed commit and then lost its response. A
+        // create-only lease must fail on retry because the branch is no longer absent; the durable
+        // pending receipt is the authority that makes this exact equality an idempotent success.
+        // Check an older durable ambiguity before letting this retry's expected collision supersede
+        // it. That is the only way a crash after a successful receive-pack can converge safely.
+        const remoteCommit = priorPushOutcome === 'transport-indeterminate'
+          || pushOutcome === 'transport-indeterminate'
+          ? exactRemoteBranchHead(root, rootRemoteAuthority.url, record.branch)
+          : null;
+        if (remoteCommit !== record.commit) {
+          if (pushOutcome !== 'transport-indeterminate') {
+            record = { ...record, pushOutcome: 'rejected' };
+            await writePendingPublication(root, { ...subject, record });
+          }
+          throw new SingularityFlowError(`Push still fails: ${(result.stderr || result.stdout).trim()}`);
+        }
+      }
+      if (fault) await fault('after-root-push-before-receipt', { record, result });
+      // Persist root completion before any sibling verification/publication or final marker clear.
+      // A later sync still proves the live exact root tip before trusting this progress bit.
+      record = { ...record, rootPublished: true };
+      await writePendingPublication(root, { ...subject, record });
       rootPushed = true;
     }
-    const capability = publishCapabilityRepositories(record.capabilityPublications ?? []);
-    if (capability.pending.length) {
-      await writePendingPublication(root, {
-        ...subject,
-        record: {
-          ...record,
-          rootPublished: true,
-          recoveryStage: 'capability-publication-pending',
-          capabilityPublications: capability.pending,
-          error: capability.error
+    const capabilityEntries = record.capabilityPublications ?? [];
+    const hasCapabilityPlan = record.capabilityPublicationPlan !== undefined
+      || record.capabilityPublications !== undefined;
+    if (hasCapabilityPlan) {
+      const capabilityVerification = verifyCapabilityPublicationRecoveryPlan(record);
+      const progressFailures = [...capabilityVerification.failures];
+      if (current.integrityVerified !== true) {
+        progressFailures.push('pending capability publication progress integrity is invalid');
+      }
+      const pendingIdentities = new Set(capabilityEntries.map(capabilityPublicationEntrySha256));
+      for (const completed of record.capabilityPublicationPlan ?? []) {
+        let completedAuthority = null;
+        try { completedAuthority = configuredRemoteAuthority(completed.root, completed.remote); }
+        catch { /* Unsafe credential-bearing replacement is authority drift. */ }
+        if (!completedAuthority?.url || completedAuthority.fingerprint !== completed.remoteFingerprint) {
+          progressFailures.push(`capability publication '${completed.repository}' remote changed`);
+          continue;
         }
-      });
+        if (pendingIdentities.has(capabilityPublicationEntrySha256(completed))) continue;
+        if (exactRemoteBranchHead(completed.root, completedAuthority.url, completed.branch) !== completed.commit) {
+          progressFailures.push(`completed capability publication '${completed.repository}' exact remote ref is not proven`);
+        }
+      }
+      if (progressFailures.length) {
+        throw new SingularityFlowError(
+          `Story '${workflow.workItem.id}' pending capability publication marker is not bound to its governed root commit: `
+          + `${progressFailures.join('; ')}. The marker was retained and no sibling ref was pushed.`,
+          {
+            code: 'PENDING_CAPABILITY_PUBLICATION_IDENTITY_INVALID',
+            details: { subject, markerPath: current.path, failures: progressFailures }
+          }
+        );
+      }
+    }
+    const capability = capabilityEntries.length
+      ? await publishCapabilityRepositoriesDurably(root, workflow.workItem.id, {
+          remote: record.remote,
+          branch: record.branch,
+          commit: record.commit,
+          event: record.event
+        }, capabilityEntries, { rootPublished: true })
+      : { published: [], pending: [], error: null };
+    if (capability.pending.length) {
       throw new SingularityFlowError(
         `Capability Story publication still fails for '${capability.pending[0].repository}': ${capability.error}`
       );

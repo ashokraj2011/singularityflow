@@ -101,6 +101,42 @@ test('Story intake creates durable manual state and resumes an existing branch',
   assert.equal(resumed.workflow.workItem.workType, 'feature');
 });
 
+test('Story start refuses a remote retarget after its push authority is captured', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'required';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'Require Story publication'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const originalRemote = run('git', ['remote', 'get-url', '--push', 'origin'], root).stdout.trim();
+  const alternate = `${root}-alternate.git`;
+  run('git', ['init', '--bare', '-b', 'main', alternate], root);
+  const originalHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-AUTHORITY-RACE',
+      source: manualStorySource('WORK-AUTHORITY-RACE', { title: 'Authority race' }),
+      workType: 'feature',
+      baseBranch: 'main',
+      afterPublicationAuthorityCapture: () => {
+        run('git', ['remote', 'set-url', 'origin', alternate], root);
+      }
+    }),
+    (error) => error?.code === 'PUBLICATION_REMOTE_AUTHORITY_CHANGED'
+  );
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), originalHead);
+  for (const authority of [originalRemote, alternate]) {
+    assert.notEqual(spawnSync('git', [
+      '--git-dir', authority, 'show-ref', '--verify', '--quiet',
+      'refs/heads/WORK-AUTHORITY-RACE'
+    ]).status, 0);
+  }
+});
+
 test('Story intake pins refreshed remote configuration and world-model files from a named corporate remote', async () => {
   const source = await repository();
   const initialDefinitionPath = path.join(source, 'singularity/workflow.yml');

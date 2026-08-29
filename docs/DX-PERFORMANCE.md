@@ -77,6 +77,23 @@ Linux/Node-22 accepted baseline.
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
 
+## Git-heavy workflow operations
+
+Capability onboarding, workspace creation/repair, configuration refresh, and Story start use one
+operation-scoped remote session. Identical `ls-remote` questions are coalesced within that operation,
+then invalidated immediately after a successful mutation. The cache never crosses CLI invocations
+and keys the exact credential-free remote rather than its display-redacted label.
+
+Independent repositories are cloned, fetched, and inspected with a bounded worker pool. Clone waves
+stage into privately owned directories and claim targets only after every required repository has
+succeeded; every unclaimed stage is removed even when a claim callback or journal write fails.
+Configuration-refresh object caches are machine-local, ownership-checked, integrity-verified, and
+never treated as authority: the exact remote refs are revalidated before publication.
+
+VS Code gives workspace mutations a 30-minute host timeout while each Git subprocess retains its
+shorter operation deadline. A Start Work host timeout renders the exact CLI command so the same
+operation can be resumed in a terminal without restarting completed journal steps.
+
 `npm run release`, `npm run release:dry`, and `npm run poc:release-gate` run the enforcing form
 automatically. This repository intentionally carries no hosted workflow; the local release gate is
 the authoritative enforcement path and always checks absolute budgets. The relative 20-percent
@@ -90,6 +107,11 @@ Pass `--timings` to see root-dispatch, module-load, and execution stages:
 ```bash
 singularity-flow status WORK-123 --timings
 ```
+
+The timing line also names the resolved operation and counts remote Git work by closed-vocabulary
+category (`probe`, `configuration`, `push`, and Git verb). It never records arguments, repository
+URLs, paths, refs, identities, or file content. This makes capability, workspace, and Story-start
+regressions enforceable by operation count even when office proxy latency varies between runs.
 
 Commands also append machine-local timing events under
 `.git/singularity-flow/dx/timings.jsonl`. This file is never committed, contains no command

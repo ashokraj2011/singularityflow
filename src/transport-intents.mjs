@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText,
-  remoteFingerprint, sanitizeRemote
+  frozenRemoteTransport, remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
@@ -154,14 +154,14 @@ export async function createTransportIntent({
   if (commit.status !== 0) throw new SingularityFlowError(`Commit '${sourceCommit}' is not available locally.`, {
     code: 'TRANSPORT_SOURCE_COMMIT_MISSING'
   });
-  const remoteUrl = runCommand('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true });
+  const remoteUrl = runCommand('git', ['remote', 'get-url', '--push', remote], { cwd: root, allowFailure: true });
   if (remoteUrl.status !== 0 || !remoteUrl.stdout.trim()) {
     throw new SingularityFlowError(`Remote '${remote}' is not configured.`, { code: 'TRANSPORT_REMOTE_MISSING' });
   }
   const safeRemoteUrl = assertCredentialFreeRemote(remoteUrl.stdout.trim());
   const outbox = transportOutboxRoot(env, home);
   const repositoryRootFingerprint = await repositoryFingerprint(root);
-  const normalizedRemoteFingerprint = `sha256:${remoteFingerprint(sanitizeRemote(safeRemoteUrl))}`;
+  const normalizedRemoteFingerprint = `sha256:${remoteFingerprint(safeRemoteUrl)}`;
   const normalizedTargetRef = assertTargetRef(targetRef);
   const normalizedExpectedRemote = expectedRemote || null;
   const existing = (await listTransportIntents({ env, home, includeSucceeded: true })).find((candidate) =>
@@ -180,7 +180,9 @@ export async function createTransportIntent({
     repositoryRoot: root,
     repositoryRootFingerprint,
     remote,
-    remoteUrl: sanitizeRemote(safeRemoteUrl),
+    // This value is already credential-free. Keep its exact Git transport semantics; the
+    // display-safe sanitizer is intentionally lossy for literal local/SCP paths containing ?/#.
+    remoteUrl: safeRemoteUrl,
     remoteFingerprint: normalizedRemoteFingerprint,
     sourceCommit: commit.stdout.trim(),
     targetRef: normalizedTargetRef,
@@ -196,10 +198,14 @@ export async function createTransportIntent({
 }
 
 export function observeRemoteTarget(intent, { runCommand = run, env = process.env } = {}) {
-  const result = runCommand('git', ['ls-remote', '--refs', intent.remote, intent.targetRef], {
+  // The configured name is mutable repository state. The intent already pins and integrity-binds
+  // the exact credential-free URL, so every probe and push must use those immutable bytes after
+  // the one name-to-authority validation at retry start.
+  const transport = frozenRemoteTransport(intent.remoteUrl, { env });
+  const result = runCommand('git', ['ls-remote', '--refs', transport.remote, intent.targetRef], {
     cwd: intent.repositoryRoot, allowFailure: true,
     timeoutMs: gitTimeouts(env).probe,
-    env: nonInteractiveGitEnvironment(env)
+    env: nonInteractiveGitEnvironment(transport.env)
   });
   if (result.status !== 0) return { readable: false, commit: null, result };
   const line = String(result.stdout ?? '').split('\n').find((entry) => entry.trim().endsWith(`\t${intent.targetRef}`));
@@ -246,6 +252,51 @@ function circuitAfter(intent, failure) {
   };
 }
 
+function mayReconcileExactRemote(intent) {
+  if (intent.expectedRemote === intent.sourceCommit) return true;
+  if (Number(intent.attemptBudget?.used ?? 0) < 1) return false;
+  const last = intent.attempts?.at(-1);
+  // Only a durable receipt written immediately before the mutating push can authorize exact
+  // equality. A process may die while the preceding dry-run is in flight; that probe cannot have
+  // changed the ref, so its receipt must never let a later byte-identical update by another actor be
+  // claimed as this intent's success.
+  if (intent.status === 'pushing') {
+    return last?.stage === 'push' && last?.result === 'in-flight';
+  }
+  return last?.stage === 'push'
+    && ['pending', 'outcome-unknown'].includes(last?.result)
+    && intent.fault?.classification === 'network-transient';
+}
+
+function pushTransitionFlag(result, intent) {
+  const line = String(result?.stdout ?? '').split(/\r?\n/).find((entry) => {
+    const [, refspec] = entry.split('\t');
+    return refspec?.endsWith(`:${intent.targetRef}`);
+  });
+  return line?.split('\t')[0] ?? null;
+}
+
+function pushAcquiredExpectedTransition(result, intent) {
+  if (result?.status !== 0) return false;
+  if (intent.expectedRemote === intent.sourceCommit) return true;
+  const flag = pushTransitionFlag(result, intent);
+  return intent.expectedRemote === null ? flag === '*' : flag === ' ' || flag === '+';
+}
+
+function recordPublishedRemoteTrackingRef(intent, { runCommand = run, env = process.env } = {}) {
+  const branch = intent.targetRef.slice('refs/heads/'.length);
+  const trackingRef = `refs/remotes/${intent.remote}/${branch}`;
+  try {
+    return runCommand('git', ['update-ref', trackingRef, intent.sourceCommit], {
+      cwd: intent.repositoryRoot, allowFailure: true, env: nonInteractiveGitEnvironment(env)
+    }).status === 0;
+  } catch {
+    // Publication authority is the remote ref and the sealed receipt, not this convenience cache.
+    // A read-only or concurrently changing local ref namespace must not rewrite a proven success.
+    return false;
+  }
+}
+
 export async function retryTransportIntent(intentId, {
   env = process.env, home = os.homedir(), runCommand = run, allowNeedsUser = false
 } = {}) {
@@ -263,6 +314,24 @@ export async function retryTransportIntent(intentId, {
         code: 'TRANSPORT_REPOSITORY_DRIFTED'
       });
     }
+    const configured = runCommand('git', ['remote', 'get-url', '--push', intent.remote], {
+      cwd: intent.repositoryRoot, allowFailure: true
+    });
+    let configuredUrl = null;
+    try {
+      configuredUrl = configured.status === 0
+        ? assertCredentialFreeRemote(configured.stdout.trim()) : null;
+    } catch { /* A credential-bearing replacement is authority drift, never a retry destination. */ }
+    if (!configuredUrl
+      || `sha256:${remoteFingerprint(configuredUrl)}` !== intent.remoteFingerprint
+      || configuredUrl !== intent.remoteUrl) {
+      throw new SingularityFlowError(
+        `Transport intent '${intentId}' no longer points to its authorized remote. Nothing was pushed.`, {
+          code: 'TRANSPORT_REMOTE_DRIFTED',
+          details: { remote: intent.remote, expectedRemote: sanitizeRemote(intent.remoteUrl) }
+        }
+      );
+    }
 
     const observed = observeRemoteTarget(intent, { runCommand, env });
     if (!observed.readable) {
@@ -273,13 +342,21 @@ export async function retryTransportIntent(intentId, {
       });
     }
     if (observed.commit === intent.sourceCommit) {
+      if (mayReconcileExactRemote(intent)) {
+        recordPublishedRemoteTrackingRef(intent, { runCommand, env });
+        return writeIntent(outbox, {
+          ...intent, status: 'succeeded', observedRemote: observed.commit,
+          healers: [...intent.healers, healerReceipt('remote-push-already-succeeded', {
+            postconditions: [{ id: 'remote-target-equals-source-commit', status: 'pass' }],
+            proof: { targetRef: intent.targetRef, remoteCommit: observed.commit }
+          })],
+          nextAction: null
+        });
+      }
       return writeIntent(outbox, {
-        ...intent, status: 'succeeded', observedRemote: observed.commit,
-        healers: [...intent.healers, healerReceipt('remote-push-already-succeeded', {
-          postconditions: [{ id: 'remote-target-equals-source-commit', status: 'pass' }],
-          proof: { targetRef: intent.targetRef, remoteCommit: observed.commit }
-        })],
-        nextAction: null
+        ...intent, status: 'remote-diverged', observedRemote: observed.commit,
+        fault: { classification: 'remote-diverged', retryable: false },
+        nextAction: { command: `git -C ${JSON.stringify(intent.repositoryRoot)} fetch ${intent.remote}`, skill: null }
       });
     }
     if (observed.commit !== intent.expectedRemote) {
@@ -308,17 +385,29 @@ export async function retryTransportIntent(intentId, {
       });
     }
 
-    const attempt = { number: intent.attemptBudget.used + 1, startedAt: nowIso(), completedAt: null };
+    const attempt = {
+      number: intent.attemptBudget.used + 1,
+      startedAt: nowIso(),
+      completedAt: null,
+      stage: 'dry-run',
+      result: 'in-flight'
+    };
     intent = await writeIntent(outbox, {
-      ...intent, status: 'pushing',
+      // Spending an attempt is durable, but this preflight state carries no ownership authority:
+      // `git push --dry-run` cannot update the destination ref.
+      ...intent, status: 'pending',
       attemptBudget: { ...intent.attemptBudget, used: attempt.number },
       attempts: [...intent.attempts, attempt]
     });
     const refspec = `${intent.sourceCommit}:${intent.targetRef}`;
-    const dryRun = runCommand('git', ['push', '--dry-run', '--porcelain', intent.remote, refspec], {
+    const lease = `--force-with-lease=${intent.targetRef}:${intent.expectedRemote ?? ''}`;
+    const dryRunTransport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
+    const dryRun = runCommand('git', [
+      'push', '--dry-run', '--porcelain', lease, dryRunTransport.remote, refspec
+    ], {
       cwd: intent.repositoryRoot, allowFailure: true,
       timeoutMs: gitTimeouts(env).push,
-      env: nonInteractiveGitEnvironment(env)
+      env: nonInteractiveGitEnvironment(dryRunTransport.env)
     });
     if (dryRun.status !== 0) {
       const failure = classified(dryRun);
@@ -332,13 +421,31 @@ export async function retryTransportIntent(intentId, {
         circuit: circuitAfter(intent, failure)
       });
     }
-    const pushed = runCommand('git', ['push', intent.remote, refspec], {
+    // This is the transport ambiguity boundary. Persist it only after the non-mutating dry-run has
+    // succeeded and immediately before invoking the real push, so a crash in preflight cannot be
+    // mistaken for an indeterminate receive-pack update.
+    intent = await writeIntent(outbox, {
+      ...intent,
+      status: 'pushing',
+      attempts: intent.attempts.map((entry) => entry.number === attempt.number
+        ? { ...entry, stage: 'push', result: 'in-flight' } : entry)
+    });
+    const pushTransport = frozenRemoteTransport(intent.remoteUrl, { push: true, env });
+    const pushed = runCommand('git', [
+      'push', '--porcelain', lease, pushTransport.remote, refspec
+    ], {
       cwd: intent.repositoryRoot, allowFailure: true,
       timeoutMs: gitTimeouts(env).push,
-      env: nonInteractiveGitEnvironment(env)
+      env: nonInteractiveGitEnvironment(pushTransport.env)
     });
     const after = observeRemoteTarget(intent, { runCommand, env });
-    if (after.readable && after.commit === intent.sourceCommit) {
+    const pushedFailure = pushed.status === 0 ? null : classified(pushed);
+    const indeterminatePush = pushed.status !== 0
+      && (pushed.timedOut === true || Boolean(pushed.signal)
+        || pushedFailure.classification === 'network-transient');
+    if (after.readable && after.commit === intent.sourceCommit
+      && (pushAcquiredExpectedTransition(pushed, intent) || indeterminatePush)) {
+      recordPublishedRemoteTrackingRef(intent, { runCommand, env });
       return writeIntent(outbox, {
         ...intent, status: 'succeeded', observedRemote: after.commit, fault: null,
         attempts: intent.attempts.map((entry) => entry.number === attempt.number
@@ -354,7 +461,7 @@ export async function retryTransportIntent(intentId, {
           ? { ...entry, completedAt: nowIso(), result: 'remote-diverged', stage: 'verify' } : entry)
       });
     }
-    const failure = classified(pushed);
+    const failure = pushedFailure ?? classified(pushed);
     const status = after.readable
       ? (failure.retryable ? 'pending' : 'needs-user')
       : 'outcome-unknown';

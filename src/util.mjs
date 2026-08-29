@@ -58,6 +58,13 @@ export async function mapLimit(items, limit, mapper) {
   return results;
 }
 
+/** One bounded concurrency policy for repository-wide Git fan-out. */
+export function gitWorkerCount(total, { env = process.env, requested = null } = {}) {
+  const available = Math.max(1, Math.trunc(Number(total)) || 1);
+  const configured = Math.trunc(Number(requested ?? env.SINGULARITY_FLOW_GIT_WORKERS ?? 4)) || 4;
+  return Math.max(1, Math.min(8, configured, available));
+}
+
 // Presentation primitives live in style.mjs. Imported for `table` and re-exported because every
 // existing caller already reaches for its formatting helpers here.
 export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
@@ -75,10 +82,11 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
+  'archive-readiness',
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
-  'diagnose-only', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'json',
+  'diagnose-only', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
   'keep', 'local', 'local-only', 'make-lead', 'markdown', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'polish', 'probe', 'propose', 'push',

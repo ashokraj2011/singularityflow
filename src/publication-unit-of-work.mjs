@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
-import { branch, commitIsolated, head, pushCommitToBranch } from './git.mjs';
+import {
+  branch, commitIsolated, head, publicationPushOutcome, pushCommitToBranch
+} from './git.mjs';
 import {
   appendLedgerIntent,
   clearLedgerOutbox,
@@ -18,6 +20,7 @@ import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
 import { recordSha256 } from './records.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -30,6 +33,8 @@ export class GitPublicationUnitOfWork {
   commit: commitSpec,
   publication,
   pendingRecord,
+  pendingMetadata = null,
+  retainPendingOnSuccess = false,
   ledger = null,
   conflictStrategy = null,
   state = null,
@@ -42,7 +47,36 @@ export class GitPublicationUnitOfWork {
   const root = this.root;
   let envelope = assertLifecycleEvent(event, subject);
   if (!commitSpec?.message) throw new SingularityFlowError('Publication requires commit.message.');
-  if (!publication?.branch) throw new SingularityFlowError('Publication requires a target branch.');
+    if (!publication?.branch) throw new SingularityFlowError('Publication requires a target branch.');
+    const publicationRemote = publication.remote ?? 'origin';
+    const configuredPublicationAuthority = publication.mode === 'off'
+      ? null
+      : configuredRemoteAuthority(root, publicationRemote);
+    const suppliedPublicationAuthority = publication.mode === 'off'
+      ? null
+      : publication.authority ?? null;
+    if (suppliedPublicationAuthority) {
+      const authorityMatches = Object.isFrozen(suppliedPublicationAuthority)
+        && suppliedPublicationAuthority.remote === publicationRemote
+        && suppliedPublicationAuthority.direction === 'push'
+        && suppliedPublicationAuthority.url
+        && suppliedPublicationAuthority.url === configuredPublicationAuthority?.url
+        && suppliedPublicationAuthority.fingerprint === configuredPublicationAuthority?.fingerprint;
+      if (!authorityMatches) {
+        throw new SingularityFlowError(
+          `Publication remote '${publicationRemote}' changed after its exact push authority was observed. Nothing was changed.`,
+          { code: 'PUBLICATION_REMOTE_AUTHORITY_CHANGED' }
+        );
+      }
+    }
+    const publicationAuthority = suppliedPublicationAuthority ?? configuredPublicationAuthority;
+    const publicationRemoteFingerprint = publicationAuthority?.fingerprint ?? null;
+    if (publication.mode !== 'off' && !publicationAuthority?.url) {
+      throw new SingularityFlowError(
+        `Publication remote '${publicationRemote}' is not configured with one exact credential-free push authority. Nothing was changed.`,
+        { code: 'PUBLICATION_REMOTE_AUTHORITY_MISSING' }
+      );
+    }
   return withSubjectLock(root, subject, async (lockOwner) => {
     if (branch(root) !== publication.branch) {
       throw new SingularityFlowError(`Current branch ${branch(root)} must match ${subject.kind} branch ${publication.branch}.`);
@@ -85,8 +119,37 @@ export class GitPublicationUnitOfWork {
      * repair the tool itself recommends then commits the projection, and the next sync appends it
      * to the append-only capability ledger: an approval nobody gave, in the record that exists to
      * be trusted.
-     */
+    */
     const publicationHead = head(root);
+    if (publication.expectedLocalHead !== undefined
+      && String(publication.expectedLocalHead).toLowerCase() !== publicationHead.toLowerCase()) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' local branch moved before its governed publication transaction began. `
+        + 'Reload the lifecycle state and retry; nothing was changed.',
+        {
+          code: 'PUBLICATION_LOCAL_PARENT_CHANGED',
+          details: {
+            expectedLocalHead: publication.expectedLocalHead,
+            publicationHead
+          }
+        }
+      );
+    }
+    if (publication.expectedRemoteSha !== undefined
+      && publication.expectedRemoteSha !== null
+      && String(publication.expectedRemoteSha).toLowerCase() !== publicationHead.toLowerCase()) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' publication lease does not match the local parent this transaction would extend. `
+        + 'Reload the lifecycle state and retry; nothing was changed.',
+        {
+          code: 'PUBLICATION_REMOTE_LEASE_PARENT_MISMATCH',
+          details: {
+            expectedRemoteSha: publication.expectedRemoteSha,
+            publicationHead
+          }
+        }
+      );
+    }
     // Persist the exact pre-transaction bytes before the journal authorizes the first state write.
     // An ordinary exception can use the same preimage immediately; a hard process death leaves it
     // in the journal for the next `sync` to restore after reclaiming the dead owner's lock.
@@ -99,9 +162,14 @@ export class GitPublicationUnitOfWork {
       expectedHead: publicationHead,
       branch: publication.branch,
       remote: publication.remote ?? 'origin',
+      remoteFingerprint: publicationRemoteFingerprint,
       event: envelope,
       recoveryPreimage,
       publicationMode: publication.mode ?? 'required',
+      ...(publication.expectedRemoteSha !== undefined
+        ? { expectedRemoteSha: publication.expectedRemoteSha }
+        : {}),
+      pendingMetadata,
       ...(transactionId ? { transactionId } : {}),
       lockOwner
     });
@@ -223,7 +291,11 @@ export class GitPublicationUnitOfWork {
             branch: publication.branch,
             tree,
             eventSha256: transactionEventSha256,
-            publicationMode: journal.publicationMode
+            publicationMode: journal.publicationMode,
+            ...(publicationRemoteFingerprint ? { remoteFingerprint: publicationRemoteFingerprint } : {}),
+            ...(publication.expectedRemoteSha !== undefined
+              ? { expectedRemoteSha: publication.expectedRemoteSha }
+              : {})
           })}`
         },
         onCommitCreated: async ({ sourceCommit: createdCommit, tree, transaction }) => {
@@ -265,17 +337,22 @@ export class GitPublicationUnitOfWork {
             subject,
             branch: publication.branch,
             remote: publication.remote ?? 'origin',
+            remoteFingerprint: publicationRemoteFingerprint,
             commit: sourceCommit,
             event: envelope,
             createdAt: nowIso(),
             recoveryStage: 'branch-ref-advanced-before-publication',
+            pushOutcome: 'not-attempted',
             transactionId: journal.transactionId,
             tree: error.publicationTree ?? transactionTree,
             eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
             error: error.message,
-            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {})
+            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {}),
+            ...(publication.expectedRemoteSha !== undefined
+              ? { expectedRemoteSha: publication.expectedRemoteSha }
+              : {})
           }
         });
       }
@@ -303,20 +380,50 @@ export class GitPublicationUnitOfWork {
       // hook, another subject transaction, or a person at the keyboard may advance it after our
       // compare-and-swap commit and before this push. Using HEAD here would let those unrelated
       // bytes inherit this transaction's lifecycle event and recovery identity.
-      let result = pushCommitToBranch(
-        root,
-        publication.remote ?? 'origin',
-        sourceCommit,
-        publication.branch
-      );
-      if (result.status !== 0 && conflictStrategy) {
-        const resolved = await conflictStrategy({ sourceCommit, result, envelope });
+      // Once this durable stage is written, a process death can no longer prove whether the remote
+      // accepted the update before the transport disappeared. Recovery may reconcile exact remote
+      // equality only from this indeterminate state, never from a known rejection.
+      await updatePublicationJournal(root, subject, {
+        stage: 'publishing', pushOutcome: 'transport-indeterminate'
+      }, { transactionId: journal.transactionId });
+      let result = publicationAuthority?.url
+        ? pushCommitToBranch(
+          root,
+          publicationRemote,
+          sourceCommit,
+          publication.branch,
+          {
+            expectedRemoteSha: publication.expectedRemoteSha,
+            transportRemote: publicationAuthority.url,
+            upstreamRemote: publicationAuthority.remote
+          }
+        )
+        : {
+            status: 1, stdout: '', signal: null,
+            stderr: `Publication remote '${publicationRemote}' is not configured with a credential-free authority.`
+          };
+      const initialPushOutcome = result.status === 0 ? 'published' : publicationPushOutcome(result);
+      // An ambiguous transport may already have advanced the ref. Local replay after that boundary
+      // would replace the only ownership receipt with a different commit/error and permanently lose
+      // the ability to reconcile the exact commit this process may have installed.
+      if (result.status !== 0 && initialPushOutcome !== 'transport-indeterminate'
+        && conflictStrategy && publicationAuthority?.url) {
+        const resolved = await conflictStrategy({
+          sourceCommit, result, envelope,
+          transportRemote: publicationAuthority.url,
+          upstreamRemote: publicationRemote
+        });
         result = resolved.result;
         replayed = resolved.replayed === true;
         publishedCommit = resolved.publishedCommit ?? head(root);
       }
       if (result.status !== 0) {
         const error = (result.stderr || result.stdout).trim();
+        const pushOutcome = publicationPushOutcome(result);
+        await updatePublicationJournal(root, subject, {
+          stage: pushOutcome === 'transport-indeterminate' ? 'push-indeterminate' : 'push-rejected',
+          pushOutcome
+        }, { transactionId: journal.transactionId });
         await writePendingPublication(root, {
           kind: subject.kind,
           id: subject.id,
@@ -325,6 +432,7 @@ export class GitPublicationUnitOfWork {
             subject,
             branch: publication.branch,
             remote: publication.remote ?? 'origin',
+            remoteFingerprint: publicationRemoteFingerprint,
             commit: sourceCommit,
             transactionId: journal.transactionId,
             tree: transactionTree,
@@ -337,7 +445,11 @@ export class GitPublicationUnitOfWork {
             event: envelope,
             createdAt: nowIso(),
             error,
-            ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {})
+            ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {}),
+            pushOutcome,
+            ...(publication.expectedRemoteSha !== undefined
+              ? { expectedRemoteSha: publication.expectedRemoteSha }
+              : {})
           }
         });
         await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
@@ -349,6 +461,46 @@ export class GitPublicationUnitOfWork {
       await updatePublicationJournal(root, subject, {
         stage: 'pushed', commit: publishedCommit
       }, { transactionId: journal.transactionId });
+      if (retainPendingOnSuccess) {
+        // The publication journal already carries `pendingMetadata`, so a hard death in this exact
+        // root-ref-to-tail-marker window is recoverable. Keep a named fault boundary for the
+        // child-process regression that proves it rather than only testing the easier post-marker
+        // interruption.
+        if (fault) await fault('after-push-before-pending-retention', {
+          envelope, sourceCommit, publishedCommit, pushed
+        });
+        if (replayed || publishedCommit !== sourceCommit) {
+          throw new SingularityFlowError(
+            `${subject.kind} '${subject.id}' cannot retain a post-publication recovery tail after commit replay.`,
+            { code: 'PUBLICATION_RECOVERY_TAIL_REPLAYED' }
+          );
+        }
+        await writePendingPublication(root, {
+          kind: subject.kind,
+          id: subject.id,
+          record: {
+            ...(pendingMetadata ?? {}),
+            schemaVersion: currentSchemaVersion('pending-publication'),
+            subject,
+            branch: publication.branch,
+            remote: publication.remote ?? 'origin',
+            remoteFingerprint: publicationRemoteFingerprint,
+            commit: publishedCommit,
+            transactionId: journal.transactionId,
+            tree: transactionTree,
+            eventSha256: transactionEventSha256,
+            stateSha256: transactionStateSha256,
+            publicationMode: journal.publicationMode,
+            event: envelope,
+            createdAt: nowIso(),
+            rootPublished: true,
+            pushOutcome: 'not-attempted',
+            ...(publication.expectedRemoteSha !== undefined
+              ? { expectedRemoteSha: publication.expectedRemoteSha }
+              : {})
+          }
+        });
+      }
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
     }
     // Append-only replay can replace the original commit. Event identity always

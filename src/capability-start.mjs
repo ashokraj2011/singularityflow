@@ -22,8 +22,8 @@ import {
   parseBaseSelection, parseRemoteHeads, resolveCapabilityBase
 } from './capability-branches.mjs';
 import {
-  assertClean, branch as currentBranch, checkout, preflightPushBranch, pushCommitToBranch,
-  gitCommonDir, refExists, refHead, repoRoot
+  assertClean, branch as currentBranch, checkout, exactRemoteBranchObservation, publicationPushOutcome,
+  pushCommitToBranch, gitCommonDir, refExists, refHead, repoRoot, validBranch
 } from './git.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
@@ -35,6 +35,7 @@ import {
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
+import { configuredRemoteAuthority, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
 
@@ -50,8 +51,9 @@ export function publishedBranches(repositories, { timeoutMs = 20000 } = {}) {
   const published = {};
   const unreachable = [];
   for (const repository of repositories) {
-    const result = runRemoteGit(['ls-remote', '--heads', '--', repository.url], {
-      operation: 'remote-probe', timeoutMs
+    const transport = frozenRemoteTransport(repository.url);
+    const result = runRemoteGit(['ls-remote', '--heads', '--', transport.remote], {
+      operation: 'remote-probe', timeoutMs, env: transport.env
     });
     if (result.status !== 0) {
       published[repository.id] = [];
@@ -69,8 +71,9 @@ export async function publishedBranchesAsync(repositories, {
 } = {}) {
   const observations = await mapLimit(repositories, workers, async (repository) => {
     incrementCommandCounter('git.remote-inventory');
-    const result = await runGit(['ls-remote', '--heads', '--', repository.url], {
-      operation: 'remote-probe', timeoutMs
+    const transport = frozenRemoteTransport(repository.url);
+    const result = await runGit(['ls-remote', '--heads', '--', transport.remote], {
+      operation: 'remote-probe', timeoutMs, env: transport.env
     });
     return { repository, result };
   });
@@ -199,9 +202,14 @@ export async function storyBaseForRepository(root, {
   interactive = true,
   remote = 'origin',
   defaultBranch = 'main',
-  capabilityId = null
+  capabilityId = null,
+  catalog: suppliedCatalog = null
 } = {}) {
-  const catalog = await storyBaseCatalog(root, { remote, defaultBranch, capabilityId });
+  // `workspace branches --preflight-story` has already paid for an exact remote inventory so it can
+  // render the choices alongside the result. Reusing those immutable bytes inside the same command
+  // avoids asking every capability remote the identical question twice. Mutation-time Story start
+  // still obtains its own fresh catalog and re-fetches every selected ref before changing a checkout.
+  const catalog = suppliedCatalog ?? await storyBaseCatalog(root, { remote, defaultBranch, capabilityId });
   if (catalog.unreachable.length) {
     const first = catalog.unreachable[0];
     throw new SingularityFlowError(
@@ -346,20 +354,37 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       );
     }
     const root = repoRoot(target);
+    validBranch(root, storyBranch);
     // The lifecycle repository may be executing from its dedicated Story worktree while the
     // workspace's canonical checkout intentionally contains unrelated work. Both paths share the
     // same Git common directory, so only sibling repositories still need the legacy clean-checkout
     // precondition here.
     if (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot))) assertClean(root);
     run('git', ['remote', 'set-branches', remote, '*'], { cwd: root, allowFailure: false });
-    candidates.push({ repository, root });
+    const fetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+    const pushAuthority = publishRequired
+      ? configuredRemoteAuthority(root, remote, { direction: 'push' }) : null;
+    if (!fetchAuthority.url || (publishRequired && !pushAuthority?.url)) {
+      throw new SingularityFlowError(
+        `Required repository '${repository.id}' has no usable '${remote}' transport. Nothing was changed.`,
+        { code: 'STORY_REMOTE_UNREACHABLE' }
+      );
+    }
+    candidates.push({ repository, root, fetchAuthority, pushAuthority });
   }
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     incrementCommandCounter('git.remote-fetch');
+    const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
     return {
       ...candidate,
-      result: await runGit(['fetch', '--prune', remote], {
-        cwd: candidate.root, operation: 'remote-configuration', allowFailure: true
+      // Bind the fetch to the exact URL captured above. The explicit destination refspec retains
+      // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
+      result: await runGit([
+        'fetch', '--prune', transport.remote,
+        `+refs/heads/*:refs/remotes/${remote}/*`
+      ], {
+        cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
+        env: transport.env
       })
     };
   });
@@ -372,8 +397,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     );
   }
 
-  const checked = [];
-  for (const { repository, root } of fetched) {
+  const candidatesToProbe = [];
+  for (const { repository, root, pushAuthority } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
     if (!refExists(root, sourceRef)) {
@@ -391,18 +416,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         { code: 'STORY_BRANCH_EXISTS' }
       );
     }
-    if (publishRequired) {
-      const dryRun = preflightPushBranch(root, remote, sourceRef, storyBranch);
-      if (dryRun.status !== 0) {
-        throw new SingularityFlowError(
-          `Cannot publish Story branch '${storyBranch}' for required repository '${repository.id}' `
-          + `to '${remote}'. Git reported: `
-          + `${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
-          { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
-        );
-      }
-    }
-    checked.push({
+    candidatesToProbe.push({
       repository: repository.id,
       root,
       remote,
@@ -411,10 +425,37 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       sourceRef,
       destinationRef: `refs/heads/${storyBranch}`,
       branch: storyBranch,
+      remoteFingerprint: pushAuthority?.fingerprint ?? null,
+      transportRemote: pushAuthority?.url ?? null,
+      publicationAuthority: pushAuthority,
       publishRequired
     });
   }
-  return checked;
+  // A dry-run push cannot move a remote ref. Probe independent repositories with the same bounded
+  // fan-out as fetch, while retaining input-order results so the first refusal remains deterministic.
+  const checked = await mapLimit(candidatesToProbe, workers, async (candidate) => {
+    if (!candidate.publishRequired) return { candidate, dryRun: null };
+    const transport = frozenRemoteTransport(candidate.transportRemote, { push: true });
+    const dryRun = await runGit([
+      'push', '--dry-run', '--porcelain', transport.remote,
+      `${candidate.sourceRef}:${candidate.destinationRef}`
+    ], {
+      cwd: candidate.root, operation: 'remote-push', allowFailure: true,
+      env: transport.env
+    });
+    return { candidate, dryRun };
+  });
+  const refused = checked.find((entry) => entry.dryRun && entry.dryRun.status !== 0);
+  if (refused) {
+    const { candidate, dryRun } = refused;
+    throw new SingularityFlowError(
+      `Cannot publish Story branch '${storyBranch}' for required repository '${candidate.repository}' `
+      + `to '${remote}'. Git reported: `
+      + `${(dryRun.stderr || dryRun.stdout || 'remote rejected the dry-run push').trim()} Nothing was changed.`,
+      { code: 'STORY_PUBLICATION_PREFLIGHT_FAILED' }
+    );
+  }
+  return checked.map((entry) => entry.candidate);
 }
 
 /**
@@ -428,14 +469,17 @@ export function capabilityPublicationPlan(preflight, lifecycleRoot) {
     .filter((entry) => entry.publishRequired
       && gitCommonDir(repoRoot(entry.root)) !== gitCommonDir(primary))
     .map((entry) => ({
-      schemaVersion: 1,
-      repository: entry.repository,
-      root: entry.root,
-      remote: entry.remote,
-      branch: entry.branch,
-      commit: entry.baseCommit,
-      destinationRef: entry.destinationRef
-    }));
+        schemaVersion: 1,
+        repository: entry.repository,
+        root: entry.root,
+        remote: entry.remote,
+        branch: entry.branch,
+        commit: entry.baseCommit,
+        destinationRef: entry.destinationRef,
+        remoteFingerprint: entry.remoteFingerprint,
+        expectedRemoteSha: null,
+        pushOutcome: 'not-attempted'
+      }));
 }
 
 export function preflightIncludesRepository(preflight, repositoryRoot) {
@@ -444,16 +488,96 @@ export function preflightIncludesRepository(preflight, repositoryRoot) {
   return preflight.some((entry) => gitCommonDir(repoRoot(entry.root)) === common);
 }
 
+/** The exact frozen push authority captured for one repository during Story preflight. */
+export function preflightPublicationAuthority(preflight, repositoryRoot) {
+  if (!preflight?.length) return null;
+  const common = gitCommonDir(repoRoot(repositoryRoot));
+  return preflight.find((entry) => gitCommonDir(repoRoot(entry.root)) === common)
+    ?.publicationAuthority ?? null;
+}
+
 /** Publish exact preflight-bound sibling commits, returning a resumable remainder on failure. */
 export function publishCapabilityRepositories(entries = []) {
   const published = [];
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
-    const result = pushCommitToBranch(entry.root, entry.remote, entry.commit, entry.branch);
-    if (result.status !== 0) {
+    const authority = configuredRemoteAuthority(entry.root, entry.remote);
+    if (!entry.remoteFingerprint || !authority.url
+        || authority.fingerprint !== entry.remoteFingerprint) {
       return {
         published,
-        pending: entries.slice(index),
+        pending: [
+          { ...entry, pushOutcome: 'rejected' },
+          ...entries.slice(index + 1).map((pending) => ({
+            ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
+          }))
+        ],
+        error: `Configured remote '${entry.remote}' for '${entry.repository}' changed after Story preflight`
+      };
+    }
+    const priorOutcome = entry.pushOutcome ?? 'not-attempted';
+    if (priorOutcome === 'transport-indeterminate') {
+      const observed = exactRemoteBranchObservation(
+        entry.root, authority.url, entry.branch
+      );
+      if (!observed.reachable || observed.malformed) {
+        return {
+          published,
+          pending: [entry, ...entries.slice(index + 1)],
+          error: !observed.reachable
+            ? `Cannot verify the prior indeterminate publication for '${entry.repository}' because its remote is unavailable`
+            : `Cannot verify the prior indeterminate publication for '${entry.repository}' because its remote advertisement is ambiguous`
+        };
+      }
+      if (observed.sha === entry.commit) {
+        published.push({
+          repository: entry.repository,
+          remote: entry.remote,
+          branch: entry.branch,
+          ref: entry.destinationRef,
+          commit: entry.commit,
+          pushed: true,
+          reconciled: true
+        });
+        continue;
+      }
+      if (observed.sha !== null) {
+        return {
+          published,
+          pending: [
+            { ...entry, pushOutcome: 'rejected' },
+            ...entries.slice(index + 1).map((pending) => ({
+              ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
+            }))
+          ],
+          error: `Remote Story branch '${entry.branch}' for '${entry.repository}' contains a different commit`
+        };
+      }
+    }
+    // Story publication is create-only. Bind the final push to an absent destination so a branch
+    // created after dry-run can never be mistaken for this operation's publication, even when its
+    // commit happens to be an ancestor (or the same commit).
+    const result = pushCommitToBranch(entry.root, entry.remote, entry.commit, entry.branch, {
+      expectedRemoteSha: entry.expectedRemoteSha ?? null,
+      transportRemote: authority.url,
+      upstreamRemote: authority.remote
+    });
+    if (result.status !== 0) {
+      const currentOutcome = publicationPushOutcome(result);
+      // A returned definitive rejection supersedes an older ambiguous attempt. Equality was already
+      // checked above while that ambiguity was authoritative; retaining it after a known collision
+      // would let a later sync claim another actor's identical ref.
+      const pushOutcome = currentOutcome === 'transport-indeterminate'
+        ? 'transport-indeterminate'
+        : 'rejected';
+      return {
+        published,
+        pending: [
+          { ...entry, pushOutcome },
+          ...entries.slice(index + 1).map((pending) => ({
+            ...pending, pushOutcome: pending.pushOutcome ?? 'not-attempted'
+          }))
+        ],
         error: (result.stderr || result.stdout || 'remote rejected the Story branch').trim()
       };
     }

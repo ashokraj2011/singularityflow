@@ -135,6 +135,7 @@ export async function scheduleStoryStartAstWarm(root, definition, workflow, { la
       mode: plan.mode, scope: plan.scope, status: 'skipped', reason: plan.disabledReason, blocking: false
     };
     const queuedAt = nowIso();
+    const blocking = plan.mode === 'before-first-phase';
     const queued = await writeStoryStartAstWarmStatus(root, {
       workId: plan.workId,
       mode: plan.mode,
@@ -142,7 +143,7 @@ export async function scheduleStoryStartAstWarm(root, definition, workflow, { la
       options: plan.options,
       repositoryRevision: plan.repositoryRevision,
       status: 'queued',
-      blocking: false,
+      blocking,
       queuedAt,
       updatedAt: queuedAt,
       startedAt: null,
@@ -153,7 +154,9 @@ export async function scheduleStoryStartAstWarm(root, definition, workflow, { la
     });
     if (plan.mode === 'before-first-phase') {
       const completed = await runStoryStartAstWarmWorker(root, plan.workId);
-      return { ...completed, blocking: false };
+      // This mode deliberately completes the cache before start returns. Report that wait honestly
+      // so callers and timings do not present a potentially long inline build as background work.
+      return { ...completed, blocking: true };
     }
     // Node's test runner may launch hundreds of Story fixtures concurrently. Dedicated tests inject
     // a launcher and exercise the worker directly; ordinary product processes always launch it.

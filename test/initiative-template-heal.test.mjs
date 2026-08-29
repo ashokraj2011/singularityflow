@@ -76,6 +76,80 @@ test('starting an initiative installs the packaged initiative templates the repo
   assert.ok(tracked.includes('generic-output.md'), tracked);
 });
 
+test('Initiative publication refuses a remote retarget between exact observation and transaction', async () => {
+  const { base, root, remote } = await repositoryWithoutInitiativeTemplates();
+  const alternate = path.join(base, 'alternate.git');
+  run('git', ['init', '--bare', '-b', 'main', alternate], { cwd: base });
+  run('git', ['checkout', '-b', 'SF-E-AUTHORITY-RACE'], { cwd: root });
+  await createInitiative(root, {
+    id: 'SF-E-AUTHORITY-RACE', title: 'Authority race',
+    profile: 'initiative-lite', agent: 'product-owner'
+  });
+  const started = await loadInitiative(root, 'SF-E-AUTHORITY-RACE');
+  const originalHead = git(['rev-parse', 'HEAD'], root);
+
+  await assert.rejects(
+    () => commitInitiativeChange(
+      root, started.portfolio, started.initiative,
+      { type: 'binding' }, '[SF-E-AUTHORITY-RACE][initiative:init] start',
+      {
+        afterRemoteObservation: () => {
+          run('git', ['remote', 'set-url', 'origin', alternate], { cwd: root });
+        }
+      }
+    ),
+    (error) => error?.code === 'PUBLICATION_REMOTE_AUTHORITY_CHANGED'
+  );
+  assert.equal(git(['rev-parse', 'HEAD'], root), originalHead);
+  for (const authority of [remote, alternate]) {
+    assert.notEqual(run('git', [
+      '--git-dir', authority, 'show-ref', '--verify', '--quiet',
+      'refs/heads/SF-E-AUTHORITY-RACE'
+    ], { allowFailure: true }).status, 0);
+  }
+});
+
+test('Initiative publication refuses a local-parent race after its exact remote observation', async () => {
+  const { root, remote } = await repositoryWithoutInitiativeTemplates();
+  run('git', ['checkout', '-b', 'SF-E-PARENT-RACE'], { cwd: root });
+  run('git', ['push', 'origin', 'HEAD:refs/heads/SF-E-PARENT-RACE'], { cwd: root });
+  await createInitiative(root, {
+    id: 'SF-E-PARENT-RACE', title: 'Local parent race',
+    profile: 'initiative-lite', agent: 'product-owner'
+  });
+  const started = await loadInitiative(root, 'SF-E-PARENT-RACE');
+  const expectedParent = git(['rev-parse', 'HEAD'], root);
+  const statePath = path.join(root, 'singularity/initiatives/SF-E-PARENT-RACE/state.json');
+  const stateBefore = await readFile(statePath, 'utf8');
+  let racedHead = null;
+
+  await assert.rejects(
+    () => commitInitiativeChange(
+      root, started.portfolio, started.initiative,
+      { type: 'binding' }, '[SF-E-PARENT-RACE][initiative:init] start',
+      {
+        afterRemoteObservation: () => {
+          // Simulate a concurrent local ref advance after the remote lease is selected. The
+          // governed files remain unstaged; only HEAD changes, so the publication boundary itself
+          // must prove that its new commit would still extend the leased parent.
+          run('git', ['commit', '--allow-empty', '-m', 'concurrent local ref advance'], { cwd: root });
+          racedHead = git(['rev-parse', 'HEAD'], root);
+        }
+      }
+    ),
+    (error) => error?.code === 'PUBLICATION_LOCAL_PARENT_CHANGED'
+  );
+
+  assert.notEqual(racedHead, expectedParent);
+  assert.equal(git(['rev-parse', 'HEAD'], root), racedHead,
+    'the publication did not create another commit on the raced local parent');
+  assert.equal(await readFile(statePath, 'utf8'), stateBefore,
+    'no governed state write ran after the parent/lease mismatch');
+  assert.equal(git([
+    '--git-dir', remote, 'rev-parse', 'refs/heads/SF-E-PARENT-RACE'
+  ], root), expectedParent, 'the mismatched transaction never moved the remote ref');
+});
+
 test('preparing a phase restores a recorded template that was deleted after creation', async () => {
   const { root } = await repositoryWithoutInitiativeTemplates();
   await startInitiative(root, 'SF-E002');

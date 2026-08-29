@@ -37,7 +37,7 @@ import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
-  archiveCommand, configurationRefreshCommand, restoreCommand, workspaceRows, type WorkspaceArchiveReadiness,
+  archiveCommand, configurationRefreshCommand, restoreCommand, workspaceRows,
   type WorkspaceConfigurationRefreshResult, type WorkspaceEntry, type WorkspaceStatus
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
@@ -1492,22 +1492,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
     const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
       // Inspecting an archived workspace must not restore it as a side effect. `status` reads the
-      // checkout, while `archive-status --no-fetch` supplies the immediate local proof shown on the
-      // page. The mutating archive command refreshes remotes and verifies again before it commits to
-      // the registry change.
-      const [status, archiveReadiness] = await Promise.all([
-        registry.run<WorkspaceStatus>(['workspace', 'status', workspacePath, '--json']),
-        registry.run<WorkspaceArchiveReadiness>([
-          'workspace', 'archive-status', workspacePath, '--no-fetch', '--json'
-        ]).catch((error) => ({
-          eligible: false,
-          checkedAt: new Date().toISOString(),
-          fetched: false,
-          activeStories: [],
-          blockers: [(error as Error).message]
-        }))
+      // checkout and computes the immediate local archive proof from that same snapshot. The
+      // mutating archive command refreshes remotes and verifies again before changing the registry.
+      const status = await registry.run<WorkspaceStatus>([
+        'workspace', 'status', workspacePath, '--archive-readiness', '--no-fetch', '--json'
       ]);
-      status.archiveReadiness = archiveReadiness;
       const lead = status.repositories.find((repository) =>
         repository.id === status.workspace.leadRepository || repository.role === 'lead');
       if (!lead?.url) return status;
@@ -1598,11 +1587,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspacePath: string | null,
       request: Parameters<typeof configurationRefreshCommand>[1]
     ): Promise<WorkspaceConfigurationRefreshResult> => {
-      const row = workspacePath
-        ? workspaceRows(await list()).find((entry) => entry.path === workspacePath) ?? null
-        : null;
-      if (workspacePath && !row) throw new Error('The selected workspace is no longer registered.');
-      const command = configurationRefreshCommand(row, request);
+      // The engine revalidates registry membership and the exact plan before mutation. Avoid a
+      // second machine-wide `workspace list` process merely to recover the already-selected path.
+      const command = configurationRefreshCommand(
+        workspacePath ? { directory: workspacePath } : null,
+        request
+      );
       output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
       try {
         return await vscode.window.withProgress(
@@ -3081,7 +3071,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // One screen for six paths. An Initiative, an Epic or a Story, each with or without a tracker,
     // used to be six commands you had to already know the names of — which meant the product's front
     // door was documentation rather than a screen.
-    const { IntakePanel } = await import('./views/intake-panel.ts');
+    const { IntakePanel, intakeInFlight } = await import('./views/intake-panel.ts');
     IntakePanel.show(context, client, output, async (started) => {
       if (defaults.guidedStart) await context.globalState.update(START_WIZARD_KEY, undefined);
       if (started.shape === 'story' && started.repositoryPath
@@ -3108,6 +3098,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       workspace: workspaceLabel,
       repository: repositoryState?.root ?? repository,
       branch: repositoryState?.branch ?? null,
+      // Start Work already refreshed the Store's core lifecycle slice. Re-project those exact bytes
+      // instead of spawning a second full `snapshot --json` process inside the panel.
+      inFlight: intakeInFlight(store.current.snapshot),
       defaults,
       journey: defaults.guidedStart ? {
         step: 'work',
@@ -4122,7 +4115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
             {
               modal: true,
-              detail: 'The complete diff is open for review. This uses a normal non-force push, never changes the application branch, and requires a separate acknowledgement if branch protection is not enforced.'
+              detail: 'The complete diff is open for review. Git dry-runs cannot prove server review enforcement, so the command stops before the exact leased update and asks for a separate acknowledgement. The application branch is never changed.'
             },
             merge
           );
@@ -4138,12 +4131,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           try {
             activation = await client.run(baseArguments);
           } catch (error) {
-            if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|branch protection is not enforced|accepted the exact dry-run update/i
+            if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i
               .test((error as Error).message)) throw error;
             const acknowledge = 'Acknowledge and merge';
             const accepted = await vscode.window.showWarningMessage(
-              `${inspected.targetBranch} permits a direct update. Acknowledge this governance exception and merge the exact reviewed workflow proposal?`,
-              { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. The application branch remains unchanged.' },
+              `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
+              { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
               acknowledge
             );
             if (accepted !== acknowledge) return null;

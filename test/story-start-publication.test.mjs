@@ -10,14 +10,15 @@ import YAML from 'yaml';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function run(command, args, cwd, { allowFailure = false } = {}) {
+function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
     env: {
       ...process.env,
       NODE_ENV: 'test',
-      SINGULARITY_FLOW_TEST_IDENTITY: 'Story Publisher'
+      SINGULARITY_FLOW_TEST_IDENTITY: 'Story Publisher',
+      ...env
     }
   });
   if (!allowFailure && result.status !== 0) {
@@ -106,6 +107,32 @@ test('starting an existing durable Story routes to Resume without asking for ano
   assert.doesNotMatch(resumed.stderr, /--from-branch/);
 });
 
+test('resume fetches once and fast-forwards from the exact refreshed remote ref without pulling', async () => {
+  const { base, root, remote } = await repository();
+  start(root, 'STORY-RESUME-FETCH');
+  git(root, 'switch', 'main');
+
+  const publisher = path.join(base, 'publisher');
+  git(base, 'clone', '--quiet', remote, publisher);
+  git(publisher, 'config', 'user.name', 'Remote Publisher');
+  git(publisher, 'config', 'user.email', 'remote.publisher@example.com');
+  git(publisher, 'switch', '--quiet', 'STORY-RESUME-FETCH');
+  await writeFile(path.join(publisher, 'remote-update.txt'), 'published after the first session\n');
+  git(publisher, 'add', 'remote-update.txt');
+  git(publisher, 'commit', '--quiet', '-m', 'advance Story remotely');
+  git(publisher, 'push', '--quiet', 'origin', 'STORY-RESUME-FETCH');
+  const expected = git(publisher, 'rev-parse', 'HEAD').stdout.trim();
+
+  const resumed = flow(root, ['resume', 'STORY-RESUME-FETCH', '--fetch', '--json'], {
+    env: { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }
+  });
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), expected);
+  assert.match(resumed.stderr, /\b1x\s+\d+ ms\s+git fetch --prune\b/,
+    'resume should perform exactly one explicit remote refresh');
+  assert.doesNotMatch(resumed.stderr, /git pull --ff-only/,
+    'the refreshed remote-tracking ref is sufficient for the fast-forward');
+});
+
 test('a materialized Epic Story uses its pinned parent branch and commit as read-only base evidence', async () => {
   const { root } = await repository();
   const baseCommit = git(root, 'rev-parse', 'origin/release/24.3').stdout.trim();
@@ -163,19 +190,37 @@ test('non-interactive Story start requires an explicit base before mutation', as
 test('workspace branch preflight proves the exact destination without creating it', async () => {
   const { root } = await repository();
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
-  const result = JSON.parse(flow(root, [
+  const preflight = flow(root, [
     'workspace', 'branches', '--json', '--preflight-story', 'STORY-PREVIEW',
-    '--from-branch', 'release/24.3'
-  ]).stdout);
+    '--from-branch', 'release/24.3', '--timings'
+  ]);
+  const result = JSON.parse(preflight.stdout);
 
   assert.equal(result.preflight.passed, true);
   assert.equal(result.preflight.storyBranch, 'STORY-PREVIEW');
   assert.equal(result.preflight.remote, 'origin');
   assert.equal(result.preflight.destinationRef, 'refs/heads/STORY-PREVIEW');
   assert.equal(result.preflight.repositories[0].baseBranch, 'release/24.3');
+  assert.match(preflight.stderr, /git\.remote-inventory=1(?:\s|$)/,
+    'choice rendering and same-command preflight must reuse one remote inventory');
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead);
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-PREVIEW').stdout.trim(), '');
+});
+
+test('workspace intake aggregates profiles, installed workflows, and one remote inventory', async () => {
+  const { root } = await repository();
+  const listed = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
+  const result = JSON.parse(listed.stdout);
+
+  assert.ok(result.intake.profiles.some((profile) =>
+    profile.id === 'epic-planning' && profile.phases.length > 0));
+  assert.ok(result.intake.storyWorkflows.some((workflow) =>
+    workflow.id === 'feature' && workflow.governs === 'story' && workflow.installed === true));
+  assert.equal(result.intake.profileReason, null);
+  assert.equal(result.intake.workflowReason, null);
+  assert.match(listed.stderr, /git\.remote-inventory=1(?:\s|$)/,
+    'the aggregate must not repeat the base catalog for its additional intake fields');
 });
 
 test('workspace branch choices use approved configuration when application main has no workflow file', async () => {
@@ -186,18 +231,24 @@ test('workspace branch choices use approved configuration when application main 
   git(root, 'commit', '-m', 'Keep application main free of configuration');
   const headBefore = git(root, 'rev-parse', 'HEAD').stdout.trim();
 
-  const result = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+  const result = JSON.parse(flow(root, ['workspace', 'branches', '--json', '--intake']).stdout);
 
   assert.equal(result.remote, 'origin');
   assert.ok(result.choices.some((choice) => choice.branch === 'main' && choice.everywhere));
+  assert.ok(result.intake.profiles.some((profile) => profile.id === 'epic-planning'));
+  assert.ok(result.intake.storyWorkflows.some((workflow) =>
+    workflow.id === 'feature' && workflow.installed === true));
   assert.equal(result.unreachable.length, 0);
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), headBefore);
   assert.equal(git(root, 'status', '--porcelain=v1').stdout, '');
 });
 
 test('remote publication preflight failure creates no branch, Story state, or session change', async () => {
-  const { root } = await repository();
-  git(root, 'config', 'remote.origin.receivepack', '/usr/bin/false');
+  const { root, remote } = await repository();
+  // Publication resolves and pins the exact push URL before preflight. Point that authority at a
+  // missing repository rather than relying on remote.<name>.receivepack, which intentionally cannot
+  // affect a literal-URL transport.
+  git(root, 'config', 'remote.origin.pushurl', path.join(path.dirname(remote), 'missing.git'));
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
   const result = flow(root, [
     'start', 'STORY-READ-ONLY', '--json', '--from-branch', 'release/24.3',
@@ -228,7 +279,11 @@ test('a post-preflight push rejection retains the commit and sync publishes it l
   assert.match(failed.stderr, /retained locally but push failed/);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'STORY-RACE');
   const pending = path.join(root, '.git/singularity-flow/pending-publication/story--STORY-RACE.json');
-  assert.match(await readFile(pending, 'utf8'), /refs?\/heads\/STORY-RACE|"branch": "STORY-RACE"/);
+  const pendingRecord = JSON.parse(await readFile(pending, 'utf8'));
+  assert.equal(pendingRecord.branch, 'STORY-RACE');
+  assert.equal(pendingRecord.expectedRemoteSha, null,
+    'initial Story publication records its create-only remote expectation');
+  assert.equal(pendingRecord.pushOutcome, 'rejected');
 
   await rm(hook);
   flow(root, ['sync']);

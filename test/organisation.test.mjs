@@ -28,6 +28,7 @@ import {
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -191,10 +192,17 @@ test('the first capability governs the repository it is mapped into', async () =
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
 
-  const first = await mapCapability(org.platform, {
+  const mapTimer = commandTimer('capability-map', { commandClass: 'mutation' });
+  const first = await withCommandTiming(mapTimer, () => mapCapability(org.platform, {
     capabilityId: 'commerce', name: 'Commerce', kind: 'collection',
     metadata: { applicationId: 'APP-1001', costCenter: 'CC-42' }
-  });
+  }));
+  const mapCounters = mapTimer.finish().counters;
+  assert.equal(mapCounters['git.remote.total'], 5,
+    'first map combines authority and HEAD observation instead of probing them separately');
+  assert.equal(mapCounters['git.remote.command.ls-remote'], 1);
+  assert.equal(mapCounters['git.remote.command.clone'], 2);
+  assert.equal(mapCounters['git.remote.command.push'], 2);
   assert.equal(first.capabilityId, 'commerce');
 
   const untouched = run('git', ['show', 'main:README.md'], { cwd: org.platform }).stdout;
@@ -268,6 +276,25 @@ test('a repository can be added to an existing delivery through one reviewed pro
   assert.equal(repository.clone.mode, 'blobless-sparse');
 });
 
+test('mapping several delivery repositories observes every distinct remote exactly once', async () => {
+  const org = await remotes('platform', 'service', 'web');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const timer = commandTimer('capability-map-many', { commandClass: 'mutation' });
+
+  const proposed = await withCommandTiming(timer, () => mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery',
+    repositoryUrls: [org.service, org.web, org.service],
+    leadRepositoryUrl: org.service
+  }));
+
+  assert.deepEqual(proposed.repositoryIds.sort(), ['service', 'web']);
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 3,
+    'the lead, service, and web remotes each have one combined operation-scoped observation');
+  assert.equal(counters['git.remote.total'], 7,
+    'parallel validation does not add probes beyond configuration bootstrap and proposal publication');
+});
+
 test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -303,10 +330,18 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   );
   assert.equal(run('git', ['rev-parse', 'main'], { cwd: org.platform }).stdout.trim(), mainBefore);
 
-  const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
-    confirm: inspected.proposalCommit,
-    acknowledgeUnprotected: true
-  });
+  const activationTimer = commandTimer('capability-activate', { commandClass: 'mutation' });
+  const activated = await withCommandTiming(activationTimer, () => activateCapabilityProposal(
+    org.platform, proposed.branch, {
+      confirm: inspected.proposalCommit,
+      acknowledgeUnprotected: true
+    }
+  ));
+  const activationCounters = activationTimer.finish().counters;
+  assert.equal(activationCounters['git.remote.command.clone'], 1,
+    'activation projects from its validated checkout instead of cloning configuration twice');
+  assert.equal(activationCounters['git.remote.command.fetch'], 3,
+    'projection reuses its exact state fetch instead of immediately fetching the state ref again');
   assert.equal(activated.alreadyMerged, false);
   assert.equal(activated.targetBranch, 'sflow/config');
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
@@ -466,6 +501,65 @@ test('capability review and activation do not negotiate unrelated monorepo histo
   assert.equal(activated.projection.published, true);
 });
 
+test('capability activation records an identical concurrent authority update as external', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const targetBefore = run('git', ['--git-dir', org.platform, 'rev-parse', 'sflow/config']).stdout.trim();
+  const realGit = run('which', ['git']).stdout.trim();
+  const wrappers = path.join(org.base, 'git-race-wrapper');
+  const wrapper = path.join(wrappers, 'git');
+  const sentinel = path.join(org.base, 'configuration-race-fired');
+  await mkdir(wrappers);
+  await writeFile(wrapper, `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const realGit = ${JSON.stringify(realGit)};
+if (args[0] === 'push' && args.includes('HEAD:refs/heads/sflow/config') && !fs.existsSync(${JSON.stringify(sentinel)})) {
+  const resolved = spawnSync(realGit, ['rev-parse', 'HEAD'], { cwd: process.cwd(), encoding: 'utf8' });
+  if (resolved.status !== 0) process.exit(resolved.status || 1);
+  const uploaded = spawnSync(realGit, [
+    'push', ${JSON.stringify(org.platform)},
+    resolved.stdout.trim() + ':refs/heads/sflow/test-race-object'
+  ], { cwd: process.cwd(), encoding: 'utf8' });
+  if (uploaded.status !== 0) process.exit(uploaded.status || 1);
+  const advanced = spawnSync(realGit, [
+    '--git-dir', ${JSON.stringify(org.platform)}, 'update-ref', 'refs/heads/sflow/config',
+    resolved.stdout.trim(), ${JSON.stringify(targetBefore)}
+  ], { encoding: 'utf8' });
+  if (advanced.status !== 0) process.exit(advanced.status || 1);
+  fs.writeFileSync(${JSON.stringify(sentinel)}, 'advanced\\n');
+}
+const result = spawnSync(realGit, args, { cwd: process.cwd(), env: process.env, stdio: 'inherit' });
+process.exit(result.status == null ? 1 : result.status);
+`);
+  await chmod(wrapper, 0o755);
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${wrappers}${path.delimiter}${previousPath}`;
+  let activated;
+  try {
+    activated = await activateCapabilityProposal(org.platform, proposed.branch, {
+      confirm: proposed.commit,
+      acknowledgeUnprotected: true
+    });
+  } finally {
+    process.env.PATH = previousPath;
+  }
+
+  assert.equal(activated.status, 'activated', JSON.stringify(activated, null, 2));
+  assert.equal(activated.alreadyMerged, true);
+  assert.equal(activated.mergeEvidence, 'concurrent-identical-commit');
+  assert.equal(activated.targetBefore, null,
+    'the current reviewer must not be audited as owner of a transition performed externally');
+  assert.equal(activated.audit.recorded, true);
+  assert.equal(activated.projection.published, true);
+});
+
 test('protected activation returns a resumable review receipt and exact post-merge recovery', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -491,6 +585,7 @@ exit 0
   });
   assert.equal(waiting.status, 'review-required');
   assert.equal(waiting.activated, false);
+  assert.equal(waiting.protection.enforced, true);
   assert.equal(waiting.targetCommit, configBefore);
   assert.equal(waiting.externalAction.sourceBranch, proposed.branch);
   assert.equal(waiting.externalAction.targetBranch, 'sflow/config');
@@ -512,6 +607,34 @@ exit 0
   assert.equal(recovered.alreadyMerged, true);
   assert.equal(recovered.audit.recorded, true);
   assert.equal(recovered.projection.published, true);
+});
+
+test('a generic pre-receive hook refusal remains activation-pending with its safe diagnostic', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', name: 'Calculator', kind: 'collection'
+  });
+  const configBefore = run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim();
+  const hook = path.join(org.platform, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh
+echo "secret scanning rejected a credential in the proposed content" >&2
+exit 1
+`);
+  await chmod(hook, 0o755);
+
+  const waiting = await activateCapabilityProposal(org.platform, proposed.branch, {
+    confirm: proposed.commit,
+    acknowledgeUnprotected: true
+  });
+  assert.equal(waiting.status, 'activation-pending');
+  assert.equal(waiting.activated, false);
+  assert.equal(waiting.protection.enforced, null);
+  assert.equal(waiting.externalAction, null);
+  assert.notEqual(waiting.failure.code, 'CAPABILITY_ACTIVATION_REVIEW_REQUIRED');
+  assert.match(waiting.failure.diagnostic, /secret scanning rejected a credential/i);
+  assert.match(waiting.failure.diagnostic, /pre-receive hook declined/i);
+  assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
 });
 
 test('a transient activation push failure is recoverable without pretending repository review is required', async () => {
@@ -550,13 +673,13 @@ test('an unprotected configuration authority requires an explicit recorded ackno
 
   await assert.rejects(
     activateCapabilityProposal(org.platform, proposed.branch, { confirm: proposed.commit }),
-    /accepted the exact dry-run update.*--acknowledge-unprotected/s
+    /cannot prove whether.*--acknowledge-unprotected/s
   );
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), before);
   assert.equal((await listCapabilityProposals(org.platform)).length, 1);
 });
 
-test('protection probes the prospective merge when configuration advanced after proposal creation', async () => {
+test('an advanced configuration still requires explicit direct-push acknowledgement', async () => {
   const org = await remotes('platform');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const proposed = await mapCapability(org.platform, {
@@ -576,7 +699,7 @@ test('protection probes the prospective merge when configuration advanced after 
 
   await assert.rejects(
     activateCapabilityProposal(org.platform, proposed.branch, { confirm: proposed.commit }),
-    /accepted the exact dry-run update.*--acknowledge-unprotected/s
+    /cannot prove whether.*--acknowledge-unprotected/s
   );
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), advanced);
   const activated = await activateCapabilityProposal(org.platform, proposed.branch, {
@@ -862,6 +985,47 @@ test('delivery repository reachability is proven before mapping mutates any auth
   assert.equal(run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads'], {
     cwd: org.platform
   }).stdout, before, 'an empty delivery repository must not be guessed as main');
+});
+
+test('capability mapping preserves distinct literal remote identities in probes and recovery commands', async (t) => {
+  const org = await remotes('platform');
+  t.after(() => rm(org.base, { recursive: true, force: true }));
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const makeLiteralRemote = async (suffix, branch) => {
+    const bare = path.join(org.base, `delivery.git?${suffix}`);
+    const seed = path.join(org.base, `${suffix}-seed`);
+    run('git', ['init', '-q', '-b', branch, '--bare', bare], { cwd: org.base });
+    run('git', ['init', '-q', '-b', branch, seed], { cwd: org.base });
+    run('git', ['config', 'user.email', 'literal@example.com'], { cwd: seed });
+    run('git', ['config', 'user.name', 'Literal Remote'], { cwd: seed });
+    await writeFile(path.join(seed, 'README.md'), `# ${suffix}\n`);
+    run('git', ['add', '-A'], { cwd: seed });
+    run('git', ['commit', '-qm', `Seed ${suffix}`], { cwd: seed });
+    run('git', ['push', '-q', bare, `${branch}:${branch}`], { cwd: seed });
+    return bare;
+  };
+  const blue = await makeLiteralRemote('blue', 'blue-main');
+  const red = await makeLiteralRemote('red', 'red-main');
+  assert.equal(blue.replace(/[?#].*$/, ''), red.replace(/[?#].*$/, ''),
+    'the fixture proves both legal local remotes share one display-sanitized label');
+
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'literal-deliveries', kind: 'delivery', repositoryUrls: [blue, red]
+  });
+  const portfolio = YAML.parse(run('git', [
+    'show', `${proposed.branch}:singularity/portfolio.yml`
+  ], { cwd: org.platform }).stdout);
+  const deliveries = Object.values(portfolio.repositories ?? {})
+    .filter((repository) => [blue, red].includes(repository.url));
+  assert.deepEqual(deliveries.map((repository) => [repository.url, repository.defaultBranch]).sort(), [
+    [blue, 'blue-main'], [red, 'red-main']
+  ].sort(), 'each exact authority keeps its own observation and default branch');
+
+  await assert.rejects(() => mapCapability(blue, { capabilityId: '' }), (error) => {
+    assert.ok(error.details.nextAction.command.includes(blue),
+      'the executable remediation retains literal local-path characters');
+    return true;
+  });
 });
 
 test('adding an unreachable repository does not create a capability proposal', async () => {

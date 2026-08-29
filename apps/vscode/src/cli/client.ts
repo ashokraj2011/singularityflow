@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
-  WORK_START_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
+  WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, type OutputStream
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
@@ -337,8 +337,15 @@ export class SingularityFlowClient {
         || (args[0] === 'configuration' && args[1] === 'save' && hasOption(args, 'propose'))) {
       return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     }
-    if (args[0] === 'workspace' && args[1] === 'refresh-configuration') {
-      return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    if (args[0] === 'workspace' && [
+      'prepare', 'create', 'duplicate', 'update', 'repair', 'sync', 'archive',
+      'refresh-configuration'
+    ].includes(args[1] ?? '')) {
+      return WORKSPACE_MUTATION_TIMEOUT_MS;
+    }
+    if (args[0] === 'workspace' && args[1] === 'bootstrap'
+        && ['resume', 'retry'].includes(args[2] ?? '')) {
+      return WORKSPACE_MUTATION_TIMEOUT_MS;
     }
     return (args[0] === 'wm' && args[1] === 'build')
       || (args[0] === 'workspace' && args[1] === 'impact' && args[2] === 'analyze')

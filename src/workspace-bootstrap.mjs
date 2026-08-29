@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  assertCredentialFreeRemote, probeGitRemote, redactDiagnosticText, remoteFingerprint, sanitizeRemote
+  assertCredentialFreeRemote, frozenRemoteTransport, probeGitRemote, redactDiagnosticText,
+  remoteFingerprint, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { workspaceRegistryFile } from './workspace-context.mjs';
 import {
@@ -15,7 +16,7 @@ import {
   rememberWorkspace, validateWorkspaceCapabilityRegistration, workspaceRepositoryPath,
   workspaceStatus
 } from './workspace.mjs';
-import { mapLimit, run, SingularityFlowError } from './util.mjs';
+import { gitWorkerCount, mapLimit, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -35,6 +36,23 @@ const DEFAULT_OPERATION_BUDGETS = Object.freeze({
   materialize: Object.freeze({ used: 0, maximum: 2 }),
   initialize: Object.freeze({ used: 0, maximum: 1 })
 });
+const liveBootstrapCapabilityValidations = new Map();
+
+function rememberLiveCapabilityValidation(bootstrapId, planHash, validation) {
+  if (!validation || typeof validation !== 'object') return;
+  const key = `${bootstrapId}:${planHash}`;
+  liveBootstrapCapabilityValidations.set(key, validation);
+  while (liveBootstrapCapabilityValidations.size > 64) {
+    liveBootstrapCapabilityValidations.delete(liveBootstrapCapabilityValidations.keys().next().value);
+  }
+}
+
+function takeLiveCapabilityValidation(bootstrapId, planHash) {
+  const key = `${bootstrapId}:${planHash}`;
+  const validation = liveBootstrapCapabilityValidations.get(key) ?? null;
+  liveBootstrapCapabilityValidations.delete(key);
+  return validation;
+}
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -727,9 +745,10 @@ function rebuiltPlan(plan, branchUpdates) {
 
 async function asynchronousRemoteProbe(remote, { branch = null, env = process.env } = {}) {
   const url = assertCredentialFreeRemote(remote);
+  const transport = frozenRemoteTransport(url, { env });
   const result = await runRemoteGitAsync([
-    'ls-remote', '--symref', '--', url, 'HEAD', 'refs/heads/*'
-  ], { operation: 'remote-probe', env, allowFailure: true });
+    'ls-remote', '--symref', '--', transport.remote, 'HEAD', 'refs/heads/*'
+  ], { operation: 'remote-probe', env: transport.env, allowFailure: true });
   const branches = [...String(result.stdout ?? '').matchAll(
     /^[0-9a-f]{40,64}\s+refs\/heads\/(.+)$/gmi
   )].map((match) => match[1]).sort();
@@ -757,7 +776,9 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   const checks = [];
   const findings = [];
   const branchUpdates = new Map();
-  const observations = await mapLimit(plan.repositories, 4, async (repository) => {
+  let liveCapabilityValidation = null;
+  const observations = await mapLimit(
+    plan.repositories, gitWorkerCount(plan.repositories.length, { env }), async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
     const probe = runCommand === run
@@ -811,14 +832,18 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   ])].sort();
   if (requestedCapabilities.length) {
     try {
-      const validation = await validateWorkspaceCapabilityRegistration(manifest);
+      const validation = await validateWorkspaceCapabilityRegistration(manifest, { env });
+      liveCapabilityValidation = validation;
       checks.push({
         id: 'configuration:capability-catalog',
         status: 'pass',
         leadRepository: manifest.leadRepository,
         branch: validation.branch,
         path: validation.path,
-        capabilities: validation.requested
+        capabilities: validation.requested,
+        // Session data is public diagnostics, never the live authority proof. The exact branded
+        // receipt is returned separately to the module-private cache below.
+        capabilityValidation: structuredClone(validation)
       });
     } catch (error) {
       const classification = error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN'
@@ -846,7 +871,7 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
       }));
     }
   }
-  return { checks, findings, plan: rebuiltPlan(plan, branchUpdates) };
+  return { checks, findings, plan: rebuiltPlan(plan, branchUpdates), liveCapabilityValidation };
 }
 
 export async function preflightWorkspaceBootstrap(bootstrapId, {
@@ -903,12 +928,15 @@ export async function preflightWorkspaceBootstrap(bootstrapId, {
       operationBudgets: budgets,
       steps: started.steps
     });
-    const machine = await machinePreflight(session.plan, { env, home, runCommand });
-    const remote = await remotePreflight(session.plan, { env, runCommand });
+    const [machine, remote] = await Promise.all([
+      machinePreflight(session.plan, { env, home, runCommand }),
+      remotePreflight(session.plan, { env, runCommand })
+    ]);
     const findings = [...machine.findings, ...remote.findings];
     const blockers = findings.filter((entry) => entry.severity === 'blocker');
     const checkedAt = nowIso();
     const planHash = planHashFor(remote.plan);
+    rememberLiveCapabilityValidation(bootstrapId, planHash, remote.liveCapabilityValidation);
     const faults = blockers.map((entry) => bootstrapFault({
       bootstrapId,
       operationFamily: entry.scope === 'transport' ? 'remote.inspect' : 'machine.preflight',
@@ -1032,7 +1060,12 @@ export async function resumeWorkspaceBootstrap(bootstrapId, {
       const materialized = await createWorkspaceConfiguration(session.plan.createInput, {
         confirmation: session.plan.workspace.confirmation,
         clone: true,
-        bootstrapId
+        bootstrapId,
+        env,
+        capabilityValidation: takeLiveCapabilityValidation(bootstrapId, session.planHash)
+          ?? session.preflight?.checks
+            ?.find((check) => check.id === 'configuration:capability-catalog')?.capabilityValidation
+          ?? null
       });
       const journalPath = path.join(
         materialized.workspace.path, materialized.workspace.directories.logs, 'workspace-materialization.json'

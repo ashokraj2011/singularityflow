@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
   mergePackagedConfiguration,
   PACKAGE_BASELINE_PATH,
@@ -94,6 +95,82 @@ async function repositoryFixture(root, id = 'application') {
   git(publisher, ['remote', 'add', 'origin', remote]);
   git(publisher, ['push', 'origin', 'HEAD:sflow/config']);
   return { remote, repository };
+}
+
+async function registeredRepositoryFixture(root, id) {
+  const fixture = await repositoryFixture(root, id);
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: `${id}-workspace`,
+    name: `${id} workspace`,
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: `${id}-workspace`, title: `${id} workspace` },
+    leadRepository: id,
+    repositories: {
+      [id]: {
+        id, url: fixture.remote, defaultBranch: 'main', required: true,
+        path: `repos/${id}`, role: 'lead', capabilities: []
+      }
+    }
+  };
+  const registry = path.join(root, 'workspaces.json');
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  await rememberWorkspace(registry, manifest);
+  return { ...fixture, registry };
+}
+
+async function cachedConfigurationCheckout(registry, planId) {
+  const planRoot = path.join(path.dirname(registry), '.configuration-refresh-cache', planId);
+  const record = JSON.parse(await readFile(path.join(planRoot, 'plan.json'), 'utf8'));
+  assert.equal(record.planId, planId);
+  assert.equal(record.repositories.length, 1);
+  const checkout = path.join(planRoot, 'repositories', record.repositories[0].key);
+  assert.equal((await readdir(checkout)).includes('.git'), true, 'preview retained its disposable checkout');
+  return checkout;
+}
+
+async function plantConfigurationCacheLock(registry, {
+  pid, token, acquiredAt = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString()
+}) {
+  const lock = path.join(path.dirname(registry), '.configuration-refresh-cache', '.operation-lock');
+  await mkdir(lock, { mode: 0o700 });
+  const owner = {
+    format: 'singularity-flow-configuration-refresh-cache-lock/v1',
+    pid,
+    processStartedAt: new Date(Date.now() - (3 * 60 * 60 * 1000)).toISOString(),
+    processToken: `process-${token}`,
+    token,
+    acquiredAt
+  };
+  await writeFile(path.join(lock, '.owner.json'), `${JSON.stringify(owner, null, 2)}\n`, { mode: 0o600 });
+  return { lock, owner };
+}
+
+async function withGitUrlRewrite(from, to, callback) {
+  const inherited = Number(process.env.GIT_CONFIG_COUNT ?? 0);
+  const start = Number.isInteger(inherited) && inherited >= 0 ? inherited : 0;
+  const additions = [
+    [`url.${to}.insteadOf`, from],
+    [`url.${to}.pushInsteadOf`, from]
+  ];
+  const touched = ['GIT_CONFIG_COUNT', ...additions.flatMap((_, offset) => [
+    `GIT_CONFIG_KEY_${start + offset}`, `GIT_CONFIG_VALUE_${start + offset}`
+  ])];
+  const previous = Object.fromEntries(touched.map((key) => [key, process.env[key]]));
+  process.env.GIT_CONFIG_COUNT = String(start + additions.length);
+  additions.forEach(([key, value], offset) => {
+    process.env[`GIT_CONFIG_KEY_${start + offset}`] = key;
+    process.env[`GIT_CONFIG_VALUE_${start + offset}`] = value;
+  });
+  try {
+    return await callback();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 test('three-way package merging updates untouched values and retains repository customizations', () => {
@@ -360,6 +437,405 @@ test('concurrent identical configuration refreshes join the winning commit witho
   ]).stdout.trim(), '');
 });
 
+test('a confirmed refresh plan binds the default conflict-resolution policy', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-policy-plan-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'policy-plan');
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim();
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.ok(preview.results[0].conflicts.some((entry) => entry.resolution === 'preserved-local'));
+  const switchedPolicy = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId,
+    acceptBundledConflicts: true
+  });
+
+  assert.equal(switchedPolicy.status, 'blocked');
+  assert.equal(switchedPolicy.results[0].status, 'stale-plan');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'changing conflict policy after preview must not publish different bytes');
+});
+
+test('configuration refresh reconstructs a cached checkout without ignored injected assets', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-injection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'cache-injection');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const checkout = await cachedConfigurationCheckout(registry, preview.planId);
+  const injected = 'singularity/templates/feature/injected-from-preview-cache.md';
+  await writeFile(path.join(checkout, '.git/info/exclude'), `${injected}\n`);
+  await mkdir(path.dirname(path.join(checkout, injected)), { recursive: true });
+  await writeFile(path.join(checkout, injected), 'must never become approved configuration\n');
+  assert.equal(git(checkout, ['status', '--porcelain', '--untracked-files=all']), '',
+    'the hostile cache file is intentionally hidden from ordinary status');
+
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  for (const branch of ['sflow/config', 'state']) {
+    const observed = run('git', ['--git-dir', remote, 'show', `${branch}:${injected}`], {
+      allowFailure: true
+    });
+    assert.notEqual(observed.status, 0, `${branch} must not receive an ignored cache-only asset`);
+  }
+});
+
+test('configuration refresh reclaims an old cache lock only after its owner is dead', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-stale-lock-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { registry } = await registeredRepositoryFixture(root, 'cache-stale-lock');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const { lock } = await plantConfigurationCacheLock(registry, {
+    // Outside the portable process-ID range used by the supported hosts, and therefore not live.
+    pid: 2_147_483_647,
+    token: '00000000-0000-4000-8000-000000000001'
+  });
+
+  const timer = commandTimer('configuration-refresh-stale-cache-lock');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
+    'a dead stale lease should be reclaimed so the retained preview remains reusable');
+  assert.equal(await readFile(path.join(lock, '.owner.json'), 'utf8').catch(() => null), null,
+    'the stale acquisition pathname must be released');
+  assert.ok((await readdir(path.dirname(lock))).some((entry) =>
+    entry === '.operation-lock-reclaimed-00000000-0000-4000-8000-000000000001'),
+  'the deterministic tombstone prevents a paused stale reclaimer from stealing a successor lock');
+});
+
+test('configuration refresh never steals an old cache lock from a live owner', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-live-lock-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { registry } = await registeredRepositoryFixture(root, 'cache-live-lock');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const { lock, owner } = await plantConfigurationCacheLock(registry, {
+    pid: process.pid,
+    token: '00000000-0000-4000-8000-000000000002'
+  });
+
+  const timer = commandTimer('configuration-refresh-live-cache-lock');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'], 1,
+    'a live lease must make the optional cache fall back to a fresh clone instead of being stolen');
+  assert.deepEqual(JSON.parse(await readFile(path.join(lock, '.owner.json'), 'utf8')), owner,
+    'the live owner receipt must remain byte-for-byte authoritative');
+});
+
+test('confirmed cache apply preserves literal query and fragment characters in local remote paths', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-literal-remote-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const fixture = await registeredRepositoryFixture(root, 'authority-blue');
+  const remote = path.join(root, 'authority?blue.git');
+  await rename(fixture.remote, remote);
+  const manifestPath = path.join(root, 'workspace', 'workspace.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  manifest.repositories['authority-blue'].url = remote;
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const registry = fixture.registry;
+  const decoy = remote.replace(/\?.*$/, '');
+  const before = run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim();
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  run('git', ['clone', '--quiet', '--bare', remote, decoy]);
+
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(run('git', ['--git-dir', remote, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'the exact registered remote must receive the approved configuration');
+  assert.equal(run('git', ['--git-dir', decoy, 'rev-parse', 'sflow/config']).stdout.trim(), before,
+    'a diagnostic-redaction collision must never become transport authority');
+});
+
+test('direct refresh ignores ambient URL rewrites for observation and both publications', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-url-rewrite-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'rewrite-authority');
+  const decoy = path.join(root, 'rewrite-decoy.git');
+  run('git', ['clone', '--quiet', '--bare', remote, decoy]);
+  const authorityBefore = git(remote, ['rev-parse', 'refs/heads/sflow/config']);
+  const decoyBefore = git(decoy, ['rev-parse', 'refs/heads/sflow/config']);
+
+  const applied = await withGitUrlRewrite(remote, decoy, () =>
+    refreshWorkspaceConfigurations({ registryFile: registry }));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.notEqual(git(remote, ['rev-parse', 'refs/heads/sflow/config']), authorityBefore,
+    'the exact registered authority receives the refreshed configuration');
+  assert.equal(git(decoy, ['rev-parse', 'refs/heads/sflow/config']), decoyBefore,
+    'an ambient insteadOf target receives no configuration update');
+  assert.equal(run('git', [
+    '--git-dir', decoy, 'show-ref', '--verify', '--quiet', 'refs/heads/state'
+  ], { allowFailure: true }).status, 1,
+  'an ambient pushInsteadOf target receives no state projection');
+});
+
+test('confirmed first-authority refresh keeps initialization on its previewed exact URL', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-init-rewrite-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'rewrite-initialize');
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/sflow/config']);
+  const decoy = path.join(root, 'rewrite-initialize-decoy.git');
+  run('git', ['clone', '--quiet', '--bare', remote, decoy]);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
+  assert.equal(preview.results[0].status, 'would-initialize');
+  const applied = await withGitUrlRewrite(remote, decoy, () =>
+    refreshWorkspaceConfigurations({ registryFile: registry, confirmPlan: preview.planId }));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(run('git', [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 0,
+  'the previewed exact authority receives its initial configuration branch');
+  assert.equal(run('git', [
+    '--git-dir', decoy, 'show-ref', '--verify', '--quiet', 'refs/heads/sflow/config'
+  ], { allowFailure: true }).status, 1,
+  'a rewrite target cannot receive first-authority creation');
+});
+
+test('cached apply strips inherited Git repository selectors and command-scoped hook configuration', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-hostile-env-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { registry } = await registeredRepositoryFixture(root, 'cache-hostile-env');
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+
+  const hooks = path.join(root, 'inherited-hooks');
+  const hookEvidence = path.join(root, 'inherited-hook-ran');
+  await mkdir(hooks);
+  const hook = `#!/bin/sh\nprintf 'unsafe\\n' > ${JSON.stringify(hookEvidence)}\n`;
+  for (const name of ['pre-commit', 'pre-push']) {
+    await writeFile(path.join(hooks, name), hook);
+    await chmod(path.join(hooks, name), 0o700);
+  }
+  const attackerGitDir = path.join(root, 'attacker.git');
+  const attackerWorkTree = path.join(root, 'attacker-worktree');
+  run('git', ['init', '--bare', '--quiet', attackerGitDir]);
+  await mkdir(attackerWorkTree);
+  const hostile = {
+    GIT_DIR: attackerGitDir,
+    GIT_WORK_TREE: attackerWorkTree,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: hooks
+  };
+  const previous = Object.fromEntries(Object.keys(hostile).map((key) => [key, process.env[key]]));
+  const restore = () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  t.after(restore);
+
+  const timer = commandTimer('configuration-refresh-hostile-process-env');
+  let applied;
+  try {
+    Object.assign(process.env, hostile);
+    applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+      registryFile: registry,
+      confirmPlan: preview.planId
+    }));
+  } finally {
+    restore();
+  }
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'] ?? 0, 0,
+    'the hardened cached checkout should remain reusable under a hostile caller environment');
+  assert.equal(await readFile(hookEvidence, 'utf8').catch(() => null), null,
+    'inherited command-scoped hooks must not run during cached commit or push');
+});
+
+test('configuration refresh discards hostile cached Git replacement and graft metadata', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-metadata-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'cache-metadata');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const checkout = await cachedConfigurationCheckout(registry, preview.planId);
+  const approved = git(checkout, ['rev-parse', 'HEAD']);
+  const injected = 'singularity/templates/feature/injected-by-replacement.md';
+  await mkdir(path.dirname(path.join(checkout, injected)), { recursive: true });
+  await writeFile(path.join(checkout, injected), 'must never become approved configuration\n');
+  git(checkout, ['add', injected]);
+  run('git', [
+    '-c', 'user.name=Hostile Cache', '-c', 'user.email=cache@example.invalid',
+    'commit', '-m', 'Untrusted replacement tree'
+  ], { cwd: checkout });
+  const replacement = git(checkout, ['rev-parse', 'HEAD']);
+  git(checkout, ['update-ref', `refs/replace/${approved}`, replacement]);
+  await writeFile(path.join(checkout, '.git/info/grafts'), `${approved}\n`);
+
+  const applied = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  for (const branch of ['sflow/config', 'state']) {
+    const observed = run('git', ['--git-dir', remote, 'show', `${branch}:${injected}`], {
+      allowFailure: true
+    });
+    assert.notEqual(observed.status, 0,
+      `${branch} must be derived from the observed authority, not cached replacement metadata`);
+  }
+});
+
+test('configuration refresh rejects cached Git common-directory indirection', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-commondir-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { registry } = await registeredRepositoryFixture(root, 'cache-commondir');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  const checkout = await cachedConfigurationCheckout(registry, preview.planId);
+  const externalCommon = path.join(root, 'attacker-controlled-common.git');
+  run('git', ['init', '--bare', '-q', externalCommon]);
+  await writeFile(path.join(checkout, '.git/commondir'), `${externalCommon}\n`);
+
+  const timer = commandTimer('configuration-refresh-hostile-commondir');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'], 1,
+    'a cached checkout that redirects its Git common directory must be discarded and cloned fresh');
+});
+
+test('configuration refresh ignores a preplanted cache root without its ownership record', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { registry } = await registeredRepositoryFixture(root, 'cache-owner');
+  const cacheRoot = path.join(root, '.configuration-refresh-cache');
+  await mkdir(cacheRoot, { mode: 0o700 });
+  const sentinel = path.join(cacheRoot, 'unowned-data.txt');
+  await writeFile(sentinel, 'not owned by Singularity Flow\n');
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.equal(await readFile(sentinel, 'utf8'), 'not owned by Singularity Flow\n',
+    'refresh must not prune or adopt an unowned cache directory');
+
+  const timer = commandTimer('configuration-refresh-unowned-cache');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'], 1,
+    'an unowned optional cache root is ignored rather than trusted or made fatal');
+  assert.equal(await readFile(sentinel, 'utf8'), 'not owned by Singularity Flow\n');
+});
+
+test('configuration refresh disables its optional cache beneath an unsafe shared parent', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-shared-parent-'));
+  t.after(async () => {
+    await chmod(root, 0o700).catch(() => {});
+    await rm(root, { recursive: true, force: true });
+  });
+  const { registry } = await registeredRepositoryFixture(root, 'cache-shared-parent');
+  await chmod(root, 0o777);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.equal(await readdir(root).then((entries) => entries.includes('.configuration-refresh-cache')), false,
+    'an optional cache must not create a replaceable pathname in a non-sticky shared parent');
+
+  const timer = commandTimer('configuration-refresh-unsafe-cache-parent');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  const counters = timer.finish().counters;
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(counters['git.remote.command.clone'], 1,
+    'cache refusal is a safe performance fallback and must not block configuration refresh');
+});
+
+test('configuration refresh disables cache when a private parent has an unsafe writable ancestor', {
+  skip: process.platform === 'win32'
+}, async (t) => {
+  const outer = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-unsafe-ancestor-'));
+  const root = path.join(outer, 'private-registry-parent');
+  await mkdir(root, { mode: 0o700 });
+  t.after(async () => {
+    await chmod(outer, 0o700).catch(() => {});
+    await rm(outer, { recursive: true, force: true });
+  });
+  const { registry } = await registeredRepositoryFixture(root, 'cache-unsafe-ancestor');
+  await chmod(outer, 0o777);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.equal(await readdir(root).then((entries) => entries.includes('.configuration-refresh-cache')), false,
+    'a private direct parent does not make its own replaceable pathname safe');
+
+  const timer = commandTimer('configuration-refresh-unsafe-cache-ancestor');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(timer.finish().counters['git.remote.command.clone'], 1);
+});
+
+test('configuration refresh refuses a cache pathname carrying an inherited write ACL', {
+  skip: process.platform !== 'darwin'
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-acl-'));
+  t.after(async () => {
+    run('chmod', ['-N', root], { allowFailure: true });
+    await rm(root, { recursive: true, force: true });
+  });
+  const { registry } = await registeredRepositoryFixture(root, 'cache-acl');
+  run('chmod', [
+    '+a',
+    'everyone allow list,search,add_file,add_subdirectory,delete_child,file_inherit,directory_inherit',
+    root
+  ]);
+
+  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(preview.status, 'preview');
+  assert.equal(await readdir(root).then((entries) => entries.includes('.configuration-refresh-cache')), false,
+    'classic 0700/0600 mode bits must not hide an inherited ACL write authority');
+
+  const timer = commandTimer('configuration-refresh-cache-acl');
+  const applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: preview.planId
+  }));
+  assert.equal(applied.status, 'complete', JSON.stringify(applied, null, 2));
+  assert.equal(timer.finish().counters['git.remote.command.clone'], 1);
+});
+
 test('all-workspace refresh leaves a dirty clone untouched and mirrors approved configuration to state', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-refresh-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -408,18 +884,31 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   git(statePublisher, ['remote', 'add', 'origin', remote]);
   git(statePublisher, ['push', 'origin', 'HEAD:state']);
 
-  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  const previewTimer = commandTimer('configuration-refresh-preview');
+  const preview = await withCommandTiming(previewTimer, () =>
+    refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true }));
+  const previewCounters = previewTimer.finish().counters;
   assert.equal(preview.status, 'preview');
   assert.match(preview.planId, /^cfgp-[a-f0-9]{24}$/);
   assert.equal(preview.results[0].stateStatus, 'would-follow-configuration');
+  assert.equal(previewCounters['git.remote.command.clone'], 1);
+  assert.equal(previewCounters['git.remote.command.fetch'], 1);
 
-  const result = await refreshWorkspaceConfigurations({
+  const applyTimer = commandTimer('configuration-refresh-apply');
+  const result = await withCommandTiming(applyTimer, () => refreshWorkspaceConfigurations({
     registryFile: registry, confirmPlan: preview.planId
-  });
+  }));
+  const applyCounters = applyTimer.finish().counters;
   assert.equal(result.status, 'complete');
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0].configurationChanged, true);
   assert.equal(result.results[0].stateChanged, true);
+  assert.equal(applyCounters['git.remote.command.ls-remote'], 2,
+    'apply re-observes the source authority after the exact state publication CAS');
+  assert.equal(applyCounters['git.remote.command.clone'] ?? 0, 0,
+    'apply reuses the SHA-bound preview clone instead of cloning the authority again');
+  assert.equal(applyCounters['git.remote.command.fetch'] ?? 0, 0,
+    'apply inspects the preview-bound state object without a duplicate fetch');
   assert.equal(git(repository, ['rev-parse', 'HEAD']), headBefore);
   assert.equal(git(repository, ['status', '--porcelain']), dirtyBefore);
 
@@ -457,6 +946,29 @@ test('all-workspace refresh leaves a dirty clone untouched and mirrors approved 
   assert.equal(current.results[0].status, 'current');
   assert.equal(current.results[0].configurationChanged, false);
   assert.equal(current.results[0].stateChanged, false);
+
+  // A cached preview is acceleration, not authority. If state moves before apply, exact ref
+  // revalidation must discard the cache and refuse the now-stale plan before changing config.
+  const staleStatePreview = current;
+  const stateMover = path.join(root, 'state-mover');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'state', remote, stateMover]);
+  git(stateMover, ['config', 'user.name', 'Configuration Test']);
+  git(stateMover, ['config', 'user.email', 'configuration@example.test']);
+  await writeFile(path.join(stateMover, 'runtime-marker.txt'), 'concurrent state movement\n');
+  git(stateMover, ['add', 'runtime-marker.txt']);
+  git(stateMover, ['commit', '-m', 'Advance runtime state after preview']);
+  git(stateMover, ['push', 'origin', 'state']);
+  const configBeforeStaleApply = run('git', [
+    '--git-dir', remote, 'rev-parse', 'sflow/config'
+  ]).stdout.trim();
+  const staleStateApply = await refreshWorkspaceConfigurations({
+    registryFile: registry, confirmPlan: staleStatePreview.planId
+  });
+  assert.equal(staleStateApply.status, 'blocked');
+  assert.equal(staleStateApply.results[0].status, 'stale-plan');
+  assert.equal(run('git', [
+    '--git-dir', remote, 'rev-parse', 'sflow/config'
+  ]).stdout.trim(), configBeforeStaleApply);
 
   // A preview-bound UI apply may also be the first operation to establish sflow/config. Its plan
   // must be checked before initialization, then remain valid across that intentional branch create.

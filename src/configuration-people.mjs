@@ -11,7 +11,7 @@ import {
 } from './configuration-branch.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
-import { sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { assertCredentialFreeRemote, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
@@ -105,15 +105,21 @@ function mergeMember(members, actor, scope) {
 }
 
 function configurationRemoteName(root, remoteUrl) {
+  const remoteIdentity = assertCredentialFreeRemote(remoteUrl);
   const names = run('git', ['remote'], { cwd: root }).stdout.trim().split('\n').filter(Boolean);
   const matching = names.find((name) => {
     const url = run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }).stdout.trim();
-    return url && sanitizeRemote(url) === sanitizeRemote(remoteUrl);
+    if (!url) return false;
+    try { return assertCredentialFreeRemote(url) === remoteIdentity; }
+    catch { return false; }
   });
   if (matching) return matching;
   const name = 'sflow-configuration';
   const existing = run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }).stdout.trim();
-  if (existing && sanitizeRemote(existing) !== sanitizeRemote(remoteUrl)) {
+  let existingIdentity = null;
+  try { existingIdentity = existing ? assertCredentialFreeRemote(existing) : null; }
+  catch { /* an unsafe existing remote never matches approved authority */ }
+  if (existing && existingIdentity !== remoteIdentity) {
     throw new SingularityFlowError(`Git remote '${name}' already points somewhere other than the approved configuration authority.`);
   }
   if (!existing) run('git', ['remote', 'add', name, remoteUrl], { cwd: root });

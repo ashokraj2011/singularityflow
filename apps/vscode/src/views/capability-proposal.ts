@@ -189,28 +189,31 @@ export class CapabilityProposalPanel {
     const proposal = this.proposal;
     const externallyMerged = proposal.merged;
     const confirmationLabel = externallyMerged ? 'Record merged activation' : 'Merge proposal';
+    const preauthorizedLabel = 'Merge and acknowledge';
     const confirmed = await vscode.window.showWarningMessage(
       externallyMerged
         ? `Record the exact externally merged proposal ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} and publish its capability projection?`
         : `Merge ${proposal.branch}@${proposal.proposalCommit.slice(0, 12)} into ${proposal.targetBranch}, then publish the capability projection?`,
       { modal: true, detail: externallyMerged
         ? 'The approved configuration already contains this exact proposal. This records the activation audit and repairs the state projection; the application default branch is not changed.'
-        : 'This uses a normal non-force Git push. If the remote permits an unprotected direct update, activation will stop and ask for a separate explicit acknowledgement. The application default branch is not changed.' },
-      confirmationLabel);
-    if (confirmed !== confirmationLabel) return;
+        : 'This uses one exact leased update; Git dry-runs cannot prove whether server review controls are enforced. Choose “Merge proposal” to stop before that update and review the acknowledgement, or “Merge and acknowledge” to authorize this exact attempt now. Server hooks may still refuse it. The application default branch is not changed.' },
+      confirmationLabel, ...(externallyMerged ? [] : [preauthorizedLabel]));
+    if (confirmed !== confirmationLabel && confirmed !== preauthorizedLabel) return;
+    const preauthorizedUnprotected = !externallyMerged && confirmed === preauthorizedLabel;
     this.busy = true; this.error = null; this.render();
     const baseArguments = [
       'capability', 'activate', proposal.branch, '--lead', this.lead,
-      '--confirm', proposal.proposalCommit, '--json'
+      '--confirm', proposal.proposalCommit,
+      ...(preauthorizedUnprotected ? ['--acknowledge-unprotected'] : []), '--json'
     ];
     let attempted = await this.run(baseArguments);
-    if (!externallyMerged && attempted.error
-      && /CAPABILITY_CONFIGURATION_UNPROTECTED|branch protection is not enforced|accepted the exact dry-run update/i.test(attempted.error)) {
+    if (!externallyMerged && !preauthorizedUnprotected && attempted.error
+      && /CAPABILITY_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i.test(attempted.error)) {
       this.busy = false; this.error = attempted.error; this.render();
       const acknowledgement = 'Acknowledge unprotected branch';
       const accepted = await vscode.window.showWarningMessage(
-        `The repository permits a direct update to ${proposal.targetBranch}. Acknowledge this governance exception and merge the exact reviewed proposal?`,
-        { modal: true, detail: 'This acknowledgement is recorded in the activation audit. No application branch is changed.' },
+        `Git cannot determine whether ${proposal.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed proposal?`,
+        { modal: true, detail: 'The acknowledgement and the actual server result are recorded in the activation audit. Review controls and hooks may still refuse the update. No application branch is changed.' },
         acknowledgement);
       if (accepted !== acknowledgement) return;
       this.busy = true; this.error = null; this.render();

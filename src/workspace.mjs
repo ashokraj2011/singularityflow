@@ -6,15 +6,18 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
-import { fetchRemote, localBranches, remoteBranches } from './git.mjs';
+import { localBranches, prepareRemoteBranchTracking, remoteBranches } from './git.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs
 } from './repository-subject-index.mjs';
-import { isGitRefName, mapLimit, SingularityFlowError, run } from './util.mjs';
+import { gitWorkerCount, isGitRefName, mapLimit, SingularityFlowError, run } from './util.mjs';
 import {
   cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
 } from './clone-strategy.mjs';
-import { classifyGitRemoteFailure, remoteFingerprint, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import {
+  assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
+  remoteFingerprint, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
 } from './git-execution.mjs';
@@ -59,6 +62,14 @@ function safeRootOrUnder(value, root, label) {
   const relative = safeRelative(value, label);
   if (relative !== root && !relative.startsWith(`${root}/`)) throw new SingularityFlowError(`${label} must be ${root}/ or live below it.`);
   return relative;
+}
+
+function storableRemote(value, { redactCredentials = false } = {}) {
+  try { return assertCredentialFreeRemote(value); }
+  catch (error) {
+    if (!redactCredentials) throw error;
+    return assertCredentialFreeRemote(sanitizeRemote(value));
+  }
 }
 
 function portableName(value) {
@@ -134,8 +145,10 @@ function normalizeRepository(id, input) {
   const relativePath = safeRelative(repository.path ?? `repos/${id}`, `Workspace repository '${id}' path`);
   if (!relativePath.startsWith('repos/')) throw new SingularityFlowError(`Workspace repository '${id}' must live below repos/.`);
   if (typeof repository.url !== 'string' || !repository.url.trim()) throw new SingularityFlowError(`Workspace repository '${id}' requires a clone URL.`);
-  if (repository.url.trim().startsWith('-') || repository.url.trim().startsWith('ext::')) {
-    throw new SingularityFlowError(`Workspace repository '${id}' uses an unsafe clone URL.`);
+  let repositoryUrl;
+  try { repositoryUrl = storableRemote(repository.url); }
+  catch (error) {
+    throw new SingularityFlowError(`Workspace repository '${id}' uses an unsafe clone URL: ${error.message}`);
   }
   const defaultBranch = String(repository.defaultBranch ?? 'main').trim() || 'main';
   if (!isGitRefName(defaultBranch)) {
@@ -172,7 +185,7 @@ function normalizeRepository(id, input) {
   }
   return {
     id,
-    url: repository.url.trim(),
+    url: repositoryUrl,
     defaultBranch,
     required: repository.required !== false,
     metadata: normalizeRepositoryMetadata(repository.metadata ?? {}, `Workspace repository '${id}' metadata`),
@@ -208,10 +221,9 @@ export function validateWorkspaceManifest(input, { workspaceRoot = null } = {}) 
   manifest.leadRepository = safeId(manifest.leadRepository, 'Lead repository ID');
   if (manifest.capabilityAuthority != null) {
     const authority = object(manifest.capabilityAuthority, 'Workspace capability authority');
-    const url = String(authority.url ?? '').trim();
-    if (!url || url.startsWith('-') || url.startsWith('ext::')) {
-      throw new SingularityFlowError('Workspace capability authority requires a safe repository URL.');
-    }
+    let url;
+    try { url = storableRemote(authority.url); }
+    catch { throw new SingularityFlowError('Workspace capability authority requires a safe credential-free repository URL.'); }
     manifest.capabilityAuthority = { url };
   } else manifest.capabilityAuthority = null;
   // What this workspace is for. A workspace is a set of capabilities and a working directory; the
@@ -386,6 +398,52 @@ function sameWorkspaceMaterializationPlan(left, right) {
   return JSON.stringify(workspaceMaterializationPlan(left)) === JSON.stringify(workspaceMaterializationPlan(right));
 }
 
+function capabilityBindingSha256(manifest) {
+  const binding = stableValue({
+    leadRepository: manifest.leadRepository,
+    capabilityAuthority: manifest.capabilityAuthority ?? null,
+    capabilities: [...new Set(manifest.capabilities ?? [])].sort(),
+    repositories: Object.fromEntries(Object.entries(manifest.repositories ?? {}).map(([id, repository]) => [id, {
+      url: repository.url,
+      defaultBranch: repository.defaultBranch,
+      capabilities: [...new Set(repository.capabilities ?? [])].sort()
+    }]))
+  });
+  return `sha256:${createHash('sha256').update(JSON.stringify(binding)).digest('hex')}`;
+}
+
+// Validation receipts are a same-process optimization only. Their JSON fields are useful
+// diagnostics, but an unkeyed digest is not authority: exported callers (or a modified persisted
+// bootstrap session) can reproduce or mutate it. Only immutable claims privately bound to the
+// exact object returned by this module may skip the second catalog read, and those claims are still
+// re-bound to the current remote configuration ref below.
+const liveCapabilityValidationReceipts = new WeakMap();
+
+function immutableCapabilityValidationClaims(validation) {
+  return Object.freeze({
+    checked: validation.checked === true,
+    requested: Object.freeze([...validation.requested]),
+    known: Object.freeze([...validation.known]),
+    branch: validation.branch,
+    path: validation.path,
+    commit: validation.commit,
+    bindingSha256: validation.bindingSha256
+  });
+}
+
+function capabilityValidationResult(claims, reused) {
+  return {
+    checked: claims.checked,
+    requested: [...claims.requested],
+    known: [...claims.known],
+    branch: claims.branch,
+    path: claims.path,
+    commit: claims.commit,
+    bindingSha256: claims.bindingSha256,
+    reused
+  };
+}
+
 function validateRepositoryPlan(repositories, leadRepository) {
   const normalized = {};
   for (const [id, repository] of Object.entries(object(repositories, 'Workspace repositories'))) {
@@ -467,6 +525,7 @@ export async function workspaceRepositoryDefaults(repository) {
 
   const origin = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
   if (!origin) throw new SingularityFlowError(`Repository '${root}' has no origin remote and cannot be cloned into a workspace.`);
+  const operationalOrigin = storableRemote(origin, { redactCredentials: true });
 
   const currentBranch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim();
   if (!currentBranch) throw new SingularityFlowError(`Repository '${root}' has a detached HEAD and cannot be adopted as a workspace checkout.`);
@@ -513,8 +572,8 @@ export async function workspaceRepositoryDefaults(repository) {
   const proof = {
     canonicalRoot: root,
     gitMetadata: gitMetadata.isFile() ? 'gitfile' : 'directory',
-    origin: sanitizeRemote(origin),
-    remoteFingerprint: `sha256:${remoteFingerprint(sanitizeRemote(origin))}`,
+    origin: operationalOrigin,
+    remoteFingerprint: `sha256:${remoteFingerprint(operationalOrigin)}`,
     currentBranch,
     defaultBranch,
     defaultBranchVisible: Boolean(run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${defaultBranch}`], {
@@ -571,11 +630,14 @@ export async function workspaceRepositoryDefaults(repository) {
  * right often enough to hide the times it is wrong — and a workspace cloned on the wrong branch is a
  * confusing thing to debug — so the branches that do exist are consulted first.
  */
-export function remoteDefaultBranch(remote, symrefOutput) {
+export function remoteDefaultBranch(remote, symrefOutput, { env = process.env } = {}) {
   const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
   if (symref?.[1]) return symref[1];
 
-  const heads = runRemoteGit(['ls-remote', '--heads', remote], { operation: 'remote-probe' });
+  const transport = frozenRemoteTransport(remote, { env });
+  const heads = runRemoteGit(['ls-remote', '--heads', transport.remote], {
+    operation: 'remote-probe', env: transport.env
+  });
   const branches = heads.status === 0
     ? [...heads.stdout.matchAll(/^\S+\s+refs\/heads\/(\S+)$/gm)].map((match) => match[1])
     : [];
@@ -603,14 +665,16 @@ export function isCloneTarget(target) {
   return ['HEAD', 'objects', 'refs'].every((entry) => existsSync(path.join(value, entry)));
 }
 
-export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {}) {
+export async function workspaceRemoteDefaults(url, {
+  stateBranch = 'state', env = process.env
+} = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
   if (!/^(https?:\/\/|git@|ssh:\/\/|file:\/\/)/.test(remote) && !remote.startsWith('/')) {
     throw new SingularityFlowError(`'${remote}' is not a clone URL. Use https://, git@, ssh:// or an absolute path.`);
   }
 
-  const session = new GitRemoteSession();
+  const session = new GitRemoteSession({ env });
   const stateRef = stateBranch.startsWith('refs/') ? stateBranch : `refs/heads/${stateBranch}`;
   const observed = session.observe(remote, { includeHead: true, refs: [stateRef] });
   requireRemoteObservation(observed, 'workspace repository');
@@ -659,7 +723,8 @@ export async function workspaceRemoteDefaults(url, { stateBranch = 'state' } = {
 export async function workspaceRemoteCapabilities(url, {
   capabilitiesPath = 'singularity/capabilities.yml',
   portfolioPath = 'singularity/portfolio.yml',
-  configurationBranch = 'sflow/config'
+  configurationBranch = 'sflow/config',
+  env = process.env
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
@@ -670,7 +735,7 @@ export async function workspaceRemoteCapabilities(url, {
     // Organisation configuration is intentionally independent of application `main`. Workspaces
     // must therefore read the approved configuration branch, never whichever application branch
     // the remote happens to advertise as HEAD.
-    const session = new GitRemoteSession();
+    const session = new GitRemoteSession({ env });
     const configured = session.observe(remote, {
       includeHead: false, refs: [`refs/heads/${configurationBranch}`]
     });
@@ -686,9 +751,11 @@ export async function workspaceRemoteCapabilities(url, {
     }
     const branch = configurationBranch;
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
+    const transport = frozenRemoteTransport(remote, { env });
     const clone = (extra) => runRemoteGit([
-      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra, remote, scratch
-    ], { operation: 'remote-configuration' });
+      'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra,
+      transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
     let cloned = clone(['--filter=blob:none']);
     if (cloned.status !== 0) {
       await rm(scratch, { recursive: true, force: true });
@@ -698,7 +765,12 @@ export async function workspaceRemoteCapabilities(url, {
     if (cloned.status !== 0) {
       throw new SingularityFlowError(`Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
     }
-    const clonedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    // This checkout is disposable. Keep its invocation alias active through every object read: a
+    // blobless clone may lazy-fetch the catalog during `git show`, and restoring the literal URL
+    // before those reads would let ambient insteadOf rules redirect that second transport.
+    const clonedCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
     if (clonedCommit !== authorityCommit) {
       throw new SingularityFlowError(
         `Approved capability configuration moved from ${authorityCommit.slice(0, 12)} to ${clonedCommit.slice(0, 12)} while it was being read. Refresh the workspace plan and retry; nothing was changed.`,
@@ -709,14 +781,18 @@ export async function workspaceRemoteCapabilities(url, {
       );
     }
 
-    const shown = run('git', ['show', `HEAD:${capabilitiesPath}`], { cwd: scratch, allowFailure: true });
+    const shown = run('git', ['show', `HEAD:${capabilitiesPath}`], {
+      cwd: scratch, env: transport.env, allowFailure: true
+    });
     if (shown.status !== 0) {
       return { capabilities: null, deliveries: [], reason: `${remote} does not contain ${capabilitiesPath}.`, path: capabilitiesPath };
     }
 
     // The map names repository identifiers; the portfolio is what turns those into somewhere to
     // clone from. Read in the same fetch, because a capability you cannot clone is not a choice.
-    const portfolioText = run('git', ['show', `HEAD:${portfolioPath}`], { cwd: scratch, allowFailure: true });
+    const portfolioText = run('git', ['show', `HEAD:${portfolioPath}`], {
+      cwd: scratch, env: transport.env, allowFailure: true
+    });
     const portfolio = portfolioText.status === 0 ? (YAML.parse(portfolioText.stdout)?.repositories ?? {}) : {};
 
     const { capabilityTree, flattenCapabilityTree, validateCapabilities } = await import('./capabilities.mjs');
@@ -769,7 +845,10 @@ function catalogCapabilityIds(nodes, output = new Set()) {
  * use for governed work. Those writes therefore cross this remote authority boundary first.
  */
 export async function validateWorkspaceCapabilityRegistration(manifest, {
-  readCapabilities = workspaceRemoteCapabilities
+  readCapabilities = workspaceRemoteCapabilities,
+  receipt = null,
+  observeAuthority = null,
+  env = process.env
 } = {}) {
   const workspaceCapabilities = [...new Set(manifest.capabilities ?? [])].sort();
   const repositoryCapabilities = Object.values(manifest.repositories ?? {})
@@ -789,9 +868,34 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
     );
   }
 
+  const bindingSha256 = capabilityBindingSha256(manifest);
+  const receiptClaims = receipt && typeof receipt === 'object'
+    ? liveCapabilityValidationReceipts.get(receipt)
+    : null;
+  const receiptBranch = String(receiptClaims?.branch ?? '').trim();
+  const receiptCommit = String(receiptClaims?.commit ?? '').trim();
+  const receiptMatches = receiptClaims?.checked === true
+    && receiptClaims.bindingSha256 === bindingSha256
+    && JSON.stringify(receiptClaims.requested) === JSON.stringify(requested)
+    && isGitRefName(receiptBranch)
+    && /^[0-9a-f]{40,64}$/i.test(receiptCommit);
+  if (receiptMatches) {
+    const observe = observeAuthority ?? (async (remote, branch) => {
+      const observed = await new GitRemoteSession({ env }).observeAsync(remote, {
+        includeHead: false, refs: [`refs/heads/${branch}`]
+      });
+      requireRemoteObservation(observed, 'workspace capability authority');
+      return observed.refs.get(`refs/heads/${branch}`) ?? null;
+    });
+    const currentCommit = await observe(authorityUrl, receiptBranch);
+    if (currentCommit === receiptCommit) {
+      return capabilityValidationResult(receiptClaims, true);
+    }
+  }
+
   let catalog;
   try {
-    catalog = await readCapabilities(authorityUrl);
+    catalog = await readCapabilities(authorityUrl, { env });
   } catch (error) {
     throw new SingularityFlowError(
       `Cannot validate workspace capabilities against the approved catalog of ${authorityLabel}. `
@@ -860,8 +964,13 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
       bindingErrors.push(`missing repository '${repositoryId}' required by ${[...expected.capabilities].sort().join(', ')}`);
       continue;
     }
-    if (expected.delivery.url && sanitizeRemote(actual.url) !== sanitizeRemote(expected.delivery.url)) {
-      bindingErrors.push(`repository '${repositoryId}' URL does not match the approved capability catalog`);
+    if (expected.delivery.url) {
+      let expectedUrl = null;
+      try { expectedUrl = storableRemote(expected.delivery.url); }
+      catch { bindingErrors.push(`repository '${repositoryId}' approved URL is not safe to persist or use`); }
+      if (expectedUrl && actual.url !== expectedUrl) {
+        bindingErrors.push(`repository '${repositoryId}' URL does not match the approved capability catalog`);
+      }
     }
     if (expected.delivery.defaultBranch
         && String(actual.defaultBranch ?? 'main') !== String(expected.delivery.defaultBranch)) {
@@ -896,14 +1005,18 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
       }
     );
   }
-  return {
+  const validation = {
     checked: true,
     requested,
     known: [...known].sort(),
     branch: catalog.branch ?? 'sflow/config',
     path: catalog.path ?? 'singularity/capabilities.yml',
-    commit: catalog.commit ?? null
+    commit: catalog.commit ?? null,
+    bindingSha256,
+    reused: false
   };
+  liveCapabilityValidationReceipts.set(validation, immutableCapabilityValidationClaims(validation));
+  return validation;
 }
 
 export function previewWorkspaceConfiguration({
@@ -1183,18 +1296,61 @@ function gitValue(root, args) {
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-async function gitValueAsync(root, args) {
+export async function gitValueAsync(root, args, {
+  env = process.env,
+  timeoutMs = Number(process.env.SINGULARITY_FLOW_GIT_LOCAL_TIMEOUT_MS ?? 30_000),
+  maxBytes = 1024 * 1024,
+  signal = null,
+  spawnCommand = spawn
+} = {}) {
   return new Promise((resolve) => {
-    const child = spawn('git', args, {
-      cwd: root, shell: false, windowsHide: true,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
-      stdio: ['ignore', 'pipe', 'ignore']
-    });
+    let settled = false;
+    let terminated = false;
+    let timer = null;
+    let forceTimer = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (forceTimer) clearTimeout(forceTimer);
+      signal?.removeEventListener('abort', terminate);
+      resolve(value);
+    };
+    let child;
+    const terminate = () => {
+      if (!child || settled) return;
+      terminated = true;
+      child.kill('SIGTERM');
+      forceTimer ??= setTimeout(() => {
+        child?.kill('SIGKILL');
+        finish(null);
+      }, 1_000);
+    };
+    if (signal?.aborted) return finish(null);
+    try {
+      child = spawnCommand('git', args, {
+        cwd: root, shell: false, windowsHide: true,
+        env: { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
+        stdio: ['ignore', 'pipe', 'ignore']
+      });
+    } catch {
+      return finish(null);
+    }
     let stdout = '';
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.on('error', () => resolve(null));
-    child.on('close', (code) => resolve(code === 0 ? stdout.trim() : null));
+    let bytes = 0;
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > maxBytes) return terminate();
+      stdout += chunk;
+    });
+    child.on('error', () => finish(null));
+    child.on('close', (code) => finish(
+      !terminated && code === 0 && bytes <= maxBytes ? stdout.trim() : null
+    ));
+    signal?.addEventListener('abort', terminate, { once: true });
+    const boundedTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30_000;
+    timer = setTimeout(terminate, boundedTimeout);
   });
 }
 
@@ -1220,7 +1376,7 @@ function materializationOperation(root, repository) {
 async function verifyAdoptionOperation(operation) {
   const observed = await workspaceRepositoryDefaults(operation.target);
   const proof = observed.adoption;
-  if (sanitizeRemote(observed.url) !== sanitizeRemote(operation.url)) {
+  if (observed.url !== storableRemote(operation.url)) {
     return { status: 1, error: `Existing clone origin changed after review: ${operation.target}` };
   }
   if (proof.proofHash !== operation.adoption?.proofHash) {
@@ -1272,7 +1428,9 @@ function cloneFailure(operation, result) {
     + `Git returned an unrecognized failure (exit ${result.status}). Run workspace doctor --network, correct Git access, then repair again.`;
 }
 
-async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) {
+async function cloneIntoWorkspace(root, operation, {
+  deferClaim = false, env = process.env
+} = {}) {
   await assertInside(root, operation.target);
   const existing = await lstat(operation.target).catch(() => null);
   if (existing) {
@@ -1284,21 +1442,39 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
   }
   const parent = path.dirname(operation.target);
   await mkdir(parent, { recursive: true });
+  const canonicalParent = await realpath(parent);
   const stagingRoot = await mkdtemp(path.join(parent, '.sflow-clone-'));
   const staging = path.join(stagingRoot, 'repository');
-  await assertInside(root, staging);
-  const canonicalParent = await realpath(parent);
-  const ownership = {
-    schemaVersion: currentSchemaVersion('workspace-bootstrap-owner'),
-    bootstrapId: String(operation.bootstrapId ?? `workspace-${operation.workspaceId ?? 'unbound'}`),
-    repositoryId: operation.repository,
-    canonicalPath: await realpath(stagingRoot),
-    targetPath: path.resolve(operation.target),
-    createdAt: nowIso(),
-    nonce: randomUUID()
-  };
   const ownershipFile = path.join(stagingRoot, '.sflow-bootstrap-owner.json');
-  await writeFile(ownershipFile, `${JSON.stringify(ownership, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  const canonicalStagingRoot = await realpath(stagingRoot).catch(() => null);
+  let ownership;
+  try {
+    if (!canonicalStagingRoot || path.dirname(canonicalStagingRoot) !== canonicalParent) {
+      throw new Error('new staging directory escaped its workspace repository parent');
+    }
+    await assertInside(root, staging);
+    ownership = {
+      schemaVersion: currentSchemaVersion('workspace-bootstrap-owner'),
+      bootstrapId: String(operation.bootstrapId ?? `workspace-${operation.workspaceId ?? 'unbound'}`),
+      repositoryId: operation.repository,
+      canonicalPath: canonicalStagingRoot,
+      targetPath: path.resolve(operation.target),
+      createdAt: nowIso(),
+      nonce: randomUUID()
+    };
+    await writeFile(ownershipFile, `${JSON.stringify(ownership, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    const info = await lstat(stagingRoot).catch(() => null);
+    const canonical = !info?.isSymbolicLink() && info?.isDirectory()
+      ? await realpath(stagingRoot).catch(() => null) : null;
+    const removable = canonical === canonicalStagingRoot && path.dirname(canonical ?? '') === canonicalParent;
+    if (removable) await rm(stagingRoot, { recursive: true, force: true });
+    return {
+      status: 1,
+      error: `Repository '${operation.repository}' could not initialize its private clone staging area: ${error.message}.`
+        + (removable ? '' : ` Inspect retained staging path ${stagingRoot}.`)
+    };
+  }
 
   const verifyOwnership = async () => {
     const info = await lstat(stagingRoot).catch(() => null);
@@ -1331,13 +1507,28 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
     if (await cleanupStaging()) return message;
     return `${message} The staging directory was retained for inspection because its ownership could not be proven: ${stagingRoot}`;
   };
+  try {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
+  const transport = frozenRemoteTransport(operation.url, { env });
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
   const cloneOnce = (selected) => runRemoteGitAsync([
     'clone', '--branch', operation.branch, ...cloneStrategyArguments(selected),
-    '--', operation.url, staging
-  ], { cwd: root, operation: 'remote-configuration' });
+    '--', transport.remote, staging
+  ], { cwd: root, operation: 'remote-configuration', env: transport.env });
+  const restoreExactOrigin = () => {
+    run('git', ['remote', 'set-url', 'origin', operation.url], {
+      cwd: staging, env: transport.env
+    });
+    const configured = run('git', ['config', '--local', '--get', 'remote.origin.url'], {
+      cwd: staging, env: transport.env
+    }).stdout.trim();
+    if (configured !== operation.url) {
+      throw new SingularityFlowError(
+        `Repository '${operation.repository}' clone did not retain its exact reviewed origin URL.`
+      );
+    }
+  };
   incrementCommandCounter('git.remote-clone');
   let selected = strategy;
   let fallbackUsed = false;
@@ -1348,7 +1539,9 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
   const cloneOutput = `${String(result.stdout ?? '')}\n${String(result.stderr ?? '')}`;
   const filterIgnored = /(?:filter(?:ing)?[^\n]*(?:ignored|not recognized)|does not support[^\n]*filter)/i.test(cloneOutput);
   if (selected.mode !== 'full' && (filterIgnored
-    || !partialCloneConfigured(staging, 'origin', (args, options) => run('git', args, options)))) {
+    || !partialCloneConfigured(staging, 'origin', (args, options) => run('git', args, {
+      ...options, env: transport.env
+    })))) {
     if (selected.fallback !== 'full') {
       return {
         status: 1,
@@ -1377,6 +1570,7 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
   if (strategy.mode === 'blobless-sparse' && !fallbackUsed) {
     const sparse = run('git', ['sparse-checkout', 'set', '--cone', '--', ...strategy.sparseCone], {
       cwd: staging,
+      env: transport.env,
       allowFailure: true
     });
     if (sparse.status !== 0) {
@@ -1387,6 +1581,9 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
       };
     }
   }
+  // All checkout and possible lazy-fetch work is complete. Only now replace the invocation alias
+  // with the exact reviewed URL so the durable workspace never depends on ephemeral Git config.
+  restoreExactOrigin();
   const claim = async () => {
     try {
       // A user may pre-create the repository folder while setting up a workspace. Claim it only
@@ -1419,6 +1616,30 @@ async function cloneIntoWorkspace(root, operation, { deferClaim = false } = {}) 
     };
   }
   return claim();
+  } catch (error) {
+    let message = `Repository '${operation.repository}' clone staging failed: ${error instanceof Error ? error.message : String(error)}.`;
+    try { message = await cleanupFailure(message); }
+    catch { message += ` Inspect retained staging path ${stagingRoot}.`; }
+    return { status: 1, error: message };
+  }
+}
+
+async function discardStagedWorkspaceClone(result) {
+  if (result?.status !== 0 || typeof result.discard !== 'function') return null;
+  try {
+    const cleanup = await result.discard();
+    return {
+      removed: cleanup?.removed === true,
+      path: cleanup?.path ?? result.staging?.path ?? null,
+      error: null
+    };
+  } catch (error) {
+    return {
+      removed: false,
+      path: result.staging?.path ?? null,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
 }
 
 async function readRepairJournal(workspace, repositories) {
@@ -1458,7 +1679,11 @@ export async function createWorkspace(options, {
   confirmation,
   clone = true,
   bootstrapId = null,
-  workers = 3
+  workers = null,
+  capabilityValidation = null,
+  env = process.env,
+  cloneOperation = cloneIntoWorkspace,
+  adoptionOperation = verifyAdoptionOperation
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
@@ -1467,7 +1692,7 @@ export async function createWorkspace(options, {
   // Authority is checked after the exact human confirmation but before even the workspace parent
   // directory is created. An invalid capability selection therefore leaves no shell, manifest, or
   // repair journal behind for a later command to mistake for a resumable workspace.
-  await validateWorkspaceCapabilityRegistration(manifest);
+  await validateWorkspaceCapabilityRegistration(manifest, { receipt: capabilityValidation, env });
   const existing = await stat(root).catch(() => null);
   if (existing && !(await stat(path.join(root, WORKSPACE_FILE)).catch(() => null))) {
     throw new SingularityFlowError(`Workspace target already exists and is not managed by Singularity Flow: ${root}`);
@@ -1482,7 +1707,9 @@ export async function createWorkspace(options, {
       );
     }
     if (clone) {
-      const repaired = await repairWorkspace(current.path);
+      const repaired = await repairWorkspace(current.path, {
+        workers, cloneOperation, adoptionOperation, env
+      });
       return {
         created: false,
         resumed: true,
@@ -1522,27 +1749,44 @@ export async function createWorkspace(options, {
       operation.startedAt = nowIso();
     }
     await writeJournal(root, journal, manifest.directories.logs);
-    const stagedResults = await mapLimit(journal.operations, workers, async (operation) => (
-      operation.action === 'adopt'
-        ? await verifyAdoptionOperation(operation)
-        : await cloneIntoWorkspace(root, {
-          ...operation,
-          bootstrapId,
-          workspaceId: manifest.id
-        }, { deferClaim: true })
-    ));
+    const stagedResults = await mapLimit(
+      journal.operations,
+      gitWorkerCount(journal.operations.length, { requested: workers }),
+      async (operation) => {
+        try {
+              return operation.action === 'adopt'
+                ? await adoptionOperation(operation)
+                : await cloneOperation(root, {
+                    ...operation,
+                    bootstrapId,
+                    workspaceId: manifest.id
+                  }, { deferClaim: true, env });
+        } catch (error) {
+          return { status: 1, error: error instanceof Error ? error.message : String(error) };
+        }
+      }
+    );
+    const claimedStagedResults = new Set();
+    try {
     const requiredFailure = journal.operations.find((operation, index) =>
       operation.required && stagedResults[index].status !== 0);
     if (requiredFailure) {
-      await Promise.all(stagedResults.map(async (result) => {
-        if (result.status === 0 && result.discard) await result.discard();
-      }));
+      const cleanup = await Promise.all(stagedResults.map(discardStagedWorkspaceClone));
       journal.operations.forEach((operation, index) => {
         const result = stagedResults[index];
-        operation.status = result.status === 0 ? 'pending' : 'failed';
-        operation.error = result.status === 0
-          ? `Staged clone was discarded because required repository '${requiredFailure.repository}' failed.`
-          : result.error;
+        const discarded = cleanup[index];
+        operation.status = result.status !== 0 ? 'failed'
+          : operation.action === 'adopt' ? 'complete'
+            : discarded?.removed ? 'pending' : 'failed';
+        operation.error = result.status !== 0 ? result.error
+          : operation.action === 'adopt' ? null
+            : discarded?.removed
+              ? `Staged clone was discarded because required repository '${requiredFailure.repository}' failed.`
+              : `Staged clone could not be safely discarded after required repository '${requiredFailure.repository}' failed.`
+                + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
+                + `${discarded?.error ? ` ${discarded.error}` : ''}`;
+        operation.adoptionProof = operation.action === 'adopt' ? result.adoption ?? null : null;
+        operation.cleanup = discarded;
         operation.completedAt = nowIso();
       });
       await writeJournal(root, journal, manifest.directories.logs);
@@ -1554,6 +1798,9 @@ export async function createWorkspace(options, {
       const operation = journal.operations[index];
       const staged = stagedResults[index];
       const result = staged.status === 0 && staged.claim ? await staged.claim() : staged;
+      if (staged.status === 0 && staged.claim && result.status === 0) {
+        claimedStagedResults.add(staged);
+      }
       operation.status = result.status === 0 ? 'complete' : 'failed';
       operation.error = result.error;
       operation.actualClone = result.status === 0 ? result.clone : null;
@@ -1563,11 +1810,42 @@ export async function createWorkspace(options, {
       operation.completedAt = nowIso();
       await writeJournal(root, journal, manifest.directories.logs);
       if (result.status !== 0 && operation.required) {
+        const laterCleanup = await Promise.all(
+          stagedResults.slice(index + 1).map(discardStagedWorkspaceClone)
+        );
+        for (let later = index + 1; later < journal.operations.length; later += 1) {
+          const laterOperation = journal.operations[later];
+          const laterResult = stagedResults[later];
+          const discarded = laterCleanup[later - index - 1];
+          laterOperation.status = laterResult.status !== 0 ? 'failed'
+            : laterOperation.action === 'adopt' ? 'complete'
+              : discarded?.removed ? 'pending' : 'failed';
+          laterOperation.error = laterResult.status !== 0 ? laterResult.error
+            : laterOperation.action === 'adopt' ? null
+              : discarded?.removed
+                ? `Staged clone was discarded because required repository '${operation.repository}' failed during final claim.`
+                : `Staged clone could not be safely discarded after required repository '${operation.repository}' failed during final claim.`
+                  + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
+                  + `${discarded?.error ? ` ${discarded.error}` : ''}`;
+          laterOperation.adoptionProof = laterOperation.action === 'adopt'
+            ? laterResult.adoption ?? null : null;
+          laterOperation.cleanup = discarded;
+          laterOperation.completedAt = nowIso();
+        }
+        await writeJournal(root, journal, manifest.directories.logs);
         throw new SingularityFlowError(`Workspace retained for repair after ${operation.repository} clone failed: ${operation.error}`);
       }
     }
     journal.completedAt = nowIso();
     await writeJournal(root, journal, manifest.directories.logs);
+    } finally {
+      // A claim callback or journal write may throw outside the normal result protocol. Always
+      // release every still-private clone from the staging wave; successfully claimed targets are
+      // intentionally retained as durable repair progress.
+      await Promise.all(stagedResults
+        .filter((staged) => !claimedStagedResults.has(staged))
+        .map(discardStagedWorkspaceClone));
+    }
   }
   const finalStatus = await workspaceStatus(root);
   return {
@@ -1726,16 +2004,23 @@ async function repositoryStatus(root, repository, { level = 'full' } = {}) {
       : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
         ? '--untracked-files=no' : '--untracked-files=all']),
     gitValueAsync(absolute, ['branch', '--show-current']),
-    gitValueAsync(absolute, ['remote', 'get-url', 'origin']),
+    // Read the durable identity rather than Git's operationally rewritten URL. Workspace transports
+    // freeze this exact value per invocation; ambient url.* rules are neither manifest authority nor
+    // permission to make an otherwise correct clone look permanently misconfigured.
+    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url']),
     gitValueAsync(absolute, ['rev-parse', 'HEAD'])
   ]);
   const dirty = Boolean(statusText);
+  let operationalRemote = null;
+  try { operationalRemote = storableRemote(remote, { redactCredentials: true }); }
+  catch { /* an unsafe configured remote is a mismatch, not a status-read crash */ }
   return {
     ...repository,
     absolutePath: absolute,
-    // Credentials and equivalent URL spellings are transport details. Workspace identity is the
-    // sanitized remote authority used by adoption, status, and repair receipts.
-    state: sanitizeRemote(remote) === sanitizeRemote(repository.url) ? 'ready' : 'remote-mismatch',
+    // Diagnostics may redact transport syntax, but equality must preserve the exact credential-free
+    // configured URL. Local and SCP-like paths can contain literal `?`/`#` characters.
+    state: operationalRemote === repository.url
+      ? 'ready' : 'remote-mismatch',
     dirty,
     branch,
     remote: sanitizeRemote(remote),
@@ -1969,13 +2254,17 @@ async function repositoryWorkflowDefinition(repositoryPath) {
  * repositories and failed refreshes are blockers because "could not inspect" is not evidence that
  * no active work exists.
  */
-export async function workspaceArchiveReadiness(workspacePath, { fetch = true } = {}) {
-  const status = await workspaceStatus(workspacePath);
-  const active = new Map();
-  const blockers = [];
-  const repositories = [];
-
-  for (const repository of status.repositories) {
+export async function workspaceArchiveReadiness(workspacePath, {
+  fetch = true,
+  status: suppliedStatus = null,
+  workers = null,
+  env = process.env
+} = {}) {
+  const status = suppliedStatus ?? await workspaceStatus(workspacePath);
+  const inspected = await mapLimit(
+    status.repositories,
+    gitWorkerCount(status.repositories.length, { requested: workers }),
+    async (repository) => {
     const record = {
       id: repository.id,
       path: repository.absolutePath,
@@ -1984,19 +2273,38 @@ export async function workspaceArchiveReadiness(workspacePath, { fetch = true } 
       stories: 0,
       activeStories: 0
     };
-    repositories.push(record);
+    const blockers = [];
+    const activeStories = [];
     if (repository.state !== 'ready') {
       blockers.push(`Repository '${repository.id}' is ${repository.state}; repair it before archiving the workspace.`);
-      continue;
+      return { record, blockers, activeStories };
     }
 
     if (fetch) {
       try {
-        fetchRemote(repository.absolutePath, 'origin');
-        record.refreshed = true;
+        // Legacy and explicitly single-branch clones otherwise keep fetching only their original
+        // branch. Persist the full branch refspec before the parallel network fetch so remote-only
+        // Stories remain visible to the archive safety check.
+        if (!prepareRemoteBranchTracking(repository.absolutePath, 'origin')) {
+          blockers.push(`Repository '${repository.id}' has no origin remote; repair it before archiving the workspace.`);
+          return { record, blockers, activeStories };
+        }
       } catch (error) {
-        blockers.push(`Repository '${repository.id}' could not refresh origin: ${error.message}`);
-        continue;
+        blockers.push(`Repository '${repository.id}' could not prepare origin branch tracking: ${error.message}`);
+        return { record, blockers, activeStories };
+      }
+      const transport = frozenRemoteTransport(repository.url, { env });
+      const refreshed = await runRemoteGitAsync([
+        'fetch', '--prune', transport.remote,
+        '+refs/heads/*:refs/remotes/origin/*'
+      ], {
+        cwd: repository.absolutePath, operation: 'remote-configuration', env: transport.env
+      });
+      if (refreshed.status === 0) {
+        record.refreshed = true;
+      } else {
+        blockers.push(`Repository '${repository.id}' could not refresh origin: ${refreshed.failure?.advice ?? 'Git fetch failed.'}`);
+        return { record, blockers, activeStories };
       }
     }
 
@@ -2011,6 +2319,7 @@ export async function workspaceArchiveReadiness(workspacePath, { fetch = true } 
       await buildRepositorySubjectIndexFromRefs(repository.absolutePath, { definition, refs })
     ];
     const seen = new Set();
+    const active = new Map();
     for (const index of indexes) {
       for (const unreadable of index.unreadable) {
         blockers.push(`Repository '${repository.id}' has unreadable Story state at ${unreadable.path}: ${unreadable.reason}`);
@@ -2034,10 +2343,14 @@ export async function workspaceArchiveReadiness(workspacePath, { fetch = true } 
         });
       }
     }
-    record.activeStories = [...active.values()].filter((story) => story.repository === repository.id).length;
-  }
+    activeStories.push(...active.values());
+    record.activeStories = activeStories.length;
+    return { record, blockers, activeStories };
+  });
 
-  const activeStories = [...active.values()].sort((left, right) =>
+  const blockers = inspected.flatMap((item) => item.blockers);
+  const repositories = inspected.map((item) => item.record);
+  const activeStories = inspected.flatMap((item) => item.activeStories).sort((left, right) =>
     left.repository.localeCompare(right.repository) || left.id.localeCompare(right.id));
   return {
     workspace: { id: status.workspace.id, name: status.workspace.name, path: status.workspace.path },
@@ -2090,56 +2403,135 @@ export async function restoreWorkspace(file, workspacePath) {
   });
 }
 
-export async function repairWorkspace(workspacePath) {
+export async function repairWorkspace(workspacePath, {
+  workers = null,
+  env = process.env,
+  cloneOperation = cloneIntoWorkspace,
+  adoptionOperation = verifyAdoptionOperation
+} = {}) {
   const status = await workspaceStatus(workspacePath);
   const journal = await readRepairJournal(status.workspace, status.repositories);
   const repaired = [];
-  for (let index = 0; index < status.repositories.length; index += 1) {
-    const repository = status.repositories[index];
-    const operation = journal.operations[index];
-    if (repository.state === 'ready') continue;
-    if (repository.adoption) {
-      operation.status = 'running';
-      operation.error = null;
-      operation.startedAt = nowIso();
-      operation.completedAt = null;
-      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-      const adopted = await verifyAdoptionOperation(operation);
-      operation.status = adopted.status === 0 ? 'complete' : 'failed';
-      operation.error = adopted.error;
-      operation.adoptionProof = adopted.adoption ?? null;
-      operation.completedAt = nowIso();
-      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-      if (adopted.status !== 0) {
-        throw new SingularityFlowError(`Adopted repository '${repository.id}' requires review: ${adopted.error}`);
-      }
-      repaired.push({ repository: repository.id, status: 'adopted', proofHash: repository.adoption.proofHash });
-      continue;
-    }
-    if (!['missing', 'empty'].includes(repository.state)) {
-      operation.status = 'failed';
-      operation.error = `Existing repository directory is ${repository.state}.`;
-      operation.completedAt = nowIso();
-      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-      throw new SingularityFlowError(`Repository '${repository.id}' requires manual repair because its existing directory is ${repository.state}.`);
-    }
+  const pending = status.repositories.map((repository, index) => ({
+    repository, operation: journal.operations[index]
+  })).filter(({ repository }) => repository.state !== 'ready');
+  const unrepairable = pending.find(({ repository }) =>
+    !repository.adoption && !['missing', 'empty'].includes(repository.state));
+  if (unrepairable) {
+    unrepairable.operation.status = 'failed';
+    unrepairable.operation.error = `Existing repository directory is ${unrepairable.repository.state}.`;
+    unrepairable.operation.completedAt = nowIso();
+    await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+    throw new SingularityFlowError(
+      `Repository '${unrepairable.repository.id}' requires manual repair because its existing directory is ${unrepairable.repository.state}.`);
+  }
+  for (const { operation } of pending) {
     operation.status = 'running';
     operation.error = null;
     operation.startedAt = nowIso();
     operation.completedAt = null;
-    await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-    const result = await cloneIntoWorkspace(status.workspace.path, {
-      ...operation,
-      bootstrapId: journal.bootstrapId,
-      workspaceId: status.workspace.id
+  }
+  if (pending.length) await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+  const staged = await mapLimit(
+    pending,
+    gitWorkerCount(pending.length, { requested: workers }),
+    async ({ repository, operation }) => {
+      try {
+        return repository.adoption
+          ? await adoptionOperation(operation)
+          : await cloneOperation(status.workspace.path, {
+              ...operation,
+              bootstrapId: journal.bootstrapId,
+              workspaceId: status.workspace.id
+            }, { deferClaim: true, env });
+      } catch (error) {
+        return { status: 1, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+  const claimedStagedResults = new Set();
+  try {
+  const blockingIndex = pending.findIndex(({ repository }, index) =>
+    staged[index].status !== 0 && (repository.required || repository.adoption));
+  if (blockingIndex >= 0) {
+    const cleanup = await Promise.all(staged.map(discardStagedWorkspaceClone));
+    pending.forEach(({ repository, operation }, index) => {
+      const result = staged[index];
+      const discarded = cleanup[index];
+      operation.status = result.status !== 0 ? 'failed'
+        : repository.adoption ? 'complete'
+          : discarded?.removed ? 'pending' : 'failed';
+      operation.error = result.status !== 0 ? result.error
+        : repository.adoption ? null
+          : discarded?.removed
+            ? `Staged clone was discarded because required repository '${pending[blockingIndex].repository.id}' failed.`
+            : `Staged clone could not be safely discarded after required repository '${pending[blockingIndex].repository.id}' failed.`
+              + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
+              + `${discarded?.error ? ` ${discarded.error}` : ''}`;
+      operation.adoptionProof = result.adoption ?? null;
+      operation.cleanup = discarded;
+      operation.completedAt = nowIso();
     });
+    await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+    const blocked = pending[blockingIndex];
+    const failure = staged[blockingIndex];
+    const prefix = blocked.repository.adoption ? 'Adopted repository' : 'Required repository';
+    throw new SingularityFlowError(`${prefix} '${blocked.repository.id}' could not be repaired: ${failure.error}`);
+  }
+  for (let index = 0; index < pending.length; index += 1) {
+    const { repository, operation } = pending[index];
+    const stagedResult = staged[index];
+    const result = stagedResult.status === 0 && stagedResult.claim
+      ? await stagedResult.claim() : stagedResult;
+    if (stagedResult.status === 0 && stagedResult.claim && result.status === 0) {
+      claimedStagedResults.add(stagedResult);
+    }
     if (result.status !== 0) {
       operation.status = 'failed';
       operation.error = result.error;
       operation.completedAt = nowIso();
       await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
-      if (repository.required) throw new SingularityFlowError(`Required repository '${repository.id}' could not be repaired: ${result.error}`);
+      if (repository.required) {
+        // Staging can succeed while the final atomic claim loses a race to a newly-created target.
+        // Preserve the historic required-repository stop contract and discard only the still-owned
+        // staging directories for later entries; already-claimed repositories remain recoverable
+        // journal progress, exactly as they did in the former serial repair loop.
+        const laterCleanup = await Promise.all(
+          staged.slice(index + 1).map(discardStagedWorkspaceClone)
+        );
+        for (let later = index + 1; later < pending.length; later += 1) {
+          const laterOperation = pending[later].operation;
+          const laterRepository = pending[later].repository;
+          const laterResult = staged[later];
+          const discarded = laterCleanup[later - index - 1];
+          laterOperation.status = laterResult.status !== 0 ? 'failed'
+            : laterRepository.adoption ? 'complete'
+              : discarded?.removed ? 'pending' : 'failed';
+          laterOperation.error = laterResult.status !== 0 ? laterResult.error
+            : laterRepository.adoption ? null
+              : discarded?.removed
+                ? `Staged clone was discarded because required repository '${repository.id}' failed during final claim.`
+                : `Staged clone could not be safely discarded after required repository '${repository.id}' failed during final claim.`
+                  + `${discarded?.path ? ` Inspect ${discarded.path}.` : ''}`
+                  + `${discarded?.error ? ` ${discarded.error}` : ''}`;
+          laterOperation.adoptionProof = laterRepository.adoption
+            ? laterResult.adoption ?? null : null;
+          laterOperation.cleanup = discarded;
+          laterOperation.completedAt = nowIso();
+        }
+        await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+        throw new SingularityFlowError(
+          `Required repository '${repository.id}' could not be repaired: ${result.error}`
+        );
+      }
       repaired.push({ repository: repository.id, status: 'failed', error: result.error });
+    } else if (repository.adoption) {
+      operation.status = 'complete';
+      operation.error = null;
+      operation.adoptionProof = result.adoption ?? null;
+      operation.completedAt = nowIso();
+      repaired.push({ repository: repository.id, status: 'adopted', proofHash: repository.adoption.proofHash });
+      await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
     } else {
       operation.status = 'complete';
       operation.error = null;
@@ -2160,16 +2552,17 @@ export async function repairWorkspace(workspacePath) {
     ? nowIso()
     : null;
   await writeJournal(status.workspace.path, journal, status.workspace.directories.logs);
+  } finally {
+    await Promise.all(staged
+      .filter((stagedResult) => !claimedStagedResults.has(stagedResult))
+      .map(discardStagedWorkspaceClone));
+  }
   return { repaired, status: await workspaceStatus(workspacePath) };
 }
 
-export async function fetchWorkspace(workspacePath) {
+export async function fetchWorkspace(workspacePath, { env = process.env } = {}) {
   const status = await workspaceStatus(workspacePath);
-  const workers = Math.max(1, Math.min(
-    8,
-    Number(process.env.SINGULARITY_FLOW_GIT_WORKERS ?? 4) || 4,
-    status.repositories.length || 1
-  ));
+  const workers = gitWorkerCount(status.repositories.length);
   const results = await mapLimit(status.repositories, workers, async (repository) => {
     if (repository.state !== 'ready') {
       return { repository: repository.id, status: 'skipped', reason: repository.state };
@@ -2177,8 +2570,12 @@ export async function fetchWorkspace(workspacePath) {
     if (repository.dirty) {
       return { repository: repository.id, status: 'skipped', reason: 'dirty' };
     }
-    const result = await runRemoteGitAsync(['fetch', '--prune', 'origin'], {
-      cwd: repository.absolutePath, operation: 'remote-configuration'
+    const transport = frozenRemoteTransport(repository.url, { env });
+    const result = await runRemoteGitAsync([
+      'fetch', '--prune', transport.remote,
+      '+refs/heads/*:refs/remotes/origin/*'
+    ], {
+      cwd: repository.absolutePath, operation: 'remote-configuration', env: transport.env
     });
     return {
       repository: repository.id,

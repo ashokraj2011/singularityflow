@@ -450,6 +450,16 @@ function dxCommandTimingV2ToV3(source) {
   };
 }
 
+function dxCommandTimingV3ToV4(source) {
+  return {
+    ...source,
+    schemaVersion: 4,
+    // v1-v3 grouped several read and mutation subcommands under one top-level command. Retain the
+    // uncertainty instead of guessing an operation from historical data.
+    operationId: source.operationId ?? null
+  };
+}
+
 function vscodeResetMarkerV1ToV2(source) {
   return {
     ...source,
@@ -995,10 +1005,11 @@ const families = [
     paths: [/^(?:\$git|\$workspace)\/prompt-audit\/prompts\.jsonl$/], immutable: true
   }),
   family({
-    id: 'dx-command-timing', currentVersion: 3,
+    id: 'dx-command-timing', currentVersion: 4,
     steps: [
       migration(1, 2, dxCommandTimingV1ToV2),
-      migration(2, 3, dxCommandTimingV2ToV3)
+      migration(2, 3, dxCommandTimingV2ToV3),
+      migration(3, 4, dxCommandTimingV3ToV4)
     ],
     paths: [/^\$git\/(?:dx\/timings(?:-[^/]+)?|performance\/commands)\.jsonl$/]
   }),

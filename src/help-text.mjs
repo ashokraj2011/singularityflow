@@ -531,7 +531,7 @@ Usage:
   singularity-flow capability activate <REVIEW-BRANCH> [--lead URL] --confirm <FULL-COMMIT>
     [--acknowledge-unprotected] [--json]
     (review and normally merge one exact proposal into sflow/config, then refresh its projection;
-     branch protection is verified by dry-run; an unprotected authority requires explicit acknowledgement;
+     protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
   singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)

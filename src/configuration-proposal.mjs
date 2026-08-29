@@ -19,8 +19,10 @@ import {
 } from './configuration-branch.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
 import { gitCommitIdentity } from './git.mjs';
-import { classifyGitRemoteFailure, sanitizeRemote } from './git-remote-diagnostics.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import {
+  assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
+import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
@@ -239,7 +241,7 @@ export async function inspectWorkflowConfigurationProposal(root, branch) {
 }
 
 /**
- * Activate one exact reviewed workflow proposal using a normal non-force update.
+ * Activate one exact reviewed workflow proposal using an exact compare-and-swap update.
  * Protected branches remain under their repository review controls; an unprotected direct update
  * requires a separate explicit acknowledgement.
  */
@@ -262,6 +264,13 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       );
     }
     let alreadyMerged = reviewed.merged;
+    let mergeEvidence = alreadyMerged ? 'existing-ancestor' : null;
+    let protection = {
+      enforced: null,
+      detail: alreadyMerged
+        ? 'the reviewed proposal is already present in approved configuration'
+        : 'repository enforcement has not been observed'
+    };
     if (!alreadyMerged) {
       const actor = gitCommitIdentity(root);
       const merged = run('git', [
@@ -284,59 +293,93 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       validateEditorConfiguration(scratch));
     const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
     if (!alreadyMerged) {
-      const dryRun = runRemoteGit([
-        'push', '--dry-run', '--porcelain', 'origin',
-        `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
-      ], { cwd: scratch, operation: 'remote-push' });
-      if (dryRun.status !== 0) {
-        const failure = classifyGitRemoteFailure(dryRun);
-        const diagnostic = `${dryRun.stderr ?? ''}\n${dryRun.stdout ?? ''}`;
-        const reviewRequired = /protected branch|review required|pull request|required reviews?|pre-receive hook declined/i
-          .test(diagnostic);
-        return {
-          status: reviewRequired ? 'review-required' : 'activation-pending', activated: false,
-          remote: sanitizeRemote(remote), branch: proposalBranch,
-          proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
-          targetCommit: reviewed.targetCommit, proposedMergeCommit: targetCommit,
-          changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
-          failure: {
-            code: reviewRequired ? 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED' : failure.code,
-            classification: failure.classification, retryable: failure.retryable,
-            message: reviewRequired
-              ? `Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
-              : failure.advice
-          },
-          externalAction: reviewRequired ? {
-            action: 'merge-proposal', sourceBranch: proposalBranch,
-            targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
-          } : null,
-          nextAction: workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit)
-        };
-      }
       if (!acknowledgeUnprotected) {
         const nextAction = workflowProposalCommand(
           'activate', proposalBranch, reviewed.proposalCommit, true
         );
         throw new SingularityFlowError(
-          `'${CONFIGURATION_BRANCH}' accepted the exact dry-run update, so branch protection is not enforced for this actor. `
-          + `Nothing was changed. Review the diff, then explicitly acknowledge the direct merge. Re-run: ${nextAction}`,
+          `Git cannot prove whether '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}' is protected without `
+          + 'attempting the real update. Nothing was changed. Review and merge the proposal externally, '
+          + `or explicitly acknowledge a direct-push attempt. Re-run: ${nextAction}`,
           { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
         );
       }
-      const pushed = runRemoteGit([
-        'push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
+      const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+      let pushed = runRemoteGit([
+        'push', '--porcelain',
+        `--force-with-lease=${targetRef}:${reviewed.targetCommit}`,
+        'origin', `HEAD:${targetRef}`
       ], { cwd: scratch, operation: 'remote-push' });
+      const transition = pushed.status === 0
+        ? pushed.stdout.split(/\r?\n/).map((line) => {
+          const [flag, refspec] = line.split('\t');
+          return refspec?.endsWith(`:${targetRef}`) ? flag : null;
+        }).find((flag) => flag !== null)
+        : null;
+      const acquired = transition === ' ' || transition === '+';
+      if (pushed.status !== 0 || !acquired) {
+        // A successful no-op (`=`) is not proof that this invocation acquired the leased
+        // transition. Re-read the exact authority: identical bytes mean a concurrent external
+        // action installed the reviewed commit, while any other tip remains a recoverable refusal.
+        const authority = new GitRemoteSession().observe(remote, {
+          includeHead: false, refs: [targetRef], refresh: true
+        });
+        if (authority.ok && authority.refs.get(targetRef) === targetCommit) {
+          alreadyMerged = true;
+          mergeEvidence = pushed.status === 0
+            ? 'concurrent-identical-commit'
+            : 'remote-exact-after-push-failure';
+          protection = {
+            enforced: null,
+            detail: 'matching workflow configuration was installed by a concurrent or indeterminate action'
+          };
+          pushed = { ...pushed, status: 0 };
+        } else if (pushed.status === 0) {
+          pushed = {
+            ...pushed,
+            status: 1,
+            stderr: `stale info: '${CONFIGURATION_BRANCH}' did not perform the explicitly leased transition`
+          };
+        }
+      }
       if (pushed.status !== 0) {
         const failure = classifyGitRemoteFailure(pushed);
+        const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
+        const reviewRequired = ['authorization-denied', 'unknown'].includes(failure.classification)
+          && /protected branch|branch protection|review required|pull request|required reviews?/i
+            .test(diagnostic);
+        protection = reviewRequired
+          ? { enforced: true, detail: 'the real exact update was refused by repository review controls' }
+          : { enforced: null, detail: 'the real exact update failed without review-control evidence' };
         return {
-          status: 'activation-pending', activated: false,
+          status: reviewRequired ? 'review-required' : 'activation-pending', activated: false,
           remote: sanitizeRemote(remote), branch: proposalBranch,
           proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
           targetCommit: reviewed.targetCommit, proposedMergeCommit: targetCommit,
-          changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
-          failure: { code: failure.code, classification: failure.classification,
-            retryable: failure.retryable, message: failure.advice },
-          nextAction: workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit, true)
+          changedFiles: reviewed.changedFiles, workflows: reviewed.workflows, protection,
+          failure: {
+            code: reviewRequired ? 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED' : failure.code,
+            classification: failure.classification,
+            retryable: failure.retryable,
+            message: reviewRequired
+              ? `Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
+              : failure.advice,
+            diagnostic: redactDiagnosticText(diagnostic).trim().slice(0, 4_096) || null
+          },
+          externalAction: reviewRequired ? {
+            action: 'merge-proposal', sourceBranch: proposalBranch,
+            targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
+          } : null,
+          nextAction: workflowProposalCommand(
+            'activate', proposalBranch, reviewed.proposalCommit, !reviewRequired
+          )
+        };
+      }
+      if (!mergeEvidence) {
+        mergeEvidence = 'direct-exact-lease';
+        protection = {
+          enforced: false,
+          detail: 'the real exact leased update was accepted for this actor'
         };
       }
     }
@@ -345,6 +388,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       remote: sanitizeRemote(remote), branch: proposalBranch,
       proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
       targetCommit, changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
+      mergeEvidence, protection,
       nextAction: 'singularity-flow workspace refresh-configuration'
     };
   });
@@ -364,29 +408,37 @@ function safeSlug(value) {
 }
 
 function matchingRemote(root, remoteUrl) {
+  const authority = assertCredentialFreeRemote(remoteUrl);
+  const identity = (value) => {
+    try {
+      return value ? assertCredentialFreeRemote(value) : null;
+    } catch {
+      return null;
+    }
+  };
   const names = run('git', ['remote'], { cwd: root, allowFailure: true }).stdout
     .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   const match = names.find((name) => {
     const candidate = run('git', ['remote', 'get-url', name], { cwd: root, allowFailure: true }).stdout.trim();
-    return candidate && sanitizeRemote(candidate) === sanitizeRemote(remoteUrl);
+    return identity(candidate) === authority;
   });
   if (match) return match;
 
   const preferred = 'sflow-configuration';
   const existing = run('git', ['remote', 'get-url', preferred], { cwd: root, allowFailure: true }).stdout.trim();
-  if (existing && sanitizeRemote(existing) !== sanitizeRemote(remoteUrl)) {
-    const suffix = createHash('sha256').update(sanitizeRemote(remoteUrl)).digest('hex').slice(0, 8);
+  if (existing && identity(existing) !== authority) {
+    const suffix = createHash('sha256').update(authority).digest('hex').slice(0, 8);
     const alternate = `${preferred}-${suffix}`;
     const alternateUrl = run('git', ['remote', 'get-url', alternate], { cwd: root, allowFailure: true }).stdout.trim();
-    if (alternateUrl && sanitizeRemote(alternateUrl) !== sanitizeRemote(remoteUrl)) {
+    if (alternateUrl && identity(alternateUrl) !== authority) {
       throw new SingularityFlowError(`Git remote '${alternate}' points somewhere other than the approved configuration authority.`, {
         code: 'CONFIGURATION_PROPOSAL_REMOTE_CONFLICT'
       });
     }
-    if (!alternateUrl) run('git', ['remote', 'add', alternate, remoteUrl], { cwd: root });
+    if (!alternateUrl) run('git', ['remote', 'add', alternate, authority], { cwd: root });
     return alternate;
   }
-  if (!existing) run('git', ['remote', 'add', preferred, remoteUrl], { cwd: root });
+  if (!existing) run('git', ['remote', 'add', preferred, authority], { cwd: root });
   return preferred;
 }
 

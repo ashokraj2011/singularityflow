@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { probeGitRemote } from '../src/git-remote-diagnostics.mjs';
@@ -13,6 +14,7 @@ import {
 } from '../src/workspace-bootstrap.mjs';
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+import { fetchWorkspace } from '../src/workspace.mjs';
 
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
@@ -27,7 +29,16 @@ async function remoteFixture(branch = 'trunk') {
   run('git', ['config', 'user.email', 'bootstrap@example.com'], { cwd: source });
   run('git', ['commit', '--allow-empty', '-m', 'seed'], { cwd: source });
   run('git', ['clone', '--bare', '--', source, remote], { cwd: root });
-  return { root, remote };
+  return { root, source, remote };
+}
+
+async function writeAuthorityMarker(fixture, branch, value) {
+  await mkdir(path.join(fixture.source, 'src'), { recursive: true });
+  await writeFile(path.join(fixture.source, 'AUTHORITY.txt'), `${value}\n`);
+  await writeFile(path.join(fixture.source, 'src', 'AUTHORITY.txt'), `${value} source\n`);
+  run('git', ['add', 'AUTHORITY.txt', 'src/AUTHORITY.txt'], { cwd: fixture.source });
+  run('git', ['commit', '-m', `identify ${value} authority`], { cwd: fixture.source });
+  run('git', ['push', fixture.remote, branch], { cwd: fixture.source });
 }
 
 function environment(root) {
@@ -85,6 +96,11 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
   assert.equal(withCapability.preflight.ready, true, JSON.stringify(withCapability.preflight.findings));
   assert.notEqual(withCapability.planHash, withoutCapability.planHash,
     'the selected capabilities are part of the reviewed materialization plan');
+  const capabilityCheck = withCapability.preflight.checks.find((entry) =>
+    entry.id === 'configuration:capability-catalog');
+  assert.match(capabilityCheck.capabilityValidation.commit, /^[a-f0-9]{40}$/);
+  assert.match(capabilityCheck.capabilityValidation.bindingSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(capabilityCheck.capabilityValidation.requested, ['declared-capability']);
 
   const invalidInput = input(fixture.root, fixture.remote, 'trunk');
   invalidInput.id = 'invalid-capability';
@@ -99,6 +115,49 @@ test('bootstrap blocks unapproved capabilities before materialization and binds 
   assert.ok(blocked.preflight.findings.some((entry) => entry.classification === 'capability-unknown'));
   assert.equal(await readFile(blocked.plan.workspace.targetPath).catch(() => null), null,
     'preflight must not create the invalid workspace destination');
+});
+
+test('returned preflight diagnostics cannot mutate the held capability authority proof', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = environment(fixture.root);
+  await ensureConfigurationBranch(fixture.remote, {
+    capability: {
+      capabilityId: 'declared-capability',
+      capabilityName: 'Declared capability',
+      kind: 'delivery',
+      repositoryId: 'application',
+      jiraProject: null,
+      teams: []
+    }
+  });
+  const declaredInput = input(fixture.root, fixture.remote, 'trunk');
+  declaredInput.capabilities = ['declared-capability'];
+  declaredInput.repositories.application.capabilities = ['declared-capability'];
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput: declaredInput
+  }, { env });
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+
+  const publicValidation = prepared.preflight.checks.find((entry) =>
+    entry.id === 'configuration:capability-catalog').capabilityValidation;
+  const applicationCommit = run('git', [
+    '--git-dir', fixture.remote, 'rev-parse', 'refs/heads/trunk'
+  ]).stdout.trim();
+  publicValidation.branch = 'trunk';
+  publicValidation.commit = applicationCommit;
+  run('git', [
+    '--git-dir', fixture.remote, 'update-ref', 'refs/heads/sflow/config', applicationCommit
+  ]);
+
+  const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: prepared.plan.workspace.confirmation,
+    env
+  });
+  assert.equal(resumed.status, 'waiting-user');
+  assert.equal(resumed.fault.classification, 'materialization-refused');
+  assert.equal(await stat(prepared.plan.workspace.targetPath).catch(() => null), null,
+    'a caller-mutated diagnostic cannot redirect the held receipt to bypass moved authority');
 });
 
 test('the public CLI prepares and reads the same durable bootstrap receipt', async () => {
@@ -158,6 +217,113 @@ test('prepare persists a resumable plan before destination mutation and resume l
   }).stdout.trim(), 'trunk');
   const registry = JSON.parse(await readFile(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY, 'utf8'));
   assert.equal(registry.workspaces.length, 1);
+});
+
+test('bootstrap probes and materialization cannot be redirected away from the exact reviewed URL', async () => {
+  const approved = await remoteFixture('trunk');
+  const decoy = await remoteFixture('trunk');
+  await writeAuthorityMarker(approved, 'trunk', 'approved');
+  await writeAuthorityMarker(decoy, 'trunk', 'decoy');
+  run('git', ['--git-dir', approved.remote, 'config', 'uploadpack.allowFilter', 'true']);
+  run('git', ['--git-dir', decoy.remote, 'config', 'uploadpack.allowFilter', 'true']);
+  run('git', ['switch', '-c', 'decoy-only'], { cwd: decoy.source });
+  run('git', ['commit', '--allow-empty', '-m', 'decoy-only branch'], { cwd: decoy.source });
+  run('git', ['push', decoy.remote, 'decoy-only'], { cwd: decoy.source });
+
+  const approvedUrl = pathToFileURL(approved.remote).href;
+  const decoyUrl = pathToFileURL(decoy.remote).href;
+  const baseEnv = environment(approved.root);
+  const inheritedCount = Number(baseEnv.GIT_CONFIG_COUNT ?? 0);
+  const index = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
+  const countKey = 'GIT_CONFIG_COUNT';
+  const configKey = `GIT_CONFIG_KEY_${index}`;
+  const configValue = `GIT_CONFIG_VALUE_${index}`;
+  const env = {
+    ...baseEnv,
+    [countKey]: String(index + 1),
+    [configKey]: `url.${decoyUrl}.insteadOf`,
+    [configValue]: approvedUrl
+  };
+
+  const direct = probeGitRemote(approvedUrl, { branch: 'trunk', env });
+  assert.equal(direct.ok, true);
+  assert.deepEqual(direct.branches, ['trunk'],
+    'the synchronous probe must ignore the ambient decoy rewrite');
+
+  const createInput = input(approved.root, approvedUrl, 'trunk');
+  createInput.repositories.application.clone = {
+    mode: 'blobless-sparse', sparseCone: ['src'], fallback: 'refuse'
+  };
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'remote', reference: approvedUrl }, createInput
+  }, { env });
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+  const remoteCheck = prepared.preflight.checks.find((entry) => entry.id === 'remote:application');
+  assert.equal(remoteCheck.branchCount, 1,
+    'the async bootstrap probe must ignore the ambient decoy rewrite');
+
+  const resumed = await resumeWorkspaceBootstrap(prepared.bootstrapId, {
+    confirmation: prepared.plan.workspace.confirmation, env
+  });
+  assert.equal(resumed.status, 'ready');
+  const clone = path.join(
+    resumed.result.workspace.path,
+    resumed.result.workspace.repositories.application.path
+  );
+  assert.equal(await readFile(path.join(clone, 'AUTHORITY.txt'), 'utf8'), 'approved\n');
+  assert.equal(await readFile(path.join(clone, 'src', 'AUTHORITY.txt'), 'utf8'), 'approved source\n',
+    'sparse materialization must keep using the frozen transport for lazy blob fetches');
+  assert.equal(run('git', ['config', '--local', '--get', 'remote.origin.url'], {
+    cwd: clone
+  }).stdout.trim(), approvedUrl,
+    'the invocation alias must not leak into the durable workspace origin');
+
+  const fetched = await fetchWorkspace(resumed.result.workspace.path, { env });
+  assert.equal(fetched.results[0].status, 'fetched');
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/remotes/origin/decoy-only'
+  ], { cwd: clone, allowFailure: true }).status, 1,
+    'later workspace refreshes must keep using the stored exact authority');
+});
+
+test('capability catalog lazy reads remain bound to the exact reviewed URL', async () => {
+  const approved = await remoteFixture('trunk');
+  const decoy = await remoteFixture('trunk');
+  await ensureConfigurationBranch(approved.remote, {
+    capability: {
+      capabilityId: 'approved-capability', capabilityName: 'Approved Capability',
+      kind: 'delivery', repositoryId: 'application', jiraProject: null, teams: []
+    }
+  });
+  await ensureConfigurationBranch(decoy.remote, {
+    capability: {
+      capabilityId: 'decoy-capability', capabilityName: 'Decoy Capability',
+      kind: 'delivery', repositoryId: 'application', jiraProject: null, teams: []
+    }
+  });
+  run('git', ['--git-dir', approved.remote, 'config', 'uploadpack.allowFilter', 'true']);
+  run('git', ['--git-dir', decoy.remote, 'config', 'uploadpack.allowFilter', 'true']);
+  const approvedUrl = pathToFileURL(approved.remote).href;
+  const decoyUrl = pathToFileURL(decoy.remote).href;
+  const inheritedCount = Number(process.env.GIT_CONFIG_COUNT ?? 0);
+  const index = Number.isInteger(inheritedCount) && inheritedCount >= 0 ? inheritedCount : 0;
+  const env = {
+    ...process.env,
+    GIT_CONFIG_COUNT: String(index + 1),
+    [`GIT_CONFIG_KEY_${index}`]: `url.${decoyUrl}.insteadOf`,
+    [`GIT_CONFIG_VALUE_${index}`]: approvedUrl
+  };
+  const cli = path.resolve('bin/singularity-flow.mjs');
+  const catalog = JSON.parse(run(process.execPath, [
+    cli, 'workspace', 'capabilities', approvedUrl, '--json'
+  ], { cwd: approved.root, env }).stdout);
+  const approvedCommit = run('git', [
+    '--git-dir', approved.remote, 'rev-parse', 'refs/heads/sflow/config'
+  ]).stdout.trim();
+
+  assert.equal(catalog.commit, approvedCommit);
+  assert.match(JSON.stringify(catalog.capabilities), /Approved Capability/);
+  assert.doesNotMatch(JSON.stringify(catalog.capabilities), /Decoy Capability/);
 });
 
 test('an occupied destination is a blocker and no existing byte is adopted', async () => {
@@ -281,6 +447,8 @@ test('remote diagnostics classify authentication without retaining provider outp
   assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
   assert.doesNotMatch(JSON.stringify(result), /oauth2/);
   assert.throws(() => probeGitRemote(`https://oauth2:${secret}@example.com/acme/repository.git`),
+    /credential helper/);
+  assert.throws(() => probeGitRemote(`ssh://git:${secret}@example.com/acme/repository.git`),
     /credential helper/);
   assert.throws(() => probeGitRemote(`https://example.com/acme/repository.git?access_token=${secret}`),
     /query parameters/);

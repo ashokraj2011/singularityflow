@@ -4,12 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
-  adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments,
+  adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, gitValueAsync, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
-  rememberWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
-  updateWorkspaceConfiguration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
+  rememberWorkspace, repairWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
+  updateWorkspaceConfiguration, validateWorkspaceCapabilityRegistration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
   workspaceRepositoryDefaults, workspaceStatus
 } from '../src/workspace.mjs';
 import {
@@ -218,6 +220,133 @@ test('workspace capability registration is approved before any workspace byte is
   );
   assert.equal(await stat(path.join(baseDirectory, 'wrong-delivery-binding')).catch(() => null), null,
     'a stale or forged repository binding must not leave a workspace shell');
+});
+
+test('a commit-bound capability receipt avoids a second catalog clone without widening its authority', async () => {
+  const commit = 'a'.repeat(40);
+  const remote = 'https://example.test/platform.git';
+  const manifest = {
+    leadRepository: 'platform',
+    capabilities: ['payments'],
+    repositories: {
+      platform: {
+        id: 'platform', url: remote, defaultBranch: 'main', capabilities: ['payments']
+      }
+    }
+  };
+  let catalogReads = 0;
+  let observations = 0;
+  const readCapabilities = async () => {
+    catalogReads += 1;
+    return {
+      capabilities: [{ id: 'payments', children: [] }],
+      deliveries: [{
+        id: 'payments', repository: 'platform', url: remote, defaultBranch: 'main', ancestors: []
+      }],
+      branch: 'sflow/config', path: 'singularity/capabilities.yml', commit
+    };
+  };
+  const first = await validateWorkspaceCapabilityRegistration(manifest, { readCapabilities });
+  assert.equal(first.reused, false);
+  const second = await validateWorkspaceCapabilityRegistration(manifest, {
+    readCapabilities,
+    receipt: first,
+    observeAuthority: async () => { observations += 1; return commit; }
+  });
+  assert.equal(second.reused, true);
+  assert.equal(catalogReads, 1, 'the confirmed materialization does not clone the catalog again');
+  assert.equal(observations, 1, 'reuse is still bound to one exact remote ref observation');
+
+  const copied = await validateWorkspaceCapabilityRegistration(manifest, {
+    readCapabilities,
+    receipt: structuredClone(first),
+    observeAuthority: async () => { observations += 1; return commit; }
+  });
+  assert.equal(copied.reused, false, 'serialized or caller-forged receipt fields are not authority');
+  assert.equal(catalogReads, 2, 'a copied receipt must re-read the approved capability catalog');
+  assert.equal(observations, 1, 'an unbranded receipt is rejected before its claimed ref is observed');
+
+  const moved = await validateWorkspaceCapabilityRegistration(manifest, {
+    readCapabilities,
+    receipt: first,
+    observeAuthority: async () => 'b'.repeat(40)
+  });
+  assert.equal(moved.reused, false);
+  assert.equal(catalogReads, 3, 'a moved authority is read and validated again');
+
+  await assert.rejects(() => validateWorkspaceCapabilityRegistration({
+    ...manifest,
+    repositories: {
+      platform: { ...manifest.repositories.platform, defaultBranch: 'release' }
+    }
+  }, {
+    readCapabilities,
+    receipt: first,
+    observeAuthority: async () => commit
+  }), /base branch must be 'main'/);
+  assert.equal(observations, 1, 'a receipt for a different materialization plan is never observed');
+
+  const alternateManifest = {
+    ...manifest,
+    capabilities: ['refunds'],
+    repositories: {
+      platform: { ...manifest.repositories.platform, capabilities: ['refunds'] }
+    }
+  };
+  const alternate = await validateWorkspaceCapabilityRegistration(alternateManifest, {
+    readCapabilities: async () => ({
+      capabilities: [{ id: 'refunds', children: [] }],
+      deliveries: [{
+        id: 'refunds', repository: 'platform', url: remote, defaultBranch: 'main', ancestors: []
+      }],
+      branch: 'sflow/config', path: 'singularity/capabilities.yml', commit: 'b'.repeat(40)
+    })
+  });
+  first.requested.splice(0, first.requested.length, ...alternate.requested);
+  first.known.splice(0, first.known.length, ...alternate.known);
+  first.branch = alternate.branch;
+  first.path = alternate.path;
+  first.commit = alternate.commit;
+  first.bindingSha256 = alternate.bindingSha256;
+  let bypassCatalogReads = 0;
+  let bypassObservations = 0;
+  await assert.rejects(() => validateWorkspaceCapabilityRegistration(alternateManifest, {
+    receipt: first,
+    observeAuthority: async () => { bypassObservations += 1; return alternate.commit; },
+    readCapabilities: async () => {
+      bypassCatalogReads += 1;
+      return {
+        capabilities: [{ id: 'payments', children: [] }],
+        deliveries: [{
+          id: 'payments', repository: 'platform', url: remote, defaultBranch: 'main', ancestors: []
+        }],
+        branch: 'sflow/config', path: 'singularity/capabilities.yml', commit: alternate.commit
+      };
+    }
+  }), (error) => error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN');
+  assert.equal(bypassObservations, 0,
+    'mutating a branded receipt cannot authorize observing claims from a different plan');
+  assert.equal(bypassCatalogReads, 1,
+    'mutating a branded receipt falls back to the approved catalog instead of bypassing it');
+});
+
+test('local Git value reads are bounded and terminate a stalled child', async () => {
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  const signals = [];
+  child.kill = (signal) => {
+    signals.push(signal);
+    // A cooperative wrapper may report success while exiting in response to SIGTERM. Once the
+    // operation deadline fired, that late exit must not turn partial output into a valid Git fact.
+    queueMicrotask(() => child.emit('close', 0));
+    return true;
+  };
+  const value = await gitValueAsync('/repository', ['status', '--porcelain'], {
+    timeoutMs: 5,
+    spawnCommand: () => child
+  });
+  assert.equal(value, null);
+  assert.deepEqual(signals, ['SIGTERM']);
 });
 
 test('the first capability can be onboarded outside every repository and without a workspace', async () => {
@@ -472,6 +601,26 @@ test('workspace adoption never persists credentials embedded in an origin URL', 
   assert.doesNotMatch(JSON.stringify(adopted), /alice|office-token/);
   assert.doesNotMatch(await readFile(path.join(adopted.workspace.path, 'workspace.json'), 'utf8'),
     /alice|office-token/);
+});
+
+test('workspace adoption preserves literal query characters in a local Git authority', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-adopt-literal-remote-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const remote = await remoteRepository(root, 'authority?blue');
+  const clone = path.join(root, 'existing-clone');
+  run('git', ['clone', remote, clone], { cwd: root });
+
+  const defaults = await workspaceRepositoryDefaults(clone);
+  assert.equal(defaults.url, remote,
+    'diagnostic sanitization must not change the operational local-path authority');
+  const adopted = await adoptWorkspaceConfiguration({
+    cloneDirectory: clone,
+    id: 'literal-authority',
+    name: 'Literal authority',
+    baseDirectory: path.join(root, 'workspaces')
+  }, { confirmation: 'literal-authority' });
+  assert.equal(adopted.workspace.repositories[adopted.workspace.leadRepository].url, remote);
+  assert.equal(adopted.status.repositories[0].state, 'ready');
 });
 
 test('dirty-clone adoption requires a content-bound confirmation and never cleans the clone', async () => {
@@ -1157,6 +1306,172 @@ test('reopening an incomplete workspace resumes missing clones and refreshes its
   assert.ok(journal.operations.every((operation) => operation.completedAt));
 });
 
+test('reopening an incomplete workspace retains explicit clone-wave execution options', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-resume-options-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    }
+  });
+  await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  let calls = 0;
+  const cloneOperation = async () => {
+    calls += 1;
+    throw new Error('forwarded clone operation');
+  };
+
+  await assert.rejects(() => createWorkspace(input, {
+    confirmation: 'PAY-100', workers: 1, cloneOperation
+  }), /forwarded clone operation/);
+  assert.equal(calls, 1, 'resume delegates through the caller-selected bounded clone operation');
+});
+
+test('workspace repair stages independent repositories concurrently before any claim', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-repair-wave-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    },
+    mobile: {
+      url: path.join(root, 'mobile.git'), defaultBranch: 'main', required: true,
+      path: 'repos/mobile'
+    }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  let active = 0;
+  let maximumActive = 0;
+  let release;
+  const bothStarted = new Promise((resolve) => { release = resolve; });
+  const cloneOperation = async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    if (active === 2) release();
+    await bothStarted;
+    active -= 1;
+    return { status: 1, error: 'fixture unavailable' };
+  };
+  await assert.rejects(() => repairWorkspace(created.workspace.path, {
+    workers: 2, cloneOperation
+  }), /could not be repaired/);
+  assert.equal(maximumActive, 2,
+    'repair probes every independent repository in one bounded staging wave');
+  assert.deepEqual(await readdir(path.join(created.workspace.path, 'repos')), [],
+    'a failed wave claims no repository directory');
+});
+
+test('workspace repair stops when a required staged clone loses its final claim race', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-repair-claim-race-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    },
+    mobile: {
+      url: path.join(root, 'mobile.git'), defaultBranch: 'main', required: false,
+      path: 'repos/mobile'
+    }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  let staged = 0;
+  let optionalClaimed = false;
+  let optionalDiscarded = false;
+  const cloneOperation = async () => {
+    const index = staged++;
+    return {
+      status: 0,
+      error: null,
+      claim: async () => index === 0
+        ? { status: 1, error: 'target appeared before the atomic claim' }
+        : (optionalClaimed = true, { status: 0, error: null }),
+      discard: async () => {
+        if (index === 1) optionalDiscarded = true;
+        return { removed: true };
+      }
+    };
+  };
+
+  await assert.rejects(() => repairWorkspace(created.workspace.path, {
+    workers: 2, cloneOperation
+  }), /Required repository 'platform' could not be repaired: target appeared/);
+  assert.equal(optionalClaimed, false, 'later staged repositories are not claimed after a required failure');
+  assert.equal(optionalDiscarded, true, 'later owned staging is discarded after a required failure');
+});
+
+test('workspace repair discards every unclaimed staging directory when a claim callback throws', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-repair-claim-throw-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    },
+    mobile: {
+      url: path.join(root, 'mobile.git'), defaultBranch: 'main', required: false,
+      path: 'repos/mobile'
+    }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const discarded = [];
+  let staged = 0;
+  const cloneOperation = async () => {
+    const index = staged++;
+    return {
+      status: 0,
+      claim: async () => {
+        if (index === 0) throw new Error('claim callback exploded');
+        return { status: 0, error: null };
+      },
+      discard: async () => {
+        discarded.push(index);
+        return { removed: true };
+      }
+    };
+  };
+
+  await assert.rejects(() => repairWorkspace(created.workspace.path, {
+    workers: 2, cloneOperation
+  }), /claim callback exploded/);
+  assert.deepEqual(discarded.sort(), [0, 1],
+    'the throwing entry and every later private staging result are released');
+});
+
+test('workspace creation discards every unclaimed staging directory when finalization throws', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-create-claim-throw-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    },
+    mobile: {
+      url: path.join(root, 'mobile.git'), defaultBranch: 'main', required: false,
+      path: 'repos/mobile'
+    }
+  });
+  const discarded = [];
+  let staged = 0;
+  const cloneOperation = async () => {
+    const index = staged++;
+    return {
+      status: 0,
+      claim: async () => {
+        if (index === 0) throw new Error('create claim callback exploded');
+        return { status: 0, error: null };
+      },
+      discard: async () => {
+        discarded.push(index);
+        return { removed: true };
+      }
+    };
+  };
+
+  await assert.rejects(() => createWorkspace(input, {
+    confirmation: 'PAY-100', workers: 2, cloneOperation
+  }), /create claim callback exploded/);
+  assert.deepEqual(discarded.sort(), [0, 1],
+    'creation releases the entire still-private staging wave');
+});
+
 test('workspace recovery rejects a different repository materialization plan at the same target', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drift-'));
   const input = workspaceInput(path.join(root, 'workspaces'), {
@@ -1360,4 +1675,16 @@ test('workspace CLI can provision an approved offline clone plan outside a Git r
   assert.equal(status.status, 0, status.stderr);
   assert.match(status.stdout, new RegExp(`Lead repository: ${created.status.leadRepositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(status.stdout, /Lead repository: undefined/);
+  const aggregate = spawnSync(process.execPath, [
+    cli, 'workspace', 'status', created.workspace.path,
+    '--archive-readiness', '--no-fetch', '--json'
+  ], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry }
+  });
+  assert.equal(aggregate.status, 0, aggregate.stderr);
+  const aggregateStatus = JSON.parse(aggregate.stdout);
+  assert.equal(aggregateStatus.archiveReadiness.eligible, false);
+  assert.match(aggregateStatus.archiveReadiness.blockers[0], /missing/);
 });

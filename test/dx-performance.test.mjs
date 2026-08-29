@@ -267,17 +267,18 @@ test('the command that loads most of the codebase says so under module-load', ()
 });
 
 test('command timing events use the privacy-safe versioned envelope', () => {
-  const timer = commandTimer('status', { commandClass: 'read' });
+  const timer = commandTimer('status', { commandClass: 'read', operationId: 'story.status' });
   timer.stage('resolve');
   timer.increment('git.remote-fetch');
   timer.increment('git.remote-fetch', 2);
   const event = timer.finish({ outcome: 'cancelled', fallback: 'cached-snapshot' });
-  assert.equal(event.schemaVersion, 3);
+  assert.equal(event.schemaVersion, 4);
   assert.equal(event.event, 'dx.command-timing');
   assert.equal(event.commandClass, 'read');
   assert.equal(event.command, 'status');
   assert.equal(event.outcome, 'cancelled');
   assert.equal(event.fallback, 'cached-snapshot');
+  assert.equal(event.operationId, 'story.status');
   assert.equal(typeof event.stages.resolve, 'number');
   assert.deepEqual(event.counters, { 'git.remote-fetch': 3 });
   assert.ok(Date.parse(event.startedAt));

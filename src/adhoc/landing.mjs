@@ -480,7 +480,11 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
     publication: {
       branch: packet.publication.branch,
       remote: definition.git?.remote ?? 'origin',
-      mode: definition.git?.publish ?? 'required'
+      mode: definition.git?.publish ?? 'required',
+      expectedLocalHead: packet.publication.expectedHead,
+      ...((definition.git?.publish ?? 'required') !== 'off'
+        ? { expectedRemoteSha: packet.publication.expectedHead }
+        : {})
     },
     pendingRecord: ({ envelope }) => ({
       adhoc: { sessionId: session.sessionId, workId: packet.workId, packetSha256: packet.packetSha256 },

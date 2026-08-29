@@ -112,6 +112,10 @@ async function repository() {
 test('registered child branches publish hash-bound review packets and unknown branches require a parent Story', async () => {
   const { root, remote } = await repository();
   flow(root, ['start', 'MOB-123', '--from-branch', 'main', '--title', 'Build mobile login']);
+  assert.equal(git(root, [
+    '--git-dir', remote, 'show-ref', '--verify', '--quiet', 'refs/heads/feature/login-ui'
+  ], { allowFailure: true }).status, 1,
+    'the child publication starts from an exactly absent remote ref');
   flow(root, ['story', 'branch', 'create', 'feature/login-ui', '--parent', 'MOB-123']);
 
   const status = JSON.parse(flow(root, ['story', 'branch', 'status', '--parent', 'MOB-123', '--json']).stdout);

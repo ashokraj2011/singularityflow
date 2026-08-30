@@ -25,14 +25,27 @@ export function withoutComments(text) {
 }
 
 /**
- * `cli.mjs` plus every service under `src/commands/`, concatenated with a marker between them so a
+ * All command-layer modules, including internal modules nested below a root service. Keeping the
+ * traversal here prevents a service split from silently hiding command code from source guards.
+ */
+export async function commandModuleFiles(directory = 'commands') {
+  const entries = await readdir(path.join(SRC, directory), { withFileTypes: true });
+  const files = [];
+  for (const entry of entries.sort((left, right) =>
+    (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
+    const relative = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await commandModuleFiles(relative));
+    else if (entry.isFile() && entry.name.endsWith('.mjs')) files.push(relative);
+  }
+  return files;
+}
+
+/**
+ * `cli.mjs` plus every module under `src/commands/`, concatenated with a marker between them so a
  * slice taken between two function names cannot silently run past the end of one file into another.
  */
 export async function commandLayerSource({ comments = true } = {}) {
-  const files = ['cli.mjs', ...(await readdir(path.join(SRC, 'commands')))
-    .filter((name) => name.endsWith('.mjs'))
-    .sort()
-    .map((name) => path.join('commands', name))];
+  const files = ['cli.mjs', ...await commandModuleFiles()];
   const parts = [];
   for (const file of files) {
     const text = await readFile(path.join(SRC, file), 'utf8');

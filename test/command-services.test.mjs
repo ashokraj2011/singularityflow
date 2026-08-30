@@ -4,12 +4,19 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { commandLayerSource, withoutComments } from './helpers/command-source.mjs';
+import {
+  commandLayerSource, commandModuleFiles, withoutComments
+} from './helpers/command-source.mjs';
 
 const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 const services = async () => (await readdir(path.join(SRC, 'commands')))
   .filter((name) => name.endsWith('.mjs'))
   .map((name) => path.join(SRC, 'commands', name));
+const modules = async () => (await commandModuleFiles())
+  .map((name) => path.join(SRC, name));
+const helpers = async () => (await commandModuleFiles())
+  .filter((name) => path.dirname(name) !== 'commands')
+  .map((name) => path.join(SRC, name));
 
 /**
  * A module that uses `path.join` without importing `path` parses fine, passes every static guard,
@@ -20,14 +27,14 @@ const services = async () => (await readdir(path.join(SRC, 'commands')))
  * This caught the real thing — `story.mjs` shipped 14 uses of `path` and one of `YAML` with neither
  * imported, and only the end-to-end fixture noticed, on one branch out of seven.
  */
-test('every command service imports the default modules it uses', async () => {
+test('every command module imports the default modules it uses', async () => {
   const defaults = [
     { name: 'path', from: "'node:path'" },
     { name: 'os', from: "'node:os'" },
     { name: 'YAML', from: "'yaml'" },
     { name: 'readline', from: "'node:readline/promises'" }
   ];
-  for (const file of await services()) {
+  for (const file of await modules()) {
     const text = withoutComments(await readFile(file, 'utf8'));
     // Strip string and template literals before looking for uses: `'../fast-path.mjs'` contains
     // `path.` and is not a reference to the module. Imports go too, so declaring it never counts as
@@ -40,6 +47,26 @@ test('every command service imports the default modules it uses', async () => {
       assert.match(text, new RegExp(`^import ${name} from ${from};`, 'm'),
         `${path.basename(file)} uses ${name}. but never imports it`);
     }
+  }
+});
+
+/**
+ * A nested command module is an implementation detail of a root service, not another dispatcher
+ * entrypoint. It still has to be reached from one of those services or it is dead command code.
+ */
+test('every nested command helper is reached from a command service', async () => {
+  const roots = await Promise.all((await services()).map(async (file) => ({
+    file,
+    source: withoutComments(await readFile(file, 'utf8'))
+  })));
+  for (const helper of await helpers()) {
+    const reached = roots.some(({ file, source }) => {
+      const relative = path.relative(path.dirname(file), helper).split(path.sep).join('/');
+      const specifier = relative.startsWith('.') ? relative : `./${relative}`;
+      return source.includes(`from '${specifier}'`) || source.includes(`import('${specifier}')`);
+    });
+    assert.ok(reached,
+      `${path.relative(path.join(SRC, 'commands'), helper)} is reached from no command service`);
   }
 });
 

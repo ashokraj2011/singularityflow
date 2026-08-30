@@ -1,5 +1,5 @@
 /**
- * Explicit, model-free SGOS authoring commands.
+ * Internal, model-free SGOS authoring command handlers.
  *
  * Natural-language capture remains an Intent Envelope only. These commands accept reviewed JSON
  * declarations and turn them into exact confirmation packets, Intent/Workflow records, and a
@@ -9,8 +9,8 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 
-import { proposeConfigurationChange } from '../configuration-proposal.mjs';
-import { canonicalJson } from '../records.mjs';
+import { proposeConfigurationChange } from '../../configuration-proposal.mjs';
+import { canonicalJson } from '../../records.mjs';
 import {
   approveSgosProgramAuthority,
   createSgosIntentConfirmationPacket,
@@ -19,8 +19,8 @@ import {
   createSgosWorkflowCandidate,
   createSgosWorkflowRatification,
   createSgosWorkflowRatificationPacket
-} from '../sgos/authoring.mjs';
-import { optionString, SingularityFlowError, writeAtomic } from '../util.mjs';
+} from '../../sgos/authoring.mjs';
+import { optionString, SingularityFlowError, writeAtomic } from '../../util.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 

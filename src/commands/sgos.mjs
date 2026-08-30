@@ -35,7 +35,7 @@ import { SGOS_INSTALLED_LIMITS } from '../sgos/limits.mjs';
 import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
 import {
   runSgosIntentAuthoring, runSgosProgramAuthoring
-} from './sgos-authoring.mjs';
+} from './sgos/authoring.mjs';
 import {
   fsckSgosProcess, planSgosProcessQuarantine, quarantineSgosProcess,
   readSgosImmutableRecord, readSgosProgram

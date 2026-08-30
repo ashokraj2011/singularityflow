@@ -52,6 +52,7 @@ test('direct skills install as personal bare-command aliases and update only man
   const result = installDirectSkills({ sourceRoot, targetRoot });
   const sourceEntries = (await readdir(sourceRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.startsWith('sflow-'));
   assert.equal(result.installed.length, sourceEntries.length);
+  assert.ok(result.installed.includes('sf-auto'));
   assert.ok(result.installed.includes('sf-submit'));
   for (const entry of sourceEntries) {
     const directName = entry.name.replace(/^sflow-/, 'sf-');

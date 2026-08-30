@@ -92,6 +92,7 @@ skills:
   sflow-approvals: { class: echo }
   sflow-approve: { class: review }
   sflow-assign: { class: mutation }
+  sflow-auto: { class: interactive, kernelModelPolicy: conditional }
   sflow-cancel: { class: mutation }
   sflow-capabilities: { class: echo }
   sflow-capability-doctor: { class: echo }

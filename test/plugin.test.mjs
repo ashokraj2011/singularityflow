@@ -554,6 +554,8 @@ test('submission and approval reproduce exact artifacts outside collapsible Shel
 
 test('interactive lifecycle skills ask only for durable human choices', async () => {
   const start = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
+  assert.match(start, /workspace current --json/);
+  assert.doesNotMatch(start, /session current --json/);
   assert.match(start, /ask_user/, 'start must collect the human workflow choice interactively');
   assert.match(start, /write_bash/, 'start must answer the same interactive CLI process');
   assert.match(start, /Never infer or preselect/, 'start must prohibit model-selected workflow defaults');
@@ -561,6 +563,10 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.match(start, /Choose workflow template/);
   assert.doesNotMatch(start, /Choose governed agent/);
   assert.match(start, /phase-default governed agent/);
+  assert.match(start, /desiredOutcome/);
+  assert.match(start, /acceptanceCriteria/);
+  assert.doesNotMatch(start, /examples\/manual-story\.yml/);
+  assert.match(start, /Never search the workspace, home directory, filesystem root, or temporary directories/);
   const approve = await readFile(path.join(pluginRoot, 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(approve, /Ask the reviewer to type the exact phase ID/);
   assert.match(approve, /Do not supply, autocomplete, infer, or silently record it/);
@@ -571,6 +577,22 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   const resume = await readFile(path.join(pluginRoot, 'skills', 'sflow-resume', 'SKILL.md'), 'utf8');
   assert.match(resume, /activates the current phase's default governed agent automatically/);
   assert.doesNotMatch(resume, /ask_user/);
+});
+
+test('auto skill keeps planning storyless and requires exact human ratification', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-auto', 'SKILL.md'), 'utf8');
+  assert.match(content, /^name: sflow-auto$/m);
+  assert.match(content, /disable-model-invocation:\s*true/);
+  assert.match(content, /workspace current --json/);
+  assert.match(content, /no active Story is required/);
+  assert.doesNotMatch(content, /session current --json/);
+  assert.match(content, /singularity-flow auto plan/);
+  assert.match(content, /singularity-flow auto show-plan/);
+  assert.match(content, /singularity-flow auto start/);
+  assert.match(content, /complete Plan SHA-256/);
+  assert.match(content, /complete checkpoint SHA-256/);
+  assert.match(content, /type the exact flight ID as confirmation/);
+  assert.match(content, /Never invoke `auto flight-step` directly/);
 });
 
 test('start skill falls back to a one-time receipt when Copilot has no persistent stdin bridge', async () => {

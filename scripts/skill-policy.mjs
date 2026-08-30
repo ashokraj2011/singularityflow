@@ -31,7 +31,7 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
 });
 
 function executionBoundary(skillName = null) {
-  if (skillName === 'sflow-adhoc') {
+  if (['sflow-adhoc', 'sflow-auto', 'sflow-start'].includes(skillName)) {
     return '**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.';
   }
   if (skillName === 'sflow-capability-doctor') {

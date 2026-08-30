@@ -58,9 +58,7 @@ const entries = {
   goal: ['sf-goal'],
   journal: ['sf-journal'],
   push: ['sf-push'],
-  // AUT's requested public `/sflow-auto` alias remains gated on the product-wide namespace
-  // migration. Until then the CLI is documented through the existing governed Story-start skill.
-  auto: ['sf-start'],
+  auto: ['sf-auto'],
   adhoc: ['sf-adhoc'],
   land: ['sf-adhoc'],
   intent: ['sf-workflows'],

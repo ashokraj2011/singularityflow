@@ -10,7 +10,7 @@ related:
   - story-lifecycle
   - impact-framework
   - checkpoints-pause-continue
-version: 1
+version: 2
 ---
 Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan and—only after that hash is confirmed—creates an ordinary governed Story in a managed isolated worktree. It is repository policy, not a way around lifecycle policy.
 
@@ -18,13 +18,13 @@ Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan 
 
 The shipped workflow keeps `auto.enabled: false`, and every work type defaults to `auto.eligibility: disabled`. An administrator must enable the repository root and mark each intended work type `plan-only` or `bounded`. Capability policy can only tighten that answer. `plan-only` permits reviewable Plans but not starts; `bounded` permits starts within the effective ceilings.
 
-The thin pilot requires one repository, a published base branch, a configured allowed execution host, and a bounded quick-fix or chore workflow whose first phase can publish and submit normally. The requested public `/sflow-auto` skill is intentionally not shipped until the product-wide `/sflow-*` namespace migration is approved.
+The thin pilot requires one repository, a published base branch, a configured allowed execution host, and a bounded quick-fix or chore workflow whose first phase can publish and submit normally. The public `/sf-auto` skill guides the same exact-hash protocol without changing its authority boundaries.
 
 ## Use it from each surface
 
 **Shell:** Run `singularity-flow auto plan "<requirement>" --work-type <type> --from-branch <branch>`, review the complete card, then copy its exact `auto start --confirm` command.
 
-**Copilot:** Ask Copilot to run the same explicit two-command sequence in the selected workspace terminal and relay the structured result. Do not ask it to guess or pre-fill the Plan hash. The existing `/sf-start` skill remains the guided manual Story route; there is no public Auto skill in this pilot.
+**Copilot:** Run `/sf-auto plan <requirement>`, review the complete card, then run `/sf-auto start <PLAN-ID>`. The skill requires you to type the complete Plan hash and never extracts or pre-fills it. `/sf-start` remains the guided manual Story route.
 
 **VS Code:** Open the integrated terminal in the governed repository and use the same explicit commands. Auto results use the shared command-result envelope, so result cards and errors remain structured. A dedicated Auto Plan/flight panel is a later V1 increment.
 
@@ -45,7 +45,7 @@ Plans, authorizations, flight checkpoints, and reports are private mode-0600 rec
 
 Auto never approves or rejects, answers clarification, waives policy, changes sequence, expands scope, merges, deploys, or retries a failed authoring attempt. The authoring host receives only the closed file read/search/edit/create tool set—never a terminal or generic command tool—while tests and lifecycle mutations stay in registered kernel operations. Each phase gets at most one autonomous authoring attempt. Protected-path contact, actual scope expansion, unavailable required token assurance, a stale base or policy, host failure, gate failure, or publication failure halts and retains the managed worktree. The deterministic report distinguishes predicted and observed scope and marks token/cost assurance as exact or unavailable.
 
-The pilot deliberately stops short of multi-repository flights, Goal coordination, interval/background resume, interactive shorthand, a dedicated VS Code panel, and the public Copilot skill. Use the explicit `auto plan` and `auto start --confirm` sequence in every host.
+The pilot deliberately stops short of multi-repository flights, Goal coordination, interval/background resume, interactive CLI shorthand, and a dedicated VS Code panel. `/sf-auto` is a guarded Copilot guide over the same explicit `auto plan` and `auto start --confirm` commands; it adds no autonomous authority.
 
 ## Troubleshooting
 

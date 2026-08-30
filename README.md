@@ -2495,6 +2495,7 @@ commands are:
 ```text
 /sf-about
 /sf-start ENG-142 --title "Add invoice export"
+/sf-auto plan "Add bounded retry telemetry"
 /sf-agent
 /sf-phase
 /sf-progress

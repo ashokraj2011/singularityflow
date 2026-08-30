@@ -24,7 +24,8 @@ It provides:
 
 - versioned, content-addressed contracts for intent, policy, workflow, ratification, programs,
   process bindings, processes, attempts, receipts, human requests, evidence, and UI projections;
-- model-free compiler profile v2 with a closed opcode vocabulary and deterministic output;
+- model-free compiler profile v3 with a closed opcode vocabulary, deterministic output, and an
+  exact Capability Pack authority digest;
 - compile-time refusal of unbounded work, cycles, orphan tasks, unmapped confirmed clauses,
   missing evidence, ungoverned judgment, unsafe overlapping writes, and consequential external
   effects without recovery;
@@ -36,6 +37,9 @@ It provides:
 - execution admission that requires an exact Program approval loaded from `sflow/config` (or its
   verified state mirror); deterministic recompilation can corroborate it, but a Program self-hash,
   caller-supplied digest, or compiler inputs alone are never authority;
+- explicit versioned built-in-core Pack authority for compatibility, plus one signed declarative
+  domain-Pack path that binds the exact reviewed activation, publisher, repository identity, and
+  operation allowlist at compile time and revalidates them before every execution mutation;
 - reviewed, read-only CLI adapters for exact Story inspection and repository-clean verification;
 - machine-local operational checkpoints under the repository Git common directory, protected by
   subject locks, expected revisions, atomic replacement, and content hashes;
@@ -73,7 +77,11 @@ The same build also contains separately bounded extension profiles:
 - pure-suffix replay and genesis-only fork commands; replay preserves immutable attempt/receipt
   history and refuses repeated writes, Devices, and external effects;
 - an experimental filesystem Authority Store, typed memory promotion, signed/revocable declarative
-  Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review packets. Every
+  Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review, activation,
+  observation, revocation, and rollback authority. A meta-tool activation binds the exact candidate,
+  independent signed evaluation, promotion, approved Pack/Device operation version and manifest,
+  and a bounded observation policy. Runtime lookup revalidates that complete lineage and refuses a
+  revoked, superseded, or stale selection. Every
   Pack, memory, and meta-tool mutation derives its actor from the repository Git identity, proves
   membership in the operation's group from refreshed approved configuration, and binds that exact
   configuration commit and group digest into the Authority Store event. Caller-supplied actor and
@@ -86,19 +94,24 @@ installed limits and refusal behavior are part of the product contract.
 
 The default platform mutation policy assigns proposals and registrations to
 `engineering-reviewers`, signed evaluation recording to `quality-reviewers`, and review,
-promotion, activation, and revocation to `architecture-reviewers`. An organization may replace an
+promotion, activation, revocation, and rollback to `architecture-reviewers`; observation recording
+defaults to `quality-reviewers`. An organization may replace an
 operation's group under `sgos.platformAuthorities` in approved `workflow.yml`; a working-tree edit
 cannot change the decision.
 
 ## Safety boundary
 
-The GVM admits only two adapter identities: the exact registry-pinned
-`deterministic-translator` Execution Unit and the exact registry-pinned `filesystem-read` Device.
+The GVM admits only the reviewed registry-pinned adapter identities, including the
+`deterministic-translator` Execution Unit, the proposal-only `copilot-cli` Execution Unit, the
+read-only `filesystem-read` Device, and the fixture-only consequential `sandbox-cas` Device.
 The translator has no model, tools, repository scope, subagents, or effects. The Device accepts
 only `read-file` or `stat` inside its compiled canonical read scope, refuses links and path escape,
-and must produce a verified effect-free Tool Result. Dotted task operation IDs remain separate from
-the kebab-case adapter IDs; the Program and registry bind both. Model-backed `AGENT`, mutating or
-uninstalled `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel execution, and join
+and must produce a verified effect-free Tool Result. `sandbox-cas` can publish only one absent-state
+compare-and-swap value under Git-common SGOS fixture storage when its compiled write and effect scope
+exactly match; it records Tool Intent first and verifies recovery without replay. Dotted task
+operation IDs remain separate from
+the kebab-case adapter IDs; the Program and registry bind both. Unreviewed model-backed `AGENT`, any
+other consequential or uninstalled `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel execution, and join
 policies other than `all-success` and `all-terminal` still fail closed.
 
 The runtime API also requires separately registered kernel handlers, Candidate Snapshot capture,
@@ -169,7 +182,7 @@ with `process quarantine`; listing never repairs, migrates, or silently hides it
 
 ### Runtime API compatibility
 
-This hardened profile is an intentional SGOS contract boundary change: compiler output is v2 and
+This hardened profile is an intentional SGOS contract boundary change: compiler output is v3 and
 mutable Process state is schema v3, rooted in an immutable predecessor-keyed control lineage.
 Unshipped/interrupted-development v2 state requires the internal exact-hash upgrade path; ordinary
 reads never rewrite it, and shipped v1 state remains quarantine-only because its authority cannot
@@ -225,6 +238,15 @@ the installed fork profile can create an independent Process only from genesis. 
 checkpoint-payload restoration and non-genesis prefix import remain unavailable. A tampered
 checkpoint, changed Program, changed policy, stale request, or lost revision is refused.
 
+That non-genesis refusal is a proof boundary, not a missing convenience flag. The current
+checkpoint contract records task states and ready IDs, but not the exact prefix receipt/output
+projection, attempt and Action Evidence lineage, reconciled effect/idempotency receipts, or the
+complete event-cursor, budget, and child-Process lineage needed to reconstruct authority after
+runtime-store loss. `process fork --from <NON-GENESIS-CHECKPOINT>` therefore reports
+`SGOS_FORK_PREFIX_EVIDENCE_INCOMPLETE` and names those missing proofs. It never infers records from
+state labels. A portable Process Evidence bundle or a future richer boundary-checkpoint contract is
+required before prefix import can be enabled safely.
+
 Replay clears the suffix tasks' current receipt/output projection while retaining every immutable
 historical attempt and receipt for audit; old outputs cannot appear current until a new successful
 attempt publishes them. An `all-terminal` join records failed predecessors as terminal without
@@ -232,6 +254,15 @@ borrowing their historical success receipt or outputs. Fork first writes an immu
 intent and creates one deterministic child genesis bound to the parent's immutable Process Binding;
 repeating confirmation recovers the same receipt even if the child has since progressed, while
 lineage fsck reports orphaned, corrupt, or incomplete fork records.
+
+An ordinary failed task can be retried only while its Program still has an unused attempt and its
+recovery policy explicitly says `retry-safe`. `task retry` first writes a content-addressed preview
+bound to the exact Process revision, Program, policy, Binding, checkpoint, failed attempt, and failed
+Action Evidence. Confirmation dispatches only that task through the normal Process CAS; the new
+attempt names the failed attempt as its immutable parent. Pure work and installed read-only Devices
+are supported. Writable, external-effect, and consequential Device retries remain refused: even a
+verified consequential effect is a reconciliation fact, not permission to mint a different Tool
+Intent.
 
 `process stop <PROCESS-ID>` is distinct from an idle `process pause`. Stop may win while an attempt
 is active: it durably records `paused`, requests adapter cancellation, and returns
@@ -266,30 +297,70 @@ When a Program declares a Human Request role matching an approved `approvalAutho
 they intentionally do not pin the identity that started the Process. Dirty or
 application-branch-only protected configuration is refused, so a local self-add cannot grant
 authority. `request respond` observes the repository's current Git identity, re-derives that
-person's membership from the pinned approved group, and never accepts authority supplied by a flag.
+person's membership from the pinned approved group, requires the exact reviewed Process revision
+and Process digest as compare-and-swap inputs, and never accepts authority supplied by a flag.
 This lets another currently authorized reviewer complete a handoff without inheriting the starter's
 identity or weakening the approved authority definition.
 Use `task show` for the compiled template and attempt/receipt lineage, and `task evidence` for exact
 candidate, Action Evidence, Human Response, and unresolved external-reference status.
+
+## Simulation and outcome evaluation
+
+`program simulate`, `program what-if`, and `program fault-plan` are deterministic, model-free reads
+of immutable Program bytes. They classify every claim, report unknown live-system facts as unknown,
+and never start a Process or inject a fault. See [SGOS-SIMULATION.md](SGOS-SIMULATION.md).
+
+The public SGOS API also provides strict two-arm outcome evaluation across the closed v1 metric and
+classification vocabularies. It refuses employee ranking and prompt export, and its OpenTelemetry
+projection is content-free and returned locally without transport. See
+[SGOS-AGENTIC-EVALUATION.md](SGOS-AGENTIC-EVALUATION.md).
+
+## Bounded guided learning
+
+The installed `learn` surface now supports role- and Pack-filtered lesson discovery plus strict,
+digest-bound guided mission descriptors. A mission can explain its objectives, steps, evidence,
+failure/recovery drills and declared non-effects, then evaluate exact quizzes or deterministic
+teach-back concept presence. The lesson must still come from a signed active Pack and the module's
+self-hash must equal that lesson's content digest. No fixture is materialized or executed; no model,
+tool, Device, Git write, Process transition, employee score, certification, or durable progress is
+created. See `singularity-flow learn --help` and the SGOS governed-execution topic.
+
+## Governed meta-tool activation
+
+The platform API deliberately separates finding a recurring pattern from deploying it. Verified
+accepted traces create a candidate, an independent signed evaluator supplies security, quality and
+cost results, and a different approved reviewer promotes the exact candidate/evaluation pair. Only
+that retained promotion can activate an exact, already approved Pack or Device operation.
+
+Activation does not execute the operation. It creates a versioned Authority Store selection with a
+bounded observation policy. Observations append outcome evidence only and cannot contain an approval
+decision. Revocation removes a current selection immediately. Rollback is confirmation- and
+CAS-bound and may select only an existing, nonrevoked activation whose complete approval and target
+authority still validate; historical observations and activations are retained. The low-level API
+is available from `src/sgos/platform/meta-tools.mjs`; a public CLI for these additional transitions
+remains staged so callers cannot mistake a convenience command for a second authority path.
 
 ## What remains staged
 
 The following larger SGOS capabilities remain behind explicit refusal boundaries until their
 conformance suites exist:
 
-- model-backed or tool-bearing `AGENT` execution, mutating Devices, arbitrary third-party adapters,
-  and their complete independent conformance/counterfeit-model programs;
+- model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
+  mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their
+  complete independent conformance/counterfeit-model programs;
 - dynamic or nested fan-out, quorum/reducer/manual-reconcile joins, general idempotent effect replay,
-  non-genesis fork import, and arbitrary task retry;
+  non-genesis fork import, and consequential-effect task retry;
 - Candidate execution as the universal publication path for every existing lifecycle;
-- working-set memory composition inside Process checkpoints, secret-broker execution integration,
-  garbage-collection plans, and portable Authority Store migration/cutover;
+- automatic working-set injection into live Agent executions, Secret Broker integration with real
+  external adapters, garbage-collection plans, and portable Authority Store migration/cutover;
 - a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
   remains explicitly experimental;
-- Capability Pack consumption by the compiler/runtime, full guided learning missions, governed
-  meta-tool activation/rollback, and multi-domain proof packs;
-- fresh-authority trace-to-evidence reconstruction, assurance-classified simulation, OpenTelemetry
-  export, and measured semantic read-model latency targets;
+- portable Capability Pack Authority Store transport, executable/disposable tutorial environments,
+  portable learning progress and certification, a public meta-tool activation/rollback CLI, and
+  multi-domain proof packs; signed declarative compilation in
+  this release requires the exact machine-local store to be reconstructed and verified;
+- fresh-authority trace-to-evidence reconstruction, external telemetry transport beyond the
+  content-free read-only OpenTelemetry projection, and measured semantic read-model latency targets;
 - full software-conversion and hypothesis-analysis end-to-end proofs, the supported OS/Node matrix,
   and an exact signed release receipt for this change.
 

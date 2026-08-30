@@ -2874,13 +2874,13 @@ singularity-flow nextsteps [WORK-ID] [--json]
 singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
 singularity-flow action authorize <PLAN-ID> [--action ACTION-ID] --confirm ACTION-ID [--channel terminal|vscode] [--json]
 singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
-singularity-flow intent capture|show|validate|compile ...
-singularity-flow program show|validate|explain|simulate <PROGRAM.json> [--json]
+singularity-flow intent capture|packet|confirm|workflow|ratification-packet|ratify|show|validate|compile ...
+singularity-flow program show|validate|explain|simulate|what-if|fault-plan|approve ...
 # Before start, review the exact Program authority record under
 # singularity/sgos/program-authorities/<PROGRAM-SHA256-WITHOUT-PREFIX>.json on sflow/config.
 singularity-flow process start <PROGRAM.json> [--compiler-request <COMPILER-REQUEST.json>]
   [--subject ID] [--subject-kind story|repository] [--json]
-singularity-flow process status|graph|step|pause|resume|recover ...
+singularity-flow process list|status|graph|fsck|step|run|pause|stop|resume|recover|replay|fork ...
 singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
   --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
 singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
@@ -2890,18 +2890,25 @@ singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--js
 # leftovers remain digest-bound opaque bytes and are never parsed. Process listing keeps healthy
 # peers visible while returning refused private Processes as explicit unavailable diagnostics.
 # `process archive` remains a compatibility alias that returns quarantine-labelled output.
-singularity-flow task list|show|evidence <PROCESS-ID> [TASK-ID] [--json]
+singularity-flow policy status|fsck|plan|apply ...
+singularity-flow task list|show|evidence|retry <PROCESS-ID> [TASK-ID] [--json]
+singularity-flow evidence export <PROCESS-ID> --out <REPOSITORY-FILE> [--json]
+singularity-flow evidence verify <FILE> [--json]
 singularity-flow request list|show [REQUEST-ID] [--process PROCESS-ID] [--json]
 singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
   (--decision approved|rejected|provided|cancelled | --option <DECLARED-OPTION-ID>)
   [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
-  --confirm <REQUEST-SHA256> [--json]
+  --confirm <REQUEST-SHA256> --expected-revision <PROCESS-REVISION>
+  --expected-process-sha256 <PROCESS-SHA256> [--json]
 singularity-flow candidate list|show|freeze|verify|publish|diff-argv ...
 singularity-flow execution-unit list|doctor [UNIT-ID] [--json]
 singularity-flow device list|doctor|invoke|recover|intent|result|revoke ...
 singularity-flow authority-store init|status|verify|recover [--store ID] [--json]
-singularity-flow pack list|active|show|propose|review|activate|revoke ...
-singularity-flow learn list|show [LESSON-ID] [--json]
+singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust PUBLIC-TRUST.json
+singularity-flow learn list|show [LESSON-ID] --role ROLE [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
+singularity-flow learn start|inspect LESSON-ID --role ROLE --module LEARNING-MODULE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
+singularity-flow learn explain-change LESSON-ID STEP-ID --role ROLE --module LEARNING-MODULE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
+singularity-flow learn quiz|teach-back LESSON-ID CHECK-ID --role ROLE --module LEARNING-MODULE.json --answers ANSWER.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
 singularity-flow memory inspect|dependencies|register|promote ...
 singularity-flow meta-tool list|propose|evaluation|promote ...
 singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]

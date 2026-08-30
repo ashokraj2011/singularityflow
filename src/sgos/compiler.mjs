@@ -21,9 +21,15 @@ import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import {
   normalizeSgosFanout, sgosFanoutChildTemplateId
 } from './fanout.mjs';
+import {
+  assertSgosCapabilityPackOperations, capabilityPackAuthoritiesForCompilation,
+  loadApprovedSgosCapabilityPackAuthority, sgosCapabilityPackAuthoritiesSha256,
+  sgosCapabilityPackRepositoryBinding
+} from './capability-pack-authority.mjs';
+import { simulateSgosProgramAssurance } from './simulation.mjs';
 
 export const SGOS_COMPILER_ID = 'sflow-gvm-compiler';
-export const SGOS_COMPILER_VERSION = '2';
+export const SGOS_COMPILER_VERSION = '3';
 
 export const GVM_OPCODES = CONTRACT_GVM_OPCODES;
 
@@ -210,6 +216,7 @@ function normalizeRequest(request) {
       pins.storage,
       workflow?.storageProfileSha256
     ),
+    capabilityPackAuthority: request.capabilityPackAuthority ?? null,
     intentWorkflowMap: request.intentWorkflowMap ?? null
   };
 }
@@ -259,6 +266,24 @@ function assertRatificationBindings(ratification, expected) {
         field, expected: expected[field], received
       });
     }
+  }
+}
+
+function assertRequestCoverageWasRatified(request, workflow, ratification) {
+  if (request.intentWorkflowMap == null) return;
+  const supplied = canonicalJson(request.intentWorkflowMap);
+  const ratifiedSources = [
+    ratification.intentWorkflowMap,
+    ratification.coverage,
+    workflow.intentWorkflowMap,
+    workflow.coverage,
+    workflow.spec?.intentWorkflowMap,
+    workflow.spec?.coverage
+  ].filter(plainObject);
+  if (!ratifiedSources.some((value) => canonicalJson(value) === supplied)) {
+    fail('SGOS_UNRATIFIED_COVERAGE',
+      'Compiler-request Intent-to-Workflow coverage must exactly duplicate coverage already bound by the Workflow or ratification.',
+      { supplied: request.intentWorkflowMap });
   }
 }
 
@@ -526,6 +551,15 @@ function validateRegistrySnapshot(snapshotValue, pinnedSha256) {
     });
   }
   return { snapshot, catalog };
+}
+
+/** Validate actual registry-snapshot bytes, including their canonical self digest. */
+export function validateSgosRegistrySnapshot(snapshotValue) {
+  const pinnedSha256 = requireDigest(
+    snapshotValue?.registrySnapshotSha256,
+    'registrySnapshot.registrySnapshotSha256'
+  );
+  return deepFreeze(validateRegistrySnapshot(snapshotValue, pinnedSha256).snapshot);
 }
 
 function registryCatalog(snapshot) {
@@ -1141,6 +1175,52 @@ function assertTerminalReachability(templates, graph) {
   return ends;
 }
 
+function verificationOperationId(task) {
+  const verification = task.metadata?.verification;
+  if (typeof verification === 'string') return verification;
+  if (typeof verification?.operation === 'string') return verification.operation;
+  if (typeof verification?.operation?.id === 'string') return verification.operation.id;
+  return verification?.operationId == null ? null : String(verification.operationId);
+}
+
+function assertCopilotProposalGates(templates, graph) {
+  const byId = new Map(templates.map((task) => [task.taskTemplateId, task]));
+  for (const proposal of templates.filter((task) =>
+    task.opcode === 'AGENT' && task.metadata?.executionUnitId === 'copilot-cli')) {
+    const resources = proposal.resources ?? {};
+    if (['reads', 'writes', 'devices', 'externalEffects']
+      .some((field) => (resources[field]?.length ?? 0) !== 0)) {
+      fail('SGOS_COPILOT_PROPOSAL_SCOPE_UNSUPPORTED',
+        `Copilot proposal task '${proposal.taskTemplateId}' cannot receive repository, Device, or effect scope.`, {
+          taskId: proposal.taskTemplateId
+        });
+    }
+    const successors = graph.forward.get(proposal.taskTemplateId) ?? [];
+    const gates = successors.map((taskId) => byId.get(taskId));
+    if (!gates.length || gates.some((gate) => gate?.opcode !== 'VERIFY')) {
+      fail('SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED',
+        `Copilot proposal task '${proposal.taskTemplateId}' must flow directly and exclusively through explicit VERIFY gates.`, {
+          taskId: proposal.taskTemplateId, successorTaskIds: successors
+        });
+    }
+    for (const gate of gates) {
+      const verifier = verificationOperationId(gate);
+      if (gate.material !== true || !gate.operation || !verifier
+          || gate.operation === proposal.operation
+          || verifier === proposal.operation || verifier === gate.operation) {
+        fail('SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED',
+          `VERIFY gate '${gate.taskTemplateId}' is not explicitly independent from Copilot proposal '${proposal.taskTemplateId}'.`, {
+            taskId: proposal.taskTemplateId,
+            verifyTaskId: gate.taskTemplateId,
+            proposalOperation: proposal.operation ?? null,
+            verifyOperation: gate.operation ?? null,
+            verifierOperation: verifier
+          });
+      }
+    }
+  }
+}
+
 function normalizedResourcePrefix(value) {
   const key = resourceKey(value).replace(/\\/g, '/').replace(/\/(?:\*\*|\*)$/, '').replace(/\/$/, '');
   return key;
@@ -1240,13 +1320,12 @@ function normalizeMappingEntry(value, knownTaskIds, fallbackKind = null) {
   return { kind: String(kind ?? 'unknown'), targetId: targetId == null ? null : String(targetId), raw: clone(value) };
 }
 
-function collectCoverageMaps(request, workflow, ratification, templates, clauses) {
+function collectCoverageMaps(workflow, ratification, templates, clauses) {
   const knownTaskIds = new Set(templates.map((task) => task.taskTemplateId));
   const knownClauseIds = new Set(clauses.map((clause) => clause.clauseId));
   const byClause = new Map(clauses.map((clause) => [clause.clauseId, []]));
   const byTask = new Map(templates.map((task) => [task.taskTemplateId, []]));
   const sources = [
-    request.intentWorkflowMap,
     ratification.intentWorkflowMap,
     ratification.coverage,
     workflow.intentWorkflowMap,
@@ -1399,8 +1478,7 @@ function validateProgramForRead(programValue) {
   return { program, graph };
 }
 
-/** Compile a confirmed Intent IR and ratified Workflow IR into one stable GVM Program. */
-export function compileSgosProgram(requestValue) {
+function compileSgosProgramInternal(requestValue, { repositoryBindingSha256 = null } = {}) {
   const normalized = normalizeRequest(requestValue);
   const request = {
     ...normalized,
@@ -1415,6 +1493,11 @@ export function compileSgosProgram(requestValue) {
       'Workflow ratification', 'SGOS_RATIFICATION_CONTRACT_INVALID'
     )
   };
+  const capabilityPackAuthorities = capabilityPackAuthoritiesForCompilation(
+    request.workflow,
+    normalized.capabilityPackAuthority,
+    { repositoryBindingSha256 }
+  );
 
   const policySnapshotSha256 = requireDigest(request.policySnapshotSha256, 'policySnapshotSha256');
   const registrySnapshotSha256 = requireDigest(request.registrySnapshotSha256, 'registrySnapshotSha256');
@@ -1433,6 +1516,14 @@ export function compileSgosProgram(requestValue) {
       expected: policySnapshotSha256, received: request.workflow.policySnapshotSha256
     });
   }
+  const workflowStorageProfileSha256 = request.workflow.spec?.storageRequirements?.profileSha256;
+  if (workflowStorageProfileSha256 !== storageProfileSha256) {
+    fail('SGOS_WORKFLOW_STORAGE_MISMATCH',
+      'Workflow IR is not bound to the pinned storage profile.', {
+        expected: storageProfileSha256,
+        received: workflowStorageProfileSha256 ?? null
+      });
+  }
   assertRatificationBindings(request.ratification, {
     intentIrSha256,
     workflowSha256,
@@ -1440,6 +1531,7 @@ export function compileSgosProgram(requestValue) {
     registrySnapshotSha256,
     storageProfileSha256
   });
+  assertRequestCoverageWasRatified(request, request.workflow, request.ratification);
   const ratificationSha256 = recordDigest(request.ratification, 'ratificationSha256', 'Workflow ratification');
   const clauses = extractConfirmedClauses(request.intentIr);
   const entries = expandedTaskEntries(request.workflow);
@@ -1456,6 +1548,7 @@ export function compileSgosProgram(requestValue) {
   const edges = buildEdges(request.workflow, templates);
   const graph = graphFacts(templates, edges);
   const terminalTaskIds = assertTerminalReachability(templates, graph);
+  assertCopilotProposalGates(templates, graph);
   assertParallelSafety(templates, graph);
 
   const predecessors = new Map(templates.map((task) => [task.taskTemplateId, []]));
@@ -1464,7 +1557,7 @@ export function compileSgosProgram(requestValue) {
     task.dependsOn = sortedUniqueStrings(predecessors.get(task.taskTemplateId));
   }
 
-  const coverage = collectCoverageMaps(request, request.workflow, request.ratification, templates, clauses);
+  const coverage = collectCoverageMaps(request.workflow, request.ratification, templates, clauses);
   assertCoverage(clauses, templates, coverage);
 
   const joins = joinsForProgram(request.workflow, templates);
@@ -1476,6 +1569,7 @@ export function compileSgosProgram(requestValue) {
   }
   const recoveryPolicy = clone(request.workflow.spec?.recovery ?? {});
   const budgets = clone(request.workflow.spec?.budgets ?? {});
+  assertSgosCapabilityPackOperations({ taskTemplates: templates }, capabilityPackAuthorities);
 
   const programSeed = {
     kind: 'gvm-program',
@@ -1491,11 +1585,62 @@ export function compileSgosProgram(requestValue) {
     budgets,
     recoveryPolicy,
     terminalConditions: terminalConditions.sort(canonicalCompare),
-    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
+    compiler: {
+      id: SGOS_COMPILER_ID,
+      version: SGOS_COMPILER_VERSION,
+      sourceSha256: sgosCapabilityPackAuthoritiesSha256(capabilityPackAuthorities)
+    }
   };
   const program = createGvmProgram(programSeed);
   const explanation = compilerExplanation(program, graph);
-  return deepFreeze({ program, explanation, diagnostics: Object.freeze([]) });
+  return deepFreeze({
+    program,
+    capabilityPackAuthorities,
+    explanation,
+    diagnostics: Object.freeze([])
+  });
+}
+
+/** Compile a confirmed core Intent/Workflow or a preverified internal Pack selection. */
+export function compileSgosProgram(requestValue) {
+  return compileSgosProgramInternal(requestValue);
+}
+
+/**
+ * Canonical signed-Pack compile entry point. It loads current authority and binds compilation to
+ * this repository; callers cannot substitute a serialized or cross-repository selection object.
+ */
+export async function compileSgosProgramWithApprovedCapabilityPack(root, requestValue, {
+  refreshAuthority = true
+} = {}) {
+  const workflow = requestValue?.workflow ?? requestValue?.workflowIr;
+  const capabilityPackAuthority = await loadApprovedSgosCapabilityPackAuthority(root, workflow, {
+    refreshAuthority
+  });
+  const repositoryBindingSha256 = capabilityPackAuthority.kind === 'signed-declarative'
+    ? await sgosCapabilityPackRepositoryBinding(root)
+    : null;
+  return compileSgosProgramInternal({ ...requestValue, capabilityPackAuthority }, {
+    repositoryBindingSha256
+  });
+}
+
+/**
+ * Recompile from the exact Pack selection freshly revalidated by program-trust. This is not a
+ * caller-asserted authority path: signed selections still have to carry the non-serializable
+ * loader provenance checked by `capabilityPackAuthoritiesForCompilation`.
+ */
+export function recompileSgosProgramWithVerifiedCapabilityPack(requestValue, verificationReceipt) {
+  if (!verificationReceipt || typeof verificationReceipt !== 'object') {
+    fail('SGOS_CAPABILITY_PACK_AUTHORITY_REQUIRED',
+      'Deterministic Pack recompilation requires a fresh verified authority receipt.');
+  }
+  return compileSgosProgramInternal({
+    ...requestValue,
+    capabilityPackAuthority: verificationReceipt.capabilityPackAuthority
+  }, {
+    repositoryBindingSha256: verificationReceipt.repositoryBindingSha256 ?? null
+  });
 }
 
 /** Render deterministic compiler reasoning from an already compiled Program or compile request. */
@@ -1512,34 +1657,10 @@ export function explainSgosProgram(value) {
  * it only computes deterministic readiness waves for the finite dependency graph.
  */
 export function simulateSgosProgram(value) {
-  const { program, graph } = validateProgramForRead(value);
-  const remaining = new Set(graph.ids);
-  const completed = new Set();
-  const waves = [];
-  while (remaining.size) {
-    const ready = [...remaining].filter((id) =>
-      (graph.reverse.get(id) ?? []).every((predecessor) => completed.has(predecessor)))
-      .sort(codePointCompare);
-    if (!ready.length) fail('SGOS_GRAPH_CYCLE', 'Program simulation cannot make deterministic progress.');
-    waves.push(ready);
-    for (const id of ready) {
-      remaining.delete(id);
-      completed.add(id);
-    }
-  }
-  const taskById = new Map(program.taskTemplates.map((task) => [task.taskTemplateId, task]));
-  return deepFreeze({
-    kind: 'gvm-program-simulation',
-    programId: program.programId,
-    programSha256: program.programSha256,
-    bounded: true,
-    waves,
-    topologicalOrder: waves.flat(),
-    maximumReadyWidth: Math.max(...waves.map((wave) => wave.length)),
-    terminalTaskIds: program.taskTemplates.filter((task) => task.opcode === 'END')
-      .map((task) => task.taskTemplateId).sort(codePointCompare),
-    receiptRequiredTaskIds: graph.order.filter((id) => taskById.has(id))
-  });
+  // Keep the original scheduling fields while adding the assurance-classified, strictly
+  // read-only SGOS v1 simulation report. The simulator imports no runtime/adapter/Device code.
+  const { program } = validateProgramForRead(value);
+  return simulateSgosProgramAssurance(program);
 }
 
 // Short aliases make the surface convenient while preserving explicit SGOS names.

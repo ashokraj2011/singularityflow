@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  candidateManifestSha256, createActionEvidence, createCandidateSnapshot,
+  candidateManifestSha256, createActionEvidence, createAgentProposal, createCandidateSnapshot,
   createGvmCheckpoint, createGvmProcess, createGvmProgram, createGvmTaskAttempt,
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
@@ -13,6 +13,7 @@ import {
   createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
+  SGOS_RECORD_INDEX_FAMILIES,
   createWorkflowRatification, createWorkObject, policyComponentSha256, recordSelfSha256,
   sgosContractFamilies, sha256, validateCandidateSnapshot, validatePolicySnapshot,
   validateProcessBinding, validateSgosRecord, validateSgosRecordIndex,
@@ -68,7 +69,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 24);
+  assert.equal(sgosContractFamilies().length, 25);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3
@@ -161,6 +162,16 @@ test('the umbrella JSON Schema covers every closed SGOS record vocabulary', asyn
     SGOS_INSTALLED_LIMITS.maximumProcessRecords);
   assert.equal(schema.$defs.sgosRecordIndex.properties.totalBytes.maximum,
     SGOS_INSTALLED_LIMITS.maximumProcessRecordBytes);
+  assert.deepEqual(
+    [...schema.$defs.sgosRecordIndexDelta.properties.family.enum].sort(),
+    [...SGOS_RECORD_INDEX_FAMILIES].sort(),
+    'the portable schema must accept every record family emitted by the runtime index'
+  );
+  assert.deepEqual(
+    Object.keys(schema.$defs.sgosRecordIndexFamilyCounts.properties).sort(),
+    [...SGOS_RECORD_INDEX_FAMILIES].sort(),
+    'the portable schema must accept cumulative counts for every runtime record family'
+  );
   assert.deepEqual(schema.$defs.processAuthorityBinding.properties.kind.enum, ['story', 'repository']);
   assert.deepEqual(schema.$defs.processAuthorityBinding.oneOf.map((branch) => ({
     kind: branch.properties.kind.const,
@@ -384,6 +395,33 @@ test('policy snapshots pin every component, have deterministic IDs, and reject u
   assert.throws(() => createPolicySnapshot({ ...policyInput(), hiddenRelaxation: true }), /unknown field/);
   assert.throws(() => validatePolicySnapshot({ ...first, lawSha256: d('tamper') }), /does not match/);
   assert.throws(() => createPolicySnapshot({ ...policyInput(), lawSha256: 'a'.repeat(64) }), /sha256:/);
+});
+
+test('agent proposals retain exact bounded bytes without claiming verification or approval', () => {
+  const output = Buffer.from('proposal bytes', 'utf8');
+  const proposal = createAgentProposal({
+    processId: 'PROC-123456', taskInstanceId: 'task-1', attemptId: 'ATT-123456',
+    contractSha256: d('agent-contract'),
+    executionUnitManifestSha256: d('copilot-manifest'),
+    provider: 'copilot-cli', providerInvocationId: 'invocation-1',
+    providerAuditRef: 'model-invocation:invocation-1',
+    mediaType: 'text/plain; charset=utf-8', contentEncoding: 'base64',
+    outputBase64: output.toString('base64'), outputBytes: output.length,
+    outputSha256: sha256(output),
+    assurance: {
+      kind: 'proposal-only', authority: 'none',
+      verification: 'not-performed', approval: 'not-granted'
+    },
+    createdAt: at
+  });
+  assert.equal(Buffer.from(proposal.outputBase64, 'base64').toString('utf8'),
+    'proposal bytes');
+  assert.match(proposal.proposalSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.throws(() => validateSgosRecord({
+    ...proposal,
+    assurance: { ...proposal.assurance, verification: 'passed' }
+  }));
+  assert.throws(() => validateSgosRecord({ ...proposal, outputBytes: output.length + 1 }));
 });
 
 test('candidate manifests are storage-neutral, canonical, and bind path/type/mode/content/rename/deletion', () => {

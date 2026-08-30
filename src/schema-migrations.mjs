@@ -729,6 +729,41 @@ const families = [
   family({ id: 'workflow-ir', currentVersion: 1, immutable: true }),
   family({ id: 'workflow-ratification', currentVersion: 1, immutable: true }),
   family({ id: 'policy-snapshot', currentVersion: 1, immutable: true }),
+  // Approved policy inputs and the local, content-addressed amendment graph are deliberately
+  // separate families.  The former are read only from the refreshed configuration authority;
+  // the latter are receipts beneath the Git-common sidecar and never rewrite a live Process.
+  family({
+    id: 'sgos-policy-bundle', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/sgos\/policy\/(?:current|candidate)\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-approval', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/sgos\/policy\/approvals\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-diff', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/policy-runtime\/diffs\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-impact', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/policy-runtime\/impacts\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-amendment-plan', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/policy-runtime\/plans\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-amendment-receipt', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/policy-runtime\/amendments\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-invalidation', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/sgos\/policy-runtime\/invalidations\/[^/]+\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'sgos-policy-runtime-state', currentVersion: 1,
+    paths: [/^\$git\/sgos\/policy-runtime\/state\.json$/]
+  }),
   // The runtime persists these records beneath the Git-common sidecar. Path classification is
   // exact so `doctor` includes SGOS in its migration census without treating staging files or
   // unrelated JSON as governed durable records.
@@ -847,12 +882,28 @@ const families = [
     ]
   }),
   family({
+    id: 'agent-proposal', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/agent-proposals\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('agent-proposal')
+    ]
+  }),
+  family({
     id: 'action-evidence', currentVersion: 1, immutable: true,
     paths: [
       /^\$git\/sgos\/processes\/[^/]+\/evidence\/[a-f0-9]{64}\.json$/,
       sgosRecordReservationPath('action-evidence')
     ]
   }),
+  // Portable, content-addressed Process evidence. The bundle is intentionally path-neutral: it
+  // can be copied to a fresh directory and verified without recreating the operational sidecar.
+  family({ id: 'sgos-process-evidence-bundle', currentVersion: 1, immutable: true }),
+  // Agentic evaluation records are portable immutable evidence. They are deliberately not assigned
+  // repository paths: this release provides a pure compiler/validator and a content-free telemetry
+  // projection, not an operational evaluation store.
+  family({ id: 'sgos-evaluation-study', currentVersion: 1, immutable: true }),
+  family({ id: 'sgos-evaluation-arm', currentVersion: 1, immutable: true }),
+  family({ id: 'sgos-evaluation-result', currentVersion: 1, immutable: true }),
   family({
     // v2 optionally binds an active lease to the exact running-attempt hash. Pre-CAS recovery
     // fixtures may omit it, but an active Process is required to carry it by runtime validation.

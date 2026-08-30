@@ -31,6 +31,9 @@ import {
   recoverPendingSgosTransition
 } from './store.mjs';
 import { taskInstancesForSgosProgram } from './materialization.mjs';
+import {
+  assertSgosProcessPolicyAuthority, withSgosProcessPolicyAuthority
+} from './pinned-policy.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const PROCESS_ID = /^PROC-[A-Za-z0-9._:-]{6,127}$/;
@@ -250,10 +253,13 @@ function taskLineageProjection(process, taskInstanceIds) {
   });
 }
 
-export async function planSgosProcessReplay(root, processId, {
+async function planSgosProcessReplayWithinPolicy(root, processId, {
   fromCheckpointSha256,
   createdAt = nowIso()
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.replay.plan', processId
+  });
   const process = (await recoverPendingSgosTransition(root, processId)).process;
   assertQuiescent(process);
   const checkpoint = await checkpointInLineage(root, process, fromCheckpointSha256);
@@ -276,6 +282,12 @@ export async function planSgosProcessReplay(root, processId, {
   return plan;
 }
 
+export async function planSgosProcessReplay(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.replay.plan', processId
+  }, () => planSgosProcessReplayWithinPolicy(root, processId, options));
+}
+
 function resetSuffix(draft, plan) {
   const replaySet = new Set(plan.taskInstanceIds);
   for (const taskInstanceId of plan.taskInstanceIds) {
@@ -294,10 +306,13 @@ function resetSuffix(draft, plan) {
   draft.currentCheckpointSha256 = plan.fromCheckpointSha256;
 }
 
-export async function replaySgosProcess(root, processId, {
+async function replaySgosProcessWithinPolicy(root, processId, {
   confirmationSha256,
   clock = null
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.replay', processId
+  });
   if (!HASH.test(String(confirmationSha256 ?? ''))) {
     fail('Replay requires an exact replay-plan confirmation.', 'SGOS_REPLAY_CONFIRMATION_REQUIRED');
   }
@@ -377,18 +392,37 @@ export async function replaySgosProcess(root, processId, {
   return Object.freeze({ process: next, plan, receipt, recovered: alreadyApplied });
 }
 
-export async function planSgosProcessFork(root, processId, {
+export async function replaySgosProcess(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.replay', processId
+  }, () => replaySgosProcessWithinPolicy(root, processId, options));
+}
+
+async function planSgosProcessForkWithinPolicy(root, processId, {
   fromCheckpointSha256,
   label = 'fork',
   createdAt = nowIso()
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.fork.plan', processId
+  });
   const process = (await recoverPendingSgosTransition(root, processId)).process;
   assertQuiescent(process);
   const binding = await assertCurrentStoredProcessBinding(root, process);
   const checkpoint = await checkpointInLineage(root, process, fromCheckpointSha256);
   if (checkpoint.priorCheckpointSha256 !== null) {
-    fail('The installed fork profile supports only a genesis checkpoint; prefix receipt import is not installed.',
-      'SGOS_FORK_CHECKPOINT_UNSUPPORTED', { fromCheckpointSha256 });
+    fail('The checkpoint does not carry enough exact prefix evidence for a safe non-genesis fork.',
+      'SGOS_FORK_PREFIX_EVIDENCE_INCOMPLETE', {
+        fromCheckpointSha256,
+        checkpointProcessRevision: checkpoint.processRevision,
+        missingEvidence: [
+          'task-receipt-and-output-projection',
+          'attempt-and-action-evidence-lineage',
+          'external-effect-and-idempotency-reconciliation',
+          'event-cursors-budgets-and-child-process-lineage'
+        ],
+        remediation: 'Export a portable Process Evidence bundle or fork from the exact genesis checkpoint. Runtime-store loss is never reconstructed from task-state labels alone.'
+      });
   }
   if (typeof label !== 'string' || !/^[a-z0-9][a-z0-9-]{1,63}$/.test(label)) {
     fail('Fork label must use lower-case kebab case.', 'SGOS_FORK_LABEL_INVALID');
@@ -420,6 +454,12 @@ export async function planSgosProcessFork(root, processId, {
   await writeImmutable(root, lineagePath(root, processId, 'fork-plans', plan.forkPlanSha256),
     plan, 'forkPlanSha256');
   return plan;
+}
+
+export async function planSgosProcessFork(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.fork.plan', processId
+  }, () => planSgosProcessForkWithinPolicy(root, processId, options));
 }
 
 function assertForkPlanShape(plan, processId) {
@@ -565,10 +605,13 @@ async function validateCanonicalForkReceipt(root, plan, parent, receipt) {
   return child;
 }
 
-export async function forkSgosProcess(root, processId, {
+async function forkSgosProcessWithinPolicy(root, processId, {
   confirmationSha256,
   clock = null
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.fork', processId
+  });
   if (!HASH.test(String(confirmationSha256 ?? ''))) {
     fail('Fork requires an exact fork-plan confirmation.', 'SGOS_FORK_CONFIRMATION_REQUIRED');
   }
@@ -654,6 +697,12 @@ export async function forkSgosProcess(root, processId, {
   return Object.freeze({ parent, child: started.process, plan, receipt, created: started.created });
 }
 
+export async function forkSgosProcess(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.fork', processId
+  }, () => forkSgosProcessWithinPolicy(root, processId, options));
+}
+
 const LINEAGE_CATEGORIES = Object.freeze({
   'replay-receipts': Object.freeze({
     kind: 'sgos-replay-receipt', hashField: 'replayReceiptSha256', key: 'self'
@@ -666,6 +715,12 @@ const LINEAGE_CATEGORIES = Object.freeze({
   }),
   'fork-receipts': Object.freeze({
     kind: 'sgos-fork-receipt', hashField: 'forkReceiptSha256', key: 'forkPlanSha256'
+  }),
+  'task-retry-plans': Object.freeze({
+    kind: 'sgos-task-retry-plan', hashField: 'retryPlanSha256', key: 'self'
+  }),
+  'task-retry-receipts': Object.freeze({
+    kind: 'sgos-task-retry-receipt', hashField: 'retryReceiptSha256', key: 'retryPlanSha256'
   })
 });
 
@@ -742,6 +797,10 @@ export async function inspectSgosLineageIntegrity(root, processId, {
           fail('Canonical fork lineage key does not match forkPlanSha256.',
             'SGOS_LINEAGE_CORRUPT');
         }
+        if (contract.key === 'retryPlanSha256' && record.retryPlanSha256 !== keyDigest) {
+          fail('Canonical task retry receipt key does not match retryPlanSha256.',
+            'SGOS_LINEAGE_CORRUPT');
+        }
         const identity = `${category}\u0000${keyDigest}`;
         records.set(identity, record);
       } catch (error) {
@@ -762,6 +821,39 @@ export async function inspectSgosLineageIntegrity(root, processId, {
   const receipts = new Map([...records.entries()]
     .filter(([identity]) => identity.startsWith('fork-receipts\u0000'))
     .map(([, record]) => [record.forkPlanSha256, record]));
+  const retryPlans = new Map([...records.entries()]
+    .filter(([identity]) => identity.startsWith('task-retry-plans\u0000'))
+    .map(([, record]) => [record.retryPlanSha256, record]));
+  const retryReceipts = new Map([...records.entries()]
+    .filter(([identity]) => identity.startsWith('task-retry-receipts\u0000'))
+    .map(([, record]) => [record.retryPlanSha256, record]));
+  for (const [retryPlanSha256, plan] of retryPlans) {
+    if (plan.processId !== processId
+        || !HASH.test(String(plan.expectedProcessSha256 ?? ''))
+        || !HASH.test(String(plan.programSha256 ?? ''))
+        || !HASH.test(String(plan.policySnapshotSha256 ?? ''))
+        || !HASH.test(String(plan.processBindingSha256 ?? ''))
+        || !HASH.test(String(plan.checkpointSha256 ?? ''))
+        || !HASH.test(String(plan.parentAttemptSha256 ?? ''))
+        || !HASH.test(String(plan.parentEvidenceSha256 ?? ''))
+        || typeof plan.taskInstanceId !== 'string'
+        || typeof plan.taskTemplateId !== 'string'
+        || typeof plan.parentAttemptId !== 'string'
+        || typeof plan.expectedAttemptId !== 'string'
+        || !Number.isSafeInteger(plan.expectedProcessRevision)
+        || !Number.isSafeInteger(plan.attemptNumber)
+        || !Number.isSafeInteger(plan.maximumAttempts)
+        || plan.attemptNumber < 2 || plan.attemptNumber > plan.maximumAttempts
+        || !['pure-or-read-only', 'verified-read-only-device']
+          .includes(plan.effectClassification)
+        || typeof plan.createdAt !== 'string') {
+      errors.push(Object.freeze({
+        code: 'SGOS_LINEAGE_CORRUPT',
+        message: 'Task retry plan violates its exact bounded contract.',
+        retryPlanSha256
+      }));
+    }
+  }
   for (const [forkPlanSha256, plan] of plans) {
     try { assertForkPlanShape(plan, processId); }
     catch (error) {
@@ -810,6 +902,22 @@ export async function inspectSgosLineageIntegrity(root, processId, {
         code: 'SGOS_LINEAGE_CORRUPT',
         message: 'Replay receipt is not bound to a replay plan rooted by this Process.',
         replayReceiptSha256: record.replayReceiptSha256
+      }));
+    }
+  }
+  for (const [retryPlanSha256, receipt] of retryReceipts) {
+    const plan = retryPlans.get(retryPlanSha256);
+    if (!plan || plan.processId !== processId || receipt.processId !== processId
+        || receipt.taskInstanceId !== plan.taskInstanceId
+        || receipt.parentAttemptId !== plan.parentAttemptId
+        || receipt.attemptId !== plan.expectedAttemptId
+        || !HASH.test(String(receipt.attemptSha256 ?? ''))
+        || !['failed', 'succeeded', 'cancelled'].includes(receipt.attemptStatus)
+        || typeof receipt.recordedAt !== 'string') {
+      errors.push(Object.freeze({
+        code: 'SGOS_LINEAGE_CORRUPT',
+        message: 'Task retry receipt is orphaned from its exact retry plan.',
+        retryPlanSha256
       }));
     }
   }

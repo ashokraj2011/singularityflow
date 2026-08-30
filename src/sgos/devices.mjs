@@ -1,4 +1,4 @@
-/** Typed governed Device ABI with a safe, read-only filesystem profile. */
+/** Typed governed Device ABI with closed read-only and Git-common fixture profiles. */
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
@@ -7,15 +7,20 @@ import path from 'node:path';
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
-import { sha256 } from './contracts.mjs';
+import { cloneSgosValue, sha256 } from './contracts.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
 const ID = /^[a-z][a-z0-9-]{1,63}$/;
 const MAX_RAW_BYTES = 64 * 1024 * 1024;
 const MAX_DEVICE_RECORD_BYTES = 64 * 1024 * 1024;
+const MAX_SANDBOX_CAS_VALUE_BYTES = 64 * 1024;
 const DEVICE_RECORD_FORMAT = 'sflow.sgos.device-private';
 const DEVICE_RECORD_VERSION = 1;
+const SANDBOX_CAS_DEVICE_ID = 'sandbox-cas';
+const SANDBOX_CAS_OPERATION = 'compare-and-swap-put';
+const SANDBOX_CAS_SCOPE_PREFIX = 'sandbox-cas:';
+export const SGOS_SANDBOX_CAS_ABSENT_SHA256 = sha256(null);
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -154,6 +159,10 @@ function rawPath(root, intentSha256) {
   return path.join(deviceRoot(root), 'raw', `${intentSha256.slice('sha256:'.length)}.bin`);
 }
 
+function sandboxCasEffectPath(root, key) {
+  return path.join(deviceRoot(root), 'effects', SANDBOX_CAS_DEVICE_ID, `${key}.json`);
+}
+
 function revocationPath(root, manifestSha256) {
   return path.join(deviceRoot(root), 'revocations', `${manifestSha256.slice('sha256:'.length)}.json`);
 }
@@ -177,7 +186,11 @@ function normalizeDeviceRequest(request) {
     'deviceId', 'processId', 'taskInstanceId', 'attemptId', 'operation', 'arguments',
     'scope', 'authorizationSha256', 'createdAt'
   ], 'Device request', 'SGOS_DEVICE_REQUEST_INVALID');
-  const value = structuredClone(request);
+  let value;
+  try { value = cloneSgosValue(request); } catch (error) {
+    fail(`Device request must contain only safe JSON values: ${error.message}.`,
+      'SGOS_DEVICE_REQUEST_INVALID');
+  }
   for (const field of ['deviceId', 'processId', 'taskInstanceId', 'attemptId', 'operation']) {
     if (typeof value[field] !== 'string' || !value[field]) {
       fail(`Device request ${field} is required.`, 'SGOS_DEVICE_REQUEST_INVALID');
@@ -197,7 +210,13 @@ function normalizeDeviceRequest(request) {
       || !Number.isFinite(Date.parse(value.createdAt)))) {
     fail('Device request createdAt must be a valid UTC timestamp.', 'SGOS_DEVICE_REQUEST_INVALID');
   }
-  value.scope.forEach((entry, index) => canonicalRepositoryPath(entry, `Device request scope[${index}]`));
+  // Repository path syntax belongs to the filesystem profile. Consequential fixture scopes are
+  // opaque capability tokens and are validated against the exact key by that Device's planner.
+  if (value.deviceId === FILESYSTEM_READ_MANIFEST.id) {
+    value.scope.forEach((entry, index) => (
+      canonicalRepositoryPath(entry, `Device request scope[${index}]`)
+    ));
+  }
   return freezeDeep(value);
 }
 
@@ -283,6 +302,35 @@ const FILESYSTEM_READ_MANIFEST = createDeviceManifest({
   recovery: { uncertainRead: 'repeat-with-same-arguments' },
   assurance: { result: 'host-observed' },
   tests: { conformanceReceiptSha256: sha256('sgos-filesystem-read-device-v1') }
+});
+
+const SANDBOX_CAS_MANIFEST = createDeviceManifest({
+  id: SANDBOX_CAS_DEVICE_ID,
+  version: '1.0.0',
+  publisher: 'singularity-flow',
+  operations: [SANDBOX_CAS_OPERATION],
+  effects: {
+    class: 'local-consequential',
+    boundary: 'git-common-sgos-fixture',
+    applicationFiles: false
+  },
+  scopeModel: {
+    kind: 'exact-local-effect-key',
+    prefix: SANDBOX_CAS_SCOPE_PREFIX,
+    maximumKeysPerIntent: 1
+  },
+  idempotency: {
+    kind: 'content-addressed-tool-intent',
+    duplicateIntent: 'return-exact-result',
+    collidingIntent: 'refuse'
+  },
+  recovery: {
+    protocol: 'inspect-exact-postcondition',
+    dispositions: ['not-started', 'applied', 'uncertain'],
+    replayEffect: false
+  },
+  assurance: { result: 'exact-postcondition-verified' },
+  tests: { conformanceReceiptSha256: sha256('sgos-sandbox-cas-device-v1') }
 });
 
 function inside(root, target) {
@@ -424,6 +472,327 @@ function filesystemReadDevice(root) {
   });
 }
 
+function effectFailure(message, code, details, effectDisposition) {
+  const error = new SingularityFlowError(message, { code, details });
+  error.effectDisposition = effectDisposition;
+  if (effectDisposition === 'uncertain') error.uncertainEffect = true;
+  throw error;
+}
+
+function sandboxCasScope(key) {
+  return `${SANDBOX_CAS_SCOPE_PREFIX}${key}`;
+}
+
+function sandboxCasArguments(request) {
+  exactKeys(request.arguments, ['key', 'expectedValueSha256', 'value'],
+    'Sandbox CAS arguments', 'SGOS_DEVICE_REQUEST_INVALID');
+  const { key, expectedValueSha256 } = request.arguments;
+  if (!ID.test(String(key ?? ''))) {
+    fail('Sandbox CAS key must be a lower-case kebab-case identifier.',
+      'SGOS_DEVICE_REQUEST_INVALID');
+  }
+  if (!HASH.test(String(expectedValueSha256 ?? ''))) {
+    fail('Sandbox CAS expectedValueSha256 must be an exact digest.',
+      'SGOS_DEVICE_REQUEST_INVALID');
+  }
+  if (expectedValueSha256 !== SGOS_SANDBOX_CAS_ABSENT_SHA256) {
+    effectFailure(
+      'The installed Sandbox CAS profile accepts only an exact absent-state precondition.',
+      'SGOS_DEVICE_CAS_STALE', {
+        expected: SGOS_SANDBOX_CAS_ABSENT_SHA256,
+        received: expectedValueSha256
+      }, 'not-applied'
+    );
+  }
+  if (!Object.hasOwn(request.arguments, 'value') || request.arguments.value === undefined) {
+    fail('Sandbox CAS value is required.', 'SGOS_DEVICE_REQUEST_INVALID');
+  }
+  let value;
+  try { value = cloneSgosValue(request.arguments.value); } catch (error) {
+    fail(`Sandbox CAS value must be safe JSON: ${error.message}.`,
+      'SGOS_DEVICE_REQUEST_INVALID');
+  }
+  const valueBytes = Buffer.byteLength(canonicalJson(value));
+  if (valueBytes > MAX_SANDBOX_CAS_VALUE_BYTES) {
+    fail('Sandbox CAS value exceeds its installed byte ceiling.',
+      'SGOS_DEVICE_RESULT_LIMIT', {
+        actualBytes: valueBytes,
+        maximumBytes: MAX_SANDBOX_CAS_VALUE_BYTES
+      });
+  }
+  const scope = sandboxCasScope(key);
+  if (canonicalJson(request.scope) !== canonicalJson([scope])) {
+    effectFailure('Sandbox CAS request scope does not exactly bind its effect key.',
+      'SGOS_DEVICE_SCOPE_ESCAPE', { expected: [scope], received: request.scope }, 'not-applied');
+  }
+  if (request.authorizationSha256 !== SANDBOX_CAS_MANIFEST.manifestSha256) {
+    effectFailure('Sandbox CAS authorization must equal the exact installed manifest digest.',
+      'SGOS_DEVICE_AUTHORIZATION_REQUIRED', {
+        expected: SANDBOX_CAS_MANIFEST.manifestSha256,
+        received: request.authorizationSha256
+      }, 'not-applied');
+  }
+  return Object.freeze({
+    key,
+    expectedValueSha256,
+    value,
+    valueSha256: sha256(value),
+    scope
+  });
+}
+
+function createSandboxCasEffect(value) {
+  exactKeys(value, [
+    'deviceManifestSha256', 'operation', 'scope', 'key', 'intentSha256',
+    'idempotencyKey', 'beforeValueSha256', 'value', 'valueSha256', 'appliedAt'
+  ], 'Sandbox CAS effect', 'SGOS_DEVICE_EFFECT_INVALID');
+  if (value.deviceManifestSha256 !== SANDBOX_CAS_MANIFEST.manifestSha256
+      || value.operation !== SANDBOX_CAS_OPERATION
+      || !ID.test(String(value.key ?? ''))
+      || value.scope !== sandboxCasScope(value.key)
+      || !HASH.test(String(value.intentSha256 ?? ''))
+      || !HASH.test(String(value.idempotencyKey ?? ''))
+      || value.beforeValueSha256 !== SGOS_SANDBOX_CAS_ABSENT_SHA256
+      || !HASH.test(String(value.valueSha256 ?? ''))
+      || value.valueSha256 !== sha256(value.value)
+      || typeof value.appliedAt !== 'string') {
+    fail('Sandbox CAS effect violates its exact installed schema.',
+      'SGOS_DEVICE_EFFECT_INVALID');
+  }
+  return seal('sandbox-cas-effect', 'effectSha256', value);
+}
+
+export async function readSgosSandboxCasEffect(root, key, { optional = false } = {}) {
+  if (!ID.test(String(key ?? ''))) {
+    fail('Sandbox CAS key is invalid.', 'SGOS_DEVICE_REQUEST_INVALID');
+  }
+  let bytes;
+  try {
+    bytes = await readPrivateSidecar(root, sandboxCasEffectPath(root, key), {
+      maximumBytes: MAX_DEVICE_RECORD_BYTES
+    });
+  } catch (error) {
+    if (optional && error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  let record;
+  try { record = JSON.parse(bytes.toString('utf8')); } catch (error) {
+    fail(`Sandbox CAS effect is not valid JSON: ${error.message}.`,
+      'SGOS_DEVICE_EFFECT_INVALID');
+  }
+  const core = structuredClone(record);
+  delete core.deviceRecordFormat;
+  delete core.deviceRecordVersion;
+  delete core.kind;
+  delete core.effectSha256;
+  const rebuilt = createSandboxCasEffect(core);
+  if (record.deviceRecordFormat !== DEVICE_RECORD_FORMAT
+      || record.deviceRecordVersion !== DEVICE_RECORD_VERSION
+      || record.kind !== 'sandbox-cas-effect'
+      || record.key !== key
+      || canonicalJson(rebuilt) !== canonicalJson(record)) {
+    fail('Sandbox CAS effect failed its schema, path, or content hash.',
+      'SGOS_DEVICE_EFFECT_INVALID');
+  }
+  return freezeDeep(record);
+}
+
+async function inspectSandboxCasEffect(root, intent, inputs) {
+  let effect;
+  try {
+    effect = await readSgosSandboxCasEffect(root, inputs.key, { optional: true });
+  } catch (error) {
+    effectFailure('Sandbox CAS postcondition cannot be classified safely.',
+      'SGOS_DEVICE_EFFECT_UNCERTAIN', {
+        key: inputs.key,
+        causeCode: error?.code ?? null
+      }, 'uncertain');
+  }
+  if (effect == null) return Object.freeze({ disposition: 'not-started', effect: null });
+  if (effect.intentSha256 === intent.intentSha256
+      && effect.idempotencyKey === intent.idempotencyKey
+      && effect.beforeValueSha256 === inputs.expectedValueSha256
+      && effect.valueSha256 === inputs.valueSha256
+      && canonicalJson(effect.value) === canonicalJson(inputs.value)
+      && effect.scope === inputs.scope) {
+    return Object.freeze({ disposition: 'applied', effect });
+  }
+  if (effect.idempotencyKey === intent.idempotencyKey) {
+    effectFailure('Sandbox CAS idempotency key is already bound to another Tool Intent.',
+      'SGOS_DEVICE_IDEMPOTENCY_COLLISION', {
+        key: inputs.key,
+        existingIntentSha256: effect.intentSha256,
+        receivedIntentSha256: intent.intentSha256
+      }, 'not-applied');
+  }
+  effectFailure('Sandbox CAS precondition is stale because the effect key already exists.',
+    'SGOS_DEVICE_CAS_STALE', {
+      key: inputs.key,
+      existingEffectSha256: effect.effectSha256
+    }, 'not-applied');
+}
+
+function sandboxCasRaw(intent, inputs, effect, recovery) {
+  return Buffer.from(canonicalJson({
+    deviceRawVersion: 1,
+    deviceId: SANDBOX_CAS_DEVICE_ID,
+    operation: SANDBOX_CAS_OPERATION,
+    key: inputs.key,
+    scope: inputs.scope,
+    intentSha256: intent.intentSha256,
+    idempotencyKey: intent.idempotencyKey,
+    beforeValueSha256: inputs.expectedValueSha256,
+    afterValueSha256: inputs.valueSha256,
+    effectSha256: effect.effectSha256,
+    recovery
+  }));
+}
+
+async function applySandboxCas(root, intent, request, signal, { recovering }) {
+  const inputs = sandboxCasArguments(request);
+  const inspected = await inspectSandboxCasEffect(root, intent, inputs);
+  if (inspected.disposition === 'applied') {
+    return sandboxCasRaw(intent, inputs, inspected.effect, {
+      detected: 'applied', action: 'verified-noop', recovering
+    });
+  }
+  if (signal?.aborted) {
+    effectFailure('Sandbox CAS invocation was cancelled before the effect boundary.',
+      'SGOS_DEVICE_CANCELLED', { key: inputs.key }, 'not-applied');
+  }
+  const proposed = createSandboxCasEffect({
+    deviceManifestSha256: SANDBOX_CAS_MANIFEST.manifestSha256,
+    operation: SANDBOX_CAS_OPERATION,
+    scope: inputs.scope,
+    key: inputs.key,
+    intentSha256: intent.intentSha256,
+    idempotencyKey: intent.idempotencyKey,
+    beforeValueSha256: inputs.expectedValueSha256,
+    value: inputs.value,
+    valueSha256: inputs.valueSha256,
+    appliedAt: intent.createdAt
+  });
+  try {
+    await immutableWrite(root, sandboxCasEffectPath(root, inputs.key), proposed);
+  } catch (error) {
+    if (error?.code !== 'SGOS_DEVICE_RECORD_CONFLICT') throw error;
+  }
+  const applied = await inspectSandboxCasEffect(root, intent, inputs);
+  if (applied.disposition !== 'applied') {
+    effectFailure('Sandbox CAS effect publication has an uncertain postcondition.',
+      'SGOS_DEVICE_EFFECT_UNCERTAIN', { key: inputs.key }, 'uncertain');
+  }
+  return sandboxCasRaw(intent, inputs, applied.effect, {
+    detected: 'not-started', action: 'applied', recovering
+  });
+}
+
+function sandboxCasDevice(root) {
+  return Object.freeze({
+    descriptor: () => SANDBOX_CAS_MANIFEST,
+    async doctor() {
+      return seal('device-attestation', 'attestationSha256', {
+        deviceManifestSha256: SANDBOX_CAS_MANIFEST.manifestSha256,
+        status: 'ready', observedAt: nowIso(), assurance: 'exact-postcondition-verified'
+      });
+    },
+    async plan(request) {
+      if (request.operation !== SANDBOX_CAS_OPERATION) {
+        fail(`Sandbox CAS operation '${request.operation}' is not installed.`,
+          'SGOS_DEVICE_OPERATION_UNKNOWN');
+      }
+      const inputs = sandboxCasArguments(request);
+      return createToolIntent({
+        processId: request.processId,
+        taskInstanceId: request.taskInstanceId,
+        attemptId: request.attemptId,
+        deviceManifestSha256: SANDBOX_CAS_MANIFEST.manifestSha256,
+        operation: request.operation,
+        argumentsSha256: sha256(request.arguments),
+        scopeSha256: sha256(request.scope),
+        expectedEffect: `local-cas-put:${inputs.scope}`,
+        authorizationSha256: request.authorizationSha256,
+        idempotencyKey: sha256({
+          deviceManifestSha256: SANDBOX_CAS_MANIFEST.manifestSha256,
+          operation: request.operation,
+          key: inputs.key,
+          expectedValueSha256: inputs.expectedValueSha256,
+          valueSha256: inputs.valueSha256,
+          scope: request.scope,
+          authorizationSha256: request.authorizationSha256
+        }),
+        createdAt: request.createdAt ?? nowIso()
+      });
+    },
+    async execute(intent, request, signal) {
+      return applySandboxCas(root, intent, request, signal, { recovering: false });
+    },
+    async normalize(intent, raw) {
+      let normalized;
+      try { normalized = JSON.parse(raw.toString('utf8')); } catch (error) {
+        fail(`Sandbox CAS raw result is invalid: ${error.message}.`,
+          'SGOS_DEVICE_RESULT_UNSAFE');
+      }
+      if (normalized.deviceRawVersion !== 1
+          || normalized.deviceId !== SANDBOX_CAS_DEVICE_ID
+          || normalized.operation !== SANDBOX_CAS_OPERATION
+          || normalized.intentSha256 !== intent.intentSha256
+          || normalized.idempotencyKey !== intent.idempotencyKey
+          || !HASH.test(String(normalized.effectSha256 ?? ''))
+          || !HASH.test(String(normalized.afterValueSha256 ?? ''))
+          || !plain(normalized.recovery)) {
+        fail('Sandbox CAS raw result violates its exact normalized schema.',
+          'SGOS_DEVICE_RESULT_UNSAFE');
+      }
+      return {
+        observation: {
+          key: normalized.key,
+          scope: normalized.scope,
+          beforeValueSha256: normalized.beforeValueSha256,
+          afterValueSha256: normalized.afterValueSha256,
+          effectSha256: normalized.effectSha256,
+          recovery: normalized.recovery
+        },
+        effect: {
+          class: 'local-consequential',
+          changed: true,
+          resource: normalized.scope,
+          effectSha256: normalized.effectSha256,
+          idempotencyKey: normalized.idempotencyKey
+        },
+        assurance: 'exact-postcondition-verified'
+      };
+    },
+    async verify(intent, normalized, rawSha256) {
+      let effect = null;
+      try {
+        effect = await readSgosSandboxCasEffect(root, normalized.observation.key);
+      } catch { /* converted into a failed verification below */ }
+      const passed = effect != null
+        && effect.intentSha256 === intent.intentSha256
+        && effect.idempotencyKey === intent.idempotencyKey
+        && effect.effectSha256 === normalized.observation.effectSha256
+        && effect.valueSha256 === normalized.observation.afterValueSha256
+        && effect.scope === normalized.observation.scope
+        && normalized.effect.class === 'local-consequential'
+        && normalized.effect.changed === true
+        && HASH.test(rawSha256);
+      return {
+        status: passed ? 'passed' : 'failed',
+        checksSha256: sha256({
+          intentSha256: intent.intentSha256,
+          normalized,
+          rawSha256,
+          postconditionSha256: effect?.effectSha256 ?? null
+        })
+      };
+    },
+    async recover(intent, request, signal) {
+      return applySandboxCas(root, intent, request, signal, { recovering: true });
+    }
+  });
+}
+
 async function assertNotRevoked(root, manifest) {
   try {
     const record = JSON.parse((await readPrivateSidecar(
@@ -450,19 +819,31 @@ async function assertNotRevoked(root, manifest) {
 }
 
 export function installedDeviceManifests() {
-  return Object.freeze([FILESYSTEM_READ_MANIFEST]);
+  return Object.freeze([FILESYSTEM_READ_MANIFEST, SANDBOX_CAS_MANIFEST]);
+}
+
+function installedDevice(root, deviceId) {
+  if (deviceId === FILESYSTEM_READ_MANIFEST.id) return filesystemReadDevice(root);
+  if (deviceId === SANDBOX_CAS_MANIFEST.id) return sandboxCasDevice(root);
+  return null;
 }
 
 export async function doctorSgosDevice(root, deviceId) {
-  const device = deviceId === FILESYSTEM_READ_MANIFEST.id ? filesystemReadDevice(root) : null;
+  const device = installedDevice(root, deviceId);
   if (!device) fail(`Device '${deviceId}' is not installed.`, 'SGOS_DEVICE_NOT_INSTALLED');
   await assertNotRevoked(root, device.descriptor());
   return device.doctor({ root });
 }
 
-export async function invokeSgosDevice(root, request, { signal = null, recover = false } = {}) {
+async function injectFault(faultInjector, boundary, context) {
+  if (typeof faultInjector === 'function') await faultInjector(boundary, freezeDeep(structuredClone(context)));
+}
+
+export async function invokeSgosDevice(root, request, {
+  signal = null, recover = false, faultInjector = null
+} = {}) {
   const normalizedRequest = normalizeDeviceRequest(request);
-  const device = normalizedRequest.deviceId === FILESYSTEM_READ_MANIFEST.id ? filesystemReadDevice(root) : null;
+  const device = installedDevice(root, normalizedRequest.deviceId);
   if (!device) fail(`Device '${normalizedRequest.deviceId}' is not installed.`, 'SGOS_DEVICE_NOT_INSTALLED');
   const manifest = validateDeviceManifest(device.descriptor());
   await assertNotRevoked(root, manifest);
@@ -472,43 +853,52 @@ export async function invokeSgosDevice(root, request, { signal = null, recover =
   await immutableWrite(root, intentPath(root, intent.intentSha256), intent);
   const existing = await readResultForIntent(root, intent.intentSha256);
   if (existing) return Object.freeze({ manifest, intent, result: existing, recovered: true });
-  let raw;
+  await injectFault(faultInjector, 'after-tool-intent-before-effect', {
+    intentSha256: intent.intentSha256,
+    deviceManifestSha256: manifest.manifestSha256
+  });
   try {
-    raw = recover
+    let raw = recover
       ? await device.recover(intent, normalizedRequest, signal)
       : await device.execute(intent, normalizedRequest, signal);
+    await injectFault(faultInjector, 'after-effect-before-tool-result', {
+      intentSha256: intent.intentSha256,
+      deviceManifestSha256: manifest.manifestSha256
+    });
+    // Everything after execute/recover is still part of the consequential boundary.  Revocation,
+    // normalization, verification, or durable-result publication can fail after an effect exists;
+    // those failures must retain the exact Tool Intent so callers recover rather than replay.
+    await assertNotRevoked(root, manifest);
+    if (!Buffer.isBuffer(raw)) raw = Buffer.from(canonicalJson(raw));
+    if (raw.length > MAX_RAW_BYTES) fail('Device raw result exceeds its byte ceiling.', 'SGOS_DEVICE_RESULT_LIMIT');
+    const rawResultSha256 = bytesSha256(raw);
+    await immutableWrite(root, rawPath(root, intent.intentSha256), raw);
+    const normalized = await device.normalize(intent, raw);
+    const verification = await device.verify(intent, normalized, rawResultSha256);
+    const result = createToolResult({
+      intentSha256: intent.intentSha256,
+      status: verification.status === 'passed' ? 'observed' : 'uncertain',
+      rawResultRef: `sfref:v1:device-raw:${intent.intentSha256.slice('sha256:'.length)}`,
+      rawResultSha256,
+      observation: normalized.observation,
+      effect: normalized.effect,
+      assurance: normalized.assurance,
+      observedAt: nowIso(),
+      verification
+    });
+    await immutableWrite(root, resultPath(root, result.resultSha256), result);
+    await immutableWrite(root, resultByIntentPath(root, intent.intentSha256), result);
+    return Object.freeze({ manifest, intent, result });
   } catch (error) {
     const failure = error instanceof Error ? error : new SingularityFlowError(
       'Device invocation failed without a typed error.', { code: 'SGOS_DEVICE_FAILED' });
     try { failure.toolIntentSha256 = intent.intentSha256; } catch { /* error may be frozen */ }
-    if (manifest.effects.class !== 'read-only') {
+    if (manifest.effects.class !== 'read-only'
+        && failure.effectDisposition !== 'not-applied') {
       try { failure.uncertainEffect = true; } catch { /* error may be frozen */ }
     }
     throw failure;
   }
-  // Close the check/use window: a revocation recorded while a bounded read was in flight prevents
-  // that observation from becoming an authoritative Tool Result.
-  await assertNotRevoked(root, manifest);
-  if (!Buffer.isBuffer(raw)) raw = Buffer.from(canonicalJson(raw));
-  if (raw.length > MAX_RAW_BYTES) fail('Device raw result exceeds its byte ceiling.', 'SGOS_DEVICE_RESULT_LIMIT');
-  const rawResultSha256 = bytesSha256(raw);
-  await immutableWrite(root, rawPath(root, intent.intentSha256), raw);
-  const normalized = await device.normalize(intent, raw);
-  const verification = await device.verify(intent, normalized, rawResultSha256);
-  const result = createToolResult({
-    intentSha256: intent.intentSha256,
-    status: verification.status === 'passed' ? 'observed' : 'uncertain',
-    rawResultRef: `sfref:v1:device-raw:${intent.intentSha256.slice('sha256:'.length)}`,
-    rawResultSha256,
-    observation: normalized.observation,
-    effect: normalized.effect,
-    assurance: normalized.assurance,
-    observedAt: nowIso(),
-    verification
-  });
-  await immutableWrite(root, resultPath(root, result.resultSha256), result);
-  await immutableWrite(root, resultByIntentPath(root, intent.intentSha256), result);
-  return Object.freeze({ manifest, intent, result });
 }
 
 export async function recoverSgosToolIntent(root, intentSha256, request, { signal = null } = {}) {
@@ -529,6 +919,35 @@ export async function recoverSgosToolIntent(root, intentSha256, request, { signa
     ...normalizedRequest,
     createdAt: intent.createdAt
   }, { signal, recover: true });
+}
+
+export async function verifySgosSandboxCasPostcondition(root, intent, result) {
+  if (intent?.deviceManifestSha256 !== SANDBOX_CAS_MANIFEST.manifestSha256
+      || result?.intentSha256 !== intent?.intentSha256
+      || result?.status !== 'observed'
+      || result?.verification?.status !== 'passed'
+      || result?.effect?.class !== 'local-consequential'
+      || result?.effect?.changed !== true
+      || result?.assurance !== 'exact-postcondition-verified') {
+    fail('Sandbox CAS Tool Result does not bind a verified consequential postcondition.',
+      'SGOS_DEVICE_RESULT_UNSAFE');
+  }
+  const key = result.observation?.key;
+  const effect = await readSgosSandboxCasEffect(root, key);
+  if (effect.intentSha256 !== intent.intentSha256
+      || effect.idempotencyKey !== intent.idempotencyKey
+      || effect.effectSha256 !== result.observation?.effectSha256
+      || effect.effectSha256 !== result.effect?.effectSha256
+      || effect.valueSha256 !== result.observation?.afterValueSha256
+      || effect.scope !== result.observation?.scope
+      || effect.scope !== result.effect?.resource) {
+    fail('Sandbox CAS effect no longer equals the exact verified Tool Result.',
+      'SGOS_DEVICE_EFFECT_UNCERTAIN', {
+        key: key ?? null,
+        intentSha256: intent.intentSha256
+      });
+  }
+  return freezeDeep({ status: 'passed', effectSha256: effect.effectSha256 });
 }
 
 export async function readSgosToolResult(root, intentSha256) {

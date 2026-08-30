@@ -4,10 +4,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
+import { loadDefinition } from '../config.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
-import { sha256 } from './contracts.mjs';
+import { MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, sha256 } from './contracts.mjs';
 
 const ID = /^[a-z][a-z0-9-]{1,63}$/;
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.-]+)?$/;
@@ -26,7 +27,7 @@ const CONTRACT_KEYS = Object.freeze([
   'writeScope', 'forbiddenScope', 'allowedDevices', 'environmentManifestSha256',
   'candidatePolicy', 'outputSchema', 'requiredEvidence', 'budgets', 'stopConditions',
   'humanRequestPolicy', 'subagentPolicy', 'rawEvidencePolicy',
-  'executionUnitManifestSha256', 'contractSha256'
+  'workingSet', 'executionUnitManifestSha256', 'contractSha256'
 ]);
 
 function fail(message, code, details = null) {
@@ -163,6 +164,27 @@ export function createAgentTaskContract(value) {
   }
   for (const field of ['humanRequestPolicy', 'subagentPolicy', 'rawEvidencePolicy']) {
     if (value[field] != null && !plain(value[field])) fail(`Agent Task Contract ${field} must be an object.`, 'SGOS_AGENT_TASK_CONTRACT_INVALID');
+  }
+  if (value.workingSet != null) {
+    if (!plain(value.workingSet)
+        || value.workingSet.kind !== 'gvm-working-set'
+        || !HASH.test(String(value.workingSet.workingSetSha256 ?? ''))
+        || value.workingSet.processId !== value.processId
+        || value.workingSet.taskInstanceId !== value.taskId
+        || value.workingSet.programSha256 !== value.programSha256
+        || value.workingSet.policySnapshotSha256 !== value.policySnapshotSha256) {
+      fail('Agent Task Contract workingSet is not bound to this exact task and Program.',
+        'SGOS_AGENT_TASK_CONTRACT_INVALID');
+    }
+    // Importing the Memory validator here would create a cycle through the runtime adapter.
+    // The content hash is still independently reconstructed before the contract is sealed.
+    const workingSetCore = structuredClone(value.workingSet);
+    delete workingSetCore.workingSetSha256;
+    workingSetCore.workingSetSha256 = null;
+    if (sha256(workingSetCore) !== value.workingSet.workingSetSha256) {
+      fail('Agent Task Contract workingSet failed its exact content hash.',
+        'SGOS_AGENT_TASK_CONTRACT_INVALID');
+    }
   }
   return seal('agent-task-contract', 'contractSha256', value);
 }
@@ -388,9 +410,19 @@ export function createDeterministicTranslatorExecutionUnit() {
 export function createCopilotExecutionUnit({ invoke = invokeModel, definition = null, root } = {}) {
   return adapter(COPILOT_MANIFEST, async (contract, runtime) => {
     if (!root || !path.isAbsolute(root)) fail('Copilot GEU requires a verified repository root.', 'SGOS_GEU_ROOT_REQUIRED');
-    const provider = resolveModelProvider(definition ?? {});
+    if (contract.readScope.length || contract.writeScope.length || contract.allowedDevices.length
+        || contract.budgets.touchedResources !== 0 || contract.budgets.modelInvocations !== 1) {
+      fail('Copilot GEU accepts exactly one model proposal with no repository, Device, or effect scope.',
+        'SGOS_GEU_SANDBOX_SCOPE_UNSUPPORTED');
+    }
+    const provider = resolveModelProvider(definition ?? await loadDefinition(root));
+    if (provider.provider !== 'copilot-cli') {
+      fail(`Copilot GEU cannot dispatch configured provider '${provider.provider}'.`,
+        'SGOS_GEU_PROVIDER_UNSUPPORTED', { provider: provider.provider });
+    }
     const prompt = [
       'Execute only the following immutable SGOS Agent Task Contract.',
+      'Return proposal text only. Do not use tools or repository context.',
       'Do not expand scope, alter policy, approve work, or claim verification.',
       canonicalJson(contract)
     ].join('\n\n');
@@ -401,7 +433,6 @@ export function createCopilotExecutionUnit({ invoke = invokeModel, definition = 
       allowedRoots: [root],
       channel: 'sgos-geu-copilot-cli',
       task: 'code',
-      model: provider.model,
       prompt: { text: prompt },
       tools: {
         // The first installed Copilot GEU returns a candidate proposal only. It deliberately has
@@ -412,18 +443,75 @@ export function createCopilotExecutionUnit({ invoke = invokeModel, definition = 
       },
       limits: {
         timeoutMs: contract.budgets.activeMinutes * 60_000,
-        outputBytes: MAX_OUTPUT_BYTES,
+        outputBytes: MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES,
         maxTurns: 'auto', maxToolCalls: 'auto', maxTotalTokens: 'auto', maxAiCredits: 'auto'
       },
       subject: { kind: 'sgos-task', id: contract.taskId, processId: contract.processId },
       auditRoot: root,
       signal: runtime.signal
     });
+    if (!plain(result)
+        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(String(result.invocationId ?? ''))
+        || typeof result.output !== 'string'
+        || (result.status != null && result.status !== 'completed')
+        || (result.invocation?.id != null && result.invocation.id !== result.invocationId)) {
+      fail('Copilot GEU received an invalid provider result envelope.', 'SGOS_GEU_RESULT_INVALID');
+    }
+    if (result.provider != null && result.provider !== provider.provider) {
+      fail('Copilot GEU provider result does not match the configured provider.',
+        'SGOS_GEU_PROVIDER_ESCALATION', {
+          expected: provider.provider, received: result.provider
+        });
+    }
+    const outputBytes = Buffer.byteLength(result.output, 'utf8');
+    const outputSha256 = createHash('sha256').update(result.output, 'utf8').digest('hex');
+    if (outputBytes > MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES
+        || (result.outputBytes != null && result.outputBytes !== outputBytes)
+        || (result.outputSha256 != null && result.outputSha256 !== outputSha256)) {
+      fail('Copilot GEU provider result exceeds or contradicts the installed output bound.',
+        'SGOS_GEU_OUTPUT_LIMIT', {
+          maximumBytes: MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, outputBytes
+        });
+    }
+    if (result.toolObservation != null
+        || [result.usage?.toolCalls, result.usage?.totalToolCalls, result.usage?.maxToolCalls]
+          .some((value) => Number.isFinite(value) && value > 0)) {
+      fail('Copilot GEU refused provider tool escalation.', 'SGOS_GEU_TOOL_ESCALATION');
+    }
     runtime.emit('provider-completed', { invocationIdSha256: sha256(result.invocationId) });
-    return { output: result.output, usage: result.usage ?? null };
-  }, async () => ({
-    status: 'ready', capabilities: COPILOT_MANIFEST.capabilities
-  }));
+    return {
+      output: result.output,
+      candidate: {
+        kind: 'model-proposal', authority: 'none', outputBytes,
+        outputSha256: `sha256:${outputSha256}`,
+        provider: provider.provider,
+        providerInvocationId: result.invocationId,
+        providerAuditRef: `model-invocation:${result.invocationId}`
+      },
+      usage: result.usage ?? null
+    };
+  }, async () => {
+    try {
+      if (!root || !path.isAbsolute(root)) {
+        return {
+          status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+          diagnosticCode: 'SGOS_GEU_ROOT_REQUIRED'
+        };
+      }
+      const provider = resolveModelProvider(definition ?? await loadDefinition(root));
+      return provider.provider === 'copilot-cli'
+        ? { status: 'ready', capabilities: COPILOT_MANIFEST.capabilities }
+        : {
+            status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+            diagnosticCode: 'SGOS_GEU_PROVIDER_UNSUPPORTED'
+          };
+    } catch (error) {
+      return {
+        status: 'unavailable', capabilities: COPILOT_MANIFEST.capabilities,
+        diagnosticCode: error?.code ?? 'SGOS_GEU_PROVIDER_UNAVAILABLE'
+      };
+    }
+  });
 }
 
 export function createGenericProcessExecutionUnit(manifest, {

@@ -25,6 +25,7 @@
     { "$ref": "#/$defs/gvmCheckpoint" },
     { "$ref": "#/$defs/humanRequest" },
     { "$ref": "#/$defs/humanResponse" },
+    { "$ref": "#/$defs/agentProposal" },
     { "$ref": "#/$defs/actionEvidence" },
     { "$ref": "#/$defs/workObject" }
   ],
@@ -114,7 +115,11 @@
             "compiler": {
               "type": "object",
               "required": ["id", "version"],
-              "properties": { "id": { "type": "string" }, "version": { "type": "string" } },
+              "properties": {
+                "id": { "type": "string" },
+                "version": { "type": "string" },
+                "sourceSha256": { "$ref": "#/$defs/sha256" }
+              },
               "additionalProperties": false
             },
             "graph": {
@@ -569,7 +574,7 @@
       "type": "object",
       "required": ["family", "recordSha256", "bytes"],
       "properties": {
-        "family": { "enum": ["action-evidence", "candidate-snapshot", "fanout-expansion-receipt", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "process-binding", "resource-lease", "sgos-replay-plan"] },
+        "family": { "enum": ["action-evidence", "agent-proposal", "candidate-snapshot", "fanout-expansion-receipt", "gvm-checkpoint", "gvm-program", "gvm-task-attempt", "gvm-task-receipt", "human-request", "human-response", "join-receipt", "process-binding", "resource-lease", "sgos-replay-plan"] },
         "recordSha256": { "$ref": "#/$defs/sha256" },
         "attemptId": { "type": "string", "pattern": "^ATT-[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$" },
         "taskInstanceId": { "type": "string", "minLength": 1 },
@@ -581,6 +586,7 @@
       "type": "object",
       "properties": {
         "action-evidence": { "type": "integer", "minimum": 1 },
+        "agent-proposal": { "type": "integer", "minimum": 1 },
         "candidate-snapshot": { "type": "integer", "minimum": 1 },
         "fanout-expansion-receipt": { "type": "integer", "minimum": 1 },
         "gvm-checkpoint": { "type": "integer", "minimum": 1 },
@@ -772,6 +778,40 @@
       },
       "additionalProperties": false
     },
+    "agentProposal": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "processId", "taskInstanceId", "attemptId", "contractSha256", "executionUnitManifestSha256", "provider", "providerInvocationId", "providerAuditRef", "mediaType", "contentEncoding", "outputBase64", "outputBytes", "outputSha256", "assurance", "createdAt", "proposalSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "kind": { "const": "agent-proposal" },
+        "processId": { "type": "string", "pattern": "^PROC-" },
+        "taskInstanceId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "pattern": "^ATT-" },
+        "contractSha256": { "$ref": "#/$defs/sha256" },
+        "executionUnitManifestSha256": { "$ref": "#/$defs/sha256" },
+        "provider": { "const": "copilot-cli" },
+        "providerInvocationId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$" },
+        "providerAuditRef": { "type": "string", "pattern": "^model-invocation:[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$" },
+        "mediaType": { "const": "text/plain; charset=utf-8" },
+        "contentEncoding": { "const": "base64" },
+        "outputBase64": { "type": "string", "minLength": 1, "maxLength": 1398104, "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$" },
+        "outputBytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "outputSha256": { "$ref": "#/$defs/sha256" },
+        "assurance": {
+          "type": "object",
+          "required": ["kind", "authority", "verification", "approval"],
+          "properties": {
+            "kind": { "const": "proposal-only" },
+            "authority": { "const": "none" },
+            "verification": { "const": "not-performed" },
+            "approval": { "const": "not-granted" }
+          },
+          "additionalProperties": false
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "proposalSha256": { "$ref": "#/$defs/sha256" }
+      },
+      "additionalProperties": false
+    },
     "actionEvidence": {
       "type": "object",
       "required": ["schemaVersion", "kind", "principalSha256", "delegationSha256", "programSha256", "taskContractSha256", "executionUnitManifestSha256", "deviceManifestSha256", "argumentsSha256", "preStateSha256", "rawResultSha256", "postStateSha256", "verification", "cost", "latencyMs", "gaps", "evidenceSha256"],
@@ -801,7 +841,7 @@
           "type": "object",
           "required": ["type", "schema", "dataRef", "actions"],
           "properties": {
-            "type": { "enum": ["form", "table", "timeline", "graph", "comparison", "dashboard", "evidence-matrix", "decision-card", "map", "code-source-diff", "experiment-result"] },
+            "type": { "enum": ["overview", "graph", "board", "timeline", "table", "document", "form", "evidence", "diff", "matrix", "chart", "log", "metrics", "simulation", "approval", "comparison", "dashboard", "evidence-matrix", "decision-card", "map", "code-source-diff", "experiment-result"] },
             "schema": { "type": "object" }, "dataRef": { "type": "string" }, "actions": { "type": "array" }
           },
           "additionalProperties": false

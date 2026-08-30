@@ -19,6 +19,10 @@ import {
 } from './contracts.mjs';
 
 export const PLATFORM_MUTATION_AUTHORITIES = Object.freeze({
+  'intent.confirm': 'product-approvers',
+  'workflow.ratify': 'architecture-reviewers',
+  'program-authority.approve': 'architecture-reviewers',
+  'policy.amend': 'architecture-reviewers',
   'pack.propose': 'engineering-reviewers',
   'pack.review': 'architecture-reviewers',
   'pack.activate': 'architecture-reviewers',
@@ -27,7 +31,11 @@ export const PLATFORM_MUTATION_AUTHORITIES = Object.freeze({
   'memory.promote': 'architecture-reviewers',
   'meta-tool.propose': 'engineering-reviewers',
   'meta-tool.evaluation': 'quality-reviewers',
-  'meta-tool.promote': 'architecture-reviewers'
+  'meta-tool.promote': 'architecture-reviewers',
+  'meta-tool.activate': 'architecture-reviewers',
+  'meta-tool.observe': 'quality-reviewers',
+  'meta-tool.revoke': 'architecture-reviewers',
+  'meta-tool.rollback': 'architecture-reviewers'
 });
 
 const OPERATION_IDS = new Set(Object.keys(PLATFORM_MUTATION_AUTHORITIES));
@@ -134,7 +142,9 @@ export function platformPrincipalId(actor) {
  * Resolve one mutation from the exact refreshed configuration authority and the identity actually
  * active in this repository. No caller-provided actor, reviewer, or group assertion participates.
  */
-export async function loadApprovedPlatformMutationAuthority(root, operation) {
+export async function loadApprovedPlatformMutationAuthority(root, operation, {
+  policyAuthorityRevision = null
+} = {}) {
   if (typeof root !== 'string' || !path.isAbsolute(root)) {
     fail('SGOS platform mutation requires an explicit absolute repository root.',
       'SGOS_PLATFORM_REPOSITORY_REQUIRED');
@@ -153,7 +163,39 @@ export async function loadApprovedPlatformMutationAuthority(root, operation) {
     }
     const approvedRoot = configurationReadRoot(root);
     await assertApprovedConfigurationBoundary(root, approvedRoot);
-    const workflowBytes = await readFile(path.join(approvedRoot, 'singularity', 'workflow.yml'));
+    let workflowBytes = await readFile(path.join(approvedRoot, 'singularity', 'workflow.yml'));
+    let authorityCommit = authority.commit;
+    if (policyAuthorityRevision != null) {
+      if (!/^[a-f0-9]{40,64}$/.test(policyAuthorityRevision)) {
+        fail('Pinned policy authorityRevision must be an exact Git object ID.',
+          'SGOS_PLATFORM_AUTHORITY_POLICY_INVALID', { policyAuthorityRevision });
+      }
+      const authoritySourceCommit = authority.kind === 'verified-state-mirror'
+        ? authority.manifest?.source?.commit : authority.commit;
+      const ancestry = policyAuthorityRevision === authoritySourceCommit
+        ? { status: 0 }
+        : run('git', [
+          'merge-base', '--is-ancestor', policyAuthorityRevision, authoritySourceCommit
+        ], { cwd: root, allowFailure: true });
+      if (ancestry.status !== 0) {
+        fail('Pinned policy authorityRevision is not an ancestor of the refreshed approved configuration.',
+          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+            policyAuthorityRevision, approvedConfigurationCommit: authoritySourceCommit
+          });
+      }
+      if (policyAuthorityRevision !== authoritySourceCommit
+          || authority.kind !== 'verified-state-mirror') {
+        const pinned = run('git', [
+          'show', `${policyAuthorityRevision}:singularity/workflow.yml`
+        ], { cwd: root, allowFailure: true, encoding: 'buffer' });
+        if (pinned.status !== 0) {
+          fail('Pinned policy authorityRevision does not contain singularity/workflow.yml.',
+            'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', { policyAuthorityRevision });
+        }
+        workflowBytes = pinned.stdout;
+      }
+      authorityCommit = policyAuthorityRevision;
+    }
     let definition;
     try {
       definition = YAML.parse(workflowBytes.toString('utf8')) ?? {};
@@ -183,7 +225,7 @@ export async function loadApprovedPlatformMutationAuthority(root, operation) {
     const configurationAuthority = Object.freeze({
       kind: authority.kind,
       ref: authority.ref,
-      commit: authority.commit,
+      commit: authorityCommit,
       workflowSha256: sha256(workflowBytes)
     });
     // Bind the durable principal to the credential that actually satisfied the configured group.

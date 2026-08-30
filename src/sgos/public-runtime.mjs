@@ -25,7 +25,8 @@ const OPTION_VOCABULARIES = Object.freeze({
   stepSgosProcess: Object.freeze(['program', 'expectedRevision']),
   runSgosProcess: Object.freeze(['program', 'expectedRevision', 'maximumParallel']),
   respondToSgosHumanRequest: Object.freeze([
-    'requestId', 'requestSha256', 'expectedRevision', 'actor', 'decision', 'input', 'program'
+    'requestId', 'requestSha256', 'expectedRevision', 'expectedProcessSha256',
+    'actor', 'decision', 'input', 'program'
   ]),
   recoverInterruptedSgosExecution: Object.freeze([
     'attemptId', 'resolution', 'confirmationSha256', 'expectedRevision'

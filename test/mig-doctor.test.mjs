@@ -56,6 +56,7 @@ test('schema census and doctor classify every persisted SGOS sidecar family', as
     ['checkpoints', 'gvm-checkpoint'],
     ['human-requests', 'human-request'],
     ['human-responses', 'human-response'],
+    ['agent-proposals', 'agent-proposal'],
     ['evidence', 'action-evidence'],
     ['execution-leases', 'sgos-execution-lease']
   ];

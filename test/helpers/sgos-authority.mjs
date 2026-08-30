@@ -31,8 +31,9 @@ export async function publishSgosProgramAuthority(root, program, {
   approvedAt = '2026-08-29T09:59:00.000Z',
   workflowBytes = null
 } = {}) {
+  const exactProgram = program?.program ?? program;
   const authority = createSgosProgramAuthorityRecord(program, { approvedBy, approvedAt });
-  const relative = sgosProgramAuthorityPath(program);
+  const relative = sgosProgramAuthorityPath(exactProgram);
   const authorityBytes = `${JSON.stringify(authority, null, 2)}\n`;
   const authorityOid = objectId(root, authorityBytes);
   const ref = 'refs/heads/sflow/config';
@@ -55,7 +56,7 @@ export async function publishSgosProgramAuthority(root, program, {
     const commitArgs = ['commit-tree', tree];
     if (parent) commitArgs.push('-p', parent);
     const commit = git(root, commitArgs, {
-      input: `Approve SGOS Program ${program.programSha256}\n`
+      input: `Approve SGOS Program ${exactProgram.programSha256}\n`
     }).stdout.trim();
     git(root, ['update-ref', ref, commit, ...(priorRef ? [priorRef] : [])]);
     return { authority, relative, ref, commit };

@@ -512,6 +512,36 @@ export interface SgosUnavailableProcessCard {
   actions: SgosActionDescriptor[];
 }
 
+export type SgosWorkObjectViewType =
+  | 'overview' | 'graph' | 'board' | 'timeline' | 'table' | 'document' | 'form'
+  | 'evidence' | 'diff' | 'matrix' | 'chart' | 'log' | 'metrics' | 'simulation'
+  | 'approval';
+
+export type SgosRenderScalar = string | number | boolean | null;
+
+/** Closed, projection-only render data. It deliberately has no HTML or executable callback field. */
+export interface SgosRenderDescriptor {
+  descriptorVersion: 1;
+  viewType: SgosWorkObjectViewType;
+  title: string;
+  summary: string;
+  accessibility: {
+    role: 'region' | 'form' | 'document' | 'log';
+    label: string;
+    keyboard: string;
+  };
+  delivery: {
+    mode: 'inline' | 'lazy';
+    slice: 'sgos';
+    release: 'panel-dispose';
+  };
+  fields: Array<{ id: string; label: string }>;
+  rows: Array<{ id: string; cells: SgosRenderScalar[] }>;
+  edges: Array<{ id: string; from: string; to: string; label: string }>;
+  notes: string[];
+  truncated: boolean;
+}
+
 export interface SgosWorkObject {
   schemaVersion: number;
   kind: 'work-object';
@@ -521,7 +551,7 @@ export interface SgosWorkObject {
   taskInstanceId: string | null;
   createdAt: string | null;
   view: {
-    type: string;
+    type: SgosWorkObjectViewType;
     schema: Record<string, unknown>;
     dataRef: string;
     actions: Array<{ id: string; label: string; operation: string; inputSchema: Record<string, unknown> }>;
@@ -539,6 +569,7 @@ export interface SgosCommandCenterSnapshot {
   counts: Record<string, number>;
   processes: SgosProcessCard[];
   needsYou: SgosWorkObject[];
+  views: SgosWorkObject[];
   unavailable: SgosUnavailableProcessCard[];
 }
 

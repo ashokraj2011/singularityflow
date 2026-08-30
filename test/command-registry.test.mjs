@@ -4,6 +4,7 @@ import {
   canonicalCommand, COMMAND_REGISTRY, operationCatalog, RESOLVER_SUBCOMMANDS, resolveOperation,
   validateCommandHandlers
 } from '../src/command-registry.mjs';
+import { SGOS_CLI_OPTIONS, validateSgosCliOptions } from '../src/sgos/cli-options.mjs';
 
 test('command registry resolves compatibility aliases without duplicating handlers', () => {
   assert.equal(canonicalCommand('home'), 'home');
@@ -21,6 +22,32 @@ test('command registry resolves compatibility aliases without duplicating handle
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'snapshot').classification, 'read');
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'wm').modelPolicy, 'mixed');
   assert.equal(COMMAND_REGISTRY.find((entry) => entry.name === 'start').output, 'human-or-json');
+});
+
+test('every registered SGOS subcommand has a closed option contract', () => {
+  for (const [command, actions] of Object.entries(SGOS_CLI_OPTIONS)) {
+    assert.deepEqual(
+      Object.keys(actions).sort(),
+      [...RESOLVER_SUBCOMMANDS[command]].sort(),
+      `${command} option contracts match its registered subcommands`
+    );
+    for (const action of Object.keys(actions)) {
+      assert.throws(
+        () => validateSgosCliOptions(command, action, { 'definitely-not-a-real-option': true }),
+        (error) => error.code === 'SGOS_UNKNOWN_OPTION'
+          && error.message.includes(`for '${command} ${action}'`),
+        `${command} ${action} refuses an unknown option`
+      );
+    }
+  }
+});
+
+test('SGOS option strictness does not change non-SGOS operation resolution', () => {
+  assert.equal(resolveOperation({
+    requestedCommand: 'status',
+    positionals: ['status'],
+    options: { 'definitely-not-a-real-option': true }
+  }).id, 'status');
 });
 
 test('mixed deterministic commands classify their actual operation rather than their top-level name', () => {
@@ -52,6 +79,43 @@ test('mixed deterministic commands classify their actual operation rather than t
     requestedCommand: 'process', positionals: ['process', 'run', 'PROC-1'],
     options: { 'maximum-parallel': '4' }
   }).id, 'process.run');
+  assert.equal(resolveOperation({
+    requestedCommand: 'process', positionals: ['process', 'step', 'PROC-1'], options: {}
+  }).modelPolicy, 'never');
+  assert.equal(resolveOperation({
+    requestedCommand: 'process', positionals: ['process', 'run', 'PROC-1'], options: {}
+  }).modelPolicy, 'never');
+  assert.equal(resolveOperation({
+    requestedCommand: 'policy', positionals: ['policy', 'plan'], options: {}
+  }).id, 'policy.plan');
+  assert.equal(resolveOperation({
+    requestedCommand: 'policy', positionals: ['policy', 'plan'], options: {}
+  }).classification, 'read');
+  assert.equal(resolveOperation({
+    requestedCommand: 'policy', positionals: ['policy', 'apply'],
+    options: { 'expected-revision': '0', confirm: `sha256:${'a'.repeat(64)}` }
+  }).classification, 'mutation');
+  const modelStep = resolveOperation({
+    requestedCommand: 'process', positionals: ['process', 'step', 'PROC-1'],
+    options: { 'allow-model': true }
+  });
+  assert.equal(modelStep.id, 'process.step.model');
+  assert.equal(modelStep.modelPolicy, 'required');
+  assert.deepEqual(modelStep.externalDependencies, ['copilot-cli']);
+  assert.equal(resolveOperation({
+    requestedCommand: 'process', positionals: ['process', 'run', 'PROC-1'],
+    options: { 'allow-model': true, 'maximum-parallel': '2' }
+  }).id, 'process.run.model');
+  assert.equal(resolveOperation({
+    requestedCommand: 'program', positionals: ['program', 'approve', 'program.json'], options: {}
+  }).id, 'program.approve.plan');
+  assert.equal(resolveOperation({
+    requestedCommand: 'program', positionals: ['program', 'approve', 'program.json'], options: {}
+  }).classification, 'read');
+  assert.equal(resolveOperation({
+    requestedCommand: 'program', positionals: ['program', 'approve', 'program.json'],
+    options: { confirm: `sha256:${'a'.repeat(64)}`, 'approved-at': '2026-08-30T00:00:00Z' }
+  }).id, 'program.approve');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).modelPolicy, 'never');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'impact', 'analyze'], options: { 'dry-run': 'true' } }).id, 'workspace.impact.analyze.preview');
   assert.equal(resolveOperation({ requestedCommand: 'workspace', positionals: ['workspace', 'copilot'], options: { 'dry-run': true } }).id, 'workspace.copilot.preview');
@@ -147,9 +211,19 @@ test('every deterministic preview has its own cataloged never-model operation', 
     'copilot.preview',
     'workspace.copilot.preview',
     'workspace.impact.analyze.preview',
-    'wm.light'
+    'wm.light',
+    'program.approve.plan',
+    'task.retry.plan'
   ]) {
     assert.equal(catalog.get(id)?.modelPolicy, 'never', id);
     assert.ok(catalog.get(id)?.noModelFixture, id);
+  }
+});
+
+test('model-enabled SGOS dispatch has distinct required-model catalog entries', () => {
+  const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
+  for (const id of ['process.step.model', 'process.run.model']) {
+    assert.equal(catalog.get(id)?.modelPolicy, 'required', id);
+    assert.deepEqual(catalog.get(id)?.externalDependencies, ['copilot-cli'], id);
   }
 });

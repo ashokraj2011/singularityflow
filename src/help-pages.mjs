@@ -120,35 +120,62 @@ const PAGES = Object.freeze({
     seeAlso: ['adhoc', 'status', 'start']
   },
   intent: {
-    summary: 'Capture and compile confirmed intent without allowing natural language to become authority.',
+    summary: 'Capture, confirm, ratify, and compile intent without allowing natural language to become authority.',
     description: [
       'SGOS Intent records keep normative provenance explicit. Capture creates a candidate envelope;',
-      'validation and compilation are deterministic and model-free. A model-proposed field never',
+      '`packet` binds reviewed answer JSON, while `confirm` requires that exact packet digest and',
+      'the observed member of the approved product authority. `workflow` converts an explicit finite',
+      'declaration into a candidate; `ratification-packet` previews its complete authority input and',
+      '`ratify` requires that exact digest and the approved architecture authority.',
+      '',
+      'Every authoring transformation, validation, and compilation is deterministic and model-free.',
+      'A model-proposed field never',
       'becomes human-confirmed merely because it appears in a source document.',
       '',
       'Compilation requires exact Intent IR, Workflow IR, ratification, and policy records. Missing',
       'coverage, contradictions, unsafe effects, or an invalid ratification are refusals, not guesses.'
     ],
     options: [
+      ['--answers FILE', 'For packet/confirm, supply the complete explicit human-answer object.'],
+      ['--confirm SHA256', 'Confirm only the exact current Intent, Workflow, or Program packet.'],
+      ['--confirmed-at RFC3339', 'Record the explicit Intent confirmation decision time.'],
+      ['--declaration FILE', 'For workflow, supply the finite explicit task declaration.'],
+      ['--decided-at RFC3339', 'Record the explicit Workflow ratification decision time.'],
       ['--registry FILE', 'For compile, supply the exact registry snapshot pinned by ratification.'],
-      ['--out FILE', 'For capture or compile, write the canonical record inside the repository.'],
+      ['--out FILE', 'Write an authored canonical Intent/Workflow/ratification/Program record inside the repository.'],
       ['--json', 'Emit the complete content-addressed record.']
     ],
     examples: [
       ['singularity-flow intent capture "Produce a verified migration report" --out intent.json', 'Capture a candidate without running a model.'],
+      ['singularity-flow intent packet intent.json --answers answers.json --out intent-packet.json', 'Preview the exact answer packet a human must confirm.'],
+      ['singularity-flow intent confirm intent.json --answers answers.json --confirm sha256:... --confirmed-at 2026-08-30T12:00:00Z --out intent-ir.json', 'Create Intent IR only from the exact confirmed packet and approved observed identity.'],
+      ['singularity-flow intent ratification-packet intent-ir.json --workflow workflow.json --policy policy.json --registry registry.json --storage-profile-sha256 sha256:... --out ratification-packet.json', 'Preview the complete Workflow authority packet.'],
       ['singularity-flow intent compile intent-ir.json --workflow workflow-ir.json --ratification ratification.json --policy policy.json --registry registry.json --out program.json', 'Compile one ratified finite Program.']
     ],
     seeAlso: ['program', 'process', 'workflow']
   },
   program: {
-    summary: 'Inspect, validate, explain, or simulate an immutable SGOS Program.',
+    summary: 'Inspect, simulate, or propose approval of an immutable SGOS Program.',
     description: [
       'A Program is the content-addressed output of the deterministic workflow compiler. Simulation',
       'derives task order, human stops, unsupported execution units, evidence requirements, and the',
-      'ready set without executing a task or changing process state.'
+      'ready set without executing a task or changing process state.',
+      '',
+      '`program approve` first prints a content-addressed proposal. Repeating it with that exact',
+      '`--confirm` digest and `--approved-at` creates a normal review proposal based on `sflow/config`.',
+      'It does not change the selected application branch, merge the review branch, or confer Program',
+      'authority until the normal configuration review path places the record on approved `sflow/config`.'
     ],
-    options: [['--json', 'Emit the complete validation, explanation, or simulation result.']],
-    examples: [['singularity-flow program simulate program.json --json', 'Prove the bounded execution shape before starting it.']],
+    options: [
+      ['--confirm SHA256', 'For approve, bind publication to the exact current authority proposal.'],
+      ['--approved-at RFC3339', 'For confirmed approve, record the explicit decision time.'],
+      ['--json', 'Emit the complete validation, explanation, simulation, or proposal result.']
+    ],
+    examples: [
+      ['singularity-flow program simulate program.json --json', 'Prove the bounded execution shape before starting it.'],
+      ['singularity-flow program approve program.json --json', 'Preview the exact Program-authority proposal without changing anything.'],
+      ['singularity-flow program approve program.json --confirm sha256:... --approved-at 2026-08-30T12:05:00Z --json', 'Publish only a configuration review branch for the confirmed record.']
+    ],
     seeAlso: ['intent', 'process', 'workflow']
   },
   process: {
@@ -164,9 +191,25 @@ const PAGES = Object.freeze({
       '`singularity/sgos/program-authorities/` on the approved configuration ref. Compiler inputs,',
       'working-tree bytes, and a copied Program digest cannot authorize execution.',
       '',
-      'The initial runtime executes deterministic kernel, verification, checkpoint, human-request,',
-      'no-op, and end tasks sequentially. Agent and device opcodes stop with an explicit adapter',
-      'refusal. A task is never successful without an immutable verification-bound receipt.',
+      'Each `process run` dispatches one bounded deterministic parallel wave from the ready set.',
+      'Exact resource contracts select compatible tasks up to the installed limit and the caller\'s',
+      'lower `--maximum-parallel` ceiling; unsafe conflicts and unsupported execution shapes fail closed.',
+      'The runtime executes deterministic kernel, verification, checkpoint, human-request, no-op,',
+      'and end tasks, plus only the exact registry-pinned `deterministic-translator` AGENT, the',
+      'exact registry-pinned proposal-only `copilot-cli` AGENT, and the exact registry-pinned',
+      'read-only `filesystem-read` DEVICE. One exact registry-pinned consequential proof Device,',
+      '`sandbox-cas`, may publish only a compare-and-swap fixture beneath Git-common SGOS storage;',
+      'its compiled write and effect scopes must be the same single key, its Tool Intent is durable',
+      'before the effect, and recovery verifies the exact postcondition without replaying it.',
+      'Copilot is allowed only with `--allow-model`, has no',
+      'tools, repository or Device scope, and retains bounded output as immutable proposal evidence.',
+      'It never verifies or approves that output; every path to terminal authority must pass through',
+      'an explicit independent VERIFY gate. Every other consequential or uninstalled DEVICE and unpinned adapter',
+      'are refused. A task is never successful without an immutable verification-bound receipt.',
+      '',
+      '`process stop` durably pauses new dispatch and requests cancellation from active adapters.',
+      'It reports quiescence only after every exact attempt and its owner lease have settled; resume',
+      'remains refused while a stopped Process is paused but still active.',
       '',
       'v1 Process state, a v1 Process Binding, or a v1 Human Request cannot be upgraded into',
       'a trusted v2 authority claim.',
@@ -181,29 +224,80 @@ const PAGES = Object.freeze({
       'It never deletes, rewrites, restores, resumes, or claims success.',
       '`process archive` is retained only as a compatibility alias and produces quarantine-labelled output.'
     ],
-    options: [['--confirm SHA256', 'Bind resume to the exact current checkpoint.'], ['--json', 'Emit the complete process/checkpoint projection.']],
+    options: [
+      ['--maximum-parallel N', 'For process run, lower the installed bound for one deterministic ready wave.'],
+      ['--allow-model', 'For process step/run, permit the exact proposal-only Copilot adapter; global --no-model still refuses it.'],
+      ['--expected-revision N', 'For process step, run, pause, stop, or resume, compare-and-swap against one exact Process revision.'],
+      ['--confirm SHA256', 'Bind resume, recovery, replay, fork, or quarantine to the exact current plan or checkpoint.'],
+      ['--json', 'Emit the complete process/checkpoint projection.']
+    ],
     examples: [
       ['singularity-flow process start program.json --compiler-request compiler-request.json', 'Create a repository-bound operational Process after its exact Program authority is approved.'],
-      ['singularity-flow process step PROC-...', 'Execute at most one deterministic ready task.'],
+      ['singularity-flow process list --json', 'List healthy Processes, attention requests, and explicit unavailable-state diagnostics.'],
+      ['singularity-flow process run PROC-... --maximum-parallel 4', 'Execute at most one bounded wave of compatible ready tasks.'],
+      ['singularity-flow process fsck PROC-...', 'Verify the Process index and immutable-record integrity without repairing state.'],
+      ['singularity-flow process stop PROC-... --expected-revision 7', 'Pause dispatch, request cancellation, and report whether active work is quiescent.'],
       ['singularity-flow process quarantine PROC-...', 'Preview non-runnable preservation of supported legacy bytes, an interrupted private creation seed, or an exact incomplete-terminal crash, then rerun with its exact confirmation digest.']
     ],
     seeAlso: ['program', 'task', 'request', 'recover']
   },
+  policy: {
+    summary: 'Plan, apply, and verify content-addressed SGOS policy amendments.',
+    description: [
+      'Pinned policy authority is loaded only from refreshed approved configuration or state',
+      'authority. `policy plan` is read-only: it binds the current and candidate bundles, exact',
+      'component diff, affected Programs and Processes, selected invalidations, authority commit,',
+      'and current local runtime revision into one confirmation digest.',
+      '',
+      '`policy apply` re-reads all of those inputs and requires both the exact revision and plan',
+      'digest. A stale plan, dirty candidate, self-authorization, undeclared weakening, or missing',
+      '`policy.amend` human approval fails closed. Existing Processes keep their starting policy',
+      'unless the confirmed amendment writes an exact invalidation receipt for that Process.',
+      'An invalidated Process refuses `process step` and `process run` before any mutation and must',
+      'be restarted under the replacement policy.'
+    ],
+    options: [
+      ['--invalidate-process PROCESS-ID', 'Select an affected Process for a restart-required invalidation; repeat for more than one.'],
+      ['--expected-revision N', 'For apply, compare against the exact non-negative runtime revision returned by plan.'],
+      ['--confirm SHA256', 'For apply, confirm the exact content-addressed plan returned by policy plan.'],
+      ['--json', 'Emit the complete policy head, diff, impact, receipt, or fsck result.']
+    ],
+    examples: [
+      ['singularity-flow policy status PROC-...', 'Show the runtime head and whether one Process is still pinned or invalidated.'],
+      ['singularity-flow policy plan --invalidate-process PROC-... --json', 'Preview the exact amendment and selective invalidation without writing state.'],
+      ['singularity-flow policy apply --expected-revision 2 --confirm sha256:...', 'Apply only the exact reviewed plan after authority and state are revalidated.'],
+      ['singularity-flow policy fsck --json', 'Verify amendment, impact, plan, and invalidation lineage without repair.']
+    ],
+    seeAlso: ['process', 'program', 'status']
+  },
   task: {
     summary: 'Inspect SGOS task state, attempts, immutable receipts, and compiled evidence.',
     description: [
-      'Task commands are projection-only. They expose the exact Task Contract, dependencies, current',
-      'state, attempt lineage, verification, evidence gaps, and receipt without running the task.'
+      '`task list`, `task show`, and `task evidence` are projection-only. They expose the exact Task',
+      'Contract, dependencies, current state, attempt lineage, verification, evidence gaps, and',
+      'receipt without running the task.',
+      '',
+      '`task retry` is a mutation with a two-step boundary. Run it without `--confirm` to preview a',
+      'content-addressed retry plan. Re-run with that exact digest to dispatch only the same failed,',
+      'retry-safe task attempt. Stale state, exhausted attempts, and unsafe effects are refused.'
     ],
-    options: [['--json', 'Emit the complete task or action-evidence record.']],
-    examples: [['singularity-flow task evidence PROC-... verify-output --json', 'Inspect why a task is or is not verified.']],
+    options: [
+      ['--confirm SHA256', 'For task retry, confirm the exact current retry plan digest.'],
+      ['--json', 'Emit the complete task, action-evidence, or retry-plan record.']
+    ],
+    examples: [
+      ['singularity-flow task evidence PROC-... verify-output --json', 'Inspect why a task is or is not verified.'],
+      ['singularity-flow task retry PROC-... failed-task', 'Preview a bounded retry without dispatching it.'],
+      ['singularity-flow task retry PROC-... failed-task --confirm sha256:...', 'Dispatch only the exact reviewed retry plan.']
+    ],
     seeAlso: ['process', 'request', 'receipt']
   },
   request: {
     summary: 'Inspect and answer typed SGOS Human Requests bound to exact bytes.',
     description: [
       'Human Requests survive restart and state why judgment is needed, which authority is required,',
-      'and what resumes afterward. A response uses compare-and-swap and binds the exact request hash;',
+      'and what resumes afterward. A response uses compare-and-swap and binds the exact request hash,',
+      'reviewed Process revision, and reviewed Process digest;',
       'expired, stale, unauthorized, or generic continue responses are refused.'
     ],
     options: [
@@ -212,14 +306,73 @@ const PAGES = Object.freeze({
       ['--input-json JSON', 'Provide bounded typed JSON for a non-sensitive request with an input schema.'],
       ['--sensitive-handle JSON', 'Provide only a typed, non-secret external URL or broker handle for a sensitive request.'],
       ['--confirm SHA256', 'Confirm the exact current request hash.'],
+      ['--expected-revision N', 'Bind the answer to the exact Process revision that was reviewed.'],
+      ['--expected-process-sha256 SHA256', 'Bind the answer to the exact Process digest that was reviewed.'],
       ['--json', 'Emit request or response records.']
     ],
     examples: [
-      ['singularity-flow request respond HRQ-... --process PROC-... --decision approved --confirm sha256:...', 'Approve one current approval request using authority pinned from repository configuration.'],
-      ['singularity-flow request respond HRQ-... --process PROC-... --option exact-option-id --confirm sha256:...', 'Select an option using the exact ID shown by request show.'],
-      [`singularity-flow request respond HRQ-... --process PROC-... --decision provided --input-json '{"answer":"bounded text"}' --confirm sha256:...`, 'Provide schema-validated non-sensitive input.']
+      ['singularity-flow request respond HRQ-... --process PROC-... --decision approved --confirm sha256:... --expected-revision 4 --expected-process-sha256 sha256:...', 'Approve one current approval request using the exact reviewed Process and authority pinned from repository configuration.'],
+      ['singularity-flow request respond HRQ-... --process PROC-... --option exact-option-id --confirm sha256:... --expected-revision 4 --expected-process-sha256 sha256:...', 'Select an option using the exact ID and Process revision shown by request show.'],
+      [`singularity-flow request respond HRQ-... --process PROC-... --decision provided --input-json '{"answer":"bounded text"}' --confirm sha256:... --expected-revision 4 --expected-process-sha256 sha256:...`, 'Provide schema-validated non-sensitive input against the exact reviewed Process.']
     ],
     seeAlso: ['process', 'task', 'approve']
+  },
+  evidence: {
+    summary: 'Export and independently verify portable SGOS Process Evidence.',
+    description: [
+      '`evidence export` compiles the exact current Process, Program, Process Binding, immutable',
+      'record index, checkpoints, control lineage, attempts, receipts, Candidates, Action Evidence,',
+      'Human decisions, Tool Intents/Results, proposals, leases, joins, fan-out, replay, stop, and',
+      'quiescence evidence that is durably available. It writes one canonical content-addressed',
+      'bundle inside the current repository and refuses traversal, symbolic links, overwrite,',
+      'partial output, or a bundle above the installed portable-export ceiling.',
+      '',
+      '`evidence verify` needs only that file and can run from a fresh directory with no source Git',
+      'sidecar. It detects omitted, reordered, duplicated, tampered, orphaned, and unreferenced',
+      'records. Missing task-contract bytes, approved authority bundles, raw Device evidence, or',
+      'non-durable execution events remain explicit gaps. Verification proves content-addressed',
+      'local-export integrity only; it never claims a signature, fresh Authority Store check, or',
+      'governance approval, and it never invokes a model.'
+    ],
+    options: [
+      ['--out FILE', 'For export, create one new repository-contained bundle; existing files are never replaced.'],
+      ['--json', 'Emit the exact assurance, completeness, gaps, contradictions, digest, and output metadata.']
+    ],
+    examples: [
+      ['singularity-flow evidence export PROC-... --out .sflow/evidence/process.json --json', 'Create one canonical portable bundle without changing Process state.'],
+      ['singularity-flow evidence verify process.json --json', 'Verify copied evidence using only the bundle bytes.']
+    ],
+    seeAlso: ['process', 'task', 'request', 'receipt']
+  },
+  learn: {
+    summary: 'Inspect signed Pack lessons and rehearse bounded, descriptor-only guided missions.',
+    description: [
+      'Learning is a model-free read surface over the exact lessons declared by signed active',
+      'Capability Packs. `list` and `show` filter by role and optionally by Pack. Mission actions',
+      'also require a strict v1 learning-module JSON file whose self-hash must equal the lesson',
+      'content digest in that active Pack.',
+      '',
+      'A mission describes objectives, one digest-only disposable fixture, finite steps, expected',
+      'evidence, refusal and recovery exercises, and deterministic quiz or teach-back checks. It',
+      'never materializes or executes the fixture, runs a command, invokes a model or tool, changes',
+      'Git, grants approval, or persists an employee score. Teach-back checks prove only that the',
+      'declared concepts occur in the answer; they are not semantic understanding or certification.'
+    ],
+    options: [
+      ['--role ROLE', 'Select one lower-case kebab-case role declared by the signed lesson and module.'],
+      ['--pack PACK-ID', 'Disambiguate or filter lessons to one active Pack.'],
+      ['--module FILE', 'Read one repository-contained, digest-bound learning-module v1 JSON descriptor.'],
+      ['--answers FILE', 'Read a bounded quiz selection or teach-back answer; answer text is never echoed.'],
+      ['--trust FILE', 'Use the explicit public publisher trust map required by the active Pack registry.'],
+      ['--json', 'Emit the bounded mission, inspection, change explanation, or check result.']
+    ],
+    examples: [
+      ['singularity-flow learn list --role developer --trust publisher-trust.json', 'List lessons visible to one role.'],
+      ['singularity-flow learn start recovery-basics --role developer --module recovery.json --trust publisher-trust.json', 'Prepare a read-only mission plan without materializing its fixture.'],
+      ['singularity-flow learn explain-change recovery-basics inspect-refusal --role developer --module recovery.json --trust publisher-trust.json', 'Show the exact declared non-effects of one step.'],
+      ['singularity-flow learn quiz recovery-basics recovery-choice --role developer --module recovery.json --answers answer.json --trust publisher-trust.json', 'Evaluate one exact option set without creating authority.']
+    ],
+    seeAlso: ['pack', 'process', 'evidence', 'help']
   },
   auto: {
     summary: 'Plan and start bounded, hash-ratified work in an isolated managed worktree.',

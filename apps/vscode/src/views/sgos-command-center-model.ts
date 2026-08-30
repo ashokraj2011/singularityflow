@@ -14,7 +14,7 @@ export interface SgosHumanRequestChoice {
 
 export interface SgosHumanRequestChoiceSource {
   requestType: string;
-  options?: Array<{ id: string; label?: string }>;
+  options?: Array<{ id: string; label?: string; consequence?: string }>;
   inputSchema?: unknown;
   sensitiveMode?: string;
 }
@@ -29,6 +29,7 @@ export interface SgosCommandCenterView {
   counts: Record<string, number>;
   lanes: SgosLane[];
   needsYou: SgosWorkObject[];
+  views: SgosWorkObject[];
   unavailable: SgosUnavailableProcessCard[];
   capabilities: SgosCommandCenterSnapshot['runtimeProfile']['capabilities'];
   selected: SgosProcessCard | null;
@@ -138,6 +139,8 @@ export function buildSgosCommandCenter(
     counts: { ...(sgos?.counts ?? {}) },
     lanes,
     needsYou: [...(sgos?.needsYou ?? [])],
+    views: [...(sgos?.views ?? [])].filter((object) =>
+      object.processId === selected?.processId),
     unavailable: [...(sgos?.unavailable ?? [])],
     capabilities: { ...(sgos?.runtimeProfile.capabilities ?? {}) },
     selected,

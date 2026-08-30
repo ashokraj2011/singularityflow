@@ -14,11 +14,13 @@ import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
+  createAgentProposal,
   createCandidateSnapshot,
   createFanoutExpansionReceipt,
   createJoinReceipt,
   createResourceLease,
   validateCandidateSnapshot,
+  validateAgentProposal,
   validateGvmProgram,
   validateProcessBinding
 } from './contracts.mjs';
@@ -80,6 +82,10 @@ import { isSgosTerminalTaskState, sgosJoinForTask } from './joins.mjs';
 import {
   executeInstalledGvmAdapter, resolveInstalledGvmAdapter
 } from './gvm-adapters.mjs';
+import {
+  assertSgosProcessPolicyAuthority, withSgosProcessPolicyAuthority
+} from './pinned-policy.mjs';
+import { composeSgosRuntimeWorkingSet } from './memory.mjs';
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const RECORD_RESERVATION_BY_RECORD = new WeakMap();
@@ -118,7 +124,7 @@ const HUMAN_DECISIONS_BY_REQUEST = Object.freeze({
 const RUNTIME_EVIDENCE_KINDS = new Set([
   'attempt', 'task-attempt', 'candidate', 'candidate-snapshot',
   'verification', 'verification-result', 'deterministic-verification',
-  'action-evidence', 'receipt', 'task-receipt'
+  'action-evidence', 'agent-proposal', 'receipt', 'task-receipt'
 ]);
 const EXECUTION_LEASE_HEARTBEAT_MS = 5_000;
 
@@ -695,7 +701,7 @@ async function settlePendingTransitionBeforeMutation(root, processId, operation,
     });
 }
 
-export async function startSgosProcess(root, options = {}) {
+async function startSgosProcessWithinPolicy(root, options = {}) {
   if (Object.hasOwn(options, 'trustedAuthorities') || Object.hasOwn(options, 'configurationAuthority')) {
     fail('Caller-supplied Human or configuration authority is not accepted; SGOS loads the exact approved authority itself.',
       'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
@@ -741,6 +747,10 @@ export async function startSgosProcess(root, options = {}) {
   const id = processId ?? stableId('PROC', {
     programSha256: program.programSha256,
     subject: { kind: subjectKind, id: subject.id, branch: subject.branch ?? null }
+  });
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.start', processId: id,
+    policySnapshotSha256: program.policySnapshotSha256
   });
   const contractSha256 = resolveTaskContractSha256({ taskContract, taskContractSha256, program });
   await assertSafeSgosSidecar(root, id);
@@ -882,6 +892,24 @@ export async function startSgosProcess(root, options = {}) {
   return Object.freeze({ process, program: programRecord, binding: bindingRecord, checkpoint, created: true });
 }
 
+export async function startSgosProcess(root, options = {}) {
+  if (Object.hasOwn(options, 'trustedAuthorities') || Object.hasOwn(options, 'configurationAuthority')
+      || typeof options?.program?.policySnapshotSha256 !== 'string' || !options?.subject?.id) {
+    return startSgosProcessWithinPolicy(root, options);
+  }
+  const processId = options.processId ?? stableId('PROC', {
+    programSha256: options.program.programSha256,
+    subject: {
+      kind: options.subject.kind ?? 'story', id: options.subject.id,
+      branch: options.subject.branch ?? null
+    }
+  });
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.start', processId,
+    policySnapshotSha256: options.program.policySnapshotSha256
+  }, () => startSgosProcessWithinPolicy(root, options));
+}
+
 function operationHandler(handlers, kind, template) {
   const configured = handlers?.[kind];
   if (typeof configured === 'function') return configured;
@@ -906,6 +934,43 @@ function verifierOperation(template) {
   if (typeof verification?.operation === 'string') return verification.operation;
   if (typeof verification?.operation?.id === 'string') return verification.operation.id;
   return operationId(template);
+}
+
+async function proposalInputsForVerify(root, process, task, program) {
+  const templates = templateById(program);
+  const proposals = [];
+  for (const predecessorTaskInstanceId of task.predecessorTaskInstanceIds) {
+    const predecessor = process.taskInstances[predecessorTaskInstanceId];
+    const predecessorTemplate = predecessor == null
+      ? null : templates.get(predecessor.taskTemplateId);
+    if (predecessorTemplate?.opcode !== 'AGENT'
+        || predecessorTemplate.metadata?.executionUnitId !== 'copilot-cli') continue;
+    if (predecessor.state !== 'succeeded' || predecessor.receiptSha256 == null
+        || predecessor.attemptIds.length < 1 || predecessor.outputRefs.length !== 1) {
+      fail('VERIFY cannot admit an incomplete Copilot proposal predecessor.',
+        'SGOS_AGENT_PROPOSAL_REQUIRED', { predecessorTaskInstanceId });
+    }
+    const proposalSha256 = predecessor.outputRefs[0];
+    const stored = await readSgosImmutableRecord(
+      root, process.processId, 'agent-proposal', proposalSha256
+    );
+    let proposal;
+    try { proposal = validateAgentProposal(stored.record); } catch (error) {
+      fail('VERIFY predecessor proposal failed its exact immutable contract.',
+        'SGOS_AGENT_PROPOSAL_INVALID', { cause: error?.message ?? String(error) });
+    }
+    if (proposal.proposalSha256 !== proposalSha256
+        || proposal.processId !== process.processId
+        || proposal.taskInstanceId !== predecessorTaskInstanceId
+        || proposal.attemptId !== predecessor.attemptIds.at(-1)
+        || proposal.executionUnitManifestSha256
+          !== predecessorTemplate.metadata.executionUnitManifestSha256) {
+      fail('VERIFY predecessor proposal is bound to another Process, task, attempt, or manifest.',
+        'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH', { predecessorTaskInstanceId });
+    }
+    proposals.push(proposal);
+  }
+  return Object.freeze(proposals);
 }
 
 function untrustedOutcome(value) {
@@ -976,7 +1041,8 @@ async function captureCandidate(root, process, context, observation, captureCand
     task: clone(context.task),
     template: clone(context.template),
     rawResult: clone(observation.rawResult ?? observation),
-    outputRefs: clone(observation.outputRefs ?? [])
+    outputRefs: clone(observation.outputRefs ?? []),
+    agentProposals: clone(context.agentProposals ?? [])
   }));
   const normalized = Array.isArray(captured) ? { resources: captured } : captured;
   ownKeysOnly(normalized, ['resources', 'createdBy'], 'Trusted candidate capture', 'SGOS_CANDIDATE_INVALID');
@@ -1030,7 +1096,8 @@ async function verifyCapturedCandidate(process, context, observation, candidate,
     template: clone(context.template),
     candidateSnapshot: candidate,
     candidateSha256: candidate.candidateSha256,
-    rawResult: clone(observation.rawResult ?? observation)
+    rawResult: clone(observation.rawResult ?? observation),
+    agentProposals: clone(context.agentProposals ?? [])
   }));
   if (verdict == null || typeof verdict !== 'object' || Array.isArray(verdict)) {
     fail('Deterministic verifier returned no typed verdict.', 'SGOS_VERIFIER_RESULT_INVALID');
@@ -1602,7 +1669,7 @@ function isSgosTransitionRecoveryError(error) {
  * @internal Raw adapter injection is an interpreter test seam. Supported callers use
  * `stepSgosProcess`, which constructs the closed installed adapter registry.
  */
-export async function runNextSgosTask(root, processId, {
+async function runNextSgosTaskWithinPolicy(root, processId, {
   program: suppliedProgram = null,
   expectedRevision = null,
   handlers = {},
@@ -1612,8 +1679,14 @@ export async function runNextSgosTask(root, processId, {
   allowConcurrent = false,
   preferredTaskInstanceId = null,
   maximumParallel = 1,
-  clock = null
+  clock = null,
+  executionUnitOptions = {}
 } = {}) {
+  // The policy receipt is checked before transition recovery, lease reconciliation, or any other
+  // Process mutation. Repositories with no pinned-policy runtime return the original Process pin.
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.step', processId
+  });
   await assertSafeSgosSidecar(root, processId);
   await settlePendingTransitionBeforeMutation(root, processId, 'step');
   await reconcileSgosExecutionLeases(root, processId);
@@ -1645,6 +1718,12 @@ export async function runNextSgosTask(root, processId, {
   }
   const task = before.taskInstances[selected.taskInstanceId];
   const template = templateById(program).get(task.taskTemplateId);
+  const workingSetCheckpoint = (await readSgosCheckpoint(
+    root, before.processId, before.currentCheckpointSha256
+  )).record;
+  const workingSet = composeSgosRuntimeWorkingSet({
+    process: before, checkpoint: workingSetCheckpoint, task, template, program
+  });
   const maximumAttempts = retryCeiling(template);
   if (task.attemptIds.length >= maximumAttempts) {
     return blockTask(root, before, task, {
@@ -1659,6 +1738,19 @@ export async function runNextSgosTask(root, processId, {
   if (template.opcode === 'AGENT' || template.opcode === 'DEVICE') {
     try { gvmAdapter = resolveInstalledGvmAdapter(template); }
     catch (error) {
+      if (['MODEL_CONTEXT_MISSING', 'MODEL_FORBIDDEN', 'MODEL_UNAVAILABLE']
+        .includes(error?.code)) {
+        return Object.freeze({
+          status: 'unavailable',
+          reason: Object.freeze({
+            code: error.code,
+            message: error.message,
+            causeCode: error.code
+          }),
+          taskInstanceId: task.taskInstanceId,
+          process: before
+        });
+      }
       return blockTask(root, before, task, {
         code: template.opcode === 'AGENT'
           ? 'SGOS_AGENT_EXECUTION_UNAVAILABLE'
@@ -1782,7 +1874,9 @@ export async function runNextSgosTask(root, processId, {
     evidenceContext,
     handlers,
     handlerKind,
-    gvmAdapter
+    gvmAdapter,
+    workingSet,
+    executionUnitOptions
   };
 
   const executionController = new AbortController();
@@ -1905,10 +1999,38 @@ export async function runNextSgosTask(root, processId, {
       return await finalizeSuccess(root, context, outcome, program, clock);
     }
     if (gvmAdapter) {
-      const adapted = await executeInstalledGvmAdapter(
-        root, context, gvmAdapter, executionController.signal
+      let adapted = await executeInstalledGvmAdapter(
+        root, context, gvmAdapter, executionController.signal,
+        context.executionUnitOptions[gvmAdapter.id] ?? {}
       );
       if (stopMonitorError) throw stopMonitorError;
+      if (adapted.proposalEvidence != null) {
+        const proposal = createAgentProposal({
+          processId: begun.processId,
+          taskInstanceId: context.task.taskInstanceId,
+          attemptId: context.attemptId,
+          ...adapted.proposalEvidence,
+          createdAt: instant(clock)
+        });
+        const publication = await putSgosImmutableRecord(
+          root, begun.processId, 'agent-proposal', proposal
+        );
+        if (publication.reservationToken != null) {
+          context.recordReservations.push(publication.reservationToken);
+        }
+        adapted = Object.freeze({
+          ...adapted,
+          rawResult: Object.freeze({
+            ...adapted.rawResult,
+            proposalSha256: proposal.proposalSha256,
+            providerAuditRef: proposal.providerAuditRef
+          }),
+          outputRefs: Object.freeze([proposal.proposalSha256]),
+          evidenceRefs: Object.freeze([
+            ...adapted.evidenceRefs, proposal.proposalSha256
+          ])
+        });
+      }
       context.evidenceContext = {
         ...context.evidenceContext,
         ...adapted.evidenceContext
@@ -1924,13 +2046,19 @@ export async function runNextSgosTask(root, processId, {
       return await finalizeSuccess(root, context, outcome, program, clock);
     }
     const handler = operationHandler(handlers, handlerKind, template);
+    const agentProposals = handlerKind === 'verify'
+      ? await proposalInputsForVerify(root, begun, context.task, program)
+      : [];
+    context.agentProposals = agentProposals;
     const rawOutcome = await invokeHandlerWithTimeout(handler, {
       process: clone(before),
       task: clone(task),
       template: clone(template),
       attemptId,
       programSha256: program.programSha256,
-      policySnapshotSha256: program.policySnapshotSha256
+      policySnapshotSha256: program.policySnapshotSha256,
+      workingSet: clone(workingSet),
+      agentProposals: clone(agentProposals)
     }, template.timeoutMs ?? null, executionController.signal);
     if (stopMonitorError) throw stopMonitorError;
     const outcome = await trustedHandlerOutcome(
@@ -1961,6 +2089,12 @@ export async function runNextSgosTask(root, processId, {
     unregisterSgosExecutionOwner(executionLease);
     await removeSgosExecutionLeaseIfUnreferenced(root, before.processId, executionLease);
   }
+}
+
+export async function runNextSgosTask(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.step', processId
+  }, () => runNextSgosTaskWithinPolicy(root, processId, options));
 }
 
 /** Execute one canonical step using only installed, manifest-checked adapters. */
@@ -2001,7 +2135,7 @@ async function dispatchOneParallelTask(root, processId, taskInstanceId, options)
  * @internal Raw adapter injection remains an interpreter test seam. Public callers use
  * public-runtime.mjs, which supplies only the installed adapter registry.
  */
-export async function runReadySgosTasks(root, processId, {
+async function runReadySgosTasksWithinPolicy(root, processId, {
   program: suppliedProgram = null,
   expectedRevision = null,
   maximumParallel = 1,
@@ -2017,6 +2151,9 @@ export async function runReadySgosTasks(root, processId, {
       maximumParallel, installed: SGOS_INSTALLED_LIMITS.maximumParallelExecutions
     });
   }
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.run', processId
+  });
   await assertSafeSgosSidecar(root, processId);
   await settlePendingTransitionBeforeMutation(root, processId, 'run');
   await reconcileSgosExecutionLeases(root, processId);
@@ -2059,6 +2196,12 @@ export async function runReadySgosTasks(root, processId, {
     results: Object.freeze(settled.map((entry) => entry.value)),
     process
   });
+}
+
+export async function runReadySgosTasks(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.run', processId
+  }, () => runReadySgosTasksWithinPolicy(root, processId, options));
 }
 
 /** Execute one deterministic parallel wave using only installed, manifest-checked adapters. */
@@ -2268,7 +2411,7 @@ async function openRequestById(root, process, requestId) {
 }
 
 /** Compare-and-swap a typed response against the exact request, checkpoint, task, and policy. */
-export async function respondToSgosHumanRequest(root, processId, options = {}) {
+async function respondToSgosHumanRequestWithinPolicy(root, processId, options = {}) {
   if (Object.hasOwn(options, 'authorityResolver') || Object.hasOwn(options, 'authorize')) {
     fail('Caller-supplied Human authority resolvers are not accepted; SGOS uses only the approved authority pinned at Process start.',
       'SGOS_AUTHORITY_SELF_CLAIM_REFUSED');
@@ -2277,20 +2420,35 @@ export async function respondToSgosHumanRequest(root, processId, options = {}) {
     requestId,
     requestSha256,
     expectedRevision,
+    expectedProcessSha256,
     actor,
     decision,
     input = null,
     program: suppliedProgram = null,
     clock = null
   } = options;
+  if (!Number.isInteger(expectedRevision)) fail('Human response requires expectedRevision.', 'SGOS_PROCESS_REVISION_REQUIRED');
+  if (!SHA256.test(String(expectedProcessSha256 ?? ''))) {
+    fail('Human response requires expectedProcessSha256.', 'SGOS_PROCESS_DIGEST_REQUIRED');
+  }
+  if (!HUMAN_DECISIONS.has(decision)) fail(`Unknown Human Request decision '${decision}'.`, 'SGOS_HUMAN_RESPONSE_INVALID');
+  const reviewedProcess = await readSgosProcess(root, processId);
+  if (reviewedProcess.processRevision !== expectedRevision
+      || reviewedProcess.processSha256 !== expectedProcessSha256) {
+    fail('Human Request response is stale because the Process revision or digest changed.',
+      'SGOS_HUMAN_REQUEST_STALE');
+  }
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'request.respond', processId
+  });
   await assertSafeSgosSidecar(root, processId);
   await settlePendingTransitionBeforeMutation(root, processId, 'respond');
-  if (!Number.isInteger(expectedRevision)) fail('Human response requires expectedRevision.', 'SGOS_PROCESS_REVISION_REQUIRED');
-  if (!HUMAN_DECISIONS.has(decision)) fail(`Unknown Human Request decision '${decision}'.`, 'SGOS_HUMAN_RESPONSE_INVALID');
   const process = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, process);
-  if (process.processRevision !== expectedRevision) {
-    fail('Human Request response is stale because the Process revision changed.', 'SGOS_HUMAN_REQUEST_STALE');
+  if (process.processRevision !== expectedRevision
+      || process.processSha256 !== expectedProcessSha256) {
+    fail('Human Request response is stale because the Process revision or digest changed.',
+      'SGOS_HUMAN_REQUEST_STALE');
   }
   const program = await resolveProgram(root, process, suppliedProgram);
   // Persisted Human assertions are a cache, not authority. Recompute membership from the exact
@@ -2467,11 +2625,17 @@ export async function respondToSgosHumanRequest(root, processId, options = {}) {
     draft.openHumanRequests = draft.openHumanRequests.filter((sha256) => sha256 !== request.requestSha256);
     updateReadinessAndStatus(draft, program);
   }, {
-    expectedRevision: process.processRevision,
-    expectedProcessSha256: process.processSha256,
+    expectedRevision,
+    expectedProcessSha256,
     updatedAt: respondedAt
   });
   return Object.freeze({ status: taskOutcome, process: next, request, response, candidate, attempt, receipt, evidence });
+}
+
+export async function respondToSgosHumanRequest(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'request.respond', processId
+  }, () => respondToSgosHumanRequestWithinPolicy(root, processId, options));
 }
 
 function interruptedExecution(process, requestedAttemptId = null) {
@@ -2555,7 +2719,7 @@ async function recoveryLease(root, process, attemptId) {
   });
 }
 
-async function recoveryLineage(root, processId, attemptId) {
+async function recoveryLineage(root, processId, attemptId, { task = null, template = null } = {}) {
   const attempts = await listSgosImmutableRecordsByField(
     root, processId, 'gvm-task-attempt', 'attemptId', attemptId
   );
@@ -2565,13 +2729,17 @@ async function recoveryLineage(root, processId, attemptId) {
   const evidence = await listSgosImmutableRecordsByField(
     root, processId, 'action-evidence', 'attemptId', attemptId
   );
+  const proposals = await listSgosImmutableRecordsByField(
+    root, processId, 'agent-proposal', 'attemptId', attemptId
+  );
   const running = attempts.filter((record) => record.status === 'running');
   const terminal = attempts.filter((record) => record.status !== 'running');
-  if (running.length > 1 || terminal.length > 1 || receipts.length > 1 || evidence.length > 1) {
+  if (running.length > 1 || terminal.length > 1 || receipts.length > 1
+      || evidence.length > 1 || proposals.length > 1) {
     fail('Interrupted execution has ambiguous immutable lineage.',
       'SGOS_RECORD_LINEAGE_INVALID', {
         attemptId, running: running.length, terminal: terminal.length,
-        receipts: receipts.length, evidence: evidence.length
+        receipts: receipts.length, evidence: evidence.length, proposals: proposals.length
       });
   }
   if (receipts.length && terminal[0]?.status !== 'succeeded') {
@@ -2583,9 +2751,29 @@ async function recoveryLineage(root, processId, attemptId) {
     fail('Interrupted execution start and terminal records have different handles.',
       'SGOS_RECORD_LINEAGE_INVALID', { attemptId });
   }
+  const proposal = proposals[0] ?? null;
+  const copilot = template?.opcode === 'AGENT'
+    && template.metadata?.executionUnitId === 'copilot-cli';
+  if (proposal != null && (!copilot || task == null
+      || proposal.processId !== processId
+      || proposal.taskInstanceId !== task.taskInstanceId
+      || proposal.attemptId !== attemptId
+      || proposal.executionUnitManifestSha256
+        !== template.metadata.executionUnitManifestSha256)) {
+    fail('Interrupted execution has a foreign or non-Copilot proposal record.',
+      'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH', { attemptId });
+  }
+  if (copilot && receipts[0] != null
+      && (proposal == null
+        || receipts[0].outputRefs.length !== 1
+        || receipts[0].outputRefs[0] !== proposal.proposalSha256
+        || !receipts[0].evidenceRefs.includes(proposal.proposalSha256))) {
+    fail('Interrupted Copilot success does not bind one exact proposal record.',
+      'SGOS_AGENT_PROPOSAL_INVALID', { attemptId });
+  }
   return Object.freeze({
     attempts, running: running[0] ?? null, terminal: terminal[0] ?? null,
-    receipt: receipts[0] ?? null, evidence: evidence[0] ?? null
+    receipt: receipts[0] ?? null, evidence: evidence[0] ?? null, proposal
   });
 }
 
@@ -2598,6 +2786,11 @@ async function reassertRecoveryLineageReservations(root, processId, lineage) {
   if (lineage.evidence) {
     await putSgosImmutableRecord(
       root, processId, 'action-evidence', lineage.evidence, { reserveExisting: true }
+    );
+  }
+  if (lineage.proposal) {
+    await putSgosImmutableRecord(
+      root, processId, 'agent-proposal', lineage.proposal, { reserveExisting: true }
     );
   }
   if (lineage.receipt) {
@@ -2668,7 +2861,9 @@ export async function planSgosProcessRecovery(root, processId, { attemptId = nul
   }
   const template = templateById(program).get(task.taskTemplateId);
   const attemptNumber = task.attemptIds.indexOf(selectedAttemptId) + 1;
-  const lineage = await recoveryLineage(root, process.processId, selectedAttemptId);
+  const lineage = await recoveryLineage(root, process.processId, selectedAttemptId, {
+    task, template
+  });
   const externalEffects = [...(template.resources?.externalEffects ?? [])];
   const writes = [...(template.resources?.writes ?? [])];
   const devices = [...(template.resources?.devices ?? [])];
@@ -2733,7 +2928,7 @@ export async function planSgosProcessRecovery(root, processId, { attemptId = nul
   });
 }
 
-export async function recoverInterruptedSgosExecution(root, processId, {
+async function recoverInterruptedSgosExecutionWithinPolicy(root, processId, {
   attemptId,
   resolution,
   confirmationSha256,
@@ -2744,6 +2939,9 @@ export async function recoverInterruptedSgosExecution(root, processId, {
     fail("Interrupted execution recovery requires resolution 'retry-safe', 'reconcile-success', or 'fail'.",
       'SGOS_EXECUTION_RECOVERY_RESOLUTION_REQUIRED');
   }
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.recover', processId
+  });
   await settlePendingTransitionBeforeMutation(root, processId, 'recover');
   const plan = await planSgosProcessRecovery(root, processId, { attemptId });
   if (!plan.interrupted && plan.executionStatus === 'active') {
@@ -2790,7 +2988,9 @@ export async function recoverInterruptedSgosExecution(root, processId, {
     fail('The execution owner is still alive; stop it and prove quiescence before recovery.',
       'SGOS_EXECUTION_STILL_ACTIVE', { leaseId: leaseState.leaseId });
   }
-  const lineage = await recoveryLineage(root, processId, attemptId);
+  const lineage = await recoveryLineage(root, processId, attemptId, {
+    task: current.task, template
+  });
   const completedAt = instant(clock);
 
   if (resolution === 'reconcile-success') {
@@ -2852,6 +3052,11 @@ export async function recoverInterruptedSgosExecution(root, processId, {
       attempt = priorAttempt;
       evidence = lineage.evidence;
     } else {
+      if (lineage.proposal) {
+        await putSgosImmutableRecord(
+          root, processId, 'agent-proposal', lineage.proposal, { reserveExisting: true }
+        );
+      }
       ({ attempt, evidence } = await persistAttemptAndEvidence(root, {
         begun: process,
         before: process,
@@ -2901,6 +3106,12 @@ export async function recoverInterruptedSgosExecution(root, processId, {
   });
 }
 
+export async function recoverInterruptedSgosExecution(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.recover', processId
+  }, () => recoverInterruptedSgosExecutionWithinPolicy(root, processId, options));
+}
+
 /**
  * Record a durable stop boundary immediately, even while an execution is active.
  *
@@ -2908,9 +3119,12 @@ export async function recoverInterruptedSgosExecution(root, processId, {
  * settlement, and only then removes its execution/lease. Therefore this mutation requests stop;
  * the returned `quiescent` flag (or a later identical call) is the proof that execution ended.
  */
-export async function stopSgosProcess(root, processId, {
+async function stopSgosProcessWithinPolicy(root, processId, {
   expectedRevision, clock = null
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.stop', processId
+  });
   await settlePendingTransitionBeforeMutation(root, processId, 'stop');
   const process = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, process);
@@ -2943,7 +3157,16 @@ export async function stopSgosProcess(root, processId, {
   });
 }
 
-export async function pauseSgosProcess(root, processId, { expectedRevision, clock = null } = {}) {
+export async function stopSgosProcess(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.stop', processId
+  }, () => stopSgosProcessWithinPolicy(root, processId, options));
+}
+
+async function pauseSgosProcessWithinPolicy(root, processId, { expectedRevision, clock = null } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.pause', processId
+  });
   await settlePendingTransitionBeforeMutation(root, processId, 'pause');
   const process = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, process);
@@ -2959,12 +3182,21 @@ export async function pauseSgosProcess(root, processId, { expectedRevision, cloc
   });
 }
 
-export async function resumeSgosProcess(root, processId, {
+export async function pauseSgosProcess(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.pause', processId
+  }, () => pauseSgosProcessWithinPolicy(root, processId, options));
+}
+
+async function resumeSgosProcessWithinPolicy(root, processId, {
   checkpointSha256,
   expectedRevision,
   program: suppliedProgram = null,
   clock = null
 } = {}) {
+  await assertSgosProcessPolicyAuthority(root, {
+    operation: 'process.resume', processId
+  });
   await settlePendingTransitionBeforeMutation(root, processId, 'resume');
   const process = await readSgosProcess(root, processId);
   await assertCurrentStoredProcessBinding(root, process);
@@ -3004,6 +3236,12 @@ export async function resumeSgosProcess(root, processId, {
     expectedProcessSha256: process.processSha256,
     updatedAt: instant(clock)
   });
+}
+
+export async function resumeSgosProcess(root, processId, options = {}) {
+  return withSgosProcessPolicyAuthority(root, {
+    operation: 'process.resume', processId
+  }, () => resumeSgosProcessWithinPolicy(root, processId, options));
 }
 
 export { listSgosProcesses, readSgosProcess };

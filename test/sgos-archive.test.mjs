@@ -5,12 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { initializeDefinition } from '../src/config.mjs';
 import { doctorSnapshot } from '../src/doctor.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
 import {
-  createGvmProcess, createGvmProgram, createGvmTaskAttempt, createResourceLease
+  createGvmProcess, createGvmProgram, createGvmTaskAttempt, createPolicySnapshot,
+  createResourceLease
 } from '../src/sgos/contracts.mjs';
+import { createPinnedPolicyBundle } from '../src/sgos/pinned-policy.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import {
   archiveSgosProcess,
@@ -555,6 +558,41 @@ test('v1 SGOS Process quarantine is plan-first, stale-proof, byte-preserving, an
   assert.equal(after.totals.unregistered, 0);
   assert.equal((await doctorSnapshot(root, { offline: true, probeModelProvider: false }))
     .checks.find((entry) => entry.id === 'schema-migrations')?.status, 'pass');
+});
+
+test('configured policy still permits exact preserve-only quarantine of unreadable legacy state', async () => {
+  const root = await repository();
+  await initializeDefinition(root);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'initialize approved configuration']);
+  const authorityRevision = git(root, ['rev-parse', 'HEAD']);
+  const policy = createPinnedPolicyBundle({
+    snapshot: createPolicySnapshot({
+      authorityRevision,
+      lawSha256: h('1'), registrySha256: h('2'), executionUnitPolicySha256: h('3'),
+      devicePolicySha256: h('4'), storagePolicySha256: h('5'), memoryPolicySha256: h('6'),
+      humanAuthoritySha256: h('7'), governedRootsSha256: h('8'),
+      verificationPolicySha256: h('9'), publicationPolicySha256: h('a')
+    })
+  });
+  const policyDirectory = path.join(root, 'singularity', 'sgos', 'policy');
+  await mkdir(policyDirectory, { recursive: true });
+  await writeFile(path.join(policyDirectory, 'current.json'), canonicalJson(policy));
+  git(root, ['add', 'singularity/sgos/policy/current.json']);
+  git(root, ['commit', '-qm', 'publish current SGOS policy']);
+  git(root, ['branch', 'sflow/config']);
+
+  const processId = 'PROC-CONFIGURED-LEGACY';
+  const fixture = await processFixture(root, processId);
+  const stateBefore = await readFile(path.join(fixture.directory, 'state.json'));
+  const plan = await planSgosProcessQuarantine(root, processId);
+  const quarantined = await quarantineSgosProcess(root, processId, {
+    confirmationSha256: plan.confirmationSha256
+  });
+  assert.equal(quarantined.status, 'quarantined');
+  assert.deepEqual(await readFile(path.join(
+    quarantineAbsolute(root, quarantined.quarantine), 'state.json'
+  )), stateBefore);
 });
 
 test('SGOS Process quarantine rehashes under lock and refuses a changed tree', async () => {

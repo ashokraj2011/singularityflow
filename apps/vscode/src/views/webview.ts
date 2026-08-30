@@ -854,6 +854,8 @@ export const STYLE = `
   .sgos-capability[data-status="staged"], .sgos-capability[data-status="unsupported"] { opacity:.82; }
   .sgos-capability strong, .sgos-capability small { display:block; }
   .sgos-unavailable { border-left:3px solid var(--sf-bad); }
+  .link-button { padding:0; border:0; color:var(--vscode-textLink-foreground); background:transparent; text-decoration:underline; }
+  .link-button:hover { color:var(--vscode-textLink-activeForeground); background:transparent; }
   @media (max-width:700px) { .sgos-graph-wrap { display:none; } }
 `;
 

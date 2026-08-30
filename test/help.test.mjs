@@ -28,6 +28,22 @@ test('the visible CLI reference names every registered top-level command', async
   }
 });
 
+test('the checked-in SGOS command index matches the public action families and required trust input', async () => {
+  const reference = (await loadHelpDocument('cli-command-reference')).content;
+  assert.match(reference,
+    /intent capture\|packet\|confirm\|workflow\|ratification-packet\|ratify\|show\|validate\|compile/);
+  assert.match(reference,
+    /program show\|validate\|explain\|simulate\|what-if\|fault-plan\|approve/);
+  assert.match(reference,
+    /process list\|status\|graph\|fsck\|step\|run\|pause\|stop\|resume\|recover\|replay\|fork/);
+  assert.match(reference, /policy status\|fsck\|plan\|apply/);
+  assert.match(reference, /task list\|show\|evidence\|retry/);
+  for (const line of reference.split('\n').filter((entry) =>
+    entry.startsWith('singularity-flow learn '))) {
+    assert.match(line, /--trust PUBLIC-TRUST\.json/, `learning command is missing trust input: ${line}`);
+  }
+});
+
 test('help loader returns the full manual or one focused topic', async () => {
   const complete = await loadHelpDocument();
   assert.match(complete.content, /## Quick start/);

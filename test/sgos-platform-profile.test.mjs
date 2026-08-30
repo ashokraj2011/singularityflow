@@ -674,6 +674,22 @@ test('meta-tool review packets require trusted accepted traces, independent huma
   });
   assert.equal(promotion.status, 'pack-review-required');
   assert.equal(promotion.reviewerId, authority.reviewerId);
-  assert.equal(service.profile, 'review-packet-only-v1');
-  assert.equal(Object.hasOwn(service, 'activate'), false);
+  assert.equal(service.profile, 'governed-activation-local-v1');
+  assert.equal(typeof service.activate, 'function');
+  const activationCas = await cas(store);
+  await assert.rejects(() => service.activate({
+    candidateSha256: candidate.recordSha256,
+    evaluationSha256: passingEvaluation.recordSha256,
+    promotionSha256: promotion.recordSha256,
+    target: {
+      kind: 'pack-operation', operationId: candidate.operationId, version: '1.0.0',
+      manifestSha256: d('target-manifest'), authoritySha256: d('target-authority')
+    },
+    observationPolicy: {
+      maximumObservations: 1, maximumEvidenceRefs: 1, acceptedOutcomes: ['succeeded']
+    },
+    confirmPromotionSha256: promotion.recordSha256,
+    confirmTargetSha256: d('target-confirmation'),
+    ...activationCas
+  }), (error) => error.code === 'SGOS_META_TOOL_TARGET_AUTHORITY_REQUIRED');
 });

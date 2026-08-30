@@ -255,6 +255,15 @@ Usage:
 
   # SGOS — deterministic intent compilation and governed execution
   singularity-flow intent capture <TEXT> [--out FILE] [--json]
+  singularity-flow intent packet <ENVELOPE> --answers <FILE> [--out FILE] [--json]
+  singularity-flow intent confirm <ENVELOPE> --answers <FILE> --confirm <PACKET-SHA256>
+    --confirmed-at <RFC3339> [--out FILE] [--json]
+  singularity-flow intent workflow <INTENT-IR> --policy <FILE> --declaration <FILE> [--out FILE] [--json]
+  singularity-flow intent ratification-packet <INTENT-IR> --workflow <FILE> --policy <FILE>
+    --registry <FILE> --storage-profile-sha256 <SHA256> [--coverage <FILE>] [--out FILE] [--json]
+  singularity-flow intent ratify <INTENT-IR> --workflow <FILE> --policy <FILE> --registry <FILE>
+    --storage-profile-sha256 <SHA256> [--coverage <FILE>] --confirm <PACKET-SHA256>
+    --decided-at <RFC3339> [--out FILE] [--json]
   singularity-flow intent validate <FILE> [--json]
   singularity-flow intent show <FILE> [--json]
   singularity-flow intent compile <INTENT-IR> --workflow <FILE> --ratification <FILE> --policy <FILE> --registry <FILE> [--out FILE] [--json]
@@ -262,17 +271,27 @@ Usage:
   singularity-flow program show <FILE> [--json]
   singularity-flow program explain <FILE> [--json]
   singularity-flow program simulate <FILE> [--json]
+  singularity-flow program what-if <FILE> --without-device <ID[,ID...]> [--json]
+  singularity-flow program fault-plan <FILE> --target task:<TASK-ID>|device:<DEVICE-ID>
+    --failure interrupted|malformed-result|permission-denied|timeout|unavailable|verification-failed [--json]
+    both commands are read-only structural analyses; they never run a Device or inject a fault
+  singularity-flow program approve <FILE> [--confirm <PROPOSAL-SHA256> --approved-at <RFC3339>] [--json]
+    preview first; confirmation publishes only an sflow/config review proposal, never application-branch authority
   singularity-flow process start <PROGRAM> [--compiler-request <FILE>] [--binding FILE]
     [--subject ID] [--subject-kind story|repository] [--json]
+  singularity-flow process list [--json]
+    show healthy Processes, Human Requests needing attention, and unavailable private state
   singularity-flow process status <PROCESS-ID> [--json]
   singularity-flow process graph <PROCESS-ID> [--json]
-  singularity-flow process step <PROCESS-ID> [--json]
-  singularity-flow process run <PROCESS-ID> [--maximum-parallel N] [--json]
-    execute one deterministic ready wave; N defaults to the installed bounded maximum
-  singularity-flow process pause <PROCESS-ID> [--json]
+  singularity-flow process fsck <PROCESS-ID> [--json]
+    verify indexed immutable records, pending reservations, orphans, and integrity gaps without repair
+  singularity-flow process step <PROCESS-ID> [--expected-revision N] [--allow-model] [--json]
+  singularity-flow process run <PROCESS-ID> [--maximum-parallel N] [--expected-revision N] [--allow-model] [--json]
+    execute one deterministic ready wave; --allow-model permits proposal-only Copilot tasks
+  singularity-flow process pause <PROCESS-ID> [--expected-revision N] [--json]
   singularity-flow process stop <PROCESS-ID> [--expected-revision N] [--json]
     records a durable stop by pausing dispatch; active execution must quiesce before resume
-  singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--json]
+  singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--expected-revision N] [--json]
   singularity-flow process recover <PROCESS-ID> [--json]
   singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
     --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
@@ -284,15 +303,26 @@ Usage:
   singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
   singularity-flow process archive <PROCESS-ID> ...  # compatibility alias for quarantine
     preserve an unreadable v1 machine-local Process; preview first, never restore it as v2
+  singularity-flow policy status [PROCESS-ID] [--json]
+  singularity-flow policy fsck [--json]
+  singularity-flow policy plan [--invalidate-process <PROCESS-ID>]... [--json]
+  singularity-flow policy apply --expected-revision <N> --confirm <PLAN-SHA256>
+    [--invalidate-process <PROCESS-ID>]... [--json]
+    plan is read-only; apply re-reads the exact approved authority and runtime head
+    an invalidated Process refuses step/run before mutation until restarted under the new policy
   singularity-flow task list <PROCESS-ID> [--json]
   singularity-flow task show <PROCESS-ID> <TASK-ID> [--json]
   singularity-flow task evidence <PROCESS-ID> <TASK-ID> [--json]
+  singularity-flow task retry <PROCESS-ID> <TASK-ID> [--confirm <RETRY-PLAN-SHA256>] [--json]
+  singularity-flow evidence export <PROCESS-ID> --out <REPOSITORY-FILE> [--json]
+  singularity-flow evidence verify <FILE> [--json]
   singularity-flow request list [<PROCESS-ID>] [--json]
   singularity-flow request show <REQUEST-ID> [--process <PROCESS-ID>] [--json]
   singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
     (--decision approved|rejected|provided|cancelled | --option <DECLARED-OPTION-ID>)
     [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
-    --confirm <REQUEST-SHA256> [--json]
+    --confirm <REQUEST-SHA256> --expected-revision <PROCESS-REVISION>
+    --expected-process-sha256 <PROCESS-SHA256> [--json]
   singularity-flow candidate list|show|freeze|verify|publish ... [--json]
     verify loads singularity/sgos/candidate-verifier-policy.json only from approved sflow/config authority
     legacy --commands/--timeout-ms inputs are accepted only when exactly equal to that policy
@@ -300,9 +330,17 @@ Usage:
   singularity-flow execution-unit list|doctor [ID|all] [--json]
   singularity-flow device list|doctor|invoke|recover|intent|result|revoke ... [--json]
     invoke and recovery read the complete typed request from --request <REPOSITORY-JSON-FILE>
+    installed profiles are read-only filesystem-read and Git-common fixture-only sandbox-cas
   singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm <RECOVERY-PLAN-SHA256>] [--json]
   singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust <PUBLIC-TRUST-JSON> [--json]
-  singularity-flow learn list|show ... --role <ROLE> --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn list|show ... --role <ROLE> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn start|inspect <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>
+    [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn explain-change <LESSON-ID> <STEP-ID> --role <ROLE> --module <LEARNING-MODULE.json>
+    [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn quiz|teach-back <LESSON-ID> <CHECK-ID> --role <ROLE>
+    --module <LEARNING-MODULE.json> --answers <ANSWER.json>
+    [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow memory inspect|dependencies|register|promote ... [--store ID] [--json]
   singularity-flow meta-tool list|propose|evaluation|promote ... [--store ID] [--json]
     private keys, secrets, credentials and tokens are never accepted in command arguments

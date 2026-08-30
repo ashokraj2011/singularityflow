@@ -80,6 +80,69 @@ test('an authored page carries description, examples and related commands', () =
   assert.match(page, /\nSEE ALSO\n/);
 });
 
+test('process help describes the installed parallel adapters and operational inspection surface', () => {
+  const page = renderCommandHelp('process');
+  assert.match(page, /process list \[--json\]/);
+  assert.match(page, /process fsck <PROCESS-ID> \[--json\]/);
+  assert.match(page, /process stop <PROCESS-ID> \[--expected-revision N\] \[--json\]/);
+  assert.match(page, /For process step, run, pause, stop, or resume, compare-and-swap/);
+  assert.match(page, /one bounded deterministic parallel wave/);
+  assert.match(page, /`deterministic-translator` AGENT/);
+  assert.match(page, /proposal-only `copilot-cli` AGENT/);
+  assert.match(page, /Copilot is allowed only with `--allow-model`/);
+  assert.match(page, /immutable proposal evidence/);
+  assert.match(page, /explicit independent VERIFY gate/);
+  assert.match(page, /read-only `filesystem-read` DEVICE/);
+  assert.match(page, /consequential proof Device/);
+  assert.match(page, /`sandbox-cas`/);
+  assert.match(page, /Tool Intent is durable/);
+  assert.match(page, /recovery verifies the exact postcondition without replaying it/);
+  assert.match(page, /reports quiescence only after every exact attempt and its owner lease have settled/);
+  assert.doesNotMatch(page, /tasks sequentially|Agent and device opcodes stop/);
+});
+
+test('task help distinguishes read-only inspection from confirmation-bound retry', () => {
+  const page = renderCommandHelp('task');
+  assert.match(page, /`task list`, `task show`, and `task evidence` are projection-only/);
+  assert.match(page, /`task retry` is a mutation with a two-step boundary/);
+  assert.match(page, /task retry PROC-\.\.\. failed-task --confirm sha256:/);
+  assert.match(page, /Stale state, exhausted attempts, and unsafe effects are refused/);
+});
+
+test('Intent and Program help expose exact authoring and configuration-review ceremonies', () => {
+  const intent = renderCommandHelp('intent');
+  assert.match(intent, /intent packet <ENVELOPE> --answers <FILE>/);
+  assert.match(intent, /intent confirm <ENVELOPE> --answers <FILE> --confirm <PACKET-SHA256>/);
+  assert.match(intent, /intent workflow <INTENT-IR> --policy <FILE> --declaration <FILE>/);
+  assert.match(intent, /intent ratification-packet <INTENT-IR>/);
+  assert.match(intent, /intent ratify <INTENT-IR>/);
+  assert.match(intent, /Every authoring transformation, validation, and compilation is deterministic and model-free/);
+
+  const program = renderCommandHelp('program');
+  assert.match(program, /program approve <FILE> \[--confirm <PROPOSAL-SHA256> --approved-at <RFC3339>\]/);
+  assert.match(program, /normal review proposal based on `sflow\/config`/);
+  assert.match(program, /does not change the selected application branch/);
+});
+
+test('policy help exposes read-only planning and exact confirmation-bound apply', () => {
+  const page = renderCommandHelp('policy');
+  assert.match(page, /policy plan --invalidate-process/);
+  assert.match(page, /policy apply --expected-revision/);
+  assert.match(page, /stale plan.*fails closed/s);
+  assert.match(page, /refuses `process step` and `process run` before any mutation/);
+});
+
+test('learn help exposes only digest-bound descriptor missions and non-authoritative evaluation', () => {
+  const page = renderCommandHelp('learn');
+  assert.match(page, /learn start\|inspect <LESSON-ID>/);
+  assert.match(page, /learn explain-change <LESSON-ID> <STEP-ID>/);
+  assert.match(page, /learn quiz\|teach-back <LESSON-ID> <CHECK-ID>/);
+  assert.match(page, /strict v1 learning-module JSON file/);
+  assert.match(page, /never materializes or executes the fixture/);
+  assert.match(page, /never.*invokes a model or tool/s);
+  assert.match(page, /not semantic understanding or certification/);
+});
+
 test('the synopsis comes from the usage listing, not the worked example', () => {
   // `Typical flow:` at the end of the overview contains real invocations. Scanning the whole
   // document pulled one of them into `start`'s synopsis as though it were a distinct form.

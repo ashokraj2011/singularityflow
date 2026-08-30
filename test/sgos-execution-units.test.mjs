@@ -5,7 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { sha256 } from '../src/sgos/contracts.mjs';
+import { assertModelInvocationAllowed } from '../src/operation-context.mjs';
+import { withOperationContext } from '../src/operation-context.mjs';
+import {
+  MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, sha256
+} from '../src/sgos/contracts.mjs';
 import {
   createAgentTaskContract,
   createCopilotExecutionUnit,
@@ -91,15 +95,147 @@ test('Copilot GEU delegates through the one model runner boundary and cannot min
     definition: { models: { defaultProvider: 'copilot-cli', providers: { 'copilot-cli': {} } } },
     async invoke(request) {
       calls.push(request);
-      return { invocationId: 'invocation-1', output: 'candidate prose', usage: { totalTokens: 4 } };
+      return {
+        invocationId: 'invocation-1', provider: 'copilot-cli', status: 'completed',
+        output: 'candidate prose', outputBytes: 15,
+        outputSha256: createHash('sha256').update('candidate prose').digest('hex'),
+        usage: { totalTokens: 4 }, toolObservation: null
+      };
     }
   });
-  const handle = await unit.start(contract(unit.descriptor()));
+  const proposalContract = contract(unit.descriptor(), {
+    outputSchema: { type: 'string' },
+    budgets: { activeMinutes: 1, modelInvocations: 1, touchedResources: 0 }
+  });
+  const handle = await unit.start(proposalContract);
   const result = await unit.collect(handle);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].channel, 'sgos-geu-copilot-cli');
+  assert.equal(calls[0].task, 'code');
+  assert.equal(Object.hasOwn(calls[0], 'model'), false,
+    'model selection must remain inside the task-routing chokepoint');
+  assert.deepEqual(calls[0].tools, {
+    mode: 'none', names: [], requireSuccessful: true, rejectTruncated: true
+  });
+  assert.equal(calls[0].limits.outputBytes, MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES);
   assert.equal(result.output, 'candidate prose');
+  assert.equal(result.candidate.kind, 'model-proposal');
+  assert.equal(result.candidate.authority, 'none');
+  assert.equal(result.candidate.providerInvocationId, 'invocation-1');
+  assert.equal(result.candidate.providerAuditRef, 'model-invocation:invocation-1');
   assert.equal(Object.hasOwn(result, 'verification'), false);
+});
+
+test('Copilot GEU stop cancels the provider and reaches exact quiescence', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-geu-copilot-stop-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let launched;
+  const started = new Promise((resolve) => { launched = resolve; });
+  const unit = createCopilotExecutionUnit({
+    root,
+    definition: { models: { defaultProvider: 'copilot-cli', providers: { 'copilot-cli': {} } } },
+    invoke(request) {
+      launched();
+      return new Promise((resolve, reject) => request.signal.addEventListener(
+        'abort', () => reject(request.signal.reason), { once: true }
+      ));
+    }
+  });
+  const handle = await unit.start(contract(unit.descriptor(), {
+    outputSchema: { type: 'string' },
+    budgets: { activeMinutes: 1, modelInvocations: 1, touchedResources: 0 }
+  }));
+  await started;
+  const stop = await unit.requestStop(handle, { reason: 'bounded stop' });
+  assert.equal(stop.acknowledged, true);
+  assert.equal((await unit.quiesce(handle)).quiescent, true);
+  await assert.rejects(unit.collect(handle),
+    (error) => error.code === 'SGOS_GEU_STOP_REQUESTED');
+});
+
+test('Copilot GEU rejects output and tool/provider escalation before proposal admission', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-geu-copilot-bounds-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const task = (unit) => contract(unit.descriptor(), {
+    outputSchema: { type: 'string' },
+    budgets: { activeMinutes: 1, modelInvocations: 1, touchedResources: 0 }
+  });
+  const definition = {
+    models: { defaultProvider: 'copilot-cli', providers: { 'copilot-cli': {} } }
+  };
+  const oversized = createCopilotExecutionUnit({
+    root, definition,
+    async invoke() {
+      return {
+        invocationId: 'oversized', output: 'x'.repeat(MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES + 1)
+      };
+    }
+  });
+  await assert.rejects(oversized.collect(await oversized.start(task(oversized))),
+    (error) => error.code === 'SGOS_GEU_OUTPUT_LIMIT');
+
+  const tools = createCopilotExecutionUnit({
+    root, definition,
+    async invoke() {
+      return {
+        invocationId: 'tool-escalation', output: 'proposal',
+        toolObservation: { totalCalls: 1 }
+      };
+    }
+  });
+  await assert.rejects(tools.collect(await tools.start(task(tools))),
+    (error) => error.code === 'SGOS_GEU_TOOL_ESCALATION');
+
+  const provider = createCopilotExecutionUnit({
+    root, definition,
+    async invoke() {
+      return { invocationId: 'provider-escalation', provider: 'other', output: 'proposal' };
+    }
+  });
+  await assert.rejects(provider.collect(await provider.start(task(provider))),
+    (error) => error.code === 'SGOS_GEU_PROVIDER_ESCALATION');
+});
+
+test('Copilot provider launch obeys the explicit operation model context', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-geu-copilot-policy-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let launches = 0;
+  const unit = createCopilotExecutionUnit({
+    root,
+    definition: { models: { defaultProvider: 'copilot-cli', providers: { 'copilot-cli': {} } } },
+    async invoke() {
+      assertModelInvocationAllowed();
+      launches += 1;
+      return { invocationId: `policy-${launches}`, output: 'same logical proposal' };
+    }
+  });
+  const task = contract(unit.descriptor(), {
+    objective: 'Represent the same logical task.', outputSchema: { type: 'string' },
+    budgets: { activeMinutes: 1, modelInvocations: 1, touchedResources: 0 }
+  });
+  await assert.rejects(() => withOperationContext({
+    operation: { id: 'process.step', modelPolicy: 'never' },
+    modelMode: { enabled: true }, root
+  }, async () => unit.collect(await unit.start(task))),
+  (error) => error.code === 'MODEL_FORBIDDEN');
+  assert.equal(launches, 0);
+
+  const result = await withOperationContext({
+    operation: { id: 'process.step.model', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root
+  }, async () => unit.collect(await unit.start(task)));
+  assert.equal(launches, 1);
+  assert.equal(result.output, 'same logical proposal');
+
+  const translator = createDeterministicTranslatorExecutionUnit();
+  const deterministic = await translator.collect(await translator.start(contract(
+    translator.descriptor(), {
+      objective: 'Represent the same logical task.',
+      budgets: { activeMinutes: 1, modelInvocations: 0, touchedResources: 0 }
+    }
+  )));
+  assert.equal(deterministic.output.objective, 'Represent the same logical task.');
+  assert.equal(result.candidate.kind, 'model-proposal');
 });
 
 test('generic-process GEU requires exact registry authorization and uses fixed argv with bounded JSON stdio', async (t) => {

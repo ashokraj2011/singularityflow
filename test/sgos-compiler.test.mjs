@@ -12,6 +12,7 @@ import {
 } from '../src/sgos/compiler.mjs';
 import {
   createIntentIr,
+  createGvmProgram,
   createWorkflowIr,
   createWorkflowRatification,
   validateGvmProgram
@@ -19,7 +20,11 @@ import {
 import { recordSha256 } from '../src/records.mjs';
 import { installedDeviceManifests } from '../src/sgos/devices.mjs';
 import { installedExecutionUnitManifests } from '../src/sgos/execution-units.mjs';
-import { verifySgosProgramRegistry } from '../src/sgos/program-trust.mjs';
+import {
+  validateSgosProgramStaticSafety, verifySgosProgramRegistry
+} from '../src/sgos/program-trust.mjs';
+import { resolveInstalledGvmAdapter } from '../src/sgos/gvm-adapters.mjs';
+import { withOperationContext } from '../src/operation-context.mjs';
 
 const POLICY_SHA = `sha256:${'1'.repeat(64)}`;
 const STORAGE_SHA = `sha256:${'3'.repeat(64)}`;
@@ -238,9 +243,11 @@ test('same confirmed inputs compile to the same canonical finite Program', () =>
   assert.deepEqual(first.program.taskTemplates.map((task) => task.taskTemplateId), ['copy', 'end']);
   assert.deepEqual(first.program.compiler, {
     id: SGOS_COMPILER_ID,
-    version: SGOS_COMPILER_VERSION
+    version: SGOS_COMPILER_VERSION,
+    sourceSha256: first.program.compiler.sourceSha256
   });
-  assert.equal(SGOS_COMPILER_VERSION, '2');
+  assert.match(first.program.compiler.sourceSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(SGOS_COMPILER_VERSION, '3');
   assert.deepEqual(first.program.edges.map(({ from, to }) => [from, to]), [['copy', 'end']]);
   assert.deepEqual(firstInput, untouched, 'the compiler must not mutate its confirmed inputs');
   assert.deepEqual(GVM_OPCODES, [
@@ -456,6 +463,124 @@ test('compiler and registry admission keep operation, Execution Unit, and Device
   assert.equal(deviceProgram.taskTemplates[0].metadata.deviceManifestSha256,
     device.manifestSha256);
   assert.equal(verifySgosProgramRegistry(deviceProgram, snapshot).verified, true);
+});
+
+test('Copilot AGENT is proposal-only and every authority path crosses an independent VERIFY gate', () => {
+  const copilot = installedExecutionUnitManifests()
+    .find((entry) => entry.id === 'copilot-cli');
+  assert.ok(copilot);
+  const snapshot = registrySnapshot({
+    executionUnits: [{
+      id: copilot.id, version: copilot.version, status: 'active',
+      manifestSha256: copilot.manifestSha256
+    }]
+  });
+  const proposalFixture = () => fixture({
+    registrySnapshot: snapshot,
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = baseTask({
+        opcode: 'AGENT', operation: 'core.copy',
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        metadata: {
+          executionUnitId: copilot.id,
+          verification: { kind: 'kernel', operation: 'core.equals' }
+        }
+      });
+      workflow.spec.tasks.verify = baseTask({
+        kind: 'task', opcode: 'VERIFY', operation: 'core.verify',
+        dependsOn: ['copy'],
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        metadata: { verification: { kind: 'kernel', operation: 'core.equals' } },
+        intentClauseIds: ['REQ-SUCCESS']
+      });
+      workflow.spec.tasks.end.dependsOn = ['verify'];
+      workflow.spec.budgets.maximumTasks = 3;
+    },
+    mutateRatification(ratification) {
+      ratification.coverage.tasks.verify = [{ kind: 'verification', sourceId: 'REQ-SUCCESS' }];
+    }
+  });
+
+  const program = compileSgosProgram(proposalFixture()).program;
+  const proposal = program.taskTemplates.find((task) => task.taskTemplateId === 'copy');
+  assert.equal(proposal.metadata.executionUnitId, copilot.id);
+  assert.deepEqual(program.edges.filter((edge) => edge.from === 'copy')
+    .map((edge) => edge.to), ['verify']);
+  assert.equal(validateSgosProgramStaticSafety(program, {
+    registrySnapshot: snapshot
+  }).safe, true);
+
+  expectCode(() => compileSgosProgram(fixture({
+    registrySnapshot: snapshot,
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy.opcode = 'AGENT';
+      workflow.spec.tasks.copy.resources = {
+        reads: [], writes: [], devices: [], externalEffects: []
+      };
+      workflow.spec.tasks.copy.metadata.executionUnitId = copilot.id;
+    }
+  })), 'SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED');
+
+  const tamperedSeed = structuredClone(program);
+  delete tamperedSeed.programSha256;
+  tamperedSeed.taskTemplates = tamperedSeed.taskTemplates
+    .filter((task) => task.taskTemplateId !== 'verify')
+    .map((task) => task.taskTemplateId === 'end'
+      ? { ...task, dependsOn: ['copy'] } : task);
+  tamperedSeed.edges = [{ from: 'copy', to: 'end' }];
+  const tampered = createGvmProgram(tamperedSeed);
+  assert.throws(() => validateSgosProgramStaticSafety(tampered),
+    (error) => error.code === 'SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED');
+});
+
+test('counterfeit registry Copilot manifests fail before adapter dispatch', () => {
+  const installed = installedExecutionUnitManifests()
+    .find((entry) => entry.id === 'copilot-cli');
+  const counterfeit = { ...installed, manifestSha256: `sha256:${'f'.repeat(64)}` };
+  const snapshot = registrySnapshot({
+    executionUnits: [{
+      id: counterfeit.id, version: counterfeit.version, status: 'active',
+      manifestSha256: counterfeit.manifestSha256
+    }]
+  });
+  const compiled = compileSgosProgram(fixture({
+    registrySnapshot: snapshot,
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = baseTask({
+        opcode: 'AGENT', resources: {
+          reads: [], writes: [], devices: [], externalEffects: []
+        },
+        metadata: { executionUnitId: counterfeit.id }
+      });
+      workflow.spec.tasks.verify = baseTask({
+        kind: 'task', opcode: 'VERIFY', operation: 'core.verify', dependsOn: ['copy'],
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        metadata: { verification: { kind: 'kernel', operation: 'core.equals' } },
+        intentClauseIds: ['REQ-SUCCESS']
+      });
+      workflow.spec.tasks.end.dependsOn = ['verify'];
+      workflow.spec.budgets.maximumTasks = 3;
+    },
+    mutateRatification(ratification) {
+      ratification.coverage.tasks.verify = [{ kind: 'verification', sourceId: 'REQ-SUCCESS' }];
+    }
+  })).program;
+  const template = compiled.taskTemplates.find((task) => task.taskTemplateId === 'copy');
+  assert.throws(() => withOperationContext({
+    operation: { id: 'process.step.model', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root: process.cwd()
+  }, () => resolveInstalledGvmAdapter(template)),
+  (error) => error.code === 'SGOS_GEU_MANIFEST_MISMATCH');
+
+  const stale = structuredClone(template);
+  stale.metadata.executionUnitVersion = '0.0.0-stale';
+  assert.throws(() => resolveInstalledGvmAdapter(stale),
+    (error) => error.code === 'SGOS_GEU_MANIFEST_MISMATCH');
+
+  const uninstalled = structuredClone(template);
+  uninstalled.metadata.executionUnitId = 'copilot-cli-uninstalled';
+  assert.throws(() => resolveInstalledGvmAdapter(uninstalled),
+    (error) => error.code === 'SGOS_GEU_GVM_PROFILE_UNSUPPORTED');
 });
 
 test('unbounded fan-out and loops are refused', async (t) => {

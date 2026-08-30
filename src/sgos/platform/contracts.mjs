@@ -153,7 +153,11 @@ export function validatePlatformRecord(record, expectedKind = null) {
     'platform-accepted-trace': createAcceptedTrace,
     'platform-meta-tool-candidate': createMetaToolCandidate,
     'platform-meta-tool-evaluation': createMetaToolEvaluation,
-    'platform-meta-tool-promotion': createMetaToolPromotion
+    'platform-meta-tool-promotion': createMetaToolPromotion,
+    'platform-meta-tool-activation': createMetaToolActivation,
+    'platform-meta-tool-observation': createMetaToolObservation,
+    'platform-meta-tool-revocation': createMetaToolRevocation,
+    'platform-meta-tool-rollback': createMetaToolRollback
   }[record.kind];
   if (!creator) fail(`Unknown platform record kind '${record.kind}'.`);
   const recreated = creator(payload);
@@ -558,6 +562,7 @@ export function createMetaToolCandidate(input) {
       identifier(value.operationId, 'meta-tool candidate.operationId');
       sortedUniqueStrings(value.traceRefs, 'meta-tool candidate.traceRefs', { digests: true });
       if (value.traceRefs.length < 2) fail('Meta-tool candidates require at least two accepted trace references.');
+      if (value.traceRefs.length > 256) fail('Meta-tool candidates accept at most 256 trace references.');
       identifier(value.proposerId, 'meta-tool candidate.proposerId');
       timestamp(value.createdAt, 'meta-tool candidate.createdAt');
     }
@@ -602,8 +607,160 @@ export function createMetaToolPromotion(input) {
       identifier(value.reviewerId, 'meta-tool promotion.reviewerId');
       if (value.decision !== 'approved') fail("Meta-tool promotion decision must be 'approved'.");
       string(value.reason, 'meta-tool promotion.reason');
+      if (value.reason.length > 2048) fail('meta-tool promotion.reason exceeds 2048 characters.');
       if (value.status !== 'pack-review-required') fail("Bounded local promotion status must be 'pack-review-required'.");
       timestamp(value.promotedAt, 'meta-tool promotion.promotedAt');
+    }
+  });
+}
+
+const META_TOOL_TARGET_KINDS = Object.freeze(['device-operation', 'pack-operation']);
+const META_TOOL_OUTCOMES = Object.freeze(['degraded', 'failed', 'succeeded']);
+
+function validateMetaToolTarget(value, label = 'meta-tool target') {
+  exactKeys(value, [
+    'kind', 'operationId', 'version', 'manifestSha256', 'authoritySha256',
+    'approvalSha256', 'targetSha256'
+  ], label);
+  requireKeys(value, [
+    'kind', 'operationId', 'version', 'manifestSha256', 'authoritySha256',
+    'approvalSha256', 'targetSha256'
+  ], label);
+  if (!META_TOOL_TARGET_KINDS.includes(value.kind)) fail(`${label}.kind is invalid.`);
+  identifier(value.operationId, `${label}.operationId`);
+  string(value.version, `${label}.version`, /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$/);
+  digest(value.manifestSha256, `${label}.manifestSha256`);
+  digest(value.authoritySha256, `${label}.authoritySha256`);
+  digest(value.approvalSha256, `${label}.approvalSha256`);
+  digest(value.targetSha256, `${label}.targetSha256`);
+  const core = clonePlatformJson(value);
+  delete core.targetSha256;
+  if (platformSha256(core) !== value.targetSha256) fail(`${label}.targetSha256 is not canonical.`);
+}
+
+function validateMetaToolObservationPolicy(value, label = 'meta-tool observation policy') {
+  exactKeys(value, [
+    'maximumObservations', 'maximumEvidenceRefs', 'acceptedOutcomes', 'policySha256'
+  ], label);
+  requireKeys(value, [
+    'maximumObservations', 'maximumEvidenceRefs', 'acceptedOutcomes', 'policySha256'
+  ], label);
+  integer(value.maximumObservations, `${label}.maximumObservations`, 1);
+  if (value.maximumObservations > 10_000) fail(`${label}.maximumObservations exceeds 10000.`);
+  integer(value.maximumEvidenceRefs, `${label}.maximumEvidenceRefs`, 1);
+  if (value.maximumEvidenceRefs > 64) fail(`${label}.maximumEvidenceRefs exceeds 64.`);
+  sortedUniqueStrings(value.acceptedOutcomes, `${label}.acceptedOutcomes`);
+  if (!value.acceptedOutcomes.length
+      || value.acceptedOutcomes.some((outcome) => !META_TOOL_OUTCOMES.includes(outcome))) {
+    fail(`${label}.acceptedOutcomes must be a non-empty subset of degraded, failed, and succeeded.`);
+  }
+  digest(value.policySha256, `${label}.policySha256`);
+  const core = clonePlatformJson(value);
+  delete core.policySha256;
+  if (platformSha256(core) !== value.policySha256) fail(`${label}.policySha256 is not canonical.`);
+}
+
+export function createMetaToolTarget(input) {
+  const core = clonePlatformJson(input);
+  delete core.targetSha256;
+  const target = { ...core, targetSha256: platformSha256(core) };
+  validateMetaToolTarget(target);
+  return freezeDeep(target);
+}
+
+export function createMetaToolObservationPolicy(input) {
+  const core = clonePlatformJson(input);
+  delete core.policySha256;
+  const policy = { ...core, policySha256: platformSha256(core) };
+  validateMetaToolObservationPolicy(policy);
+  return freezeDeep(policy);
+}
+
+export function createMetaToolActivation(input) {
+  return createRecord('platform-meta-tool-activation', input, {
+    allowed: [
+      'candidateSha256', 'evaluationSha256', 'promotionSha256', 'target',
+      'observationPolicy', 'supersedesActivationSha256', 'activatedRevision',
+      'activatedBy', 'activatedAt'
+    ],
+    required: [
+      'candidateSha256', 'evaluationSha256', 'promotionSha256', 'target',
+      'observationPolicy', 'supersedesActivationSha256', 'activatedRevision',
+      'activatedBy', 'activatedAt'
+    ],
+    validate(value) {
+      digest(value.candidateSha256, 'meta-tool activation.candidateSha256');
+      digest(value.evaluationSha256, 'meta-tool activation.evaluationSha256');
+      digest(value.promotionSha256, 'meta-tool activation.promotionSha256');
+      validateMetaToolTarget(value.target, 'meta-tool activation.target');
+      validateMetaToolObservationPolicy(value.observationPolicy,
+        'meta-tool activation.observationPolicy');
+      digest(value.supersedesActivationSha256,
+        'meta-tool activation.supersedesActivationSha256', { nullable: true });
+      integer(value.activatedRevision, 'meta-tool activation.activatedRevision', 1);
+      identifier(value.activatedBy, 'meta-tool activation.activatedBy');
+      timestamp(value.activatedAt, 'meta-tool activation.activatedAt');
+    }
+  });
+}
+
+export function createMetaToolObservation(input) {
+  return createRecord('platform-meta-tool-observation', input, {
+    allowed: [
+      'activationSha256', 'sequence', 'outcome', 'evidenceRefs', 'observedBy', 'observedAt'
+    ],
+    required: [
+      'activationSha256', 'sequence', 'outcome', 'evidenceRefs', 'observedBy', 'observedAt'
+    ],
+    validate(value) {
+      digest(value.activationSha256, 'meta-tool observation.activationSha256');
+      integer(value.sequence, 'meta-tool observation.sequence', 1);
+      if (!META_TOOL_OUTCOMES.includes(value.outcome)) fail('meta-tool observation.outcome is invalid.');
+      sortedUniqueStrings(value.evidenceRefs, 'meta-tool observation.evidenceRefs', { digests: true });
+      if (!value.evidenceRefs.length || value.evidenceRefs.length > 64) {
+        fail('meta-tool observation.evidenceRefs must contain 1..64 exact evidence digests.');
+      }
+      identifier(value.observedBy, 'meta-tool observation.observedBy');
+      timestamp(value.observedAt, 'meta-tool observation.observedAt');
+    }
+  });
+}
+
+export function createMetaToolRevocation(input) {
+  return createRecord('platform-meta-tool-revocation', input, {
+    allowed: ['activationSha256', 'revokedBy', 'reason', 'revokedAt'],
+    required: ['activationSha256', 'revokedBy', 'reason', 'revokedAt'],
+    validate(value) {
+      digest(value.activationSha256, 'meta-tool revocation.activationSha256');
+      identifier(value.revokedBy, 'meta-tool revocation.revokedBy');
+      string(value.reason, 'meta-tool revocation.reason');
+      if (value.reason.length > 2048) fail('meta-tool revocation.reason exceeds 2048 characters.');
+      timestamp(value.revokedAt, 'meta-tool revocation.revokedAt');
+    }
+  });
+}
+
+export function createMetaToolRollback(input) {
+  return createRecord('platform-meta-tool-rollback', input, {
+    allowed: [
+      'operationId', 'fromActivationSha256', 'toActivationSha256',
+      'rolledBackBy', 'reason', 'rolledBackAt'
+    ],
+    required: [
+      'operationId', 'fromActivationSha256', 'toActivationSha256',
+      'rolledBackBy', 'reason', 'rolledBackAt'
+    ],
+    validate(value) {
+      identifier(value.operationId, 'meta-tool rollback.operationId');
+      digest(value.fromActivationSha256, 'meta-tool rollback.fromActivationSha256');
+      digest(value.toActivationSha256, 'meta-tool rollback.toActivationSha256');
+      if (value.fromActivationSha256 === value.toActivationSha256) {
+        fail('Meta-tool rollback must select a different prior activation.');
+      }
+      identifier(value.rolledBackBy, 'meta-tool rollback.rolledBackBy');
+      string(value.reason, 'meta-tool rollback.reason');
+      if (value.reason.length > 2048) fail('meta-tool rollback.reason exceeds 2048 characters.');
+      timestamp(value.rolledBackAt, 'meta-tool rollback.rolledBackAt');
     }
   });
 }

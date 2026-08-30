@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'task', 'request']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'task', 'request', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -31,8 +31,10 @@ const LAZY_MODULES = Object.freeze({
   intent: './commands/sgos.mjs',
   program: './commands/sgos.mjs',
   process: './commands/sgos.mjs',
+  policy: './commands/sgos-policy.mjs',
   task: './commands/sgos.mjs',
   request: './commands/sgos.mjs',
+  evidence: './commands/sgos-evidence.mjs',
   candidate: './commands/sgos-extensions.mjs',
   'execution-unit': './commands/sgos-extensions.mjs',
   device: './commands/sgos-extensions.mjs',
@@ -80,7 +82,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
   ['about'], ['help'], ['explain', ['docs']], ['show'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'],
-  ['intent'], ['program'], ['process'], ['task'], ['request'],
+  ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
@@ -232,20 +234,32 @@ const CAPABILITY_SUBCOMMANDS = Object.freeze([
   ...CAPABILITY_READ_SUBCOMMANDS, ...CAPABILITY_MUTATION_SUBCOMMANDS
 ]);
 const SGOS_SUBCOMMANDS = Object.freeze({
-  intent: Object.freeze({ read: ['show', 'validate'], mutation: ['capture', 'compile'] }),
-  program: Object.freeze({ read: ['show', 'validate', 'simulate', 'explain'], mutation: [] }),
+  intent: Object.freeze({
+    read: ['show', 'validate'],
+    mutation: [
+      'capture', 'packet', 'confirm', 'workflow', 'ratification-packet', 'ratify', 'compile'
+    ]
+  }),
+  program: Object.freeze({
+    read: ['show', 'validate', 'simulate', 'what-if', 'fault-plan', 'explain'], mutation: ['approve']
+  }),
   process: Object.freeze({
     read: ['list', 'status', 'graph', 'fsck'],
     mutation: ['start', 'step', 'run', 'pause', 'stop', 'resume', 'recover', 'replay', 'fork', 'quarantine', 'archive']
   }),
-  task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: [] }),
+  policy: Object.freeze({ read: ['status', 'fsck', 'plan'], mutation: ['apply'] }),
+  task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: ['retry'] }),
   request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] }),
+  evidence: Object.freeze({ read: ['verify'], mutation: ['export'] }),
   candidate: Object.freeze({ read: ['list', 'show', 'diff-argv'], mutation: ['freeze', 'verify', 'publish'] }),
   'execution-unit': Object.freeze({ read: ['list', 'doctor'], mutation: [] }),
   device: Object.freeze({ read: ['list', 'doctor', 'intent', 'result'], mutation: ['invoke', 'recover', 'revoke'] }),
   'authority-store': Object.freeze({ read: ['status', 'verify'], mutation: ['init', 'recover'] }),
   pack: Object.freeze({ read: ['list', 'active', 'show'], mutation: ['propose', 'review', 'activate', 'revoke'] }),
-  learn: Object.freeze({ read: ['list', 'show'], mutation: [] }),
+  learn: Object.freeze({
+    read: ['list', 'show', 'start', 'inspect', 'explain-change', 'quiz', 'teach-back'],
+    mutation: []
+  }),
   memory: Object.freeze({ read: ['inspect', 'dependencies'], mutation: ['register', 'promote'] }),
   'meta-tool': Object.freeze({ read: ['list'], mutation: ['propose', 'evaluation', 'promote'] })
 });
@@ -749,6 +763,19 @@ function resolveSgosOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? vocabulary.read[0] ?? vocabulary.mutation[0];
   const known = [...vocabulary.read, ...vocabulary.mutation];
   if (!known.includes(subcommand)) return unknownSubcommand(definition.name, subcommand, known);
+  if (definition.name === 'process' && ['step', 'run'].includes(subcommand)
+      && optionBoolean(options, 'allow-model')) {
+    return operation(`process.${subcommand}.model`, 'required', {
+      command: definition.name,
+      classification: 'mutation',
+      output: definition.output,
+      externalDependencies: ['copilot-cli']
+    });
+  }
+  if (definition.name === 'program' && subcommand === 'approve'
+      && optionString(options, 'confirm') == null) {
+    return never('program.approve.plan', definition, 'read');
+  }
   if (definition.name === 'process' && subcommand === 'recover'
       && optionString(options, 'resolution') == null) {
     return never('process.recover.plan', definition, 'read');
@@ -756,6 +783,10 @@ function resolveSgosOperation(definition, positionals, options) {
   if (definition.name === 'process' && ['replay', 'fork'].includes(subcommand)
       && optionString(options, 'confirm') == null) {
     return never(`process.${subcommand}.plan`, definition, 'mutation');
+  }
+  if (definition.name === 'task' && subcommand === 'retry'
+      && optionString(options, 'confirm') == null) {
+    return never('task.retry.plan', definition, 'mutation');
   }
   if (definition.name === 'candidate' && subcommand === 'publish'
       && optionString(options, 'confirm') == null) {
@@ -896,9 +927,19 @@ export function operationCatalog() {
       ...actions.mutation.map((action) => never(`${name}.${action}`, definition, 'mutation'))
     ];
   });
+  sgos.push(operation('process.step.model', 'required', {
+    command: 'process', classification: 'mutation', output: commandDefinition('process').output,
+    externalDependencies: ['copilot-cli']
+  }));
+  sgos.push(operation('process.run.model', 'required', {
+    command: 'process', classification: 'mutation', output: commandDefinition('process').output,
+    externalDependencies: ['copilot-cli']
+  }));
+  sgos.push(never('program.approve.plan', commandDefinition('program'), 'read'));
   sgos.push(never('process.recover.plan', commandDefinition('process'), 'read'));
   sgos.push(never('process.replay.plan', commandDefinition('process'), 'mutation'));
   sgos.push(never('process.fork.plan', commandDefinition('process'), 'mutation'));
+  sgos.push(never('task.retry.plan', commandDefinition('task'), 'mutation'));
   sgos.push(never('candidate.publish.plan', commandDefinition('candidate'), 'mutation'));
   sgos.push(never('device.revoke.plan', commandDefinition('device'), 'read'));
   sgos.push(never('authority-store.recover.plan', commandDefinition('authority-store'), 'read'));

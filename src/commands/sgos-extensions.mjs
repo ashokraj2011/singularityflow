@@ -29,6 +29,7 @@ import {
   verifySignedPlatformRecord
 } from '../sgos/platform/index.mjs';
 import { SingularityFlowError, optionBoolean, optionNumber, optionString, secureRepositoryPath } from '../util.mjs';
+import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 
@@ -477,13 +478,42 @@ async function learnCommand(root, positionals, options) {
   const { registry } = await packRegistry(root, options);
   const catalog = createReadOnlyLessonCatalog({ packRegistry: registry });
   const role = requiredString(options, 'role');
+  const packId = optionString(options, 'pack') ?? null;
   if (action === 'list') {
-    const result = await catalog.list({ role });
+    const result = await catalog.list({ role, packId });
     return emit(result, options, 'learn.list', `${result.length} lesson(s) visible to ${role}.`);
   }
   if (action === 'show') {
-    const result = await catalog.show({ role, lessonId: positionals[2] });
+    const result = await catalog.show({ role, lessonId: positionals[2], packId });
     return emit(result, options, 'learn.show', `${result.lessonId} · ${result.title}.`);
+  }
+  if (['start', 'inspect', 'explain-change', 'quiz', 'teach-back'].includes(action)) {
+    const module = await jsonFile(root, optionString(options, 'module'), '--module');
+    const request = { role, lessonId: positionals[2], packId, module };
+    if (action === 'start') {
+      const result = await catalog.start(request);
+      return emit(result, options, 'learn.start',
+        `Prepared read-only mission ${result.missionId}; no fixture was materialized or executed.`);
+    }
+    if (action === 'inspect') {
+      const result = await catalog.inspect(request);
+      return emit(result, options, 'learn.inspect',
+        `${result.counts.steps} bounded mission step(s) · ${result.counts.completionChecks} completion check(s).`);
+    }
+    if (action === 'explain-change') {
+      const result = await catalog.explainChange({ ...request, stepId: positionals[3] });
+      return emit(result, options, 'learn.explain-change',
+        `Step ${result.stepId} changes no repository, Git, Device, or governed Process state.`);
+    }
+    const answer = await jsonFile(root, optionString(options, 'answers'), '--answers');
+    if (action === 'quiz') {
+      const result = await catalog.quiz({ ...request, checkId: positionals[3], answer });
+      return emit(result, options, 'learn.quiz',
+        `Quiz ${result.checkId}: ${result.status}; this is not certification or authority.`);
+    }
+    const result = await catalog.teachBack({ ...request, checkId: positionals[3], answer });
+    return emit(result, options, 'learn.teach-back',
+      `Teach-back ${result.checkId}: ${result.status}; concept presence is not employee scoring.`);
   }
   fail(`Unknown learn action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }
@@ -578,8 +608,13 @@ async function metaToolCommand(root, positionals, options) {
 
 export async function run(_argv, { positionals, options }) {
   rejectSecretArgv(options);
-  const root = repoRoot();
   const command = positionals[0];
+  const action = positionals[1] ?? ({
+    candidate: 'list', 'execution-unit': 'list', device: 'list', 'authority-store': 'status',
+    pack: 'list', learn: 'list', memory: 'inspect', 'meta-tool': 'list'
+  }[command]);
+  validateSgosCliOptions(command, action, options);
+  const root = repoRoot();
   if (command === 'candidate') return candidateCommand(root, positionals, options);
   if (command === 'execution-unit') return executionUnitCommand(root, positionals, options);
   if (command === 'device') return deviceCommand(root, positionals, options);

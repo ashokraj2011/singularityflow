@@ -9,7 +9,7 @@ import test from 'node:test';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { createGvmProgram } from '../src/sgos/contracts.mjs';
-import { SGOS_COMPILER_ID, SGOS_COMPILER_VERSION } from '../src/sgos/compiler.mjs';
+import { SGOS_COMPILER_ID } from '../src/sgos/compiler.mjs';
 import {
   forkSgosProcess, planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
 } from '../src/sgos/lineage.mjs';
@@ -101,7 +101,7 @@ function program(resources = null) {
     budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
     recoveryPolicy: { mode: 'fail-closed' },
     terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
-    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
   });
 }
 
@@ -129,7 +129,7 @@ function replayJoinProgram() {
     budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
     recoveryPolicy: { mode: 'fail-closed' },
     terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
-    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
   });
 }
 
@@ -298,7 +298,9 @@ test('genesis fork creates an independent Process and refuses unsupported prefix
     planSgosProcessFork(root, completed.processId, {
       fromCheckpointSha256: boundary, label: 'unsupported-prefix'
     }),
-    (error) => error.code === 'SGOS_FORK_CHECKPOINT_UNSUPPORTED'
+    (error) => error.code === 'SGOS_FORK_PREFIX_EVIDENCE_INCOMPLETE'
+      && error.details?.missingEvidence?.includes('task-receipt-and-output-projection')
+      && error.details?.missingEvidence?.includes('external-effect-and-idempotency-reconciliation')
   );
   const plan = await planSgosProcessFork(root, completed.processId, {
     fromCheckpointSha256: genesis, label: 'independent-study', createdAt: T1

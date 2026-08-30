@@ -20,6 +20,8 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'copilot.launch': /\bsingularity-flow\s+copilot\b/,
   'next.orchestrate': /\bsingularity-flow\s+next\b/,
   'pr.describe.polish': /\bsingularity-flow\s+pr\s+describe\b[^\n`]*--polish\b/,
+  'process.run.model': /\bsingularity-flow\s+process\s+run\b[^\n`]*--allow-model\b/,
+  'process.step.model': /\bsingularity-flow\s+process\s+step\b[^\n`]*--allow-model\b/,
   'spec.analyze.assisted': /\banalyze\s+--assisted\b/,
   'story.converge.assisted': /\bstory\s+converge\b[^\n`]*--assisted\b/,
   'wm.build': /\bwm\s+build\b/,

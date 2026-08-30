@@ -15,7 +15,10 @@ import {
   configurationReadRoot, isConfigurationReadPath
 } from '../configuration-read-scope.mjs';
 import { canonicalJson } from '../records.mjs';
-import { compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID, SGOS_COMPILER_VERSION } from './compiler.mjs';
+import {
+  compileSgosProgram, recompileSgosProgramWithVerifiedCapabilityPack,
+  registrySnapshotDigest, SGOS_COMPILER_ID, SGOS_COMPILER_VERSION
+} from './compiler.mjs';
 import { SHA256_PATTERN, validateGvmProgram } from './contracts.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import { compareSgosCodePoints } from './order.mjs';
@@ -27,6 +30,12 @@ import {
 import {
   canonicalSgosResourceEntries, normalizeSgosResourceKey
 } from './resource-contracts.mjs';
+import {
+  SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY, SGOS_CAPABILITY_PACK_TRUST_PATH,
+  revalidateSgosCapabilityPackAuthoritiesForCompilation,
+  sgosCapabilityPackAuthoritiesSha256,
+  validateSgosCapabilityPackAuthorities
+} from './capability-pack-authority.mjs';
 
 export const SGOS_EXECUTION_ADMISSION_OPCODES = Object.freeze([
   'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END',
@@ -36,8 +45,11 @@ export const SGOS_EXECUTION_ADMISSION_OPCODES = Object.freeze([
 const EXECUTION_OPERATION_OPCODES = new Set(['KERNEL', 'AGENT', 'DEVICE', 'VERIFY', 'COMPENSATE']);
 const HUMAN_JUDGMENT_KINDS = new Set(['human-judgment', 'human', 'judgment']);
 const NON_MATERIAL_OPCODES = new Set(['NOOP', 'JOIN', 'CHECKPOINT', 'END']);
-const PROGRAM_AUTHORITY_FORMAT = 'singularity-flow-sgos-program-authority/v1';
+const LEGACY_PROGRAM_AUTHORITY_FORMAT = 'singularity-flow-sgos-program-authority/v1';
+const PROGRAM_AUTHORITY_FORMAT = 'singularity-flow-sgos-program-authority/v2';
+const LEGACY_COMPILER_VERSION = '2';
 const verifiedProgramAuthorities = new WeakSet();
+const verifiedProgramPackCompilationReceipts = new WeakMap();
 
 export class SgosProgramTrustError extends Error {
   constructor(code, message, details = {}) {
@@ -236,6 +248,52 @@ function graphFacts(program) {
   }
 
   return { taskIds, known, forward, reverse, topologicalOrder, endTaskIds };
+}
+
+function verificationOperationId(task) {
+  const verification = task.metadata?.verification;
+  if (typeof verification === 'string') return verification;
+  if (typeof verification?.operation === 'string') return verification.operation;
+  if (typeof verification?.operation?.id === 'string') return verification.operation.id;
+  return verification?.operationId == null ? null : String(verification.operationId);
+}
+
+function assertCopilotProposalGates(program, graph) {
+  const byId = new Map(program.taskTemplates.map((task) => [task.taskTemplateId, task]));
+  for (const proposal of program.taskTemplates.filter((task) =>
+    task.opcode === 'AGENT' && task.metadata?.executionUnitId === 'copilot-cli')) {
+    const resources = proposal.resources ?? {};
+    if (['reads', 'writes', 'devices', 'externalEffects']
+      .some((field) => !Array.isArray(resources[field]) || resources[field].length !== 0)) {
+      fail('SGOS_COPILOT_PROPOSAL_SCOPE_UNSUPPORTED',
+        `Copilot proposal task '${proposal.taskTemplateId}' exceeds the no-scope execution profile.`, {
+          taskTemplateId: proposal.taskTemplateId
+        });
+    }
+    const successors = graph.forward.get(proposal.taskTemplateId) ?? [];
+    const gates = successors.map((taskId) => byId.get(taskId));
+    if (!gates.length || gates.some((gate) => gate?.opcode !== 'VERIFY')) {
+      fail('SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED',
+        `Copilot proposal task '${proposal.taskTemplateId}' does not flow directly and exclusively through VERIFY gates.`, {
+          taskTemplateId: proposal.taskTemplateId, successorTaskTemplateIds: successors
+        });
+    }
+    for (const gate of gates) {
+      const verifier = verificationOperationId(gate);
+      if (gate.material !== true || !gate.operation || !verifier
+          || gate.operation === proposal.operation
+          || verifier === proposal.operation || verifier === gate.operation) {
+        fail('SGOS_COPILOT_PROPOSAL_VERIFY_REQUIRED',
+          `VERIFY gate '${gate.taskTemplateId}' is not explicitly independent from Copilot proposal '${proposal.taskTemplateId}'.`, {
+            taskTemplateId: proposal.taskTemplateId,
+            verifyTaskTemplateId: gate.taskTemplateId,
+            proposalOperation: proposal.operation ?? null,
+            verifyOperation: gate.operation ?? null,
+            verifierOperation: verifier
+          });
+      }
+    }
+  }
 }
 
 function assertTerminalConditions(program, graph) {
@@ -988,11 +1046,20 @@ export function validateSgosProgramStaticSafety(programValue, {
   ]) requireDigest(program[field], `gvm-program.${field}`);
   assertSgosInstalledProgramLimits(program);
 
-  if (program.compiler?.id !== SGOS_COMPILER_ID || program.compiler?.version !== SGOS_COMPILER_VERSION) {
+  const compilerVersion = program.compiler?.version;
+  if (program.compiler?.id !== SGOS_COMPILER_ID
+      || ![LEGACY_COMPILER_VERSION, SGOS_COMPILER_VERSION].includes(compilerVersion)) {
     fail('SGOS_PROGRAM_COMPILER_UNTRUSTED', 'Program does not name the installed deterministic SGOS compiler profile.', {
-      expected: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION },
+      expected: {
+        id: SGOS_COMPILER_ID,
+        versions: [LEGACY_COMPILER_VERSION, SGOS_COMPILER_VERSION]
+      },
       received: clone(program.compiler ?? null)
     });
+  }
+  if (compilerVersion === SGOS_COMPILER_VERSION) {
+    requireDigest(program.compiler.sourceSha256,
+      'gvm-program.compiler.sourceSha256', 'SGOS_CAPABILITY_PACK_AUTHORITY_REQUIRED');
   }
   const installedOpcodes = new Set(supportedOpcodes);
   for (const task of program.taskTemplates) {
@@ -1005,6 +1072,7 @@ export function validateSgosProgramStaticSafety(programValue, {
   const graph = graphFacts(program);
   assertDependenciesMatchEdges(program, graph);
   assertTerminalConditions(program, graph);
+  assertCopilotProposalGates(program, graph);
   assertInstalledJoins(program);
   assertInstalledFanout(program);
   assertEvidenceAuthorityAndRecovery(program);
@@ -1040,8 +1108,11 @@ function validateProgramAuthorityRecord(record, program) {
   if (!plainObject(record)) {
     fail('SGOS_PROGRAM_AUTHORITY_INVALID', 'Approved Program authority must be a JSON object.');
   }
+  const format = record.format;
+  const legacy = format === LEGACY_PROGRAM_AUTHORITY_FORMAT;
   const allowed = new Set([
-    'format', 'programSha256', 'ratificationSha256', 'decision', 'approvedBy', 'approvedAt'
+    'format', 'programSha256', 'ratificationSha256', 'decision', 'approvedBy', 'approvedAt',
+    ...(legacy ? [] : ['capabilityPackAuthorities'])
   ]);
   const unknown = Object.keys(record).find((field) => !allowed.has(field));
   if (unknown) {
@@ -1056,8 +1127,13 @@ function validateProgramAuthorityRecord(record, program) {
       });
     }
   }
-  if (record.format !== PROGRAM_AUTHORITY_FORMAT || record.decision !== 'approved') {
+  if (![LEGACY_PROGRAM_AUTHORITY_FORMAT, PROGRAM_AUTHORITY_FORMAT].includes(record.format)
+      || record.decision !== 'approved') {
     fail('SGOS_PROGRAM_AUTHORITY_INVALID', 'Program authority is not an approved SGOS v1 authority record.');
+  }
+  if (legacy && program.compiler?.version !== LEGACY_COMPILER_VERSION) {
+    fail('SGOS_PROGRAM_AUTHORITY_INVALID',
+      'Legacy Program authority may authorize only a legacy compiler-v2 core Program.');
   }
   requireDigest(record.programSha256, 'program-authority.programSha256', 'SGOS_PROGRAM_AUTHORITY_INVALID');
   requireDigest(record.ratificationSha256, 'program-authority.ratificationSha256', 'SGOS_PROGRAM_AUTHORITY_INVALID');
@@ -1078,7 +1154,47 @@ function validateProgramAuthorityRecord(record, program) {
   if (!Number.isFinite(Date.parse(record.approvedAt))) {
     fail('SGOS_PROGRAM_AUTHORITY_INVALID', 'Approved Program authority requires an ISO approval timestamp.');
   }
+  const capabilityPackAuthorities = legacy
+    ? [SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY]
+    : validateSgosCapabilityPackAuthorities(record.capabilityPackAuthorities);
+  if (program.compiler?.version === SGOS_COMPILER_VERSION) {
+    const expectedSourceSha256 = sgosCapabilityPackAuthoritiesSha256(capabilityPackAuthorities);
+    if (program.compiler.sourceSha256 !== expectedSourceSha256) {
+      fail('SGOS_CAPABILITY_PACK_AUTHORITY_MISMATCH',
+        'Program compiler authority digest does not bind its approved Capability Pack selection.', {
+          expected: expectedSourceSha256,
+          received: program.compiler.sourceSha256 ?? null
+        });
+    }
+  } else if (capabilityPackAuthorities[0].kind !== 'built-in-core') {
+    fail('SGOS_CAPABILITY_PACK_AUTHORITY_INVALID',
+      'Legacy compiler-v2 Programs may use only the explicit built-in core authority.');
+  }
   return clone(record);
+}
+
+function capabilityPackAuthoritiesFromRecord(record) {
+  return record.format === LEGACY_PROGRAM_AUTHORITY_FORMAT
+    ? [SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY]
+    : validateSgosCapabilityPackAuthorities(record.capabilityPackAuthorities);
+}
+
+function capabilityPackAuthoritiesFromProgramInput(programValue, program) {
+  const supplied = programValue?.program ? programValue.capabilityPackAuthorities : null;
+  if (supplied != null) {
+    const validated = validateSgosCapabilityPackAuthorities(supplied);
+    if (program.compiler?.version === SGOS_COMPILER_VERSION
+        && program.compiler.sourceSha256 !== sgosCapabilityPackAuthoritiesSha256(validated)) {
+      fail('SGOS_CAPABILITY_PACK_AUTHORITY_MISMATCH',
+        'Compiler result Capability Pack authority does not match the Program compiler digest.');
+    }
+    return validated;
+  }
+  const core = [SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY];
+  if (program.compiler?.version === LEGACY_COMPILER_VERSION
+      || program.compiler?.sourceSha256 === sgosCapabilityPackAuthoritiesSha256(core)) return core;
+  fail('SGOS_CAPABILITY_PACK_AUTHORITY_REQUIRED',
+    'Signed-Pack Program approval requires the exact compiler result, not Program bytes alone.');
 }
 
 /**
@@ -1091,6 +1207,11 @@ export async function loadApprovedSgosProgramAuthority(root, programValue, {
 } = {}) {
   const program = programValue?.program ?? programValue;
   const relative = sgosProgramAuthorityPath(program);
+  const coreAuthoritySha256 = sgosCapabilityPackAuthoritiesSha256([
+    SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY
+  ]);
+  const signedPackExpected = program.compiler?.version === SGOS_COMPILER_VERSION
+    && program.compiler?.sourceSha256 !== coreAuthoritySha256;
   if (!isConfigurationReadPath(relative)) {
     fail('SGOS_PROGRAM_AUTHORITY_PATH_INVALID', `Program authority path '${relative}' is outside approved configuration.`);
   }
@@ -1123,8 +1244,15 @@ export async function loadApprovedSgosProgramAuthority(root, programValue, {
       fail('SGOS_PROGRAM_AUTHORITY_INVALID', `Approved Program authority '${relative}' is not valid JSON: ${error.message}`);
     }
     const record = validateProgramAuthorityRecord(parsed, program);
+    const capabilityPackAuthorities = capabilityPackAuthoritiesFromRecord(record);
+    const packCompilationReceipt = await revalidateSgosCapabilityPackAuthoritiesForCompilation(
+      root, program, capabilityPackAuthorities, {
+        configurationRoot: selectedRoot
+      }
+    );
     const proof = deepFreeze({
       record,
+      capabilityPackAuthorities,
       source: {
         kind: authority.kind,
         ref: authority.ref,
@@ -1141,21 +1269,28 @@ export async function loadApprovedSgosProgramAuthority(root, programValue, {
       }
     });
     verifiedProgramAuthorities.add(proof);
+    verifiedProgramPackCompilationReceipts.set(proof, packCompilationReceipt);
     return proof;
   }, {
     refreshAuthority,
     // Program dispatch needs only these exact authority bytes. Avoid rematerializing every
     // template, prompt, and agent on every Process step.
-    selectPaths: ['singularity/workflow.yml', relative]
+    selectPaths: [
+      'singularity/workflow.yml',
+      relative,
+      ...(signedPackExpected ? [SGOS_CAPABILITY_PACK_TRUST_PATH] : [])
+    ]
   });
 }
 
 export function createSgosProgramAuthorityRecord(programValue, { approvedBy, approvedAt } = {}) {
   const program = programValue?.program ?? programValue;
+  const capabilityPackAuthorities = capabilityPackAuthoritiesFromProgramInput(programValue, program);
   return deepFreeze(validateProgramAuthorityRecord({
     format: PROGRAM_AUTHORITY_FORMAT,
     programSha256: program.programSha256,
     ratificationSha256: program.ratificationSha256,
+    capabilityPackAuthorities,
     decision: 'approved',
     approvedBy: clone(approvedBy),
     approvedAt
@@ -1176,7 +1311,14 @@ function proveCompilerProvenance(program, { compilerRequest = null, programAutho
   };
   if (compilerRequest != null) {
     let recompiled;
-    try { recompiled = compileSgosProgram(compilerRequest).program; } catch (error) {
+    try {
+      const packCompilationReceipt = verifiedProgramPackCompilationReceipts.get(programAuthority);
+      recompiled = packCompilationReceipt
+        ? recompileSgosProgramWithVerifiedCapabilityPack(
+          compilerRequest, packCompilationReceipt
+        ).program
+        : compileSgosProgram(compilerRequest).program;
+    } catch (error) {
       fail('SGOS_PROGRAM_RECOMPILATION_FAILED', `Pinned compiler inputs cannot reproduce a Program: ${error.message}`, {
         causeCode: error?.code ?? null
       });

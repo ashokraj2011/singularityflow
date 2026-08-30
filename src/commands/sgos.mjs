@@ -8,14 +8,22 @@ import {
   cloneSgosValue, createIntentEnvelope, sha256, validateGvmProgram, validateSgosRecord
 } from '../sgos/contracts.mjs';
 import {
-  compileSgosProgram, explainSgosProgram, simulateSgosProgram
+  compileSgosProgram, compileSgosProgramWithApprovedCapabilityPack,
+  explainSgosProgram, simulateSgosProgram
 } from '../sgos/compiler.mjs';
+import {
+  planSgosProgramFault, whatIfSgosProgram
+} from '../sgos/simulation.mjs';
+import { workflowCapabilityPackSelector } from '../sgos/capability-pack-authority.mjs';
 import { loadSgosCommandCenter } from '../sgos/command-center.mjs';
 import { sgosSha256 } from '../sgos/evidence.mjs';
 import {
   forkSgosProcess, planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
 } from '../sgos/lineage.mjs';
 import { compareSgosCodePoints } from '../sgos/order.mjs';
+import {
+  planSgosTaskRetry, retrySgosTaskWithInstalledAdapters
+} from '../sgos/retry.mjs';
 import { projectSgosWorkObjects } from '../sgos/projection.mjs';
 import {
   listSgosProcesses, pauseSgosProcess, planSgosProcessRecovery, readSgosProcess,
@@ -24,6 +32,10 @@ import {
 } from '../sgos/runtime.mjs';
 import { runSgosProcess } from '../sgos/public-runtime.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../sgos/limits.mjs';
+import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
+import {
+  runSgosIntentAuthoring, runSgosProgramAuthoring
+} from './sgos-authoring.mjs';
 import {
   fsckSgosProcess, planSgosProcessQuarantine, quarantineSgosProcess,
   readSgosImmutableRecord, readSgosProgram
@@ -45,11 +57,37 @@ function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
 }
 
+function expectedProcessRevision(options) {
+  const expectedRevision = optionNumber(options, 'expected-revision');
+  if (expectedRevision != null
+      && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
+    fail('--expected-revision must be a positive safe integer.',
+      'SGOS_PROCESS_REVISION_INVALID');
+  }
+  return expectedRevision;
+}
+
+/**
+ * `intent compile` emits a bare Program for built-in core and an authority-bearing compiler result
+ * for a signed Capability Pack. Every Program consumer accepts either representation; approval is
+ * the one ceremony that deliberately receives the complete compiler result so it can bind the Pack
+ * authority bytes.
+ */
+function validatedProgramInput(value) {
+  const program = value?.program ?? value;
+  validateGvmProgram(program);
+  return program;
+}
+
 const MUTATION_OPERATIONS = new Set([
-  'intent.capture', 'intent.compile',
-  'process.start', 'process.step', 'process.run', 'process.pause', 'process.stop', 'process.resume', 'process.recover',
+  'intent.capture', 'intent.packet', 'intent.confirm', 'intent.workflow',
+  'intent.ratification-packet', 'intent.ratify', 'intent.compile',
+  'program.approve',
+  'process.start', 'process.step', 'process.step.model', 'process.run', 'process.run.model',
+  'process.pause', 'process.stop', 'process.resume', 'process.recover',
   'process.replay.plan', 'process.replay', 'process.fork.plan', 'process.fork',
   'process.quarantine', 'process.archive',
+  'task.retry.plan', 'task.retry',
   'request.respond'
 ]);
 
@@ -124,12 +162,14 @@ async function compilerRequestForStart(root, options) {
 async function emit(value, options, text, {
   operation,
   changed = false,
-  allowOutput = false
+  allowOutput = false,
+  publicationCreated = false,
+  externalSystemsChanged = false
 } = {}) {
   if (!operation) fail('SGOS narration requires an operation ID.', 'SGOS_OPERATION_REQUIRED');
   const output = optionString(options, 'out');
   if (output && !allowOutput) {
-    fail(`--out is not supported by ${operation}; it is available only for intent capture and intent compile.`,
+    fail(`--out is not supported by ${operation}; it is available only for Intent record authoring commands.`,
       'SGOS_OUTPUT_NOT_SUPPORTED', { operation });
   }
   let relativeOutput = null;
@@ -143,8 +183,8 @@ async function emit(value, options, text, {
   const declared = {
     stateChanged: Boolean(changed),
     filesChanged: Boolean(changed || relativeOutput),
-    publicationCreated: false,
-    externalSystemsChanged: false
+    publicationCreated: Boolean(publicationCreated),
+    externalSystemsChanged: Boolean(externalSystemsChanged)
   };
   return emitCommandResult(commandResult({
     operation: {
@@ -213,6 +253,8 @@ async function findRequest(root, requestId, requestedProcessId = null) {
 
 async function intentCommand(root, positionals, options) {
   const action = positionals[1] ?? 'show';
+  const authored = await runSgosIntentAuthoring(root, positionals, options, { jsonFile, emit });
+  if (authored != null) return authored;
   if (action === 'capture') {
     const text = positionals.slice(2).join(' ').trim();
     if (!text) fail('intent capture requires non-empty text.', 'SGOS_INTENT_TEXT_REQUIRED');
@@ -250,7 +292,7 @@ async function intentCommand(root, positionals, options) {
     const policy = await jsonFile(root, optionString(options, 'policy'), '--policy');
     const registrySnapshot = await jsonFile(root, optionString(options, 'registry'), '--registry');
     validateSgosRecord(policy);
-    const compiled = compileSgosProgram({
+    const compileRequest = {
       intentIr,
       workflow,
       ratification,
@@ -258,9 +300,23 @@ async function intentCommand(root, positionals, options) {
       registrySnapshotSha256: ratification.registrySnapshotSha256,
       registrySnapshot,
       storageProfileSha256: ratification.storageProfileSha256
-    });
-    return emit(compiled.program, options, (program) =>
-      `Compiled ${program.programId} at ${program.programSha256} (${program.taskTemplates.length} finite tasks).`,
+    };
+    const selector = workflowCapabilityPackSelector(workflow);
+    const compiled = selector.kind === 'built-in-core'
+      ? compileSgosProgram(compileRequest)
+      : await compileSgosProgramWithApprovedCapabilityPack(root, compileRequest);
+    // Core keeps the existing Program-only interface. A signed Pack must carry its exact authority
+    // beside the Program so the later human approval can bind what the compiler actually consumed.
+    const output = selector.kind === 'built-in-core'
+      ? compiled.program
+      : {
+        program: compiled.program,
+        capabilityPackAuthorities: compiled.capabilityPackAuthorities
+      };
+    return emit(output, options, (value) => {
+      const program = value.program ?? value;
+      return `Compiled ${program.programId} at ${program.programSha256} (${program.taskTemplates.length} finite tasks).`;
+    },
     { operation: 'intent.compile', allowOutput: true });
   }
   fail(`Unknown intent action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
@@ -268,15 +324,15 @@ async function intentCommand(root, positionals, options) {
 
 async function programCommand(root, positionals, options) {
   const action = positionals[1] ?? 'show';
-  const program = await jsonFile(root, positionals[2], 'GVM Program');
+  const authored = await runSgosProgramAuthoring(root, positionals, options, { jsonFile, emit });
+  if (authored != null) return authored;
+  const program = validatedProgramInput(await jsonFile(root, positionals[2], 'GVM Program'));
   if (action === 'show') {
-    validateGvmProgram(program);
     return emit(program, options, (value) =>
       `${value.programId} · ${value.taskTemplates.length} tasks · ${value.programSha256}`,
     { operation: 'program.show' });
   }
   if (action === 'validate') {
-    validateGvmProgram(program);
     return emit({ valid: true, programId: program.programId, programSha256: program.programSha256 }, options,
       (value) => `Valid finite Program ${value.programId} at ${value.programSha256}.`,
       { operation: 'program.validate' });
@@ -287,6 +343,30 @@ async function programCommand(root, positionals, options) {
   if (action === 'simulate') return emit(simulateSgosProgram(program), options, (value) =>
     `${value.programId}: ${value.waves.length} deterministic wave(s), width ${value.maximumReadyWidth}; nothing executed.`,
   { operation: 'program.simulate' });
+  if (action === 'what-if') {
+    const without = optionString(options, 'without-device');
+    const withoutDeviceIds = String(without ?? '').split(',').map((entry) => entry.trim())
+      .filter(Boolean);
+    const result = whatIfSgosProgram(program, { withoutDeviceIds });
+    return emit(result, options, (value) =>
+      `${value.programId}: removing ${value.without.ids.join(', ')} structurally blocks ${value.impact.blockedTaskIds.length} task(s); nothing executed.`,
+    { operation: 'program.what-if' });
+  }
+  if (action === 'fault-plan') {
+    const targetValue = optionString(options, 'target');
+    const matched = /^(task|device):(.+)$/.exec(String(targetValue ?? ''));
+    if (!matched) {
+      fail("program fault-plan requires --target task:<TASK-ID> or device:<DEVICE-ID>.",
+        'SGOS_SIMULATION_INPUT_INVALID');
+    }
+    const result = planSgosProgramFault(program, {
+      target: { kind: matched[1], id: matched[2] },
+      failure: optionString(options, 'failure')
+    });
+    return emit(result, options, (value) =>
+      `${value.programId}: ${value.failure.id} planned at ${value.target.kind}:${value.target.id}; no fault was injected.`,
+    { operation: 'program.fault-plan' });
+  }
   fail(`Unknown program action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }
 
@@ -308,8 +388,7 @@ async function processCommand(root, positionals, options) {
       fail(`Unsupported SGOS subject kind '${subjectKind}'. Allowed: story, repository.`,
         'SGOS_SUBJECT_KIND_INVALID', { subjectKind });
     }
-    const program = await jsonFile(root, positionals[2], 'GVM Program');
-    validateGvmProgram(program);
+    const program = validatedProgramInput(await jsonFile(root, positionals[2], 'GVM Program'));
     const bindingFile = optionString(options, 'binding');
     const processBinding = bindingFile ? await jsonFile(root, bindingFile, '--binding') : null;
     if (processBinding) validateSgosRecord(processBinding);
@@ -434,13 +513,18 @@ async function processCommand(root, positionals, options) {
       { operation: 'process.graph' });
   }
   if (action === 'step') {
-    const result = await stepSgosProcess(root, processId);
+    const expectedRevision = expectedProcessRevision(options);
+    const result = await stepSgosProcess(root, processId, { expectedRevision });
     return emit(result, options, (value) => value.taskInstanceId
       ? `${value.taskInstanceId}: ${value.status}. ${processSummary(value.process)}`
       : `No task dispatched. ${processSummary(value.process)}`,
-    { operation: 'process.step', changed: Boolean(result.taskInstanceId) });
+    {
+      operation: optionBoolean(options, 'allow-model') ? 'process.step.model' : 'process.step',
+      changed: Boolean(result.taskInstanceId)
+    });
   }
   if (action === 'run') {
+    const expectedRevision = expectedProcessRevision(options);
     const maximumParallel = optionNumber(
       options, 'maximum-parallel', SGOS_INSTALLED_LIMITS.maximumParallelExecutions
     );
@@ -452,7 +536,7 @@ async function processCommand(root, positionals, options) {
         });
     }
     const before = await readSgosProcess(root, processId);
-    const result = await runSgosProcess(root, processId, { maximumParallel });
+    const result = await runSgosProcess(root, processId, { maximumParallel, expectedRevision });
     const processChanged = before.processSha256 !== result.process.processSha256;
     const report = { ...result, maximumParallel, processChanged };
     return emit(report, options,
@@ -461,18 +545,18 @@ async function processCommand(root, positionals, options) {
         : value.processChanged
           ? `No task was launched, but exact runtime reconciliation changed Process state. ${processSummary(value.process)}`
           : `No task was launched; no Process state changed. ${processSummary(value.process)}`,
-      { operation: 'process.run', changed: processChanged });
+      {
+        operation: optionBoolean(options, 'allow-model') ? 'process.run.model' : 'process.run',
+        changed: processChanged
+      });
   }
   if (action === 'pause') {
-    const value = await pauseSgosProcess(root, processId, {});
+    const expectedRevision = expectedProcessRevision(options);
+    const value = await pauseSgosProcess(root, processId, { expectedRevision });
     return emit(value, options, processSummary, { operation: 'process.pause', changed: true });
   }
   if (action === 'stop') {
-    const expectedRevision = optionNumber(options, 'expected-revision');
-    if (expectedRevision != null
-        && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
-      fail('--expected-revision must be a positive safe integer.', 'SGOS_PROCESS_REVISION_INVALID');
-    }
+    const expectedRevision = expectedProcessRevision(options);
     const value = await stopSgosProcess(root, processId, { expectedRevision });
     return emit(value, options,
       (result) => result.quiescent
@@ -481,9 +565,10 @@ async function processCommand(root, positionals, options) {
       { operation: 'process.stop', changed: value.changed === true });
   }
   if (action === 'resume') {
+    const expectedRevision = expectedProcessRevision(options);
     const checkpointSha256 = optionString(options, 'confirm');
     if (!HASH.test(String(checkpointSha256 ?? ''))) fail('process resume requires --confirm <CHECKPOINT-SHA256>.', 'SGOS_CHECKPOINT_CONFIRMATION_REQUIRED');
-    const value = await resumeSgosProcess(root, processId, { checkpointSha256 });
+    const value = await resumeSgosProcess(root, processId, { checkpointSha256, expectedRevision });
     return emit(value, options, processSummary, { operation: 'process.resume', changed: true });
   }
   if (action === 'recover') {
@@ -629,6 +714,21 @@ async function taskCommand(root, positionals, options) {
   const task = tasks.find((entry) => entry.taskInstanceId === requested || entry.taskTemplateId === requested);
   if (!task) fail(`Task '${requested}' was not found in ${processId}.`, 'SGOS_TASK_NOT_FOUND');
   const inspection = await taskInspection(root, process, task);
+  if (action === 'retry') {
+    const confirmationSha256 = optionString(options, 'confirm');
+    if (confirmationSha256 == null) {
+      const plan = await planSgosTaskRetry(root, processId, task.taskInstanceId);
+      return emit(plan, options,
+        (value) => `Retry ${value.taskTemplateId} as attempt ${value.attemptNumber}; confirm ${value.retryPlanSha256}.`,
+        { operation: 'task.retry.plan', changed: true });
+    }
+    const result = await retrySgosTaskWithInstalledAdapters(
+      root, processId, task.taskInstanceId, { confirmationSha256 }
+    );
+    return emit(result, options,
+      (value) => `${value.plan.taskTemplateId}: retry attempt ${value.plan.attemptNumber} ${value.receipt.attemptStatus}.`,
+      { operation: 'task.retry', changed: true });
+  }
   if (action === 'show') return emit(inspection, options,
     (value) => `${value.task.taskTemplateId} · ${value.task.state} · revision ${value.task.revision}`,
   { operation: 'task.show' });
@@ -670,6 +770,21 @@ async function requestCommand(root, positionals, options) {
     const option = optionString(options, 'option');
     const declaredDecision = optionString(options, 'decision');
     const confirmation = optionString(options, 'confirm');
+    const expectedRevision = expectedProcessRevision(options);
+    const expectedProcessSha256 = optionString(options, 'expected-process-sha256');
+    if (expectedRevision == null) {
+      fail('request respond requires --expected-revision from the reviewed Human Request.',
+        'SGOS_PROCESS_REVISION_REQUIRED');
+    }
+    if (!HASH.test(String(expectedProcessSha256 ?? ''))) {
+      fail('request respond requires --expected-process-sha256 with the exact reviewed Process digest.',
+        'SGOS_PROCESS_DIGEST_REQUIRED');
+    }
+    if (found.process.processRevision !== expectedRevision
+        || found.process.processSha256 !== expectedProcessSha256) {
+      fail('Human Request response is stale because the reviewed Process revision or digest changed.',
+        'SGOS_HUMAN_REQUEST_STALE');
+    }
     if (confirmation !== found.request.requestSha256) {
       fail(`Response confirmation must equal ${found.request.requestSha256}.`, 'SGOS_HUMAN_REQUEST_STALE');
     }
@@ -717,7 +832,8 @@ async function requestCommand(root, positionals, options) {
     const result = await respondToSgosHumanRequest(root, found.process.processId, {
       requestId,
       requestSha256: confirmation,
-      expectedRevision: found.process.processRevision,
+      expectedRevision,
+      expectedProcessSha256,
       actor: actorFor(root),
       decision,
       input
@@ -730,8 +846,10 @@ async function requestCommand(root, positionals, options) {
 }
 
 export async function run(_argv, { positionals, options }) {
-  const root = repoRoot();
   const command = positionals[0];
+  const action = positionals[1] ?? ({ intent: 'show', program: 'show', process: 'status', task: 'list', request: 'list' }[command]);
+  validateSgosCliOptions(command, action, options);
+  const root = repoRoot();
   if (command === 'intent') return intentCommand(root, positionals, options);
   if (command === 'program') return programCommand(root, positionals, options);
   if (command === 'process') return processCommand(root, positionals, options);

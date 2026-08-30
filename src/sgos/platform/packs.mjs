@@ -54,6 +54,49 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
     return { signed, pack };
   }
 
+  function readActiveSelection(entries, domain, expectedPackSha256, {
+    mismatchCode = 'SGOS_CAPABILITY_PACK_SUPERSEDED',
+    revokedCode = 'SGOS_CAPABILITY_PACK_REVOKED'
+  } = {}) {
+    const selection = entries[activeKey(domain)];
+    if (!selection) {
+      if (entries[revocationKey(expectedPackSha256)]) {
+        fail(`Capability Pack '${expectedPackSha256}' is revoked.`, revokedCode);
+      }
+      fail(`No active Capability Pack exists for '${domain}'.`, 'SGOS_CAPABILITY_PACK_NOT_ACTIVE');
+    }
+    if (!selection || typeof selection !== 'object' || Array.isArray(selection)
+        || Object.keys(selection).sort().join(',') !== 'domain,packSha256'
+        || selection.domain !== domain) {
+      fail('Active Capability Pack selection is malformed.', 'SGOS_CAPABILITY_PACK_TAMPERED');
+    }
+    if (selection.packSha256 !== expectedPackSha256) {
+      fail('The requested Capability Pack was superseded by another active selection.',
+        mismatchCode);
+    }
+    const { signed, pack } = readPack(entries, expectedPackSha256);
+    const activation = entries[activationKey(domain)];
+    if (!activation) {
+      fail('Active Capability Pack has no activation authority.', 'SGOS_CAPABILITY_PACK_ACTIVATION_STALE');
+    }
+    validatePlatformRecord(activation, 'platform-pack-activation');
+    if (activation.domain !== domain || activation.packSha256 !== expectedPackSha256) {
+      fail('Active Capability Pack activation does not bind the selected Pack.',
+        'SGOS_CAPABILITY_PACK_ACTIVATION_STALE');
+    }
+    const review = entries[reviewKey(activation.reviewSha256)];
+    if (!review) {
+      fail('Active Capability Pack approval is unavailable.', 'SGOS_CAPABILITY_PACK_REVIEW_REQUIRED');
+    }
+    validatePlatformRecord(review, 'platform-pack-review');
+    if (review.recordSha256 !== activation.reviewSha256
+        || review.packSha256 !== expectedPackSha256 || review.decision !== 'approved') {
+      fail('Active Capability Pack does not retain its exact approving review.',
+        'SGOS_CAPABILITY_PACK_REVIEW_REQUIRED');
+    }
+    return { signed, pack, review, activation };
+  }
+
   return Object.freeze({
     profile: 'signed-declarative-local-v1',
 
@@ -188,12 +231,29 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
 
     async resolveActive(domain, expectedPackSha256) {
       const state = await store.read();
-      const selection = state.entries[activeKey(domain)];
-      if (!selection) fail(`No active Capability Pack exists for '${domain}'.`, 'SGOS_CAPABILITY_PACK_NOT_ACTIVE');
-      if (selection.packSha256 !== expectedPackSha256) {
-        fail('Active Capability Pack does not match the exact requested digest.', 'SGOS_CAPABILITY_PACK_SELECTION_MISMATCH');
-      }
-      return readPack(state.entries, expectedPackSha256).pack;
+      return readActiveSelection(state.entries, domain, expectedPackSha256, {
+        mismatchCode: 'SGOS_CAPABILITY_PACK_SELECTION_MISMATCH',
+        revokedCode: 'SGOS_CAPABILITY_PACK_NOT_ACTIVE'
+      }).pack;
+    },
+
+    /**
+     * Return the exact immutable review/activation lineage used by compiler and runtime admission.
+     * The caller still decides whether its trust anchors came from approved configuration; this
+     * registry only proves those anchors against the Authority Store's verified event lineage.
+     */
+    async resolveActiveSelection(domain, expectedPackSha256) {
+      const state = await store.read();
+      const resolved = readActiveSelection(state.entries, domain, expectedPackSha256);
+      return Object.freeze({
+        profile: 'signed-declarative-local-v1',
+        authorityStoreId: store.storeId,
+        authorityStateSha256: state.recordSha256,
+        signedPack: clonePlatformJson(resolved.signed),
+        pack: clonePlatformJson(resolved.pack),
+        review: clonePlatformJson(resolved.review),
+        activation: clonePlatformJson(resolved.activation)
+      });
     },
 
     async listActive() {

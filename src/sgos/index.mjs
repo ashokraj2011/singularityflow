@@ -1,16 +1,27 @@
 /** Public model-free SGOS foundation surface. */
 export * from './contracts.mjs';
+export * from './authoring.mjs';
 export * from './compiler.mjs';
+export * from './capability-pack-authority.mjs';
 export * from './evidence.mjs';
+export * from './process-evidence.mjs';
+export * from './evaluation.mjs';
 export * from './limits.mjs';
+export * from './memory.mjs';
 export * from './order.mjs';
 export * from './paths.mjs';
 export * from './fanout.mjs';
 export * from './joins.mjs';
 export * from './resource-contracts.mjs';
 export * from './scheduler.mjs';
+export * from './simulation.mjs';
 export * from './program-trust.mjs';
 export * from './projection.mjs';
+export * from './pinned-policy.mjs';
+export {
+  planSgosTaskRetry,
+  retrySgosTaskWithInstalledAdapters as retrySgosTask
+} from './retry.mjs';
 export * from './story-authority.mjs';
 export * from './story-compat.mjs';
 // Read-only runtime functions and vocabulary constants are safe to expose directly. Mutations pass

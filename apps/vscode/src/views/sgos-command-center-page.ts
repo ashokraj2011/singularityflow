@@ -3,11 +3,104 @@ import { publicFaultText } from './surface-adapters.ts';
 import {
   sgosEnabledProcessAction, type SgosCommandCenterView
 } from './sgos-command-center-model.ts';
+import type {
+  SgosRenderDescriptor, SgosRenderScalar, SgosWorkObject
+} from '../cli/snapshot.ts';
 import { renderSgosProcessGraph } from './sgos-process-graph-svg.ts';
 
 function shortHash(value: string | null): string {
   if (!value) return 'not available';
   return value.length > 22 ? `${value.slice(0, 18)}…` : value;
+}
+
+const RENDER_DESCRIPTOR_KEYS = [
+  'descriptorVersion', 'viewType', 'title', 'summary', 'accessibility', 'delivery',
+  'fields', 'rows', 'edges', 'notes', 'truncated'
+] as const;
+const VIEW_TYPES = new Set([
+  'overview', 'graph', 'board', 'timeline', 'table', 'document', 'form', 'evidence',
+  'diff', 'matrix', 'chart', 'log', 'metrics', 'simulation', 'approval'
+]);
+const ROLES = new Set(['region', 'form', 'document', 'log']);
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length
+    && actual.every((key, index) => key === expected[index]);
+}
+
+function scalar(value: unknown): value is SgosRenderScalar {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+/** Refuse open-ended schema extensions; only this inert render descriptor is interpreted. */
+export function sgosRenderDescriptor(object: SgosWorkObject): SgosRenderDescriptor | null {
+  const candidate = record(object.view.schema?.['x-sgos-render']);
+  if (!candidate || !exactKeys(candidate, RENDER_DESCRIPTOR_KEYS)
+      || candidate.descriptorVersion !== 1 || candidate.viewType !== object.view.type
+      || !VIEW_TYPES.has(String(candidate.viewType)) || typeof candidate.title !== 'string'
+      || typeof candidate.summary !== 'string' || typeof candidate.truncated !== 'boolean') return null;
+  const accessibility = record(candidate.accessibility);
+  const delivery = record(candidate.delivery);
+  if (!accessibility || !exactKeys(accessibility, ['role', 'label', 'keyboard'])
+      || !ROLES.has(String(accessibility.role)) || typeof accessibility.label !== 'string'
+      || typeof accessibility.keyboard !== 'string'
+      || !delivery || !exactKeys(delivery, ['mode', 'slice', 'release'])
+      || !['inline', 'lazy'].includes(String(delivery.mode))
+      || delivery.slice !== 'sgos' || delivery.release !== 'panel-dispose') return null;
+  if (!Array.isArray(candidate.fields) || candidate.fields.length > 64) return null;
+  const fieldCount = candidate.fields.length;
+  if (!candidate.fields.every((field) => {
+        const item = record(field);
+        return item && exactKeys(item, ['id', 'label'])
+          && typeof item.id === 'string' && typeof item.label === 'string';
+      }) || !Array.isArray(candidate.rows) || candidate.rows.length > 200
+      || !candidate.rows.every((row) => {
+        const item = record(row);
+        return item && exactKeys(item, ['id', 'cells']) && typeof item.id === 'string'
+          && Array.isArray(item.cells) && item.cells.length === fieldCount
+          && item.cells.every(scalar);
+      })) return null;
+  if (!Array.isArray(candidate.edges) || candidate.edges.length > 400
+      || !candidate.edges.every((edge) => {
+        const item = record(edge);
+        return item && exactKeys(item, ['id', 'from', 'to', 'label'])
+          && [item.id, item.from, item.to, item.label].every((value) => typeof value === 'string');
+      }) || !Array.isArray(candidate.notes) || candidate.notes.length > 32
+      || !candidate.notes.every((note) => typeof note === 'string')) return null;
+  return candidate as unknown as SgosRenderDescriptor;
+}
+
+export function renderSgosWorkObject(object: SgosWorkObject): string {
+  const descriptor = sgosRenderDescriptor(object);
+  if (!descriptor) {
+    return `<section class="sgos-work-object" role="status" aria-label="Unavailable Work Object">
+      <p class="muted">This Work Object has an unsupported render descriptor and was not interpreted.</p></section>`;
+  }
+  const table = descriptor.fields.length
+    ? `<div class="table-wrap"><table aria-label="${escape(descriptor.accessibility.label)}">
+      <thead><tr>${descriptor.fields.map((field) => `<th scope="col">${escape(field.label)}</th>`).join('')}</tr></thead>
+      <tbody>${descriptor.rows.map((row) => `<tr>${row.cells.map((cell) =>
+        `<td>${escape(cell == null ? '' : String(cell))}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table></div>` : '';
+  const edges = descriptor.edges.length
+    ? `<details><summary>Relationships (${descriptor.edges.length})</summary><ul>${descriptor.edges.map((edge) =>
+      `<li>${escape(edge.from)} ${escape(edge.label)} ${escape(edge.to)}</li>`).join('')}</ul></details>` : '';
+  const notes = descriptor.notes.length
+    ? `<ul class="muted">${descriptor.notes.map((note) => `<li>${escape(note)}</li>`).join('')}</ul>` : '';
+  const lazy = descriptor.delivery.mode === 'lazy'
+    ? '<p class="muted">Bounded heavy view · loaded only while the Command Center SGOS lease is open.</p>' : '';
+  return `<section class="sgos-work-object" role="${descriptor.accessibility.role}"
+    aria-label="${escape(descriptor.accessibility.label)}" tabindex="0"
+    data-view-type="${escape(descriptor.viewType)}">
+    <h4>${escape(descriptor.title)}</h4><p>${escape(descriptor.summary)}</p>${lazy}${table}${edges}${notes}
+  </section>`;
 }
 
 function processCard(process: SgosCommandCenterView['selected'], selectedId: string | null): string {
@@ -26,30 +119,65 @@ function needsYou(view: SgosCommandCenterView): string {
   if (!view.needsYou.length) return '<p class="muted">No Human Request is waiting for this repository.</p>';
   return `<div class="decision-cards">${view.needsYou.map((object) => {
     const schema = object.view.schema ?? {};
-    const extension = (schema['x-sgos'] && typeof schema['x-sgos'] === 'object')
-      ? schema['x-sgos'] as Record<string, unknown> : {};
+    const extension = record(schema['x-sgos']) ?? {};
     const title = typeof schema.title === 'string' ? schema.title : 'Human decision required';
-    const description = typeof schema.description === 'string' ? schema.description : '';
-    const authority = extension.authorityRequired && typeof extension.authorityRequired === 'object'
-      ? extension.authorityRequired as Record<string, unknown> : {};
-    const options = Array.isArray(extension.options) ? extension.options : [];
+    const why = typeof extension.why === 'string'
+      ? extension.why : typeof schema.description === 'string' ? schema.description : '';
+    const authority = record(extension.authorityRequired) ?? {};
+    const subject = record(extension.exactSubject) ?? {};
+    const choices = Array.isArray(extension.choices) ? extension.choices : [];
+    const evidence = Array.isArray(subject.evidenceRefs)
+      ? subject.evidenceRefs.filter((entry) => typeof entry === 'string') : [];
     const expires = typeof extension.expiresAt === 'string' ? extension.expiresAt : null;
+    const remains = typeof extension.whatRemainsRunning === 'string'
+      ? extension.whatRemainsRunning : 'The runtime did not declare concurrent-work behavior.';
+    const resumes = typeof extension.resumeBehavior === 'string'
+      ? extension.resumeBehavior : 'The runtime will re-check the exact request before continuing.';
+    const response = object.view.actions.find((entry) => entry.operation === 'request.respond');
+    const responseProperties = record(response?.inputSchema?.properties);
+    const exactResponse = responseProperties?.processId && responseProperties?.processSha256
+      && responseProperties?.requestId && responseProperties?.requestSha256
+      && responseProperties?.expectedRevision;
+    const choiceList = choices.length ? `<ul>${choices.map((entry) => {
+      const choice = record(entry) ?? {};
+      return `<li><strong>${escape(choice.label ?? choice.id ?? 'Declared choice')}</strong>
+        <span> — ${escape(choice.consequence ?? 'No consequence was declared by the Program.')}</span></li>`;
+    }).join('')}</ul>` : '<span>Decision only; no named choice was declared.</span>';
     return `<article class="decision-card sgos-request">
       <span class="eyebrow">${escape(extension.requestType ?? 'Human Request')}</span>
       <h3>${escape(title)}</h3>
-      <p>${escape(description || 'The runtime did not declare a longer explanation.')}</p>
+      <p><strong>Why this needs you:</strong> ${escape(why || 'The Program requires an explicit Human Response.')}</p>
       <dl class="sgos-facts">
-        <dt>Process</dt><dd>${escape(object.processId)}</dd>
-        <dt>Authority</dt><dd>${escape(authority.kind ?? 'not declared')}${authority.id ? ` · ${escape(authority.id)}` : ''}</dd>
-        <dt>Options</dt><dd>${escape(options.length ? options.map((entry) => {
-          const option = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
-          return option.label ?? option.id ?? 'declared option';
-        }).join(', ') : 'decision only')}</dd>
+        <dt>Request type</dt><dd>${escape(extension.requestType ?? 'not declared')}</dd>
+        <dt>Exact subject</dt><dd>Process <code>${escape(subject.processId ?? object.processId)}</code>
+          at <code>${escape(shortHash(typeof subject.processSha256 === 'string' ? subject.processSha256 : null))}</code> ·
+          task <code>${escape(subject.taskInstanceId ?? object.taskInstanceId ?? 'not declared')}</code><br>
+          request <code>${escape(shortHash(typeof subject.requestSha256 === 'string' ? subject.requestSha256 : null))}</code> ·
+          subject <code>${escape(shortHash(typeof subject.subjectSha256 === 'string' ? subject.subjectSha256 : null))}</code> ·
+          checkpoint <code>${escape(shortHash(typeof subject.checkpointSha256 === 'string' ? subject.checkpointSha256 : null))}</code> ·
+          policy <code>${escape(shortHash(typeof subject.policySnapshotSha256 === 'string' ? subject.policySnapshotSha256 : null))}</code></dd>
+        <dt>Evidence</dt><dd>${evidence.length
+          ? evidence.map((entry) => `<code title="${escape(entry)}">${escape(shortHash(entry))}</code>`).join(', ')
+          : 'No evidence receipt is attached to this request.'}</dd>
+        <dt>Authority</dt><dd>${escape(authority.kind ?? 'not declared')}${authority.id ? ` · ${escape(authority.id)}` : ''}${authority.minimumAssurance ? ` · ${escape(authority.minimumAssurance)}` : ''}</dd>
+        <dt>Choices and consequences</dt><dd>${choiceList}</dd>
+        <dt>What remains running</dt><dd>${escape(remains)}</dd>
+        <dt>Resume behavior</dt><dd>${escape(resumes)}</dd>
         <dt>Expires</dt><dd>${escape(expires ?? 'no expiry declared')}</dd>
-        <dt>After response</dt><dd>The kernel re-checks this exact request and resumes only work the Program permits.</dd>
       </dl>
-      <div class="card-foot"><button type="button" data-respond="${escape(object.objectId)}">Review response</button></div>
+      ${exactResponse ? `<div class="card-foot"><button type="button" data-respond="${escape(object.objectId)}">Review response</button></div>`
+        : '<p class="muted">The response action is not exactly bound to this Process revision and digest; refresh before responding.</p>'}
     </article>`;
+  }).join('')}</div>`;
+}
+
+function selectedViews(view: SgosCommandCenterView): string {
+  if (!view.views.length) return '<p class="muted">No schema-driven views were projected.</p>';
+  return `<div class="sgos-work-objects">${view.views.map((object) => {
+    const descriptor = sgosRenderDescriptor(object);
+    const title = descriptor?.title ?? object.view.type;
+    return `<details${object.view.type === 'overview' ? ' open' : ''}>
+      <summary>${escape(title)}</summary>${renderSgosWorkObject(object)}</details>`;
   }).join('')}</div>`;
 }
 
@@ -57,13 +185,24 @@ function selectedDetail(view: SgosCommandCenterView): string {
   const process = view.selected;
   if (!process) return '<p class="muted">No readable SGOS Process exists yet.</p>';
   const graph = view.graph;
+  const pause = sgosEnabledProcessAction(process, 'process.pause');
   const stop = sgosEnabledProcessAction(process, 'process.stop');
+  const resume = sgosEnabledProcessAction(process, 'process.resume');
+  const step = sgosEnabledProcessAction(process, 'process.step');
+  const run = sgosEnabledProcessAction(process, 'process.run');
+  const recovery = sgosEnabledProcessAction(process, 'process.recover.plan');
+  const replay = sgosEnabledProcessAction(process, 'process.replay.plan');
+  const fork = sgosEnabledProcessAction(process, 'process.fork.plan');
   const table = graph ? `<div class="table-wrap"><table aria-label="Exact Process tasks">
     <thead><tr><th>Task</th><th>State</th><th>Revision</th><th>Evidence receipt</th><th>Depends on</th></tr></thead>
     <tbody>${graph.nodes.map((task) => {
       const parents = graph.edges.filter((edge) => edge.to === task.taskTemplateId).map((edge) => edge.from);
+      const receipt = task.receiptSha256
+        ? `<button type="button" class="link-button" data-evidence-process="${escape(process.processId)}"
+            data-evidence-task="${escape(task.taskInstanceId)}" title="Open exact receipt and evidence"><code>${escape(shortHash(task.receiptSha256))}</code></button>`
+        : '<span class="muted">not available</span>';
       return `<tr><td>${escape(task.taskTemplateId)}</td><td>${escape(task.state)}</td><td>${task.revision}</td>
-        <td><code>${escape(shortHash(task.receiptSha256))}</code></td><td>${escape(parents.join(', ') || 'none')}</td></tr>`;
+        <td>${receipt}</td><td>${escape(parents.join(', ') || 'none')}</td></tr>`;
     }).join('')}</tbody></table></div>` : '';
   return `<div class="card">
     <div class="card-head"><h3>${escape(process.processId)}</h3><span class="pill">${escape(process.statusLabel)}</span></div>
@@ -77,10 +216,19 @@ function selectedDetail(view: SgosCommandCenterView): string {
     <div class="card-foot">
       <button type="button" data-graph="${escape(process.processId)}">${graph ? 'Reload exact graph' : 'Load exact graph'}</button>
       <button type="button" class="secondary" data-integrity="${escape(process.processId)}">Check integrity</button>
-      <button type="button" class="secondary" data-recovery="${escape(process.processId)}">Inspect recovery</button>
+      ${recovery ? `<button type="button" class="secondary" data-recovery="${escape(process.processId)}">Recover…</button>` : ''}
+      ${step ? `<button type="button" data-step="${escape(process.processId)}">Step…</button>` : ''}
+      ${run ? `<button type="button" data-run="${escape(process.processId)}">Run wave…</button>` : ''}
+      ${pause ? `<button type="button" class="secondary" data-pause="${escape(process.processId)}">Pause…</button>` : ''}
+      ${resume ? `<button type="button" data-resume="${escape(process.processId)}">Resume…</button>` : ''}
       ${stop ? `<button type="button" class="danger secondary" data-stop="${escape(process.processId)}">Stop…</button>` : ''}
+      ${replay ? `<button type="button" class="secondary" data-replay="${escape(process.processId)}">Replay…</button>` : ''}
+      ${fork ? `<button type="button" class="secondary" data-fork="${escape(process.processId)}">Fork…</button>` : ''}
     </div>
-  </div>${renderSgosProcessGraph(graph)}${table}`;
+  </div>${renderSgosProcessGraph(graph)}${table}
+  <section aria-labelledby="sgos-projected-views"><h3 id="sgos-projected-views">Schema-driven views</h3>
+    <p class="muted">These are inert projections. Controls are resolved separately through exact kernel operation IDs.</p>
+    ${selectedViews(view)}</section>`;
 }
 
 export function sgosCommandCenterBody(view: SgosCommandCenterView): string {
@@ -121,7 +269,14 @@ export const SGOS_COMMAND_CENTER_SCRIPT = `
     else if (target.dataset.graph) window.__sfVscode.postMessage({ type:'graph', processId:target.dataset.graph });
     else if (target.dataset.integrity) window.__sfVscode.postMessage({ type:'integrity', processId:target.dataset.integrity });
     else if (target.dataset.recovery) window.__sfVscode.postMessage({ type:'recovery', processId:target.dataset.recovery });
+    else if (target.dataset.pause) window.__sfVscode.postMessage({ type:'pause', processId:target.dataset.pause });
+    else if (target.dataset.resume) window.__sfVscode.postMessage({ type:'resume', processId:target.dataset.resume });
+    else if (target.dataset.step) window.__sfVscode.postMessage({ type:'step', processId:target.dataset.step });
+    else if (target.dataset.run) window.__sfVscode.postMessage({ type:'run', processId:target.dataset.run });
     else if (target.dataset.stop) window.__sfVscode.postMessage({ type:'stop', processId:target.dataset.stop });
+    else if (target.dataset.replay) window.__sfVscode.postMessage({ type:'replay', processId:target.dataset.replay });
+    else if (target.dataset.fork) window.__sfVscode.postMessage({ type:'fork', processId:target.dataset.fork });
+    else if (target.dataset.evidenceProcess && target.dataset.evidenceTask) window.__sfVscode.postMessage({ type:'evidence', processId:target.dataset.evidenceProcess, taskInstanceId:target.dataset.evidenceTask });
     else if (target.dataset.respond) window.__sfVscode.postMessage({ type:'respond', objectId:target.dataset.respond });
     else if (target.dataset.quarantine) window.__sfVscode.postMessage({ type:'quarantine', processId:target.dataset.quarantine });
   });

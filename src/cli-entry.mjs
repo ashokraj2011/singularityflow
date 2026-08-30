@@ -44,7 +44,10 @@ export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
 
 export function excludesActiveWorkspaceRouting(command, subcommand = null) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
-    || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand));
+    || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
+    // Portable Process Evidence verification consumes only the named bundle bytes. It must work
+    // in a fresh directory and must never be redirected to the last selected workspace.
+    || (command === 'evidence' && subcommand === 'verify');
 }
 
 function rootIfAvailable(cwd = process.cwd()) {

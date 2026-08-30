@@ -52,8 +52,11 @@ export const HUMAN_REQUEST_TYPES = Object.freeze([
 ]);
 
 export const WORK_OBJECT_VIEW_TYPES = Object.freeze([
-  'form', 'table', 'timeline', 'graph', 'comparison', 'dashboard', 'evidence-matrix',
-  'decision-card', 'map', 'code-source-diff', 'experiment-result'
+  'overview', 'graph', 'board', 'timeline', 'table', 'document', 'form', 'evidence',
+  'diff', 'matrix', 'chart', 'log', 'metrics', 'simulation', 'approval',
+  // Read compatibility for v1 Work Objects emitted before the canonical view vocabulary.
+  'comparison', 'dashboard', 'evidence-matrix', 'decision-card', 'map',
+  'code-source-diff', 'experiment-result'
 ]);
 
 export const WORK_OBJECT_OPERATIONS = Object.freeze([
@@ -92,6 +95,7 @@ const CONTRACTS = Object.freeze({
   'gvm-checkpoint': Object.freeze({ kind: 'gvm-checkpoint', hash: 'checkpointSha256', id: 'checkpointId', prefix: 'CHK' }),
   'human-request': Object.freeze({ kind: 'human-request', hash: 'requestSha256', id: 'requestId', prefix: 'HRQ' }),
   'human-response': Object.freeze({ kind: 'human-response', hash: 'responseSha256', id: 'responseId', prefix: 'HRS' }),
+  'agent-proposal': Object.freeze({ kind: 'agent-proposal', hash: 'proposalSha256' }),
   'action-evidence': Object.freeze({ kind: 'action-evidence', hash: 'evidenceSha256' }),
   'work-object': Object.freeze({ kind: 'work-object', hash: 'objectSha256', id: 'objectId', prefix: 'WKO' })
 });
@@ -450,6 +454,12 @@ function validateIntentWorkflowMap(value, label) {
       });
     }
   }
+}
+
+/** Validate and freeze the strict structural vocabulary of an Intent-to-Workflow coverage map. */
+export function validateSgosIntentWorkflowMap(value) {
+  validateIntentWorkflowMap(value, 'intent-workflow-map');
+  return freezeDeep(cloneJson(value));
 }
 
 function validateWorkflowIrRecord(record, requireHash) {
@@ -1138,10 +1148,15 @@ function validateExecutionAdmission(value, label) {
   if (value.safety.safe !== true) fail(`${label}.safety.safe must be true.`);
   identifier(value.safety.programId, 'PRG', `${label}.safety.programId`);
   digest(value.safety.programSha256, `${label}.safety.programSha256`);
-  exactKeys(value.safety.compiler, ['id', 'version'], `${label}.safety.compiler`);
+  exactKeys(value.safety.compiler, [
+    'id', 'version', ...(value.safety.compiler?.sourceSha256 == null ? [] : ['sourceSha256'])
+  ], `${label}.safety.compiler`);
   requireKeys(value.safety.compiler, ['id', 'version'], `${label}.safety.compiler`);
   string(value.safety.compiler.id, `${label}.safety.compiler.id`);
   string(value.safety.compiler.version, `${label}.safety.compiler.version`);
+  if (value.safety.compiler.sourceSha256 != null) {
+    digest(value.safety.compiler.sourceSha256, `${label}.safety.compiler.sourceSha256`);
+  }
   exactKeys(value.safety.graph, [
     'taskCount', 'edgeCount', 'roots', 'terminalTaskIds', 'topologicalOrder'
   ], `${label}.safety.graph`);
@@ -1298,7 +1313,7 @@ export function validateGvmProcess(value) {
 }
 
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
-  'action-evidence', 'candidate-snapshot', 'fanout-expansion-receipt',
+  'action-evidence', 'agent-proposal', 'candidate-snapshot', 'fanout-expansion-receipt',
   'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
   'join-receipt', 'process-binding', 'resource-lease', 'sgos-replay-plan'
@@ -1309,6 +1324,7 @@ export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
 export const MAXIMUM_SGOS_PROCESS_RECORD_COUNT = SGOS_INSTALLED_LIMITS.maximumProcessRecords;
 export const MAXIMUM_SGOS_PROCESS_RECORD_BYTES = SGOS_INSTALLED_LIMITS.maximumProcessRecordBytes;
 export const MAXIMUM_SGOS_RECORD_BYTES = SGOS_INSTALLED_LIMITS.maximumRecordBytes;
+export const MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES = 1024 * 1024;
 
 function sgosRecordIndexEntryKey(entry) {
   return [
@@ -1782,6 +1798,75 @@ export function validateHumanResponse(value) {
   return returnValidated(value, validateHumanResponseRecord);
 }
 
+function validateAgentProposalRecord(record, requireHash) {
+  validateBase(record, 'agent-proposal', [
+    'processId', 'taskInstanceId', 'attemptId', 'contractSha256',
+    'executionUnitManifestSha256', 'provider', 'providerInvocationId',
+    'providerAuditRef', 'mediaType', 'contentEncoding', 'outputBase64',
+    'outputBytes', 'outputSha256', 'assurance', 'createdAt'
+  ], [
+    'processId', 'taskInstanceId', 'attemptId', 'contractSha256',
+    'executionUnitManifestSha256', 'provider', 'providerInvocationId',
+    'providerAuditRef', 'mediaType', 'contentEncoding', 'outputBase64',
+    'outputBytes', 'outputSha256', 'assurance', 'createdAt'
+  ], requireHash);
+  identifier(record.processId, 'PROC', 'agent-proposal.processId');
+  string(record.taskInstanceId, 'agent-proposal.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'agent-proposal.attemptId');
+  digest(record.contractSha256, 'agent-proposal.contractSha256');
+  digest(record.executionUnitManifestSha256,
+    'agent-proposal.executionUnitManifestSha256');
+  if (record.provider !== 'copilot-cli') {
+    fail("agent-proposal.provider must be 'copilot-cli'.");
+  }
+  string(record.providerInvocationId, 'agent-proposal.providerInvocationId', {
+    pattern: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/
+  });
+  if (record.providerAuditRef !== `model-invocation:${record.providerInvocationId}`) {
+    fail('agent-proposal.providerAuditRef must bind the exact model invocation audit ID.');
+  }
+  if (record.mediaType !== 'text/plain; charset=utf-8'
+      || record.contentEncoding !== 'base64') {
+    fail('agent-proposal content must be base64-encoded UTF-8 plain text.');
+  }
+  string(record.outputBase64, 'agent-proposal.outputBase64', {
+    pattern: /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+  });
+  integer(record.outputBytes, 'agent-proposal.outputBytes', { minimum: 1 });
+  if (record.outputBytes > MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES) {
+    fail(`agent-proposal.outputBytes exceeds ${MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES}.`);
+  }
+  digest(record.outputSha256, 'agent-proposal.outputSha256');
+  const output = Buffer.from(record.outputBase64, 'base64');
+  if (output.length !== record.outputBytes
+      || output.toString('base64') !== record.outputBase64
+      || Buffer.from(output.toString('utf8'), 'utf8').compare(output) !== 0
+      || sha256(output) !== record.outputSha256) {
+    fail('agent-proposal output bytes, encoding, and digest do not agree.');
+  }
+  exactKeys(record.assurance, [
+    'kind', 'authority', 'verification', 'approval'
+  ], 'agent-proposal.assurance');
+  requireKeys(record.assurance, [
+    'kind', 'authority', 'verification', 'approval'
+  ], 'agent-proposal.assurance');
+  if (record.assurance.kind !== 'proposal-only'
+      || record.assurance.authority !== 'none'
+      || record.assurance.verification !== 'not-performed'
+      || record.assurance.approval !== 'not-granted') {
+    fail('agent-proposal assurance cannot claim verification, approval, or authority.');
+  }
+  timestamp(record.createdAt, 'agent-proposal.createdAt');
+}
+
+export function createAgentProposal(value) {
+  return createContract('agent-proposal', value, validateAgentProposalRecord);
+}
+
+export function validateAgentProposal(value) {
+  return returnValidated(value, validateAgentProposalRecord);
+}
+
 function validateActionEvidenceRecord(record, requireHash) {
   validateBase(record, 'action-evidence', [
     'processId', 'taskInstanceId', 'attemptId', 'principalSha256', 'delegationSha256',
@@ -1879,6 +1964,7 @@ const VALIDATORS = Object.freeze({
   'gvm-checkpoint': validateGvmCheckpoint,
   'human-request': validateHumanRequest,
   'human-response': validateHumanResponse,
+  'agent-proposal': validateAgentProposal,
   'action-evidence': validateActionEvidence,
   'work-object': validateWorkObject
 });

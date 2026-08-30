@@ -20,8 +20,11 @@ import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import {
   createSgosTransitionIntent, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
-  SGOS_RECORD_INDEX_FAMILIES, validateSgosRecord, validateSgosTransitionIntent
+  SGOS_RECORD_INDEX_FAMILIES, sha256, validateSgosRecord, validateSgosTransitionIntent
 } from './contracts.mjs';
+import {
+  readSgosToolIntent, readSgosToolResult, verifySgosSandboxCasPostcondition
+} from './devices.mjs';
 import { sgosContractPathFromLocal } from './paths.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { assertSgosProcessMaterialization } from './materialization.mjs';
@@ -99,11 +102,19 @@ const IMMUTABLE_FAMILIES = Object.freeze({
   'gvm-checkpoint': Object.freeze({ directory: 'checkpoints', hashField: 'checkpointSha256' }),
   'human-request': Object.freeze({ directory: 'human-requests', hashField: 'requestSha256' }),
   'human-response': Object.freeze({ directory: 'human-responses', hashField: 'responseSha256' }),
+  'agent-proposal': Object.freeze({ directory: 'agent-proposals', hashField: 'proposalSha256' }),
   'action-evidence': Object.freeze({ directory: 'evidence', hashField: 'evidenceSha256' })
 });
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+// Dynamic to keep the low-level store acyclic: pinned-policy reads Process state to compute exact
+// impact, while every writer must still pass the same authority gate before publication.
+async function assertProcessPolicyAuthority(root, options) {
+  const { assertSgosProcessPolicyAuthority } = await import('./pinned-policy.mjs');
+  return assertSgosProcessPolicyAuthority(root, options);
 }
 
 function clone(value) {
@@ -2008,7 +2019,7 @@ function interruptedCreationSeedQuarantine(records, state, stateEntry) {
   const forbiddenFamilies = new Set([
     'candidate-snapshot', 'sgos-control-event', 'sgos-control-successor',
     'gvm-task-attempt', 'gvm-task-receipt', 'gvm-checkpoint', 'human-request',
-    'human-response', 'action-evidence', 'sgos-execution-lease'
+    'human-response', 'agent-proposal', 'action-evidence', 'sgos-execution-lease'
   ]);
   const forbidden = [...records.entries()]
     .filter(([, entry]) => forbiddenFamilies.has(entry.family))
@@ -2439,6 +2450,13 @@ export async function quarantineSgosProcess(root, processId, { confirmationSha25
           expected: plan.confirmationSha256, received: confirmationSha256
         });
     }
+    // Quarantine is a preserve-only remedy for state already classified as safely quarantinable.
+    // Bind its exact reviewed tree plus approved current policy without trusting Process policy
+    // bytes that may be precisely why quarantine is required.
+    await assertProcessPolicyAuthority(root, {
+      operation: 'process.quarantine', processId: id,
+      quarantineTreeSha256: plan.treeSha256
+    });
     const source = sgosProcessDirectory(root, id);
     const quarantineDirectory = sgosProcessQuarantineDirectory(root, id, plan.treeSha256);
     const quarantineRoot = sgosProcessQuarantineRoot(root);
@@ -3004,6 +3022,9 @@ export async function recoverPendingSgosTransition(root, processId) {
   const id = requireProcessId(processId);
   return withProcessLock(root, id, async () => {
     const current = await readSgosProcessUnlocked(root, id);
+    await assertProcessPolicyAuthority(root, {
+      operation: 'process.transition-recovery', processId: id, process: current
+    });
     const intent = await readSgosTransitionIntent(root, id);
     if (intent === null) return Object.freeze({ recovered: false, process: current });
     let recovered;
@@ -3675,7 +3696,7 @@ async function assertSuccessfulReceiptLineage(
   root, state, taskId, task, record, attemptsById,
   readImmutable = (familyId, sha256) => readSgosImmutableRecord(
     root, state.processId, familyId, sha256
-  )
+  ), template = null
 ) {
     if (record.taskInstanceId !== taskId || record.processId !== state.processId
         || record.verification?.status !== 'passed'
@@ -3722,6 +3743,28 @@ async function assertSuccessfulReceiptLineage(
     if (!boundEvidence) {
       fail(`SGOS task '${taskId}' receipt has no exact passing Action Evidence lineage.`, 'SGOS_RECEIPT_LINEAGE_INVALID');
     }
+    await assertDeviceReceiptLineage(root, state, taskId, record, boundEvidence, template);
+    if (template?.opcode === 'AGENT'
+        && template.metadata?.executionUnitId === 'copilot-cli') {
+      if (record.outputRefs.length !== 1
+          || !record.evidenceRefs.includes(record.outputRefs[0])) {
+        fail(`Copilot task '${taskId}' receipt does not bind one proposal-only output.`,
+          'SGOS_AGENT_PROPOSAL_INVALID');
+      }
+      const { record: proposal } = await readImmutable(
+        'agent-proposal', record.outputRefs[0]
+      );
+      if (proposal.processId !== state.processId
+          || proposal.taskInstanceId !== taskId
+          || proposal.attemptId !== record.attemptId
+          || proposal.executionUnitManifestSha256
+            !== template.metadata.executionUnitManifestSha256
+          || proposal.assurance?.kind !== 'proposal-only'
+          || proposal.assurance?.authority !== 'none') {
+        fail(`Copilot task '${taskId}' proposal lineage is invalid.`,
+          'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
+      }
+    }
     for (const responseSha256 of record.humanDecisionRefs ?? []) {
       const { record: response } = await readImmutable('human-response', responseSha256);
       if (response.processId !== state.processId || response.taskInstanceId !== taskId) {
@@ -3730,7 +3773,72 @@ async function assertSuccessfulReceiptLineage(
     }
 }
 
-async function assertHotSuccessfulReceiptLineage(root, state, taskId, task, record) {
+async function assertDeviceReceiptLineage(
+  root, state, taskId, receipt, evidence, template
+) {
+  if (template?.opcode !== 'DEVICE') return;
+  const references = [...new Set([
+    ...(receipt.evidenceRefs ?? []), ...(receipt.outputRefs ?? []),
+    ...(receipt.effectRefs ?? []), ...(evidence.evidenceRefs ?? []),
+    ...(evidence.effectRefs ?? [])
+  ])];
+  const intents = [];
+  for (const reference of references) {
+    if (!SHA256.test(String(reference ?? ''))) continue;
+    try {
+      intents.push(await readSgosToolIntent(root, reference));
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  if (intents.length !== 1) {
+    fail(`DEVICE task '${taskId}' receipt does not bind exactly one durable Tool Intent.`,
+      'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID', { intentCount: intents.length });
+  }
+  const intent = intents[0];
+  const parameters = template.metadata?.parameters ?? {};
+  const manifestSha256 = template.metadata?.deviceManifestSha256;
+  if (intent.processId !== state.processId
+      || intent.taskInstanceId !== taskId
+      || intent.attemptId !== receipt.attemptId
+      || intent.deviceManifestSha256 !== manifestSha256
+      || intent.authorizationSha256 !== manifestSha256
+      || intent.operation !== parameters.operation
+      || intent.argumentsSha256 !== sha256(parameters.arguments)
+      || intent.scopeSha256 !== sha256(parameters.scope)
+      || evidence.deviceManifestSha256 !== manifestSha256) {
+    fail(`DEVICE task '${taskId}' Tool Intent crosses its compiled receipt boundary.`,
+      'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID');
+  }
+  const result = await readSgosToolResult(root, intent.intentSha256);
+  if (result.intentSha256 !== intent.intentSha256
+      || result.status !== 'observed'
+      || result.verification?.status !== 'passed'
+      || canonicalJson(receipt.outputRefs) !== canonicalJson([result.resultSha256])
+      || !receipt.evidenceRefs.includes(result.resultSha256)
+      || !evidence.evidenceRefs.includes(intent.intentSha256)
+      || !evidence.evidenceRefs.includes(result.resultSha256)) {
+    fail(`DEVICE task '${taskId}' Tool Result is not the exact verified receipt output.`,
+      'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID');
+  }
+  if (template.metadata?.deviceId === 'sandbox-cas') {
+    if (!receipt.effectRefs.includes(result.resultSha256)
+        || !evidence.effectRefs.includes(result.resultSha256)) {
+      fail(`Consequential DEVICE task '${taskId}' does not expose its Tool Result as effect evidence.`,
+        'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID');
+    }
+    await verifySgosSandboxCasPostcondition(root, intent, result);
+  } else if ((receipt.effectRefs?.length ?? 0) !== 0
+      || (evidence.effectRefs?.length ?? 0) !== 0
+      || result.effect?.class !== 'none' || result.effect?.changed !== false) {
+    fail(`Read-only DEVICE task '${taskId}' carries consequential effect evidence.`,
+      'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID');
+  }
+}
+
+async function assertHotSuccessfulReceiptLineage(
+  root, state, taskId, task, record, template = null
+) {
   if (record.taskInstanceId !== taskId || record.processId !== state.processId
       || record.verification?.status !== 'passed'
       || task.attemptIds.at(-1) !== record.attemptId
@@ -3785,6 +3893,28 @@ async function assertHotSuccessfulReceiptLineage(root, state, taskId, task, reco
     fail(`SGOS task '${taskId}' receipt has no exact passing Action Evidence lineage.`,
       'SGOS_RECEIPT_LINEAGE_INVALID');
   }
+  await assertDeviceReceiptLineage(root, state, taskId, record, boundEvidence, template);
+  if (template?.opcode === 'AGENT'
+      && template.metadata?.executionUnitId === 'copilot-cli') {
+    if (record.outputRefs.length !== 1
+        || !record.evidenceRefs.includes(record.outputRefs[0])) {
+      fail(`Copilot task '${taskId}' receipt does not bind one proposal-only output.`,
+        'SGOS_AGENT_PROPOSAL_INVALID');
+    }
+    const { record: proposal } = await readSgosImmutableRecord(
+      root, state.processId, 'agent-proposal', record.outputRefs[0]
+    );
+    if (proposal.processId !== state.processId
+        || proposal.taskInstanceId !== taskId
+        || proposal.attemptId !== record.attemptId
+        || proposal.executionUnitManifestSha256
+          !== template.metadata.executionUnitManifestSha256
+        || proposal.assurance?.kind !== 'proposal-only'
+        || proposal.assurance?.authority !== 'none') {
+      fail(`Copilot task '${taskId}' proposal lineage is invalid.`,
+        'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
+    }
+  }
   for (const responseSha256 of record.humanDecisionRefs ?? []) {
     const { record: response } = await readSgosImmutableRecord(
       root, state.processId, 'human-response', responseSha256
@@ -3819,6 +3949,59 @@ async function assertSgosStoredAuthorityAndMaterialization(root, state) {
       });
   }
   assertSgosProcessMaterialization(program, state);
+}
+
+function assertAgentProposalCensus(
+  state, program, proposals, attempts, receipts, ownerByAttempt
+) {
+  const proposalsByAttempt = recordsBy(proposals, 'attemptId');
+  const attemptsById = recordsBy(attempts, 'attemptId');
+  const receiptsByAttempt = recordsBy(receipts, 'attemptId');
+  for (const [attemptId, exact] of proposalsByAttempt) {
+    const taskId = ownerByAttempt.get(attemptId);
+    const task = taskId == null ? null : state.taskInstances[taskId];
+    const template = task == null ? null : program.taskTemplates.find((entry) =>
+      entry.taskTemplateId === task.taskTemplateId);
+    const proposal = exact[0] ?? null;
+    const terminal = (attemptsById.get(attemptId) ?? [])
+      .filter((record) => record.status !== 'running');
+    const boundReceipts = receiptsByAttempt.get(attemptId) ?? [];
+    if (exact.length !== 1 || !proposal || !task
+        || proposal.processId !== state.processId
+        || proposal.taskInstanceId !== taskId
+        || proposal.attemptId !== attemptId
+        || template?.opcode !== 'AGENT'
+        || template.metadata?.executionUnitId !== 'copilot-cli'
+        || proposal.executionUnitManifestSha256
+          !== template.metadata.executionUnitManifestSha256
+        || terminal.length !== 1) {
+      fail(`SGOS proposal lineage for attempt '${attemptId}' is ambiguous or unbound.`,
+        'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH', { attemptId, proposals: exact.length });
+    }
+    if (terminal[0].status === 'succeeded') {
+      const recoverableInterruptedSuccess = boundReceipts.length === 0
+        && task.attemptIds.at(-1) === attemptId
+        && (state.activeExecutions.includes(attemptId)
+          || ['recovery-required', 'waiting-human'].includes(task.state))
+        && !task.outputRefs.includes(proposal.proposalSha256);
+      if (!recoverableInterruptedSuccess
+          && (boundReceipts.length !== 1
+            || boundReceipts[0].outputRefs.length !== 1
+            || boundReceipts[0].outputRefs[0] !== proposal.proposalSha256
+            || !boundReceipts[0].evidenceRefs.includes(proposal.proposalSha256))) {
+        fail(`Successful Copilot attempt '${attemptId}' does not bind its exact proposal.`,
+          'SGOS_AGENT_PROPOSAL_INVALID', { attemptId });
+      }
+    } else if (terminal[0].status === 'failed') {
+      if (boundReceipts.length !== 0 || task.outputRefs.includes(proposal.proposalSha256)) {
+        fail(`Failed Copilot attempt '${attemptId}' exposes proposal evidence as authority.`,
+          'SGOS_AGENT_PROPOSAL_INVALID', { attemptId });
+      }
+    } else {
+      fail(`SGOS proposal attempt '${attemptId}' has unsupported terminal state '${terminal[0].status}'.`,
+        'SGOS_AGENT_PROPOSAL_INVALID', { attemptId, status: terminal[0].status });
+    }
+  }
 }
 
 async function assertReferencedRecords(root, state, { snapshotRecords = null } = {}) {
@@ -3865,10 +4048,11 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   };
   // Index every bounded attempt and receipt once, including immutable records hidden by mutable
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
-  const [attempts, receipts, resourceLeases, joinReceipts, fanoutReceipts,
+  const [attempts, receipts, agentProposals, resourceLeases, joinReceipts, fanoutReceipts,
     { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
     allRecords('gvm-task-receipt'),
+    allRecords('agent-proposal'),
     allRecords('resource-lease'),
     allRecords('join-receipt'),
     allRecords('fanout-expansion-receipt'),
@@ -3968,7 +4152,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
           }
           await assertSuccessfulReceiptLineage(
             root, state, taskId, historical?.prior ?? task,
-            boundReceipts[0], attemptsById, readImmutable
+            boundReceipts[0], attemptsById, readImmutable,
+            program.taskTemplates.find((entry) => entry.taskTemplateId === task.taskTemplateId)
           );
         }
       } else if (boundReceipts.length) {
@@ -3999,6 +4184,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         'SGOS_RECEIPT_LINEAGE_INVALID');
     }
   }
+  assertAgentProposalCensus(
+    state, program, agentProposals, attempts, receipts, ownerByAttempt
+  );
   const joinsByTask = new Map((program.joins ?? []).map((join) => [join.taskTemplateId, join]));
   const joinReceiptsByAttempt = recordsBy(joinReceipts, 'attemptId');
   for (const receipt of joinReceipts) {
@@ -4055,7 +4243,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       }
       await assertSuccessfulReceiptLineage(
         root, state, entry.taskInstanceId, predecessor,
-        predecessorReceipt, attemptsById, readImmutable
+        predecessorReceipt, attemptsById, readImmutable,
+        program.taskTemplates.find((template) =>
+          template.taskTemplateId === predecessor.taskTemplateId)
       );
     }
   }
@@ -4273,7 +4463,10 @@ async function assertHotReferencedRecords(root, state, { preparedIndex = null } 
       const { record: receipt } = await readSgosImmutableRecord(
         root, state.processId, 'gvm-task-receipt', task.receiptSha256
       );
-      await assertHotSuccessfulReceiptLineage(root, state, taskId, task, receipt);
+      await assertHotSuccessfulReceiptLineage(
+        root, state, taskId, task, receipt,
+        program.taskTemplates.find((entry) => entry.taskTemplateId === task.taskTemplateId)
+      );
     }
   }
   if (state.activeExecutions.length > SGOS_INSTALLED_LIMITS.maximumExecutionLeases
@@ -4381,6 +4574,7 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       'SGOS_RECORD_INDEX_INVALID', { family, recordSha256: sha256, detail });
   };
   const introducedReplayPlans = new Set();
+  const consumedAgentProposals = new Set();
   for (const [taskId, task] of Object.entries(after.taskInstances)) {
     const prior = before.taskInstances[taskId];
     if (task.invalidatedBy !== prior.invalidatedBy) {
@@ -4458,6 +4652,37 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       );
       const template = program.taskTemplates.find((entry) =>
         entry.taskTemplateId === task.taskTemplateId);
+      if (template?.opcode === 'AGENT'
+          && template.metadata?.executionUnitId === 'copilot-cli') {
+        const exactProposals = index.delta.filter((entry) =>
+          entry.family === 'agent-proposal'
+          && entry.attemptId === receipt.attemptId
+          && entry.taskInstanceId === taskId);
+        if (exactProposals.length !== 1
+            || receipt.outputRefs.length !== 1
+            || receipt.outputRefs[0] !== exactProposals[0]?.recordSha256
+            || !receipt.evidenceRefs.includes(exactProposals[0]?.recordSha256)) {
+          fail(`Copilot AGENT task '${taskId}' did not index and bind one exact proposal record.`,
+            'SGOS_AGENT_PROPOSAL_INVALID', {
+              taskInstanceId: taskId, proposals: exactProposals.length
+            });
+        }
+        const proposalSha256 = exactProposals[0].recordSha256;
+        const { record: proposal } = await readSgosImmutableRecord(
+          root, after.processId, 'agent-proposal', proposalSha256
+        );
+        if (proposal.processId !== after.processId
+            || proposal.taskInstanceId !== taskId
+            || proposal.attemptId !== receipt.attemptId
+            || proposal.executionUnitManifestSha256
+              !== template.metadata.executionUnitManifestSha256
+            || proposal.assurance?.kind !== 'proposal-only'
+            || proposal.assurance?.authority !== 'none') {
+          fail(`Copilot AGENT task '${taskId}' proposal binding is invalid.`,
+            'SGOS_AGENT_PROPOSAL_BINDING_MISMATCH');
+        }
+        consumedAgentProposals.add(proposalSha256);
+      }
       if (template?.opcode === 'JOIN') {
         const exactJoin = index.delta.filter((entry) =>
           entry.family === 'join-receipt'
@@ -4521,6 +4746,54 @@ async function assertTransitionIndexDelta(root, before, after, index) {
       }
     }
   }
+  const unconsumedAgentProposals = index.delta.filter((entry) =>
+    entry.family === 'agent-proposal'
+    && !consumedAgentProposals.has(entry.recordSha256));
+  const unconsumedByAttempt = new Map();
+  for (const entry of unconsumedAgentProposals) {
+    const values = unconsumedByAttempt.get(entry.attemptId) ?? [];
+    values.push(entry);
+    unconsumedByAttempt.set(entry.attemptId, values);
+  }
+  for (const entry of unconsumedAgentProposals) {
+    const task = after.taskInstances[entry.taskInstanceId];
+    const { record: program } = await readSgosImmutableRecord(
+      root, after.processId, 'gvm-program', after.programSha256
+    );
+    const template = task == null ? null : program.taskTemplates.find((candidate) =>
+      candidate.taskTemplateId === task.taskTemplateId);
+    const { record: proposal } = await readSgosImmutableRecord(
+      root, after.processId, 'agent-proposal', entry.recordSha256
+    );
+    const terminalEntries = index.delta.filter((candidate) =>
+      candidate.family === 'gvm-task-attempt'
+      && candidate.attemptId === entry.attemptId
+      && candidate.taskInstanceId === entry.taskInstanceId);
+    const terminalRecords = await Promise.all(terminalEntries.map(async (candidate) => (
+      await readSgosImmutableRecord(
+        root, after.processId, 'gvm-task-attempt', candidate.recordSha256
+      )
+    ).record));
+    const exactFailedTerminal = terminalRecords.filter((record) => record.status === 'failed');
+    if (!task || task.attemptIds.at(-1) !== entry.attemptId
+        || task.state === 'succeeded'
+        || template?.opcode !== 'AGENT'
+        || template.metadata?.executionUnitId !== 'copilot-cli'
+        || (unconsumedByAttempt.get(entry.attemptId)?.length ?? 0) !== 1
+        || exactFailedTerminal.length !== 1
+        || terminalRecords.some((record) => record.status !== 'failed')
+        || index.delta.some((candidate) => candidate.family === 'gvm-task-receipt'
+          && candidate.attemptId === entry.attemptId)
+        || proposal.processId !== after.processId
+        || proposal.taskInstanceId !== entry.taskInstanceId
+        || proposal.attemptId !== entry.attemptId
+        || proposal.executionUnitManifestSha256
+          !== template.metadata.executionUnitManifestSha256
+        || task.outputRefs.includes(entry.recordSha256)) {
+      fail('SGOS transition introduced an unbound or authoritative orphan proposal.',
+        'SGOS_AGENT_PROPOSAL_INVALID', { proposalSha256: entry.recordSha256 });
+    }
+  }
 }
 
 function sealSgosProcessCreationSeed(value, {
@@ -4542,6 +4815,10 @@ function sealSgosProcessCreationSeed(value, {
 export async function createSgosProcess(root, value) {
   const processId = requireProcessId(value?.processId);
   return withProcessLock(root, processId, async () => {
+    await assertProcessPolicyAuthority(root, {
+      operation: 'process.start.publish', processId,
+      policySnapshotSha256: value?.policySnapshotSha256
+    });
     const target = sgosProcessStatePath(root, processId);
     let seed;
     try {
@@ -4787,6 +5064,10 @@ export async function upgradeSgosProcessControlLineage(root, processId, {
       fail(`SGOS process '${id}' failed its stored-byte integrity check.`, 'SGOS_PROCESS_CORRUPT');
     }
     const loaded = readRecord('gvm-process', raw);
+    await assertProcessPolicyAuthority(root, {
+      operation: 'process.control-upgrade', processId: id,
+      process: loaded.record
+    });
     if (loaded.storedVersion === currentSchemaVersion('gvm-process')) {
       // A retry after the final state publication is idempotent only for the exact v2 predecessor
       // and its root event.  A normal v3 Process, or a Process advanced after upgrade, is not an
@@ -4888,6 +5169,9 @@ export async function mutateSgosProcess(root, processId, mutate, {
   }
   return withProcessLock(root, id, async () => {
     const current = await readSgosProcessUnlocked(root, id);
+    await assertProcessPolicyAuthority(root, {
+      operation: 'process.publish', processId: id, process: current
+    });
     const pendingIntent = await readSgosTransitionIntent(root, id);
     if (pendingIntent !== null) {
       const recovered = await reconcileSgosTransitionIntent(root, current, pendingIntent);
@@ -5228,6 +5512,7 @@ export async function fsckSgosProcess(root, processId) {
       priorEvent = event;
     }
     const disk = new Map();
+    const diskRecords = new Map();
     let physicalEntriesScanned = 0;
     let physicalLimitExceeded = false;
     for (const familyId of SGOS_RECORD_INDEX_FAMILIES) {
@@ -5267,6 +5552,7 @@ export async function fsckSgosProcess(root, processId) {
           disk.set(identity, Object.freeze({
             ...recordIndexEntry(familyId, record), bytes
           }));
+          diskRecords.set(identity, record);
         } catch (error) {
           errors.push(Object.freeze({
             code: error?.code ?? 'SGOS_RECORD_CORRUPT',
@@ -5298,6 +5584,59 @@ export async function fsckSgosProcess(root, processId) {
       .filter(([identity]) => !authoritative.has(identity))
       .map(([, entry]) => Object.freeze(clone(entry)))
       .sort(compareRecordIndexEntries);
+
+    const rootedRecordFamily = (familyId) => [...diskRecords.entries()]
+      .filter(([identity]) => authoritative.has(identity)
+        && identity.startsWith(`${familyId}\u0000`))
+      .map(([, record]) => record);
+    const rootedProgram = diskRecords.get(`gvm-program\u0000${state.programSha256}`) ?? null;
+    if (rootedProgram != null) {
+      const ownerByAttempt = new Map();
+      for (const [taskId, task] of Object.entries(state.taskInstances)) {
+        for (const attemptId of task.attemptIds) ownerByAttempt.set(attemptId, taskId);
+      }
+      try {
+        assertAgentProposalCensus(
+          state,
+          rootedProgram,
+          rootedRecordFamily('agent-proposal'),
+          rootedRecordFamily('gvm-task-attempt'),
+          rootedRecordFamily('gvm-task-receipt'),
+          ownerByAttempt
+        );
+      } catch (error) {
+        errors.push(Object.freeze({
+          code: error?.code ?? 'SGOS_AGENT_PROPOSAL_INVALID',
+          message: error?.message ?? String(error)
+        }));
+      }
+      const rootedEvidence = new Map(rootedRecordFamily('action-evidence')
+        .map((record) => [record.evidenceSha256, record]));
+      for (const receipt of rootedRecordFamily('gvm-task-receipt')) {
+        const task = state.taskInstances[receipt.taskInstanceId] ?? null;
+        const template = task == null ? null : rootedProgram.taskTemplates
+          .find((entry) => entry.taskTemplateId === task.taskTemplateId);
+        if (template?.opcode !== 'DEVICE') continue;
+        try {
+          const boundEvidence = receipt.evidenceRefs
+            .map((reference) => rootedEvidence.get(reference) ?? null)
+            .find((evidence) => evidence?.attemptId === receipt.attemptId) ?? null;
+          if (boundEvidence == null) {
+            fail(`DEVICE receipt '${receipt.receiptSha256}' has no rooted Action Evidence.`,
+              'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID');
+          }
+          await assertDeviceReceiptLineage(
+            root, state, receipt.taskInstanceId, receipt, boundEvidence, template
+          );
+        } catch (error) {
+          errors.push(Object.freeze({
+            code: error?.code ?? 'SGOS_DEVICE_RECEIPT_LINEAGE_INVALID',
+            message: error?.message ?? String(error),
+            receiptSha256: receipt.receiptSha256
+          }));
+        }
+      }
+    }
 
     const physicalInfrastructure = new Map();
     if (!physicalLimitExceeded) {

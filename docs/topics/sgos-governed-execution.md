@@ -10,8 +10,10 @@ commands:
   - intent
   - program
   - process
+  - policy
   - task
   - request
+  - evidence
   - candidate
   - execution-unit
   - device
@@ -24,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 7
+version: 11
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -36,17 +38,30 @@ Process Binding before any task—including `NOOP` or `END`—can run.
 
 ## Purpose and prerequisites
 
-Use this profile to inspect and exercise deterministic SGOS compiler profile v2 and the runtime.
+Use this profile to inspect and exercise deterministic SGOS compiler profile v3 and the runtime.
 Start inside the selected governed repository with committed input JSON for the Intent IR, Workflow IR,
 Ratification, policy snapshot, registry snapshot, and optional Process Binding. The core profile is
-model-free and supports a bounded deterministic parallel wave for compatible resource contracts.
-It can dispatch only the exact registry-pinned `deterministic-translator` Execution Unit and the
-exact registry-pinned read-only `filesystem-read` Device. Copilot/model-backed agents, mutating
-Devices, and every uninstalled manifest refuse safely.
+model-free by default and supports a bounded deterministic parallel wave for compatible resource
+contracts. It can dispatch only the exact registry-pinned `deterministic-translator` Execution Unit,
+the exact registry-pinned proposal-only `copilot-cli` Execution Unit, and the exact registry-pinned
+read-only `filesystem-read` Device. The only consequential Device is the exact registry-pinned
+`sandbox-cas` proof adapter: it can compare-and-swap one compiled key only beneath Git-common SGOS
+fixture storage, after a durable Tool Intent, and recovery verifies rather than replays its exact
+postcondition. Copilot dispatch additionally requires the reviewed CLI
+`--allow-model` operation, has no tools, repository, Device, or effect scope, and cannot create
+terminal authority without a downstream independent VERIFY gate. Every other consequential Device
+and every uninstalled, stale, or counterfeit manifest refuse safely.
+
+The built-in core profile is an explicit versioned Pack authority and never reads ambient Pack
+state. A non-core Workflow must name one exact signed declarative Pack digest. Compilation loads
+its reviewed active selection from approved publisher trust and this repository's machine-local
+Authority Store; Process admission revalidates that same selection before mutation. Configuration
+does not transport the store, so a missing office-machine store fails closed with a portability
+diagnostic instead of silently falling back to core or another Pack.
 
 ## Use it from each surface
 
-- **Shell:** use `singularity-flow intent`, `program`, `process`, `task`, and `request` for the
+- **Shell:** use `singularity-flow intent`, `program`, `process`, `policy`, `task`, and `request` for the
   execution core. The bounded extension profile exposes `candidate`, `execution-unit`, `device`,
   `authority-store`, `pack`, `learn`, `memory`, and `meta-tool`; run each command with `--help`
   before a mutation.
@@ -56,37 +71,99 @@ Devices, and every uninstalled manifest refuse safely.
   graph, evidence links, unavailable-Process diagnostics, and Human Request forms. Actions pass only
   exact identifiers back to reviewed commands; the webview is not a second execution engine.
 
+### Guided learning missions
+
+`singularity-flow learn` is a deterministic tutor over lesson entries in signed active Capability
+Packs. List by role, optionally narrow to one Pack, then supply the repository-contained JSON module
+whose `moduleSha256` equals that lesson's `contentSha256`:
+
+```sh
+singularity-flow learn list --role developer --trust publisher-trust.json
+singularity-flow learn start recovery-basics --role developer \
+  --module learning/recovery-basics.json --trust publisher-trust.json
+singularity-flow learn inspect recovery-basics --role developer \
+  --module learning/recovery-basics.json --trust publisher-trust.json
+singularity-flow learn explain-change recovery-basics inspect-refusal --role developer \
+  --module learning/recovery-basics.json --trust publisher-trust.json
+singularity-flow learn quiz recovery-basics safe-action --role developer \
+  --module learning/recovery-basics.json --answers learning/quiz-answer.json \
+  --trust publisher-trust.json
+```
+
+A v1 module is a strict self-hashed `learning-module` descriptor: role, title, bounded objectives,
+one `{ kind: "descriptor-only", fixtureId, fixtureSha256 }` sandbox reference, finite typed steps,
+expected evidence, failure/recovery exercises, and quiz or teach-back checks. There is deliberately
+no command, path, URL, callback, executable fixture, or raw-secret field. `start` returns a plan; it
+does not clone or materialize the fixture. `explain-change` proves the installed surface can affect
+neither Git, repository files, Devices, nor a governed Process. Quiz uses an exact option set;
+teach-back uses deterministic declared-concept presence and reports that limitation explicitly.
+
+No progress is persisted in this bounded release. Results have no approval, Process, Pack,
+certification, or employee-performance authority; no model, tool, employee metric, ranking, or raw
+answer text is produced. Durable tutorial repositories, pack-author certification, semantic
+teach-back judgment, and signed portable learning completion remain staged.
+
+Command Center publishes one closed render descriptor for each canonical Work Object view:
+`overview`, `graph`, `board`, `timeline`, `table`, `document`, `form`, `evidence`, `diff`, `matrix`,
+`chart`, `log`, `metrics`, `simulation`, and `approval`. A descriptor contains only bounded fields,
+rows, relationships, accessibility metadata, and notes. It cannot contain HTML, a callback, or a
+command. VS Code escapes every value and interprets only the closed descriptor keys; an extension
+field is refused rather than rendered. Heavy descriptors use the lazy SGOS snapshot slice, which is
+acquired when Command Center opens, released when it closes, and not rendered again when the exact
+slice revision is unchanged.
+
+**Needs you** shows the declared request type and reason, exact Process/task/request/checkpoint/policy
+references, evidence receipts, required authority, choices with their declared consequences, work
+that remains active, continuation behavior, and expiry. Secret-broker handles and external response
+URLs are deliberately absent. A non-sensitive response is offered only when its action names the
+reviewed `request.respond` operation and binds the exact Process revision, Process digest, and request
+digest. The host re-reads those values after confirmation; sensitive or typed input remains CLI-only.
+
 ## Guided workflow
 
-1. Validate the exact input records with `singularity-flow intent validate <FILE>`.
-2. Compile with `singularity-flow intent compile <INTENT-IR> --workflow <FILE> --ratification
+1. Capture natural language only as an Intent Envelope. Preview exact answer JSON with
+   `intent packet <ENVELOPE> --answers <FILE>`, then repeat it through `intent confirm` with the
+   printed `--confirm` digest and an explicit `--confirmed-at` timestamp. Confirmation preserves
+   field provenance and derives the human from approved product authority; no identity flag can
+   grant it.
+2. Build a finite Workflow Candidate with `intent workflow <INTENT-IR> --policy <FILE>
+   --declaration <FILE>`. Preview the complete policy/registry/storage/coverage binding through
+   `intent ratification-packet`, then ratify only that exact packet using `intent ratify --confirm
+   <PACKET-SHA256> --decided-at <RFC3339>`. These commands consume explicit JSON and run no model.
+3. Validate the exact records, then compile with `singularity-flow intent compile <INTENT-IR> --workflow <FILE> --ratification
    <FILE> --policy <FILE> --registry <FILE> --out <PROGRAM>`.
-3. Inspect with `singularity-flow program validate|explain|simulate <PROGRAM>`; simulation performs
+4. Inspect with `singularity-flow program validate|explain|simulate <PROGRAM>`; simulation performs
    no task execution.
-4. Review the exact Program authority record at
+5. Run `program approve <PROGRAM>` without confirmation to preview the exact record and digest.
+   Re-run with `--confirm <PROPOSAL-SHA256> --approved-at <RFC3339>` to publish a normal review
+   proposal based on `sflow/config`. This leaves the selected application branch and approved
+   configuration tip unchanged; it never grants application-branch authority. Review and merge the
+   proposed branch through the existing configuration path. The resulting approved record lives at
    `singularity/sgos/program-authorities/<PROGRAM-SHA256-WITHOUT-PREFIX>.json` through the normal
    `sflow/config` review path. A local or application-branch copy is not authority.
-5. Start one local Process with `singularity-flow process start <PROGRAM> --compiler-request
+6. Start one local Process with `singularity-flow process start <PROGRAM> --compiler-request
    <COMPILER-REQUEST.json> --subject <ID> --subject-kind story|repository` and retain the returned
    Process ID and checkpoint hash. Alternatively provide all five compiler input files. A Program
    self-hash, compiler inputs without approved authority, or caller-supplied digest is refused.
-6. Use `process status|graph`, then execute one intrinsic deterministic boundary at a time with
+7. Use `process status|graph`, then execute one intrinsic deterministic boundary at a time with
    `process step`. The CLI includes reviewed read-only Story-inspection and repository-clean adapter
    pairs; other kernel work stays unavailable until the host registers a separate handler,
    Candidate Snapshot capture, and verifier. Inspect immutable results with `task evidence`.
-7. Answer a typed Human Request only with its exact request hash. Use `--decision approved` for an
+8. Answer a typed Human Request only with its exact request hash. Use `--decision approved` for an
    approval, `--option <EXACT-ID>` for a declared choice, or `--decision provided --input-json
    '<JSON>'` for non-sensitive schema input. Sensitive requests accept only a non-secret typed
    reference through `--sensitive-handle`; never place a credential or secret value on the command
-   line. Authority is pinned from the repository's configured reviewer membership when the Process
+   line. Also pass `--expected-revision` and `--expected-process-sha256` from `request show`; both
+   are rechecked immediately before mutation so a response cannot drift to a newer Process. Authority
+   is pinned from the repository's configured reviewer membership when the Process
    starts and cannot be supplied by a response flag. Pause or resume only with the current
    checkpoint confirmation. To interrupt active work, use `process stop <PROCESS-ID>`: it records
    the Process as paused immediately and reports `stop-requested` until the exact execution and
    owner lease settle. Repeat `process stop` or inspect status to prove quiescence before resume.
-8. If a CLI process is interrupted, run `process recover <PROCESS-ID>` to inspect the exact owner,
+9. If a CLI process is interrupted, run `process recover <PROCESS-ID>` to inspect the exact owner,
    binding, attempt lineage, and confirmation-bound actions. Never recover while it reports an active
    owner. Use the printed `reconcile-success`, `retry-safe`, or `fail` command exactly as shown.
-9. If migration doctor reports v1 Process state, a v1 Process Binding, or a v1 Human Request, run
+10. If migration doctor reports v1 Process state, a v1 Process Binding, or a v1 Human Request, run
    `process quarantine <PROCESS-ID>` without confirmation first. Review the bounded tree digest and path, then run the
    exact printed `--confirm <TREE-SHA256>` command. The move preserves every byte outside the active
    runtime; v2 deliberately offers no restore or resume path for an authority claim it cannot prove.
@@ -101,29 +178,80 @@ Devices, and every uninstalled manifest refuse safely.
    healthy peers visible and labels a refused private Process explicitly unavailable; it never hides,
    repairs, or resumes that Process.
    `process archive` remains only as a compatibility alias.
-10. For an intentional replay, preview `process replay <PROCESS-ID> --from <CHECKPOINT-SHA256>` and
+11. For an intentional replay, preview `process replay <PROCESS-ID> --from <CHECKPOINT-SHA256>` and
     repeat with the printed `--confirm` digest. The installed profile reopens only a pure suffix and
     refuses prior writes, Devices, external effects, stale state, or exhausted attempts. It clears
     the current suffix receipt/output projection but preserves immutable history. Fork uses the
     same preview/confirm pattern, supports only a genesis checkpoint, writes a predecessor intent,
     and recovers the same deterministic receipt after an interrupted confirmation.
-11. Before `candidate verify`, review and publish the strict content-addressed verifier policy at
+12. Before `candidate verify`, review and publish the strict content-addressed verifier policy at
     `singularity/sgos/candidate-verifier-policy.json` through `sflow/config` (or its verified state
     mirror). The policy owns the exact absolute-argv commands and timeout. Legacy `--commands` and
     `--timeout-ms` values are compatibility assertions only and must equal the approved policy;
     they cannot choose a verifier. Candidate publication rechecks the current policy before its Git
     compare-and-swap and repairs an exact ref-advanced/index-not-aligned crash before it receipts.
+13. Manage runtime policy changes with `policy status|fsck|plan|apply`. Planning is read-only and
+    binds the exact approved current and candidate bundles, component classification, impacted
+    Programs and Processes, selected restart-required invalidations, authority commit, and runtime
+    revision. Apply requires both the printed `--expected-revision` and `--confirm` digest and
+    re-reads every authority input. Existing Processes retain their starting policy unless the
+    exact amendment receipts a selected invalidation. One central policy-authority preflight covers
+    start admission, task execution, Human responses, stop/pause/resume, recovery, replay/fork,
+    quarantine, and the Process store publication boundary; an invalidated Process refuses before
+    any runnable-state mutation and must be restarted under the replacement policy. An exact
+    preserve-only quarantine remains available for state already classified as unreadable or
+    unrecoverable and binds its reviewed tree without trusting those Process policy bytes.
 
 The same confirmed inputs compile to the same Program hash. Compilation refuses unknown task
 kinds, unbounded constructs, cycles, orphan tasks, unmapped clauses, unknown registry operations,
 missing evidence or authority, unsafe writes, consequential effects without recovery, and
 unreachable terminal states.
 
+## Portable Process Evidence
+
+Export an exact, repository-contained evidence bundle without changing Process state:
+
+```sh
+singularity-flow evidence export PROC-... --out .sflow/evidence/process.json --json
+```
+
+The output is canonical and content-addressed. Publication is atomic and refuses an existing file,
+path traversal, symbolic links, and a bundle above the installed export ceiling. It contains the
+final Process, Program, Process Binding, record-index and control lineage, plus every indexed
+checkpoint, attempt, receipt, Candidate, Action Evidence, Human Request/Response, agent proposal,
+resource lease, join, fan-out, and replay record. Referenced Tool Intents/Results and active
+execution leases are included when durably available.
+
+Copy the file into a fresh directory and verify it without the original Git repository or SGOS
+sidecar:
+
+```sh
+singularity-flow evidence verify process.json --json
+```
+
+Verification is deterministic and model-free. It detects omitted, reordered, duplicated,
+tampered, orphaned, and unreferenced records. Its assurance is deliberately limited to
+content-addressed local-export integrity: it does not claim a signature, an Authority Store proof,
+fresh authority verification, or approval. Missing task-contract bytes, approved authority bytes,
+raw Device evidence, transient agent events, and non-durable stop/quiescence receipts remain
+explicit gaps rather than being upgraded into proof.
+
 ## State and safety
 
 - Models may propose Intent or Workflow IR; they cannot ratify it.
+- The public runtime API never accepts a model-permission option and therefore cannot silently
+  upgrade `process step` or `process run`. Model-backed proposal dispatch is intentionally available
+  only under an explicit reviewed `process.step.model` or `process.run.model` operation context; the
+  CLI establishes that context only for `--allow-model`, while global `--no-model` refuses it before
+  Process state or the provider is opened.
 - Ratification binds exact intent, workflow, policy, registry, and storage hashes.
 - Process updates use a repository-bound subject lock and expected revision.
+- Policy amendments cannot authorize themselves. Tightening is automatic only for exact targets
+  explicitly allowlisted by the current policy; weakening or mixed changes require an exact
+  approved `policy.amend` decision from current authority.
+- An older Process policy remains legal only when the exact local amendment graph connects it to
+  the approved active policy and contains no invalidation for that Process. Policy apply holds the
+  same Process lock as publication, so an invalidation cannot race a late state transition.
 - Dispatch and successful publication both recheck the exact repository/worktree/branch/HEAD
   binding. Portable contract paths round-trip across POSIX, Windows drive, and UNC forms.
 - A live execution owns a durable local lease. Recovery never races that owner, and every retry has
@@ -138,6 +266,13 @@ unreachable terminal states.
   current Git identity and refreshed approved configuration. Caller-supplied actor/reviewer flags
   are refused; the Authority Store transaction binds the exact group, configuration commit, and
   authorization witness that admitted it.
+- A meta-tool candidate is not executable authority. Activation requires its exact independently
+  signed evaluation and human promotion plus an already approved Pack/Device operation, version,
+  manifest and approval digest. Runtime lookup revalidates the lineage; superseded, revoked, stale,
+  or counterfeit activations fail closed. Observation records carry bounded outcome evidence only,
+  while rollback can select only a retained nonrevoked activation through exact confirmation and
+  Authority Store CAS. The activation/observation/revoke/rollback API is implemented, but its public
+  CLI remains intentionally staged.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
 - Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,
@@ -166,6 +301,13 @@ unreachable terminal states.
 - A quarantined Process is preserved machine-local evidence, not runnable authority or proof of
   success. Start a new Process from an approved Program rather than copying, editing, restoring, or
   resuming quarantined records.
+- Amendment and invalidation receipts in this runtime slice are Git-common local state, not yet a
+  portable shared authority. If approved configuration exposes a pending policy candidate but the
+  exact local amendment graph is absent—or an older Process pin cannot be joined to that graph—all
+  Process mutations fail closed with `SGOS_POLICY_AUTHORITY_UNESTABLISHED` or
+  `SGOS_POLICY_AUTHORITY_DIVERGED`. Complete a newly reviewed plan/apply boundary, restore the exact
+  authority through an administrator-reviewed machine transfer, or start a new Process under the
+  approved current snapshot; a second clone never assumes continuation.
 
 ## Related topics
 

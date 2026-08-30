@@ -11179,7 +11179,7 @@ async function expandDocsHandle(handle, options) {
   const { parseDocsHandle, docsHandle, servedBody, citationLine } = await import('./commands/explain.mjs');
   const parsed = parseDocsHandle(handle);
   if (!parsed) return null;
-  const { loadTopics } = await import('./docs-topics.mjs');
+  const { DOCS_HARD_MAXIMUM_BYTES, loadTopics } = await import('./docs-topics.mjs');
   const { docsManifest } = await import('./docs-manifest.mjs');
   const topics = await loadTopics();
   const topic = topics.find((entry) => entry.id === parsed.topicId);
@@ -11192,8 +11192,13 @@ async function expandDocsHandle(handle, options) {
       { exitCode: 4, code: 'handle.hash_mismatch' }
     );
   }
+  const requestedMaxBytes = optionNumber(options, 'max-bytes');
   const served = servedBody(topic, {
-    maxBytes: optionNumber(options, 'max-bytes'),
+    // `explain` intentionally previews at the shared 16 KiB admission ceiling. A documentation
+    // handle is the bounded escape hatch promised by that preview, so an unqualified `show` must
+    // expand the complete topic up to the independently enforced hard ceiling rather than apply
+    // the preview ceiling a second time.
+    maxBytes: requestedMaxBytes ?? DOCS_HARD_MAXIMUM_BYTES,
     section: optionString(options, 'section')
   });
   const manifest = docsManifest();
@@ -11504,8 +11509,10 @@ async function dispatch(command, positionals, options) {
     intent: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     program: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     process: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    policy: async () => (await import('./commands/sgos-policy.mjs')).run(argv, { positionals, options }),
     task: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     request: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    evidence: async () => (await import('./commands/sgos-evidence.mjs')).run(argv, { positionals, options }),
     ...Object.fromEntries([
       'candidate', 'execution-unit', 'device', 'authority-store',
       'pack', 'learn', 'memory', 'meta-tool'

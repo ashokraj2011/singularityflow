@@ -9,7 +9,9 @@
  */
 import { recordSha256 } from '../records.mjs';
 import { compareSgosCodePoints } from './order.mjs';
-import { projectSgosWorkObjects } from './projection.mjs';
+import {
+  projectSgosViewCatalog, projectSgosWorkObjects, SGOS_PROJECTED_VIEW_TYPES
+} from './projection.mjs';
 import {
   listSgosProcesses, readSgosImmutableRecord
 } from './store.mjs';
@@ -43,7 +45,7 @@ export const SGOS_RUNTIME_CAPABILITIES = Object.freeze({
   fork: Object.freeze({ status: 'available', reason: 'Confirmation-bound fork is installed for independent genesis-only Processes.' }),
   agentExecution: Object.freeze({ status: 'available', reason: 'The exact deterministic-translator manifest is installed; model-backed agents remain proposal-only.' }),
   deviceExecution: Object.freeze({ status: 'available', reason: 'The exact read-only filesystem Device is installed with durable Tool Intent and Tool Result evidence.' }),
-  taskRetry: Object.freeze({ status: 'staged', reason: 'Independent task retry is not installed.' })
+  taskRetry: Object.freeze({ status: 'available', reason: 'A failed pure/read-only task can be retried through an exact preview, confirmation, and Process CAS while preserving parent-attempt lineage.' })
 });
 
 function freezeDeep(value) {
@@ -108,6 +110,15 @@ function currentTask(process) {
 function healthyCard(process) {
   const authority = process.authorityBinding ?? {};
   const tasks = Object.values(process.taskInstances ?? {});
+  const terminal = ['succeeded', 'failed', 'cancelled'].includes(process.status);
+  const quiescent = (process.activeExecutions?.length ?? 0) === 0
+    && (process.activeLeases?.length ?? 0) === 0;
+  const resumable = process.status === 'paused' && quiescent
+    && process.currentCheckpointSha256 != null;
+  const dispatchable = process.status === 'running' && quiescent
+    && (process.openHumanRequests?.length ?? 0) === 0
+    && tasks.some((task) => task.state === 'ready');
+  const lineagePreviewable = quiescent && process.currentCheckpointSha256 != null;
   return {
     kind: 'sgos-process-card',
     processId: process.processId,
@@ -133,19 +144,53 @@ function healthyCard(process) {
     successClaimed: process.status === 'succeeded',
     // A stop records `paused` before an in-flight owner settles.  Do not project that intermediate
     // state as resumable: the runtime will refuse it, and the UI must not imply otherwise.
-    resumable: process.status === 'paused'
-      && (process.activeExecutions?.length ?? 0) === 0
-      && (process.activeLeases?.length ?? 0) === 0,
+    resumable,
     actions: [
       exactAction('process.inspect', 'process.status', process),
       exactAction('process.graph', 'process.graph', process),
       exactAction('process.integrity', 'process.fsck', process),
+      exactAction('process.pause', 'process.pause', process, {
+        enabled: !terminal && process.status !== 'paused' && quiescent,
+        reason: terminal
+          ? 'Terminal Processes cannot be paused.'
+          : process.status === 'paused'
+            ? 'The Process is already paused.'
+            : !quiescent ? 'Use stop while execution is active.' : null
+      }),
       exactAction('process.stop', 'process.stop', process, {
-        enabled: !['succeeded', 'failed', 'cancelled'].includes(process.status),
-        reason: ['succeeded', 'failed', 'cancelled'].includes(process.status)
+        enabled: !terminal,
+        reason: terminal
           ? 'Terminal Processes cannot be stopped.' : null
       }),
-      exactAction('process.recovery-plan', 'process.recover.plan', process)
+      exactAction('process.resume', 'process.resume', process, {
+        enabled: resumable,
+        reason: process.status !== 'paused'
+          ? 'Only a paused Process can resume.'
+          : !quiescent ? 'Execution must quiesce before resume.'
+            : process.currentCheckpointSha256 == null
+              ? 'No exact checkpoint is available for resume.' : null
+      }),
+      exactAction('process.step', 'process.step', process, {
+        enabled: dispatchable,
+        reason: dispatchable ? null
+          : 'Step requires a running, quiescent Process with a ready task and no open Human Request.'
+      }),
+      exactAction('process.run', 'process.run', process, {
+        enabled: dispatchable,
+        reason: dispatchable ? null
+          : 'Run requires a running, quiescent Process with a ready task and no open Human Request.'
+      }),
+      exactAction('process.recovery-plan', 'process.recover.plan', process),
+      exactAction('process.replay-plan', 'process.replay.plan', process, {
+        enabled: lineagePreviewable,
+        reason: lineagePreviewable ? null
+          : 'Replay preview requires a quiescent Process with a checkpoint.'
+      }),
+      exactAction('process.fork-plan', 'process.fork.plan', process, {
+        enabled: lineagePreviewable,
+        reason: lineagePreviewable ? null
+          : 'Fork preview requires a quiescent Process with a checkpoint.'
+      })
     ]
   };
 }
@@ -189,6 +234,7 @@ async function humanRequests(root, process) {
 export function projectSgosCommandCenter(listed, { humanRequestsByProcess = {} } = {}) {
   const processes = [];
   const needsYou = [];
+  const views = [];
   const unavailable = [];
 
   for (const process of listed) {
@@ -200,7 +246,9 @@ export function projectSgosCommandCenter(listed, { humanRequestsByProcess = {} }
       const requests = humanRequestsByProcess[process.processId] ?? [];
       const workObjects = projectSgosWorkObjects(process, { humanRequests: requests });
       processes.push(healthyCard(process));
-      needsYou.push(...workObjects.filter((entry) => entry.view?.type === 'form'));
+      needsYou.push(...workObjects.filter((entry) =>
+        entry.view?.schema?.['x-sgos']?.needsYou === true));
+      views.push(...projectSgosViewCatalog(process, { humanRequests: requests }));
     } catch (error) {
       unavailable.push(unavailableCard({
         processId: process.processId,
@@ -211,6 +259,10 @@ export function projectSgosCommandCenter(listed, { humanRequestsByProcess = {} }
 
   processes.sort((left, right) => compareSgosCodePoints(left.processId, right.processId));
   needsYou.sort((left, right) => compareSgosCodePoints(left.objectId, right.objectId));
+  views.sort((left, right) => compareSgosCodePoints(left.processId, right.processId)
+    || SGOS_PROJECTED_VIEW_TYPES.indexOf(left.view.type)
+      - SGOS_PROJECTED_VIEW_TYPES.indexOf(right.view.type)
+    || compareSgosCodePoints(left.objectId, right.objectId));
   unavailable.sort((left, right) => compareSgosCodePoints(left.processId, right.processId));
   const counts = Object.fromEntries(Object.entries(processes.reduce((result, process) => {
     result[process.status] = (result[process.status] ?? 0) + 1;
@@ -219,7 +271,7 @@ export function projectSgosCommandCenter(listed, { humanRequestsByProcess = {} }
   if (unavailable.length) counts.unavailable = unavailable.length;
 
   const core = {
-    projectionVersion: 1,
+    projectionVersion: 2,
     kind: 'sgos-command-center',
     runtimeProfile: {
       id: 'bounded-static-parallel-lineage',
@@ -228,6 +280,7 @@ export function projectSgosCommandCenter(listed, { humanRequestsByProcess = {} }
     counts,
     processes,
     needsYou,
+    views,
     unavailable
   };
   return freezeDeep({ ...core, contentSha256: `sha256:${recordSha256(core)}` });

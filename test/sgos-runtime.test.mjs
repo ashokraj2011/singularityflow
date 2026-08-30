@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +10,9 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import {
+  createAgentProposal,
   createCandidateSnapshot,
+  validateAgentProposal,
   createIntentIr,
   createGvmProgram,
   createResourceLease,
@@ -26,8 +29,9 @@ import {
   validateProcessBinding,
   validateWorkObject
 } from '../src/sgos/contracts.mjs';
+import { withOperationContext } from '../src/operation-context.mjs';
 import {
-  compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID, SGOS_COMPILER_VERSION
+  compileSgosProgram, registrySnapshotDigest, SGOS_COMPILER_ID
 } from '../src/sgos/compiler.mjs';
 import {
   buildSgosTaskAttempt, buildSgosTaskReceipt, compileSgosActionEvidence, sgosSha256
@@ -52,7 +56,10 @@ import {
   stopSgosProcess
 } from '../src/sgos/runtime.mjs';
 import { installedExecutionUnitManifests } from '../src/sgos/execution-units.mjs';
-import { installedDeviceManifests } from '../src/sgos/devices.mjs';
+import {
+  installedDeviceManifests, readSgosSandboxCasEffect, readSgosToolIntent,
+  readSgosToolResult, SGOS_SANDBOX_CAS_ABSENT_SHA256
+} from '../src/sgos/devices.mjs';
 import {
   buildSgosProcessBinding,
   createSgosProcess,
@@ -178,7 +185,7 @@ function program(taskTemplates, joins = []) {
     },
     recoveryPolicy: { mode: 'fail-closed' },
     terminalConditions: [{ taskTemplateId: taskTemplates.at(-1).taskTemplateId, state: 'succeeded' }],
-    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
+    compiler: { id: SGOS_COMPILER_ID, version: '2' }
   });
 }
 
@@ -356,6 +363,195 @@ function compilerProducedAdapterProgram() {
     storageProfileSha256: HASH.storage
   }).program;
   return { compiled, agentManifest, deviceManifest };
+}
+
+function compilerProducedSandboxCasProgram() {
+  const deviceManifest = installedDeviceManifests()
+    .find((entry) => entry.id === 'sandbox-cas');
+  assert.ok(deviceManifest);
+  const registryCore = {
+    kind: 'registry-snapshot',
+    operations: [{
+      id: 'fixture.cas-put', version: '1', status: 'active', manifestSha256: HASH.candidate
+    }],
+    taskKinds: [],
+    devices: [{
+      id: deviceManifest.id, version: deviceManifest.version, status: 'active',
+      manifestSha256: deviceManifest.manifestSha256
+    }],
+    executionUnits: []
+  };
+  const registrySnapshot = {
+    ...registryCore,
+    registrySnapshotSha256: registrySnapshotDigest(registryCore)
+  };
+  const intentIr = createIntentIr({
+    generation: 1,
+    objective: {
+      statement: 'Publish one bounded consequential fixture effect.',
+      provenance: 'human-confirmed'
+    },
+    outcomes: [], successCriteria: [], constraints: [], invariants: [], preferences: [],
+    nonGoals: [], assumptions: [], unknowns: [], contradictions: [], risks: [],
+    evidenceExpectations: [], authorityRequirements: [], budgets: [], domainCandidates: [],
+    workTypeCandidates: [], subjects: []
+  });
+  const clauseId = `${intentIr.intentId}:objective`;
+  const coverage = {
+    clauses: { [clauseId]: [{ kind: 'task', targetId: 'device' }] },
+    tasks: { device: [{ kind: 'intent-clause', sourceId: clauseId }] }
+  };
+  const resource = 'sandbox-cas:runtime-key';
+  const workflow = createWorkflowIr({
+    apiVersion: 'sflow/v1', version: '1', intentIrSha256: intentIr.intentIrSha256,
+    policySnapshotSha256: HASH.policy,
+    metadata: { id: 'runtime-sandbox-cas', version: '1', domainPack: 'core' },
+    spec: {
+      inputs: {},
+      tasks: {
+        device: {
+          kind: 'task', opcode: 'DEVICE', operation: 'fixture.cas-put', dependsOn: [],
+          resources: {
+            reads: [], writes: [resource], devices: [deviceManifest.id],
+            externalEffects: [resource]
+          },
+          evidence: { required: ['candidate', 'verification-result'] }, authority: {},
+          recovery: { interruptedExecution: 'device-reconcile' },
+          intentClauseIds: [clauseId], inputs: [], outputs: [],
+          retry: { maximumAttempts: 1 }, policySnapshotSha256: HASH.policy, material: true,
+          metadata: {
+            deviceId: deviceManifest.id,
+            parameters: {
+              operation: 'compare-and-swap-put',
+              arguments: {
+                key: 'runtime-key',
+                expectedValueSha256: SGOS_SANDBOX_CAS_ABSENT_SHA256,
+                value: { runtime: 'verified fixture effect' }
+              },
+              scope: [resource]
+            }
+          }
+        },
+        end: { kind: 'end', opcode: 'END', dependsOn: ['device'], material: false }
+      },
+      joins: {}, terminalConditions: [{ taskTemplateId: 'end', state: 'succeeded' }],
+      budgets: { maximumTasks: 2, maximumAttempts: 1 },
+      recovery: {}, evidence: {}, authority: {},
+      storageRequirements: { profileSha256: HASH.storage }, intentWorkflowMap: coverage
+    }
+  });
+  const ratification = createWorkflowRatification({
+    intentIrSha256: intentIr.intentIrSha256, workflowSha256: workflow.workflowSha256,
+    policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256,
+    storageProfileSha256: HASH.storage, packetSha256: `sha256:${'d'.repeat(64)}`,
+    decision: 'ratified', principal: { id: 'runtime-tester', kind: 'human' },
+    coverage, decidedAt: T0
+  });
+  const compiled = compileSgosProgram({
+    intentIr, workflow, ratification, policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256, registrySnapshot,
+    storageProfileSha256: HASH.storage
+  }).program;
+  return { compiled, deviceManifest, resource };
+}
+
+function compilerProducedCopilotProposalProgram() {
+  const agentManifest = installedExecutionUnitManifests()
+    .find((entry) => entry.id === 'copilot-cli');
+  assert.ok(agentManifest);
+  const registryCore = {
+    kind: 'registry-snapshot',
+    operations: [
+      'agent.propose', 'proposal.review', 'proposal.verify'
+    ].map((id) => ({
+      id, version: '1', status: 'active', manifestSha256: HASH.candidate
+    })),
+    taskKinds: [], devices: [],
+    executionUnits: [{
+      id: agentManifest.id, version: agentManifest.version, status: 'active',
+      manifestSha256: agentManifest.manifestSha256
+    }]
+  };
+  const registrySnapshot = {
+    ...registryCore,
+    registrySnapshotSha256: registrySnapshotDigest(registryCore)
+  };
+  const intentIr = createIntentIr({
+    generation: 1,
+    objective: {
+      statement: 'Produce and independently verify one bounded proposal.',
+      provenance: 'human-confirmed'
+    },
+    outcomes: [], successCriteria: [], constraints: [], invariants: [], preferences: [],
+    nonGoals: [], assumptions: [], unknowns: [], contradictions: [], risks: [],
+    evidenceExpectations: [], authorityRequirements: [], budgets: [], domainCandidates: [],
+    workTypeCandidates: [], subjects: []
+  });
+  const clauseId = `${intentIr.intentId}:objective`;
+  const coverage = {
+    clauses: {
+      [clauseId]: [
+        { kind: 'task', targetId: 'proposal' },
+        { kind: 'task', targetId: 'verify' }
+      ]
+    },
+    tasks: {
+      proposal: [{ kind: 'intent-clause', sourceId: clauseId }],
+      verify: [{ kind: 'verification', sourceId: clauseId }]
+    }
+  };
+  const workflow = createWorkflowIr({
+    apiVersion: 'sflow/v1', version: '1', intentIrSha256: intentIr.intentIrSha256,
+    policySnapshotSha256: HASH.policy,
+    metadata: { id: 'runtime-copilot-proposal', version: '1', domainPack: 'core' },
+    spec: {
+      inputs: {},
+      tasks: {
+        proposal: {
+          kind: 'task', opcode: 'AGENT', operation: 'agent.propose', dependsOn: [],
+          resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+          evidence: { required: ['agent-proposal'] }, authority: {}, recovery: {},
+          intentClauseIds: [clauseId], inputs: [], outputs: [], retry: { maximumAttempts: 1 },
+          policySnapshotSha256: HASH.policy, material: true,
+          metadata: {
+            executionUnitId: agentManifest.id,
+            parameters: { objective: 'Return one bounded proposal as plain text.' }
+          }
+        },
+        verify: {
+          kind: 'task', opcode: 'VERIFY', operation: 'proposal.review',
+          dependsOn: ['proposal'],
+          resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+          evidence: { required: ['candidate', 'verification-result'] },
+          authority: {}, recovery: {}, intentClauseIds: [clauseId], inputs: [], outputs: [],
+          retry: { maximumAttempts: 1 }, policySnapshotSha256: HASH.policy, material: true,
+          metadata: {
+            operationVersion: '1',
+            verification: { kind: 'kernel', operation: 'proposal.verify' }
+          }
+        },
+        end: { kind: 'end', opcode: 'END', dependsOn: ['verify'], material: false }
+      },
+      joins: {}, terminalConditions: [{ taskTemplateId: 'end', state: 'succeeded' }],
+      budgets: { maximumTasks: 3, maximumAttempts: 1 }, recovery: {}, evidence: {}, authority: {},
+      storageRequirements: { profileSha256: HASH.storage }, intentWorkflowMap: coverage
+    }
+  });
+  const ratification = createWorkflowRatification({
+    intentIrSha256: intentIr.intentIrSha256, workflowSha256: workflow.workflowSha256,
+    policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256,
+    storageProfileSha256: HASH.storage, packetSha256: `sha256:${'a'.repeat(64)}`,
+    decision: 'ratified', principal: { id: 'runtime-tester', kind: 'human' },
+    coverage, decidedAt: T0
+  });
+  const compiled = compileSgosProgram({
+    intentIr, workflow, ratification, policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256, registrySnapshot,
+    storageProfileSha256: HASH.storage
+  }).program;
+  return { compiled, agentManifest };
 }
 
 async function start(root, storyId, compiled) {
@@ -1240,6 +1436,7 @@ test('every public Process mutator settles an older transition before semantic p
         fixture.root, started.process.processId, {
           requestId: 'HRQ-NOTOPEN', requestSha256: HASH.intent,
           expectedRevision: started.process.processRevision,
+          expectedProcessSha256: started.process.processSha256,
           actor: { id: 'sgos@example.test', kind: 'human' },
           decision: 'approved', clock: T1
         }
@@ -1932,16 +2129,39 @@ test('typed Human Requests survive restart, reject stale responses, and project 
   await assert.rejects(() => respondToSgosHumanRequest(fixture.root, restarted.processId, {
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
+    expectedRevision: restarted.processRevision,
+    actor: { id: 'sgos@example.test', kind: 'human' },
+    decision: 'approved',
+    clock: T1
+  }), (error) => error.code === 'SGOS_PROCESS_DIGEST_REQUIRED');
+
+  await assert.rejects(() => respondToSgosHumanRequest(fixture.root, restarted.processId, {
+    requestId: requests[0].requestId,
+    requestSha256: requests[0].requestSha256,
     expectedRevision: restarted.processRevision - 1,
+    expectedProcessSha256: restarted.processSha256,
     actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
   }), (error) => error.code === 'SGOS_HUMAN_REQUEST_STALE');
 
+  await assert.rejects(() => respondToSgosHumanRequest(fixture.root, restarted.processId, {
+    requestId: requests[0].requestId,
+    requestSha256: requests[0].requestSha256,
+    expectedRevision: restarted.processRevision,
+    expectedProcessSha256: HASH.intent,
+    actor: { id: 'sgos@example.test', kind: 'human' },
+    decision: 'approved',
+    clock: T1
+  }), (error) => error.code === 'SGOS_HUMAN_REQUEST_STALE');
+  assert.equal((await readSgosProcess(fixture.root, restarted.processId)).processSha256,
+    restarted.processSha256, 'a stale reviewed digest must not mutate the Process');
+
   const answered = await respondToSgosHumanRequest(fixture.root, restarted.processId, {
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
     expectedRevision: restarted.processRevision,
+    expectedProcessSha256: restarted.processSha256,
     actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
@@ -1952,6 +2172,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     requestId: requests[0].requestId,
     requestSha256: requests[0].requestSha256,
     expectedRevision: answered.process.processRevision,
+    expectedProcessSha256: answered.process.processSha256,
     actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
@@ -1962,6 +2183,7 @@ test('typed Human Requests survive restart, reject stale responses, and project 
     requestId: remaining.requestId,
     requestSha256: remaining.requestSha256,
     expectedRevision: answered.process.processRevision,
+    expectedProcessSha256: answered.process.processSha256,
     actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
@@ -2028,6 +2250,7 @@ test('concurrent Human Request responders publish exactly one terminal attempt l
       requestId: waiting.request.requestId,
       requestSha256: waiting.request.requestSha256,
       expectedRevision,
+      expectedProcessSha256: waiting.process.processSha256,
       actor: { id: 'sgos@example.test', kind: 'human' },
       decision,
       clock: T1
@@ -2101,6 +2324,7 @@ test('rejected and cancelled Human Requests terminate without publishing success
       requestId: waiting.request.requestId,
       requestSha256: waiting.request.requestSha256,
       expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
       actor: { id: 'sgos@example.test', kind: 'human' },
       decision,
       clock: T1
@@ -2163,6 +2387,7 @@ test('Human Request authority ignores actor and resolver forgeries and accepts o
     requestId: waiting.request.requestId,
     requestSha256: waiting.request.requestSha256,
     expectedRevision: waiting.process.processRevision,
+    expectedProcessSha256: waiting.process.processSha256,
     actor: {
       id: 'reviewer', kind: 'human', authority: 'reviewer', authorities: ['reviewer'],
       authoritySha256: HASH.authority
@@ -2233,6 +2458,7 @@ test('a different currently authorized reviewer can answer a request without inh
     requestId: waiting.request.requestId,
     requestSha256: waiting.request.requestSha256,
     expectedRevision: waiting.process.processRevision,
+    expectedProcessSha256: waiting.process.processSha256,
     actor: { id: 'second-reviewer@example.test', kind: 'human' },
     decision: 'approved',
     clock: T1
@@ -2269,6 +2495,7 @@ test('Human Request expiry uses the runtime clock and cannot be bypassed by a ca
       requestId: waiting.request.requestId,
       requestSha256: waiting.request.requestSha256,
       expectedRevision: waiting.process.processRevision,
+      expectedProcessSha256: waiting.process.processSha256,
       actor: { id: 'sgos@example.test', kind: 'human' },
       decision: 'approved',
       clock: '1999-01-01T00:00:00.000Z'
@@ -2310,6 +2537,7 @@ test('Human Request response re-derives authority and rejects forged persisted m
       requestId: waiting.request.requestId,
       requestSha256: waiting.request.requestSha256,
       expectedRevision: forged.processRevision,
+      expectedProcessSha256: forged.processSha256,
       actor: { id: 'sgos@example.test', kind: 'human' },
       decision: 'approved',
       clock: T1
@@ -2363,6 +2591,7 @@ test('typed Human Response schema and sensitive-channel handles fail closed', as
     requestId: waiting.request.requestId,
     requestSha256: waiting.request.requestSha256,
     expectedRevision: waiting.process.processRevision,
+    expectedProcessSha256: waiting.process.processSha256,
     actor: { id: 'sgos@example.test', kind: 'human' },
     decision: 'provided',
     clock: T1
@@ -3235,6 +3464,290 @@ test('exact deterministic AGENT and read-only DEVICE manifests execute through G
   assert.equal(evidence.length, 1);
   assert.equal(evidence[0].deviceManifestSha256, deviceManifest.manifestSha256);
   assert.equal(evidence[0].gaps.some((entry) => entry.includes('device-manifest-unavailable')), false);
+});
+
+test('registry-pinned sandbox CAS DEVICE executes one exact Git-common effect and fsck detects tamper', async () => {
+  const fixture = await repository('SGOS-STORY-SANDBOX-CAS');
+  const { compiled, deviceManifest, resource } = compilerProducedSandboxCasProgram();
+  const template = compiled.taskTemplates.find((entry) => entry.opcode === 'DEVICE');
+  assert.deepEqual(template.resources.writes, [resource]);
+  assert.deepEqual(template.resources.externalEffects, [resource]);
+  assert.equal(template.metadata.deviceManifestSha256, deviceManifest.manifestSha256);
+  const beforeHead = git(['rev-parse', 'HEAD'], fixture.root);
+  const beforeStatus = git(['status', '--porcelain'], fixture.root);
+  const beforeApplication = await readFile(path.join(fixture.root, 'app.mjs'), 'utf8');
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const step = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
+  assert.equal(step.status, 'succeeded');
+  assert.equal(step.receipt.outputRefs.length, 1);
+  assert.deepEqual(step.receipt.effectRefs, step.receipt.outputRefs);
+  let intent = null;
+  for (const reference of step.receipt.evidenceRefs) {
+    try {
+      intent = await readSgosToolIntent(fixture.root, reference);
+      break;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  assert.ok(intent);
+  assert.equal(intent.deviceManifestSha256, deviceManifest.manifestSha256);
+  const result = await readSgosToolResult(fixture.root, intent.intentSha256);
+  assert.equal(result.resultSha256, step.receipt.outputRefs[0]);
+  assert.equal(result.effect.resource, resource);
+  const effect = await readSgosSandboxCasEffect(fixture.root, 'runtime-key');
+  assert.equal(effect.intentSha256, intent.intentSha256);
+  assert.equal(effect.effectSha256, result.effect.effectSha256);
+  const healthy = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(healthy.status, 'ok');
+  assert.deepEqual(healthy.errors, []);
+  assert.equal(git(['rev-parse', 'HEAD'], fixture.root), beforeHead);
+  assert.equal(git(['status', '--porcelain'], fixture.root), beforeStatus);
+  assert.equal(await readFile(path.join(fixture.root, 'app.mjs'), 'utf8'), beforeApplication);
+
+  const effectPath = path.join(fixture.root, '.git', 'singularity-flow', 'sgos', 'devices',
+    'effects', 'sandbox-cas', 'runtime-key.json');
+  await writeFile(effectPath, JSON.stringify({ ...effect, deviceRecordVersion: 999 }));
+  const corrupted = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(corrupted.status, 'failed');
+  assert.equal(corrupted.errors.some((entry) => [
+    'SGOS_DEVICE_EFFECT_INVALID', 'SGOS_DEVICE_EFFECT_UNCERTAIN'
+  ].includes(entry.code)), true);
+});
+
+test('Copilot proposal bytes are durable before downstream VERIFY and only its independent gate can consume them', async () => {
+  const fixture = await repository('SGOS-STORY-COPILOT-PROPOSAL');
+  const { compiled, agentManifest } = compilerProducedCopilotProposalProgram();
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const proposalText = 'bounded proposal bytes\nwith an exact second line';
+  const invocations = [];
+  const proposalStep = await withOperationContext({
+    operation: { id: 'process.step.model', modelPolicy: 'required' },
+    modelMode: { enabled: true, source: 'test' }, root: fixture.root
+  }, () => runNextSgosTask(fixture.root, started.process.processId, {
+    clock: T1,
+    executionUnitOptions: {
+      'copilot-cli': {
+        definition: {
+          models: {
+            defaultProvider: 'copilot-cli',
+            providers: { 'copilot-cli': {} }
+          }
+        },
+        async invoke(request) {
+          invocations.push(request);
+          return {
+            invocationId: 'runtime-proposal-1', provider: 'copilot-cli', status: 'completed',
+            output: proposalText, outputBytes: Buffer.byteLength(proposalText, 'utf8'),
+            outputSha256: createHash('sha256').update(proposalText, 'utf8').digest('hex'),
+            usage: { totalTokens: 8, toolCalls: 0 }, toolObservation: null
+          };
+        }
+      }
+    }
+  }));
+  assert.equal(proposalStep.status, 'succeeded');
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0].tools.mode, 'none');
+  assert.equal(Object.hasOwn(invocations[0], 'model'), false);
+  assert.equal(proposalStep.receipt.outputRefs.length, 1);
+  const proposalSha256 = proposalStep.receipt.outputRefs[0];
+  assert.ok(proposalStep.receipt.evidenceRefs.includes(proposalSha256));
+  const stored = await readSgosImmutableRecord(
+    fixture.root, started.process.processId, 'agent-proposal', proposalSha256
+  );
+  const proposal = validateAgentProposal(stored.record);
+  assert.equal(proposal.proposalSha256, proposalSha256);
+  assert.equal(proposal.executionUnitManifestSha256, agentManifest.manifestSha256);
+  assert.equal(proposal.attemptId, proposalStep.attempt.attemptId);
+  assert.equal(Buffer.from(proposal.outputBase64, 'base64').toString('utf8'), proposalText);
+  assert.deepEqual(proposal.assurance, {
+    kind: 'proposal-only', authority: 'none',
+    verification: 'not-performed', approval: 'not-granted'
+  });
+  assert.equal(Object.hasOwn(proposal, 'prompt'), false, 'raw prompts are not durable proposal evidence');
+  const processAfterProposal = await readSgosProcess(fixture.root, started.process.processId);
+  const emittedIndex = (await readSgosImmutableRecord(
+    fixture.root, started.process.processId,
+    'sgos-record-index', processAfterProposal.recordIndexSha256
+  )).record;
+  assert.equal(emittedIndex.familyCounts['agent-proposal'], 1);
+  assert.ok(emittedIndex.delta.some((entry) =>
+    entry.family === 'agent-proposal' && entry.recordSha256 === proposalSha256));
+  const proposalBoundary = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(proposalBoundary.status, 'ok');
+  assert.deepEqual(proposalBoundary.errors, []);
+  assert.deepEqual(proposalBoundary.orphans, []);
+  assert.deepEqual(proposalBoundary.pendingReservations, []);
+
+  let verifiedProposalSha256 = null;
+  let verifierProposalSha256 = null;
+  const verifyStep = await runNextSgosTask(fixture.root, started.process.processId, {
+    clock: T1,
+    handlers: {
+      verify: {
+        'proposal.review': async ({ agentProposals }) => {
+          assert.equal(agentProposals.length, 1);
+          const [exact] = agentProposals;
+          validateAgentProposal(exact);
+          assert.equal(Buffer.from(exact.outputBase64, 'base64').toString('utf8'), proposalText);
+          verifiedProposalSha256 = exact.proposalSha256;
+          return {
+            evidenceRefs: [exact.proposalSha256],
+            rawResult: { status: 'reviewed-proposal', proposalSha256: exact.proposalSha256 }
+          };
+        }
+      }
+    },
+    captureCandidates: {
+      'proposal.review': async () => ({ resources: [] })
+    },
+    verifiers: {
+      'proposal.verify': async ({ candidateSha256, agentProposals }) => {
+        assert.equal(agentProposals.length, 1);
+        const [exact] = agentProposals;
+        const bytes = Buffer.from(exact.outputBase64, 'base64');
+        assert.equal(bytes.toString('utf8'), proposalText);
+        assert.equal(
+          exact.outputSha256,
+          `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+        );
+        verifierProposalSha256 = exact.proposalSha256;
+        return { status: 'passed', candidateSha256, checksSha256: HASH.checks };
+      }
+    }
+  });
+  assert.equal(verifyStep.status, 'succeeded');
+  assert.equal(verifiedProposalSha256, proposalSha256);
+  assert.equal(verifierProposalSha256, proposalSha256);
+  assert.equal(verifyStep.receipt.verification.status, 'passed');
+  await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
+  assert.equal((await readSgosProcess(fixture.root, started.process.processId)).status, 'succeeded');
+  assert.deepEqual((await fsckSgosProcess(fixture.root, started.process.processId)).errors, []);
+
+  const exactStoredBytes = await readFile(stored.path);
+  await writeFile(stored.path, JSON.stringify({
+    ...proposal,
+    outputBase64: Buffer.from('counterfeit proposal bytes', 'utf8').toString('base64')
+  }));
+  const tamperedReport = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.notEqual(tamperedReport.status, 'ok');
+  assert.ok(tamperedReport.errors.some((entry) => JSON.stringify(entry).includes('agent-proposal')));
+  await writeFile(stored.path, exactStoredBytes);
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+  await unlink(stored.path);
+  const missingReport = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.notEqual(missingReport.status, 'ok');
+  assert.ok(missingReport.errors.length > 0, 'a missing indexed proposal must fail fsck');
+});
+
+test('failed recovery retains one pending Copilot proposal as non-authoritative evidence', async () => {
+  const fixture = await repository('SGOS-STORY-COPILOT-RECOVERY');
+  const { compiled, agentManifest } = compilerProducedCopilotProposalProgram();
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const interrupted = await markSgosExecutionInterrupted(
+    fixture.root, started.process, 'proposal'
+  );
+  const output = Buffer.from('proposal completed before executor crash', 'utf8');
+  const proposal = createAgentProposal({
+    processId: started.process.processId,
+    taskInstanceId: interrupted.task.taskInstanceId,
+    attemptId: interrupted.attemptId,
+    contractSha256: HASH.contract,
+    executionUnitManifestSha256: agentManifest.manifestSha256,
+    provider: 'copilot-cli',
+    providerInvocationId: 'recovery-proposal-1',
+    providerAuditRef: 'model-invocation:recovery-proposal-1',
+    mediaType: 'text/plain; charset=utf-8', contentEncoding: 'base64',
+    outputBase64: output.toString('base64'), outputBytes: output.length,
+    outputSha256: `sha256:${createHash('sha256').update(output).digest('hex')}`,
+    assurance: {
+      kind: 'proposal-only', authority: 'none',
+      verification: 'not-performed', approval: 'not-granted'
+    },
+    createdAt: T0
+  });
+  await putSgosImmutableRecord(
+    fixture.root, started.process.processId, 'agent-proposal', proposal
+  );
+  const plan = await planSgosProcessRecovery(
+    fixture.root, started.process.processId, { attemptId: interrupted.attemptId }
+  );
+  const failAction = plan.actions.find((entry) => entry.resolution === 'fail');
+  assert.ok(failAction);
+  const recovered = await recoverInterruptedSgosExecution(
+    fixture.root, started.process.processId, {
+      attemptId: interrupted.attemptId,
+      resolution: 'fail',
+      confirmationSha256: failAction.confirmationSha256,
+      expectedRevision: plan.processRevision,
+      clock: T1
+    }
+  );
+  assert.equal(recovered.status, 'failed');
+  const failedTask = recovered.process.taskInstances[interrupted.task.taskInstanceId];
+  assert.equal(failedTask.state, 'failed');
+  assert.deepEqual(failedTask.outputRefs, []);
+  const report = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.equal(report.status, 'ok');
+  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.orphans, []);
+  assert.deepEqual(report.pendingReservations, []);
+});
+
+test('a successful Copilot attempt cannot acquire a second proposal in a later transition', async () => {
+  const fixture = await repository('SGOS-STORY-COPILOT-SECOND-PROPOSAL');
+  const { compiled } = compilerProducedCopilotProposalProgram();
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const output = 'first exact proposal';
+  const completed = await withOperationContext({
+    operation: { id: 'process.step.model', modelPolicy: 'required' },
+    modelMode: { enabled: true, source: 'test' }, root: fixture.root
+  }, () => runNextSgosTask(fixture.root, started.process.processId, {
+    clock: T1,
+    executionUnitOptions: {
+      'copilot-cli': {
+        definition: {
+          models: { defaultProvider: 'copilot-cli', providers: { 'copilot-cli': {} } }
+        },
+        async invoke() {
+          return {
+            invocationId: 'first-proposal', provider: 'copilot-cli', status: 'completed',
+            output, outputBytes: Buffer.byteLength(output),
+            outputSha256: createHash('sha256').update(output).digest('hex'),
+            usage: { toolCalls: 0 }, toolObservation: null
+          };
+        }
+      }
+    }
+  }));
+  const original = (await readSgosImmutableRecord(
+    fixture.root, started.process.processId,
+    'agent-proposal', completed.receipt.outputRefs[0]
+  )).record;
+  const { proposalSha256: _originalSha256, ...originalSeed } = original;
+  const secondOutput = Buffer.from('second conflicting proposal', 'utf8');
+  const second = createAgentProposal({
+    ...originalSeed,
+    providerInvocationId: 'second-proposal',
+    providerAuditRef: 'model-invocation:second-proposal',
+    outputBase64: secondOutput.toString('base64'),
+    outputBytes: secondOutput.length,
+    outputSha256: `sha256:${createHash('sha256').update(secondOutput).digest('hex')}`
+  });
+  const publication = await putSgosImmutableRecord(
+    fixture.root, started.process.processId, 'agent-proposal', second
+  );
+  const before = await readSgosProcess(fixture.root, started.process.processId);
+  await assert.rejects(
+    () => mutateSgosProcess(fixture.root, before.processId, () => {}, {
+      expectedRevision: before.processRevision,
+      expectedProcessSha256: before.processSha256,
+      updatedAt: T1,
+      recordReservations: [publication.reservationToken]
+    }),
+    (error) => error.code === 'SGOS_AGENT_PROPOSAL_INVALID'
+  );
 });
 
 test('process stop records pause before quiescence and prevents late handler success', async () => {

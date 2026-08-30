@@ -100,7 +100,8 @@ The package contains:
 - Local multi-repository workspaces with one Epic lead repository, per-repository Jira boards and App IDs, document staging, health checks, resumable setup, and Copilot context separation.
 - A structured activity log (`error` through `trace`) covering commands and hook decisions, written machine-local under `.git/` with secrets redacted and never to standard output.
 
-Start with the [documentation map](docs/README.md) and
+Start with the [documentation map](docs/README.md),
+[pending-work roadmap](docs/PENDING-WORK-ROADMAP.md), and
 [glossary](docs/GLOSSARY.md). For a complete explanation of the runtime, prompt composition, world model,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
@@ -1519,7 +1520,8 @@ CLI responsiveness is governed separately from workflow duration. Run `npm run b
 to measure the pinned reference fixture, or add `--timings` to a command to see dispatch, module
 load, and execution stages. Local POC and release gates run `npm run benchmark:dx:enforce`
 automatically, so an absolute-budget regression cannot be packaged unnoticed. See
-[Developer-experience performance](docs/DX-PERFORMANCE.md).
+[Developer-experience performance](docs/DX-PERFORMANCE.md). Audited but deliberately deferred
+performance work is tracked in the [pending-work roadmap](docs/PENDING-WORK-ROADMAP.md).
 
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 

@@ -5,6 +5,10 @@ Singularity Flow treats command latency as a release property. The fast-path com
 modules and do not load Jira, external storage, model, visual, workspace, or Initiative domains
 unless the requested state actually requires one of them.
 
+Audited improvements that are deliberately deferred are tracked with stable IDs and exit gates in
+the [pending-work roadmap](PENDING-WORK-ROADMAP.md). That backlog does not change the current
+budgets or authorize implementation.
+
 ## Budgets
 
 On the pinned CI runtime and reference fixture, warm-command p50 must be at most 150 ms for all

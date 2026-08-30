@@ -1,0 +1,178 @@
+# SGOS pending work
+
+This document is the durable backlog for SGOS capabilities that remain deliberately staged. It is
+not a list of known regressions in the shipped bounded runtime. The baseline at creation is
+`main@adbb2079` on 2026-08-30; that baseline passed all 335 SGOS tests and the repository's 1,029
+static checks.
+
+## Status rules
+
+- `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
+- `[~]` means an implementation branch exists, but the acceptance gates below are not all proven.
+- `[x]` means the implementation, adversarial tests, documentation, migrations, packaging, and
+  signed release evidence have landed on `main`.
+- A prototype, low-level API, or passing happy-path test is not sufficient to mark an item done.
+- Every completed item must name its landing commit and the tests or release receipt that prove it.
+
+## P0 — release and portability
+
+### [ ] SGOS-P0-001 — Universal Candidate publication
+
+Route every existing lifecycle publication through the reviewed Candidate execution boundary.
+
+Acceptance gates:
+
+- every lifecycle freezes and verifies the exact candidate tree before publication;
+- protected paths, stale reviews, worktree drift, ref-advance failures, and push failures remain
+  recoverable without publishing a different tree;
+- compatibility and migration tests cover existing Stories and Workspaces;
+- no parallel publication authority remains outside the Candidate boundary.
+
+Depends on: existing Candidate freeze, verify, and publish primitives.
+
+### [ ] SGOS-P0-002 — Live working-set and Secret Broker integration
+
+Inject bounded working sets into live governed Agent execution and release secrets only through the
+typed Secret Broker to the exact authorized adapter.
+
+Acceptance gates:
+
+- the working set is bound to the exact Program, Process revision, checkpoint, and task;
+- secret-shaped values never enter prompts, logs, telemetry, evidence, or ordinary memory;
+- cancellation, timeout, stale authority, adapter leakage, and restart are tested;
+- a model or adapter cannot expand context or secret scope on its own.
+
+Depends on: shipped typed memory, working-set composition, and Secret Broker APIs.
+
+### [ ] SGOS-P0-003 — Portable authority and Capability Pack transport
+
+Move approved Authority Store and signed Capability Pack state between machines without trusting
+ambient local paths or rebuilding authority by hand.
+
+Acceptance gates:
+
+- export/import is content-addressed, signed, repository-bound, credential-free, and path-neutral;
+- missing, revoked, superseded, counterfeit, or partially copied authority fails closed;
+- Windows, macOS, and Linux round trips reproduce the same active authority;
+- migration and cutover preserve history and support an explicit rollback plan.
+
+Depends on: the experimental filesystem Authority Store and signed Pack authority records.
+
+### [ ] SGOS-P0-004 — End-to-end release proof
+
+Prove complete software-conversion and hypothesis-analysis journeys and issue an exact signed release
+receipt for the supported platform matrix.
+
+Acceptance gates:
+
+- both journeys run from confirmed intent through verified publication and recovery exercises;
+- the supported Windows/macOS/Linux and Node matrix is explicit and green;
+- performance, interruption, counterfeit-authority, and cross-machine cases are included;
+- one signed receipt binds source commit, packaged artifacts, schemas, tests, and platform results.
+
+Depends on: all other P0 items required by the selected end-to-end journeys.
+
+## P1 — execution breadth
+
+### [ ] SGOS-P1-001 — Additional governed execution adapters
+
+Support model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only
+GEU, mutating Devices beyond sandbox CAS, and reviewed third-party adapters.
+
+Acceptance gates:
+
+- each adapter has an exact manifest, bounded inputs/outputs, cancellation, timeout, and quiescence;
+- proposal, verification, approval, and execution authorities remain separate;
+- counterfeit model, tool escalation, prompt leakage, and post-effect failure suites pass;
+- no adapter can mint success, verification, or policy authority.
+
+### [ ] SGOS-P1-002 — Advanced orchestration and recovery
+
+Add dynamic or nested bounded fan-out, quorum/reducer/manual-reconcile joins, general idempotent
+effect replay, non-genesis fork import, and consequential-effect task retry.
+
+Acceptance gates:
+
+- every expansion and retry has finite installed ceilings;
+- prefix imports prove exact receipts, outputs, effects, evidence, budgets, and event cursors;
+- effect replay is idempotency- and reconciliation-bound rather than inferred from task state;
+- concurrency, crash-boundary, stale-plan, and duplicate-confirmation tests pass.
+
+### [ ] SGOS-P1-003 — General store interfaces
+
+Define a stable Authority Store SPI and add at least one alternate Operational Store.
+
+Acceptance gates:
+
+- stores preserve CAS, append-only lineage, locking, liveness, size, and schema invariants;
+- conformance tests run unchanged against every implementation;
+- migration, partial failure, backup, restore, and rollback are proven;
+- store selection cannot weaken Program or policy authority.
+
+### [ ] SGOS-P1-004 — Fresh-authority evidence reconstruction
+
+Reconstruct evidence from fresh authority rather than trusting historical projections.
+
+Acceptance gates:
+
+- every reconstructed claim links to exact immutable source records;
+- omissions, contradictions, stale authority, and unavailable evidence remain visible;
+- reconstruction is deterministic and bounded;
+- counterfeit or reordered trace material is refused.
+
+### [ ] SGOS-P1-005 — Multi-domain proof packs
+
+Provide signed proof packs for more than one governed domain without introducing domain-specific
+authority shortcuts.
+
+Acceptance gates:
+
+- each pack has independent review, activation, revocation, and conformance evidence;
+- shared contracts remain domain-neutral and versioned;
+- cross-domain dependency and policy conflicts fail closed;
+- pack portability uses the approved transport from SGOS-P0-003.
+
+## P2 — operator and learning experience
+
+### [ ] SGOS-P2-001 — Executable guided learning
+
+Add disposable tutorial environments, portable progress, and certification beyond the current
+read-only mission descriptors.
+
+Acceptance gates:
+
+- tutorial repositories are isolated, disposable, bounded, and cannot affect governed work;
+- progress is portable without becoming employee productivity telemetry;
+- certification is based on explicit evidence and independent criteria;
+- reset, interruption, offline use, accessibility, and version migration are covered.
+
+### [ ] SGOS-P2-002 — Meta-tool activation CLI
+
+Expose reviewed activation, observation, revocation, and rollback APIs through a public CLI only
+after a canonical approved Pack/Device target resolver exists.
+
+Acceptance gates:
+
+- callers cannot supply target authority through arbitrary local files;
+- every mutation is previewed, confirmation-bound, CAS-protected, and auditable;
+- stale, revoked, superseded, self-evaluated, or self-promoted targets are refused;
+- CLI, API, VS Code, help, and schema behavior agree.
+
+### [ ] SGOS-P2-003 — External telemetry and measured read models
+
+Add a consented external transport beyond the current local, content-free OpenTelemetry projection
+and establish semantic read-model latency targets.
+
+Acceptance gates:
+
+- transport is opt-in, content-free by default, bounded, retry-safe, and independently disableable;
+- prompts, secrets, paths, identities, and individual productivity measures are excluded;
+- latency targets have reproducible fixtures and supported-machine baselines;
+- telemetry failure never blocks governed execution or weakens evidence integrity.
+
+## Maintenance
+
+When work begins, change only the selected item's marker to `[~]` and add its branch or Story ID.
+When it lands, change it to `[x]`, record the exact commit and verification evidence, and update the
+staged-boundary summary in `docs/SGOS.md`. New scope belongs in a new stable backlog ID rather than
+silently expanding an existing item.

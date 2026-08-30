@@ -343,7 +343,8 @@ remains staged so callers cannot mistake a convenience command for a second auth
 ## What remains staged
 
 The following larger SGOS capabilities remain behind explicit refusal boundaries until their
-conformance suites exist:
+conformance suites exist. Their durable backlog, priorities, dependencies, and acceptance gates are
+tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 
 - model-backed or tool-bearing `AGENT` execution beyond the reviewed Copilot proposal-only GEU,
   mutating Devices beyond the exact sandbox-CAS profile, arbitrary third-party adapters, and their

@@ -14,6 +14,12 @@ static checks.
 - A prototype, low-level API, or passing happy-path test is not sufficient to mark an item done.
 - Every completed item must name its landing commit and the tests or release receipt that prove it.
 
+## Related staged roadmaps
+
+- [Code Assurance Bridge corrected roadmap](CAB-ROADMAP.md) — design-only and not authorized for
+  implementation. Its lifecycle bridge depends on `SGOS-P0-001` and must reuse the existing
+  Candidate, Program, approval, evidence, and publication authorities.
+
 ## P0 — release and portability
 
 ### [ ] SGOS-P0-001 — Universal Candidate publication

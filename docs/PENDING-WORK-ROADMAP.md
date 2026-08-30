@@ -1,8 +1,8 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** master tracker; all unchecked work is parked until explicitly selected
+**Status:** master tracker; performance implementation landed, acceptance work remains active
 
-**Baseline:** `main@c7bb7487`
+**Baseline:** `main@96bb55f8`
 
 **Last reviewed:** 2026-08-30
 
@@ -10,8 +10,10 @@ This is the one-page control plane for deliberately deferred product work. It do
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
 the next eligible increment, and the source document that owns each acceptance contract.
 
-The performance work recorded below was audited and then deliberately parked on 2026-08-30. No
-performance fix, configuration change, rollout, or baseline acceptance is implied by its presence.
+The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb55f8`. Its code,
+regressions, npm dry-run, and VSIX package are verified. Items remain `[~]`, not complete, wherever
+their contract still requires a pinned release baseline, real VS Code hosts, office-network proof,
+or live Windows/macOS process and credential-helper evidence.
 
 ## Status rules
 
@@ -29,7 +31,7 @@ performance fix, configuration change, rollout, or baseline acceptance is implie
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Developer-experience performance | Existing absolute fixture budgets pass; relative baseline and real extension-host latency are not established | `DXP-P0-001` measurement contract | This document and [DX performance](DX-PERFORMANCE.md) |
+| Developer-experience performance | Hot paths remediated at `96bb55f8`; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Bounded runtime shipped; universal Candidate publication and portable authority remain staged | `SGOS-P0-001` | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | Witnessed Engineering Loop | Observe-only baseline shipped; exact/authenticated testcase claims and enforcement are unavailable | `WEL-P0-001` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | Corrected design only; implementation is not authorized | `CAB-R0` design alignment | [CAB roadmap](CAB-ROADMAP.md) |
@@ -40,7 +42,7 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 
 ## Dependency order
 
-The deferred performance work should be resumed in this order:
+The remaining performance acceptance work should be completed in this order:
 
 1. establish trustworthy measurements (`DXP-P0-001`);
 2. remove activation, refresh, and enterprise-Git correctness hazards (`DXP-P0-002` through
@@ -51,9 +53,45 @@ The deferred performance work should be resumed in this order:
 Parallel work is allowed only where the detailed items do not share the same activation, Git
 transport, or benchmark contracts.
 
-## Deferred developer-experience performance work
+## Developer-experience performance work
 
-### Audit baseline
+### 2026-08-30 implementation checkpoint
+
+All `[~]` DXP entries below share this tracked delivery metadata:
+
+- **Owner:** Codex performance remediation
+- **Branch:** `main`
+- **Started:** 2026-08-30
+- **Implementation commit:** `96bb55f8`
+- **Target:** next `0.9.x` release after the remaining acceptance gates pass
+- **Dependency status:** code dependencies are landed; platform/release evidence listed below is
+  deliberately still open
+
+| Scope | Landed in `96bb55f8` | Remaining evidence before `[x]` |
+|---|---|---|
+| `DXP-P0-001` | `doctor --performance` measures its explicit invoking checkout; scale and dirty-tree fixtures cover the VS Code snapshot | 30 samples on pinned Node 22/Linux x64; minimum/current VS Code host p50/p95, event-loop and RSS; office-network arm |
+| `DXP-P0-002`–`003` | cache-first activation, confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral | 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code |
+| `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
+| `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, and lazy workspace/capability startup readers | accepted peak-RSS and module-load release budgets on the pinned hosts |
+| `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, and exact revalidation | audit and migrate the remaining indirect synchronous configuration/ledger remote helpers |
+| `DXP-P1-004` | async/batched local validation, origin-first streaming remote pool, canonical cache identity, repository epochs, and immediate A→B cancellation | live high-ref and A→B→A extension-host runs on Windows plus both supported VS Code versions |
+| `DXP-P1-005` | 10,000-file `snapshotUi` subprocess growth and heavily dirty working-tree tiers | ignored build tree, submodule, many-Story, rename-storm, and nested-worktree platform reports |
+| `DXP-P2-002`–`003` | privacy-safe enterprise source diagnostics, lazy gateway imports, SFlow-only activation markers, npm and VSIX packaging | reviewed bundle/module budgets and complete event-loop/peak-memory stage reporting |
+
+Local verification attached to the checkpoint:
+
+- repository conformance: 1,041 checks passed;
+- VS Code suite: 612 tests passed;
+- focused Git/configuration suite: 63 tests passed;
+- VSIX: 1,944 files, 5.99 MB, with the bundled CLI loading without source-tree access;
+- npm package dry-run: 886 files, 2.74 MB packed, 10.60 MB unpacked;
+- five-sample macOS arm64/Node 25 post-change diagnostic: `status` p50 78.7 ms,
+  `snapshotUi` p50/p95 320.3/328.2 ms, `snapshotFull` p50/p95 534.8/551.9 ms, and dirty
+  `snapshotUi` p50/p95 377.9/462.9 ms with subprocess growth 1.00x.
+
+The last line is useful local evidence, not an accepted reference baseline.
+
+### Pre-remediation audit baseline
 
 The 2026-08-30 read-only audit established the following facts:
 
@@ -77,7 +115,7 @@ These are diagnostic observations, not an accepted release baseline.
 
 ### P0 — establish and protect the interactive critical path
 
-#### [ ] DXP-P0-001 — Accepted measurement and extension-host contract
+#### [~] DXP-P0-001 — Accepted measurement and extension-host contract
 
 Establish measurements before changing implementations or accepting a claimed improvement.
 
@@ -96,7 +134,7 @@ Acceptance gates:
 
 No later DXP item may raise a budget merely to make its implementation pass.
 
-#### [ ] DXP-P0-002 — VS Code activation critical path
+#### [~] DXP-P0-002 — VS Code activation critical path
 
 Make cached content interactive first and prevent background work from competing with repository
 confirmation.
@@ -113,7 +151,7 @@ Acceptance gates:
 - activation p95 is at most 750 ms on the pinned reference fixture without showing an incorrect
   repository or Story.
 
-#### [ ] DXP-P0-003 — Refresh, validation, and rendering single-flight
+#### [~] DXP-P0-003 — Refresh, validation, and rendering single-flight
 
 Bound the work caused by save bursts and repository events.
 
@@ -130,7 +168,7 @@ Acceptance gates:
 - hidden panels render only when revealed or when a relevant leased slice changed;
 - tests record process count, render count, event-loop delay, CPU, and RSS for save and watcher storms.
 
-#### [ ] DXP-P0-004 — Enterprise Git configuration parity
+#### [~] DXP-P0-004 — Enterprise Git configuration parity
 
 Make preview and confirmed apply use the same required office transport configuration without
 reintroducing unsafe ambient repository state.
@@ -147,7 +185,7 @@ Acceptance gates:
   uppercase proxy variables, custom CA paths, authentication refusal, and cancellation;
 - diagnostics never expose proxy URLs, credentials, certificate paths, or helper output.
 
-#### [ ] DXP-P0-005 — Hard remote Git process-tree deadlines
+#### [~] DXP-P0-005 — Hard remote Git process-tree deadlines
 
 Replace mixed synchronous and immediate-child timeout handling with one bounded asynchronous Git
 supervisor.
@@ -163,7 +201,7 @@ Acceptance gates:
 - existing privacy-safe timing counters, error classes, exact-SHA checks, and recovery receipts remain
   unchanged.
 
-#### [ ] DXP-P0-006 — Correct partial-clone fallback
+#### [~] DXP-P0-006 — Correct partial-clone fallback
 
 Centralize fallback classification so an office failure does not trigger a second unrelated clone
 and a server that ignores filters does not download a monorepo twice.
@@ -183,7 +221,7 @@ Acceptance gates:
 
 ### P1 — reduce steady-state work
 
-#### [ ] DXP-P1-001 — Lease heavy slices and bound structured-output memory
+#### [~] DXP-P1-001 — Lease heavy slices and bound structured-output memory
 
 Acceptance gates:
 
@@ -196,7 +234,7 @@ Acceptance gates:
 - output chunks are buffered without repeated string concatenation, ordinary JSON commands use a
   tighter cap, and a large-payload test enforces peak-memory and Output-channel budgets.
 
-#### [ ] DXP-P1-002 — Lazy workspace/capability reads and cheap unchanged snapshots
+#### [~] DXP-P1-002 — Lazy workspace/capability reads and cheap unchanged snapshots
 
 Acceptance gates:
 
@@ -209,7 +247,7 @@ Acceptance gates:
 - CLI, VS Code, and packaged VSIX return byte-compatible bounded results;
 - accepted p50/p95 and module-load budgets improve without weakening authority or cache freshness.
 
-#### [ ] DXP-P1-003 — Capability and workspace remote-operation graph
+#### [~] DXP-P1-003 — Capability and workspace remote-operation graph
 
 Acceptance gates:
 
@@ -223,7 +261,7 @@ Acceptance gates:
 - equivalent observations are reused only inside the operation and invalidated after mutation;
 - exact-SHA, stale-plan, authority-race, remote-ref-change, and failed-push tests remain green.
 
-#### [ ] DXP-P1-004 — Repository validation, switching, and cache identity
+#### [~] DXP-P1-004 — Repository validation, switching, and cache identity
 
 Acceptance gates:
 
@@ -237,7 +275,7 @@ Acceptance gates:
   not cross repository boundaries;
 - a high-ref-count fixture keeps extension-host event-loop stalls below 50 ms.
 
-#### [ ] DXP-P1-005 — Complete performance fixtures and tail budgets
+#### [~] DXP-P1-005 — Complete performance fixtures and tail budgets
 
 Acceptance gates:
 
@@ -252,7 +290,7 @@ Acceptance gates:
 
 ### P2 — diagnostics and packaging
 
-#### [ ] DXP-P2-001 — Superset-aware remote observation reuse
+#### [~] DXP-P2-001 — Superset-aware remote observation reuse
 
 Acceptance gates:
 
@@ -262,7 +300,7 @@ Acceptance gates:
 - mutation invalidation prevents stale in-flight results from repopulating the cache;
 - tests prove reduced network-process counts and unchanged authority results.
 
-#### [ ] DXP-P2-002 — Accurate enterprise and performance diagnostics
+#### [~] DXP-P2-002 — Accurate enterprise and performance diagnostics
 
 Acceptance gates:
 
@@ -274,7 +312,7 @@ Acceptance gates:
 - performance reports separate dispatch, module load, local Git, remote Git, parse, publish, render,
   event-loop delay, and peak-memory stages while retaining privacy-safe closed vocabularies.
 
-#### [ ] DXP-P2-003 — Extension bundle and activation scope
+#### [~] DXP-P2-003 — Extension bundle and activation scope
 
 Acceptance gates:
 
@@ -286,15 +324,14 @@ Acceptance gates:
 
 ## Pickup checklist
 
-When the performance track is resumed:
+For each remaining performance acceptance gate:
 
-1. rebase this baseline against current `main` and rerun the read-only benchmark/audit;
-2. select exactly one DXP item and change only that marker to `[~]`;
-3. record the owner, governed Story or branch, target release, and dependency status beside it;
-4. capture before measurements on the approved fixtures before editing code;
-5. land the smallest bounded change with cancellation, concurrency, packaging, and platform tests;
-6. capture after measurements using the same runtime and topology;
-7. mark `[x]` only after the exact commit and release evidence are recorded here.
+1. select one open evidence row from the checkpoint table;
+2. capture measurements on its approved runtime and topology without changing budgets;
+3. record the host, Git, Node, VS Code, proxy/provider, and fixture identity in the evidence;
+4. fix a reproduced defect only through the smallest bounded change and rerun the same arm;
+5. keep the item `[~]` while any other acceptance bullet remains open;
+6. mark `[x]` only after the exact landing commit and release evidence are recorded here.
 
 ## Master-roadmap maintenance
 

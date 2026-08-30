@@ -32,7 +32,8 @@ export {
   resumeSgosProcess,
   runSgosProcess,
   startSgosProcess,
-  stepSgosProcess
+  stepSgosProcess,
+  stopSgosProcess
 } from './public-runtime.mjs';
 export { SGOS_BUILTIN_OPERATION_MANIFESTS } from './builtin-adapters.mjs';
 // Storage writers and CAS primitives are interpreter internals. Durable read APIs remain public

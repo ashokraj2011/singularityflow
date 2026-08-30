@@ -658,7 +658,7 @@ test('execution admission rechecks evidence, authority, recovery, and budgets', 
 test('execution admission rejects opcodes whose semantics are not installed', () => {
   const { program } = compilerFixture();
   const forged = reseal(program, (seed) => {
-    seed.taskTemplates.find((task) => task.taskTemplateId === 'run').opcode = 'AGENT';
+    seed.taskTemplates.find((task) => task.taskTemplateId === 'run').opcode = 'SPAWN';
   });
   expectCode(() => validateSgosProgramStaticSafety(forged), 'SGOS_PROGRAM_SEMANTICS_UNSUPPORTED');
 });
@@ -704,6 +704,7 @@ test('supported SGOS barrel exposes safe stepping and no raw adapter or storage 
   const publicSgos = await import('../src/sgos/index.mjs');
   assert.equal(typeof publicSgos.stepSgosProcess, 'function');
   assert.equal(typeof publicSgos.runSgosProcess, 'function');
+  assert.equal(typeof publicSgos.stopSgosProcess, 'function');
   for (const unsafe of [
     'runNextSgosTask', 'createSgosBuiltinAdapters', 'putSgosCandidateSnapshot',
     'putSgosImmutableRecord', 'mutateSgosProcess', 'createSgosProcess'

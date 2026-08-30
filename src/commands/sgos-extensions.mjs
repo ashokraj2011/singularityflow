@@ -62,6 +62,15 @@ function rejectSecretArgv(options) {
   }
 }
 
+function rejectCallerPlatformIdentity(options) {
+  const forbidden = ['actor', 'reviewer', 'activated-by', 'revoked-by']
+    .filter((key) => Object.hasOwn(options, key));
+  if (forbidden.length) {
+    fail('SGOS platform mutation identities come from the repository Git identity and exact approved configuration; caller-supplied identity options are refused.',
+      'SGOS_PLATFORM_CALLER_IDENTITY_REFUSED', { forbidden });
+  }
+}
+
 async function repositoryFile(root, value, label) {
   if (!value) fail(`${label} is required.`, 'SGOS_FILE_REQUIRED', { label });
   const secured = await secureRepositoryPath(root, String(value), {
@@ -235,8 +244,11 @@ async function candidateCommand(root, positionals, options) {
       `Retained ${result.candidate.candidateId} at ${result.candidate.candidateSha256}.`, { changed: true });
   }
   if (action === 'verify') {
-    const commands = await jsonFile(root, optionString(options, 'commands'), '--commands', { array: true });
-    const timeoutMs = optionNumber(options, 'timeout-ms', 15 * 60 * 1000);
+    const commands = Object.hasOwn(options, 'commands')
+      ? await jsonFile(root, optionString(options, 'commands'), '--commands', { array: true })
+      : null;
+    const timeoutMs = Object.hasOwn(options, 'timeout-ms')
+      ? optionNumber(options, 'timeout-ms', null) : null;
     const result = await verifySgosCandidate(root, positionals[2], { commands, timeoutMs });
     return emit(result, options, 'candidate.verify',
       `Candidate verification ${result.status} at ${result.verificationReceiptSha256}.`, { changed: true });
@@ -385,12 +397,17 @@ async function packRegistry(root, options) {
   const trustedPublishers = await publicTrustMap(root, optionString(options, 'trust'), '--trust');
   return {
     store, trustedPublishers,
-    registry: createCapabilityPackRegistry({ authorityStore: store, trustedPublishers })
+    registry: createCapabilityPackRegistry({
+      authorityStore: store, trustedPublishers, repositoryRoot: root
+    })
   };
 }
 
 async function packCommand(root, positionals, options) {
   const action = positionals[1] ?? 'list';
+  if (['propose', 'review', 'activate', 'revoke'].includes(action)) {
+    rejectCallerPlatformIdentity(options);
+  }
   const { store, registry, trustedPublishers } = await packRegistry(root, options);
   if (action === 'active') {
     const result = await registry.listActive();
@@ -425,7 +442,7 @@ async function packCommand(root, positionals, options) {
   }
   if (action === 'propose') {
     const signedPack = await jsonFile(root, optionString(options, 'signed-pack'), '--signed-pack');
-    const result = await registry.propose(signedPack, { ...cas(options), actorId: requiredString(options, 'actor') });
+    const result = await registry.propose(signedPack, cas(options));
     return emit(result, options, 'pack.propose', `Proposed signed Capability Pack ${result.recordSha256}.`, { changed: true });
   }
   if (action === 'review') {
@@ -438,8 +455,7 @@ async function packCommand(root, positionals, options) {
       domain: requiredString(options, 'domain'),
       packSha256: exactHash(options, 'pack'),
       reviewSha256: exactHash(options, 'review-sha256'),
-      confirmPackSha256: exactHash(options, 'confirm'),
-      activatedBy: requiredString(options, 'activated-by'), ...cas(options)
+      confirmPackSha256: exactHash(options, 'confirm'), ...cas(options)
     });
     return emit(result, options, 'pack.activate', `Activated ${result.packSha256} for ${result.domain}.`, { changed: true });
   }
@@ -449,8 +465,7 @@ async function packCommand(root, positionals, options) {
       fail(`Pack revocation confirmation must equal ${packSha256}.`, 'SGOS_CAPABILITY_PACK_CONFIRMATION_MISMATCH');
     }
     const result = await registry.revoke({
-      packSha256, revokedBy: requiredString(options, 'revoked-by'),
-      reason: requiredString(options, 'reason'), ...cas(options)
+      packSha256, reason: requiredString(options, 'reason'), ...cas(options)
     });
     return emit(result, options, 'pack.revoke', `Revoked Capability Pack ${result.packSha256}.`, { changed: true });
   }
@@ -475,8 +490,9 @@ async function learnCommand(root, positionals, options) {
 
 async function memoryCommand(root, positionals, options) {
   const action = positionals[1] ?? 'inspect';
+  if (['register', 'promote'].includes(action)) rejectCallerPlatformIdentity(options);
   const store = await authorityStore(root, options);
-  const memory = createPlatformMemoryService({ authorityStore: store });
+  const memory = createPlatformMemoryService({ authorityStore: store, repositoryRoot: root });
   if (action === 'inspect' || action === 'dependencies') {
     const result = await memory.inspect(positionals[2]);
     const output = action === 'dependencies'
@@ -490,13 +506,13 @@ async function memoryCommand(root, positionals, options) {
   if (action === 'register') {
     const candidate = await jsonFile(root, optionString(options, 'candidate'), '--candidate');
     validatePlatformRecord(candidate, 'platform-memory-candidate');
-    const result = await memory.registerCandidate(candidate, { ...cas(options), actorId: requiredString(options, 'actor') });
+    const result = await memory.registerCandidate(candidate, cas(options));
     return emit(result, options, 'memory.register', `Registered immutable Memory Candidate ${candidate.candidateId}.`, { changed: true });
   }
   if (action === 'promote') {
     const result = await memory.promote({
       candidateId: positionals[2], confirmCandidateSha256: exactHash(options, 'confirm'),
-      reviewerId: requiredString(options, 'reviewer'), reason: requiredString(options, 'reason'),
+      reason: requiredString(options, 'reason'),
       ...cas(options)
     });
     return emit(result, options, 'memory.promote',
@@ -509,11 +525,19 @@ async function metaToolService(root, options) {
   const store = await authorityStore(root, options);
   const trustedTraceIssuers = await publicTrustMap(root, optionString(options, 'trace-trust'), '--trace-trust');
   const trustedEvaluators = await publicTrustMap(root, optionString(options, 'evaluator-trust'), '--evaluator-trust');
-  return { store, service: createMetaToolService({ authorityStore: store, trustedTraceIssuers, trustedEvaluators }) };
+  return {
+    store,
+    service: createMetaToolService({
+      authorityStore: store, trustedTraceIssuers, trustedEvaluators, repositoryRoot: root
+    })
+  };
 }
 
 async function metaToolCommand(root, positionals, options) {
   const action = positionals[1] ?? 'list';
+  if (['propose', 'evaluation', 'promote'].includes(action)) {
+    rejectCallerPlatformIdentity(options);
+  }
   if (action === 'list') {
     const store = await authorityStore(root, options);
     const state = await store.read();
@@ -528,12 +552,12 @@ async function metaToolCommand(root, positionals, options) {
   if (action === 'propose') {
     const candidate = await jsonFile(root, optionString(options, 'candidate'), '--candidate');
     const traces = await jsonFile(root, optionString(options, 'traces'), '--traces', { array: true });
-    const result = await service.propose(candidate, traces, { ...cas(options), actorId: requiredString(options, 'actor') });
+    const result = await service.propose(candidate, traces, cas(options));
     return emit(result, options, 'meta-tool.propose', `Proposed Meta-tool Candidate ${result.recordSha256}.`, { changed: true });
   }
   if (action === 'evaluation') {
     const evaluation = await jsonFile(root, optionString(options, 'evaluation'), '--evaluation');
-    const result = await service.recordEvaluation(evaluation, { ...cas(options), actorId: requiredString(options, 'actor') });
+    const result = await service.recordEvaluation(evaluation, cas(options));
     return emit(result, options, 'meta-tool.evaluation', `Recorded signed Meta-tool Evaluation ${result.recordSha256}.`, { changed: true });
   }
   if (action === 'promote') {
@@ -542,7 +566,7 @@ async function metaToolCommand(root, positionals, options) {
       evaluationSha256: exactHash(options, 'evaluation-sha256'),
       confirmCandidateSha256: exactHash(options, 'confirm-candidate'),
       confirmEvaluationSha256: exactHash(options, 'confirm-evaluation'),
-      reviewerId: requiredString(options, 'reviewer'), decision: requiredString(options, 'decision'),
+      decision: requiredString(options, 'decision'),
       reason: requiredString(options, 'reason'), ...cas(options)
     });
     return emit(result, options, 'meta-tool.promote',

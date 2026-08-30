@@ -754,6 +754,9 @@ function validateJoinReceiptRecord(record, requireHash) {
     if (entry.state === 'succeeded' && entry.receiptSha256 === null) {
       fail(`${label} succeeded predecessor requires receiptSha256.`);
     }
+    if (entry.state !== 'succeeded' && entry.receiptSha256 !== null) {
+      fail(`${label} non-succeeded predecessor must not claim receiptSha256.`);
+    }
     if (record.policy === 'all-success' && entry.state !== 'succeeded') {
       fail('all-success join receipts may bind only succeeded predecessors.');
     }

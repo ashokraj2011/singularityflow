@@ -3,7 +3,7 @@ import type { SingularityFlowClient } from '../cli/client.ts';
 import type { SgosProcessCard, SgosWorkObject } from '../cli/snapshot.ts';
 import type { WorkspaceStore } from '../state.ts';
 import {
-  buildSgosCommandCenter, sgosHumanRequestChoices
+  buildSgosCommandCenter, sgosEnabledProcessAction, sgosHumanRequestChoices
 } from './sgos-command-center-model.ts';
 import { SGOS_COMMAND_CENTER_SCRIPT, sgosCommandCenterBody } from './sgos-command-center-page.ts';
 import {
@@ -83,6 +83,10 @@ export class SgosCommandCenterPanel {
       recovery: (message) => {
         const processId = stringField(message, 'processId');
         if (processId) void this.inspectRecovery(processId);
+      },
+      stop: (message) => {
+        const processId = stringField(message, 'processId');
+        if (processId) void this.stop(processId);
       },
       quarantine: (message) => {
         const processId = stringField(message, 'processId');
@@ -214,6 +218,50 @@ export class SgosCommandCenterPanel {
         ? `${processId}: ${result.taskTemplateId ?? 'one task'} has ${result.actions.length} exact recovery choice(s). No recovery was executed.`
         : `${processId}: ${result.status ?? 'stable'}. No interrupted execution requires recovery.`);
     } catch (error) { this.error = error instanceof Error ? error.message : String(error); this.render(); }
+  }
+
+  private async stop(processId: string): Promise<void> {
+    const selected = this.currentProcess(processId);
+    const action = selected ? sgosEnabledProcessAction(selected, 'process.stop') : null;
+    if (!selected || !action) return;
+    const confirmed = await vscode.window.showWarningMessage(
+      `Stop ${processId}?`,
+      {
+        modal: true,
+        detail: 'Singularity Flow will record the Process as paused immediately, request cancellation of active execution, and report whether execution is quiescent. Runtime authority is re-checked by the kernel.'
+      },
+      'Stop Process'
+    );
+    if (confirmed !== 'Stop Process') return;
+    // Do not act on a descriptor that changed while the confirmation dialog was open.
+    const current = this.currentProcess(processId);
+    const currentAction = current ? sgosEnabledProcessAction(current, 'process.stop') : null;
+    if (!current || !currentAction
+        || current.processRevision !== action.source.processRevision
+        || current.processSha256 !== action.source.processSha256) {
+      await vscode.window.showWarningMessage(
+        'This Process changed while the stop confirmation was open. Nothing was sent; refresh and review its current state.'
+      );
+      return;
+    }
+    try {
+      const result = resultOf<{
+        process: { processId: string }; quiescent: boolean; activeAttemptIds?: string[];
+      }>(await this.client.run([
+        'process', 'stop', processId,
+        '--expected-revision', String(action.source.processRevision), '--json'
+      ]));
+      // Exactly one post-mutation refresh. The webview never updates Process authority itself.
+      await this.store.refresh();
+      const active = result.activeAttemptIds?.length ?? 0;
+      await vscode.window.showInformationMessage(result.quiescent
+        ? `${result.process.processId} is paused and quiescent; no execution remains active.`
+        : `${result.process.processId} stop is recorded; ${active} execution${active === 1 ? '' : 's'} ${active === 1 ? 'is' : 'are'} quiescing.`);
+      this.error = null;
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      this.render();
+    }
   }
 
   private async planQuarantine(processId: string): Promise<void> {

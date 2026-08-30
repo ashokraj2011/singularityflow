@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  buildSgosCommandCenter, sgosHumanRequestChoices
+  buildSgosCommandCenter, sgosEnabledProcessAction, sgosHumanRequestChoices
 } = await import('../apps/vscode/src/views/sgos-command-center-model.ts');
 const { sgosCommandCenterBody, SGOS_COMMAND_CENTER_SCRIPT } =
   await import('../apps/vscode/src/views/sgos-command-center-page.ts');
@@ -21,7 +21,10 @@ const card = {
   currentTask: { taskInstanceId: 'TASK-1', taskTemplateId: 'approve', state: 'waiting-human', revision: 2, receiptSha256: null },
   taskCount: 1, evidenceReady: 0, openRequestCount: 1, currentCheckpointSha256: hash('c'),
   updatedAt: '2026-08-30T00:00:00.000Z', available: true, successClaimed: false, resumable: false,
-  actions: []
+  actions: [{
+    id: 'process.stop', operation: 'process.stop', enabled: true, reason: null,
+    source: { processId: 'PROC-UI', processRevision: 4, processSha256: hash('a') }
+  }]
 };
 const workObject = {
   schemaVersion: 1, kind: 'work-object', objectId: 'WKO-UI', objectSha256: hash('d'),
@@ -67,7 +70,29 @@ test('Command Center groups only authoritative states and renders staged capabil
   assert.match(html, /Task retry is not installed/);
   assert.match(html, /One bounded ready wave is installed/);
   assert.match(html, /disabled aria-disabled="true">Not installed/);
+  assert.match(html, /data-stop="PROC-UI">Stop…<\/button>/);
   assert.doesNotMatch(html, /Ready for review|>Verified</);
+});
+
+test('Stop is exposed only by an enabled action bound to the exact Process revision and digest', () => {
+  assert.equal(sgosEnabledProcessAction(card, 'process.stop')?.id, 'process.stop');
+  const disabled = { ...card, actions: [{ ...card.actions[0], enabled: false }] };
+  const wrongRevision = {
+    ...card,
+    actions: [{ ...card.actions[0], source: { ...card.actions[0].source, processRevision: 3 } }]
+  };
+  const wrongDigest = {
+    ...card,
+    actions: [{ ...card.actions[0], source: { ...card.actions[0].source, processSha256: hash('9') } }]
+  };
+  for (const process of [disabled, wrongRevision, wrongDigest]) {
+    assert.equal(sgosEnabledProcessAction(process, 'process.stop'), null);
+    const html = sgosCommandCenterBody(buildSgosCommandCenter({
+      ...snapshot,
+      sgos: { ...snapshot.sgos, processes: [process] }
+    }));
+    assert.doesNotMatch(html, /data-stop=/);
+  }
 });
 
 test('an exact graph renders accessibly and a stale graph is refused', () => {
@@ -93,6 +118,7 @@ test('an exact graph renders accessibly and a stale graph is refused', () => {
 test('webview posts identifiers rather than commands and the command is fully wired', async () => {
   assert.match(SGOS_COMMAND_CENTER_SCRIPT, /objectId:target\.dataset\.respond/);
   assert.match(SGOS_COMMAND_CENTER_SCRIPT, /processId:target\.dataset\.graph/);
+  assert.match(SGOS_COMMAND_CENTER_SCRIPT, /processId:target\.dataset\.stop/);
   assert.doesNotMatch(SGOS_COMMAND_CENTER_SCRIPT, /command\s*:/);
   const manifest = JSON.parse(await readFile(path.join(root, 'apps/vscode/package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.openCommandCenter'));
@@ -100,6 +126,10 @@ test('webview posts identifiers rather than commands and the command is fully wi
   assert.match(extension, /'singularityFlow\.openCommandCenter': async/);
   const sidebar = await readFile(path.join(root, 'apps/vscode/src/views/sidebar.ts'), 'utf8');
   assert.match(sidebar, /id: 'command-center'.*Command Center/);
+  const panel = await readFile(path.join(root, 'apps/vscode/src/views/sgos-command-center.ts'), 'utf8');
+  assert.match(panel, /modal: true,[\s\S]*?'Stop Process'/);
+  assert.match(panel, /'process', 'stop', processId,[\s\S]*?'--expected-revision', String\(action\.source\.processRevision\), '--json'/);
+  assert.match(panel, /result\.quiescent[\s\S]*?paused and quiescent[\s\S]*?quiescing/);
 });
 
 test('Command Center maps each Human Request to decisions accepted by the kernel', () => {

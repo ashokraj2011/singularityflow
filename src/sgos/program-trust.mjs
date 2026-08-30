@@ -29,7 +29,8 @@ import {
 } from './resource-contracts.mjs';
 
 export const SGOS_EXECUTION_ADMISSION_OPCODES = Object.freeze([
-  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END'
+  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END',
+  'AGENT', 'DEVICE'
 ]);
 
 const EXECUTION_OPERATION_OPCODES = new Set(['KERNEL', 'AGENT', 'DEVICE', 'VERIFY', 'COMPENSATE']);
@@ -799,6 +800,10 @@ function assertInstalledFanout(program) {
 function registryEntries(snapshot, field) {
   const raw = snapshot[field];
   const result = new Map();
+  // New registry collections are optional for snapshots that do not use the
+  // corresponding opcode. An AGENT task still fails below unless its exact
+  // Execution Unit is present; legacy KERNEL-only snapshots remain valid.
+  if (raw == null) return result;
   const entries = Array.isArray(raw)
     ? raw.map((entry) => [entry?.id, entry])
     : plainObject(raw) ? Object.entries(raw) : [];
@@ -835,7 +840,8 @@ export function verifySgosProgramRegistry(programValue, registrySnapshot) {
     fail('SGOS_PROGRAM_REGISTRY_REQUIRED', 'Execution registry verification requires actual registry-snapshot bytes.');
   }
   const allowedRegistryFields = new Set([
-    'kind', 'operations', 'taskKinds', 'devices', 'registrySnapshotSha256'
+    'kind', 'operations', 'taskKinds', 'devices', 'executionUnits',
+    'registrySnapshotSha256'
   ]);
   const unknownRegistryField = Object.keys(registrySnapshot)
     .find((key) => !allowedRegistryFields.has(key));
@@ -863,6 +869,7 @@ export function verifySgosProgramRegistry(programValue, registrySnapshot) {
   }
   registryEntries(registrySnapshot, 'taskKinds');
   const devices = registryEntries(registrySnapshot, 'devices');
+  const executionUnits = registryEntries(registrySnapshot, 'executionUnits');
   for (const task of program.taskTemplates) {
     if (task.operation) {
       const operation = operations.get(task.operation);
@@ -913,10 +920,46 @@ export function verifySgosProgramRegistry(programValue, registrySnapshot) {
     }
     if (task.opcode === 'DEVICE') {
       const deviceId = String(task.metadata?.deviceId ?? task.operation ?? '');
-      if (!devices.has(deviceId)) {
+      const device = devices.get(deviceId);
+      if (!device) {
         fail('SGOS_PROGRAM_DEVICE_UNKNOWN', `Task '${task.taskTemplateId}' references unknown device '${deviceId}'.`, {
           taskTemplateId: task.taskTemplateId, deviceId
         });
+      }
+      if (String(task.metadata?.deviceVersion ?? '') !== String(device.version)
+          || task.metadata?.deviceManifestSha256 !== device.manifestSha256) {
+        fail('SGOS_PROGRAM_DEVICE_MANIFEST_MISMATCH',
+          `Task '${task.taskTemplateId}' Device manifest does not match the pinned registry.`, {
+            taskTemplateId: task.taskTemplateId,
+            deviceId,
+            expectedVersion: String(device.version),
+            receivedVersion: task.metadata?.deviceVersion ?? null,
+            expectedManifestSha256: device.manifestSha256,
+            receivedManifestSha256: task.metadata?.deviceManifestSha256 ?? null
+          });
+      }
+    }
+    if (task.opcode === 'AGENT') {
+      const executionUnitId = String(task.metadata?.executionUnitId ?? '');
+      const executionUnitVersion = String(task.metadata?.executionUnitVersion ?? '');
+      const executionUnitManifestSha256 = task.metadata?.executionUnitManifestSha256;
+      const executionUnit = executionUnits.get(executionUnitId);
+      // Operation and adapter are different authorities. The operation was
+      // verified against the registry above; here we require an exact adapter
+      // binding, which resolveInstalledGvmAdapter subsequently compares with
+      // the installed reviewed manifest before dispatch.
+      if (!/^[a-z][a-z0-9-]{1,63}$/.test(executionUnitId)
+          || !executionUnit
+          || executionUnitVersion !== String(executionUnit.version)
+          || executionUnitManifestSha256 !== executionUnit.manifestSha256) {
+        fail('SGOS_PROGRAM_EXECUTION_UNIT_MANIFEST_MISMATCH',
+          `Task '${task.taskTemplateId}' Execution Unit does not have an exact adapter manifest binding.`, {
+            taskTemplateId: task.taskTemplateId,
+            executionUnitId,
+            operationId: task.operation ?? null,
+            executionUnitVersion: executionUnitVersion || null,
+            executionUnitManifestSha256: executionUnitManifestSha256 ?? null
+          });
       }
     }
   }

@@ -1,6 +1,8 @@
 import { brandLockup, escape, icon } from './webview.ts';
 import { publicFaultText } from './surface-adapters.ts';
-import type { SgosCommandCenterView } from './sgos-command-center-model.ts';
+import {
+  sgosEnabledProcessAction, type SgosCommandCenterView
+} from './sgos-command-center-model.ts';
 import { renderSgosProcessGraph } from './sgos-process-graph-svg.ts';
 
 function shortHash(value: string | null): string {
@@ -55,6 +57,7 @@ function selectedDetail(view: SgosCommandCenterView): string {
   const process = view.selected;
   if (!process) return '<p class="muted">No readable SGOS Process exists yet.</p>';
   const graph = view.graph;
+  const stop = sgosEnabledProcessAction(process, 'process.stop');
   const table = graph ? `<div class="table-wrap"><table aria-label="Exact Process tasks">
     <thead><tr><th>Task</th><th>State</th><th>Revision</th><th>Evidence receipt</th><th>Depends on</th></tr></thead>
     <tbody>${graph.nodes.map((task) => {
@@ -75,6 +78,7 @@ function selectedDetail(view: SgosCommandCenterView): string {
       <button type="button" data-graph="${escape(process.processId)}">${graph ? 'Reload exact graph' : 'Load exact graph'}</button>
       <button type="button" class="secondary" data-integrity="${escape(process.processId)}">Check integrity</button>
       <button type="button" class="secondary" data-recovery="${escape(process.processId)}">Inspect recovery</button>
+      ${stop ? `<button type="button" class="danger secondary" data-stop="${escape(process.processId)}">Stop…</button>` : ''}
     </div>
   </div>${renderSgosProcessGraph(graph)}${table}`;
 }
@@ -117,6 +121,7 @@ export const SGOS_COMMAND_CENTER_SCRIPT = `
     else if (target.dataset.graph) window.__sfVscode.postMessage({ type:'graph', processId:target.dataset.graph });
     else if (target.dataset.integrity) window.__sfVscode.postMessage({ type:'integrity', processId:target.dataset.integrity });
     else if (target.dataset.recovery) window.__sfVscode.postMessage({ type:'recovery', processId:target.dataset.recovery });
+    else if (target.dataset.stop) window.__sfVscode.postMessage({ type:'stop', processId:target.dataset.stop });
     else if (target.dataset.respond) window.__sfVscode.postMessage({ type:'respond', objectId:target.dataset.respond });
     else if (target.dataset.quarantine) window.__sfVscode.postMessage({ type:'quarantine', processId:target.dataset.quarantine });
   });

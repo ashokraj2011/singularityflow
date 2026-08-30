@@ -24,7 +24,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 5
+version: 7
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -40,7 +40,9 @@ Use this profile to inspect and exercise deterministic SGOS compiler profile v2 
 Start inside the selected governed repository with committed input JSON for the Intent IR, Workflow IR,
 Ratification, policy snapshot, registry snapshot, and optional Process Binding. The core profile is
 model-free and supports a bounded deterministic parallel wave for compatible resource contracts.
-Unsupported agent and device execution refuses safely.
+It can dispatch only the exact registry-pinned `deterministic-translator` Execution Unit and the
+exact registry-pinned read-only `filesystem-read` Device. Copilot/model-backed agents, mutating
+Devices, and every uninstalled manifest refuse safely.
 
 ## Use it from each surface
 
@@ -78,7 +80,9 @@ Unsupported agent and device execution refuses safely.
    reference through `--sensitive-handle`; never place a credential or secret value on the command
    line. Authority is pinned from the repository's configured reviewer membership when the Process
    starts and cannot be supplied by a response flag. Pause or resume only with the current
-   checkpoint confirmation.
+   checkpoint confirmation. To interrupt active work, use `process stop <PROCESS-ID>`: it records
+   the Process as paused immediately and reports `stop-requested` until the exact execution and
+   owner lease settle. Repeat `process stop` or inspect status to prove quiescence before resume.
 8. If a CLI process is interrupted, run `process recover <PROCESS-ID>` to inspect the exact owner,
    binding, attempt lineage, and confirmation-bound actions. Never recover while it reports an active
    owner. Use the printed `reconcile-success`, `retry-safe`, or `fail` command exactly as shown.
@@ -99,8 +103,16 @@ Unsupported agent and device execution refuses safely.
    `process archive` remains only as a compatibility alias.
 10. For an intentional replay, preview `process replay <PROCESS-ID> --from <CHECKPOINT-SHA256>` and
     repeat with the printed `--confirm` digest. The installed profile reopens only a pure suffix and
-    refuses prior writes, Devices, external effects, stale state, or exhausted attempts. Fork uses
-    the same preview/confirm pattern and supports only a genesis checkpoint.
+    refuses prior writes, Devices, external effects, stale state, or exhausted attempts. It clears
+    the current suffix receipt/output projection but preserves immutable history. Fork uses the
+    same preview/confirm pattern, supports only a genesis checkpoint, writes a predecessor intent,
+    and recovers the same deterministic receipt after an interrupted confirmation.
+11. Before `candidate verify`, review and publish the strict content-addressed verifier policy at
+    `singularity/sgos/candidate-verifier-policy.json` through `sflow/config` (or its verified state
+    mirror). The policy owns the exact absolute-argv commands and timeout. Legacy `--commands` and
+    `--timeout-ms` values are compatibility assertions only and must equal the approved policy;
+    they cannot choose a verifier. Candidate publication rechecks the current policy before its Git
+    compare-and-swap and repairs an exact ref-advanced/index-not-aligned crash before it receipts.
 
 The same confirmed inputs compile to the same Program hash. Compilation refuses unknown task
 kinds, unbounded constructs, cycles, orphan tasks, unmapped clauses, unknown registry operations,
@@ -116,23 +128,32 @@ unreachable terminal states.
   binding. Portable contract paths round-trip across POSIX, Windows drive, and UNC forms.
 - A live execution owns a durable local lease. Recovery never races that owner, and every retry has
   immutable parent-attempt lineage.
+- Stop is a durable two-part boundary: `paused` prevents new dispatch immediately, while an exact
+  active attempt/lease may remain only until the owner settles. Resume refuses that intermediate
+  state, and a late handler result cannot publish success across the stop boundary.
 - A task succeeds only after an independently checked immutable candidate and Task Receipt.
 - Human responses bind the exact request, current Process revision, and authority read from the
   immutable approved-configuration ref/commit/workflow-blob tuple recorded at Process start.
+- Capability Pack, platform memory, and meta-tool mutations derive the actor from the repository's
+  current Git identity and refreshed approved configuration. Caller-supplied actor/reviewer flags
+  are refused; the Authority Store transaction binds the exact group, configuration commit, and
+  authorization witness that admitted it.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
 - Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,
   and parallel dispatch is selected canonically under exact resource leases. Timing is never an
   authority input.
-- Standalone Execution Unit and Device profiles are inspectable through their CLI commands, but
-  their presence does not authorize the GVM to dispatch `AGENT` or `DEVICE` opcodes.
+- Adapter presence alone is not authority. An `AGENT` Program must separately bind a dotted
+  operation and a kebab-case `executionUnits` registry entry; a `DEVICE` Program must separately
+  bind its operation and Device registry entry. Runtime dispatch then requires those exact pins to
+  equal the installed deterministic-translator or read-only filesystem manifest.
 
 ## Troubleshooting
 
 - A digest mismatch means the reviewed input moved. Revalidate and recompile; do not copy the new
   digest into an old confirmation blindly.
-- An unsupported opcode stays visible in explain/simulate but will not run until a reviewed adapter
-  and verifier exist.
+- An unsupported opcode or adapter stays visible in explain/simulate but will not run until a
+  reviewed registry pin, installed adapter, and independent verifier exist.
 - A stale response or checkpoint must be re-read with `request show` or `process status` before it
   can be retried.
 - An interrupted execution must first be inspected with `process recover <PROCESS-ID>`. Safe retry
@@ -140,6 +161,8 @@ unreachable terminal states.
   printed failure action or reconcile an already verified receipt.
 - A missing receipt means the task did not succeed. Inspect `task evidence`; never infer completion
   from a handler message or changed file.
+- A missing or changed Candidate verifier policy requires configuration review and a new
+  verification; do not copy commands into a local JSON file and treat them as authority.
 - A quarantined Process is preserved machine-local evidence, not runnable authority or proof of
   success. Start a new Process from an approved Program rather than copying, editing, restoring, or
   resuming quarantined records.

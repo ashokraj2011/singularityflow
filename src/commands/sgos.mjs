@@ -20,7 +20,7 @@ import { projectSgosWorkObjects } from '../sgos/projection.mjs';
 import {
   listSgosProcesses, pauseSgosProcess, planSgosProcessRecovery, readSgosProcess,
   recoverInterruptedSgosExecution, respondToSgosHumanRequest, resumeSgosProcess,
-  startSgosProcess, stepSgosProcess
+  startSgosProcess, stepSgosProcess, stopSgosProcess
 } from '../sgos/runtime.mjs';
 import { runSgosProcess } from '../sgos/public-runtime.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../sgos/limits.mjs';
@@ -47,7 +47,7 @@ function fail(message, code, details = null) {
 
 const MUTATION_OPERATIONS = new Set([
   'intent.capture', 'intent.compile',
-  'process.start', 'process.step', 'process.run', 'process.pause', 'process.resume', 'process.recover',
+  'process.start', 'process.step', 'process.run', 'process.pause', 'process.stop', 'process.resume', 'process.recover',
   'process.replay.plan', 'process.replay', 'process.fork.plan', 'process.fork',
   'process.quarantine', 'process.archive',
   'request.respond'
@@ -466,6 +466,19 @@ async function processCommand(root, positionals, options) {
   if (action === 'pause') {
     const value = await pauseSgosProcess(root, processId, {});
     return emit(value, options, processSummary, { operation: 'process.pause', changed: true });
+  }
+  if (action === 'stop') {
+    const expectedRevision = optionNumber(options, 'expected-revision');
+    if (expectedRevision != null
+        && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
+      fail('--expected-revision must be a positive safe integer.', 'SGOS_PROCESS_REVISION_INVALID');
+    }
+    const value = await stopSgosProcess(root, processId, { expectedRevision });
+    return emit(value, options,
+      (result) => result.quiescent
+        ? `${result.process.processId} is quiescent and paused.`
+        : `${result.process.processId} stop recorded; ${result.activeAttemptIds.length} execution(s) are quiescing. Run process stop again or process status to verify quiescence.`,
+      { operation: 'process.stop', changed: value.changed === true });
   }
   if (action === 'resume') {
     const checkpointSha256 = optionString(options, 'confirm');

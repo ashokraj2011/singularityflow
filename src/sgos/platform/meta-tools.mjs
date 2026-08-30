@@ -4,6 +4,7 @@ import {
   clonePlatformJson, createMetaToolPromotion, platformSha256, validatePlatformRecord
 } from './contracts.mjs';
 import { assertAuthorityStoreAdapter } from './authority-store.mjs';
+import { loadApprovedPlatformMutationAuthority } from './authority.mjs';
 import { verifySignedPlatformRecord } from './signatures.mjs';
 
 function fail(message, code = 'SGOS_META_TOOL_INVALID') {
@@ -30,7 +31,12 @@ function trustMap(value, label) {
   return new Map(Object.entries(value));
 }
 
-export function createMetaToolService({ authorityStore, trustedTraceIssuers, trustedEvaluators }) {
+export function createMetaToolService({
+  authorityStore,
+  trustedTraceIssuers,
+  trustedEvaluators,
+  repositoryRoot
+}) {
   const store = assertAuthorityStoreAdapter(authorityStore);
   const traceIssuers = trustMap(trustedTraceIssuers, 'Meta-tool trace verification');
   const evaluators = trustMap(trustedEvaluators, 'Meta-tool evaluation');
@@ -62,10 +68,12 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
 
     async propose(candidate, signedTraces, {
       expectedRevision,
-      expectedStateSha256,
-      actorId
+      expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.propose'
+      );
       const validated = validatePlatformRecord(candidate, 'platform-meta-tool-candidate');
       if (!Array.isArray(signedTraces) || signedTraces.length !== validated.traceRefs.length) {
         fail('Meta-tool candidate must carry every exact accepted trace.', 'SGOS_META_TOOL_TRACE_SET_INVALID');
@@ -92,16 +100,24 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
         if (!existing) changes.push({ op: 'put', key, value: signed });
       }
       changes.push({ op: 'put', key: candidateKey(validated.recordSha256), value: validated });
-      await store.transact({ expectedRevision, expectedStateSha256, actorId, changes });
+      await store.transact({
+        expectedRevision,
+        expectedStateSha256,
+        actorId: authorization.actorId,
+        authorization,
+        changes
+      });
       return validated;
     },
 
     async recordEvaluation(signedEvaluation, {
       expectedRevision,
-      expectedStateSha256,
-      actorId
+      expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.evaluation'
+      );
       const evaluation = verifyEvaluation(signedEvaluation);
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
@@ -117,7 +133,8 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
       await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [{
           op: 'put', key: evaluationKey(evaluation.recordSha256), value: clonePlatformJson(signedEvaluation)
         }]
@@ -130,13 +147,15 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
       evaluationSha256,
       confirmCandidateSha256,
       confirmEvaluationSha256,
-      reviewerId,
       decision,
       reason,
       expectedRevision,
       expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'meta-tool.promote'
+      );
       if (confirmCandidateSha256 !== candidateSha256 || confirmEvaluationSha256 !== evaluationSha256) {
         fail('Meta-tool promotion confirmation is stale.', 'SGOS_META_TOOL_CONFIRMATION_MISMATCH');
       }
@@ -157,14 +176,14 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
       if ([evaluation.securityGate, evaluation.qualityGate, evaluation.costGate].some((gate) => gate !== 'passed')) {
         fail('Meta-tool promotion requires passing security, quality, and cost gates.', 'SGOS_META_TOOL_EVALUATION_BLOCKED');
       }
-      if (reviewerId === candidate.proposerId) {
+      if (authorization.actorId === candidate.proposerId) {
         fail('Meta-tool promotion requires an independent human reviewer.', 'SGOS_META_TOOL_HUMAN_APPROVAL_REQUIRED');
       }
       if (state.entries[promotionKey(candidateSha256)]) fail('Meta-tool candidate already has a promotion decision.', 'SGOS_META_TOOL_IMMUTABLE');
       const promotion = createMetaToolPromotion({
         candidateSha256,
         evaluationSha256,
-        reviewerId,
+        reviewerId: authorization.actorId,
         decision,
         reason,
         status: 'pack-review-required',
@@ -173,7 +192,8 @@ export function createMetaToolService({ authorityStore, trustedTraceIssuers, tru
       await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId: reviewerId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [{ op: 'put', key: promotionKey(candidateSha256), value: promotion }]
       });
       return promotion;

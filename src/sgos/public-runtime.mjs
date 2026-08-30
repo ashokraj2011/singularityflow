@@ -13,7 +13,8 @@ import {
   resumeSgosProcess as resumeSgosProcessInternal,
   runSgosProcess as runSgosProcessInternal,
   startSgosProcess as startSgosProcessInternal,
-  stepSgosProcess as stepSgosProcessInternal
+  stepSgosProcess as stepSgosProcessInternal,
+  stopSgosProcess as stopSgosProcessInternal
 } from './runtime.mjs';
 
 const OPTION_VOCABULARIES = Object.freeze({
@@ -30,6 +31,7 @@ const OPTION_VOCABULARIES = Object.freeze({
     'attemptId', 'resolution', 'confirmationSha256', 'expectedRevision'
   ]),
   pauseSgosProcess: Object.freeze(['expectedRevision']),
+  stopSgosProcess: Object.freeze(['expectedRevision']),
   resumeSgosProcess: Object.freeze(['checkpointSha256', 'expectedRevision', 'program'])
 });
 
@@ -104,6 +106,10 @@ export async function recoverInterruptedSgosExecution(root, processId, options =
 
 export async function pauseSgosProcess(root, processId, options = {}) {
   return pauseSgosProcessInternal(root, processId, publicOptions('pauseSgosProcess', options));
+}
+
+export async function stopSgosProcess(root, processId, options = {}) {
+  return stopSgosProcessInternal(root, processId, publicOptions('stopSgosProcess', options));
 }
 
 export async function resumeSgosProcess(root, processId, options = {}) {

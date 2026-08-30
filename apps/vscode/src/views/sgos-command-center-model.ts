@@ -35,6 +35,21 @@ export interface SgosCommandCenterView {
   graph: SgosProcessGraph | null;
 }
 
+/**
+ * Return an enabled action only when its projection is bound to these exact Process bytes.
+ * Product surfaces must not infer mutation authority from a status label or Process id alone.
+ */
+export function sgosEnabledProcessAction(
+  process: SgosProcessCard,
+  operation: string
+): SgosProcessCard['actions'][number] | null {
+  return process.actions.find((action) => action.operation === operation
+    && action.enabled === true
+    && action.source.processId === process.processId
+    && action.source.processRevision === process.processRevision
+    && action.source.processSha256 === process.processSha256) ?? null;
+}
+
 const LANE_ORDER = [
   ['running', 'Running'], ['waiting-human', 'Needs you'], ['blocked', 'Blocked'],
   ['recovery-required', 'Recovery required'], ['paused', 'Paused'], ['queued', 'Queued'],

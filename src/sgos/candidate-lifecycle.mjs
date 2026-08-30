@@ -16,8 +16,10 @@ import {
   branch, exactRemoteBranchObservation, gitCommonDir, head, hasRemote, pushCommitToBranch
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
+import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {
   createCandidateSnapshot, sha256, validateCandidateSnapshot
 } from './contracts.mjs';
@@ -36,9 +38,14 @@ const MAX_CANDIDATE_FILES = 20_000;
 const MAX_CANDIDATE_BYTES = 512 * 1024 * 1024;
 const MAX_CANDIDATE_RECORD_BYTES = 64 * 1024 * 1024;
 const MAX_COMMANDS = 32;
+const MAX_COMMAND_ARGUMENTS = 256;
+const MAX_COMMAND_ARGUMENT_BYTES = 64 * 1024;
 const MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
 const CANDIDATE_RECORD_FORMAT = 'sflow.sgos.candidate-private';
 const CANDIDATE_RECORD_VERSION = 1;
+const CANDIDATE_VERIFIER_POLICY_FORMAT = 'sflow.sgos.candidate-verifier-policy/v1';
+export const SGOS_CANDIDATE_VERIFIER_POLICY_PATH =
+  'singularity/sgos/candidate-verifier-policy.json';
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -379,8 +386,137 @@ function normalizeVerificationCommands(commands) {
       fail(`Candidate verification command ${index + 1} executable must be an absolute path.`,
         'SGOS_CANDIDATE_VERIFICATION_INVALID');
     }
+    if (command.length > MAX_COMMAND_ARGUMENTS
+        || command.reduce((bytes, part) => bytes + Buffer.byteLength(part), 0)
+          > MAX_COMMAND_ARGUMENT_BYTES) {
+      fail(`Candidate verification command ${index + 1} exceeds the installed argument ceiling.`,
+        'SGOS_CANDIDATE_VERIFICATION_INVALID', {
+          maximumArguments: MAX_COMMAND_ARGUMENTS,
+          maximumArgumentBytes: MAX_COMMAND_ARGUMENT_BYTES
+        });
+    }
     return [...command];
   });
+}
+
+export function createSgosCandidateVerifierPolicy({
+  policyId = 'default', commands, timeoutMs = 15 * 60 * 1000,
+  approvedBy, approvedAt
+} = {}) {
+  if (!/^[a-z][a-z0-9-]{1,63}$/.test(String(policyId ?? ''))) {
+    fail('Candidate verifier policy ID must be a canonical lower-case identifier.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000) {
+    fail('Candidate verifier policy timeout is outside the installed bounds.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  if (!approvedBy || typeof approvedBy !== 'object' || Array.isArray(approvedBy)
+      || typeof approvedBy.id !== 'string' || !approvedBy.id
+      || typeof approvedBy.kind !== 'string' || !approvedBy.kind) {
+    fail('Candidate verifier policy requires a typed approving principal.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  if (typeof approvedAt !== 'string' || !Number.isFinite(Date.parse(approvedAt))) {
+    fail('Candidate verifier policy requires an ISO approval timestamp.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  const core = {
+    format: CANDIDATE_VERIFIER_POLICY_FORMAT,
+    policyId,
+    decision: 'approved',
+    commands: normalizeVerificationCommands(commands),
+    timeoutMs,
+    approvedBy: structuredClone(approvedBy),
+    approvedAt
+  };
+  return freezeDeep({ ...core, policySha256: sha256(core) });
+}
+
+function validateSgosCandidateVerifierPolicy(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    fail('Approved Candidate verifier policy must be a JSON object.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  const expectedKeys = [
+    'approvedAt', 'approvedBy', 'commands', 'decision', 'format', 'policyId',
+    'policySha256', 'timeoutMs'
+  ];
+  if (canonicalJson(Object.keys(record).sort()) !== canonicalJson(expectedKeys)) {
+    fail('Approved Candidate verifier policy has missing or unsupported fields.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  const rebuilt = createSgosCandidateVerifierPolicy(record);
+  if (record.format !== CANDIDATE_VERIFIER_POLICY_FORMAT || record.decision !== 'approved'
+      || canonicalJson(rebuilt) !== canonicalJson(record)) {
+    fail('Approved Candidate verifier policy failed its exact content binding.',
+      'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+  }
+  return rebuilt;
+}
+
+async function loadApprovedCandidateVerifierPolicy(root, { refreshAuthority = true } = {}) {
+  try {
+    return await withTrustedSgosConfigurationRead(root, async (authority, authorityTrust) => {
+      if (!authority?.ref || !/^[a-f0-9]{40,64}$/.test(authority.commit ?? '')
+          || !['approved-configuration-ref', 'verified-state-mirror'].includes(authority.kind)
+          || !authorityTrust) {
+        fail('Candidate verification requires an exact verifier policy from approved sflow/config authority.',
+          'SGOS_CANDIDATE_VERIFICATION_POLICY_UNAVAILABLE', {
+            path: SGOS_CANDIDATE_VERIFIER_POLICY_PATH
+          });
+      }
+      const approvedRoot = configurationReadRoot(root);
+      let workflowBytes;
+      let policyBytes;
+      try {
+        [workflowBytes, policyBytes] = await Promise.all([
+          readFile(path.join(approvedRoot, 'singularity', 'workflow.yml')),
+          readFile(path.join(approvedRoot, SGOS_CANDIDATE_VERIFIER_POLICY_PATH))
+        ]);
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
+        fail(`Approved configuration does not contain '${SGOS_CANDIDATE_VERIFIER_POLICY_PATH}'.`,
+          'SGOS_CANDIDATE_VERIFICATION_POLICY_UNAVAILABLE', {
+            path: SGOS_CANDIDATE_VERIFIER_POLICY_PATH,
+            ref: authority.ref,
+            commit: authority.commit
+          });
+      }
+      let parsed;
+      try { parsed = JSON.parse(policyBytes.toString('utf8')); } catch (error) {
+        fail(`Approved Candidate verifier policy is not valid JSON: ${error.message}`,
+          'SGOS_CANDIDATE_VERIFICATION_POLICY_INVALID');
+      }
+      const policy = validateSgosCandidateVerifierPolicy(parsed);
+      return freezeDeep({
+        policy,
+        commandSetSha256: sha256(policy.commands),
+        source: {
+          kind: authority.kind,
+          ref: authority.ref,
+          commit: authority.commit,
+          sourceCommit: authority.manifest?.source?.commit ?? authority.commit,
+          path: SGOS_CANDIDATE_VERIFIER_POLICY_PATH,
+          blobSha256: digestBytes(policyBytes),
+          workflowBlobSha256: digestBytes(workflowBytes),
+          trust: structuredClone(authorityTrust)
+        }
+      });
+    }, {
+      refreshAuthority,
+      selectPaths: ['singularity/workflow.yml', SGOS_CANDIDATE_VERIFIER_POLICY_PATH]
+    });
+  } catch (error) {
+    if (error?.code === 'APPROVED_CONFIGURATION_INCOMPLETE'
+        && error?.details?.missing?.includes(SGOS_CANDIDATE_VERIFIER_POLICY_PATH)) {
+      fail(`Approved configuration does not contain '${SGOS_CANDIDATE_VERIFIER_POLICY_PATH}'.`,
+        'SGOS_CANDIDATE_VERIFICATION_POLICY_UNAVAILABLE', {
+          path: SGOS_CANDIDATE_VERIFIER_POLICY_PATH
+        });
+    }
+    throw error;
+  }
 }
 
 async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
@@ -460,16 +596,25 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
 }
 
 export async function verifySgosCandidate(root, candidateId, {
-  commands, timeoutMs = 15 * 60 * 1000, signal = null, verifiedAt = nowIso()
+  commands = null, timeoutMs = null, signal = null, verifiedAt = nowIso()
 } = {}) {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 24 * 60 * 60 * 1000) {
-    fail('Candidate verification timeout is outside the installed bounds.', 'SGOS_CANDIDATE_VERIFICATION_INVALID');
-  }
   const retained = await readSgosRetainedCandidate(root, candidateId);
+  const approvedVerifier = await loadApprovedCandidateVerifierPolicy(root);
+  if (commands != null
+      && canonicalJson(normalizeVerificationCommands(commands))
+        !== canonicalJson(approvedVerifier.policy.commands)) {
+    fail(`Caller-selected verifier commands do not equal approved '${SGOS_CANDIDATE_VERIFIER_POLICY_PATH}'.`,
+      'SGOS_CANDIDATE_VERIFIER_CALLER_REFUSED');
+  }
+  if (timeoutMs != null && timeoutMs !== approvedVerifier.policy.timeoutMs) {
+    fail(`Caller-selected verifier timeout does not equal approved '${SGOS_CANDIDATE_VERIFIER_POLICY_PATH}'.`,
+      'SGOS_CANDIDATE_VERIFIER_CALLER_REFUSED');
+  }
   await safePrivateSidecarDirectory(root, verificationDirectory(root, candidateId), {
     create: true
   });
-  const normalized = normalizeVerificationCommands(commands);
+  const normalized = approvedVerifier.policy.commands;
+  const effectiveTimeoutMs = approvedVerifier.policy.timeoutMs;
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-verify-'));
   const workspace = path.join(temporary, 'worktree');
   const results = [];
@@ -499,7 +644,9 @@ export async function verifySgosCandidate(root, candidateId, {
           'SGOS_CANDIDATE_VERIFICATION_INVALID');
       }
       const executableSha256 = digestBytes(await readFile(command[0]));
-      const result = await runBoundedCommand(command, workspace, { timeoutMs, signal });
+      const result = await runBoundedCommand(command, workspace, {
+        timeoutMs: effectiveTimeoutMs, signal
+      });
       results.push({ argvSha256: sha256(command), executableSha256, ...result });
       if (result.status !== 0 || result.timedOut || result.aborted || result.overflow) break;
     }
@@ -519,6 +666,11 @@ export async function verifySgosCandidate(root, candidateId, {
       retainedCandidateSha256: retained.retainedCandidateSha256,
       candidateTree: retained.repository.candidateTree,
       commandSetSha256: sha256(normalized),
+      verificationPolicy: {
+        policyId: approvedVerifier.policy.policyId,
+        policySha256: approvedVerifier.policy.policySha256,
+        source: approvedVerifier.source
+      },
       results,
       workspaceIntegrity: {
         expectedTree: retained.repository.candidateTree,
@@ -558,7 +710,8 @@ async function passedVerificationReceipts(root, candidateId) {
     const expectedKeys = [
       'candidateId', 'candidateRecordFormat', 'candidateRecordVersion', 'candidateSha256',
       'candidateTree', 'commandSetSha256', 'kind', 'results', 'retainedCandidateSha256',
-      'status', 'verificationReceiptSha256', 'verifiedAt', 'workspaceIntegrity'
+      'status', 'verificationPolicy', 'verificationReceiptSha256', 'verifiedAt',
+      'workspaceIntegrity'
     ];
     const exactShape = value && typeof value === 'object' && !Array.isArray(value)
       && canonicalJson(Object.keys(value).sort()) === canonicalJson(expectedKeys.sort());
@@ -571,6 +724,17 @@ async function passedVerificationReceipts(root, candidateId) {
         || !HASH.test(String(value.candidateSha256 ?? ''))
         || !GIT_OBJECT.test(String(value.candidateTree ?? ''))
         || !HASH.test(String(value.commandSetSha256 ?? ''))
+        || typeof value.verificationPolicy?.policyId !== 'string'
+        || !HASH.test(String(value.verificationPolicy?.policySha256 ?? ''))
+        || value.verificationPolicy?.source?.path !== SGOS_CANDIDATE_VERIFIER_POLICY_PATH
+        || !['approved-configuration-ref', 'verified-state-mirror']
+          .includes(value.verificationPolicy?.source?.kind)
+        || !/^refs\/(?:heads|remotes)\/[A-Za-z0-9._/-]+$/
+          .test(String(value.verificationPolicy?.source?.ref ?? ''))
+        || !GIT_OBJECT.test(String(value.verificationPolicy?.source?.commit ?? ''))
+        || !GIT_OBJECT.test(String(value.verificationPolicy?.source?.sourceCommit ?? ''))
+        || !HASH.test(String(value.verificationPolicy?.source?.blobSha256 ?? ''))
+        || !HASH.test(String(value.verificationPolicy?.source?.workflowBlobSha256 ?? ''))
         || !Array.isArray(value.results) || !value.results.length || value.results.length > MAX_COMMANDS
         || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(value.verifiedAt ?? ''))) {
       fail('Candidate verification receipt is corrupt.', 'SGOS_CANDIDATE_VERIFICATION_CORRUPT');
@@ -603,11 +767,17 @@ export async function planSgosCandidatePublication(root, candidateId, {
   if (remote !== null && !REMOTE.test(String(remote))) {
     fail('Candidate remote name is invalid.', 'SGOS_CANDIDATE_REMOTE_INVALID');
   }
+  const approvedVerifier = await loadApprovedCandidateVerifierPolicy(root);
   const receipts = await passedVerificationReceipts(root, candidateId);
-  const verification = receipts.at(-1) ?? null;
+  const verification = receipts.filter((entry) =>
+    entry.verificationPolicy.policySha256 === approvedVerifier.policy.policySha256
+      && entry.commandSetSha256 === approvedVerifier.commandSetSha256).at(-1) ?? null;
   if (!verification || verification.candidateSha256 !== retained.candidate.candidateSha256
       || verification.candidateTree !== retained.repository.candidateTree) {
-    fail('Candidate has no exact passed verification receipt.', 'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+    fail('Candidate has no exact passed verification receipt from the current approved verifier policy.',
+      'SGOS_CANDIDATE_VERIFICATION_REQUIRED', {
+        verificationPolicySha256: approvedVerifier.policy.policySha256
+      });
   }
   const currentBranch = branch(root);
   const currentHead = head(root);
@@ -632,6 +802,7 @@ export async function planSgosCandidatePublication(root, candidateId, {
     candidateId,
     candidateSha256: retained.candidate.candidateSha256,
     verificationReceiptSha256: verification.verificationReceiptSha256,
+    verificationPolicySha256: approvedVerifier.policy.policySha256,
     targetBranch,
     expectedTargetCommit: retained.repository.baselineCommit,
     candidateCommit: retained.repository.candidateCommit,
@@ -711,16 +882,16 @@ export async function publishSgosCandidate(root, candidateId, {
         received: { targetBranch, remote }
       });
   }
-  // A publication receipt is part of the local transaction. Refuse a redirected receipt path
-  // before the branch compare-and-swap can make the Candidate visible.
-  await safePrivateSidecarDirectory(root, publicationDirectory(root, candidateId), {
-    create: true
-  });
+  if (!HASH.test(String(plan.verificationPolicySha256 ?? ''))) {
+    fail('Candidate publication plan does not bind an approved verifier policy; preview a new exact plan.',
+      'SGOS_CANDIDATE_PUBLICATION_STALE');
+  }
   const currentBranch = branch(root);
   const currentHead = head(root);
   const currentTree = await worktreeTree(root);
-  const alreadyPublished = currentBranch === plan.targetBranch
-    && currentHead === plan.candidateCommit && currentTree === plan.candidateTree;
+  const branchAdvanced = currentBranch === plan.targetBranch
+    && currentHead === plan.candidateCommit;
+  const alreadyPublished = branchAdvanced && currentTree === plan.candidateTree;
   const readyToPublish = currentBranch === plan.preconditions.currentBranch
     && currentHead === plan.preconditions.currentHead
     && currentTree === plan.preconditions.worktreeTree
@@ -734,19 +905,38 @@ export async function publishSgosCandidate(root, candidateId, {
         observed: { currentBranch, currentHead, worktreeTree: currentTree }
       });
   }
+  // Before the publication boundary, require the policy that authorized verification to remain
+  // the current approved policy. After a recovered branch CAS, the authority transition already
+  // happened; recovery must finish the exact local transaction rather than strand a dirty index
+  // because the configuration remote subsequently became unavailable or advanced.
+  if (!branchAdvanced) {
+    const approvedVerifier = await loadApprovedCandidateVerifierPolicy(root);
+    if (approvedVerifier.policy.policySha256 !== plan.verificationPolicySha256) {
+      fail('Approved Candidate verifier policy changed after publication confirmation; preview and verify again.',
+        'SGOS_CANDIDATE_VERIFICATION_POLICY_STALE', {
+          expected: plan.verificationPolicySha256,
+          observed: approvedVerifier.policy.policySha256
+      });
+    }
+  }
+  // A publication receipt is part of the local transaction. Refuse a redirected receipt path
+  // before the branch compare-and-swap can make the Candidate visible.
+  await safePrivateSidecarDirectory(root, publicationDirectory(root, candidateId), {
+    create: true
+  });
   let remoteObservation = null;
   let remoteAuthority = null;
   let remotePreflightFailure = null;
   if (remote != null) {
     if (!hasRemote(root, remote)) {
-      if (!alreadyPublished) {
+      if (!branchAdvanced) {
         fail(`Git remote '${remote}' is not configured.`, 'SGOS_CANDIDATE_REMOTE_INVALID');
       }
       remotePreflightFailure = { code: 'remote-not-configured' };
     } else {
       remoteAuthority = configuredRemoteAuthority(root, remote, { direction: 'push' });
       if (!remoteAuthority.url || remoteAuthority.fingerprint !== plan.preconditions.remoteAuthorityFingerprint) {
-        if (!alreadyPublished) {
+        if (!branchAdvanced) {
           fail('Candidate remote authority changed after publication confirmation.',
             'SGOS_CANDIDATE_PUBLICATION_STALE');
         }
@@ -756,7 +946,7 @@ export async function publishSgosCandidate(root, candidateId, {
         ? null
         : exactRemoteBranchObservation(root, remoteAuthority.url, targetBranch);
       if (!remotePreflightFailure && (!remoteObservation.reachable || remoteObservation.malformed)) {
-        if (!alreadyPublished) {
+        if (!branchAdvanced) {
           fail(`Git remote '${remote}' cannot provide one exact '${targetBranch}' tip.`,
             'SGOS_CANDIDATE_REMOTE_INVALID');
         }
@@ -765,7 +955,7 @@ export async function publishSgosCandidate(root, candidateId, {
         };
       } else if (!remotePreflightFailure && remoteObservation.sha !== plan.candidateCommit
           && remoteObservation.sha !== plan.preconditions.remoteTargetCommit) {
-        if (!alreadyPublished) {
+        if (!branchAdvanced) {
           fail('Candidate remote target changed after publication confirmation.',
             'SGOS_CANDIDATE_PUBLICATION_STALE', {
               expected: plan.preconditions.remoteTargetCommit,
@@ -780,13 +970,22 @@ export async function publishSgosCandidate(root, candidateId, {
       }
     }
   }
-  if (!alreadyPublished) {
+  if (!branchAdvanced) {
     gitResult(root, ['update-ref', `refs/heads/${targetBranch}`, plan.candidateCommit, plan.expectedTargetCommit]);
-    // The worktree was proven byte-identical to the Candidate; align only the index to the new HEAD.
-    gitResult(root, ['read-tree', plan.candidateCommit]);
   }
+  // The branch ref and index are separate durable boundaries. This is intentionally idempotent:
+  // if a process died after update-ref but before read-tree, the confirmed retry repairs the index
+  // only after proving that the untouched worktree still equals the exact Candidate tree.
+  gitResult(root, ['read-tree', plan.candidateCommit]);
   const publishedTree = gitText(root, ['rev-parse', 'HEAD^{tree}']);
-  if (head(root) !== plan.candidateCommit || publishedTree !== plan.candidateTree) {
+  const publishedIndexTree = gitText(root, ['write-tree']);
+  const publishedWorktreeTree = await worktreeTree(root);
+  const publishedWorktreeClean = gitResult(root, [
+    'status', '--porcelain=v1', '-z', '--untracked-files=all', '--'
+  ]).length === 0;
+  if (head(root) !== plan.candidateCommit || publishedTree !== plan.candidateTree
+      || publishedIndexTree !== plan.candidateTree
+      || publishedWorktreeTree !== plan.candidateTree || !publishedWorktreeClean) {
     fail('Local publication does not equal the verified Candidate tree.', 'SGOS_CANDIDATE_PUBLICATION_MISMATCH');
   }
   let remoteResult = null;
@@ -794,7 +993,7 @@ export async function publishSgosCandidate(root, candidateId, {
     if (remotePreflightFailure) {
       remoteResult = {
         remote, priorCommit: plan.preconditions.remoteTargetCommit,
-        status: 1, pushed: false, recovered: alreadyPublished,
+        status: 1, pushed: false, recovered: branchAdvanced,
         failure: remotePreflightFailure
       };
     } else if (remoteObservation.sha === plan.candidateCommit) {
@@ -826,6 +1025,9 @@ export async function publishSgosCandidate(root, candidateId, {
     priorCommit: plan.expectedTargetCommit,
     publishedCommit: plan.candidateCommit,
     publishedTree,
+    publishedIndexTree,
+    publishedWorktreeTree,
+    publishedWorktreeClean,
     remote: remoteResult,
     status: remoteResult && !remoteResult.pushed ? 'local-published-remote-pending' : 'published',
     publishedAt

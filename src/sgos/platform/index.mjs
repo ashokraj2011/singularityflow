@@ -2,6 +2,7 @@
 // from the supported SGOS package barrel until the durable contract registry and CLI integration
 // land together. Consumers must opt into the exact internal profile explicitly.
 export * from './contracts.mjs';
+export * from './authority.mjs';
 export * from './signatures.mjs';
 export * from './authority-store.mjs';
 export * from './memory.mjs';

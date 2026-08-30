@@ -236,7 +236,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   program: Object.freeze({ read: ['show', 'validate', 'simulate', 'explain'], mutation: [] }),
   process: Object.freeze({
     read: ['list', 'status', 'graph', 'fsck'],
-    mutation: ['start', 'step', 'run', 'pause', 'resume', 'recover', 'replay', 'fork', 'quarantine', 'archive']
+    mutation: ['start', 'step', 'run', 'pause', 'stop', 'resume', 'recover', 'replay', 'fork', 'quarantine', 'archive']
   }),
   task: Object.freeze({ read: ['list', 'show', 'evidence'], mutation: [] }),
   request: Object.freeze({ read: ['list', 'show'], mutation: ['respond'] }),

@@ -17,6 +17,9 @@ import {
   validateGvmProgram
 } from '../src/sgos/contracts.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { installedDeviceManifests } from '../src/sgos/devices.mjs';
+import { installedExecutionUnitManifests } from '../src/sgos/execution-units.mjs';
+import { verifySgosProgramRegistry } from '../src/sgos/program-trust.mjs';
 
 const POLICY_SHA = `sha256:${'1'.repeat(64)}`;
 const STORAGE_SHA = `sha256:${'3'.repeat(64)}`;
@@ -32,12 +35,18 @@ function registryEntry(id, extra = {}) {
   return { id, version: '1', status: 'active', manifestSha256: MANIFEST_SHA, ...extra };
 }
 
-function registrySnapshot({ operations = DEFAULT_OPERATION_IDS, taskKinds = [], devices = [] } = {}) {
+function registrySnapshot({
+  operations = DEFAULT_OPERATION_IDS, taskKinds = [], devices = [], executionUnits = null
+} = {}) {
   const core = {
     kind: 'registry-snapshot',
     operations: operations.map((entry) => typeof entry === 'string' ? registryEntry(entry) : entry),
     taskKinds: taskKinds.map((entry) => typeof entry === 'string' ? registryEntry(entry) : entry),
-    devices: devices.map((entry) => typeof entry === 'string' ? registryEntry(entry) : entry)
+    devices: devices.map((entry) => typeof entry === 'string' ? registryEntry(entry) : entry),
+    ...(executionUnits == null ? {} : {
+      executionUnits: executionUnits.map((entry) => typeof entry === 'string'
+        ? registryEntry(entry) : entry)
+    })
   };
   return { ...core, registrySnapshotSha256: registrySnapshotDigest(core) };
 }
@@ -400,6 +409,53 @@ test('unknown registered device is refused', () => {
       });
     }
   })), 'SGOS_DEVICE_UNKNOWN');
+});
+
+test('compiler and registry admission keep operation, Execution Unit, and Device identities distinct', () => {
+  const executionUnit = installedExecutionUnitManifests()
+    .find((entry) => entry.id === 'deterministic-translator');
+  const device = installedDeviceManifests()
+    .find((entry) => entry.id === 'filesystem-read');
+  assert.ok(executionUnit);
+  assert.ok(device);
+  const snapshot = registrySnapshot({
+    executionUnits: [{
+      id: executionUnit.id, version: executionUnit.version, status: 'active',
+      manifestSha256: executionUnit.manifestSha256
+    }],
+    devices: [{
+      id: device.id, version: device.version, status: 'active',
+      manifestSha256: device.manifestSha256
+    }]
+  });
+
+  const agent = compileSgosProgram(fixture({
+    registrySnapshot: snapshot,
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy.opcode = 'AGENT';
+      workflow.spec.tasks.copy.metadata.executionUnitId = executionUnit.id;
+    }
+  })).program;
+  assert.equal(agent.taskTemplates[0].operation, 'core.copy');
+  assert.equal(agent.taskTemplates[0].metadata.executionUnitId, executionUnit.id);
+  assert.equal(agent.taskTemplates[0].metadata.executionUnitVersion, executionUnit.version);
+  assert.equal(agent.taskTemplates[0].metadata.executionUnitManifestSha256,
+    executionUnit.manifestSha256);
+  assert.equal(verifySgosProgramRegistry(agent, snapshot).verified, true);
+
+  const deviceProgram = compileSgosProgram(fixture({
+    registrySnapshot: snapshot,
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy.opcode = 'DEVICE';
+      workflow.spec.tasks.copy.metadata.deviceId = device.id;
+      workflow.spec.tasks.copy.resources.devices = [device.id];
+    }
+  })).program;
+  assert.equal(deviceProgram.taskTemplates[0].operation, 'core.copy');
+  assert.equal(deviceProgram.taskTemplates[0].metadata.deviceId, device.id);
+  assert.equal(deviceProgram.taskTemplates[0].metadata.deviceManifestSha256,
+    device.manifestSha256);
+  assert.equal(verifySgosProgramRegistry(deviceProgram, snapshot).verified, true);
 });
 
 test('unbounded fan-out and loops are refused', async (t) => {

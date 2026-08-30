@@ -34,6 +34,12 @@ const PROCESS_STATES = new Set([
   'queued', 'running', 'waiting-human', 'blocked', 'paused', 'succeeded', 'failed',
   'cancelled', 'recovery-required'
 ]);
+// `paused` with an exact active attempt/owner-lease pair is the durable stop-requested
+// boundary.  The executor remains authoritative for settling that attempt and removing the
+// lease; a paused Process cannot dispatch new work or resume until those references are gone.
+const ACTIVE_EXECUTION_PROCESS_STATES = new Set([
+  'running', 'paused', 'recovery-required'
+]);
 const TASK_STATES = new Set([
   'planned', 'waiting', 'ready', 'leased', 'running', 'waiting-human', 'verifying',
   'succeeded', 'failed', 'blocked', 'cancelled', 'invalidated', 'recovery-required', 'skipped'
@@ -444,6 +450,19 @@ export async function reconcileSgosExecutionLeases(root, processId) {
           || pendingLeases.has(leaseId)
           || pendingExecutions.has(lease.attemptId)) {
         retained.push(leaseId);
+        continue;
+      }
+      const completedTask = Object.values(state.taskInstances).find((task) =>
+        task.attemptIds.includes(lease.attemptId)
+        && !['running', 'verifying'].includes(task.state)) ?? null;
+      if (completedTask) {
+        // A terminal Process CAS intentionally releases activeExecutions/activeLeases before the
+        // executor's finally block removes its owner file. A parallel sibling may inspect this
+        // narrow post-CAS cleanup window. The task's immutable attempt lineage proves execution is
+        // no longer dispatch-authoritative, so removing the stale owner file is safe and
+        // idempotent even while that owner is finishing local cleanup.
+        await rm(executionLeasePath(root, id, leaseId));
+        removed.push(leaseId);
         continue;
       }
       if (isSgosExecutionOwnerLive(lease)) {
@@ -1338,6 +1357,8 @@ function assertExactReplayTransition(before, after, plan) {
       ...clone(beforeTask),
       state: outsideReady && !hasReplayPredecessor ? 'ready' : 'waiting',
       invalidatedBy: plan.replayPlanSha256,
+      receiptSha256: null,
+      outputRefs: [],
       revision: beforeTask.revision + 1
     };
     if (canonicalJson(afterTask) !== canonicalJson(expected)) {
@@ -1410,11 +1431,15 @@ async function assertImmutableCore(before, after, {
     for (const field of ['outputRefs', 'receiptSha256']) {
       const changed = canonicalJson(beforeTask[field] ?? null)
         !== canonicalJson(afterTask[field] ?? null);
-      if (beforeTask.state === 'succeeded' && changed) {
+      const exactReplayClear = replayReset && (
+        (field === 'outputRefs' && canonicalJson(afterTask.outputRefs) === canonicalJson([]))
+        || (field === 'receiptSha256' && afterTask.receiptSha256 === null)
+      );
+      if (beforeTask.state === 'succeeded' && changed && !exactReplayClear) {
         fail(`SGOS task '${id}' attempted to hide or replace durable '${field}'.`,
           'SGOS_RECORD_LINEAGE_INVALID', { taskInstanceId: id, field });
       }
-      if (changed && !successTransition) {
+      if (changed && !successTransition && !exactReplayClear) {
         fail(`SGOS task '${id}' may introduce '${field}' only on its success transition.`,
           'SGOS_TASK_BINDING_CHANGED', { taskInstanceId: id, field });
       }
@@ -3637,9 +3662,9 @@ async function collectAppliedReplayHistory(state, {
     }
     const hasNewAttempt = task.attemptIds.length > prior.attemptIds.length;
     if ((!hasNewAttempt || task.state !== 'succeeded')
-        && (task.receiptSha256 !== prior.receiptSha256
-          || canonicalJson(task.outputRefs) !== canonicalJson(prior.outputRefs))) {
-      fail(`SGOS task '${task.taskInstanceId}' replaced historical output before a new success.`,
+        && (task.receiptSha256 !== null
+          || canonicalJson(task.outputRefs) !== canonicalJson([]))) {
+      fail(`SGOS task '${task.taskInstanceId}' exposed historical output before a new success.`,
         'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256: task.invalidatedBy });
     }
   }
@@ -3997,8 +4022,9 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         task: historicalPredecessor ?? state.taskInstances[entry.taskInstanceId] ?? null
       };
     });
-    const expectedOutputs = [...new Set(predecessorRecords.flatMap(({ task: predecessor }) =>
-      predecessor?.outputRefs ?? []))].sort(compareSgosCodePoints);
+    const expectedOutputs = [...new Set(predecessorRecords.flatMap(({ entry, task: predecessor }) =>
+      entry.state === 'succeeded' ? predecessor?.outputRefs ?? [] : []
+    ))].sort(compareSgosCodePoints);
     if (!task || taskId !== receipt.taskInstanceId || receipt.processId !== state.processId
         || !join || receipt.joinId !== join.joinId || receipt.policy !== join.policy
         || canonicalJson(receipt.predecessors.map((entry) => entry.taskInstanceId))
@@ -4006,7 +4032,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         || !joinProjection
         || predecessorRecords.some(({ entry, task: predecessor }) =>
           !predecessor || predecessor.state !== entry.state
-          || predecessor.receiptSha256 !== entry.receiptSha256
+          || (entry.state === 'succeeded' ? predecessor.receiptSha256 : null)
+            !== entry.receiptSha256
           || (predecessor.attemptIds.at(-1) ?? null) !== entry.attemptId)
         || canonicalJson(receipt.outputRefs) !== canonicalJson(expectedOutputs)) {
       fail(`SGOS join receipt '${receipt.joinReceiptSha256}' is orphaned or mismatched.`,
@@ -4133,8 +4160,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       fail('Active SGOS execution is not the latest attempt of one executable task.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { attemptId: activeAttemptId, taskInstanceId: taskId ?? null });
     }
-    if (!['running', 'recovery-required'].includes(state.status)) {
-      fail('An active SGOS execution requires running or recovery-required Process state.',
+    if (!ACTIVE_EXECUTION_PROCESS_STATES.has(state.status)) {
+      fail('An active SGOS execution requires running, paused stop-requested, or recovery-required Process state.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { status: state.status });
     }
     const lease = ownerLeases.find((entry) => entry.attemptId === activeAttemptId) ?? null;
@@ -4275,7 +4302,7 @@ async function assertHotReferencedRecords(root, state, { preparedIndex = null } 
     const task = taskId == null ? null : state.taskInstances[taskId];
     if (!task || task.attemptIds.at(-1) !== activeAttemptId
         || !['running', 'verifying', 'recovery-required'].includes(task.state)
-        || !['running', 'recovery-required'].includes(state.status)) {
+        || !ACTIVE_EXECUTION_PROCESS_STATES.has(state.status)) {
       fail('Active SGOS execution is not the latest attempt of one executable task.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { attemptId: activeAttemptId });
     }
@@ -4449,14 +4476,16 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         const predecessors = joinReceipt.predecessors.map((entry) => ({
           entry, task: after.taskInstances[entry.taskInstanceId] ?? null
         }));
-        const expectedOutputs = [...new Set(predecessors.flatMap(({ task: predecessor }) =>
-          predecessor?.outputRefs ?? []))].sort(compareSgosCodePoints);
+        const expectedOutputs = [...new Set(predecessors.flatMap(({ entry, task: predecessor }) =>
+          entry.state === 'succeeded' ? predecessor?.outputRefs ?? [] : []
+        ))].sort(compareSgosCodePoints);
         if (!join || joinReceipt.joinId !== join.joinId
             || joinReceipt.policy !== join.policy
             || joinReceipt.attemptId !== receipt.attemptId
             || predecessors.some(({ entry, task: predecessor }) =>
               !predecessor || predecessor.state !== entry.state
-              || predecessor.receiptSha256 !== entry.receiptSha256
+              || (entry.state === 'succeeded' ? predecessor.receiptSha256 : null)
+                !== entry.receiptSha256
               || (predecessor.attemptIds.at(-1) ?? null) !== entry.attemptId)
             || canonicalJson(joinReceipt.outputRefs) !== canonicalJson(expectedOutputs)) {
           fail(`JOIN task '${taskId}' introduced a mismatched join receipt.`,
@@ -5393,9 +5422,32 @@ export async function fsckSgosProcess(root, processId) {
     const indexBytes = indexes.reduce(
       (total, index) => total + Buffer.byteLength(canonicalJson(index)), 0
     );
+    let lineage = Object.freeze({
+      status: 'ok', recordCount: 0, bytes: 0,
+      incompleteForkPlans: Object.freeze([]), errors: Object.freeze([])
+    });
+    try {
+      const { inspectSgosLineageIntegrity } = await import('./lineage.mjs');
+      lineage = await inspectSgosLineageIntegrity(root, id, {
+        rootedReplayPlanSha256s: new Set([...authoritative.values()]
+          .filter((entry) => entry.family === 'sgos-replay-plan')
+          .map((entry) => entry.recordSha256))
+      });
+      errors.push(...lineage.errors);
+    } catch (error) {
+      errors.push(Object.freeze({
+        code: error?.code ?? 'SGOS_LINEAGE_CORRUPT',
+        message: error?.message ?? String(error)
+      }));
+      lineage = Object.freeze({
+        status: 'failed', recordCount: 0, bytes: 0,
+        incompleteForkPlans: Object.freeze([]), errors: Object.freeze([])
+      });
+    }
     const status = errors.length || missing.length
       ? 'failed'
       : orphans.length || reservations.length || transitionIntent !== null
+          || lineage.status === 'attention'
         ? 'attention'
         : 'ok';
     return Object.freeze({
@@ -5427,6 +5479,7 @@ export async function fsckSgosProcess(root, processId) {
         nextRecordIndexSha256: transitionIntent.nextRecordIndexSha256,
         reservationCount: transitionIntent.reservations.length
       }),
+      lineage,
       errors: Object.freeze(errors),
       repaired: false,
       deleted: false

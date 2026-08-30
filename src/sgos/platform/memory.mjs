@@ -3,6 +3,7 @@ import {
   clonePlatformJson, createMemoryPromotion, platformSha256, validatePlatformRecord
 } from './contracts.mjs';
 import { assertAuthorityStoreAdapter } from './authority-store.mjs';
+import { loadApprovedPlatformMutationAuthority } from './authority.mjs';
 
 function fail(message, code = 'SGOS_MEMORY_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -48,15 +49,17 @@ function validateRefAgainstState(ref, entries, visited = new Set()) {
   return validated;
 }
 
-export function createPlatformMemoryService({ authorityStore }) {
+export function createPlatformMemoryService({ authorityStore, repositoryRoot }) {
   const store = assertAuthorityStoreAdapter(authorityStore);
   return Object.freeze({
     async registerCandidate(candidate, {
       expectedRevision,
-      expectedStateSha256,
-      actorId
+      expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'memory.register'
+      );
       const validated = validatePlatformRecord(candidate, 'platform-memory-candidate');
       if (validated.proposedRef.authorityStoreId !== store.storeId) {
         fail('Memory candidate targets another Authority Store.', 'SGOS_MEMORY_AUTHORITY_MISMATCH');
@@ -71,7 +74,8 @@ export function createPlatformMemoryService({ authorityStore }) {
       return store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [{ op: 'put', key: candidateKey(validated.candidateId), value: validated }]
       });
     },
@@ -79,12 +83,14 @@ export function createPlatformMemoryService({ authorityStore }) {
     async promote({
       candidateId,
       confirmCandidateSha256,
-      reviewerId,
       reason,
       expectedRevision,
       expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'memory.promote'
+      );
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
         fail('Memory promotion lost its compare-and-swap race.', 'SGOS_MEMORY_CAS_MISMATCH');
@@ -129,7 +135,7 @@ export function createPlatformMemoryService({ authorityStore }) {
       const promotion = createMemoryPromotion({
         candidateSha256: candidate.recordSha256,
         memoryRefSha256: ref.recordSha256,
-        reviewerId,
+        reviewerId: authorization.actorId,
         decision: 'approved',
         reason,
         promotedAt: new Date().toISOString()
@@ -137,7 +143,8 @@ export function createPlatformMemoryService({ authorityStore }) {
       const after = await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId: reviewerId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [
           { op: 'put', key: currentKey(ref.memoryId), value: ref },
           { op: 'put', key: promotionKey(candidateId), value: promotion },

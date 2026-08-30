@@ -580,7 +580,9 @@ export async function openFilesystemAuthorityStore({ root, storeId }) {
     },
 
     async transact(input) {
-      exactObject(input, ['expectedRevision', 'expectedStateSha256', 'actorId', 'changes'], 'authority transaction');
+      exactObject(input, [
+        'expectedRevision', 'expectedStateSha256', 'actorId', 'authorization', 'changes'
+      ], 'authority transaction');
       if (!Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) fail('expectedRevision must be a non-negative safe integer.');
       if (!/^sha256:[a-f0-9]{64}$/.test(String(input.expectedStateSha256 ?? ''))) fail('expectedStateSha256 is invalid.');
       identifier(input.actorId, 'authority transaction.actorId');
@@ -600,6 +602,7 @@ export async function openFilesystemAuthorityStore({ root, storeId }) {
           beforeEntriesSha256: before.entriesSha256,
           afterEntriesSha256: platformSha256(entries),
           actorId: input.actorId,
+          ...(input.authorization == null ? {} : { authorization: input.authorization }),
           committedAt: new Date().toISOString(),
           changes
         });

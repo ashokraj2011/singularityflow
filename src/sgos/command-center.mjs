@@ -38,10 +38,11 @@ export const SGOS_RUNTIME_CAPABILITIES = Object.freeze({
   humanResponse: Object.freeze({ status: 'available', reason: 'Human responses use request-hash and Process-revision compare-and-swap.' }),
   recovery: Object.freeze({ status: 'available', reason: 'Interrupted execution has an exact, confirmation-bound recovery plan.' }),
   parallelExecution: Object.freeze({ status: 'available', reason: 'One deterministic, statically bounded ready wave is installed with exact resource leases and joins.' }),
+  stopQuiescence: Object.freeze({ status: 'available', reason: 'Stop records paused authority immediately and execution must settle before resume.' }),
   replay: Object.freeze({ status: 'available', reason: 'Confirmation-bound replay is installed for pure suffixes from an ancestor checkpoint.' }),
   fork: Object.freeze({ status: 'available', reason: 'Confirmation-bound fork is installed for independent genesis-only Processes.' }),
-  agentExecution: Object.freeze({ status: 'staged', reason: 'Governed AGENT execution-unit adapters are not installed.' }),
-  deviceExecution: Object.freeze({ status: 'staged', reason: 'Typed DEVICE mediation is not installed.' }),
+  agentExecution: Object.freeze({ status: 'available', reason: 'The exact deterministic-translator manifest is installed; model-backed agents remain proposal-only.' }),
+  deviceExecution: Object.freeze({ status: 'available', reason: 'The exact read-only filesystem Device is installed with durable Tool Intent and Tool Result evidence.' }),
   taskRetry: Object.freeze({ status: 'staged', reason: 'Independent task retry is not installed.' })
 });
 
@@ -130,11 +131,20 @@ function healthyCard(process) {
     updatedAt: process.updatedAt ?? process.createdAt ?? null,
     available: true,
     successClaimed: process.status === 'succeeded',
-    resumable: process.status === 'paused',
+    // A stop records `paused` before an in-flight owner settles.  Do not project that intermediate
+    // state as resumable: the runtime will refuse it, and the UI must not imply otherwise.
+    resumable: process.status === 'paused'
+      && (process.activeExecutions?.length ?? 0) === 0
+      && (process.activeLeases?.length ?? 0) === 0,
     actions: [
       exactAction('process.inspect', 'process.status', process),
       exactAction('process.graph', 'process.graph', process),
       exactAction('process.integrity', 'process.fsck', process),
+      exactAction('process.stop', 'process.stop', process, {
+        enabled: !['succeeded', 'failed', 'cancelled'].includes(process.status),
+        reason: ['succeeded', 'failed', 'cancelled'].includes(process.status)
+          ? 'Terminal Processes cannot be stopped.' : null
+      }),
       exactAction('process.recovery-plan', 'process.recover.plan', process)
     ]
   };

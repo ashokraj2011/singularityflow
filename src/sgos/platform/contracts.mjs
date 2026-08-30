@@ -140,6 +140,7 @@ export function validatePlatformRecord(record, expectedKind = null) {
     'platform-authority-state': createAuthorityState,
     'platform-authority-transaction': createAuthorityTransactionEvent,
     'platform-authority-export': createAuthorityPortableExport,
+    'platform-mutation-authorization': createPlatformMutationAuthorization,
     'platform-memory-ref': createMemoryRef,
     'platform-memory-candidate': createMemoryCandidate,
     'platform-memory-promotion': createMemoryPromotion,
@@ -221,7 +222,7 @@ export function createAuthorityTransactionEvent(input) {
   return createRecord('platform-authority-transaction', input, {
     allowed: [
       'storeId', 'revision', 'priorEventSha256', 'beforeEntriesSha256', 'afterEntriesSha256',
-      'actorId', 'committedAt', 'changes'
+      'actorId', 'authorization', 'committedAt', 'changes'
     ],
     required: [
       'storeId', 'revision', 'priorEventSha256', 'beforeEntriesSha256', 'afterEntriesSha256',
@@ -235,6 +236,15 @@ export function createAuthorityTransactionEvent(input) {
       digest(value.beforeEntriesSha256, 'authority transaction.beforeEntriesSha256');
       digest(value.afterEntriesSha256, 'authority transaction.afterEntriesSha256');
       identifier(value.actorId, 'authority transaction.actorId');
+      if (value.authorization != null) {
+        const authorization = validatePlatformRecord(
+          value.authorization, 'platform-mutation-authorization'
+        );
+        if (authorization.actorId !== value.actorId) {
+          fail('Authority transaction actor does not match its exact platform authorization.',
+            'SGOS_PLATFORM_AUTHORIZATION_TAMPERED');
+        }
+      }
       timestamp(value.committedAt, 'authority transaction.committedAt');
       if (!Array.isArray(value.changes) || value.changes.length < 1 || value.changes.length > 128) {
         fail('authority transaction.changes must contain 1..128 entries.');
@@ -249,6 +259,38 @@ export function createAuthorityTransactionEvent(input) {
         if (previous !== null && previous >= change.key) fail('authority transaction changes must be sorted and unique by key.');
         previous = change.key;
       }
+    }
+  });
+}
+
+/** Exact approved-configuration witness for one private platform mutation. */
+export function createPlatformMutationAuthorization(input) {
+  return createRecord('platform-mutation-authorization', input, {
+    allowed: [
+      'operation', 'authorityGroup', 'actorId', 'identityAssurance', 'configurationKind',
+      'configurationRef', 'configurationCommit', 'workflowSha256', 'authoritySha256',
+      'authorizedAt'
+    ],
+    required: [
+      'operation', 'authorityGroup', 'actorId', 'identityAssurance', 'configurationKind',
+      'configurationRef', 'configurationCommit', 'workflowSha256', 'authoritySha256',
+      'authorizedAt'
+    ],
+    validate(value) {
+      identifier(value.operation, 'platform mutation authorization.operation');
+      identifier(value.authorityGroup, 'platform mutation authorization.authorityGroup');
+      identifier(value.actorId, 'platform mutation authorization.actorId');
+      if (!['configured-local', 'github-authenticated'].includes(value.identityAssurance)) {
+        fail('platform mutation authorization.identityAssurance is invalid.');
+      }
+      if (!['approved-configuration-ref', 'verified-state-mirror'].includes(value.configurationKind)) {
+        fail('platform mutation authorization.configurationKind is invalid.');
+      }
+      string(value.configurationRef, 'platform mutation authorization.configurationRef');
+      string(value.configurationCommit, 'platform mutation authorization.configurationCommit', /^[a-f0-9]{40,64}$/);
+      digest(value.workflowSha256, 'platform mutation authorization.workflowSha256');
+      digest(value.authoritySha256, 'platform mutation authorization.authoritySha256');
+      timestamp(value.authorizedAt, 'platform mutation authorization.authorizedAt');
     }
   });
 }

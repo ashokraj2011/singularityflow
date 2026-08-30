@@ -410,6 +410,15 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   assert.equal(graph.processRevision, started.process.processRevision);
   assert.equal(graph.programSha256, started.process.programSha256);
 
+  const invalidStopRevision = flowResult(root, 'process', 'stop', processId,
+    '--expected-revision', '0', '--json');
+  assert.notEqual(invalidStopRevision.status, 0);
+  assert.match(invalidStopRevision.stderr, /expected-revision must be a positive safe integer/i);
+  const staleStop = flowResult(root, 'process', 'stop', processId,
+    '--expected-revision', String(started.process.processRevision + 1), '--json');
+  assert.notEqual(staleStop.status, 0);
+  assert.match(staleStop.stderr, /revision|changed|compare|expected/i);
+
   const fractionalParallel = flowResult(root, 'process', 'run', processId,
     '--maximum-parallel', '1.5', '--json');
   assert.notEqual(fractionalParallel.status, 0);

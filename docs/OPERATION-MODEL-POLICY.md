@@ -242,6 +242,7 @@ Every public operation is classified before its implementation module is importe
 | process.start | mutation | never | — | — |
 | process.status | read | never | — | — |
 | process.step | mutation | never | — | — |
+| process.stop | mutation | never | — | — |
 | program.explain | read | never | — | — |
 | program.show | read | never | — | — |
 | program.simulate | read | never | — | — |

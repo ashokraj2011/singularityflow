@@ -435,7 +435,8 @@ function registryEntries(snapshot, names) {
 }
 
 const REGISTRY_FIELDS = Object.freeze([
-  'kind', 'operations', 'taskKinds', 'devices', 'registrySnapshotSha256'
+  'kind', 'operations', 'taskKinds', 'devices', 'executionUnits',
+  'registrySnapshotSha256'
 ]);
 const REGISTRY_ENTRY_FIELDS = Object.freeze([
   'id', 'version', 'status', 'manifestSha256', 'opcode', 'kind'
@@ -509,6 +510,9 @@ function validateRegistrySnapshot(snapshotValue, pinnedSha256) {
     }
     registryCollection(snapshot, field);
   }
+  if (Object.hasOwn(snapshot, 'executionUnits')) {
+    registryCollection(snapshot, 'executionUnits');
+  }
   const catalog = registryCatalog(snapshot);
   if (!catalog.operations.size) {
     fail('SGOS_REGISTRY_CATALOG_EMPTY', 'Registry snapshot has no active operation manifests.');
@@ -528,7 +532,8 @@ function registryCatalog(snapshot) {
   return {
     taskKinds: registryEntries(snapshot, ['taskKinds', 'tasks', 'taskTypes']),
     operations: registryEntries(snapshot, ['operations', 'kernelOperations', 'domainOperations']),
-    devices: registryEntries(snapshot, ['devices', 'deviceKinds', 'deviceManifests'])
+    devices: registryEntries(snapshot, ['devices', 'deviceKinds', 'deviceManifests']),
+    executionUnits: registryEntries(snapshot, ['executionUnits'])
   };
 }
 
@@ -766,10 +771,25 @@ function taskTemplate(workflow, taskId, rawTask, catalog) {
         received: String(requestedVerificationVersion)
       });
   }
+  let registeredDevice = null;
+  let resolvedDeviceId = null;
   if (opcode === 'DEVICE') {
-    const deviceId = String(task.deviceId ?? task.device?.id ?? operationId ?? '');
-    if (!deviceId || !catalog.devices.has(deviceId)) {
-      fail('SGOS_DEVICE_UNKNOWN', `Task '${taskId}' references an unknown device.`, { taskId, deviceId: deviceId || null });
+    // The operation is the registry-pinned action (for example
+    // `filesystem.read-file`); the Device is the separately versioned adapter
+    // that performs it (for example `filesystem-read`). Workflow IR only
+    // permits extension data below metadata, so never require an invalid
+    // top-level deviceId field or conflate the two identities.
+    resolvedDeviceId = String(
+      task.metadata?.deviceId
+      ?? task.metadata?.device?.id
+      ?? operationId
+      ?? ''
+    );
+    registeredDevice = catalog.devices.get(resolvedDeviceId) ?? null;
+    if (!resolvedDeviceId || !registeredDevice) {
+      fail('SGOS_DEVICE_UNKNOWN', `Task '${taskId}' references an unknown device.`, {
+        taskId, deviceId: resolvedDeviceId || null
+      });
     }
   }
 
@@ -805,6 +825,57 @@ function taskTemplate(workflow, taskId, rawTask, catalog) {
   }
   if (task.budgets != null) metadata.budgets = clone(task.budgets);
   if (task.parameters != null || task.arguments != null) metadata.parameters = clone(task.parameters ?? task.arguments);
+  // Adapter identity is distinct from the operation name. Preserve it in the immutable Program
+  // so runtime admission can bind an AGENT/DEVICE task to one installed, reviewed manifest rather
+  // than guessing from prose or ambient provider configuration. The operation remains the
+  // registry-pinned action exposed by that adapter.
+  if (opcode === 'AGENT') {
+    // Execution Unit identity is deliberately separate from operation
+    // identity. Both are immutable Program inputs: the registry binds the
+    // operation while the installed-adapter admission check binds this exact
+    // manifest before dispatch. Keeping the adapter declaration in metadata
+    // also respects the strict Workflow IR vocabulary.
+    const declaredUnit = plainObject(task.metadata?.executionUnit)
+      ? task.metadata.executionUnit : {};
+    const executionUnitId = task.metadata?.executionUnitId ?? declaredUnit.id;
+    const registeredExecutionUnit = executionUnitId == null
+      ? null : catalog.executionUnits.get(String(executionUnitId));
+    if (!executionUnitId || !registeredExecutionUnit) {
+      fail('SGOS_EXECUTION_UNIT_BINDING_REQUIRED',
+        `Task '${taskId}' requires an Execution Unit from the pinned registry.`, {
+          taskId, executionUnitId: executionUnitId ?? null
+        });
+    }
+    const requestedVersion = task.metadata?.executionUnitVersion ?? declaredUnit.version;
+    const requestedManifestSha256 = task.metadata?.executionUnitManifestSha256
+      ?? declaredUnit.manifestSha256;
+    if (requestedVersion != null
+        && String(requestedVersion) !== String(registeredExecutionUnit.version)) {
+      fail('SGOS_EXECUTION_UNIT_VERSION_MISMATCH',
+        `Task '${taskId}' Execution Unit version does not match the pinned registry.`, {
+          taskId, executionUnitId: String(executionUnitId),
+          expected: String(registeredExecutionUnit.version), received: String(requestedVersion)
+        });
+    }
+    if (requestedManifestSha256 != null
+        && requestedManifestSha256 !== registeredExecutionUnit.manifestSha256) {
+      fail('SGOS_EXECUTION_UNIT_MANIFEST_MISMATCH',
+        `Task '${taskId}' Execution Unit manifest does not match the pinned registry.`, {
+          taskId, executionUnitId: String(executionUnitId),
+          expected: registeredExecutionUnit.manifestSha256,
+          received: requestedManifestSha256
+        });
+    }
+    metadata.executionUnitId = String(executionUnitId);
+    metadata.executionUnitVersion = String(registeredExecutionUnit.version);
+    metadata.executionUnitManifestSha256 = registeredExecutionUnit.manifestSha256;
+    delete metadata.executionUnit;
+  }
+  if (opcode === 'DEVICE') {
+    metadata.deviceId = resolvedDeviceId;
+    metadata.deviceVersion = String(registeredDevice.version);
+    metadata.deviceManifestSha256 = registeredDevice.manifestSha256;
+  }
   if (task.condition != null || task.when != null) metadata.condition = clone(task.condition ?? task.when);
   if (task.bounds != null) metadata.bounds = clone(task.bounds);
   if (task.joinPolicy != null) metadata.joinPolicy = clone(task.joinPolicy);

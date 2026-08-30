@@ -11,13 +11,15 @@ import { resolveOperation } from '../src/command-registry.mjs';
 import {
   createAcceptedTrace, createCapabilityPack, createMemoryCandidate, createMemoryRef,
   createMetaToolCandidate, createMetaToolEvaluation, createPackReview, createPlatformEnvelope,
-  openFilesystemAuthorityStore, platformSha256, signPlatformRecord
+  openFilesystemAuthorityStore, platformPrincipalId, platformSha256, signPlatformRecord
 } from '../src/sgos/platform/index.mjs';
+import { publishSgosCandidateVerifierPolicy } from './helpers/sgos-candidate-authority.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 const at = '2026-08-30T10:00:00.000Z';
 const digest = (value) => platformSha256(`cli-fixture:${value}`);
+const cliActorId = platformPrincipalId({ email: 'extension.cli.tester@example.com' });
 
 function run(root, ...args) {
   return spawnSync(process.execPath, [bin, ...args], {
@@ -48,10 +50,21 @@ async function repository(t) {
   git(root, 'config', 'user.name', 'Extension CLI Tester');
   git(root, 'config', 'user.email', 'extension.cli@example.test');
   await mkdir(path.join(root, 'singularity'), { recursive: true });
-  await writeFile(path.join(root, 'singularity', 'workflow.yml'), 'schemaVersion: 1\nworkflows: {}\n');
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), [
+    'version: 2',
+    'approvalAuthorities:',
+    '  architecture-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    '  engineering-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    '  quality-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    ''
+  ].join('\n'));
   await writeFile(path.join(root, 'README.md'), 'governed extension fixture\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'fixture authority');
+  git(root, 'branch', 'sflow/config');
   return root;
 }
 
@@ -160,12 +173,18 @@ test('extension CLI exposes model-free manifests, typed Devices, and an explicit
 
 test('Candidate CLI retains, verifies, previews, and publishes one exact Git tree', async (t) => {
   const root = await repository(t);
+  const approvedCommands = [[
+    process.execPath, '-e',
+    "process.exit(require('node:fs').readFileSync('app.txt','utf8').trim()==='after'?0:1)"
+  ]];
   await writeFile(path.join(root, 'app.txt'), 'before\n');
-  await writeFile(path.join(root, 'verify-commands.json'), JSON.stringify([
-    [process.execPath, '-e', "process.exit(require('node:fs').readFileSync('app.txt','utf8').trim()==='after'?0:1)"]
+  await writeFile(path.join(root, 'approved-verify-commands.json'), JSON.stringify(approvedCommands));
+  await writeFile(path.join(root, 'unauthorized-verify-commands.json'), JSON.stringify([
+    [process.execPath, '-e', 'process.exit(99)']
   ]));
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'candidate baseline');
+  await publishSgosCandidateVerifierPolicy(root, { commands: approvedCommands });
   const baseline = git(root, 'rev-parse', 'HEAD');
   await writeFile(path.join(root, 'app.txt'), 'after\n');
 
@@ -176,8 +195,12 @@ test('Candidate CLI retains, verifies, previews, and publishes one exact Git tre
   assert.equal(shown.retainedCandidateSha256, frozen.retainedCandidateSha256);
   assert.equal(state(flow(root, 'candidate', 'list')).some((entry) =>
     entry.candidate?.candidateId === candidateId), true);
+  const callerSelected = run(root, 'candidate', 'verify', candidateId,
+    '--commands', 'unauthorized-verify-commands.json', '--json');
+  assert.notEqual(callerSelected.status, 0);
+  assert.match(callerSelected.stderr, /do not equal approved/i);
   const verified = state(flow(root, 'candidate', 'verify', candidateId,
-    '--commands', 'verify-commands.json', '--timeout-ms', '30000'));
+    '--commands', 'approved-verify-commands.json', '--timeout-ms', '30000'));
   assert.equal(verified.status, 'passed');
 
   const preview = flow(root, 'candidate', 'publish', candidateId);
@@ -213,13 +236,19 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   });
   const signedPack = signPlatformRecord(pack, { privateKeyPem, keyId: 'publisher-key' });
   await writeFile(path.join(root, 'signed-pack.json'), JSON.stringify(signedPack));
+  const spoofedActor = run(root, 'pack', 'propose', '--store', storeId,
+    '--trust', 'publisher-trust.json', '--signed-pack', 'signed-pack.json',
+    '--actor', 'attacker', '--expected-revision', String(current.revision),
+    '--expected-state-sha256', current.stateSha256, '--json');
+  assert.notEqual(spoofedActor.status, 0);
+  assert.match(spoofedActor.stderr, /caller-supplied identity options are refused/i);
   flow(root, 'pack', 'propose', '--store', storeId, '--trust', 'publisher-trust.json',
-    '--signed-pack', 'signed-pack.json', '--actor', 'publisher-a',
+    '--signed-pack', 'signed-pack.json',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
 
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   const review = createPackReview({
-    packSha256: pack.recordSha256, reviewerId: 'reviewer-a', decision: 'approved',
+    packSha256: pack.recordSha256, reviewerId: cliActorId, decision: 'approved',
     reason: 'reviewed', reviewedAt: at
   });
   await writeFile(path.join(root, 'pack-review.json'), JSON.stringify(review));
@@ -230,7 +259,7 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   flow(root, 'pack', 'activate', '--store', storeId, '--trust', 'publisher-trust.json',
     '--domain', pack.domain, '--pack', pack.recordSha256, '--review-sha256', review.recordSha256,
-    '--confirm', pack.recordSha256, '--activated-by', 'reviewer-a',
+    '--confirm', pack.recordSha256,
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
   assert.equal(state(flow(root, 'pack', 'list', '--store', storeId,
     '--trust', 'publisher-trust.json'))[0].recordSha256, pack.recordSha256);
@@ -249,11 +278,11 @@ test('signed Pack, role lesson, and typed Memory CLI preserve exact CAS and revi
   await writeFile(path.join(root, 'memory-candidate.json'), JSON.stringify(candidate));
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   flow(root, 'memory', 'register', '--store', storeId, '--candidate', 'memory-candidate.json',
-    '--actor', 'proposer-a', '--expected-revision', String(current.revision),
+    '--expected-revision', String(current.revision),
     '--expected-state-sha256', current.stateSha256);
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   flow(root, 'memory', 'promote', candidate.candidateId, '--store', storeId,
-    '--confirm', candidate.recordSha256, '--reviewer', 'reviewer-b', '--reason', 'approved guidance',
+    '--confirm', candidate.recordSha256, '--reason', 'approved guidance',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
   const inspected = state(flow(root, 'memory', 'inspect', ref.memoryId, '--store', storeId));
   assert.equal(inspected.valid, true);
@@ -292,7 +321,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   await writeFile(path.join(root, 'signed-traces.json'), JSON.stringify(signedTraces));
   flow(root, 'meta-tool', 'propose', '--store', storeId,
     '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
-    '--candidate', 'meta-candidate.json', '--traces', 'signed-traces.json', '--actor', 'proposer-a',
+    '--candidate', 'meta-candidate.json', '--traces', 'signed-traces.json',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
 
   const evaluation = createMetaToolEvaluation({
@@ -307,7 +336,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
   flow(root, 'meta-tool', 'evaluation', '--store', storeId,
     '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
-    '--evaluation', 'signed-evaluation.json', '--actor', 'evaluator-a',
+    '--evaluation', 'signed-evaluation.json',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256);
 
   current = state(flow(root, 'authority-store', 'status', '--store', storeId));
@@ -315,7 +344,7 @@ test('Meta-tool CLI accepts only signed traces and evaluation before independent
     '--trace-trust', 'trace-trust.json', '--evaluator-trust', 'evaluator-trust.json',
     '--candidate-sha256', candidate.recordSha256, '--evaluation-sha256', evaluation.recordSha256,
     '--confirm-candidate', candidate.recordSha256, '--confirm-evaluation', evaluation.recordSha256,
-    '--reviewer', 'reviewer-b', '--decision', 'approved', '--reason', 'independent review',
+    '--decision', 'approved', '--reason', 'independent review',
     '--expected-revision', String(current.revision), '--expected-state-sha256', current.stateSha256));
   assert.equal(promoted.status, 'pack-review-required');
   assert.equal(state(flow(root, 'meta-tool', 'list', '--store', storeId)).length, 3);

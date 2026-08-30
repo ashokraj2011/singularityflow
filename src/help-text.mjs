@@ -270,6 +270,8 @@ Usage:
   singularity-flow process run <PROCESS-ID> [--maximum-parallel N] [--json]
     execute one deterministic ready wave; N defaults to the installed bounded maximum
   singularity-flow process pause <PROCESS-ID> [--json]
+  singularity-flow process stop <PROCESS-ID> [--expected-revision N] [--json]
+    records a durable stop by pausing dispatch; active execution must quiesce before resume
   singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--json]
   singularity-flow process recover <PROCESS-ID> [--json]
   singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
@@ -292,6 +294,8 @@ Usage:
     [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
     --confirm <REQUEST-SHA256> [--json]
   singularity-flow candidate list|show|freeze|verify|publish ... [--json]
+    verify loads singularity/sgos/candidate-verifier-policy.json only from approved sflow/config authority
+    legacy --commands/--timeout-ms inputs are accepted only when exactly equal to that policy
     publish first records an exact confirmation plan; repeat with --confirm <PUBLICATION-PACKET-SHA256>
   singularity-flow execution-unit list|doctor [ID|all] [--json]
   singularity-flow device list|doctor|invoke|recover|intent|result|revoke ... [--json]

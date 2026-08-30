@@ -77,6 +77,9 @@ import {
   deterministicSgosDispatchPlan, sgosTaskReadiness
 } from './scheduler.mjs';
 import { isSgosTerminalTaskState, sgosJoinForTask } from './joins.mjs';
+import {
+  executeInstalledGvmAdapter, resolveInstalledGvmAdapter
+} from './gvm-adapters.mjs';
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const RECORD_RESERVATION_BY_RECORD = new WeakMap();
@@ -120,9 +123,10 @@ const RUNTIME_EVIDENCE_KINDS = new Set([
 const EXECUTION_LEASE_HEARTBEAT_MS = 5_000;
 
 export const SGOS_SEQUENTIAL_OPCODES = Object.freeze([
-  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END'
+  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END',
+  'AGENT', 'DEVICE'
 ]);
-export const SGOS_BLOCKED_OPCODES = Object.freeze(['AGENT', 'DEVICE']);
+export const SGOS_BLOCKED_OPCODES = Object.freeze([]);
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -596,7 +600,7 @@ function currentProcessBinding(root, {
   return validated;
 }
 
-async function assertCurrentStoredProcessBinding(root, process) {
+export async function assertCurrentStoredProcessBinding(root, process) {
   const { record: stored } = await readSgosImmutableRecord(
     root, process.processId, 'process-binding', process.processBindingSha256
   );
@@ -919,12 +923,16 @@ function untrustedOutcome(value) {
   return clone(value);
 }
 
-async function invokeHandlerWithTimeout(handler, context, timeoutMs) {
-  if (timeoutMs == null) return handler(Object.freeze(context));
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+async function invokeHandlerWithTimeout(handler, context, timeoutMs, externalSignal = null) {
+  if (timeoutMs != null && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1)) {
     fail('Task timeoutMs must be a positive integer.', 'SGOS_PROGRAM_BUDGET_INVALID');
   }
   const controller = new AbortController();
+  const forwardAbort = () => controller.abort(externalSignal?.reason ?? new SingularityFlowError(
+    'SGOS Process stop requested.', { code: 'SGOS_PROCESS_STOP_REQUESTED' }
+  ));
+  if (externalSignal?.aborted) forwardAbort();
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true });
   let timer;
   const handlerSettlement = Promise.resolve()
     .then(() => handler(Object.freeze({ ...context, signal: controller.signal })))
@@ -932,7 +940,7 @@ async function invokeHandlerWithTimeout(handler, context, timeoutMs) {
       (value) => ({ status: 'fulfilled', value }),
       (error) => ({ status: 'rejected', error })
     );
-  const timedOut = new Promise((resolve) => {
+  const timedOut = timeoutMs == null ? new Promise(() => {}) : new Promise((resolve) => {
     timer = setTimeout(() => {
       const error = new SingularityFlowError(`Task exceeded its ${timeoutMs}ms execution ceiling.`, {
         code: 'SGOS_TASK_TIMEOUT', details: { timeoutMs }
@@ -954,6 +962,7 @@ async function invokeHandlerWithTimeout(handler, context, timeoutMs) {
     return first.value;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', forwardAbort);
   }
 }
 
@@ -1468,6 +1477,18 @@ function assertRequiredTaskEvidence(template, outcome) {
 }
 
 async function finalizeSuccess(root, context, outcome, program, clock, checkpoint = null) {
+  // `process stop` records paused state before it waits for an owner to quiesce. A handler that
+  // ignores AbortSignal may still return, but it must never publish success across that durable
+  // stop boundary. Its settled observation is recorded as a failed/retryable or recovery-required
+  // attempt by the ordinary failure path.
+  const current = await readSgosProcess(root, context.begun.processId);
+  if (current.status === 'paused' && current.activeExecutions.includes(context.attemptId)) {
+    return finalizeFailure(root, { ...context, outcome }, new SingularityFlowError(
+      'SGOS Process stop was recorded before execution completion.', {
+        code: 'SGOS_PROCESS_STOP_REQUESTED'
+      }
+    ), program, clock);
+  }
   try {
     await assertOwnedExecutionLease(root, context);
     await assertCurrentStoredProcessBinding(root, context.begun);
@@ -1494,38 +1515,51 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     return finalizeFailure(root, { ...context, outcome }, error, program, clock);
   }
   const completedAt = instant(clock);
-  const { attempt, evidence, recordReservations } = await persistAttemptAndEvidence(root, {
-    ...context,
-    status: 'succeeded',
-    rawResult: outcome.rawResult ?? outcome,
-    verification,
-    outcome,
-    completedAt
-  });
-  const evidenceRefs = [...new Set([
-    ...(outcome.evidenceRefs ?? []), candidate.candidateSha256, evidence.evidenceSha256
-  ])].sort();
   const outputRefs = [...new Set(outcome.outputRefs ?? [])].sort();
-  const receipt = buildSgosTaskReceipt({
-    processId: context.begun.processId,
-    taskInstanceId: context.task.taskInstanceId,
-    attemptId: context.attemptId,
-    attemptSha256: attempt.attemptSha256,
-    inputRefs: context.task.inputRefs,
-    outputRefs,
-    candidateSha256: candidate.candidateSha256,
-    candidate,
-    evidenceRefs,
-    effectRefs: outcome.effectRefs ?? [],
-    humanDecisionRefs: outcome.humanDecisionRefs ?? [],
-    verification,
-    completedAt
-  });
-  // The receipt crosses the immutable boundary before the mutable process can say `succeeded`.
-  const receiptPublication = await putSgosImmutableRecord(
-    root, context.begun.processId, 'gvm-task-receipt', receipt
-  );
-  const process = await mutateActiveAttemptWithRetry(root, context, (draft) => {
+  let attempt;
+  let evidence;
+  let receipt;
+  let process;
+  try {
+    process = await mutateActiveAttemptWithRetry(root, context, async (draft) => {
+      // This is the serialized completion boundary. A preflight read cannot close the race with
+      // `process stop`: only the Process lock can establish whether stop or success happened first.
+      // Do not publish any successful immutable lineage until this exact check has passed.
+      if (draft.status === 'paused') {
+        fail('SGOS Process stop was recorded before execution completion.',
+          'SGOS_PROCESS_STOP_REQUESTED');
+      }
+      ({ attempt, evidence } = await persistAttemptAndEvidence(root, {
+        ...context,
+        status: 'succeeded',
+        rawResult: outcome.rawResult ?? outcome,
+        verification,
+        outcome,
+        completedAt
+      }));
+      const evidenceRefs = [...new Set([
+        ...(outcome.evidenceRefs ?? []), candidate.candidateSha256, evidence.evidenceSha256
+      ])].sort();
+      receipt = buildSgosTaskReceipt({
+        processId: context.begun.processId,
+        taskInstanceId: context.task.taskInstanceId,
+        attemptId: context.attemptId,
+        attemptSha256: attempt.attemptSha256,
+        inputRefs: context.task.inputRefs,
+        outputRefs,
+        candidateSha256: candidate.candidateSha256,
+        candidate,
+        evidenceRefs,
+        effectRefs: outcome.effectRefs ?? [],
+        humanDecisionRefs: outcome.humanDecisionRefs ?? [],
+        verification,
+        completedAt
+      });
+      // The receipt and mutable success are now published under one Process lock. Record-delta
+      // collection binds the immutable reservation to the same exact transition intent.
+      await putSgosImmutableRecord(
+        root, context.begun.processId, 'gvm-task-receipt', receipt
+      );
     const task = draft.taskInstances[context.task.taskInstanceId];
     task.state = 'succeeded';
     task.outputRefs = outputRefs;
@@ -1535,15 +1569,17 @@ async function finalizeSuccess(root, context, outcome, program, clock, checkpoin
     draft.activeLeases = draft.activeLeases.filter((id) => id !== context.executionLease.leaseId);
     if (checkpoint) draft.currentCheckpointSha256 = checkpoint.checkpointSha256;
     updateReadinessAndStatus(draft, program);
-  }, {
-    updatedAt: completedAt,
-    recordReservations: [
-      ...(context.recordReservations ?? []),
-      ...recordReservations,
-      candidateReservation,
-      receiptPublication.reservationToken
-    ].filter(Boolean)
-  });
+    }, {
+      updatedAt: completedAt,
+      recordReservations: [
+        ...(context.recordReservations ?? []),
+        candidateReservation
+      ].filter(Boolean)
+    });
+  } catch (error) {
+    if (error?.code !== 'SGOS_PROCESS_STOP_REQUESTED') throw error;
+    return finalizeFailure(root, { ...context, outcome }, error, program, clock);
+  }
   return Object.freeze({ status: 'succeeded', taskInstanceId: context.task.taskInstanceId, process, attempt, receipt, evidence, checkpoint });
 }
 
@@ -1618,6 +1654,19 @@ export async function runNextSgosTask(root, processId, {
   }
   if (!SGOS_SEQUENTIAL_OPCODES.includes(template.opcode)) {
     return blockTask(root, before, task, blockedOpcodeReason(template.opcode), clock);
+  }
+  let gvmAdapter = null;
+  if (template.opcode === 'AGENT' || template.opcode === 'DEVICE') {
+    try { gvmAdapter = resolveInstalledGvmAdapter(template); }
+    catch (error) {
+      return blockTask(root, before, task, {
+        code: template.opcode === 'AGENT'
+          ? 'SGOS_AGENT_EXECUTION_UNAVAILABLE'
+          : 'SGOS_DEVICE_EXECUTION_UNAVAILABLE',
+        message: error?.message ?? 'The exact governed adapter is unavailable.',
+        causeCode: error?.code ?? 'SGOS_GVM_ADAPTER_UNAVAILABLE'
+      }, clock);
+    }
   }
   const handlerKind = template.opcode === 'KERNEL' ? 'kernel' : template.opcode === 'VERIFY' ? 'verify' : null;
   if (handlerKind && !operationHandler(handlers, handlerKind, template)) {
@@ -1732,10 +1781,36 @@ export async function runNextSgosTask(root, processId, {
     heartbeatError: () => heartbeatError,
     evidenceContext,
     handlers,
-    handlerKind
+    handlerKind,
+    gvmAdapter
   };
 
+  const executionController = new AbortController();
+  let stopMonitorError = null;
+  let stopMonitorPromise = Promise.resolve();
+  const observeStop = async () => {
+    const observed = await readSgosProcess(root, before.processId);
+    if (observed.status === 'paused' && observed.activeExecutions.includes(attemptId)
+        && !executionController.signal.aborted) {
+      executionController.abort(new SingularityFlowError(
+        'SGOS Process stop requested; execution must quiesce before resume.', {
+          code: 'SGOS_PROCESS_STOP_REQUESTED',
+          details: { processId: before.processId, attemptId }
+        }
+      ));
+    }
+  };
+  const stopMonitor = setInterval(() => {
+    stopMonitorPromise = stopMonitorPromise.then(observeStop)
+      .catch((error) => {
+        stopMonitorError = error;
+        if (!executionController.signal.aborted) executionController.abort(error);
+      });
+  }, 250);
+  stopMonitor.unref?.();
+
   try {
+    await observeStop();
     context.recordReservations = [];
     await assertOwnedExecutionLease(root, context);
     if (template.opcode === 'HUMAN_REQUEST') {
@@ -1785,7 +1860,11 @@ export async function runNextSgosTask(root, processId, {
         return {
           taskInstanceId,
           state: predecessor.state,
-          receiptSha256: predecessor.receiptSha256,
+          // A terminal failure may retain immutable historical attempts, but it does not
+          // contribute a successful receipt or outputs to an all-terminal JOIN.
+          receiptSha256: predecessor.state === 'succeeded'
+            ? predecessor.receiptSha256
+            : null,
           attemptId: predecessor.attemptIds.at(-1) ?? null
         };
       });
@@ -1797,6 +1876,7 @@ export async function runNextSgosTask(root, processId, {
         policy: join.policy,
         predecessors,
         outputRefs: predecessors.flatMap((entry) => {
+          if (entry.state !== 'succeeded') return [];
           const predecessor = begun.taskInstances[entry.taskInstanceId];
           return predecessor?.outputRefs ?? [];
         }),
@@ -1824,6 +1904,25 @@ export async function runNextSgosTask(root, processId, {
       }, 'kernel-terminal-condition', instant(clock));
       return await finalizeSuccess(root, context, outcome, program, clock);
     }
+    if (gvmAdapter) {
+      const adapted = await executeInstalledGvmAdapter(
+        root, context, gvmAdapter, executionController.signal
+      );
+      if (stopMonitorError) throw stopMonitorError;
+      context.evidenceContext = {
+        ...context.evidenceContext,
+        ...adapted.evidenceContext
+      };
+      const outcome = await trustedRuntimeOutcome(root, begun, context, {
+        rawResult: adapted.rawResult,
+        outputRefs: adapted.outputRefs,
+        evidenceRefs: adapted.evidenceRefs,
+        effectRefs: adapted.effectRefs,
+        executionEvents: adapted.executionEvents,
+        cost: adapted.evidenceContext?.cost ?? null
+      }, adapted.method, instant(clock));
+      return await finalizeSuccess(root, context, outcome, program, clock);
+    }
     const handler = operationHandler(handlers, handlerKind, template);
     const rawOutcome = await invokeHandlerWithTimeout(handler, {
       process: clone(before),
@@ -1832,7 +1931,8 @@ export async function runNextSgosTask(root, processId, {
       attemptId,
       programSha256: program.programSha256,
       policySnapshotSha256: program.policySnapshotSha256
-    }, template.timeoutMs ?? null);
+    }, template.timeoutMs ?? null, executionController.signal);
+    if (stopMonitorError) throw stopMonitorError;
     const outcome = await trustedHandlerOutcome(
       root, begun, context, rawOutcome, captureCandidates, verifiers, instant(clock)
     );
@@ -1848,11 +1948,14 @@ export async function runNextSgosTask(root, processId, {
           attemptId,
           attemptSha256: pendingTerminalAttempt.attemptSha256,
           status: pendingTerminalAttempt.status,
-          causeCode: error?.code ?? null
+          causeCode: error?.code ?? null,
+          causeMessage: error?.message ?? String(error)
         });
     }
     return await finalizeFailure(root, context, error, program, clock);
   } finally {
+    clearInterval(stopMonitor);
+    await stopMonitorPromise;
     clearInterval(heartbeat);
     await heartbeatPromise;
     unregisterSgosExecutionOwner(executionLease);
@@ -2795,6 +2898,48 @@ export async function recoverInterruptedSgosExecution(root, processId, {
     process: next,
     attempt,
     evidence
+  });
+}
+
+/**
+ * Record a durable stop boundary immediately, even while an execution is active.
+ *
+ * The executor observes `paused`, forwards cancellation to its adapter/handler, waits for actual
+ * settlement, and only then removes its execution/lease. Therefore this mutation requests stop;
+ * the returned `quiescent` flag (or a later identical call) is the proof that execution ended.
+ */
+export async function stopSgosProcess(root, processId, {
+  expectedRevision, clock = null
+} = {}) {
+  await settlePendingTransitionBeforeMutation(root, processId, 'stop');
+  const process = await readSgosProcess(root, processId);
+  await assertCurrentStoredProcessBinding(root, process);
+  if (PROCESS_TERMINAL.has(process.status)) {
+    fail(`Process is already ${process.status}.`, 'SGOS_PROCESS_TERMINAL');
+  }
+  if (expectedRevision != null && process.processRevision !== expectedRevision) {
+    fail(`SGOS process '${processId}' changed before stop could commit.`,
+      'SGOS_PROCESS_REVISION_STALE', {
+        expectedRevision,
+        actualRevision: process.processRevision
+      });
+  }
+  const alreadyPaused = process.status === 'paused';
+  const next = alreadyPaused ? process : await mutateSgosProcess(
+    root, processId, (draft) => { draft.status = 'paused'; }, {
+      expectedRevision: expectedRevision ?? process.processRevision,
+      expectedProcessSha256: process.processSha256,
+      updatedAt: instant(clock)
+    }
+  );
+  const quiescent = next.activeExecutions.length === 0 && next.activeLeases.length === 0;
+  return Object.freeze({
+    status: quiescent ? 'quiescent' : 'stop-requested',
+    changed: !alreadyPaused,
+    quiescent,
+    activeAttemptIds: Object.freeze([...next.activeExecutions]),
+    activeLeaseIds: Object.freeze([...next.activeLeases]),
+    process: next
   });
 }
 

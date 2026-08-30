@@ -29,7 +29,8 @@ It provides:
   missing evidence, ungoverned judgment, unsafe overlapping writes, and consequential external
   effects without recovery;
 - a GVM executor for deterministic kernel operations, verification, checkpoints, human requests,
-  no-ops, terminal steps, and a bounded parallel wave selected from exact resource contracts;
+  no-ops, terminal steps, one exact deterministic-translator `AGENT`, one exact read-only
+  filesystem `DEVICE`, and a bounded parallel wave selected from exact resource contracts;
 - static compile-time fan-out with stable item keys, installed `all-success` and `all-terminal`
   joins, immutable resource leases, and join/fan-out receipts;
 - execution admission that requires an exact Program approval loaded from `sflow/config` (or its
@@ -40,6 +41,9 @@ It provides:
   subject locks, expected revisions, atomic replacement, and content hashes;
 - durable execution-owner leases, running/terminal attempt lineage, dispatch and pre-publication Git
   binding checks, and exact interrupted-execution recovery confirmations;
+- an explicit Process stop boundary that records `paused` immediately, forwards cancellation to an
+  active adapter, prevents a late success receipt, and reports quiescence only after the exact
+  attempt and owner lease have settled;
 - success only after deterministic verification creates a Task Receipt;
 - stale-response protection, configured-Git-identity authority pinning, JSON Schema input, and
   non-secret external/broker handles for typed Human Requests;
@@ -51,10 +55,16 @@ It provides:
 The same build also contains separately bounded extension profiles:
 
 - a Git-backed Candidate lifecycle that freezes one exact tree behind a retained ref, verifies it
-  in an isolated worktree, and publishes only the exact confirmation-bound commit. Verification
-  receipts bind the admitted verifier digest, but portable race-free execution of arbitrary host
-  executables is not claimed;
-- deterministic, proposal-only Copilot and local-translator Execution Units; these adapters cannot
+  in an isolated worktree, and publishes only the exact confirmation-bound commit. Verifier
+  commands and timeout come only from the exact approved
+  `singularity/sgos/candidate-verifier-policy.json` record on `sflow/config` (or its verified state
+  mirror). Legacy command-line verifier inputs remain compatibility assertions only: they must
+  equal the approved policy exactly and cannot select different authority. Verification receipts
+  bind that policy and the admitted executable digest, but portable race-free execution of
+  arbitrary host executables is not claimed;
+- proposal-only Copilot and an installed deterministic local-translator Execution Unit. Only the
+  local translator's exact registry-pinned manifest can execute an `AGENT` task, and its output is
+  independently reconstructed before the runtime can mint verification. Copilot remains unable to
   mint verification or advance Process authority. A fixed-argv pure-process factory remains
   experimental and is not part of the installed manifest catalog because the host cannot yet pin
   an executable handle portably across launch;
@@ -63,19 +73,33 @@ The same build also contains separately bounded extension profiles:
 - pure-suffix replay and genesis-only fork commands; replay preserves immutable attempt/receipt
   history and refuses repeated writes, Devices, and external effects;
 - an experimental filesystem Authority Store, typed memory promotion, signed/revocable declarative
-  Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review packets;
+  Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review packets. Every
+  Pack, memory, and meta-tool mutation derives its actor from the repository Git identity, proves
+  membership in the operation's group from refreshed approved configuration, and binds that exact
+  configuration commit and group digest into the Authority Store event. Caller-supplied actor and
+  reviewer flags are refused, and raw email addresses are represented by a stable private digest;
 - a projection-only VS Code Command Center with a deterministic process graph, human-request forms,
   unavailable-Process diagnostics, and lazy slice leases.
 
 These extension profiles are not a claim that the complete SGOS v1 release criteria are met. Their
 installed limits and refusal behavior are part of the product contract.
 
+The default platform mutation policy assigns proposals and registrations to
+`engineering-reviewers`, signed evaluation recording to `quality-reviewers`, and review,
+promotion, activation, and revocation to `architecture-reviewers`. An organization may replace an
+operation's group under `sgos.platformAuthorities` in approved `workflow.yml`; a working-tree edit
+cannot change the decision.
+
 ## Safety boundary
 
-The GVM still refuses `AGENT`, `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel
-execution, and join policies other than `all-success` and `all-terminal`. Those opcodes remain part
-of the closed Program vocabulary so later adapters do not require a format rewrite, but standalone
-Execution Unit or Device availability does not authorize a Process to dispatch those opcodes.
+The GVM admits only two adapter identities: the exact registry-pinned
+`deterministic-translator` Execution Unit and the exact registry-pinned `filesystem-read` Device.
+The translator has no model, tools, repository scope, subagents, or effects. The Device accepts
+only `read-file` or `stat` inside its compiled canonical read scope, refuses links and path escape,
+and must produce a verified effect-free Tool Result. Dotted task operation IDs remain separate from
+the kebab-case adapter IDs; the Program and registry bind both. Model-backed `AGENT`, mutating or
+uninstalled `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel execution, and join
+policies other than `all-success` and `all-terminal` still fail closed.
 
 The runtime API also requires separately registered kernel handlers, Candidate Snapshot capture,
 and deterministic verifiers. The CLI installs only two reviewed read-only pairs:
@@ -89,6 +113,20 @@ recovery action. Candidate retention refs and the experimental platform Authorit
 authority and are explicitly **not** rebuildable caches. A local Process can observe and project
 existing Story state, but only the established lifecycle kernel may publish a phase, submit it,
 approve it, or advance it.
+
+Candidate publication treats branch ref advancement and index alignment as two recoverable durable
+boundaries. A retry after the ref advances first proves that the worktree still equals the exact
+verified Candidate, idempotently aligns the index to that tree, verifies clean HEAD/index/worktree
+identity, and only then writes the publication receipt. It never resets or overwrites a divergent
+worktree during recovery.
+
+The Candidate verifier policy is a strict, content-addressed JSON record. It declares
+`format: sflow.sgos.candidate-verifier-policy/v1`, one canonical `policyId`, `decision: approved`,
+bounded absolute-argv `commands`, the exact `timeoutMs`, a typed `approvedBy` principal,
+`approvedAt`, and the derived `policySha256`. Missing, malformed, locally substituted, or newly
+superseded policy bytes fail closed. A policy update invalidates earlier verification for new
+publication plans; if the application branch already completed the confirmed compare-and-swap,
+recovery finishes only that exact transaction before recording its receipt.
 
 For a Story Process, start is admitted only after the Work ID resolves to a contract-valid Story in
 the exact baseline commit. The Process Binding pins that Story's repository-relative path, content
@@ -163,6 +201,12 @@ A workflow task declares:
 - human authority where judgment is required;
 - finite retry and expansion ceilings.
 
+For the installed adapter slice, an `AGENT` task keeps its dotted operation ID separate from
+`metadata.executionUnitId`; that kebab-case ID, version, and manifest must exist in the pinned
+registry's optional `executionUnits` collection. A `DEVICE` task similarly uses a dotted operation
+and a separate `metadata.deviceId` present in `devices`. Compilation stamps both identities and
+execution admission rechecks the exact registry bytes before the installed-manifest comparison.
+
 For a `HUMAN_REQUEST` task, the typed request descriptor is stored at
 `metadata.humanRequest`. A top-level `humanRequest` or `request` field is not valid Workflow IR;
 the strict contract refuses it instead of maintaining two representations for the same authority
@@ -180,6 +224,21 @@ state. The installed replay profile can reopen only a pure suffix from an ancest
 the installed fork profile can create an independent Process only from genesis. General
 checkpoint-payload restoration and non-genesis prefix import remain unavailable. A tampered
 checkpoint, changed Program, changed policy, stale request, or lost revision is refused.
+
+Replay clears the suffix tasks' current receipt/output projection while retaining every immutable
+historical attempt and receipt for audit; old outputs cannot appear current until a new successful
+attempt publishes them. An `all-terminal` join records failed predecessors as terminal without
+borrowing their historical success receipt or outputs. Fork first writes an immutable predecessor
+intent and creates one deterministic child genesis bound to the parent's immutable Process Binding;
+repeating confirmation recovers the same receipt even if the child has since progressed, while
+lineage fsck reports orphaned, corrupt, or incomplete fork records.
+
+`process stop <PROCESS-ID>` is distinct from an idle `process pause`. Stop may win while an attempt
+is active: it durably records `paused`, requests adapter cancellation, and returns
+`stop-requested` until the active attempt and lease disappear. Repeat the command or inspect status
+to prove `quiescent`. `process resume` refuses the intermediate paused-but-active state and still
+requires the exact current checkpoint. The Command Center exposes the same revision-bound action
+behind an explicit confirmation.
 
 Before `process start`, the exact Program must be reviewed at
 `singularity/sgos/program-authorities/<PROGRAM-SHA256-WITHOUT-PREFIX>.json` on the approved
@@ -218,8 +277,8 @@ candidate, Action Evidence, Human Response, and unresolved external-reference st
 The following larger SGOS capabilities remain behind explicit refusal boundaries until their
 conformance suites exist:
 
-- GVM dispatch through `AGENT` and `DEVICE` adapters, including a complete independent adapter
-  conformance program and counterfeit-model tripwire;
+- model-backed or tool-bearing `AGENT` execution, mutating Devices, arbitrary third-party adapters,
+  and their complete independent conformance/counterfeit-model programs;
 - dynamic or nested fan-out, quorum/reducer/manual-reconcile joins, general idempotent effect replay,
   non-genesis fork import, and arbitrary task retry;
 - Candidate execution as the universal publication path for every existing lifecycle;

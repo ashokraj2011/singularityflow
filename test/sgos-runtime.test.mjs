@@ -48,8 +48,11 @@ import {
   resumeSgosProcess,
   runNextSgosTask,
   runReadySgosTasks,
-  startSgosProcess
+  startSgosProcess,
+  stopSgosProcess
 } from '../src/sgos/runtime.mjs';
+import { installedExecutionUnitManifests } from '../src/sgos/execution-units.mjs';
+import { installedDeviceManifests } from '../src/sgos/devices.mjs';
 import {
   buildSgosProcessBinding,
   createSgosProcess,
@@ -249,6 +252,110 @@ function compilerProducedProgram() {
     registrySnapshot,
     storageProfileSha256: HASH.storage
   }).program;
+}
+
+function compilerProducedAdapterProgram() {
+  const agentManifest = installedExecutionUnitManifests()
+    .find((entry) => entry.id === 'deterministic-translator');
+  const deviceManifest = installedDeviceManifests()
+    .find((entry) => entry.id === 'filesystem-read');
+  assert.ok(agentManifest);
+  assert.ok(deviceManifest);
+  const registryCore = {
+    kind: 'registry-snapshot',
+    operations: [
+      { id: 'agent.translate', version: '1', status: 'active', manifestSha256: HASH.candidate },
+      { id: 'filesystem.read-file', version: '1', status: 'active', manifestSha256: HASH.candidate }
+    ],
+    taskKinds: [],
+    devices: [{
+      id: deviceManifest.id, version: deviceManifest.version, status: 'active',
+      manifestSha256: deviceManifest.manifestSha256
+    }],
+    executionUnits: [{
+      id: agentManifest.id, version: agentManifest.version, status: 'active',
+      manifestSha256: agentManifest.manifestSha256
+    }]
+  };
+  const registrySnapshot = {
+    ...registryCore,
+    registrySnapshotSha256: registrySnapshotDigest(registryCore)
+  };
+  const intentIr = createIntentIr({
+    generation: 1,
+    objective: { statement: 'Translate one bounded task and inspect its input.', provenance: 'human-confirmed' },
+    outcomes: [], successCriteria: [], constraints: [], invariants: [], preferences: [],
+    nonGoals: [], assumptions: [], unknowns: [], contradictions: [], risks: [],
+    evidenceExpectations: [], authorityRequirements: [], budgets: [], domainCandidates: [],
+    workTypeCandidates: [], subjects: []
+  });
+  const clauseId = `${intentIr.intentId}:objective`;
+  const coverage = {
+    clauses: {
+      [clauseId]: [
+        { kind: 'task', targetId: 'agent' },
+        { kind: 'task', targetId: 'device' }
+      ]
+    },
+    tasks: {
+      agent: [{ kind: 'intent-clause', sourceId: clauseId }],
+      device: [{ kind: 'intent-clause', sourceId: clauseId }]
+    }
+  };
+  const workflow = createWorkflowIr({
+    apiVersion: 'sflow/v1', version: '1', intentIrSha256: intentIr.intentIrSha256,
+    policySnapshotSha256: HASH.policy,
+    metadata: { id: 'runtime-adapters', version: '1', domainPack: 'core' },
+    spec: {
+      inputs: {},
+      tasks: {
+        agent: {
+          kind: 'task', opcode: 'AGENT', operation: 'agent.translate', dependsOn: [],
+          resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+          evidence: { required: ['candidate', 'verification-result'] }, authority: {}, recovery: {},
+          intentClauseIds: [clauseId], inputs: [], outputs: [], retry: { maximumAttempts: 1 },
+          policySnapshotSha256: HASH.policy, material: true,
+          metadata: {
+            executionUnitId: agentManifest.id,
+            parameters: { objective: 'Create one deterministic bounded proposal.' }
+          }
+        },
+        device: {
+          kind: 'task', opcode: 'DEVICE', operation: 'filesystem.read-file', dependsOn: ['agent'],
+          resources: {
+            reads: ['app.mjs'], writes: [], devices: [deviceManifest.id], externalEffects: []
+          },
+          evidence: { required: ['candidate', 'verification-result'] }, authority: {}, recovery: {},
+          intentClauseIds: [clauseId], inputs: [], outputs: [], retry: { maximumAttempts: 1 },
+          policySnapshotSha256: HASH.policy, material: true,
+          metadata: {
+            deviceId: deviceManifest.id,
+            parameters: {
+              operation: 'read-file', arguments: { path: 'app.mjs' }, scope: ['app.mjs']
+            }
+          }
+        },
+        end: { kind: 'end', opcode: 'END', dependsOn: ['device'], material: false }
+      },
+      joins: {}, terminalConditions: [{ taskTemplateId: 'end', state: 'succeeded' }],
+      budgets: { maximumTasks: 3, maximumAttempts: 1 }, recovery: {}, evidence: {}, authority: {},
+      storageRequirements: { profileSha256: HASH.storage }, intentWorkflowMap: coverage
+    }
+  });
+  const ratification = createWorkflowRatification({
+    intentIrSha256: intentIr.intentIrSha256, workflowSha256: workflow.workflowSha256,
+    policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256,
+    storageProfileSha256: HASH.storage, packetSha256: `sha256:${'a'.repeat(64)}`,
+    decision: 'ratified', principal: { id: 'runtime-tester', kind: 'human' },
+    coverage, decidedAt: T0
+  });
+  const compiled = compileSgosProgram({
+    intentIr, workflow, ratification, policySnapshotSha256: HASH.policy,
+    registrySnapshotSha256: registrySnapshot.registrySnapshotSha256, registrySnapshot,
+    storageProfileSha256: HASH.storage
+  }).program;
+  return { compiled, agentManifest, deviceManifest };
 }
 
 async function start(root, storyId, compiled) {
@@ -3108,6 +3215,77 @@ test('AGENT and DEVICE opcodes fail closed without a success receipt', async () 
     assert.equal(result.reason.code.includes(opcode), true);
     assert.equal(Object.values(result.process.taskInstances).some((entry) => entry.receiptSha256), false);
   }
+});
+
+test('exact deterministic AGENT and read-only DEVICE manifests execute through GVM receipts', async () => {
+  const fixture = await repository('SGOS-STORY-INSTALLED-ADAPTERS');
+  const { compiled, agentManifest, deviceManifest } = compilerProducedAdapterProgram();
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const agent = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
+  assert.equal(agent.status, 'succeeded');
+  assert.match(agent.receipt.outputRefs[0], /^sha256:/);
+  const afterAgent = await fsckSgosProcess(fixture.root, started.process.processId);
+  assert.deepEqual(afterAgent.errors, []);
+  const device = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
+  assert.equal(device.status, 'succeeded');
+  assert.match(device.receipt.outputRefs[0], /^sha256:/);
+  const evidence = await listSgosImmutableRecordsByField(
+    fixture.root, device.process.processId, 'action-evidence', 'attemptId', device.attempt.attemptId
+  );
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0].deviceManifestSha256, deviceManifest.manifestSha256);
+  assert.equal(evidence[0].gaps.some((entry) => entry.includes('device-manifest-unavailable')), false);
+});
+
+test('process stop records pause before quiescence and prevents late handler success', async () => {
+  const fixture = await repository('SGOS-STORY-STOP-QUIESCENCE');
+  const operation = 'story.stop-aware';
+  const compiled = program([
+    task('00-kernel', 'KERNEL', [], {
+      operation,
+      retry: { maximumAttempts: 2 },
+      resources: { reads: [], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('90-end', 'END', ['00-kernel'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let observedAbort = false;
+  const running = runNextSgosTask(fixture.root, started.process.processId,
+    governedKernel(operation, ({ signal }) => new Promise((resolve) => {
+      const finish = () => {
+        observedAbort = signal.aborted;
+        resolve({ rawResult: { status: 'completed-after-stop' } });
+      };
+      if (signal.aborted) finish();
+      else signal.addEventListener('abort', () => setTimeout(finish, 10), { once: true });
+    })));
+  let active;
+  for (let tries = 0; tries < 200; tries += 1) {
+    active = await readSgosProcess(fixture.root, started.process.processId);
+    if (active.activeExecutions.length) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(active.activeExecutions.length, 1);
+  const requested = await stopSgosProcess(fixture.root, started.process.processId);
+  assert.equal(requested.status, 'stop-requested');
+  assert.equal(requested.quiescent, false);
+  assert.equal(requested.process.status, 'paused');
+  const settled = await running;
+  assert.equal(observedAbort, true);
+  assert.notEqual(settled.status, 'succeeded');
+  assert.equal(settled.process.status, 'paused');
+  assert.deepEqual(settled.process.activeExecutions, []);
+  assert.deepEqual(settled.process.activeLeases, []);
+  assert.equal(settled.receipt, undefined);
+  const quiescent = await stopSgosProcess(fixture.root, started.process.processId);
+  assert.equal(quiescent.changed, false);
+  assert.equal(quiescent.quiescent, true);
+  await assert.rejects(
+    stopSgosProcess(fixture.root, started.process.processId, {
+      expectedRevision: quiescent.process.processRevision - 1
+    }),
+    (error) => error.code === 'SGOS_PROCESS_REVISION_STALE'
+  );
 });
 
 test('Action Evidence hashes unavailable observations and keeps gaps and contradictions visible', () => {

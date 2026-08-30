@@ -82,7 +82,21 @@ test('Command Center preserves unreadable Processes without claiming success or 
   assert.equal(board.unavailable[0].error.code, 'SGOS_PROCESS_CORRUPT');
 });
 
-test('runtime capability projection exposes bounded parallel, replay, and fork profiles', () => {
+test('a stop-requested Process is not projected as resumable until execution is quiescent', () => {
+  const stopping = process('PROC-A', 'paused');
+  stopping.activeExecutions = ['ATT-ACTIVE'];
+  stopping.activeLeases = ['LEASE-ACTIVE'];
+  const [card] = projectSgosCommandCenter([stopping]).processes;
+  assert.equal(card.status, 'paused');
+  assert.equal(card.resumable, false);
+  assert.equal(card.actions.find((action) => action.operation === 'process.stop')?.enabled, true);
+
+  stopping.activeExecutions = [];
+  stopping.activeLeases = [];
+  assert.equal(projectSgosCommandCenter([stopping]).processes[0].resumable, true);
+});
+
+test('runtime capability projection exposes bounded parallel, lineage, stop, and exact adapters', () => {
   assert.equal(SGOS_RUNTIME_CAPABILITIES.commandCenter.status, 'available');
   assert.equal(SGOS_RUNTIME_CAPABILITIES.processGraph.status, 'available');
   assert.equal(SGOS_RUNTIME_CAPABILITIES.parallelExecution.status, 'available');
@@ -91,8 +105,14 @@ test('runtime capability projection exposes bounded parallel, replay, and fork p
   assert.match(SGOS_RUNTIME_CAPABILITIES.replay.reason, /pure suffix.*ancestor checkpoint/i);
   assert.equal(SGOS_RUNTIME_CAPABILITIES.fork.status, 'available');
   assert.match(SGOS_RUNTIME_CAPABILITIES.fork.reason, /genesis-only/i);
+  assert.equal(SGOS_RUNTIME_CAPABILITIES.stopQuiescence.status, 'available');
+  assert.equal(SGOS_RUNTIME_CAPABILITIES.agentExecution.status, 'available');
+  assert.match(SGOS_RUNTIME_CAPABILITIES.agentExecution.reason, /deterministic-translator/i);
+  assert.equal(SGOS_RUNTIME_CAPABILITIES.deviceExecution.status, 'available');
+  assert.match(SGOS_RUNTIME_CAPABILITIES.deviceExecution.reason, /read-only filesystem/i);
   for (const id of ['agentExecution', 'deviceExecution', 'taskRetry']) {
-    assert.equal(SGOS_RUNTIME_CAPABILITIES[id].status, 'staged');
+    assert.equal(SGOS_RUNTIME_CAPABILITIES[id].status,
+      id === 'taskRetry' ? 'staged' : 'available');
     assert.equal(Object.hasOwn(SGOS_RUNTIME_CAPABILITIES[id], 'operation'), false);
   }
 });

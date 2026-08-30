@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir, mkdtemp, readdir, rm, symlink, unlink, writeFile
+} from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,7 +13,9 @@ import { SGOS_COMPILER_ID, SGOS_COMPILER_VERSION } from '../src/sgos/compiler.mj
 import {
   forkSgosProcess, planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
 } from '../src/sgos/lineage.mjs';
-import { runNextSgosTask, startSgosProcess } from '../src/sgos/runtime.mjs';
+import {
+  pauseSgosProcess, runNextSgosTask, startSgosProcess
+} from '../src/sgos/runtime.mjs';
 import {
   fsckSgosProcess, readSgosCheckpoint, readSgosProcess,
   setSgosStoreFaultBoundaryForTests, mutateSgosProcess
@@ -26,7 +30,8 @@ const D = Object.freeze({
   registry: `sha256:${'5'.repeat(64)}`,
   storage: `sha256:${'6'.repeat(64)}`,
   contract: `sha256:${'7'.repeat(64)}`,
-  manifest: `sha256:${'8'.repeat(64)}`
+  manifest: `sha256:${'8'.repeat(64)}`,
+  checks: `sha256:${'9'.repeat(64)}`
 });
 const T0 = '2026-08-30T10:00:00.000Z';
 const T1 = '2026-08-30T10:01:00.000Z';
@@ -59,15 +64,17 @@ async function repository(t, storyId) {
 }
 
 function task(taskTemplateId, opcode, dependsOn = [], resources = null) {
+  const material = !['NOOP', 'CHECKPOINT', 'JOIN', 'END'].includes(opcode);
   return {
     taskTemplateId,
     opcode,
     operation: `kernel.${opcode.toLowerCase()}`,
     dependsOn,
     resources: resources ?? { reads: [], writes: [], devices: [], externalEffects: [] },
-    evidence: {}, authority: {}, recovery: {}, intentClauseIds: [], inputs: [], outputs: [],
+    evidence: material ? { required: ['candidate', 'verification-result'] } : {},
+    authority: {}, recovery: {}, intentClauseIds: [], inputs: [], outputs: [],
     retry: { maximumAttempts: 2 }, policySnapshotSha256: D.policy,
-    material: false,
+    material,
     metadata: {
       sourceConstruct: 'task', operationVersion: '1', operationManifestSha256: D.manifest
     }
@@ -96,6 +103,47 @@ function program(resources = null) {
     terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
     compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
   });
+}
+
+function replayJoinProgram() {
+  const tasks = [
+    task('00-start', 'NOOP'),
+    task('10-boundary', 'CHECKPOINT', ['00-start']),
+    task('20-work', 'KERNEL', ['10-boundary']),
+    task('30-join', 'JOIN', ['20-work']),
+    task('90-end', 'END', ['30-join'])
+  ];
+  return createGvmProgram({
+    intentIrSha256: D.intent,
+    workflowSha256: D.workflow,
+    ratificationSha256: D.ratification,
+    policySnapshotSha256: D.policy,
+    registrySnapshotSha256: D.registry,
+    storageProfileSha256: D.storage,
+    taskTemplates: tasks,
+    edges: tasks.flatMap((entry) => entry.dependsOn.map((from) => ({ from, to: entry.taskTemplateId }))),
+    joins: [{
+      joinId: 'replay-terminal', taskTemplateId: '30-join', policy: 'all-terminal',
+      predecessorTaskTemplateIds: ['20-work']
+    }],
+    budgets: { maximumTasks: tasks.length, maximumAttempts: 2 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [{ taskTemplateId: '90-end', state: 'succeeded' }],
+    compiler: { id: SGOS_COMPILER_ID, version: SGOS_COMPILER_VERSION }
+  });
+}
+
+function successfulKernel() {
+  return {
+    handlers: { kernel: { 'kernel.kernel': async () => ({
+      outputRefs: ['sfref:historical-output'], rawResult: { status: 'completed' }
+    }) } },
+    captureCandidates: { 'kernel.kernel': async () => ({ resources: [] }) },
+    verifiers: { 'kernel.kernel': async ({ candidateSha256 }) => ({
+      status: 'passed', candidateSha256, checksSha256: D.checks
+    }) },
+    clock: T1
+  };
 }
 
 async function start(root, storyId, compiled) {
@@ -151,9 +199,12 @@ test('pure suffix replay preserves prior attempts and receipts while reopening o
   for (const templateId of ['10-boundary', '20-work', '90-end']) {
     const task = replayed.process.taskInstances[before[templateId].taskInstanceId];
     assert.deepEqual(task.attemptIds, before[templateId].attemptIds);
-    assert.equal(task.receiptSha256, before[templateId].receiptSha256);
+    assert.equal(task.receiptSha256, null);
+    assert.deepEqual(task.outputRefs, []);
     assert.equal(task.invalidatedBy, plan.replayPlanSha256);
   }
+  assert.deepEqual(plan.priorTasks.map((entry) => entry.receiptSha256),
+    ['10-boundary', '20-work', '90-end'].map((id) => before[id].receiptSha256));
   const recovered = await replaySgosProcess(root, completed.processId, {
     confirmationSha256: plan.replayPlanSha256, clock: T2
   });
@@ -260,6 +311,19 @@ test('genesis fork creates an independent Process and refuses unsupported prefix
   assert.equal(forked.child.status, 'running');
   assert.equal(Object.values(forked.child.taskInstances).every((entry) => entry.attemptIds.length === 0), true);
   assert.equal((await readSgosProcess(root, completed.processId)).processSha256, completed.processSha256);
+  await runNextSgosTask(root, forked.child.processId, { clock: T2 });
+  const repeated = await forkSgosProcess(root, completed.processId, {
+    confirmationSha256: plan.forkPlanSha256, clock: '2026-08-30T11:00:00.000Z'
+  });
+  assert.equal(repeated.created, false);
+  assert.equal(repeated.recovered, true);
+  assert.equal(repeated.receipt.forkReceiptSha256, forked.receipt.forkReceiptSha256);
+  const receiptDirectory = path.join(root, '.git', 'singularity-flow', 'sgos', 'lineage',
+    completed.processId, 'fork-receipts');
+  assert.equal((await readdir(receiptDirectory)).length, 1);
+  const fsck = await fsckSgosProcess(root, completed.processId);
+  assert.equal(fsck.status, 'ok');
+  assert.equal(fsck.lineage.incompleteForkPlans.length, 0);
 });
 
 test('fork confirmation cannot be reused after the repository baseline changes', async (t) => {
@@ -280,4 +344,191 @@ test('fork confirmation cannot be reused after the repository baseline changes',
     }),
     (error) => error.code === 'SGOS_FORK_PLAN_STALE'
   );
+});
+
+test('replayed failure cannot leak its historical successful outputs into an all-terminal join', async (t) => {
+  const storyId = 'SGOS-LINEAGE-REPLAY-JOIN';
+  const root = await repository(t, storyId);
+  const compiled = replayJoinProgram();
+  const started = await start(root, storyId, compiled);
+  await runNextSgosTask(root, started.process.processId, { clock: T1 });
+  await runNextSgosTask(root, started.process.processId, { clock: T1 });
+  const firstWork = await runNextSgosTask(root, started.process.processId, successfulKernel());
+  assert.deepEqual(firstWork.process.taskInstances[firstWork.taskInstanceId].outputRefs,
+    ['sfref:historical-output']);
+  await runNextSgosTask(root, started.process.processId, { clock: T1 });
+  await runNextSgosTask(root, started.process.processId, { clock: T1 });
+  const completed = await readSgosProcess(root, started.process.processId);
+  const { boundary } = await boundaryLineage(root, completed);
+  const plan = await planSgosProcessReplay(root, completed.processId, {
+    fromCheckpointSha256: boundary, createdAt: T1
+  });
+  await replaySgosProcess(root, completed.processId, {
+    confirmationSha256: plan.replayPlanSha256, clock: T2
+  });
+  await runNextSgosTask(root, completed.processId, { clock: T2 });
+  const failed = await runNextSgosTask(root, completed.processId, {
+    handlers: { kernel: { 'kernel.kernel': async () => {
+      throw new Error('expected replay failure');
+    } } },
+    clock: T2
+  });
+  assert.equal(failed.status, 'failed');
+  const failedTask = failed.process.taskInstances[failed.taskInstanceId];
+  assert.equal(failedTask.receiptSha256, null);
+  assert.deepEqual(failedTask.outputRefs, []);
+  const joined = await runNextSgosTask(root, completed.processId, { clock: T2 });
+  assert.equal(joined.joinReceipt.predecessors[0].state, 'failed');
+  assert.equal(joined.joinReceipt.predecessors[0].receiptSha256, null);
+  assert.deepEqual(joined.joinReceipt.outputRefs, []);
+  assert.equal((await fsckSgosProcess(root, completed.processId)).status, 'ok');
+});
+
+test('fork apply settles a pending parent transition and refuses the now-stale plan', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-PENDING';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, program());
+  const plan = await planSgosProcessFork(root, started.process.processId, {
+    fromCheckpointSha256: started.checkpoint.checkpointSha256,
+    label: 'pending-parent', createdAt: T1
+  });
+  setSgosStoreFaultBoundaryForTests('state', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      pauseSgosProcess(root, started.process.processId, {
+        expectedRevision: started.process.processRevision, clock: T2
+      }),
+      (error) => error.code === 'SGOS_TRANSITION_RECOVERY_REQUIRED'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  await assert.rejects(
+    forkSgosProcess(root, started.process.processId, {
+      confirmationSha256: plan.forkPlanSha256, clock: T2
+    }),
+    (error) => error.code === 'SGOS_FORK_PLAN_STALE'
+  );
+  assert.equal((await readSgosProcess(root, started.process.processId)).status, 'paused');
+  assert.equal(await readProcessIfMissingForTest(root, plan.childProcessId), null);
+});
+
+async function readProcessIfMissingForTest(root, processId) {
+  try { return await readSgosProcess(root, processId); }
+  catch (error) {
+    if (['ENOENT', 'SGOS_PROCESS_NOT_FOUND'].includes(error?.code)) return null;
+    throw error;
+  }
+}
+
+test('fork cannot retroactively claim a deterministic child created before its intent', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-PREEXISTING';
+  const root = await repository(t, storyId);
+  const compiled = program();
+  const started = await start(root, storyId, compiled);
+  const plan = await planSgosProcessFork(root, started.process.processId, {
+    fromCheckpointSha256: started.checkpoint.checkpointSha256,
+    label: 'preexisting-child', createdAt: T1
+  });
+  await startSgosProcess(root, {
+    program: compiled,
+    taskContractSha256: started.process.taskContractSha256,
+    processId: plan.childProcessId,
+    subject: plan.subject,
+    clock: plan.createdAt
+  });
+  await assert.rejects(
+    forkSgosProcess(root, started.process.processId, {
+      confirmationSha256: plan.forkPlanSha256, clock: T2
+    }),
+    (error) => error.code === 'SGOS_FORK_CHILD_PREEXISTING'
+  );
+});
+
+test('fork retry completes the exact child genesis after a crash following predecessor intent', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-CRASH';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, program());
+  const plan = await planSgosProcessFork(root, started.process.processId, {
+    fromCheckpointSha256: started.checkpoint.checkpointSha256,
+    label: 'crash-retry', createdAt: T1
+  });
+  setSgosStoreFaultBoundaryForTests('genesis-state', { code: 'EIO' });
+  try {
+    await assert.rejects(
+      forkSgosProcess(root, started.process.processId, {
+        confirmationSha256: plan.forkPlanSha256, clock: T2
+      }),
+      (error) => error.code === 'EIO'
+    );
+  } finally {
+    setSgosStoreFaultBoundaryForTests(null);
+  }
+  const recovered = await forkSgosProcess(root, started.process.processId, {
+    confirmationSha256: plan.forkPlanSha256, clock: T2
+  });
+  assert.equal(recovered.child.processRevision, 3);
+  assert.equal(recovered.child.createdAt, plan.createdAt);
+  assert.equal(Object.values(recovered.child.taskInstances)
+    .every((taskInstance) => taskInstance.attemptIds.length === 0), true);
+  const repeated = await forkSgosProcess(root, started.process.processId, {
+    confirmationSha256: plan.forkPlanSha256, clock: '2026-08-30T12:00:00.000Z'
+  });
+  assert.equal(repeated.receipt.forkReceiptSha256, recovered.receipt.forkReceiptSha256);
+});
+
+test('fork preview uses the immutable parent baseline and refuses a moved repository', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-MOVED-BEFORE-PREVIEW';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, program());
+  await writeFile(path.join(root, 'moved-before-preview.txt'), 'moved\n');
+  git(root, ['add', 'moved-before-preview.txt']);
+  git(root, ['commit', '-m', 'Move before fork preview']);
+  await assert.rejects(
+    planSgosProcessFork(root, started.process.processId, {
+      fromCheckpointSha256: started.checkpoint.checkpointSha256,
+      label: 'wrong-moving-head', createdAt: T1
+    }),
+    (error) => error.code === 'SGOS_PROCESS_BINDING_STALE'
+  );
+});
+
+test('fork lineage refuses symlink redirection and fsck reports an interrupted canonical intent', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-SIDECAR';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, program());
+  const common = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+  const lineage = path.join(common, 'singularity-flow', 'sgos', 'lineage', started.process.processId);
+  const escaped = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-lineage-escaped-'));
+  t.after(() => rm(escaped, { recursive: true, force: true }));
+  await mkdir(lineage, { recursive: true });
+  await symlink(escaped, path.join(lineage, 'fork-plans'));
+  await assert.rejects(
+    planSgosProcessFork(root, started.process.processId, {
+      fromCheckpointSha256: started.checkpoint.checkpointSha256,
+      label: 'unsafe-sidecar', createdAt: T1
+    }),
+    (error) => error.code === 'SGOS_SIDECAR_PATH_UNSAFE'
+  );
+  assert.deepEqual(await readdir(escaped), []);
+});
+
+test('fsck includes canonical fork lineage and exposes a missing receipt as recoverable attention', async (t) => {
+  const storyId = 'SGOS-LINEAGE-FORK-FSCK';
+  const root = await repository(t, storyId);
+  const started = await start(root, storyId, program());
+  const plan = await planSgosProcessFork(root, started.process.processId, {
+    fromCheckpointSha256: started.checkpoint.checkpointSha256,
+    label: 'fsck-lineage', createdAt: T1
+  });
+  await forkSgosProcess(root, started.process.processId, {
+    confirmationSha256: plan.forkPlanSha256, clock: T2
+  });
+  const common = path.resolve(root, git(root, ['rev-parse', '--git-common-dir']));
+  const receipt = path.join(common, 'singularity-flow', 'sgos', 'lineage',
+    started.process.processId, 'fork-receipts', `${plan.forkPlanSha256.slice(7)}.json`);
+  await unlink(receipt);
+  const report = await fsckSgosProcess(root, started.process.processId);
+  assert.equal(report.status, 'attention');
+  assert.deepEqual(report.lineage.incompleteForkPlans, [plan.forkPlanSha256]);
 });

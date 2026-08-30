@@ -4,6 +4,7 @@ import {
   validatePlatformRecord
 } from './contracts.mjs';
 import { assertAuthorityStoreAdapter } from './authority-store.mjs';
+import { loadApprovedPlatformMutationAuthority } from './authority.mjs';
 import { verifySignedPlatformRecord } from './signatures.mjs';
 
 function fail(message, code = 'SGOS_CAPABILITY_PACK_INVALID') {
@@ -24,7 +25,7 @@ function requireCas(expectedRevision, expectedStateSha256) {
   }
 }
 
-export function createCapabilityPackRegistry({ authorityStore, trustedPublishers }) {
+export function createCapabilityPackRegistry({ authorityStore, trustedPublishers, repositoryRoot }) {
   const store = assertAuthorityStoreAdapter(authorityStore);
   if (!trustedPublishers || typeof trustedPublishers !== 'object' || Array.isArray(trustedPublishers)) {
     fail('Capability Pack registry requires explicit publisher trust anchors.', 'SGOS_CAPABILITY_PACK_UNTRUSTED');
@@ -56,8 +57,11 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
   return Object.freeze({
     profile: 'signed-declarative-local-v1',
 
-    async propose(signedPack, { expectedRevision, expectedStateSha256, actorId }) {
+    async propose(signedPack, { expectedRevision, expectedStateSha256 }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'pack.propose'
+      );
       const pack = verifyPack(signedPack);
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
@@ -67,7 +71,8 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
       await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [{ op: 'put', key: packKey(pack.recordSha256), value: clonePlatformJson(signedPack) }]
       });
       return pack;
@@ -75,7 +80,14 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
 
     async recordReview(review, { expectedRevision, expectedStateSha256 }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'pack.review'
+      );
       const validated = validatePlatformRecord(review, 'platform-pack-review');
+      if (validated.reviewerId !== authorization.actorId) {
+        fail('Capability Pack review identity does not match the repository Git identity authorized by approved configuration.',
+          'SGOS_CAPABILITY_PACK_REVIEWER_MISMATCH');
+      }
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
         fail('Capability Pack review lost its compare-and-swap race.', 'SGOS_CAPABILITY_PACK_CAS_MISMATCH');
@@ -85,7 +97,8 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
       await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId: validated.reviewerId,
+        actorId: authorization.actorId,
+        authorization,
         changes: [{ op: 'put', key: reviewKey(validated.recordSha256), value: validated }]
       });
       return validated;
@@ -96,11 +109,13 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
       packSha256,
       reviewSha256,
       confirmPackSha256,
-      activatedBy,
       expectedRevision,
       expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'pack.activate'
+      );
       if (confirmPackSha256 !== packSha256) fail('Capability Pack activation confirmation is stale.', 'SGOS_CAPABILITY_PACK_CONFIRMATION_MISMATCH');
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
@@ -118,13 +133,14 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
         domain,
         packSha256,
         reviewSha256,
-        activatedBy,
+        activatedBy: authorization.actorId,
         activatedAt: new Date().toISOString()
       });
       await store.transact({
         expectedRevision,
         expectedStateSha256,
-        actorId: activatedBy,
+        actorId: authorization.actorId,
+        authorization,
         changes: [
           { op: 'put', key: activationKey(domain), value: activation },
           { op: 'put', key: activeKey(domain), value: { domain, packSha256 } }
@@ -135,12 +151,14 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
 
     async revoke({
       packSha256,
-      revokedBy,
       reason,
       expectedRevision,
       expectedStateSha256
     }) {
       requireCas(expectedRevision, expectedStateSha256);
+      const authorization = await loadApprovedPlatformMutationAuthority(
+        repositoryRoot, 'pack.revoke'
+      );
       const state = await store.read();
       if (state.revision !== expectedRevision || state.recordSha256 !== expectedStateSha256) {
         fail('Capability Pack revocation lost its compare-and-swap race.', 'SGOS_CAPABILITY_PACK_CAS_MISMATCH');
@@ -148,7 +166,7 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
       const { pack } = readPack(state.entries, packSha256);
       const revocation = createPackRevocation({
         packSha256,
-        revokedBy,
+        revokedBy: authorization.actorId,
         reason,
         revokedAt: new Date().toISOString()
       });
@@ -158,7 +176,13 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
         changes.push({ op: 'delete', key: activeKey(pack.domain) });
         if (state.entries[activationKey(pack.domain)]) changes.push({ op: 'delete', key: activationKey(pack.domain) });
       }
-      await store.transact({ expectedRevision, expectedStateSha256, actorId: revokedBy, changes });
+      await store.transact({
+        expectedRevision,
+        expectedStateSha256,
+        actorId: authorization.actorId,
+        authorization,
+        changes
+      });
       return revocation;
     },
 

@@ -376,6 +376,14 @@ function filesystemReadDevice(root) {
           fail('Filesystem Device path changed while it was being opened.', 'SGOS_DEVICE_SCOPE_ESCAPE');
         }
         const stats = await handle.stat();
+        const pathStats = await lstat(secured.lexical);
+        // `realpath(path)` alone cannot prove what an already-open descriptor references: an
+        // attacker could swap a component out and back around open(). Device/inode equality binds
+        // the descriptor we will read to the exact non-link object currently at the approved path.
+        if (pathStats.isSymbolicLink() || pathStats.dev !== stats.dev || pathStats.ino !== stats.ino) {
+          fail('Filesystem Device descriptor does not match the approved repository path.',
+            'SGOS_DEVICE_SCOPE_ESCAPE');
+        }
         if (intent.operation === 'stat') {
           return Buffer.from(canonicalJson({
             path: secured.normalized, type: stats.isFile() ? 'file' : stats.isDirectory() ? 'directory' : 'other',

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -21,7 +22,9 @@ import {
   createSecretBrokerAttestation,
   createSecretHandle,
   createSecretBrokerRegistry,
+  loadApprovedPlatformMutationAuthority,
   openFilesystemAuthorityStore,
+  platformPrincipalId,
   platformSha256,
   signPlatformRecord,
   validatePlatformEnvelope,
@@ -50,6 +53,45 @@ async function cas(store) {
   return { expectedRevision: state.revision, expectedStateSha256: state.recordSha256 };
 }
 
+function git(root, ...args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+async function platformRepository(root) {
+  const actorEmail = 'platform.actor@example.test';
+  const reviewerEmail = 'platform.reviewer@example.test';
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Platform Actor');
+  git(root, 'config', 'user.email', actorEmail);
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  const members = [actorEmail, reviewerEmail]
+    .map((email) => `      - { email: ${email} }`).join('\n');
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), [
+    'version: 2',
+    'approvalAuthorities:',
+    '  architecture-reviewers:',
+    '    members:', members,
+    '  engineering-reviewers:',
+    '    members:', members,
+    '  quality-reviewers:',
+    '    members:', members,
+    ''
+  ].join('\n'));
+  git(root, 'add', 'singularity/workflow.yml');
+  git(root, 'commit', '-m', 'approved platform authority');
+  git(root, 'branch', 'sflow/config');
+  return {
+    actorEmail,
+    actorId: platformPrincipalId({ email: actorEmail }),
+    reviewerEmail,
+    reviewerId: platformPrincipalId({ email: reviewerEmail })
+  };
+}
+
 function authorityLockFixture({
   storeId,
   lockVersion = 1,
@@ -71,6 +113,44 @@ function authorityLockFixture({
   };
   return { ...core, ownerSha256: platformSha256(core) };
 }
+
+test('platform mutations derive one configured Git identity and refuse spoofed, dirty, or stale authority', async (t) => {
+  const directory = await temporaryDirectory(t, 'sflow-sgos-platform-authority-');
+  const expected = await platformRepository(directory);
+  const authorized = await loadApprovedPlatformMutationAuthority(directory, 'pack.activate');
+  assert.equal(authorized.actorId, expected.actorId);
+  assert.equal(authorized.authorityGroup, 'architecture-reviewers');
+  assert.equal(authorized.configurationRef, 'refs/heads/sflow/config');
+
+  git(directory, 'config', 'user.email', 'platform.outsider@example.test');
+  await assert.rejects(
+    () => loadApprovedPlatformMutationAuthority(directory, 'pack.activate'),
+    (error) => error.code === 'SGOS_PLATFORM_MUTATION_UNAUTHORIZED'
+  );
+  git(directory, 'config', 'user.email', expected.actorEmail);
+
+  const workflowPath = path.join(directory, 'singularity', 'workflow.yml');
+  const approvedBytes = await readFile(workflowPath, 'utf8');
+  await writeFile(workflowPath, `${approvedBytes}# unapproved local edit\n`);
+  await assert.rejects(
+    () => loadApprovedPlatformMutationAuthority(directory, 'pack.activate'),
+    (error) => error.code === 'SGOS_PLATFORM_CONFIGURATION_DIRTY'
+  );
+  await writeFile(workflowPath, approvedBytes);
+
+  const worktreeParent = await temporaryDirectory(t, 'sflow-sgos-platform-config-worktree-');
+  const authorityCheckout = path.join(worktreeParent, 'config');
+  git(directory, 'worktree', 'add', authorityCheckout, 'sflow/config');
+  await writeFile(path.join(authorityCheckout, 'singularity', 'workflow.yml'),
+    `${approvedBytes}# newer approved authority\n`);
+  git(authorityCheckout, 'add', 'singularity/workflow.yml');
+  git(authorityCheckout, 'commit', '-m', 'advance approved platform authority');
+  git(directory, 'worktree', 'remove', '--force', authorityCheckout);
+  await assert.rejects(
+    () => loadApprovedPlatformMutationAuthority(directory, 'pack.activate'),
+    (error) => error.code === 'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED'
+  );
+});
 
 test('platform records use a strict self-hashed versioned envelope without claiming a registered schema family', () => {
   const ref = createMemoryRef({
@@ -268,8 +348,11 @@ test('Authority Store honors liveness and TTL while refusing acquiring and futur
 
 test('typed memory promotion is immutable, confirmation-bound, and invalidates derived dependencies', async (t) => {
   const directory = await temporaryDirectory(t);
+  const authority = await platformRepository(directory);
   const store = await openFilesystemAuthorityStore({ root: path.join(directory, 'authority'), storeId: 'memory-authority' });
-  const memory = createPlatformMemoryService({ authorityStore: store });
+  const memory = createPlatformMemoryService({
+    authorityStore: store, repositoryRoot: directory
+  });
   const baseV1 = createMemoryRef({
     memoryId: 'base-memory', version: 1, class: 'approved-guidance', scope: 'repository',
     contentSha256: d('base-v1'), authorityStoreId: store.storeId, sensitivity: 'internal',
@@ -280,18 +363,19 @@ test('typed memory promotion is immutable, confirmation-bound, and invalidates d
     sourceRefs: [d('base-source')], evidenceRefs: [d('base-evidence')],
     proposerId: 'proposer-a', createdAt: at
   });
-  await memory.registerCandidate(baseCandidate, { ...await cas(store), actorId: 'proposer-a' });
+  await memory.registerCandidate(baseCandidate, await cas(store));
   const beforeBasePromotion = await cas(store);
   await assert.rejects(() => memory.promote({
     candidateId: baseCandidate.candidateId,
     confirmCandidateSha256: d('stale-candidate'),
-    reviewerId: 'reviewer-a', reason: 'reviewed', ...beforeBasePromotion
+    reason: 'reviewed', ...beforeBasePromotion
   }), (error) => error.code === 'SGOS_MEMORY_CONFIRMATION_MISMATCH');
-  await memory.promote({
+  const basePromotion = await memory.promote({
     candidateId: baseCandidate.candidateId,
     confirmCandidateSha256: baseCandidate.recordSha256,
-    reviewerId: 'reviewer-a', reason: 'reviewed', ...beforeBasePromotion
+    reason: 'reviewed', ...beforeBasePromotion
   });
+  assert.equal(basePromotion.promotion.reviewerId, authority.actorId);
 
   const derived = createMemoryRef({
     memoryId: 'derived-memory', version: 1, class: 'derived', scope: 'repository',
@@ -304,11 +388,11 @@ test('typed memory promotion is immutable, confirmation-bound, and invalidates d
     sourceRefs: [d('derived-source')], evidenceRefs: [d('derived-evidence')],
     proposerId: 'proposer-a', createdAt: at
   });
-  await memory.registerCandidate(derivedCandidate, { ...await cas(store), actorId: 'proposer-a' });
+  await memory.registerCandidate(derivedCandidate, await cas(store));
   await memory.promote({
     candidateId: derivedCandidate.candidateId,
     confirmCandidateSha256: derivedCandidate.recordSha256,
-    reviewerId: 'reviewer-a', reason: 'dependency reviewed', ...await cas(store)
+    reason: 'dependency reviewed', ...await cas(store)
   });
   assert.equal((await memory.resolve(derived)).recordSha256, derived.recordSha256);
 
@@ -326,14 +410,12 @@ test('typed memory promotion is immutable, confirmation-bound, and invalidates d
     sourceRefs: [d('cycle-source')], evidenceRefs: [d('cycle-evidence')],
     proposerId: 'proposer-cycle', createdAt: '2026-08-30T10:30:00.000Z'
   });
-  await memory.registerCandidate(cyclicCandidate, {
-    ...await cas(store), actorId: 'proposer-cycle'
-  });
+  await memory.registerCandidate(cyclicCandidate, await cas(store));
   const beforeCyclicPromotion = await cas(store);
   await assert.rejects(() => memory.promote({
     candidateId: cyclicCandidate.candidateId,
     confirmCandidateSha256: cyclicCandidate.recordSha256,
-    reviewerId: 'reviewer-cycle', reason: 'would create an immediately invalid graph',
+    reason: 'would create an immediately invalid graph',
     ...beforeCyclicPromotion
   }), (error) => ['SGOS_MEMORY_DEPENDENCY_INVALIDATED', 'SGOS_MEMORY_DEPENDENCY_INVALID'].includes(error.code));
 
@@ -348,11 +430,11 @@ test('typed memory promotion is immutable, confirmation-bound, and invalidates d
     sourceRefs: [d('base-source-v2')], evidenceRefs: [d('base-evidence-v2')],
     proposerId: 'proposer-b', createdAt: '2026-08-30T11:00:00.000Z'
   });
-  await memory.registerCandidate(baseCandidateV2, { ...await cas(store), actorId: 'proposer-b' });
+  await memory.registerCandidate(baseCandidateV2, await cas(store));
   await memory.promote({
     candidateId: baseCandidateV2.candidateId,
     confirmCandidateSha256: baseCandidateV2.recordSha256,
-    reviewerId: 'reviewer-b', reason: 'new approved version', ...await cas(store)
+    reason: 'new approved version', ...await cas(store)
   });
   await assert.rejects(() => memory.resolve(derived), (error) => error.code === 'SGOS_MEMORY_DEPENDENCY_INVALIDATED');
   const inspection = await memory.inspect(derived.memoryId);
@@ -369,12 +451,12 @@ test('typed memory promotion is immutable, confirmation-bound, and invalidates d
     sourceRefs: [d('cache-source')], evidenceRefs: [d('cache-evidence')],
     proposerId: 'proposer-cache', createdAt: '2026-08-30T12:00:00.000Z'
   });
-  await memory.registerCandidate(cacheCandidate, { ...await cas(store), actorId: 'proposer-cache' });
+  await memory.registerCandidate(cacheCandidate, await cas(store));
   const beforeCachePromotion = await cas(store);
   await assert.rejects(() => memory.promote({
     candidateId: cacheCandidate.candidateId,
     confirmCandidateSha256: cacheCandidate.recordSha256,
-    reviewerId: 'reviewer-cache', reason: 'must remain local', ...beforeCachePromotion
+    reason: 'must remain local', ...beforeCachePromotion
   }), (error) => error.code === 'SGOS_MEMORY_CLASS_FORBIDDEN');
 });
 
@@ -421,10 +503,12 @@ test('secret broker registry retains only signed opaque-reference digests and fa
 
 test('signed declarative packs require exact review, activate by domain digest, revoke immediately, and feed a read-only role catalog', async (t) => {
   const directory = await temporaryDirectory(t);
+  const authority = await platformRepository(directory);
   const store = await openFilesystemAuthorityStore({ root: path.join(directory, 'authority'), storeId: 'pack-authority' });
   const publisher = keys();
   const registry = createCapabilityPackRegistry({
     authorityStore: store,
+    repositoryRoot: directory,
     trustedPublishers: { 'publisher-a': publisher.publicKeyPem }
   });
   const pack = createCapabilityPack({
@@ -442,21 +526,39 @@ test('signed declarative packs require exact review, activate by domain digest, 
   const forgedPack = signPlatformRecord(pack, { privateKeyPem: impostor.privateKeyPem, keyId: 'publisher-a' });
   const beforeForgedProposal = await cas(store);
   await assert.rejects(() => registry.propose(forgedPack, {
-    ...beforeForgedProposal, actorId: 'publisher-a'
+    ...beforeForgedProposal
   }), (error) => error.code === 'SGOS_PLATFORM_SIGNATURE_UNTRUSTED');
-  await registry.propose(signedPack, { ...await cas(store), actorId: 'publisher-a' });
+  await registry.propose(signedPack, await cas(store));
+  const [proposalEventFile] = await readdir(path.join(directory, 'authority', 'events'));
+  const proposalEvent = JSON.parse(await readFile(
+    path.join(directory, 'authority', 'events', proposalEventFile), 'utf8'
+  )).record;
+  assert.equal(proposalEvent.actorId, authority.actorId);
+  assert.equal(proposalEvent.authorization.operation, 'pack.propose');
+  assert.equal(proposalEvent.authorization.authorityGroup, 'engineering-reviewers');
+  assert.match(proposalEvent.authorization.configurationCommit, /^[a-f0-9]{40,64}$/);
   const beforeRefusedActivation = await cas(store);
   await assert.rejects(() => registry.activate({
     domain: pack.domain,
     packSha256: pack.recordSha256,
     reviewSha256: d('missing-review'),
     confirmPackSha256: pack.recordSha256,
-    activatedBy: 'operator-a',
     ...beforeRefusedActivation
   }), (error) => error.code === 'SGOS_CAPABILITY_PACK_REVIEW_REQUIRED');
 
+  const spoofedReview = createPackReview({
+    packSha256: pack.recordSha256, reviewerId: 'attacker', decision: 'approved',
+    reason: 'forged identity', reviewedAt: at
+  });
+  const beforeSpoofedReview = await cas(store);
+  await assert.rejects(
+    () => registry.recordReview(spoofedReview, beforeSpoofedReview),
+    (error) => error.code === 'SGOS_CAPABILITY_PACK_REVIEWER_MISMATCH'
+  );
+  assert.deepEqual(await cas(store), beforeSpoofedReview);
+
   const review = createPackReview({
-    packSha256: pack.recordSha256, reviewerId: 'reviewer-a', decision: 'approved',
+    packSha256: pack.recordSha256, reviewerId: authority.actorId, decision: 'approved',
     reason: 'declarative contents reviewed', reviewedAt: at
   });
   await registry.recordReview(review, await cas(store));
@@ -465,10 +567,10 @@ test('signed declarative packs require exact review, activate by domain digest, 
     packSha256: pack.recordSha256,
     reviewSha256: review.recordSha256,
     confirmPackSha256: pack.recordSha256,
-    activatedBy: 'operator-a',
     ...await cas(store)
   });
   assert.equal(activation.packSha256, pack.recordSha256);
+  assert.equal(activation.activatedBy, authority.actorId);
   assert.equal((await registry.resolveActive(pack.domain, pack.recordSha256)).recordSha256, pack.recordSha256);
   await assert.rejects(() => registry.resolveActive(pack.domain, d('other-pack')),
     (error) => error.code === 'SGOS_CAPABILITY_PACK_SELECTION_MISMATCH');
@@ -482,7 +584,6 @@ test('signed declarative packs require exact review, activate by domain digest, 
 
   await registry.revoke({
     packSha256: pack.recordSha256,
-    revokedBy: 'security-reviewer',
     reason: 'publisher key retired',
     ...await cas(store)
   });
@@ -493,11 +594,13 @@ test('signed declarative packs require exact review, activate by domain digest, 
 
 test('meta-tool review packets require trusted accepted traces, independent human confirmation, and all evaluation gates', async (t) => {
   const directory = await temporaryDirectory(t);
+  const authority = await platformRepository(directory);
   const store = await openFilesystemAuthorityStore({ root: path.join(directory, 'authority'), storeId: 'meta-authority' });
   const traceIssuer = keys();
   const evaluator = keys();
   const service = createMetaToolService({
     authorityStore: store,
+    repositoryRoot: directory,
     trustedTraceIssuers: { 'trace-issuer': traceIssuer.publicKeyPem },
     trustedEvaluators: { 'evaluator-a': evaluator.publicKeyPem }
   });
@@ -518,9 +621,9 @@ test('meta-tool review packets require trusted accepted traces, independent huma
   const candidate = createMetaToolCandidate({
     candidateId: 'candidate-meta-one', operationId: 'operation-format-result',
     traceRefs: traces.map((trace) => trace.traceSha256).sort(),
-    proposerId: 'proposer-a', createdAt: at
+    proposerId: authority.actorId, createdAt: at
   });
-  await service.propose(candidate, signedTraces, { ...await cas(store), actorId: 'proposer-a' });
+  await service.propose(candidate, signedTraces, await cas(store));
 
   const blockedEvaluation = createMetaToolEvaluation({
     candidateSha256: candidate.recordSha256,
@@ -529,14 +632,14 @@ test('meta-tool review packets require trusted accepted traces, independent huma
   });
   await service.recordEvaluation(signPlatformRecord(blockedEvaluation, {
     privateKeyPem: evaluator.privateKeyPem, keyId: 'evaluator-a'
-  }), { ...await cas(store), actorId: 'evaluator-a' });
+  }), await cas(store));
   const beforeBlockedPromotion = await cas(store);
   await assert.rejects(() => service.promote({
     candidateSha256: candidate.recordSha256,
     evaluationSha256: blockedEvaluation.recordSha256,
     confirmCandidateSha256: candidate.recordSha256,
     confirmEvaluationSha256: blockedEvaluation.recordSha256,
-    reviewerId: 'reviewer-a', decision: 'approved', reason: 'reviewed',
+    decision: 'approved', reason: 'reviewed',
     ...beforeBlockedPromotion
   }), (error) => error.code === 'SGOS_META_TOOL_EVALUATION_BLOCKED');
 
@@ -548,26 +651,29 @@ test('meta-tool review packets require trusted accepted traces, independent huma
   });
   await service.recordEvaluation(signPlatformRecord(passingEvaluation, {
     privateKeyPem: evaluator.privateKeyPem, keyId: 'evaluator-a'
-  }), { ...await cas(store), actorId: 'evaluator-a' });
+  }), await cas(store));
   const beforeSelfReview = await cas(store);
   await assert.rejects(() => service.promote({
     candidateSha256: candidate.recordSha256,
     evaluationSha256: passingEvaluation.recordSha256,
     confirmCandidateSha256: candidate.recordSha256,
     confirmEvaluationSha256: passingEvaluation.recordSha256,
-    reviewerId: candidate.proposerId, decision: 'approved', reason: 'self review',
+    decision: 'approved', reason: 'self review',
     ...beforeSelfReview
   }), (error) => error.code === 'SGOS_META_TOOL_HUMAN_APPROVAL_REQUIRED');
 
+  git(directory, 'config', 'user.name', 'Platform Reviewer');
+  git(directory, 'config', 'user.email', authority.reviewerEmail);
   const promotion = await service.promote({
     candidateSha256: candidate.recordSha256,
     evaluationSha256: passingEvaluation.recordSha256,
     confirmCandidateSha256: candidate.recordSha256,
     confirmEvaluationSha256: passingEvaluation.recordSha256,
-    reviewerId: 'reviewer-a', decision: 'approved', reason: 'independent review completed',
+    decision: 'approved', reason: 'independent review completed',
     ...await cas(store)
   });
   assert.equal(promotion.status, 'pack-review-required');
+  assert.equal(promotion.reviewerId, authority.reviewerId);
   assert.equal(service.profile, 'review-packet-only-v1');
   assert.equal(Object.hasOwn(service, 'activate'), false);
 });

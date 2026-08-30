@@ -101,6 +101,7 @@ const entries = {
   regression: ['sf-regression-investigate'],
   submit: ['sf-submit'],
   clarification: ['sf-phase'],
+  comprehension: ['sf-inspect'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
   reopen: ['sf-reject'],

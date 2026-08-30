@@ -355,6 +355,9 @@ Usage:
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
+  singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
+  singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION]
+    [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
   singularity-flow agents list
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]

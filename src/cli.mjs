@@ -11614,6 +11614,7 @@ async function dispatch(command, positionals, options) {
     action: () => actionCommand(positionals, options),
     inputs: () => inputsCommand(positionals, options),
     spec: () => specCommand(positionals, options),
+    comprehension: async () => (await import('./commands/comprehension.mjs')).run(argv, { positionals, options }),
     'agents': () => agentsCommand(positionals, options),
     mcp: () => mcpCommand(positionals, options),
     visual: () => visualCommand(positionals, options),

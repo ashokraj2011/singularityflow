@@ -10,6 +10,7 @@ import { preservedEverything } from './command-result.mjs';
 import { approvalChainText } from '../approval-chain.mjs';
 import { contextXrayText } from '../context-xray.mjs';
 import { tokenLedgerText } from '../token-ledger.mjs';
+import { table } from '../util.mjs';
 import * as style from '../style.mjs';
 
 /**
@@ -119,6 +120,56 @@ function journalLines(result) {
   return [];
 }
 
+function comprehensionText(result) {
+  const { context = {}, manifest = null, coverage = null } = result.data ?? {};
+  const common = [
+    style.heading(headline(result)),
+    `Repository: ${context.repository ?? 'unavailable'}`,
+    `Repository change-set subject: ${manifest?.compatibilityCandidateSha256 ?? coverage?.candidateSha256 ?? 'unavailable'}`,
+    `Baseline: ${context.base ?? 'unavailable'} (${context.source ?? 'unknown'})`
+  ];
+  if (result.operation.id === 'comprehension.regions' && manifest) {
+    const rows = manifest.regions.map((region) => ({
+      region: region.regionId,
+      operation: region.operation,
+      path: region.location.pathAfter ?? region.location.pathBefore ?? '(unknown)',
+      assurance: region.classification.assurance
+    }));
+    return [
+      ...common,
+      `Granularity: ${manifest.granularity}; structural assurance: ${manifest.structuralAssurance}`,
+      'Every region is conservatively material and in scope; ownership has not been inferred.',
+      ...(rows.length ? ['', table(rows, [
+        { key: 'region', label: 'REGION' },
+        { key: 'operation', label: 'OPERATION' },
+        { key: 'path', label: 'PATH' },
+        { key: 'assurance', label: 'ASSURANCE' }
+      ])] : []),
+      '', style.detail('Observe only and non-authoritative: this result neither authorizes nor blocks publication.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  if (result.operation.id === 'comprehension.check' && coverage) {
+    const rows = coverage.unresolved.map((entry) => ({
+      region: entry.regionId,
+      path: entry.path ?? '(unknown)',
+      reason: entry.reason
+    }));
+    return [
+      ...common,
+      `Assessment: ${coverage.verdict}; unresolved: ${coverage.counts.unresolved}/${coverage.counts.materialRegions}`,
+      ...(rows.length ? ['', table(rows, [
+        { key: 'region', label: 'REGION' },
+        { key: 'path', label: 'PATH' },
+        { key: 'reason', label: 'REASON' }
+      ])] : []),
+      '', style.detail('Observe only and non-authoritative: this assessment neither authorizes nor blocks publication.'),
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
+  return [style.heading(headline(result)), preservationLine(result)].filter(Boolean).join('\n\n');
+}
+
 const REST_STATE_LINES = Object.freeze({
   complete: 'This work is complete. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
@@ -127,6 +178,7 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
+  if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();

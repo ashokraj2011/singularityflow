@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 5
+version: 7
 aliases:
   - ledger
   - worldline
@@ -11,11 +11,14 @@ commands:
   - ledger
   - receipt
   - spec
+  - comprehension
 related:
   - approvals
   - impact-framework
 ---
 Everything consequential is hash-linked: artifacts, inputs, approvals, checks, receipts. The append-only capability ledger mirrors lifecycle events as a tamper-evident chain; `sflow ledger verify` validates it from a bare clone, offline. `sflow spec index/coverage/trace` gives requirements stable clause identities and walks requirement → claim → commit → test evidence → approval. Mechanical coverage never claims semantic correctness — judgment and evidence are both retained and never confused. For auditors, fieldwork starts with `git clone`.
+
+The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
 
 ## Purpose and prerequisites
 
@@ -23,9 +26,9 @@ Use this topic when the current goal matches **evidence and ledger**. Start in a
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`. Run `singularity-flow ledger --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-ledger`. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, or `sflow comprehension check`. Run the command with `--help` for the exact forms supported by this build.
+- **Copilot:** `/sf-ledger` for durable evidence, or `/sf-inspect comprehension` for the read-only CMP pilot. The skill must preserve the CLI result and ask before any governed mutation.
+- **VS Code:** there is no CMP-specific panel in this pilot. Existing Lifecycle views remain unchanged; a leased Comprehension Center is planned only after kernel authority integration.
 
 ## Guided workflow
 

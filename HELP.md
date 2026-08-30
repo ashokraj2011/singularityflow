@@ -3034,6 +3034,10 @@ singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]
 singularity-flow pr [WORK-ID] [--create] [--yes] [--json]
 singularity-flow sync
 singularity-flow spec index [FILE] [--out FILE] [--dry-run]|claims|coverage|acceptance|trace ...
+singularity-flow comprehension regions [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
+singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION] [--json]
+  check also accepts bounded, untrusted --bindings and --dispositions repository JSON files;
+  this pilot is read-only and cannot authorize publication
 singularity-flow ledger init|doctor|status|log|show|verify|repair|reconcile|archive|deployment-check ...
 singularity-flow capabilities list|show|doctor|lease ...
 singularity-flow validate [--strict]

@@ -1,11 +1,11 @@
 import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -45,6 +45,7 @@ const LAZY_MODULES = Object.freeze({
   'meta-tool': './commands/sgos-extensions.mjs',
   workspace: './commands/workspace.mjs',
   capability: './commands/capability.mjs',
+  comprehension: './commands/comprehension.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'
@@ -90,7 +91,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['workflow'],
   ['assign'], ['watch'], ['recover'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
-  ['clarification'],
+  ['clarification'], ['comprehension'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
@@ -215,6 +216,7 @@ const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS
 const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
+const COMPREHENSION_SUBCOMMANDS = Object.freeze(['regions', 'check']);
 const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
@@ -283,6 +285,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   adhoc: ADHOC_SUBCOMMANDS,
   constitution: CONSTITUTION_SUBCOMMANDS,
   spec: SPEC_SUBCOMMANDS,
+  comprehension: COMPREHENSION_SUBCOMMANDS,
   story: STORY_SUBCOMMANDS,
   session: SESSION_SUBCOMMANDS,
   capability: CAPABILITY_SUBCOMMANDS,
@@ -399,6 +402,14 @@ function resolveSpecOperation(definition, positionals, options) {
   }
   if (subcommand === 'claims') return never('spec.claims', definition, 'mutation');
   return unknownSubcommand('spec', subcommand, SPEC_SUBCOMMANDS);
+}
+
+function resolveComprehensionOperation(definition, positionals) {
+  const subcommand = positionals[1] ?? 'check';
+  if (!COMPREHENSION_SUBCOMMANDS.includes(subcommand)) {
+    return unknownSubcommand('comprehension', subcommand, COMPREHENSION_SUBCOMMANDS);
+  }
+  return never(`comprehension.${subcommand}`, definition, 'read');
 }
 
 function resolveVisualOperation(definition, positionals) {
@@ -824,6 +835,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
   if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
+  if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
   if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
   if (definition.name === 'fault') return resolveFaultOperation(definition, positionals);
@@ -902,6 +914,7 @@ export function operationCatalog() {
   const reviewDefinition = commandDefinition('review');
   const inputsDefinition = commandDefinition('inputs');
   const specDefinition = commandDefinition('spec');
+  const comprehensionDefinition = commandDefinition('comprehension');
   const storyDefinition = commandDefinition('story');
   const sessionDefinition = commandDefinition('session');
   const capabilityDefinition = commandDefinition('capability');
@@ -982,6 +995,7 @@ export function operationCatalog() {
     never('spec.tasks', specDefinition, 'mutation'),
     never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
+    ...COMPREHENSION_SUBCOMMANDS.map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
     never('clarification.status', clarificationDefinition, 'read'),

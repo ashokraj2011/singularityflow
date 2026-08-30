@@ -152,6 +152,14 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.workId)} has ${slot(s.received)}/${slot(s.required)} required approval(s) across ${slot(s.phases)} phase(s).`,
     preserves: true
   },
+  'comprehension.regions-reported': {
+    headline: (s) => `Observed ${slot(s.regions, '0')} conservative change region(s) at ${slot(s.granularity, 'resource')} granularity.`,
+    preserves: true
+  },
+  'comprehension.coverage-reported': {
+    headline: (s) => `Comprehension assessment: ${slot(s.verdict)} with ${slot(s.unresolved, '0')} unresolved material region(s).`,
+    preserves: true
+  },
   'resume.succeeded': {
     headline: (s) => `Resumed ${slot(s.workId)} on ${slot(s.branch)}.`,
     preserves: false

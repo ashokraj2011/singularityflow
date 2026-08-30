@@ -79,6 +79,38 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  comprehension: {
+    summary: 'Inspect deterministic change regions and explanation coverage without changing lifecycle state.',
+    description: [
+      'The first CMP surface is an observe-only compatibility layer over the existing exact',
+      'repository change set. It treats each changed resource as material and in scope, gives',
+      'it a change-set-bound content identity, and evaluates caller-supplied diagnostic records.',
+      'It does not invoke a model, build AST, write records, approve, publish, or block a gate.',
+      '',
+      'Resource granularity is deliberately conservative and is not semantic proof. AST may later',
+      'decorate the same exact regions, but its absence can never make this command fail. Hard CMP',
+      'enforcement remains unavailable until ordinary Story publication and SGOS share one',
+      'universal Candidate authority and the existing Story approval transaction binds CMP evidence.',
+      '',
+      'Repository binding follows the normal CLI rule: a governed current checkout wins; otherwise',
+      'the explicitly selected workspace repository is used. The resolved repository is always',
+      'printed and returned in JSON. Baseline precedence is explicit --base, generation intent,',
+      'current work interval, delivery evidence, Story base, then HEAD.'
+    ],
+    options: [
+      ['--work-id WORK-ID', 'Select and validate a Story context; its baseline follows the documented generation/work-interval/delivery/Story precedence.'],
+      ['--phase PHASE', 'Select a phase within that Story; defaults to its current phase.'],
+      ['--base REVISION', 'Override Story baseline discovery with an explicit Git revision.'],
+      ['--bindings FILE', 'For check, load bounded, untrusted diagnostic binding JSON from inside the repository.'],
+      ['--dispositions FILE', 'For check, load bounded, untrusted diagnostic disposition JSON from inside the repository.'],
+      ['--json', 'Emit the complete manifest or computed coverage result.']
+    ],
+    examples: [
+      ['singularity-flow comprehension regions --base HEAD~1 --json', 'Inspect exact conservative regions without writing anything.'],
+      ['singularity-flow comprehension check --bindings review/bindings.json --json', 'Diagnose supplied bindings against the exact repository change-set subject; this cannot authorize publication.']
+    ],
+    seeAlso: ['spec', 'receipt', 'review', 'explain']
+  },
   adhoc: {
     summary: 'Start with local work and later land it through an exact reverse-converged record.',
     description: [

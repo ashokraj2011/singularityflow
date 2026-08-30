@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { initializeDefinition } from '../src/config.mjs';
+import { HELP } from '../src/help-text.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import {
   createGvmProgram, createIntentIr, createPolicySnapshot, createWorkflowIr,
@@ -15,6 +16,7 @@ import {
 } from '../src/sgos/contracts.mjs';
 import { compileSgosProgram, registrySnapshotDigest } from '../src/sgos/compiler.mjs';
 import { SGOS_BUILTIN_OPERATION_MANIFESTS } from '../src/sgos/builtin-adapters.mjs';
+import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import {
   createSgosProgramAuthorityRecord, sgosProgramAuthorityPath
 } from '../src/sgos/program-trust.mjs';
@@ -394,17 +396,62 @@ test('SGOS CLI compiles no authority from chat and runs a finite model-free Prog
   assert.equal(started.binding.subjectId, 'SGOS-CLI');
   const processId = started.process.processId;
 
-  const first = narrated(root, 'process', 'step', processId).data.result;
-  const second = narrated(root, 'process', 'step', processId).data.result;
+  const commandCenter = narrated(root, 'process', 'list').data.result;
+  const card = commandCenter.processes.find((entry) => entry.processId === processId);
+  assert.ok(card, 'the started Process is visible in the deterministic Command Center inventory');
+  assert.equal(card.processSha256, started.process.processSha256);
+  assert.equal(card.processRevision, started.process.processRevision);
+  assert.equal(commandCenter.runtimeProfile.id, 'bounded-static-parallel-lineage');
+  assert.equal(commandCenter.runtimeProfile.capabilities.parallelExecution.status, 'available');
+  assert.equal(commandCenter.runtimeProfile.capabilities.replay.status, 'available');
+  assert.equal(commandCenter.runtimeProfile.capabilities.fork.status, 'available');
+  const graph = narrated(root, 'process', 'graph', processId).data.result;
+  assert.equal(graph.processSha256, started.process.processSha256);
+  assert.equal(graph.processRevision, started.process.processRevision);
+  assert.equal(graph.programSha256, started.process.programSha256);
+
+  const fractionalParallel = flowResult(root, 'process', 'run', processId,
+    '--maximum-parallel', '1.5', '--json');
+  assert.notEqual(fractionalParallel.status, 0);
+  assert.match(fractionalParallel.stderr, /positive whole number.*installed execution bound/i);
+  const excessiveParallel = flowResult(root, 'process', 'run', processId,
+    '--maximum-parallel', String(SGOS_INSTALLED_LIMITS.maximumParallelExecutions + 1), '--json');
+  assert.notEqual(excessiveParallel.status, 0);
+  assert.match(excessiveParallel.stderr, /outside the installed execution bound/i);
+
+  const firstEnvelope = narrated(root, 'process', 'run', processId);
+  const first = firstEnvelope.data.result;
+  const secondEnvelope = narrated(root, 'process', 'run', processId, '--maximum-parallel', '2');
+  const second = secondEnvelope.data.result;
+  const idleEnvelope = narrated(root, 'process', 'run', processId, '--maximum-parallel', '2');
+  const idle = idleEnvelope.data.result;
   const status = narrated(root, 'process', 'status', processId).data.result;
   const tasks = narrated(root, 'task', 'list', processId).data.result;
 
-  assert.equal(first.status, 'succeeded', JSON.stringify(first));
-  assert.equal(second.status, 'succeeded', JSON.stringify(second));
+  assert.equal(first.launched, 1, JSON.stringify(first));
+  assert.equal(first.maximumParallel, SGOS_INSTALLED_LIMITS.maximumParallelExecutions);
+  assert.equal(first.taskInstanceIds.length, 1);
+  assert.equal(first.processChanged, true);
+  assert.equal(firstEnvelope.operation.id, 'process.run');
+  assert.equal(firstEnvelope.operation.classification, 'mutation');
+  assert.equal(firstEnvelope.effects.stateChanged, true);
+  assert.equal(second.launched, 1, JSON.stringify(second));
+  assert.equal(second.maximumParallel, 2);
+  assert.equal(second.process.status, 'succeeded');
+  assert.equal(idle.launched, 0);
+  assert.equal(idle.processChanged, false);
+  assert.deepEqual(idle.taskInstanceIds, []);
+  assert.equal(idleEnvelope.effects.stateChanged, false);
+  assert.equal(idleEnvelope.effects.filesChanged, false);
   assert.equal(status.process.status, 'succeeded');
   assert.equal(tasks.tasks.every((entry) => entry.state === 'succeeded' && entry.receiptSha256), true);
   assert.equal(await readFile(storyFile, 'utf8'), storyBefore, 'SGOS operational execution must not rewrite Story authority');
   assert.equal(git(root, 'rev-parse', 'HEAD'), headBefore, 'SGOS operational execution must not create a Git authority commit');
+});
+
+test('SGOS help documents the bounded one-wave process runner', () => {
+  assert.match(HELP, /process run <PROCESS-ID> \[--maximum-parallel N\] \[--json\]/);
+  assert.match(HELP, /one deterministic ready wave/);
 });
 
 test('built-in Story inspection refuses an uncommitted workflow mutation instead of attesting mutable state', async () => {

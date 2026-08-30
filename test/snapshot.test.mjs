@@ -177,6 +177,22 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.equal(Object.hasOwn(envelope, 'configuration'), false);
 });
 
+test('SGOS Command Center is a lazy isolated snapshot slice', async () => {
+  const root = await repository();
+  const scoped = await repositorySnapshot(root, null, null, { included: ['sgos'] });
+  assert.deepEqual(Object.keys(scoped), ['sgos']);
+  assert.equal(scoped.sgos.kind, 'sgos-command-center');
+  assert.equal(scoped.sgos.runtimeProfile.id, 'bounded-static-parallel-lineage');
+  assert.deepEqual(scoped.sgos.processes, []);
+  assert.equal(Object.hasOwn(scoped, 'lifecycle'), false);
+  assert.equal(Object.hasOwn(scoped, 'configuration'), false);
+
+  const cli = run(process.execPath, [bin, 'snapshot', '--include', 'sgos', '--json'], root);
+  const envelope = JSON.parse(cli.stdout);
+  assert.deepEqual(envelope.included, ['sgos']);
+  assert.equal(envelope.sgos.contentSha256, scoped.sgos.contentSha256);
+});
+
 test('read-only snapshots load approved configuration without copying it onto the application branch', async () => {
   const root = await repository();
   run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], root);

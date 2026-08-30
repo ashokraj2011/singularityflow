@@ -79,6 +79,7 @@ export class WorkspaceStore {
   /** A newly requested slice must not be answered by a revision-only not-modified receipt. */
   private forceFullSnapshot = false;
   private readonly loadedSlices = new Set<SnapshotSlice>(CORE_SNAPSHOT_SLICES);
+  private readonly sliceLeases = new Map<SnapshotSlice, number>();
   private disposed = false;
 
   constructor(client: SingularityFlowClient, cache: SnapshotCache | null = null) {
@@ -137,6 +138,59 @@ export class WorkspaceStore {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Keep heavyweight read-model slices only while a surface is using them.
+   *
+   * Older panels use `ensureSlices` and retain their historical behaviour. New heavy surfaces use
+   * this lease so closing the panel stops future refreshes from paying for its domain. SGOS is also
+   * removed from the in-memory/cache projection immediately because it has a single, isolated
+   * snapshot key; no authority is changed by releasing a read projection.
+   */
+  async acquireSlices(slices: readonly SnapshotSlice[]): Promise<{ dispose(): void }> {
+    const unique = [...new Set(slices)];
+    for (const slice of unique) this.sliceLeases.set(slice, (this.sliceLeases.get(slice) ?? 0) + 1);
+    try {
+      await this.ensureSlices(unique);
+    } catch (error) {
+      for (const slice of unique) this.releaseSlice(slice);
+      throw error;
+    }
+    let disposed = false;
+    return {
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        for (const slice of unique) this.releaseSlice(slice);
+      }
+    };
+  }
+
+  private releaseSlice(slice: SnapshotSlice): void {
+    const remaining = Math.max(0, (this.sliceLeases.get(slice) ?? 0) - 1);
+    if (remaining) {
+      this.sliceLeases.set(slice, remaining);
+      return;
+    }
+    this.sliceLeases.delete(slice);
+    if (CORE_SNAPSHOT_SLICES.includes(slice)) return;
+    this.loadedSlices.delete(slice);
+    if (slice !== 'sgos' || !this.state.snapshot?.sgos) return;
+    const { sgos: _discarded, ...withoutSgos } = this.state.snapshot;
+    const included = withoutSgos.included?.filter((entry) => entry !== 'sgos');
+    const slices = { ...(withoutSgos.revision?.slices ?? {}) };
+    delete slices.sgos;
+    const released: RepositorySnapshot = {
+      ...withoutSgos,
+      included,
+      notModified: false,
+      ...(withoutSgos.revision ? {
+        revision: { ...withoutSgos.revision, subjectRevision: undefined, slices }
+      } : {})
+    };
+    this.publish({ snapshot: released }, { kind: 'snapshot', revisionChanged: false });
+    try { this.cache?.write(released); } catch { /* A cache that cannot be written is not a failure. */ }
   }
 
   /** Sleep, unless the refresh is superseded or the window goes away first. */

@@ -11,6 +11,7 @@ import {
   recoverInterruptedSgosExecution as recoverInterruptedSgosExecutionInternal,
   respondToSgosHumanRequest as respondToSgosHumanRequestInternal,
   resumeSgosProcess as resumeSgosProcessInternal,
+  runSgosProcess as runSgosProcessInternal,
   startSgosProcess as startSgosProcessInternal,
   stepSgosProcess as stepSgosProcessInternal
 } from './runtime.mjs';
@@ -21,6 +22,7 @@ const OPTION_VOCABULARIES = Object.freeze({
     'processBinding'
   ]),
   stepSgosProcess: Object.freeze(['program', 'expectedRevision']),
+  runSgosProcess: Object.freeze(['program', 'expectedRevision', 'maximumParallel']),
   respondToSgosHumanRequest: Object.freeze([
     'requestId', 'requestSha256', 'expectedRevision', 'actor', 'decision', 'input', 'program'
   ]),
@@ -80,6 +82,10 @@ export async function startSgosProcess(root, options = {}) {
 
 export async function stepSgosProcess(root, processId, options = {}) {
   return stepSgosProcessInternal(root, processId, publicOptions('stepSgosProcess', options));
+}
+
+export async function runSgosProcess(root, processId, options = {}) {
+  return runSgosProcessInternal(root, processId, publicOptions('runSgosProcess', options));
 }
 
 export async function respondToSgosHumanRequest(root, processId, options = {}) {

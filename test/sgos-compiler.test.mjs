@@ -587,7 +587,7 @@ test('every executable and verification operation must exist in the pinned regis
   });
 });
 
-test('control flow unsupported by the runtime is rejected at compile time', async (t) => {
+test('unsupported control flow and malformed joins are rejected at compile time', async (t) => {
   await t.test('conditional task edge', () => {
     expectCode(() => compileSgosProgram(fixture({
       mutateWorkflow(workflow) { workflow.spec.tasks.copy.condition = { when: 'runtime-value' }; }
@@ -603,10 +603,9 @@ test('control flow unsupported by the runtime is rejected at compile time', asyn
   await t.test('declared join contract', () => {
     expectCode(() => compileSgosProgram(fixture({
       mutateWorkflow(workflow) { workflow.spec.joins = { all: { mode: 'all' } }; }
-    })), 'SGOS_OPCODE_RUNTIME_UNSUPPORTED');
+    })), 'SGOS_JOIN_TASK_UNKNOWN');
   });
   for (const [kind, opcode] of [
-    ['join', 'JOIN'],
     ['merge', 'MERGE'],
     ['subprocess', 'SPAWN'],
     ['compensation', 'COMPENSATE']
@@ -620,6 +619,73 @@ test('control flow unsupported by the runtime is rejected at compile time', asyn
       })), 'SGOS_OPCODE_RUNTIME_UNSUPPORTED');
     });
   }
+});
+
+test('all-success JOIN compiles to one exact installed join contract', () => {
+  const compiled = compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.join = {
+        kind: 'join', dependsOn: ['copy'], material: false,
+        metadata: { joinPolicy: 'all-success' }
+      };
+      workflow.spec.tasks.end.dependsOn = ['join'];
+      workflow.spec.joins = {
+        join: {
+          taskTemplateId: 'join', policy: 'all-success',
+          predecessorTaskTemplateIds: ['copy']
+        }
+      };
+      workflow.spec.budgets.maximumTasks = 3;
+    }
+  }));
+  assert.deepEqual(compiled.program.joins, [{
+    joinId: 'join', taskTemplateId: 'join', policy: 'all-success',
+    predecessorTaskTemplateIds: ['copy']
+  }]);
+  assert.equal(compiled.program.taskTemplates
+    .find((task) => task.taskTemplateId === 'join').opcode, 'JOIN');
+});
+
+test('finite foreach expands canonically into bounded non-nested children and an all-success join', () => {
+  const first = compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach',
+        maximumItems: 2,
+        maximumParallel: 2,
+        items: [{ key: 'beta', value: { n: 2 } }, { key: 'alpha', value: { n: 1 } }],
+        resources: { reads: ['input:message'], writes: [], devices: [], externalEffects: [] },
+        body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 4;
+    }
+  })).program;
+  const children = first.taskTemplates.filter((task) => task.metadata?.fanout)
+    .sort((left, right) => left.metadata.fanout.itemKey.localeCompare(right.metadata.fanout.itemKey));
+  assert.equal(children.length, 2);
+  assert.deepEqual(children.map((task) => task.metadata.fanout.itemKey), ['alpha', 'beta']);
+  assert.deepEqual(children.map((task) => task.metadata.fanout.maximumParallel), [2, 2]);
+  const coordinator = first.taskTemplates.find((task) => task.taskTemplateId === 'copy');
+  assert.equal(coordinator.opcode, 'JOIN');
+  const childIds = children.map((task) => task.taskTemplateId).sort();
+  assert.deepEqual(coordinator.dependsOn, childIds);
+  assert.deepEqual(first.joins, [{
+    joinId: 'copy', taskTemplateId: 'copy', policy: 'all-success',
+    predecessorTaskTemplateIds: childIds
+  }]);
+  assert.equal(first.programSha256, compileSgosProgram(fixture({
+    mutateWorkflow(workflow) {
+      workflow.spec.tasks.copy = {
+        ...workflow.spec.tasks.copy,
+        kind: 'foreach', maximumItems: 2, maximumParallel: 2,
+        items: [{ key: 'beta', value: { n: 2 } }, { key: 'alpha', value: { n: 1 } }],
+        resources: { reads: ['input:message'], writes: [], devices: [], externalEffects: [] },
+        body: { kind: 'task' }
+      };
+      workflow.spec.budgets.maximumTasks = 4;
+    }
+  })).program.programSha256);
 });
 
 test('task-count and retry ceilings are enforced at compile time', async (t) => {
@@ -647,6 +713,15 @@ test('task-count and retry ceilings are enforced at compile time', async (t) => 
     expectCode(() => compileSgosProgram(fixture({
       mutateWorkflow(workflow) { workflow.spec.tasks.copy.retry.maximumAttempts = 2; }
     })), 'SGOS_RETRY_CEILING_EXCEEDED');
+  });
+  await t.test('task resource lease must fit the installed bound', () => {
+    expectCode(() => compileSgosProgram(fixture({
+      mutateWorkflow(workflow) {
+        workflow.spec.tasks.copy.resources.reads = Array.from(
+          { length: 257 }, (_, index) => `repo/input/${index}`
+        );
+      }
+    })), 'SGOS_RESOURCE_LEASE_LIMIT');
   });
 });
 

@@ -10,7 +10,11 @@ import {
 import {
   compileSgosProgram, explainSgosProgram, simulateSgosProgram
 } from '../sgos/compiler.mjs';
+import { loadSgosCommandCenter } from '../sgos/command-center.mjs';
 import { sgosSha256 } from '../sgos/evidence.mjs';
+import {
+  forkSgosProcess, planSgosProcessFork, planSgosProcessReplay, replaySgosProcess
+} from '../sgos/lineage.mjs';
 import { compareSgosCodePoints } from '../sgos/order.mjs';
 import { projectSgosWorkObjects } from '../sgos/projection.mjs';
 import {
@@ -18,12 +22,14 @@ import {
   recoverInterruptedSgosExecution, respondToSgosHumanRequest, resumeSgosProcess,
   startSgosProcess, stepSgosProcess
 } from '../sgos/runtime.mjs';
+import { runSgosProcess } from '../sgos/public-runtime.mjs';
+import { SGOS_INSTALLED_LIMITS } from '../sgos/limits.mjs';
 import {
   fsckSgosProcess, planSgosProcessQuarantine, quarantineSgosProcess,
   readSgosImmutableRecord, readSgosProgram
 } from '../sgos/store.mjs';
 import {
-  SingularityFlowError, nowIso, optionBoolean, optionString,
+  SingularityFlowError, nowIso, optionBoolean, optionNumber, optionString,
   secureRepositoryPath, writeAtomic
 } from '../util.mjs';
 import {
@@ -41,7 +47,8 @@ function fail(message, code, details = null) {
 
 const MUTATION_OPERATIONS = new Set([
   'intent.capture', 'intent.compile',
-  'process.start', 'process.step', 'process.pause', 'process.resume', 'process.recover',
+  'process.start', 'process.step', 'process.run', 'process.pause', 'process.resume', 'process.recover',
+  'process.replay.plan', 'process.replay', 'process.fork.plan', 'process.fork',
   'process.quarantine', 'process.archive',
   'request.respond'
 ]);
@@ -285,6 +292,16 @@ async function programCommand(root, positionals, options) {
 
 async function processCommand(root, positionals, options) {
   const action = positionals[1] ?? 'status';
+  if (action === 'list') {
+    const board = await loadSgosCommandCenter(root);
+    return emit(board, options, (value) => {
+      const healthy = value.processes.length;
+      const unavailable = value.unavailable.length;
+      const needsYou = value.needsYou.length;
+      return `${healthy} Process${healthy === 1 ? '' : 'es'} · ${needsYou} need${needsYou === 1 ? 's' : ''} you`
+        + (unavailable ? ` · ${unavailable} unavailable` : '');
+    }, { operation: 'process.list' });
+  }
   if (action === 'start') {
     const subjectKind = optionString(options, 'subject-kind', 'repository');
     if (!['story', 'repository'].includes(subjectKind)) {
@@ -316,6 +333,49 @@ async function processCommand(root, positionals, options) {
     return emit(result, options,
       (value) => `${processSummary(value.process)} · checkpoint ${value.checkpoint.checkpointSha256}`,
       { operation: 'process.start', changed: Boolean(result.created || result.recoveredStart) });
+  }
+  if (action === 'replay') {
+    const processId = positionals[2];
+    if (!processId) fail('process replay requires a Process ID.', 'SGOS_PROCESS_ID_REQUIRED');
+    const confirmationSha256 = optionString(options, 'confirm');
+    if (confirmationSha256 == null) {
+      const fromCheckpointSha256 = optionString(options, 'from');
+      if (!fromCheckpointSha256) {
+        fail('process replay preview requires --from <CHECKPOINT-SHA256>.',
+          'SGOS_CHECKPOINT_REQUIRED');
+      }
+      const plan = await planSgosProcessReplay(root, processId, { fromCheckpointSha256 });
+      return emit(plan, options,
+        (value) => `Replay ${value.taskInstanceIds.length} pure suffix task(s); confirm ${value.replayPlanSha256}.`,
+        { operation: 'process.replay.plan', changed: true });
+    }
+    const result = await replaySgosProcess(root, processId, { confirmationSha256 });
+    return emit(result, options,
+      (value) => `Reopened ${value.plan.taskInstanceIds.length} pure suffix task(s) in ${value.process.processId}.`,
+      { operation: 'process.replay', changed: true });
+  }
+  if (action === 'fork') {
+    const processId = positionals[2];
+    if (!processId) fail('process fork requires a Process ID.', 'SGOS_PROCESS_ID_REQUIRED');
+    const confirmationSha256 = optionString(options, 'confirm');
+    if (confirmationSha256 == null) {
+      const fromCheckpointSha256 = optionString(options, 'from');
+      if (!fromCheckpointSha256) {
+        fail('process fork preview requires --from <CHECKPOINT-SHA256>.',
+          'SGOS_CHECKPOINT_REQUIRED');
+      }
+      const plan = await planSgosProcessFork(root, processId, {
+        fromCheckpointSha256,
+        label: optionString(options, 'label', 'fork')
+      });
+      return emit(plan, options,
+        (value) => `Fork ${value.childProcessId} from genesis; confirm ${value.forkPlanSha256}.`,
+        { operation: 'process.fork.plan', changed: true });
+    }
+    const result = await forkSgosProcess(root, processId, { confirmationSha256 });
+    return emit(result, options,
+      (value) => `Created independent Process ${value.child.processId} from ${value.parent.processId}.`,
+      { operation: 'process.fork', changed: true });
   }
   const processId = positionals[2];
   if (!processId) fail(`process ${action} requires a Process ID.`, 'SGOS_PROCESS_ID_REQUIRED');
@@ -361,7 +421,15 @@ async function processCommand(root, positionals, options) {
     const process = await readSgosProcess(root, processId);
     const program = (await readSgosProgram(root, processId, process.programSha256)).record;
     const tasks = Object.values(process.taskInstances).sort((a, b) => compareSgosCodePoints(a.taskTemplateId, b.taskTemplateId));
-    return emit({ processId, programId: program.programId, tasks, edges: program.edges }, options,
+    return emit({
+      processId,
+      processRevision: process.processRevision,
+      processSha256: process.processSha256,
+      programId: program.programId,
+      programSha256: process.programSha256,
+      tasks,
+      edges: program.edges
+    }, options,
       (value) => value.tasks.map((task) => `${task.taskTemplateId.padEnd(24)} ${task.state}`).join('\n'),
       { operation: 'process.graph' });
   }
@@ -371,6 +439,29 @@ async function processCommand(root, positionals, options) {
       ? `${value.taskInstanceId}: ${value.status}. ${processSummary(value.process)}`
       : `No task dispatched. ${processSummary(value.process)}`,
     { operation: 'process.step', changed: Boolean(result.taskInstanceId) });
+  }
+  if (action === 'run') {
+    const maximumParallel = optionNumber(
+      options, 'maximum-parallel', SGOS_INSTALLED_LIMITS.maximumParallelExecutions
+    );
+    if (!Number.isSafeInteger(maximumParallel)) {
+      fail('--maximum-parallel must be a positive whole number within the installed execution bound.',
+        'SGOS_PARALLEL_LIMIT', {
+          maximumParallel,
+          installed: SGOS_INSTALLED_LIMITS.maximumParallelExecutions
+        });
+    }
+    const before = await readSgosProcess(root, processId);
+    const result = await runSgosProcess(root, processId, { maximumParallel });
+    const processChanged = before.processSha256 !== result.process.processSha256;
+    const report = { ...result, maximumParallel, processChanged };
+    return emit(report, options,
+      (value) => value.launched > 0
+        ? `Launched ${value.launched} task${value.launched === 1 ? '' : 's'} in one bounded wave: ${value.taskInstanceIds.join(', ')}. ${processSummary(value.process)}`
+        : value.processChanged
+          ? `No task was launched, but exact runtime reconciliation changed Process state. ${processSummary(value.process)}`
+          : `No task was launched; no Process state changed. ${processSummary(value.process)}`,
+      { operation: 'process.run', changed: processChanged });
   }
   if (action === 'pause') {
     const value = await pauseSgosProcess(root, processId, {});
@@ -403,7 +494,7 @@ async function processCommand(root, positionals, options) {
       (value) => value.interrupted
         ? `${value.taskTemplateId} has one recoverable execution boundary; ${value.actions.length} exact recovery action(s) available.`
         : `${value.status}. No interrupted execution requires recovery.`,
-    { operation: 'process.recover' });
+    { operation: 'process.recover.plan' });
   }
   fail(`Unknown process action '${action}'.`, 'UNKNOWN_SUBCOMMAND');
 }

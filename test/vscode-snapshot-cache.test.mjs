@@ -87,3 +87,42 @@ test('only a confirmed snapshot is remembered for next time', () => {
   assert.deepEqual(drive({ cached: null, snapshotFails: true }).writes, [],
     'the failure-recovery inventory was cached as if it were the repository');
 });
+
+test('a leased SGOS slice loads lazily and is released when Command Center closes', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    const calls = [];
+    const client = {
+      async snapshot(_signal, slices) {
+        calls.push([...slices]);
+        const hasSgos = slices.includes('sgos');
+        return {
+          workItems: [], initiatives: [], included: [...slices],
+          ...(hasSgos ? { sgos: { projectionVersion:1, kind:'sgos-command-center', processes:[], needsYou:[], unavailable:[], counts:{}, contentSha256:'sha256:${'a'.repeat(64)}', runtimeProfile:{ id:'bounded-static-parallel-lineage', capabilities:{} } } } : {}),
+          revision: { subjectRevision: 'revision-' + calls.length, slices: hasSgos ? { sgos:'sgos-1' } : {} }
+        };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client);
+    await store.refresh();
+    const beforeLease = calls.at(-1);
+    const lease = await store.acquireSlices(['sgos']);
+    const loaded = Boolean(store.current.snapshot?.sgos);
+    const duringLease = calls.at(-1);
+    lease.dispose();
+    const released = !store.current.snapshot?.sgos;
+    await store.refresh();
+    process.stdout.write(JSON.stringify({ beforeLease, duringLease, afterRelease:calls.at(-1), loaded, released }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  const value = JSON.parse(result.stdout);
+  assert.deepEqual(value.beforeLease.sort(), ['capabilities', 'lifecycle', 'repository']);
+  assert.ok(value.duringLease.includes('sgos'));
+  assert.equal(value.loaded, true);
+  assert.equal(value.released, true);
+  assert.equal(value.afterRelease.includes('sgos'), false);
+});

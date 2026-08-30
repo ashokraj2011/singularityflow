@@ -89,7 +89,9 @@ test('schema census and doctor classify every persisted SGOS sidecar family', as
   const report = await doctorSnapshot(root, { offline: true, probeModelProvider: false });
   const check = report.checks.find((entry) => entry.id === 'schema-migrations');
   assert.equal(check.status, 'pass');
-  assert.match(check.message, /24 registered durable record\(s\)/);
+  assert.match(check.message, new RegExp(
+    `${records.length + SGOS_RECORD_INDEX_FAMILIES.length} registered durable record\\(s\\)`
+  ));
 });
 
 test('SGOS record reservations retain the exact underlying immutable family', () => {

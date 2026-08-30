@@ -7,6 +7,7 @@
  */
 import type * as vscode from 'vscode';
 import { WORKFLOW_GRAPH_STYLES } from './workflow-graph-svg.ts';
+import { SGOS_GRAPH_STYLES } from './sgos-process-graph-svg.ts';
 export { icon, ICON_NAMES, type IconName } from './icons.ts';
 
 /** Everything that reaches a page goes through this. */
@@ -836,6 +837,24 @@ export const STYLE = `
     .card-foot > button:not(.link), .form-actions > button:not(.link) { width: 100%; }
     .phase-detail, .editor-card, .decision-card, .card { padding-inline: .75rem; }
   }
+  .sgos-toolbar { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; margin:.8rem 0 1rem; }
+  .sgos-toolbar .meta { margin:0 auto 0 0; }
+  .sgos-lanes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(18rem,100%),1fr)); gap:1rem; }
+  .sgos-lane { min-width:0; padding:.8rem; border:var(--sf-border); border-radius:var(--sf-radius); background:var(--sf-surface-raised); }
+  .sgos-lane h2 { margin:.1rem 0 .7rem; }
+  .sgos-process { width:100%; display:grid; gap:.3rem; padding:.75rem; margin:.5rem 0; text-align:left; color:var(--vscode-foreground); background:var(--sf-surface); border:var(--sf-border); border-left:3px solid var(--sf-accent); border-radius:var(--sf-radius); }
+  .sgos-process:hover, .sgos-process.selected { border-color:var(--sf-accent); background:var(--sf-accent-quiet); }
+  .sgos-process small, .sgos-facts dd { color:var(--sf-dim); }
+  .sgos-facts { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:.3rem .7rem; }
+  .sgos-facts dt { font-weight:600; }
+  .sgos-facts dd { margin:0; overflow-wrap:anywhere; }
+  .sgos-request { border-left-color:var(--sf-wait); }
+  .sgos-capabilities { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(16rem,100%),1fr)); gap:.65rem; }
+  .sgos-capability { padding:.75rem; border:var(--sf-border); border-radius:var(--sf-radius); }
+  .sgos-capability[data-status="staged"], .sgos-capability[data-status="unsupported"] { opacity:.82; }
+  .sgos-capability strong, .sgos-capability small { display:block; }
+  .sgos-unavailable { border-left:3px solid var(--sf-bad); }
+  @media (max-width:700px) { .sgos-graph-wrap { display:none; } }
 `;
 
 /** Wrap a rendered body in the document shell, with the CSP and nonce already applied. */
@@ -972,7 +991,7 @@ export function page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escape(title)}</title>
-<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}</style>
+<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}${SGOS_GRAPH_STYLES}</style>
 </head><body>
 ${body}
 ${footer}

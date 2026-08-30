@@ -74,4 +74,11 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['wm', 'ast', 'cache', 'clear']), 'mutation');
   assert.equal(commandClass(['wm', 'ast', 'preference', 'show']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'preference', 'set', 'off']), 'mutation');
+  assert.equal(commandClass(['process', 'replay', 'PROC-123456', '--from', 'sha256:checkpoint']), 'mutation');
+  assert.equal(commandClass(['process', 'replay', 'PROC-123456', '--confirm', 'sha256:plan']), 'mutation');
+  assert.equal(commandClass(['candidate', 'publish', 'CAN-123456']), 'mutation');
+  assert.equal(commandClass(['candidate', 'publish', 'CAN-123456', '--confirm', 'sha256:plan']), 'mutation');
+  assert.equal(commandClass(['device', 'revoke', 'sha256:manifest']), 'read');
+  assert.equal(commandClass(['authority-store', 'recover']), 'read');
+  assert.equal(commandClass(['authority-store', 'recover', '--confirm', 'sha256:plan']), 'mutation');
 });

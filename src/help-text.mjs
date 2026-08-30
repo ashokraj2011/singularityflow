@@ -267,11 +267,18 @@ Usage:
   singularity-flow process status <PROCESS-ID> [--json]
   singularity-flow process graph <PROCESS-ID> [--json]
   singularity-flow process step <PROCESS-ID> [--json]
+  singularity-flow process run <PROCESS-ID> [--maximum-parallel N] [--json]
+    execute one deterministic ready wave; N defaults to the installed bounded maximum
   singularity-flow process pause <PROCESS-ID> [--json]
   singularity-flow process resume <PROCESS-ID> --confirm <CHECKPOINT-SHA256> [--json]
   singularity-flow process recover <PROCESS-ID> [--json]
   singularity-flow process recover <PROCESS-ID> --attempt-id <ATTEMPT-ID>
     --resolution reconcile-success|retry-safe|fail --confirm <SHA256> [--json]
+  singularity-flow process replay <PROCESS-ID> --from <CHECKPOINT-SHA256> [--confirm <REPLAY-PLAN-SHA256>] [--json]
+    first records an exact confirmation plan; pure suffix only, with unsafe effects and stale plans refused
+  singularity-flow process fork <PROCESS-ID> --from <GENESIS-CHECKPOINT-SHA256>
+    [--label <LOWER-KEBAB>] [--confirm <FORK-PLAN-SHA256>] [--json]
+    first records an exact genesis-only fork plan; confirmation creates the independent Process
   singularity-flow process quarantine <PROCESS-ID> [--confirm <TREE-SHA256>] [--json]
   singularity-flow process archive <PROCESS-ID> ...  # compatibility alias for quarantine
     preserve an unreadable v1 machine-local Process; preview first, never restore it as v2
@@ -284,6 +291,17 @@ Usage:
     (--decision approved|rejected|provided|cancelled | --option <DECLARED-OPTION-ID>)
     [--input-json <JSON> | --sensitive-handle <NON-SECRET-HANDLE-JSON>]
     --confirm <REQUEST-SHA256> [--json]
+  singularity-flow candidate list|show|freeze|verify|publish ... [--json]
+    publish first records an exact confirmation plan; repeat with --confirm <PUBLICATION-PACKET-SHA256>
+  singularity-flow execution-unit list|doctor [ID|all] [--json]
+  singularity-flow device list|doctor|invoke|recover|intent|result|revoke ... [--json]
+    invoke and recovery read the complete typed request from --request <REPOSITORY-JSON-FILE>
+  singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm <RECOVERY-PLAN-SHA256>] [--json]
+  singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow learn list|show ... --role <ROLE> --trust <PUBLIC-TRUST-JSON> [--json]
+  singularity-flow memory inspect|dependencies|register|promote ... [--store ID] [--json]
+  singularity-flow meta-tool list|propose|evaluation|promote ... [--store ID] [--json]
+    private keys, secrets, credentials and tokens are never accepted in command arguments
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]

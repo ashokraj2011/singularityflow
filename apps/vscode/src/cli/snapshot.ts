@@ -465,6 +465,83 @@ export interface ModelRoutingProjection {
   tasks: ModelRoutingTask[];
 }
 
+export interface SgosActionDescriptor {
+  id: string;
+  operation: string;
+  enabled: boolean;
+  reason: string | null;
+  source: { processId: string; processRevision: number | null; processSha256: string | null };
+}
+
+export interface SgosProcessCard {
+  kind: 'sgos-process-card';
+  processId: string;
+  processRevision: number;
+  processSha256: string;
+  programSha256: string;
+  status: string;
+  statusLabel: string;
+  subject: { kind: string | null; id: string | null; branch: string | null; baselineRevision: string | null };
+  taskCounts: Record<string, number>;
+  currentTask: {
+    taskInstanceId: string; taskTemplateId: string; state: string;
+    revision: number; receiptSha256: string | null;
+  } | null;
+  taskCount: number;
+  evidenceReady: number;
+  openRequestCount: number;
+  currentCheckpointSha256: string | null;
+  updatedAt: string | null;
+  available: true;
+  successClaimed: boolean;
+  resumable: boolean;
+  actions: SgosActionDescriptor[];
+}
+
+export interface SgosUnavailableProcessCard {
+  kind: 'sgos-process-unavailable-card';
+  processId: string;
+  processRevision: null;
+  processSha256: null;
+  status: 'unavailable';
+  statusLabel: string;
+  available: false;
+  successClaimed: false;
+  resumable: false;
+  error: { code: string; message: string };
+  actions: SgosActionDescriptor[];
+}
+
+export interface SgosWorkObject {
+  schemaVersion: number;
+  kind: 'work-object';
+  objectId: string;
+  objectSha256: string;
+  processId: string;
+  taskInstanceId: string | null;
+  createdAt: string | null;
+  view: {
+    type: string;
+    schema: Record<string, unknown>;
+    dataRef: string;
+    actions: Array<{ id: string; label: string; operation: string; inputSchema: Record<string, unknown> }>;
+  };
+}
+
+export interface SgosCommandCenterSnapshot {
+  projectionVersion: number;
+  kind: 'sgos-command-center';
+  contentSha256: string;
+  runtimeProfile: {
+    id: string;
+    capabilities: Record<string, { status: 'available' | 'staged' | 'unsupported'; reason: string }>;
+  };
+  counts: Record<string, number>;
+  processes: SgosProcessCard[];
+  needsYou: SgosWorkObject[];
+  unavailable: SgosUnavailableProcessCard[];
+}
+
 export interface RepositorySnapshot {
   /** Read-model slices currently present in this projection. */
   included?: SnapshotSlice[];
@@ -493,6 +570,8 @@ export interface RepositorySnapshot {
   selectedInitiativeId: string | null;
   initiative: InitiativeSnapshot | null;
   workflow: StoryWorkflow | null;
+  /** Lazy projection-only SGOS Process inventory; absent until Command Center acquires the slice. */
+  sgos?: SgosCommandCenterSnapshot;
   /**
    * Governed mobile/design evidence joined by the engine from committed Story state. Reading this
    * never contacts an MCP server; network readiness is an explicit user action in the panel.
@@ -736,7 +815,7 @@ export interface RepositorySnapshot {
   [key: string]: unknown;
 }
 
-export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics';
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos';
 
 export interface VisualEvidenceRecord {
   id: string;

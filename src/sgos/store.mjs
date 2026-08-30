@@ -26,6 +26,7 @@ import { sgosContractPathFromLocal } from './paths.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { assertSgosProcessMaterialization } from './materialization.mjs';
 import { compareSgosCodePoints } from './order.mjs';
+import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
@@ -80,6 +81,10 @@ const WINDOWS_DIRECTORY_SYNC_UNSUPPORTED = new Set(['EACCES', 'EBADF', 'EISDIR',
 const IMMUTABLE_FAMILIES = Object.freeze({
   'gvm-program': Object.freeze({ directory: 'programs', hashField: 'programSha256' }),
   'candidate-snapshot': Object.freeze({ directory: 'candidate-snapshots', hashField: 'candidateSha256' }),
+  'resource-lease': Object.freeze({ directory: 'resource-leases', hashField: 'leaseSha256' }),
+  'join-receipt': Object.freeze({ directory: 'join-receipts', hashField: 'joinReceiptSha256' }),
+  'fanout-expansion-receipt': Object.freeze({ directory: 'fanout-expansions', hashField: 'expansionSha256' }),
+  'sgos-replay-plan': Object.freeze({ directory: 'replay-plans', hashField: 'replayPlanSha256' }),
   'process-binding': Object.freeze({ directory: 'bindings', hashField: 'bindingSha256' }),
   'sgos-record-index': Object.freeze({ directory: 'record-indexes', hashField: 'recordIndexSha256' }),
   'sgos-control-event': Object.freeze({ directory: 'control-events', hashField: 'controlEventSha256' }),
@@ -1174,8 +1179,9 @@ function assertProcessShape(state) {
     if (task.state === 'succeeded' && !SHA256.test(String(task.receiptSha256 ?? ''))) {
       fail(`SGOS task '${taskId}' cannot succeed without an exact receipt.`, 'SGOS_SUCCESS_WITHOUT_RECEIPT');
     }
-    if (task.state !== 'succeeded' && task.receiptSha256 != null) {
-      fail(`SGOS task '${taskId}' cannot retain a receipt outside succeeded state.`,
+    if (task.state !== 'succeeded' && task.receiptSha256 != null
+        && !SHA256.test(String(task.invalidatedBy ?? ''))) {
+      fail(`SGOS task '${taskId}' cannot retain a receipt outside succeeded state without an exact replay plan.`,
         'SGOS_RECEIPT_LINEAGE_INVALID');
     }
   }
@@ -1194,7 +1200,157 @@ function assertProcessShape(state) {
   return state;
 }
 
-function assertImmutableCore(before, after) {
+function replayTaskProjection(task) {
+  return {
+    taskInstanceId: task.taskInstanceId,
+    taskTemplateId: task.taskTemplateId,
+    state: task.state,
+    revision: task.revision,
+    inputRefs: [...task.inputRefs],
+    attemptIds: [...task.attemptIds],
+    receiptSha256: task.receiptSha256,
+    outputRefs: [...task.outputRefs],
+    invalidatedBy: task.invalidatedBy
+  };
+}
+
+function replayTaskOrder(left, right) {
+  return compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId)
+    || compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
+}
+
+function replayAttemptCeiling(program, template) {
+  const taskMaximum = template.retry?.maximumAttempts
+    ?? template.retryPolicy?.maximumAttempts ?? 1;
+  const programMaximum = program.budgets?.maximumAttemptsPerTask
+    ?? program.budgets?.maximumAttempts ?? SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask;
+  return Math.min(taskMaximum, programMaximum, SGOS_INSTALLED_LIMITS.maximumAttemptsPerTask);
+}
+
+async function assertReplayPlanAuthority(root, before, plan) {
+  if (plan.processId !== before.processId
+      || plan.expectedProcessRevision !== before.processRevision
+      || plan.expectedProcessSha256 !== before.processSha256
+      || plan.programSha256 !== before.programSha256
+      || plan.policySnapshotSha256 !== before.policySnapshotSha256
+      || plan.processBindingSha256 !== before.processBindingSha256) {
+    fail('SGOS replay plan does not bind the exact current Process authority.',
+      'SGOS_REPLAY_PLAN_STALE', { replayPlanSha256: plan.replayPlanSha256 });
+  }
+  if (before.activeExecutions.length || before.activeLeases.length
+      || before.openHumanRequests.length) {
+    fail('SGOS replay requires a quiescent Process.', 'SGOS_LINEAGE_NOT_QUIESCENT');
+  }
+  let checkpoint = null;
+  let cursor = before.currentCheckpointSha256;
+  for (let depth = 0; cursor !== null && depth <= MAX_CONTROL_RECORDS; depth += 1) {
+    const candidate = (await readSgosImmutableRecord(
+      root, before.processId, 'gvm-checkpoint', cursor
+    )).record;
+    if (candidate.processId !== before.processId
+        || candidate.programSha256 !== before.programSha256
+        || candidate.policySnapshotSha256 !== before.policySnapshotSha256
+        || candidate.processBindingSha256 !== before.processBindingSha256) {
+      fail('SGOS replay checkpoint crosses an immutable Process boundary.',
+        'SGOS_CHECKPOINT_INVALID', { checkpointSha256: cursor });
+    }
+    if (cursor === plan.fromCheckpointSha256) {
+      checkpoint = candidate;
+      break;
+    }
+    cursor = candidate.priorCheckpointSha256;
+  }
+  if (checkpoint === null) {
+    fail('SGOS replay checkpoint is not an ancestor of the current Process.',
+      'SGOS_CHECKPOINT_NOT_ANCESTOR', { checkpointSha256: plan.fromCheckpointSha256 });
+  }
+  if (!await isRootedRecord(
+    root, before.processId, before.recordIndexSha256,
+    'gvm-checkpoint', plan.fromCheckpointSha256
+  )) {
+    fail('SGOS replay checkpoint is not rooted in the Process record index.',
+      'SGOS_CHECKPOINT_INVALID', { checkpointSha256: plan.fromCheckpointSha256 });
+  }
+  const expectedTasks = Object.values(before.taskInstances)
+    .filter((task) => !['succeeded', 'skipped'].includes(
+      checkpoint.taskStates?.[task.taskInstanceId]
+    ))
+    .sort(replayTaskOrder);
+  if (!expectedTasks.length
+      || canonicalJson(expectedTasks.map((task) => task.taskInstanceId))
+        !== canonicalJson(plan.taskInstanceIds)
+      || canonicalJson(expectedTasks.map(replayTaskProjection))
+        !== canonicalJson(plan.priorTasks)) {
+    fail('SGOS replay plan does not bind the exact pure suffix task projection.',
+      'SGOS_REPLAY_PLAN_STALE', { replayPlanSha256: plan.replayPlanSha256 });
+  }
+  const program = (await readSgosImmutableRecord(
+    root, before.processId, 'gvm-program', before.programSha256
+  )).record;
+  const templates = new Map(program.taskTemplates.map((template) => [
+    template.taskTemplateId, template
+  ]));
+  for (const task of expectedTasks) {
+    const template = templates.get(task.taskTemplateId);
+    if (!template || !['succeeded', 'failed', 'blocked', 'cancelled'].includes(task.state)
+        || task.attemptIds.length === 0) {
+      fail(`SGOS task '${task.taskInstanceId}' is not a completed replay suffix task.`,
+        'SGOS_REPLAY_PLAN_INVALID');
+    }
+    const resources = template.resources ?? {};
+    if ((resources.writes?.length ?? 0) > 0
+        || (resources.devices?.length ?? 0) > 0
+        || (resources.externalEffects?.length ?? 0) > 0) {
+      fail(`SGOS task '${task.taskInstanceId}' has effects that the pure replay profile cannot repeat.`,
+        'SGOS_REPLAY_EFFECT_UNSAFE');
+    }
+    if (task.attemptIds.length >= replayAttemptCeiling(program, template)) {
+      fail(`SGOS task '${task.taskInstanceId}' has no remaining governed attempt.`,
+        'SGOS_REPLAY_ATTEMPT_CEILING');
+    }
+  }
+  return Object.freeze({ plan, checkpoint, program });
+}
+
+function assertExactReplayTransition(before, after, plan) {
+  const replaySet = new Set(plan.taskInstanceIds);
+  if (after.status !== 'running'
+      || after.currentCheckpointSha256 !== plan.fromCheckpointSha256
+      || after.activeExecutions.length || after.activeLeases.length
+      || after.openHumanRequests.length) {
+    fail('SGOS replay transition changed state outside its exact quiescent suffix boundary.',
+      'SGOS_REPLAY_TRANSITION_INVALID');
+  }
+  for (const [taskId, beforeTask] of Object.entries(before.taskInstances)) {
+    const afterTask = after.taskInstances[taskId];
+    if (!replaySet.has(taskId)) {
+      if (canonicalJson(afterTask) !== canonicalJson(beforeTask)) {
+        fail(`SGOS replay attempted to change non-suffix task '${taskId}'.`,
+          'SGOS_REPLAY_TRANSITION_INVALID');
+      }
+      continue;
+    }
+    const hasReplayPredecessor = beforeTask.predecessorTaskInstanceIds.some((id) => replaySet.has(id));
+    const outsideReady = beforeTask.predecessorTaskInstanceIds
+      .filter((id) => !replaySet.has(id))
+      .every((id) => ['succeeded', 'skipped'].includes(before.taskInstances[id]?.state));
+    const expected = {
+      ...clone(beforeTask),
+      state: outsideReady && !hasReplayPredecessor ? 'ready' : 'waiting',
+      invalidatedBy: plan.replayPlanSha256,
+      revision: beforeTask.revision + 1
+    };
+    if (canonicalJson(afterTask) !== canonicalJson(expected)) {
+      fail(`SGOS replay task '${taskId}' does not match its exact authorized reset.`,
+        'SGOS_REPLAY_TRANSITION_INVALID');
+    }
+  }
+}
+
+async function assertImmutableCore(before, after, {
+  replayPlan = null,
+  appliedReplayPlans = new Map()
+} = {}) {
   const fields = [
     'processId', 'programSha256', 'policySnapshotSha256', 'processBindingSha256',
     'taskContractSha256', 'authorityBinding', 'createdAt'
@@ -1242,7 +1398,10 @@ function assertImmutableCore(before, after) {
     }
     const beforeTask = before.taskInstances[id];
     const afterTask = after.taskInstances[id];
-    if (canonicalJson(beforeTask.invalidatedBy ?? null)
+    const replayReset = replayPlan !== null
+      && replayPlan.taskInstanceIds.includes(id)
+      && afterTask.invalidatedBy === replayPlan.replayPlanSha256;
+    if (!replayReset && canonicalJson(beforeTask.invalidatedBy ?? null)
         !== canonicalJson(afterTask.invalidatedBy ?? null)) {
       fail(`SGOS task '${id}' attempted to replace immutable 'invalidatedBy'.`,
         'SGOS_TASK_BINDING_CHANGED', { taskInstanceId: id, field: 'invalidatedBy' });
@@ -1258,6 +1417,17 @@ function assertImmutableCore(before, after) {
       if (changed && !successTransition) {
         fail(`SGOS task '${id}' may introduce '${field}' only on its success transition.`,
           'SGOS_TASK_BINDING_CHANGED', { taskInstanceId: id, field });
+      }
+      if (changed && successTransition && beforeTask.invalidatedBy !== null) {
+        const appliedPlan = appliedReplayPlans.get(beforeTask.invalidatedBy);
+        const replayPrior = appliedPlan?.priorTasks.find((entry) =>
+          entry.taskInstanceId === id);
+        if (!replayPrior
+            || beforeTask.attemptIds.length <= replayPrior.attemptIds.length
+            || beforeTask.attemptIds.at(-1) === replayPrior.attemptIds.at(-1)) {
+          fail(`SGOS task '${id}' may replace replayed '${field}' only after a new governed attempt.`,
+            'SGOS_REPLAY_RECEIPT_REPLACEMENT_INVALID', { taskInstanceId: id, field });
+        }
       }
     }
     const prior = before.taskInstances[id].state;
@@ -1278,7 +1448,7 @@ function assertImmutableCore(before, after) {
       skipped: new Set(['skipped']),
       verifying: new Set(['verifying', 'succeeded', 'failed', 'recovery-required'])
     }[prior];
-    if (!legal?.has(next)) {
+    if (!replayReset && !legal?.has(next)) {
       fail(`SGOS task '${id}' attempted illegal transition '${prior}' -> '${next}'.`,
         'SGOS_TASK_TRANSITION_INVALID', { taskInstanceId: id, prior, next });
     }
@@ -1295,6 +1465,7 @@ function assertImmutableCore(before, after) {
         });
     }
   }
+  if (replayPlan !== null) assertExactReplayTransition(before, after, replayPlan);
 }
 
 async function withProcessLock(root, processId, callback, timeoutMs = 2_000, {
@@ -2706,7 +2877,7 @@ async function publishSgosTransitionIntent(root, current, intent, {
       'SGOS_TRANSITION_INTENT_CORRUPT');
   }
   await assertTransitionIndexDelta(root, current, candidateState, prepared.index);
-  await assertHotReferencedRecords(root, candidateState);
+  await assertHotReferencedRecords(root, candidateState, { preparedIndex: prepared.index });
   const successor = preparedSuccessor ?? await prepareSgosControlSuccessor(root, id, {
     processId: id,
     beforeProcessSha256: current.processSha256,
@@ -3399,6 +3570,82 @@ function recordsBy(records, field) {
   return indexed;
 }
 
+async function collectAppliedReplayHistory(state, {
+  readPlan, isPlanRooted, assertPlanCheckpoint
+}) {
+  const plans = new Map();
+  const priorByReceipt = new Map();
+  const priorByJoinReceipt = new Map();
+  const pending = [...new Set(Object.values(state.taskInstances)
+    .map((task) => task.invalidatedBy)
+    .filter((value) => value !== null))];
+  for (let index = 0; index < pending.length; index += 1) {
+    if (index > SGOS_INSTALLED_LIMITS.maximumAttemptRecords) {
+      fail('SGOS replay-plan lineage exceeds its installed bound.', 'SGOS_REPLAY_LINEAGE_LIMIT');
+    }
+    const replayPlanSha256 = pending[index];
+    if (plans.has(replayPlanSha256)) continue;
+    if (!await isPlanRooted(replayPlanSha256)) {
+      fail('SGOS task references an unrooted replay plan.',
+        'SGOS_REPLAY_PLAN_UNROOTED', { replayPlanSha256 });
+    }
+    const plan = await readPlan(replayPlanSha256);
+    if (plan.replayPlanSha256 !== replayPlanSha256
+        || plan.processId !== state.processId
+        || plan.programSha256 !== state.programSha256
+        || plan.policySnapshotSha256 !== state.policySnapshotSha256
+        || plan.processBindingSha256 !== state.processBindingSha256
+        || plan.expectedProcessRevision >= state.processRevision) {
+      fail('SGOS replay plan is not bound to this exact Process lineage.',
+        'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256 });
+    }
+    await assertPlanCheckpoint(plan);
+    plans.set(replayPlanSha256, plan);
+    for (const prior of plan.priorTasks) {
+      const task = state.taskInstances[prior.taskInstanceId];
+      if (!task || task.taskTemplateId !== prior.taskTemplateId
+          || canonicalJson(task.inputRefs) !== canonicalJson(prior.inputRefs)
+          || canonicalJson(task.attemptIds.slice(0, prior.attemptIds.length))
+            !== canonicalJson(prior.attemptIds)
+          || task.attemptIds.length < prior.attemptIds.length) {
+        fail(`SGOS replay plan has a non-prefix task history for '${prior.taskInstanceId}'.`,
+          'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256 });
+      }
+      if (prior.invalidatedBy !== null) pending.push(prior.invalidatedBy);
+      if (prior.receiptSha256 !== null) {
+        const existing = priorByReceipt.get(prior.receiptSha256);
+        if (existing && canonicalJson(existing.prior) !== canonicalJson(prior)) {
+          fail('SGOS replay plans claim conflicting historical receipt projections.',
+            'SGOS_REPLAY_PLAN_INVALID', { receiptSha256: prior.receiptSha256 });
+        }
+        priorByReceipt.set(prior.receiptSha256, { plan, prior });
+      }
+      for (const reference of prior.outputRefs) {
+        const values = priorByJoinReceipt.get(reference) ?? [];
+        values.push({ plan, prior });
+        priorByJoinReceipt.set(reference, values);
+      }
+    }
+  }
+  for (const task of Object.values(state.taskInstances)) {
+    if (task.invalidatedBy === null) continue;
+    const plan = plans.get(task.invalidatedBy);
+    const prior = plan?.priorTasks.find((entry) => entry.taskInstanceId === task.taskInstanceId);
+    if (!prior) {
+      fail(`SGOS task '${task.taskInstanceId}' is not named by its replay plan.`,
+        'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256: task.invalidatedBy });
+    }
+    const hasNewAttempt = task.attemptIds.length > prior.attemptIds.length;
+    if ((!hasNewAttempt || task.state !== 'succeeded')
+        && (task.receiptSha256 !== prior.receiptSha256
+          || canonicalJson(task.outputRefs) !== canonicalJson(prior.outputRefs))) {
+      fail(`SGOS task '${task.taskInstanceId}' replaced historical output before a new success.`,
+        'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256: task.invalidatedBy });
+    }
+  }
+  return Object.freeze({ plans, priorByReceipt, priorByJoinReceipt });
+}
+
 async function assertSuccessfulReceiptLineage(
   root, state, taskId, task, record, attemptsById,
   readImmutable = (familyId, sha256) => readSgosImmutableRecord(
@@ -3574,15 +3821,57 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
     return snapshotValues.find((entry) => entry.family === 'sgos-execution-lease'
       && entry.record?.leaseId === leaseId)?.record ?? null;
   };
+  const snapshotIndexBySha = snapshotValues == null ? null : new Map(snapshotValues
+    .filter((entry) => entry.family === 'sgos-record-index')
+    .map((entry) => [entry.record.recordIndexSha256, entry.record]));
+  const isRooted = async (familyId, sha256) => {
+    if (snapshotIndexBySha === null) {
+      return isRootedRecord(root, state.processId, state.recordIndexSha256, familyId, sha256);
+    }
+    let cursor = state.recordIndexSha256;
+    for (let depth = 0; cursor !== null && depth <= MAX_PROCESS_RECORDS; depth += 1) {
+      const index = snapshotIndexBySha.get(cursor);
+      if (!index) return false;
+      if (index.delta.some((entry) => entry.family === familyId
+          && entry.recordSha256 === sha256)) return true;
+      cursor = index.priorIndexSha256;
+    }
+    return false;
+  };
   // Index every bounded attempt and receipt once, including immutable records hidden by mutable
   // task state. A self-hashed Process cannot reset a receipted task to ready and execute it again.
-  const [attempts, receipts] = await Promise.all([
+  const [attempts, receipts, resourceLeases, joinReceipts, fanoutReceipts,
+    { record: program }] = await Promise.all([
     allRecords('gvm-task-attempt'),
-    allRecords('gvm-task-receipt')
+    allRecords('gvm-task-receipt'),
+    allRecords('resource-lease'),
+    allRecords('join-receipt'),
+    allRecords('fanout-expansion-receipt'),
+    readImmutable('gvm-program', state.programSha256)
   ]);
   const attemptsById = recordsBy(attempts, 'attemptId');
   const receiptsByAttempt = recordsBy(receipts, 'attemptId');
   const ownerByAttempt = new Map();
+  const replayHistory = await collectAppliedReplayHistory(state, {
+    readPlan: async (replayPlanSha256) => (
+      await readImmutable('sgos-replay-plan', replayPlanSha256)
+    ).record,
+    isPlanRooted: (replayPlanSha256) =>
+      isRooted('sgos-replay-plan', replayPlanSha256),
+    assertPlanCheckpoint: async (plan) => {
+      const checkpoint = (await readImmutable(
+        'gvm-checkpoint', plan.fromCheckpointSha256
+      )).record;
+      if (!await isRooted('gvm-checkpoint', plan.fromCheckpointSha256)
+          || checkpoint.processId !== state.processId
+          || checkpoint.programSha256 !== state.programSha256
+          || checkpoint.policySnapshotSha256 !== state.policySnapshotSha256
+          || checkpoint.processBindingSha256 !== state.processBindingSha256) {
+        fail('SGOS replay plan checkpoint is missing or crosses Process authority.',
+          'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256: plan.replayPlanSha256 });
+      }
+    }
+  });
 
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (new Set(task.attemptIds).size !== task.attemptIds.length) {
@@ -3644,12 +3933,17 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
           const recoverableInterruptedSuccess = isLast && (
             isActive || task.state === 'recovery-required' || task.state === 'waiting-human'
           );
-          if (task.state !== 'succeeded' && !recoverableInterruptedSuccess) {
+          const historical = replayHistory.priorByReceipt.get(boundReceipts[0].receiptSha256);
+          const currentSuccess = task.state === 'succeeded'
+            && task.receiptSha256 === boundReceipts[0].receiptSha256
+            && isLast;
+          if (!currentSuccess && !historical && !recoverableInterruptedSuccess) {
             fail(`SGOS task '${taskId}' hides an immutable successful receipt in state '${task.state}'.`,
               'SGOS_RECEIPT_LINEAGE_INVALID');
           }
           await assertSuccessfulReceiptLineage(
-            root, state, taskId, task, boundReceipts[0], attemptsById, readImmutable
+            root, state, taskId, historical?.prior ?? task,
+            boundReceipts[0], attemptsById, readImmutable
           );
         }
       } else if (boundReceipts.length) {
@@ -3680,16 +3974,158 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
         'SGOS_RECEIPT_LINEAGE_INVALID');
     }
   }
-  if (state.activeExecutions.length > 1
+  const joinsByTask = new Map((program.joins ?? []).map((join) => [join.taskTemplateId, join]));
+  const joinReceiptsByAttempt = recordsBy(joinReceipts, 'attemptId');
+  for (const receipt of joinReceipts) {
+    const taskId = ownerByAttempt.get(receipt.attemptId);
+    const task = taskId == null ? null : state.taskInstances[taskId];
+    const join = task == null ? null : joinsByTask.get(task.taskTemplateId);
+    const currentJoin = task?.state === 'succeeded'
+      && task.attemptIds.at(-1) === receipt.attemptId
+      && task.outputRefs.includes(receipt.joinReceiptSha256);
+    const historicalJoin = (replayHistory.priorByJoinReceipt
+      .get(receipt.joinReceiptSha256) ?? []).find(({ prior }) =>
+      prior.taskInstanceId === taskId && prior.attemptIds.at(-1) === receipt.attemptId) ?? null;
+    const joinProjection = currentJoin ? task : historicalJoin?.prior ?? null;
+    const predecessorRecords = receipt.predecessors.map((entry) => {
+      const historicalPredecessor = historicalJoin?.plan.priorTasks.find((prior) =>
+        prior.taskInstanceId === entry.taskInstanceId)
+        ?? replayHistory.priorByReceipt.get(entry.receiptSha256)?.prior
+        ?? null;
+      return {
+        entry,
+        task: historicalPredecessor ?? state.taskInstances[entry.taskInstanceId] ?? null
+      };
+    });
+    const expectedOutputs = [...new Set(predecessorRecords.flatMap(({ task: predecessor }) =>
+      predecessor?.outputRefs ?? []))].sort(compareSgosCodePoints);
+    if (!task || taskId !== receipt.taskInstanceId || receipt.processId !== state.processId
+        || !join || receipt.joinId !== join.joinId || receipt.policy !== join.policy
+        || canonicalJson(receipt.predecessors.map((entry) => entry.taskInstanceId))
+          !== canonicalJson(task.predecessorTaskInstanceIds)
+        || !joinProjection
+        || predecessorRecords.some(({ entry, task: predecessor }) =>
+          !predecessor || predecessor.state !== entry.state
+          || predecessor.receiptSha256 !== entry.receiptSha256
+          || (predecessor.attemptIds.at(-1) ?? null) !== entry.attemptId)
+        || canonicalJson(receipt.outputRefs) !== canonicalJson(expectedOutputs)) {
+      fail(`SGOS join receipt '${receipt.joinReceiptSha256}' is orphaned or mismatched.`,
+        'SGOS_JOIN_RECEIPT_INVALID');
+    }
+    for (const { entry, task: predecessor } of predecessorRecords) {
+      if (entry.state !== 'succeeded') {
+        if (entry.attemptId !== null && ownerByAttempt.get(entry.attemptId) !== entry.taskInstanceId) {
+          fail(`SGOS join receipt '${receipt.joinReceiptSha256}' has foreign predecessor lineage.`,
+            'SGOS_JOIN_RECEIPT_INVALID');
+        }
+        continue;
+      }
+      const predecessorReceipt = (receiptsByAttempt.get(entry.attemptId) ?? [])
+        .find((candidate) => candidate.receiptSha256 === entry.receiptSha256);
+      if (!predecessorReceipt) {
+        fail(`SGOS join receipt '${receipt.joinReceiptSha256}' has no exact predecessor receipt.`,
+          'SGOS_JOIN_RECEIPT_INVALID');
+      }
+      await assertSuccessfulReceiptLineage(
+        root, state, entry.taskInstanceId, predecessor,
+        predecessorReceipt, attemptsById, readImmutable
+      );
+    }
+  }
+  for (const [taskId, task] of Object.entries(state.taskInstances)) {
+    if (!joinsByTask.has(task.taskTemplateId) || task.state !== 'succeeded') continue;
+    const exact = joinReceiptsByAttempt.get(task.attemptIds.at(-1)) ?? [];
+    if (exact.length !== 1 || !task.outputRefs.includes(exact[0].joinReceiptSha256)) {
+      fail(`Succeeded JOIN task '${taskId}' is not bound to one exact join receipt.`,
+        'SGOS_JOIN_RECEIPT_INVALID');
+    }
+  }
+  const fanoutGroups = new Map();
+  for (const template of program.taskTemplates) {
+    const fanout = template.metadata?.fanout ?? template.metadata?.fanoutCoordinator;
+    if (!fanout) continue;
+    const key = fanout.parentTaskId;
+    if (!fanoutGroups.has(key)) fanoutGroups.set(key, []);
+    if (template.metadata?.fanout) fanoutGroups.get(key).push(template);
+  }
+  const preFanoutStartBoundary = state.currentCheckpointSha256 === null
+    && state.activeExecutions.length === 0
+    && state.activeLeases.length === 0
+    && Object.values(state.taskInstances).every((task) =>
+      task.attemptIds.length === 0 && ['ready', 'waiting'].includes(task.state));
+  const fanoutByParent = new Map();
+  for (const receipt of fanoutReceipts) {
+    if (fanoutByParent.has(receipt.parentTaskTemplateId)
+        || receipt.processId !== state.processId) {
+      fail(`Fan-out expansion '${receipt.expansionSha256}' has duplicate or foreign lineage.`,
+        'SGOS_FANOUT_MATERIALIZATION_INVALID');
+    }
+    fanoutByParent.set(receipt.parentTaskTemplateId, receipt);
+  }
+  for (const [parentTaskTemplateId, templates] of fanoutGroups) {
+    if (preFanoutStartBoundary && fanoutReceipts.length === 0) break;
+    const receipt = fanoutByParent.get(parentTaskTemplateId);
+    const coordinator = program.taskTemplates.find((template) =>
+      template.metadata?.fanoutCoordinator?.parentTaskId === parentTaskTemplateId);
+    const descriptor = templates[0]?.metadata.fanout ?? coordinator?.metadata?.fanoutCoordinator;
+    const expectedItems = [...templates].sort((left, right) =>
+      compareSgosCodePoints(left.metadata.fanout.itemKey, right.metadata.fanout.itemKey))
+      .map((template) => ({
+        itemKey: template.metadata.fanout.itemKey,
+        itemSha256: template.metadata.fanout.itemSha256,
+        taskTemplateId: template.taskTemplateId,
+        taskInstanceId: Object.values(state.taskInstances)
+          .find((task) => task.taskTemplateId === template.taskTemplateId)?.taskInstanceId ?? null
+      }));
+    if (!receipt || receipt.collectionSha256 !== descriptor.collectionSha256
+        || receipt.maximumItems !== descriptor.maximumItems
+        || receipt.maximumParallel !== descriptor.maximumParallel
+        || expectedItems.some((entry) => entry.taskInstanceId === null)
+        || canonicalJson(receipt.items) !== canonicalJson(expectedItems)) {
+      fail(`Fan-out '${parentTaskTemplateId}' does not have its exact expansion receipt.`,
+        'SGOS_FANOUT_MATERIALIZATION_INVALID');
+    }
+  }
+  if (!(preFanoutStartBoundary && fanoutReceipts.length === 0)
+      && fanoutReceipts.length !== fanoutGroups.size) {
+    fail('SGOS fan-out expansion receipts do not exactly match Program fan-out groups.',
+      'SGOS_FANOUT_MATERIALIZATION_INVALID');
+  }
+  const resourceLeasesByAttempt = recordsBy(resourceLeases, 'attemptId');
+  for (const lease of resourceLeases) {
+    const task = state.taskInstances[lease.taskInstanceId] ?? null;
+    const template = task == null ? null : program.taskTemplates.find((entry) =>
+      entry.taskTemplateId === task.taskTemplateId);
+    if (ownerByAttempt.get(lease.attemptId) !== lease.taskInstanceId
+        || lease.processId !== state.processId || !template
+        || canonicalJson(lease.resources)
+          !== canonicalJson(canonicalSgosResourceEntries(template.resources))) {
+      fail(`SGOS resource lease '${lease.leaseSha256}' is orphaned from attempt lineage.`,
+        'SGOS_RESOURCE_LEASE_INVALID');
+    }
+  }
+  if (state.activeExecutions.length > SGOS_INSTALLED_LIMITS.maximumExecutionLeases
       || state.activeLeases.length !== state.activeExecutions.length) {
-    fail('The sequential SGOS runtime requires one exact active execution/lease pair.',
+    fail('The SGOS runtime requires one exact owner lease per active execution.',
       'SGOS_ACTIVE_EXECUTION_INVALID', {
         activeExecutions: state.activeExecutions.length,
         activeLeases: state.activeLeases.length
       });
   }
-  const activeAttemptId = state.activeExecutions[0] ?? null;
-  if (activeAttemptId != null) {
+  const ownerLeases = [];
+  for (const leaseId of state.activeLeases) {
+    const lease = await readLease(leaseId);
+    if (!lease) {
+      fail('An active SGOS execution owner lease is unavailable.',
+        'SGOS_ACTIVE_EXECUTION_INVALID', { leaseId });
+    }
+    ownerLeases.push(lease);
+  }
+  if (new Set(ownerLeases.map((lease) => lease.attemptId)).size !== ownerLeases.length) {
+    fail('Active SGOS execution owner leases do not bind unique attempts.',
+      'SGOS_ACTIVE_EXECUTION_INVALID');
+  }
+  for (const activeAttemptId of state.activeExecutions) {
     const taskId = ownerByAttempt.get(activeAttemptId);
     const task = taskId == null ? null : state.taskInstances[taskId];
     if (!task || task.attemptIds.at(-1) !== activeAttemptId
@@ -3701,8 +4137,8 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       fail('An active SGOS execution requires running or recovery-required Process state.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { status: state.status });
     }
-    const leaseId = state.activeLeases[0];
-    const lease = await readLease(leaseId);
+    const lease = ownerLeases.find((entry) => entry.attemptId === activeAttemptId) ?? null;
+    const leaseId = lease?.leaseId ?? null;
     if (!lease || lease.attemptId !== activeAttemptId || lease.taskInstanceId !== taskId
         || !SHA256.test(String(lease.attemptSha256 ?? ''))) {
       fail('Active SGOS execution is not bound to its exact durable execution lease.',
@@ -3724,10 +4160,19 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
       fail('Active SGOS attempt and execution lease have different execution handles.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { attemptId: activeAttemptId, leaseId });
     }
+    const exactResourceLeases = resourceLeasesByAttempt.get(activeAttemptId) ?? [];
+    if (exactResourceLeases.length !== 1
+        || exactResourceLeases[0].taskInstanceId !== taskId
+        || exactResourceLeases[0].processId !== state.processId) {
+      fail('Active SGOS execution is not bound to one exact immutable resource lease.',
+        'SGOS_RESOURCE_LEASE_INVALID', {
+          attemptId: activeAttemptId, leases: exactResourceLeases.length
+        });
+    }
   }
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (['running', 'verifying'].includes(task.state)
-        && task.attemptIds.at(-1) !== activeAttemptId) {
+        && !state.activeExecutions.includes(task.attemptIds.at(-1))) {
       fail(`SGOS task '${taskId}' claims execution without the active attempt/lease pair.`,
         'SGOS_ACTIVE_EXECUTION_INVALID');
     }
@@ -3741,9 +4186,49 @@ async function assertReferencedRecords(root, state, { snapshotRecords = null } =
   }
 }
 
-async function assertHotReferencedRecords(root, state) {
+async function assertHotReferencedRecords(root, state, { preparedIndex = null } = {}) {
   await assertSgosStoredAuthorityAndMaterialization(root, state);
+  const { record: program } = await readSgosImmutableRecord(
+    root, state.processId, 'gvm-program', state.programSha256
+  );
   const ownerByAttempt = new Map();
+  await collectAppliedReplayHistory(state, {
+    readPlan: async (replayPlanSha256) => (
+      await readSgosImmutableRecord(
+        root, state.processId, 'sgos-replay-plan', replayPlanSha256
+      )
+    ).record,
+    isPlanRooted: (replayPlanSha256) => {
+      if (preparedIndex?.delta.some((entry) =>
+        entry.family === 'sgos-replay-plan'
+        && entry.recordSha256 === replayPlanSha256)) return true;
+      return isRootedRecord(
+        root, state.processId,
+        preparedIndex?.priorIndexSha256 ?? state.recordIndexSha256,
+        'sgos-replay-plan', replayPlanSha256
+      );
+    },
+    assertPlanCheckpoint: async (plan) => {
+      const { record: checkpoint } = await readSgosImmutableRecord(
+        root, state.processId, 'gvm-checkpoint', plan.fromCheckpointSha256
+      );
+      const rooted = preparedIndex?.delta.some((entry) =>
+        entry.family === 'gvm-checkpoint'
+        && entry.recordSha256 === plan.fromCheckpointSha256)
+        || await isRootedRecord(
+          root, state.processId,
+          preparedIndex?.priorIndexSha256 ?? state.recordIndexSha256,
+          'gvm-checkpoint', plan.fromCheckpointSha256
+        );
+      if (!rooted || checkpoint.processId !== state.processId
+          || checkpoint.programSha256 !== state.programSha256
+          || checkpoint.policySnapshotSha256 !== state.policySnapshotSha256
+          || checkpoint.processBindingSha256 !== state.processBindingSha256) {
+        fail('SGOS replay plan checkpoint is missing or crosses Process authority.',
+          'SGOS_REPLAY_PLAN_INVALID', { replayPlanSha256: plan.replayPlanSha256 });
+      }
+    }
+  });
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (new Set(task.attemptIds).size !== task.attemptIds.length) {
       fail(`SGOS task '${taskId}' contains duplicate attempt lineage.`,
@@ -3764,16 +4249,28 @@ async function assertHotReferencedRecords(root, state) {
       await assertHotSuccessfulReceiptLineage(root, state, taskId, task, receipt);
     }
   }
-  if (state.activeExecutions.length > 1
+  if (state.activeExecutions.length > SGOS_INSTALLED_LIMITS.maximumExecutionLeases
       || state.activeLeases.length !== state.activeExecutions.length) {
-    fail('The sequential SGOS runtime requires one exact active execution/lease pair.',
+    fail('The SGOS runtime requires one exact owner lease per active execution.',
       'SGOS_ACTIVE_EXECUTION_INVALID', {
         activeExecutions: state.activeExecutions.length,
         activeLeases: state.activeLeases.length
       });
   }
-  const activeAttemptId = state.activeExecutions[0] ?? null;
-  if (activeAttemptId != null) {
+  const ownerLeases = [];
+  for (const leaseId of state.activeLeases) {
+    const lease = await readSgosExecutionLease(root, state.processId, leaseId);
+    if (!lease) {
+      fail('An active SGOS execution owner lease is unavailable.',
+        'SGOS_ACTIVE_EXECUTION_INVALID', { leaseId });
+    }
+    ownerLeases.push(lease);
+  }
+  if (new Set(ownerLeases.map((lease) => lease.attemptId)).size !== ownerLeases.length) {
+    fail('Active SGOS execution owner leases do not bind unique attempts.',
+      'SGOS_ACTIVE_EXECUTION_INVALID');
+  }
+  for (const activeAttemptId of state.activeExecutions) {
     const taskId = ownerByAttempt.get(activeAttemptId);
     const task = taskId == null ? null : state.taskInstances[taskId];
     if (!task || task.attemptIds.at(-1) !== activeAttemptId
@@ -3782,8 +4279,8 @@ async function assertHotReferencedRecords(root, state) {
       fail('Active SGOS execution is not the latest attempt of one executable task.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { attemptId: activeAttemptId });
     }
-    const leaseId = state.activeLeases[0];
-    const lease = await readSgosExecutionLease(root, state.processId, leaseId);
+    const lease = ownerLeases.find((entry) => entry.attemptId === activeAttemptId) ?? null;
+    const leaseId = lease?.leaseId ?? null;
     if (!lease || lease.attemptId !== activeAttemptId || lease.taskInstanceId !== taskId
         || !SHA256.test(String(lease.attemptSha256 ?? ''))) {
       fail('Active SGOS execution is not bound to its exact durable execution lease.',
@@ -3799,10 +4296,26 @@ async function assertHotReferencedRecords(root, state) {
       fail('Active SGOS execution is not bound to its exact running-attempt record.',
         'SGOS_ACTIVE_EXECUTION_INVALID', { attemptId: activeAttemptId, leaseId });
     }
+    const resourceLeases = await listSgosImmutableRecordsByField(
+      root, state.processId, 'resource-lease', 'attemptId', activeAttemptId
+    );
+    const template = program.taskTemplates.find((entry) =>
+      entry.taskTemplateId === task.taskTemplateId);
+    if (resourceLeases.length !== 1
+        || resourceLeases[0].taskInstanceId !== taskId
+        || resourceLeases[0].processId !== state.processId
+        || !template
+        || canonicalJson(resourceLeases[0].resources)
+          !== canonicalJson(canonicalSgosResourceEntries(template.resources))) {
+      fail('Active SGOS execution is not bound to one exact immutable resource lease.',
+        'SGOS_RESOURCE_LEASE_INVALID', {
+          attemptId: activeAttemptId, leases: resourceLeases.length
+        });
+    }
   }
   for (const [taskId, task] of Object.entries(state.taskInstances)) {
     if (['running', 'verifying'].includes(task.state)
-        && task.attemptIds.at(-1) !== activeAttemptId) {
+        && !state.activeExecutions.includes(task.attemptIds.at(-1))) {
       fail(`SGOS task '${taskId}' claims execution without the active attempt/lease pair.`,
         'SGOS_ACTIVE_EXECUTION_INVALID');
     }
@@ -3840,9 +4353,45 @@ async function assertTransitionIndexDelta(root, before, after, index) {
     fail(`SGOS Process transition introduced unrooted ${detail}.`,
       'SGOS_RECORD_INDEX_INVALID', { family, recordSha256: sha256, detail });
   };
+  const introducedReplayPlans = new Set();
+  for (const [taskId, task] of Object.entries(after.taskInstances)) {
+    const prior = before.taskInstances[taskId];
+    if (task.invalidatedBy !== prior.invalidatedBy) {
+      requireIndexed('sgos-replay-plan', task.invalidatedBy,
+        `replay plan for task '${taskId}'`);
+      introducedReplayPlans.add(task.invalidatedBy);
+    }
+  }
+  if (introducedReplayPlans.size > 1
+      || (introducedReplayPlans.size === 0
+        && index.delta.some((entry) => entry.family === 'sgos-replay-plan'))) {
+    fail('SGOS transition replay-plan index delta does not match one exact suffix reset.',
+      'SGOS_RECORD_INDEX_INVALID');
+  }
   if (after.currentCheckpointSha256 !== before.currentCheckpointSha256
       && after.currentCheckpointSha256 !== null) {
     requireIndexed('gvm-checkpoint', after.currentCheckpointSha256, 'checkpoint');
+    if (before.currentCheckpointSha256 === null) {
+      const { record: program } = await readSgosImmutableRecord(
+        root, after.processId, 'gvm-program', after.programSha256
+      );
+      const fanoutParents = new Set(program.taskTemplates.flatMap((template) => {
+        const metadata = template.metadata?.fanout ?? template.metadata?.fanoutCoordinator;
+        return metadata?.parentTaskId ? [metadata.parentTaskId] : [];
+      }));
+      const introducedFanouts = index.delta.filter((entry) =>
+        entry.family === 'fanout-expansion-receipt');
+      if (introducedFanouts.length !== fanoutParents.size) {
+        fail('Initial SGOS checkpoint did not index every exact fan-out expansion receipt.',
+          'SGOS_FANOUT_MATERIALIZATION_INVALID', {
+            expected: fanoutParents.size, actual: introducedFanouts.length
+          });
+      }
+      // Count alone is not authority: a caller of the low-level CAS could otherwise reserve the
+      // right number of contract-valid but foreign expansion receipts.  At this one-time boundary,
+      // bind every receipt byte to the approved Program and deterministic task materialization.
+      if (fanoutParents.size > 0) await assertReferencedRecords(root, after);
+    }
   }
   for (const requestSha256 of after.openHumanRequests) {
     if (!before.openHumanRequests.includes(requestSha256)) {
@@ -3858,12 +4407,62 @@ async function assertTransitionIndexDelta(root, before, after, index) {
         fail(`SGOS Process transition introduced unindexed attempt '${attemptId}'.`,
           'SGOS_RECORD_INDEX_INVALID', { family: 'gvm-task-attempt', attemptId, taskInstanceId: taskId });
       }
+      if (after.activeExecutions.includes(attemptId)) {
+        const exactResourceLeases = index.delta.filter((entry) =>
+          entry.family === 'resource-lease'
+          && entry.attemptId === attemptId
+          && entry.taskInstanceId === taskId);
+        if (exactResourceLeases.length !== 1) {
+          fail(`SGOS Process transition introduced attempt '${attemptId}' without one exact indexed resource lease.`,
+            'SGOS_RECORD_INDEX_INVALID', {
+              family: 'resource-lease', attemptId, taskInstanceId: taskId,
+              matches: exactResourceLeases.length
+            });
+        }
+      }
     }
     if (task.receiptSha256 !== prior.receiptSha256 && task.receiptSha256 !== null) {
       requireIndexed('gvm-task-receipt', task.receiptSha256, `receipt for task '${taskId}'`);
       const { record: receipt } = await readSgosImmutableRecord(
         root, after.processId, 'gvm-task-receipt', task.receiptSha256
       );
+      const { record: program } = await readSgosImmutableRecord(
+        root, after.processId, 'gvm-program', after.programSha256
+      );
+      const template = program.taskTemplates.find((entry) =>
+        entry.taskTemplateId === task.taskTemplateId);
+      if (template?.opcode === 'JOIN') {
+        const exactJoin = index.delta.filter((entry) =>
+          entry.family === 'join-receipt'
+          && entry.attemptId === receipt.attemptId
+          && entry.taskInstanceId === taskId);
+        if (exactJoin.length !== 1
+            || !receipt.outputRefs.includes(exactJoin[0].recordSha256)) {
+          fail(`JOIN task '${taskId}' did not index and bind one exact join receipt.`,
+            'SGOS_JOIN_RECEIPT_INVALID');
+        }
+        const { record: joinReceipt } = await readSgosImmutableRecord(
+          root, after.processId, 'join-receipt', exactJoin[0].recordSha256
+        );
+        const join = (program.joins ?? []).find((entry) =>
+          entry.taskTemplateId === task.taskTemplateId);
+        const predecessors = joinReceipt.predecessors.map((entry) => ({
+          entry, task: after.taskInstances[entry.taskInstanceId] ?? null
+        }));
+        const expectedOutputs = [...new Set(predecessors.flatMap(({ task: predecessor }) =>
+          predecessor?.outputRefs ?? []))].sort(compareSgosCodePoints);
+        if (!join || joinReceipt.joinId !== join.joinId
+            || joinReceipt.policy !== join.policy
+            || joinReceipt.attemptId !== receipt.attemptId
+            || predecessors.some(({ entry, task: predecessor }) =>
+              !predecessor || predecessor.state !== entry.state
+              || predecessor.receiptSha256 !== entry.receiptSha256
+              || (predecessor.attemptIds.at(-1) ?? null) !== entry.attemptId)
+            || canonicalJson(joinReceipt.outputRefs) !== canonicalJson(expectedOutputs)) {
+          fail(`JOIN task '${taskId}' introduced a mismatched join receipt.`,
+            'SGOS_JOIN_RECEIPT_INVALID');
+        }
+      }
       await requireRooted('gvm-task-attempt', receipt.attemptSha256,
         `terminal attempt for task '${taskId}'`);
       await requireRooted('candidate-snapshot', receipt.candidateSha256,
@@ -4251,7 +4850,8 @@ export async function mutateSgosProcess(root, processId, mutate, {
   expectedRevision,
   expectedProcessSha256 = null,
   updatedAt = null,
-  recordReservations = []
+  recordReservations = [],
+  replayPlanSha256 = null
 } = {}) {
   const id = requireProcessId(processId);
   if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
@@ -4279,6 +4879,29 @@ export async function mutateSgosProcess(root, processId, mutate, {
         actualProcessSha256: current.processSha256
       });
     }
+    let replayPlan = null;
+    const appliedReplayPlans = new Map();
+    for (const replayPlanHash of new Set(Object.values(current.taskInstances)
+      .map((task) => task.invalidatedBy)
+      .filter((value) => value !== null))) {
+      appliedReplayPlans.set(replayPlanHash, (await readSgosImmutableRecord(
+        root, id, 'sgos-replay-plan', replayPlanHash
+      )).record);
+    }
+    if (replayPlanSha256 !== null) {
+      requireSha256('replayPlanSha256', replayPlanSha256);
+      const hasExactReservation = recordReservations.some((token) =>
+        token?.family === 'sgos-replay-plan'
+        && token?.recordSha256 === replayPlanSha256);
+      if (!hasExactReservation) {
+        fail('SGOS replay mutation requires the exact replay-plan reservation in the same CAS.',
+          'SGOS_REPLAY_PLAN_UNROOTED', { replayPlanSha256 });
+      }
+      replayPlan = (await readSgosImmutableRecord(
+        root, id, 'sgos-replay-plan', replayPlanSha256
+      )).record;
+      await assertReplayPlanAuthority(root, current, replayPlan);
+    }
     const draft = clone(current);
     const collector = { active: true, tokens: [] };
     let returned;
@@ -4290,7 +4913,7 @@ export async function mutateSgosProcess(root, processId, mutate, {
       collector.active = false;
     }
     const next = returned ?? draft;
-    assertImmutableCore(current, next);
+    await assertImmutableCore(current, next, { replayPlan, appliedReplayPlans });
     next.schemaVersion = currentSchemaVersion('gvm-process');
     next.kind = 'gvm-process';
     next.processRevision = current.processRevision + 1;
@@ -4322,7 +4945,7 @@ export async function mutateSgosProcess(root, processId, mutate, {
     );
     next.recordIndexSha256 = nextIndex.recordIndexSha256;
     await assertTransitionIndexDelta(root, current, next, nextIndex);
-    await assertHotReferencedRecords(root, next);
+    await assertHotReferencedRecords(root, next, { preparedIndex: nextIndex });
     const controlPosition = await nextSgosControlPosition(root, current, next);
     const controlEvent = sealControlEvent(current, next, controlPosition);
     next.controlEventSha256 = controlEvent.controlEventSha256;

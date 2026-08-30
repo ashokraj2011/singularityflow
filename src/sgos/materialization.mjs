@@ -87,10 +87,9 @@ export function assertSgosProcessMaterialization(program, process) {
       fail(`Process task '${taskInstanceId}' claims an unsupported skipped transition.`,
         'SGOS_PROCESS_MATERIALIZATION_INVALID', { taskInstanceId, state: observed.state });
     }
-    if (observed.invalidatedBy !== null) {
-      fail(`Process task '${taskInstanceId}' claims unsupported invalidation semantics.`,
-        'SGOS_PROCESS_MATERIALIZATION_INVALID', { taskInstanceId });
-    }
+    // Replay invalidation is mutable lineage, not compiled Program material. The durable store
+    // accepts it only when an exact indexed replay plan authorizes the transition and validates
+    // that plan again on every Process read.
   }
   return process;
 }

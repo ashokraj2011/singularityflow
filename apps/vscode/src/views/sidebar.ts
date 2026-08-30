@@ -92,6 +92,7 @@ const SECTION_META: Record<SidebarSection, {
        * them a proper home means a submenu or an expanded-body list, which is a design change
        * rather than another entry in this array.
        */
+      { id: 'command-center', label: 'Open Command Center', icon: 'workflow' },
       { id: 'visual-assurance', label: 'Open visual assurance', icon: 'visual' },
       { id: 'refresh', label: 'Refresh lifecycle', icon: 'refresh' }
     ],
@@ -201,7 +202,8 @@ const ACTION_COMMANDS: Record<string, string> = {
   'ast-intelligence': 'singularityFlow.configureAstIntelligence',
   'approvals-open': 'singularityFlow.openApprovals',
   'capability-proposals': 'singularityFlow.reviewCapabilityProposals',
-  'flow-impact': 'singularityFlow.openFlowImpact'
+  'flow-impact': 'singularityFlow.openFlowImpact',
+  'command-center': 'singularityFlow.openCommandCenter'
 };
 
 interface FavoriteMenu {
@@ -221,6 +223,7 @@ interface FavoriteMenu {
  */
 export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
   { id: 'my-work', label: 'My Work', description: 'current work and next actions', icon: 'home', command: ACTION_COMMANDS['my-work']! },
+  { id: 'command-center', label: 'Command Center', description: 'governed execution processes and requests', icon: 'workflow', command: ACTION_COMMANDS['command-center']! },
   { id: 'work-start', label: 'Start intake', description: 'begin governed work', icon: 'start', command: ACTION_COMMANDS['work-start']! },
   { id: 'adhoc-work', label: 'Ad hoc work', description: 'land bounded work without a Story', icon: 'commit', command: ACTION_COMMANDS['adhoc-work']! },
   { id: 'inbox-open', label: 'Inbox', description: 'work waiting on you', icon: 'inbox', command: ACTION_COMMANDS['inbox-open']! },

@@ -10,6 +10,7 @@ import {
   createGvmTaskReceipt, createHumanRequest, createHumanResponse, createIntentEnvelope,
   createIntentIr, createPolicySnapshot, createProcessBinding, createSgosControlSuccessor,
   createSgosControlEvent, createSgosRecordIndex, createSgosTransitionIntent, createWorkflowIr,
+  createSgosReplayPlan,
   MAXIMUM_SGOS_PROCESS_RECORD_BYTES, MAXIMUM_SGOS_PROCESS_RECORD_COUNT,
   MAXIMUM_SGOS_RECORD_BYTES, MAXIMUM_SGOS_RECORD_INDEX_DELTA,
   createWorkflowRatification, createWorkObject, policyComponentSha256, recordSelfSha256,
@@ -67,7 +68,7 @@ function candidateResources() {
 
 test('SGOS durable families expose exact readable versions and refuse future versions', () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
-  assert.equal(sgosContractFamilies().length, 20);
+  assert.equal(sgosContractFamilies().length, 24);
   for (const family of sgosContractFamilies()) {
     const current = family === 'gvm-process'
       ? 3
@@ -269,6 +270,32 @@ test('SGOS record indexes form a bounded, sorted, cumulative immutable chain', (
     familyCounts: { 'action-evidence': 1 }, totalRecordCount: 1, totalBytes: 160
   }), /genesis must be an empty/);
   assert.throws(() => validateSgosRecordIndex({ ...next, totalBytes: 257 }), /does not match/);
+});
+
+test('replay plans bind one canonical exact prior-task projection', () => {
+  const plan = createSgosReplayPlan({
+    processId: 'PROC-REPLAY01',
+    expectedProcessRevision: 7,
+    expectedProcessSha256: d('replay-process'),
+    programSha256: d('replay-program'),
+    policySnapshotSha256: d('replay-policy'),
+    processBindingSha256: d('replay-binding'),
+    fromCheckpointSha256: d('replay-checkpoint'),
+    taskInstanceIds: ['ignored-and-derived'],
+    priorTasks: [{
+      taskInstanceId: 'TSK-REPLAY01', taskTemplateId: '20-work', state: 'succeeded',
+      revision: 3, inputRefs: [], attemptIds: ['ATT-REPLAY01'],
+      receiptSha256: d('replay-receipt'), outputRefs: [d('replay-output')],
+      invalidatedBy: null
+    }],
+    createdAt: at
+  });
+  assert.deepEqual(plan.taskInstanceIds, ['TSK-REPLAY01']);
+  assert.equal(plan.replayPlanSha256, recordSelfSha256(plan, 'replayPlanSha256'));
+  assert.throws(() => validateSgosRecord({
+    ...plan,
+    priorTasks: [{ ...plan.priorTasks[0], attemptIds: [] }]
+  }), /does not match the canonical record/);
 });
 
 test('SGOS transition intents bind one exact sorted reservation delta and control edge', () => {

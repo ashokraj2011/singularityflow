@@ -20,14 +20,21 @@ import { SHA256_PATTERN, validateGvmProgram } from './contracts.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
+import { canonicalSgosJoins } from './joins.mjs';
+import {
+  normalizeSgosFanout, sgosFanoutChildTemplateId
+} from './fanout.mjs';
+import {
+  canonicalSgosResourceEntries, normalizeSgosResourceKey
+} from './resource-contracts.mjs';
 
 export const SGOS_EXECUTION_ADMISSION_OPCODES = Object.freeze([
-  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'CHECKPOINT', 'END'
+  'NOOP', 'KERNEL', 'VERIFY', 'HUMAN_REQUEST', 'JOIN', 'CHECKPOINT', 'END'
 ]);
 
 const EXECUTION_OPERATION_OPCODES = new Set(['KERNEL', 'AGENT', 'DEVICE', 'VERIFY', 'COMPENSATE']);
 const HUMAN_JUDGMENT_KINDS = new Set(['human-judgment', 'human', 'judgment']);
-const NON_MATERIAL_OPCODES = new Set(['NOOP', 'CHECKPOINT', 'END']);
+const NON_MATERIAL_OPCODES = new Set(['NOOP', 'JOIN', 'CHECKPOINT', 'END']);
 const PROGRAM_AUTHORITY_FORMAT = 'singularity-flow-sgos-program-authority/v1';
 const verifiedProgramAuthorities = new WeakSet();
 
@@ -93,7 +100,7 @@ function assertCanonicalOrder(values, label, compare = canonicalCompare) {
 }
 
 function normalizedResource(value) {
-  return String(value ?? '').replaceAll('\\', '/').replace(/\/(?:\*\*|\*)$/, '').replace(/\/$/, '');
+  return normalizeSgosResourceKey(value);
 }
 
 function resourceOverlap(left, right) {
@@ -429,6 +436,16 @@ export function assertSgosInstalledProgramLimits(program) {
       maximumEdges: SGOS_INSTALLED_LIMITS.maximumEdges
     });
   }
+  for (const task of program.taskTemplates) {
+    try { canonicalSgosResourceEntries(task.resources); } catch (error) {
+      fail(error?.code ?? 'SGOS_RESOURCE_LEASE_LIMIT',
+        `Task '${task.taskTemplateId}' cannot fit one installed resource lease.`, {
+          taskTemplateId: task.taskTemplateId,
+          cause: error?.message ?? String(error),
+          ...(error?.details ?? {})
+        });
+    }
+  }
   const resourceDeclarations = program.taskTemplates.reduce((total, task) => total
     + ['reads', 'writes', 'devices', 'externalEffects'].reduce(
       (count, field) => count + (task.resources?.[field]?.length ?? 0), 0
@@ -664,6 +681,121 @@ function assertNoUnsafeParallelResources(program, graph) {
   }
 }
 
+function assertInstalledJoins(program) {
+  if (!Array.isArray(program.joins)) {
+    fail('SGOS_JOIN_CONTRACT_MISMATCH',
+      'Executable Programs require a canonical join-contract array; legacy object maps are read-only.');
+  }
+  let joins;
+  try { joins = canonicalSgosJoins(program.joins ?? []); } catch (error) {
+    fail(error?.code ?? 'SGOS_JOIN_INVALID', error?.message ?? String(error), error?.details ?? {});
+  }
+  if (canonicalJson(joins) !== canonicalJson(program.joins)) {
+    fail('SGOS_JOIN_CONTRACT_MISMATCH',
+      'Executable Program join contracts are not strict and canonically sorted.');
+  }
+  const tasks = new Map(program.taskTemplates.map((task) => [task.taskTemplateId, task]));
+  const byTask = new Map(joins.map((join) => [join.taskTemplateId, join]));
+  for (const task of program.taskTemplates) {
+    const join = byTask.get(task.taskTemplateId) ?? null;
+    if ((task.opcode === 'JOIN') !== (join !== null)) {
+      fail('SGOS_JOIN_CONTRACT_MISMATCH',
+        `Task '${task.taskTemplateId}' JOIN opcode and join contract must agree.`, {
+          taskTemplateId: task.taskTemplateId
+        });
+    }
+    if (join && canonicalJson(join.predecessorTaskTemplateIds)
+        !== canonicalJson([...task.dependsOn].sort(compareSgosCodePoints))) {
+      fail('SGOS_JOIN_CONTRACT_MISMATCH',
+        `Join '${join.joinId}' predecessors do not match its graph dependencies.`, {
+          joinId: join.joinId
+        });
+    }
+  }
+  for (const join of joins) {
+    if (!tasks.has(join.taskTemplateId)) {
+      fail('SGOS_JOIN_CONTRACT_MISMATCH', `Join '${join.joinId}' names an unknown task.`);
+    }
+  }
+}
+
+function assertInstalledFanout(program) {
+  const groups = new Map();
+  const coordinators = new Map();
+  for (const task of program.taskTemplates) {
+    const item = task.metadata?.fanout ?? null;
+    const coordinator = task.metadata?.fanoutCoordinator ?? null;
+    if (item && coordinator) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Task '${task.taskTemplateId}' cannot be both a fan-out item and coordinator.`);
+    }
+    if (item) {
+      const parentTaskId = String(item.parentTaskId ?? '');
+      if (!parentTaskId || typeof item.itemKey !== 'string'
+          || !SHA256_PATTERN.test(String(item.itemSha256 ?? ''))
+          || sgosFanoutChildTemplateId(parentTaskId, item.itemKey, item.itemSha256)
+            !== task.taskTemplateId) {
+        fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+          `Task '${task.taskTemplateId}' has invalid deterministic fan-out identity.`);
+      }
+      const values = groups.get(parentTaskId) ?? [];
+      values.push({ task, item });
+      groups.set(parentTaskId, values);
+    }
+    if (coordinator) {
+      const parentTaskId = String(coordinator.parentTaskId ?? '');
+      if (!parentTaskId || parentTaskId !== task.taskTemplateId
+          || coordinators.has(parentTaskId)) {
+        fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+          `Fan-out coordinator '${task.taskTemplateId}' is duplicate or mismatched.`);
+      }
+      coordinators.set(parentTaskId, { task, coordinator });
+    }
+  }
+  if (new Set([...groups.keys(), ...coordinators.keys()]).size
+      > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
+    fail('SGOS_FANOUT_LIMIT',
+      'Program fan-out groups cannot fit the initial durable expansion boundary.', {
+        maximum: SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess
+      });
+  }
+  for (const parentTaskId of new Set([...groups.keys(), ...coordinators.keys()])) {
+    const children = groups.get(parentTaskId) ?? [];
+    const installed = coordinators.get(parentTaskId) ?? null;
+    if (!installed) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Fan-out '${parentTaskId}' has no exact coordinator.`);
+    }
+    const { task: coordinatorTask, coordinator } = installed;
+    let normalized;
+    try {
+      normalized = normalizeSgosFanout({
+        taskId: parentTaskId,
+        items: children.map(({ item }) => ({ key: item.itemKey, value: item.itemValue })),
+        maximumItems: coordinator.maximumItems,
+        maximumParallel: coordinator.maximumParallel
+      });
+    } catch (error) {
+      fail(error?.code ?? 'SGOS_FANOUT_MATERIALIZATION_INVALID',
+        error?.message ?? String(error), error?.details ?? {});
+    }
+    const expectedChildren = normalized.items.map((entry) =>
+      sgosFanoutChildTemplateId(parentTaskId, entry.itemKey, entry.itemSha256))
+      .sort(compareSgosCodePoints);
+    if (normalized.collectionSha256 !== coordinator.collectionSha256
+        || canonicalJson([...coordinatorTask.dependsOn].sort(compareSgosCodePoints))
+          !== canonicalJson(expectedChildren)
+        || children.some(({ item }) => item.collectionSha256 !== normalized.collectionSha256
+          || item.maximumItems !== normalized.maximumItems
+          || item.maximumParallel !== normalized.maximumParallel)
+        || (children.length === 0 ? coordinatorTask.opcode !== 'NOOP'
+          : coordinatorTask.opcode !== 'JOIN')) {
+      fail('SGOS_FANOUT_MATERIALIZATION_INVALID',
+        `Fan-out '${parentTaskId}' does not match its finite approved collection.`);
+    }
+  }
+}
+
 function registryEntries(snapshot, field) {
   const raw = snapshot[field];
   const result = new Map();
@@ -827,15 +959,11 @@ export function validateSgosProgramStaticSafety(programValue, {
       });
     }
   }
-  if ((Array.isArray(program.joins) ? program.joins.length : Object.keys(program.joins ?? {}).length) > 0) {
-    fail('SGOS_PROGRAM_SEMANTICS_UNSUPPORTED', 'JOIN contracts are not installed for execution admission.', {
-      semantic: 'join'
-    });
-  }
-
   const graph = graphFacts(program);
   assertDependenciesMatchEdges(program, graph);
   assertTerminalConditions(program, graph);
+  assertInstalledJoins(program);
+  assertInstalledFanout(program);
   assertEvidenceAuthorityAndRecovery(program);
   assertBudgets(program, { maximumTasks, maximumAttempts });
   assertNoUnsafeParallelResources(program, graph);

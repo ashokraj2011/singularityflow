@@ -5,6 +5,10 @@ export * from './evidence.mjs';
 export * from './limits.mjs';
 export * from './order.mjs';
 export * from './paths.mjs';
+export * from './fanout.mjs';
+export * from './joins.mjs';
+export * from './resource-contracts.mjs';
+export * from './scheduler.mjs';
 export * from './program-trust.mjs';
 export * from './projection.mjs';
 export * from './story-authority.mjs';
@@ -26,6 +30,7 @@ export {
   respondToHumanRequest,
   respondToSgosHumanRequest,
   resumeSgosProcess,
+  runSgosProcess,
   startSgosProcess,
   stepSgosProcess
 } from './public-runtime.mjs';

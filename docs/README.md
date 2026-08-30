@@ -42,7 +42,7 @@ is not part of the current product.
 | Golden developer journey and current implementation boundary | [Golden developer journey](GOLDEN-JOURNEY.md) |
 | System components and data flow | [Architecture](../ARCHITECTURE.md) |
 | Runtime internals and prompt composition | [Under the hood](UNDER-THE-HOOD.md) |
-| Additive intent compiler and sequential governed runtime | [SGOS](SGOS.md) |
+| Additive intent compiler and bounded governed runtime | [SGOS](SGOS.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |

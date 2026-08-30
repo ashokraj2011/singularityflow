@@ -91,6 +91,7 @@ import { modelFreedomSnapshot } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
+import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 
 export const REPOSITORY_SKILLS_ROOT = '.github/skills';
 const DEFAULT_WORLD_MODEL_PROMPT = 'singularity/prompts/worldmodel-builder.md';
@@ -745,7 +746,8 @@ const SNAPSHOT_SLICES = new Set([
   'configuration',
   'capabilities',
   'integrations',
-  'diagnostics'
+  'diagnostics',
+  'sgos'
 ]);
 
 async function repositorySlice(root) {
@@ -1106,6 +1108,11 @@ async function integrationSlice(root) {
   };
 }
 
+/** SGOS operational state is a lazy, model-free read from the Git-common-dir sidecar. */
+async function sgosSlice(root) {
+  return loadSgosCommandCenter(root);
+}
+
 /**
  * Build either the compatibility snapshot consumed by the extension, or explicit schema-v2
  * slices for callers that request them. Scoped calls do not construct unrelated read models.
@@ -1164,6 +1171,7 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
     else if (slice === 'diagnostics') result.diagnostics = await doctorSnapshot(root, {
       workId: requestedWorkId, offline: true, probeModelProvider: false
     });
+    else if (slice === 'sgos') result.sgos = await sgosSlice(root);
   }
   return result;
 }

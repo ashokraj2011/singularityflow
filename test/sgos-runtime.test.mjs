@@ -12,6 +12,7 @@ import {
   createCandidateSnapshot,
   createIntentIr,
   createGvmProgram,
+  createResourceLease,
   createWorkflowIr,
   createWorkflowRatification,
   validateActionEvidence,
@@ -33,6 +34,8 @@ import {
 } from '../src/sgos/evidence.mjs';
 import { projectSgosWorkObjects } from '../src/sgos/projection.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
+import { normalizeSgosFanout, sgosFanoutChildTemplateId } from '../src/sgos/fanout.mjs';
+import { canonicalSgosResourceEntries } from '../src/sgos/resource-contracts.mjs';
 import {
   deterministicSgosReadySet,
   listSgosProcesses,
@@ -44,6 +47,7 @@ import {
   recoverInterruptedSgosExecution,
   resumeSgosProcess,
   runNextSgosTask,
+  runReadySgosTasks,
   startSgosProcess
 } from '../src/sgos/runtime.mjs';
 import {
@@ -151,7 +155,7 @@ function task(taskTemplateId, opcode, dependsOn = [], extra = {}) {
   return result;
 }
 
-function program(taskTemplates) {
+function program(taskTemplates, joins = []) {
   return createGvmProgram({
     intentIrSha256: HASH.intent,
     workflowSha256: HASH.workflow,
@@ -160,8 +164,11 @@ function program(taskTemplates) {
     registrySnapshotSha256: HASH.registry,
     storageProfileSha256: HASH.storage,
     taskTemplates,
-    edges: taskTemplates.flatMap((entry) => entry.dependsOn.map((from) => ({ from, to: entry.taskTemplateId }))),
-    joins: [],
+    edges: taskTemplates.flatMap((entry) => entry.dependsOn
+      .map((from) => ({ from, to: entry.taskTemplateId })))
+      .sort((left, right) => left.from < right.from ? -1 : left.from > right.from ? 1
+        : left.to < right.to ? -1 : left.to > right.to ? 1 : 0),
+    joins,
     budgets: {
       maximumTasks: taskTemplates.length,
       maximumAttempts: Math.max(...taskTemplates.map((entry) => entry.retry?.maximumAttempts ?? 1))
@@ -344,9 +351,13 @@ function exitedOwnerPid() {
 
 async function markSgosExecutionInterrupted(root, process, taskTemplateId) {
   const before = await readSgosProcess(root, process.processId);
+  const storedProgram = await readSgosProgram(root, before.processId, before.programSha256);
   const task = Object.values(before.taskInstances)
     .find((entry) => entry.taskTemplateId === taskTemplateId);
   assert.ok(task, taskTemplateId);
+  const template = storedProgram.record.taskTemplates
+    .find((entry) => entry.taskTemplateId === task.taskTemplateId);
+  assert.ok(template, task.taskTemplateId);
   const attemptId = `ATT-crashed-${before.processId.slice('PROC-'.length)}`;
   const leaseId = `LEASE-crashed-${before.processId.slice('PROC-'.length)}`;
   const executionHandleSha256 = sgosSha256({
@@ -387,6 +398,16 @@ async function markSgosExecutionInterrupted(root, process, taskTemplateId) {
   const runningPublication = await putSgosImmutableRecord(
     root, before.processId, 'gvm-task-attempt', runningAttempt
   );
+  const resourcePublication = await putSgosImmutableRecord(
+    root, before.processId, 'resource-lease', createResourceLease({
+      processId: before.processId,
+      taskInstanceId: task.taskInstanceId,
+      attemptId,
+      resources: canonicalSgosResourceEntries(template.resources),
+      acquiredAt: T0,
+      expiresAt: '2099-01-01T00:00:00.000Z'
+    })
+  );
   const interrupted = await mutateSgosProcess(root, before.processId, (draft) => {
     const target = draft.taskInstances[task.taskInstanceId];
     target.state = 'running';
@@ -399,7 +420,10 @@ async function markSgosExecutionInterrupted(root, process, taskTemplateId) {
     expectedRevision: before.processRevision,
     expectedProcessSha256: before.processSha256,
     updatedAt: T0,
-    recordReservations: [runningPublication.reservationToken]
+    recordReservations: [
+      runningPublication.reservationToken,
+      resourcePublication.reservationToken
+    ]
   });
   return { before, interrupted, task, attemptId, lease, runningAttempt };
 }
@@ -503,6 +527,221 @@ test('sequential runtime preserves Story authority and succeeds only through imm
   assert.equal(await readFile(fixture.workflowPath, 'utf8'), beforeWorkflow, 'SGOS sidecar must not change Story authority bytes');
   assert.equal(git(['status', '--porcelain'], fixture.root), '');
   assert.deepEqual((await listSgosProcesses(fixture.root)).map((entry) => entry.processId), [final.processId]);
+});
+
+test('opt-in parallel wave launches one deterministic compatible ready set and quiesces all handlers', async () => {
+  const fixture = await repository('SGOS-STORY-PARALLEL-WAVE');
+  const compiled = program([
+    task('10-alpha', 'KERNEL', [], {
+      operation: 'story.alpha', resources: {
+        reads: ['repo/input/alpha'], writes: ['repo/output/alpha'],
+        devices: [], externalEffects: []
+      }
+    }),
+    task('20-beta', 'KERNEL', [], {
+      operation: 'story.beta', resources: {
+        reads: ['repo/input/beta'], writes: ['repo/output/beta'],
+        devices: [], externalEffects: []
+      }
+    }),
+    task('90-end', 'END', ['10-alpha', '20-beta'])
+  ]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let enteredCount = 0;
+  let bothEntered;
+  const entered = new Promise((resolve) => { bothEntered = resolve; });
+  const calls = [];
+  const handler = (name) => async () => {
+    calls.push(name);
+    enteredCount += 1;
+    if (enteredCount === 2) bothEntered();
+    await held;
+    return { rawResult: { status: 'completed', name } };
+  };
+  const adapters = {
+    handlers: { kernel: {
+      'story.alpha': handler('alpha'),
+      'story.beta': handler('beta')
+    } },
+    captureCandidates: {
+      'story.alpha': async () => ({ resources: [] }),
+      'story.beta': async () => ({ resources: [] })
+    },
+    verifiers: {
+      'story.alpha': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      }),
+      'story.beta': async ({ candidateSha256 }) => ({
+        status: 'passed', candidateSha256, checksSha256: HASH.checks
+      })
+    },
+    clock: T1
+  };
+  const running = runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, ...adapters
+  });
+  await entered;
+  const active = await readSgosProcess(fixture.root, started.process.processId);
+  assert.equal(active.activeExecutions.length, 2);
+  assert.equal(active.activeLeases.length, 2);
+  const leases = await Promise.all(active.activeExecutions.map((attemptId) =>
+    listSgosImmutableRecordsByField(
+      fixture.root, active.processId, 'resource-lease', 'attemptId', attemptId
+    )));
+  assert.equal(leases.every((entries) => entries.length === 1), true);
+  release();
+  const wave = await running;
+  assert.equal(wave.launched, 2);
+  assert.deepEqual(wave.taskInstanceIds.map((taskInstanceId) =>
+    wave.process.taskInstances[taskInstanceId].taskTemplateId), ['10-alpha', '20-beta']);
+  assert.deepEqual(calls.sort(), ['alpha', 'beta']);
+  assert.deepEqual(wave.process.activeExecutions, []);
+  assert.equal(Object.values(wave.process.taskInstances)
+    .filter((entry) => entry.taskTemplateId !== '90-end')
+    .every((entry) => entry.state === 'succeeded'), true);
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, { clock: T1 });
+  assert.equal(ended.process.status, 'succeeded');
+});
+
+test('all-success JOIN persists one exact receipt after every predecessor succeeds', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN');
+  const compiled = program([
+    task('10-alpha', 'NOOP'),
+    task('20-beta', 'NOOP'),
+    task('30-join', 'JOIN', ['10-alpha', '20-beta'], {
+      material: false, evidence: {}, metadata: { joinPolicy: 'all-success' }
+    }),
+    task('90-end', 'END', ['30-join'])
+  ], [{
+    joinId: 'join-main', taskTemplateId: '30-join', policy: 'all-success',
+    predecessorTaskTemplateIds: ['10-alpha', '20-beta']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const predecessors = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 2, clock: T1
+  });
+  assert.equal(predecessors.launched, 2);
+  const joined = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(joined.status, 'succeeded');
+  assert.equal(joined.joinReceipt.policy, 'all-success');
+  assert.deepEqual(joined.joinReceipt.predecessors.map((entry) => entry.state),
+    ['succeeded', 'succeeded']);
+  const stored = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId, 'join-receipt',
+    'attemptId', joined.joinReceipt.attemptId
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].joinReceiptSha256, joined.joinReceipt.joinReceiptSha256);
+  assert.equal(joined.process.taskInstances[joined.taskInstanceId].outputRefs
+    .includes(joined.joinReceipt.joinReceiptSha256), true);
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(ended.process.status, 'succeeded');
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
+test('all-terminal JOIN converges deterministically after a predecessor failure', async () => {
+  const fixture = await repository('SGOS-STORY-JOIN-TERMINAL');
+  const compiled = program([
+    task('10-fails', 'KERNEL', [], {
+      operation: 'story.expected-failure',
+      resources: { reads: ['repo/input'], writes: [], devices: [], externalEffects: [] }
+    }),
+    task('20-succeeds', 'NOOP'),
+    task('30-join', 'JOIN', ['10-fails', '20-succeeds'], {
+      material: false, evidence: {}, metadata: { joinPolicy: 'all-terminal' }
+    }),
+    task('90-end', 'END', ['30-join'])
+  ], [{
+    joinId: 'join-terminal', taskTemplateId: '30-join', policy: 'all-terminal',
+    predecessorTaskTemplateIds: ['10-fails', '20-succeeds']
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const predecessors = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled,
+    maximumParallel: 2,
+    handlers: { kernel: { 'story.expected-failure': async () => {
+      throw new Error('expected terminal failure');
+    } } },
+    clock: T1
+  });
+  assert.equal(predecessors.launched, 2);
+  const joined = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(joined.status, 'succeeded');
+  assert.equal(joined.joinReceipt.policy, 'all-terminal');
+  assert.deepEqual(joined.joinReceipt.predecessors.map((entry) => entry.state).sort(),
+    ['failed', 'succeeded']);
+  const ended = await runNextSgosTask(fixture.root, started.process.processId, {
+    program: compiled, clock: T1
+  });
+  assert.equal(ended.status, 'succeeded');
+  assert.equal(ended.process.status, 'failed',
+    'the terminal boundary completes, while the Process retains its failed outcome');
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
+});
+
+test('finite fan-out start roots one exact expansion receipt and executes only bounded children', async () => {
+  const fixture = await repository('SGOS-STORY-FANOUT');
+  const fanout = normalizeSgosFanout({
+    taskId: '30-fanout', maximumItems: 2, maximumParallel: 2,
+    items: [{ key: 'b', value: { id: 2 } }, { key: 'a', value: { id: 1 } }]
+  });
+  const children = fanout.items.map((item) => task(
+    sgosFanoutChildTemplateId('30-fanout', item.itemKey, item.itemSha256),
+    'NOOP', [], {
+      material: false,
+      metadata: { fanout: {
+        parentTaskId: '30-fanout', itemKey: item.itemKey,
+        itemSha256: item.itemSha256, itemValue: item.value,
+        collectionSha256: fanout.collectionSha256,
+        maximumItems: fanout.maximumItems, maximumParallel: fanout.maximumParallel
+      } }
+    }
+  ));
+  const childIds = children.map((entry) => entry.taskTemplateId).sort();
+  const templates = [
+    ...children,
+    task('30-fanout', 'JOIN', childIds, {
+      material: false,
+      metadata: {
+        joinPolicy: 'all-success',
+        fanoutCoordinator: {
+          parentTaskId: '30-fanout', collectionSha256: fanout.collectionSha256,
+          maximumItems: fanout.maximumItems, maximumParallel: fanout.maximumParallel
+        }
+      }
+    }),
+    task('90-end', 'END', ['30-fanout'])
+  ].sort((left, right) => left.taskTemplateId.localeCompare(right.taskTemplateId));
+  const compiled = program(templates, [{
+    joinId: '30-fanout', taskTemplateId: '30-fanout', policy: 'all-success',
+    predecessorTaskTemplateIds: childIds
+  }]);
+  const started = await start(fixture.root, fixture.storyId, compiled);
+  const expansions = await listSgosImmutableRecordsByField(
+    fixture.root, started.process.processId,
+    'fanout-expansion-receipt', 'processId', started.process.processId
+  );
+  assert.equal(expansions.length, 1);
+  assert.equal(expansions[0].collectionSha256, fanout.collectionSha256);
+  assert.deepEqual(expansions[0].items.map((entry) => entry.itemKey), ['a', 'b']);
+  const wave = await runReadySgosTasks(fixture.root, started.process.processId, {
+    program: compiled, maximumParallel: 8, clock: T1
+  });
+  assert.equal(wave.launched, 2, 'fan-out maximumParallel narrows the wider process run bound');
+  await runNextSgosTask(fixture.root, started.process.processId, { program: compiled, clock: T1 });
+  const ended = await runNextSgosTask(
+    fixture.root, started.process.processId, { program: compiled, clock: T1 }
+  );
+  assert.equal(ended.process.status, 'succeeded');
+  assert.equal((await fsckSgosProcess(fixture.root, started.process.processId)).status, 'ok');
 });
 
 test('Process start refuses nonexistent and mismatched Story subjects before even a NOOP can run', async () => {
@@ -2377,7 +2616,7 @@ test('dispatch refuses an unbounded execution-lease sidecar before any Process m
     started.process.processSha256);
 });
 
-test('executor cleanup retains a lease while durable Process state still references its attempt', async () => {
+test('terminal CAS retries do not rerun a handler after a concurrent unrelated Process revision', async () => {
   const fixture = await repository('SGOS-STORY-CONDITIONAL-LEASE-CLEANUP');
   const operation = 'story.conditional-cleanup';
   const compiled = program([
@@ -2403,19 +2642,14 @@ test('executor cleanup retains a lease while durable Process state still referen
     updatedAt: T1
   });
   release();
-  await assert.rejects(
-    () => running,
-    (error) => error.code === 'SGOS_PROCESS_REVISION_STALE'
-  );
-  const retained = await readSgosProcess(fixture.root, active.processId);
-  assert.deepEqual(retained.activeExecutions, active.activeExecutions);
-  assert.deepEqual(retained.activeLeases, active.activeLeases);
-  assert.notEqual(await readSgosExecutionLease(
-    fixture.root, retained.processId, active.activeLeases[0]
-  ), null, 'cleanup must not delete a lease still referenced by durable Process state');
-  const recovery = await planSgosProcessRecovery(fixture.root, retained.processId);
-  assert.notEqual(recovery.executionStatus, 'active',
-    'the completed local coroutine must no longer claim live ownership');
+  const failed = await running;
+  assert.equal(failed.status, 'failed');
+  const completed = await readSgosProcess(fixture.root, active.processId);
+  assert.deepEqual(completed.activeExecutions, []);
+  assert.deepEqual(completed.activeLeases, []);
+  assert.equal(await readSgosExecutionLease(
+    fixture.root, completed.processId, active.activeLeases[0]
+  ), null, 'cleanup removes the owner lease only after the retried terminal CAS is durable');
 });
 
 test('active execution and lease state survive exact rollback and reject self-hashed clearing', async () => {

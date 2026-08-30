@@ -1,4 +1,4 @@
-/** Installed sequential-runtime ceilings; Program-declared budgets may only narrow these limits. */
+/** Installed runtime ceilings; Program-declared budgets may only narrow these limits. */
 export const SGOS_INSTALLED_LIMITS = Object.freeze({
   maximumProgramBytes: 8 * 1024 * 1024,
   // Every SGOS writer shares this exact durable-file ceiling. Quarantine derives its worst-case
@@ -23,5 +23,13 @@ export const SGOS_INSTALLED_LIMITS = Object.freeze({
   // Human/operator pause-resume churn is bounded separately so it cannot consume the control
   // capacity reserved at Program admission for task attempts and recovery transitions.
   maximumOperatorControlTransitions: 64,
-  maximumExecutionLeases: 16
+  maximumExecutionLeases: 16,
+  // Parallel execution is opt-in.  The existing `process step` surface always narrows this to one.
+  maximumParallelExecutions: 8,
+  maximumResourceLeaseEntries: 256,
+  maximumFanoutItems: 256,
+  maximumFanoutParallel: 8,
+  // Initial checkpoint and every expansion receipt share one 64-entry exact index delta.
+  maximumFanoutGroupsPerProcess: 63,
+  maximumJoinInputs: 2_000
 });

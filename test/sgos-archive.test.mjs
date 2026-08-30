@@ -8,7 +8,9 @@ import test from 'node:test';
 import { doctorSnapshot } from '../src/doctor.mjs';
 import { canonicalJson, recordSha256 } from '../src/records.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
-import { createGvmProcess, createGvmProgram, createGvmTaskAttempt } from '../src/sgos/contracts.mjs';
+import {
+  createGvmProcess, createGvmProgram, createGvmTaskAttempt, createResourceLease
+} from '../src/sgos/contracts.mjs';
 import { SGOS_INSTALLED_LIMITS } from '../src/sgos/limits.mjs';
 import {
   archiveSgosProcess,
@@ -169,7 +171,46 @@ async function currentProcessFixture(root, processId, {
   await writeFile(path.join(
     directory, 'bindings', `${binding.bindingSha256.slice('sha256:'.length)}.json`
   ), canonicalJson(binding));
-  const taskInstanceId = 'task-interrupted';
+  const program = createGvmProgram({
+    intentIrSha256: h('1'),
+    workflowSha256: h('2'),
+    ratificationSha256: h('3'),
+    policySnapshotSha256: h('9'),
+    registrySnapshotSha256: h('7'),
+    storageProfileSha256: h('6'),
+    taskTemplates: [
+      {
+        taskTemplateId: 'task', opcode: 'END', dependsOn: [], inputs: [],
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        retry: { maximumAttempts: 1 }
+      },
+      ...(multipleTerminalAttempts ? [{
+        taskTemplateId: 'task-second', opcode: 'END', dependsOn: [], inputs: [],
+        resources: { reads: [], writes: [], devices: [], externalEffects: [] },
+        retry: { maximumAttempts: 1 }
+      }] : [])
+    ],
+    edges: [], joins: [],
+    budgets: { maximumTasks: multipleTerminalAttempts ? 2 : 1, maximumAttempts: 1 },
+    recoveryPolicy: { mode: 'fail-closed' },
+    terminalConditions: [
+      { taskTemplateId: 'task', state: 'succeeded' },
+      ...(multipleTerminalAttempts
+        ? [{ taskTemplateId: 'task-second', state: 'succeeded' }] : [])
+    ],
+    compiler: { id: 'sflow-gvm-compiler', version: '2' }
+  });
+  // The no-attempt fixture deliberately remains an incomplete creation seed. Interrupted current
+  // fixtures, however, must carry their exact Program bytes so quarantine validates authority and
+  // materialization from the moved snapshot rather than consulting the old Process directory.
+  if (terminalBeforeReceipt) {
+    await mkdir(path.join(directory, 'programs'), { recursive: true });
+    await writeFile(path.join(
+      directory, 'programs', `${program.programSha256.slice('sha256:'.length)}.json`
+    ), canonicalJson(program));
+  }
+  const taskInstanceId = `TSK-${recordSha256({ processId, taskTemplateId: 'task' })
+    .slice(0, 24).toUpperCase()}`;
   const attempt = terminalBeforeReceipt ? createGvmTaskAttempt({
     processId,
     taskInstanceId,
@@ -182,7 +223,8 @@ async function currentProcessFixture(root, processId, {
     startedAt: timestamp,
     completedAt: timestamp
   }) : null;
-  const secondTaskInstanceId = 'task-interrupted-second';
+  const secondTaskInstanceId = `TSK-${recordSha256({ processId, taskTemplateId: 'task-second' })
+    .slice(0, 24).toUpperCase()}`;
   const secondAttempt = multipleTerminalAttempts ? createGvmTaskAttempt({
     processId,
     taskInstanceId: secondTaskInstanceId,
@@ -207,8 +249,8 @@ async function currentProcessFixture(root, processId, {
     }
   }
   const leaseId = leaseOwnerPid == null ? null : 'lease-interrupted-owner';
-  const programSha256 = h('1');
-  const programId = 'PRG-QUARANTINE';
+  const programSha256 = program.programSha256;
+  const programId = program.programId;
   const authorityBinding = {
     kind: 'repository',
     subjectId: binding.subjectId,
@@ -249,14 +291,14 @@ async function currentProcessFixture(root, processId, {
           terminalTaskIds: ['task'],
           topologicalOrder: ['task']
         },
-        registry: { verified: true, registrySnapshotSha256: h('7') }
+        registry: { verified: true, registrySnapshotSha256: program.registrySnapshotSha256 }
       }
     }
   };
   const currentState = createGvmProcess({
     processId,
     programSha256,
-    policySnapshotSha256: h('9'),
+    policySnapshotSha256: program.policySnapshotSha256,
     processBindingSha256: binding.bindingSha256,
     status: 'running',
     taskInstances: {
@@ -299,6 +341,25 @@ async function currentProcessFixture(root, processId, {
   });
   const state = storedProcessVersion === 2 ? storedProcessV2(currentState) : currentState;
   await writeFile(path.join(directory, 'state.json'), canonicalJson(state));
+  if (attempt || secondAttempt) {
+    await mkdir(path.join(directory, 'resource-leases'), { recursive: true });
+    for (const [boundAttempt, boundTaskInstanceId] of [
+      [attempt, taskInstanceId], [secondAttempt, secondTaskInstanceId]
+    ].filter(([entry]) => entry != null)) {
+      const resourceLease = createResourceLease({
+        processId,
+        taskInstanceId: boundTaskInstanceId,
+        attemptId: boundAttempt.attemptId,
+        resources: [],
+        acquiredAt: timestamp,
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      });
+      await writeFile(path.join(
+        directory, 'resource-leases',
+        `${resourceLease.leaseSha256.slice('sha256:'.length)}.json`
+      ), canonicalJson(resourceLease));
+    }
+  }
   if (leaseId) {
     const leaseDirectory = path.join(directory, 'execution-leases');
     await mkdir(leaseDirectory, { recursive: true });

@@ -6,6 +6,10 @@ import { SingularityFlowError } from '../util.mjs';
 import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
 import { compareSgosCodePoints } from './order.mjs';
 import { canonicalizeSgosAbsolutePath } from './paths.mjs';
+import { canonicalSgosJoins } from './joins.mjs';
+import {
+  normalizeSgosResourceKey, SGOS_RESOURCE_MODES
+} from './resource-contracts.mjs';
 
 export const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
@@ -72,6 +76,10 @@ const CONTRACTS = Object.freeze({
   'workflow-ratification': Object.freeze({ kind: 'workflow-ratification', hash: 'ratificationSha256', id: 'ratificationId', prefix: 'RAT' }),
   'policy-snapshot': Object.freeze({ kind: 'policy-snapshot', hash: 'snapshotSha256', id: 'policyId', prefix: 'POL' }),
   'candidate-snapshot': Object.freeze({ kind: 'candidate-snapshot', hash: 'candidateSha256', id: 'candidateId', prefix: 'CAN' }),
+  'resource-lease': Object.freeze({ kind: 'resource-lease', hash: 'leaseSha256', id: 'leaseId', prefix: 'RLS' }),
+  'join-receipt': Object.freeze({ kind: 'join-receipt', hash: 'joinReceiptSha256', id: 'joinReceiptId', prefix: 'JNR' }),
+  'fanout-expansion-receipt': Object.freeze({ kind: 'fanout-expansion-receipt', hash: 'expansionSha256', id: 'expansionId', prefix: 'FOX' }),
+  'sgos-replay-plan': Object.freeze({ kind: 'sgos-replay-plan', hash: 'replayPlanSha256', id: 'replayPlanId', prefix: 'RPL' }),
   'process-binding': Object.freeze({ kind: 'process-binding', hash: 'bindingSha256' }),
   'gvm-program': Object.freeze({ kind: 'gvm-program', hash: 'programSha256', id: 'programId', prefix: 'PRG' }),
   'gvm-process': Object.freeze({ kind: 'gvm-process', hash: 'processSha256', id: 'processId', prefix: 'PROC' }),
@@ -400,7 +408,7 @@ function validateWorkflowTask(value, label, keyedId = null) {
   exactKeys(value, [
     'id', 'taskId', 'kind', 'opcode', 'operation', 'dependsOn', 'resources', 'evidence',
     'authority', 'recovery', 'intentClauseIds', 'material', 'condition', 'body', 'items',
-    'maximumIterations', 'subprocess', 'compensation', 'checkpoint', 'metadata', 'inputs',
+    'maximumIterations', 'maximumItems', 'maximumParallel', 'subprocess', 'compensation', 'checkpoint', 'metadata', 'inputs',
     'outputs', 'timeoutMs', 'retry', 'policySnapshotSha256'
   ], label);
   requireKeys(value, ['kind'], label);
@@ -415,6 +423,8 @@ function validateWorkflowTask(value, label, keyedId = null) {
   if (value.intentClauseIds != null) stringArray(value.intentClauseIds, `${label}.intentClauseIds`);
   if (value.material != null && typeof value.material !== 'boolean') fail(`${label}.material must be boolean.`);
   if (value.maximumIterations != null) integer(value.maximumIterations, `${label}.maximumIterations`, { minimum: 1 });
+  if (value.maximumItems != null) integer(value.maximumItems, `${label}.maximumItems`);
+  if (value.maximumParallel != null) integer(value.maximumParallel, `${label}.maximumParallel`, { minimum: 1 });
   if (value.timeoutMs != null) integer(value.timeoutMs, `${label}.timeoutMs`, { minimum: 1 });
   if (value.policySnapshotSha256 != null) digest(value.policySnapshotSha256, `${label}.policySnapshotSha256`);
   for (const field of ['evidence', 'authority', 'recovery', 'condition', 'body', 'items', 'subprocess', 'compensation', 'checkpoint', 'metadata', 'inputs', 'outputs', 'retry']) {
@@ -645,6 +655,281 @@ export function validateCandidateSnapshot(value) {
   return returnValidated(value, validateCandidateSnapshotRecord);
 }
 
+function resourceLeaseEntryOrder(left, right) {
+  return compareSgosCodePoints(left.key, right.key)
+    || compareSgosCodePoints(left.mode, right.mode);
+}
+
+function validateResourceLeaseRecord(record, requireHash) {
+  validateBase(record, 'resource-lease', [
+    'leaseId', 'processId', 'taskInstanceId', 'attemptId', 'resources',
+    'acquiredAt', 'expiresAt'
+  ], [
+    'leaseId', 'processId', 'taskInstanceId', 'attemptId', 'resources',
+    'acquiredAt', 'expiresAt'
+  ], requireHash);
+  identifier(record.leaseId, 'RLS', 'resource-lease.leaseId');
+  identifier(record.processId, 'PROC', 'resource-lease.processId');
+  string(record.taskInstanceId, 'resource-lease.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'resource-lease.attemptId');
+  if (!Array.isArray(record.resources)) fail('resource-lease.resources must be an array.');
+  if (record.resources.length > SGOS_INSTALLED_LIMITS.maximumResourceLeaseEntries) {
+    fail('resource-lease.resources exceeds the installed entry ceiling.');
+  }
+  record.resources.forEach((entry, index) => {
+    const label = `resource-lease.resources[${index}]`;
+    exactKeys(entry, ['key', 'mode'], label);
+    requireKeys(entry, ['key', 'mode'], label);
+    string(entry.key, `${label}.key`);
+    if (normalizeSgosResourceKey(entry.key) !== entry.key) {
+      fail(`${label}.key must be canonical.`);
+    }
+    enumeration(entry.mode, SGOS_RESOURCE_MODES, `${label}.mode`);
+  });
+  if (record.resources.some((entry, index) =>
+    index > 0 && resourceLeaseEntryOrder(record.resources[index - 1], entry) >= 0)) {
+    fail('resource-lease.resources must be unique and canonically sorted.');
+  }
+  timestamp(record.acquiredAt, 'resource-lease.acquiredAt');
+  timestamp(record.expiresAt, 'resource-lease.expiresAt');
+  if (Date.parse(record.expiresAt) <= Date.parse(record.acquiredAt)) {
+    fail('resource-lease.expiresAt must be after acquiredAt.');
+  }
+}
+
+export function createResourceLease(value) {
+  return createContract('resource-lease', value, validateResourceLeaseRecord, {
+    prepare: (record) => ({
+      ...record,
+      resources: [...record.resources].sort(resourceLeaseEntryOrder)
+    }),
+    identity: (record) => ({
+      processId: record.processId,
+      taskInstanceId: record.taskInstanceId,
+      attemptId: record.attemptId,
+      resources: record.resources,
+      acquiredAt: record.acquiredAt,
+      expiresAt: record.expiresAt
+    })
+  });
+}
+
+export function validateResourceLease(value) {
+  return returnValidated(value, validateResourceLeaseRecord);
+}
+
+const JOIN_RECEIPT_POLICIES = Object.freeze(['all-success', 'all-terminal']);
+const JOIN_TERMINAL_STATES = Object.freeze(['succeeded', 'failed', 'blocked', 'cancelled', 'skipped']);
+
+function joinPredecessorOrder(left, right) {
+  return compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
+}
+
+function validateJoinReceiptRecord(record, requireHash) {
+  validateBase(record, 'join-receipt', [
+    'joinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId', 'policy',
+    'predecessors', 'outputRefs', 'completedAt'
+  ], [
+    'joinReceiptId', 'processId', 'taskInstanceId', 'attemptId', 'joinId', 'policy',
+    'predecessors', 'outputRefs', 'completedAt'
+  ], requireHash);
+  identifier(record.joinReceiptId, 'JNR', 'join-receipt.joinReceiptId');
+  identifier(record.processId, 'PROC', 'join-receipt.processId');
+  string(record.taskInstanceId, 'join-receipt.taskInstanceId');
+  identifier(record.attemptId, 'ATT', 'join-receipt.attemptId');
+  string(record.joinId, 'join-receipt.joinId');
+  enumeration(record.policy, JOIN_RECEIPT_POLICIES, 'join-receipt.policy');
+  if (!Array.isArray(record.predecessors) || !record.predecessors.length
+      || record.predecessors.length > SGOS_INSTALLED_LIMITS.maximumJoinInputs) {
+    fail('join-receipt.predecessors has an invalid size.');
+  }
+  record.predecessors.forEach((entry, index) => {
+    const label = `join-receipt.predecessors[${index}]`;
+    exactKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    requireKeys(entry, ['taskInstanceId', 'state', 'receiptSha256', 'attemptId'], label);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+    enumeration(entry.state, JOIN_TERMINAL_STATES, `${label}.state`);
+    if (entry.receiptSha256 !== null) digest(entry.receiptSha256, `${label}.receiptSha256`);
+    if (entry.attemptId !== null) identifier(entry.attemptId, 'ATT', `${label}.attemptId`);
+    if (entry.state === 'succeeded' && entry.receiptSha256 === null) {
+      fail(`${label} succeeded predecessor requires receiptSha256.`);
+    }
+    if (record.policy === 'all-success' && entry.state !== 'succeeded') {
+      fail('all-success join receipts may bind only succeeded predecessors.');
+    }
+  });
+  if (record.predecessors.some((entry, index) =>
+    index > 0 && joinPredecessorOrder(record.predecessors[index - 1], entry) >= 0)) {
+    fail('join-receipt.predecessors must be unique and canonically sorted.');
+  }
+  stringArray(record.outputRefs, 'join-receipt.outputRefs');
+  timestamp(record.completedAt, 'join-receipt.completedAt');
+}
+
+export function createJoinReceipt(value) {
+  return createContract('join-receipt', value, validateJoinReceiptRecord, {
+    prepare: (record) => ({
+      ...record,
+      predecessors: [...record.predecessors].sort(joinPredecessorOrder),
+      outputRefs: [...new Set(record.outputRefs)].sort(compareSgosCodePoints)
+    }),
+    identity: (record) => ({
+      processId: record.processId, taskInstanceId: record.taskInstanceId,
+      attemptId: record.attemptId, joinId: record.joinId, policy: record.policy,
+      predecessors: record.predecessors
+    })
+  });
+}
+
+export function validateJoinReceipt(value) {
+  return returnValidated(value, validateJoinReceiptRecord);
+}
+
+function fanoutItemOrder(left, right) {
+  return compareSgosCodePoints(left.itemKey, right.itemKey);
+}
+
+function validateFanoutExpansionReceiptRecord(record, requireHash) {
+  validateBase(record, 'fanout-expansion-receipt', [
+    'expansionId', 'processId', 'parentTaskTemplateId', 'collectionSha256',
+    'maximumItems', 'maximumParallel', 'items', 'createdAt'
+  ], [
+    'expansionId', 'processId', 'parentTaskTemplateId', 'collectionSha256',
+    'maximumItems', 'maximumParallel', 'items', 'createdAt'
+  ], requireHash);
+  identifier(record.expansionId, 'FOX', 'fanout-expansion-receipt.expansionId');
+  identifier(record.processId, 'PROC', 'fanout-expansion-receipt.processId');
+  string(record.parentTaskTemplateId, 'fanout-expansion-receipt.parentTaskTemplateId');
+  digest(record.collectionSha256, 'fanout-expansion-receipt.collectionSha256');
+  integer(record.maximumItems, 'fanout-expansion-receipt.maximumItems');
+  integer(record.maximumParallel, 'fanout-expansion-receipt.maximumParallel', { minimum: 1 });
+  if (record.maximumItems > SGOS_INSTALLED_LIMITS.maximumFanoutItems
+      || record.maximumParallel > SGOS_INSTALLED_LIMITS.maximumFanoutParallel) {
+    fail('fanout-expansion-receipt exceeds installed bounds.');
+  }
+  if (!Array.isArray(record.items) || record.items.length > record.maximumItems) {
+    fail('fanout-expansion-receipt.items exceeds maximumItems.');
+  }
+  record.items.forEach((entry, index) => {
+    const label = `fanout-expansion-receipt.items[${index}]`;
+    exactKeys(entry, ['itemKey', 'itemSha256', 'taskTemplateId', 'taskInstanceId'], label);
+    requireKeys(entry, ['itemKey', 'itemSha256', 'taskTemplateId', 'taskInstanceId'], label);
+    string(entry.itemKey, `${label}.itemKey`);
+    digest(entry.itemSha256, `${label}.itemSha256`);
+    string(entry.taskTemplateId, `${label}.taskTemplateId`);
+    string(entry.taskInstanceId, `${label}.taskInstanceId`);
+  });
+  if (record.items.some((entry, index) =>
+    index > 0 && fanoutItemOrder(record.items[index - 1], entry) >= 0)) {
+    fail('fanout-expansion-receipt.items must have unique, canonically sorted itemKey values.');
+  }
+  timestamp(record.createdAt, 'fanout-expansion-receipt.createdAt');
+}
+
+export function createFanoutExpansionReceipt(value) {
+  return createContract(
+    'fanout-expansion-receipt', value, validateFanoutExpansionReceiptRecord, {
+      prepare: (record) => ({ ...record, items: [...record.items].sort(fanoutItemOrder) }),
+      identity: (record) => ({
+        processId: record.processId, parentTaskTemplateId: record.parentTaskTemplateId,
+        collectionSha256: record.collectionSha256, maximumItems: record.maximumItems,
+        maximumParallel: record.maximumParallel, items: record.items
+      })
+    }
+  );
+}
+
+export function validateFanoutExpansionReceipt(value) {
+  return returnValidated(value, validateFanoutExpansionReceiptRecord);
+}
+
+function replayTaskOrder(left, right) {
+  return compareSgosCodePoints(left.taskTemplateId, right.taskTemplateId)
+    || compareSgosCodePoints(left.taskInstanceId, right.taskInstanceId);
+}
+
+function validateReplayPriorTask(value, label) {
+  exactKeys(value, [
+    'taskInstanceId', 'taskTemplateId', 'state', 'revision', 'inputRefs', 'attemptIds',
+    'receiptSha256', 'outputRefs', 'invalidatedBy'
+  ], label);
+  requireKeys(value, [
+    'taskInstanceId', 'taskTemplateId', 'state', 'revision', 'inputRefs', 'attemptIds',
+    'receiptSha256', 'outputRefs', 'invalidatedBy'
+  ], label);
+  string(value.taskInstanceId, `${label}.taskInstanceId`);
+  string(value.taskTemplateId, `${label}.taskTemplateId`);
+  enumeration(value.state, TASK_STATES, `${label}.state`);
+  integer(value.revision, `${label}.revision`, { minimum: 1 });
+  stringArray(value.inputRefs, `${label}.inputRefs`);
+  stringArray(value.attemptIds, `${label}.attemptIds`);
+  stringArray(value.outputRefs, `${label}.outputRefs`);
+  if (value.receiptSha256 !== null) digest(value.receiptSha256, `${label}.receiptSha256`);
+  if (value.invalidatedBy !== null) digest(value.invalidatedBy, `${label}.invalidatedBy`);
+  if (value.state === 'succeeded' && value.receiptSha256 === null) {
+    fail(`${label} succeeded state requires receiptSha256.`);
+  }
+}
+
+function validateSgosReplayPlanRecord(record, requireHash) {
+  validateBase(record, 'sgos-replay-plan', [
+    'replayPlanId', 'processId', 'expectedProcessRevision', 'expectedProcessSha256',
+    'programSha256', 'policySnapshotSha256', 'processBindingSha256',
+    'fromCheckpointSha256', 'taskInstanceIds', 'priorTasks', 'createdAt'
+  ], [
+    'replayPlanId', 'processId', 'expectedProcessRevision', 'expectedProcessSha256',
+    'programSha256', 'policySnapshotSha256', 'processBindingSha256',
+    'fromCheckpointSha256', 'taskInstanceIds', 'priorTasks', 'createdAt'
+  ], requireHash);
+  identifier(record.replayPlanId, 'RPL', 'sgos-replay-plan.replayPlanId');
+  identifier(record.processId, 'PROC', 'sgos-replay-plan.processId');
+  integer(record.expectedProcessRevision, 'sgos-replay-plan.expectedProcessRevision', { minimum: 1 });
+  for (const field of [
+    'expectedProcessSha256', 'programSha256', 'policySnapshotSha256',
+    'processBindingSha256', 'fromCheckpointSha256'
+  ]) digest(record[field], `sgos-replay-plan.${field}`);
+  stringArray(record.taskInstanceIds, 'sgos-replay-plan.taskInstanceIds');
+  if (!record.taskInstanceIds.length
+      || record.taskInstanceIds.length > SGOS_INSTALLED_LIMITS.maximumTasks) {
+    fail('sgos-replay-plan.taskInstanceIds has an invalid size.');
+  }
+  if (!Array.isArray(record.priorTasks)
+      || record.priorTasks.length !== record.taskInstanceIds.length) {
+    fail('sgos-replay-plan.priorTasks must exactly cover taskInstanceIds.');
+  }
+  record.priorTasks.forEach((task, index) =>
+    validateReplayPriorTask(task, `sgos-replay-plan.priorTasks[${index}]`));
+  if (record.priorTasks.some((task, index) =>
+    index > 0 && replayTaskOrder(record.priorTasks[index - 1], task) >= 0)) {
+    fail('sgos-replay-plan.priorTasks must be unique and canonically sorted.');
+  }
+  if (canonicalJson(record.taskInstanceIds)
+      !== canonicalJson(record.priorTasks.map((task) => task.taskInstanceId))) {
+    fail('sgos-replay-plan.taskInstanceIds must match canonical priorTasks order.');
+  }
+  timestamp(record.createdAt, 'sgos-replay-plan.createdAt');
+}
+
+export function createSgosReplayPlan(value) {
+  return createContract('sgos-replay-plan', value, validateSgosReplayPlanRecord, {
+    prepare: (record) => {
+      const priorTasks = [...record.priorTasks].sort(replayTaskOrder);
+      return { ...record, priorTasks, taskInstanceIds: priorTasks.map((task) => task.taskInstanceId) };
+    },
+    identity: (record) => ({
+      processId: record.processId,
+      expectedProcessRevision: record.expectedProcessRevision,
+      expectedProcessSha256: record.expectedProcessSha256,
+      fromCheckpointSha256: record.fromCheckpointSha256,
+      priorTasks: record.priorTasks
+    })
+  });
+}
+
+export function validateSgosReplayPlan(value) {
+  return returnValidated(value, validateSgosReplayPlanRecord);
+}
+
 function validateProcessBindingRecord(record, requireHash) {
   validateBase(record, 'process-binding', [
     'processId', 'subjectId', 'subjectAuthority', 'configurationAuthority', 'repositoryIdentity', 'gitCommonDirectory',
@@ -745,7 +1030,12 @@ function validateGvmProgramRecord(record, requireHash) {
     string(edge.to, `${label}.to`);
     if (edge.condition != null) cloneJson(edge.condition, `${label}.condition`);
   });
-  if (!Array.isArray(record.joins) && !plainObject(record.joins)) fail('gvm-program.joins must be an array or object map.');
+  // v1 historically admitted object maps at the durable read boundary. Keep those immutable
+  // bytes readable; new creators canonicalize to arrays and execution admission independently
+  // refuses any non-canonical representation.
+  if (!Array.isArray(record.joins) && !plainObject(record.joins)) {
+    fail('gvm-program.joins must be an array or legacy object map.');
+  }
   object(record.budgets, 'gvm-program.budgets');
   object(record.recoveryPolicy, 'gvm-program.recoveryPolicy');
   if (!Array.isArray(record.terminalConditions)) fail('gvm-program.terminalConditions must be an array.');
@@ -758,6 +1048,7 @@ function validateGvmProgramRecord(record, requireHash) {
 
 export function createGvmProgram(value) {
   return createContract('gvm-program', value, validateGvmProgramRecord, {
+    prepare: (record) => ({ ...record, joins: canonicalSgosJoins(record.joins ?? []) }),
     identity: (record) => Object.fromEntries(Object.entries(record).filter(([key]) => !['programId', 'schemaVersion', 'kind'].includes(key)))
   });
 }
@@ -781,10 +1072,13 @@ function validateTaskInstance(value, label, keyedId) {
   enumeration(value.state, TASK_STATES, `${label}.state`);
   for (const field of ['predecessorTaskInstanceIds', 'inputRefs', 'outputRefs', 'attemptIds']) stringArray(value[field], `${label}.${field}`);
   if (value.receiptSha256 !== null) digest(value.receiptSha256, `${label}.receiptSha256`);
-  if (value.invalidatedBy !== null) string(value.invalidatedBy, `${label}.invalidatedBy`);
+  if (value.invalidatedBy !== null) digest(value.invalidatedBy, `${label}.invalidatedBy`);
   integer(value.revision, `${label}.revision`);
   if (value.state === 'succeeded' && value.receiptSha256 === null) fail(`${label} cannot be succeeded without receiptSha256.`);
-  if (value.state !== 'succeeded' && value.receiptSha256 !== null) fail(`${label} cannot retain receiptSha256 outside succeeded state.`);
+  if (value.state !== 'succeeded' && value.receiptSha256 !== null
+      && value.invalidatedBy === null) {
+    fail(`${label} cannot retain receiptSha256 outside succeeded state without an exact replay plan.`);
+  }
 }
 
 function validateExecutionAdmissionSource(value, label) {
@@ -1001,9 +1295,10 @@ export function validateGvmProcess(value) {
 }
 
 export const SGOS_RECORD_INDEX_FAMILIES = Object.freeze([
-  'action-evidence', 'candidate-snapshot', 'gvm-checkpoint', 'gvm-program',
+  'action-evidence', 'candidate-snapshot', 'fanout-expansion-receipt',
+  'gvm-checkpoint', 'gvm-program',
   'gvm-task-attempt', 'gvm-task-receipt', 'human-request', 'human-response',
-  'process-binding'
+  'join-receipt', 'process-binding', 'resource-lease', 'sgos-replay-plan'
 ]);
 
 export const MAXIMUM_SGOS_RECORD_INDEX_DELTA =
@@ -1565,6 +1860,10 @@ const VALIDATORS = Object.freeze({
   'workflow-ratification': validateWorkflowRatification,
   'policy-snapshot': validatePolicySnapshot,
   'candidate-snapshot': validateCandidateSnapshot,
+  'resource-lease': validateResourceLease,
+  'join-receipt': validateJoinReceipt,
+  'fanout-expansion-receipt': validateFanoutExpansionReceipt,
+  'sgos-replay-plan': validateSgosReplayPlan,
   'process-binding': validateProcessBinding,
   'gvm-program': validateGvmProgram,
   'gvm-process': validateGvmProcess,

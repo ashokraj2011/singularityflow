@@ -11506,6 +11506,13 @@ async function dispatch(command, positionals, options) {
     process: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     task: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
     request: async () => (await import('./commands/sgos.mjs')).run(argv, { positionals, options }),
+    ...Object.fromEntries([
+      'candidate', 'execution-unit', 'device', 'authority-store',
+      'pack', 'learn', 'memory', 'meta-tool'
+    ].map((name) => [
+      name,
+      async () => (await import('./commands/sgos-extensions.mjs')).run(argv, { positionals, options })
+    ])),
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),

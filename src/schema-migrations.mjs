@@ -740,6 +740,34 @@ const families = [
     ]
   }),
   family({
+    id: 'resource-lease', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/resource-leases\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('resource-lease')
+    ]
+  }),
+  family({
+    id: 'join-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/join-receipts\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('join-receipt')
+    ]
+  }),
+  family({
+    id: 'fanout-expansion-receipt', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/fanout-expansions\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('fanout-expansion-receipt')
+    ]
+  }),
+  family({
+    id: 'sgos-replay-plan', currentVersion: 1, immutable: true,
+    paths: [
+      /^\$git\/sgos\/processes\/[^/]+\/replay-plans\/[a-f0-9]{64}\.json$/,
+      sgosRecordReservationPath('sgos-replay-plan')
+    ]
+  }),
+  family({
     // v1 did not bind the approved configuration authority. It is deliberately archived instead
     // of being synthesized during read: an immutable authority claim cannot be reconstructed.
     id: 'process-binding', currentVersion: 2, minimumReadableVersion: 2, immutable: true,

@@ -10,8 +10,10 @@ import { fileURLToPath } from 'node:url';
 import {
   createGvmProgram,
   createIntentIr,
+  recordSelfSha256,
   createWorkflowIr,
-  createWorkflowRatification
+  createWorkflowRatification,
+  validateGvmProgram
 } from '../src/sgos/contracts.mjs';
 import { compileSgosProgram, registrySnapshotDigest } from '../src/sgos/compiler.mjs';
 import { assertTrustedSgosConfigurationAuthority } from '../src/sgos/authority-trust.mjs';
@@ -661,6 +663,15 @@ test('execution admission rejects opcodes whose semantics are not installed', ()
   expectCode(() => validateSgosProgramStaticSafety(forged), 'SGOS_PROGRAM_SEMANTICS_UNSUPPORTED');
 });
 
+test('legacy v1 join maps remain readable but can never cross execution admission', () => {
+  const { program } = compilerFixture();
+  const legacy = structuredClone(program);
+  legacy.joins = {};
+  legacy.programSha256 = recordSelfSha256(legacy, 'programSha256');
+  assert.equal(validateGvmProgram(legacy).programSha256, legacy.programSha256);
+  expectCode(() => validateSgosProgramStaticSafety(legacy), 'SGOS_JOIN_CONTRACT_MISMATCH');
+});
+
 test('installed admission ceilings reject an attempt envelope that cannot fit immutable storage', () => {
   const taskTemplates = Array.from({ length: 501 }, (_, index) => ({
     taskTemplateId: `task-${String(index).padStart(3, '0')}`,
@@ -692,6 +703,7 @@ test('installed admission reserves worst-case control transitions before executi
 test('supported SGOS barrel exposes safe stepping and no raw adapter or storage writers', async () => {
   const publicSgos = await import('../src/sgos/index.mjs');
   assert.equal(typeof publicSgos.stepSgosProcess, 'function');
+  assert.equal(typeof publicSgos.runSgosProcess, 'function');
   for (const unsafe of [
     'runNextSgosTask', 'createSgosBuiltinAdapters', 'putSgosCandidateSnapshot',
     'putSgosImmutableRecord', 'mutateSgosProcess', 'createSgosProcess'

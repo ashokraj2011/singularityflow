@@ -30,6 +30,7 @@ interface SnapshotEnvelope {
   capabilities?: { path?: string; capabilities?: unknown[] | null; error?: string };
   integrations?: Partial<RepositorySnapshot>;
   diagnostics?: RepositorySnapshot['diagnostics'];
+  sgos?: RepositorySnapshot['sgos'];
 }
 
 function snapshotArgs(slices: readonly SnapshotSlice[], ifRevision?: string | null): string[] {
@@ -61,6 +62,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
         : { capabilities: capability.capabilities ?? [], ...(capability.error ? { error: capability.error } : {}) }
     } : {}),
     ...(envelope.diagnostics ? { diagnostics: envelope.diagnostics } : {}),
+    ...(envelope.sgos ? { sgos: envelope.sgos } : {}),
     included: [...(envelope.included ?? [])],
     ...(envelope.notModified ? { notModified: true } : {}),
     ...(envelope.revision ? { revision: envelope.revision } : {})
@@ -152,6 +154,38 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action === 'preference') return (args[3] ?? 'show') === 'show' ? 'read' : 'mutation';
     return 'mutation';
   }
+  if (args[0] === 'intent') return ['show', 'validate'].includes(args[1] ?? 'show') ? 'read' : 'mutation';
+  if (args[0] === 'program') return ['show', 'validate', 'simulate', 'explain'].includes(args[1] ?? 'show') ? 'read' : 'mutation';
+  if (args[0] === 'process') {
+    const action = args[1] ?? 'list';
+    if (['list', 'status', 'graph', 'fsck'].includes(action)) return 'read';
+    if (action === 'recover' && !hasOption(args, 'resolution')) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'task') return ['list', 'show', 'evidence'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'request') return ['list', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'candidate') {
+    const action = args[1] ?? 'list';
+    if (['list', 'show', 'diff-argv'].includes(action)) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'execution-unit') return 'read';
+  if (args[0] === 'device') {
+    const action = args[1] ?? 'list';
+    if (['list', 'doctor', 'intent', 'result'].includes(action)) return 'read';
+    if (action === 'revoke' && !hasOption(args, 'confirm')) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'authority-store') {
+    const action = args[1] ?? 'status';
+    if (['status', 'verify'].includes(action)) return 'read';
+    if (action === 'recover' && !hasOption(args, 'confirm')) return 'read';
+    return 'mutation';
+  }
+  if (args[0] === 'learn') return 'read';
+  if (args[0] === 'pack') return ['list', 'active', 'show'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
+  if (args[0] === 'memory') return ['inspect', 'dependencies'].includes(args[1] ?? 'inspect') ? 'read' : 'mutation';
+  if (args[0] === 'meta-tool') return (args[1] ?? 'list') === 'list' ? 'read' : 'mutation';
   return READ_ONLY_COMMANDS.has(args[0]) ? 'read' : 'mutation';
 }
 

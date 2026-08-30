@@ -15,6 +15,12 @@ import {
   validateWorkflowRatification
 } from './contracts.mjs';
 import { compareSgosCodePoints as codePointCompare } from './order.mjs';
+import { canonicalSgosJoins } from './joins.mjs';
+import { canonicalSgosResourceEntries } from './resource-contracts.mjs';
+import { SGOS_INSTALLED_LIMITS } from './limits.mjs';
+import {
+  normalizeSgosFanout, sgosFanoutChildTemplateId
+} from './fanout.mjs';
 
 export const SGOS_COMPILER_ID = 'sflow-gvm-compiler';
 export const SGOS_COMPILER_VERSION = '2';
@@ -22,7 +28,7 @@ export const SGOS_COMPILER_VERSION = '2';
 export const GVM_OPCODES = CONTRACT_GVM_OPCODES;
 
 const GVM_OPCODE_SET = new Set(GVM_OPCODES);
-const RUNTIME_UNSUPPORTED_OPCODES = new Set(['JOIN', 'MERGE', 'SPAWN', 'COMPENSATE']);
+const RUNTIME_UNSUPPORTED_OPCODES = new Set(['MERGE', 'SPAWN', 'COMPENSATE']);
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 
@@ -51,7 +57,7 @@ const CONSTRUCT_OPCODE = Object.freeze({
   end: 'END'
 });
 
-const NON_MATERIAL_OPCODES = new Set(['CHECKPOINT', 'NOOP', 'END']);
+const NON_MATERIAL_OPCODES = new Set(['CHECKPOINT', 'NOOP', 'JOIN', 'END']);
 const CONFIRMED_PROVENANCE = new Set([
   'explicit',
   'human-confirmed',
@@ -321,6 +327,94 @@ function rawTaskEntries(workflow) {
   }
   if (plainObject(raw)) return Object.entries(raw);
   fail('SGOS_WORKFLOW_TASKS_INVALID', 'Workflow spec.tasks must be an object or array.');
+}
+
+function inheritedFanoutChild(parent, body) {
+  const child = { ...clone(parent), ...clone(body) };
+  for (const field of [
+    'items', 'body', 'maximumItems', 'maximumParallel', 'maximumIterations',
+    'dynamicFanout', 'bounds'
+  ]) delete child[field];
+  child.kind = body.kind ?? body.type ?? 'task';
+  delete child.opcode;
+  return child;
+}
+
+/** Expand approved inline collections into one finite Program graph before hashing the Program. */
+function expandedTaskEntries(workflow) {
+  const result = [];
+  for (const [taskId, rawTask] of rawTaskEntries(workflow)) {
+    const kind = String(rawTask?.kind ?? rawTask?.type ?? 'task').toLowerCase();
+    if (kind !== 'foreach') {
+      result.push([taskId, rawTask]);
+      continue;
+    }
+    const maximumItems = numericBound(rawTask, 'maximumItems', 'maxItems', 'maximumFanout', 'maximumIterations');
+    if (!Number.isInteger(maximumItems) || maximumItems < 0) {
+      fail('SGOS_UNBOUNDED_CONSTRUCT', `Task '${taskId}' has unbounded fan-out.`, {
+        taskId, construct: kind
+      });
+    }
+    if (!plainObject(rawTask.body)) {
+      fail('SGOS_FANOUT_BODY_REQUIRED', `Fan-out '${taskId}' requires one finite body task.`);
+    }
+    const childKind = String(rawTask.body.kind ?? rawTask.body.type ?? 'task').toLowerCase();
+    if (['foreach', 'bounded-loop', 'loop', 'spawn', 'subprocess'].includes(childKind)) {
+      fail('SGOS_FANOUT_NESTED_UNSUPPORTED',
+        `Fan-out '${taskId}' cannot contain nested dynamic control flow.`, { taskId, childKind });
+    }
+    const maximumParallel = numericBound(rawTask, 'maximumParallel', 'maxParallel') ?? 1;
+    let fanout;
+    try {
+      fanout = normalizeSgosFanout({
+        taskId, items: rawTask.items, maximumItems, maximumParallel
+      });
+    } catch (error) {
+      fail(error?.code ?? 'SGOS_FANOUT_INVALID', error?.message ?? String(error), error?.details ?? {});
+    }
+    const childIds = [];
+    for (const item of fanout.items) {
+      const childId = sgosFanoutChildTemplateId(taskId, item.itemKey, item.itemSha256);
+      childIds.push(childId);
+      const child = inheritedFanoutChild(rawTask, rawTask.body);
+      child.dependsOn = clone(rawTask.dependsOn ?? rawTask.after ?? rawTask.predecessors ?? []);
+      child.inputs = [
+        ...clone(rawTask.body.inputs ?? rawTask.inputs ?? []),
+        { fanoutItemKey: item.itemKey, fanoutItemSha256: item.itemSha256 }
+      ];
+      child.metadata = {
+        ...clone(rawTask.metadata ?? {}),
+        ...clone(rawTask.body.metadata ?? {}),
+        fanout: {
+          parentTaskId: taskId,
+          itemKey: item.itemKey,
+          itemSha256: item.itemSha256,
+          itemValue: clone(item.value),
+          collectionSha256: fanout.collectionSha256,
+          maximumItems: fanout.maximumItems,
+          maximumParallel: fanout.maximumParallel
+        }
+      };
+      result.push([childId, child]);
+    }
+    const coordinator = {
+      kind: childIds.length ? 'join' : 'noop',
+      dependsOn: childIds,
+      material: false,
+      intentClauseIds: [],
+      metadata: {
+        joinPolicy: childIds.length ? 'all-success' : null,
+        fanoutCoordinator: {
+          parentTaskId: taskId,
+          collectionSha256: fanout.collectionSha256,
+          maximumItems: fanout.maximumItems,
+          maximumParallel: fanout.maximumParallel
+        }
+      }
+    };
+    result.push([taskId, coordinator]);
+  }
+  return result;
 }
 
 function registryEntries(snapshot, names) {
@@ -758,6 +852,17 @@ function assertCompileCeilings(workflow, templates) {
         taskCount: templates.length, maximumTasks
       });
   }
+  const fanoutGroups = new Set(templates.flatMap((task) => {
+    const metadata = task.metadata?.fanout ?? task.metadata?.fanoutCoordinator;
+    return metadata?.parentTaskId ? [metadata.parentTaskId] : [];
+  }));
+  if (fanoutGroups.size > SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess) {
+    fail('SGOS_FANOUT_LIMIT',
+      'Workflow fan-out groups cannot fit the initial durable expansion boundary.', {
+        actual: fanoutGroups.size,
+        maximum: SGOS_INSTALLED_LIMITS.maximumFanoutGroupsPerProcess
+      });
+  }
 
   const rawMaximumAttempts = budgets.maximumAttemptsPerTask ?? budgets.maximumAttempts;
   const maximumAttempts = Number(rawMaximumAttempts);
@@ -768,6 +873,14 @@ function assertCompileCeilings(workflow, templates) {
       });
   }
   for (const task of templates) {
+    try { canonicalSgosResourceEntries(task.resources); } catch (error) {
+      fail(error?.code ?? 'SGOS_RESOURCE_LEASE_LIMIT',
+        `Task '${task.taskTemplateId}' cannot fit one installed resource lease.`, {
+          taskId: task.taskTemplateId,
+          cause: error?.message ?? String(error),
+          ...(error?.details ?? {})
+        });
+    }
     const taskMaximumAttempts = Number(task.retry?.maximumAttempts);
     if (!Number.isSafeInteger(taskMaximumAttempts) || taskMaximumAttempts < 1) {
       fail('SGOS_RETRY_CEILING_REQUIRED',
@@ -846,6 +959,37 @@ function buildEdges(workflow, templates) {
     codePointCompare(a.from, b.from)
     || codePointCompare(a.to, b.to)
     || canonicalCompare(a.condition ?? null, b.condition ?? null));
+}
+
+function joinsForProgram(workflow, templates) {
+  const raw = workflow.spec?.joins ?? {};
+  const configured = new Map(Object.entries(raw));
+  const joins = [];
+  for (const template of templates.filter((entry) => entry.opcode === 'JOIN')) {
+    const supplied = configured.get(template.taskTemplateId) ?? {};
+    configured.delete(template.taskTemplateId);
+    if (!plainObject(supplied)) {
+      fail('SGOS_JOIN_INVALID', `Join '${template.taskTemplateId}' contract must be an object.`);
+    }
+    const metadataPolicy = template.metadata?.joinPolicy;
+    const policy = supplied.policy ?? supplied.mode
+      ?? (typeof metadataPolicy === 'string' ? metadataPolicy : metadataPolicy?.policy)
+      ?? (typeof metadataPolicy === 'object' ? metadataPolicy?.mode : null);
+    joins.push({
+      joinId: String(supplied.joinId ?? template.taskTemplateId),
+      taskTemplateId: template.taskTemplateId,
+      policy,
+      predecessorTaskTemplateIds: [...template.dependsOn]
+    });
+  }
+  if (configured.size) {
+    fail('SGOS_JOIN_TASK_UNKNOWN', 'Workflow join contracts must name an installed JOIN task.', {
+      joinIds: [...configured.keys()].sort(codePointCompare)
+    });
+  }
+  try { return canonicalSgosJoins(joins); } catch (error) {
+    fail(error?.code ?? 'SGOS_JOIN_INVALID', error?.message ?? String(error), error?.details ?? {});
+  }
 }
 
 function graphFacts(templates, edges) {
@@ -1226,15 +1370,8 @@ export function compileSgosProgram(requestValue) {
     storageProfileSha256
   });
   const ratificationSha256 = recordDigest(request.ratification, 'ratificationSha256', 'Workflow ratification');
-  if (Object.keys(request.workflow.spec?.joins ?? {}).length) {
-    fail('SGOS_OPCODE_RUNTIME_UNSUPPORTED',
-      'Workflow join contracts require JOIN semantics, which the SGOS v1 runtime does not implement.', {
-        opcode: 'JOIN'
-      });
-  }
-
   const clauses = extractConfirmedClauses(request.intentIr);
-  const entries = rawTaskEntries(request.workflow);
+  const entries = expandedTaskEntries(request.workflow);
   const ids = new Set();
   const templates = entries.map(([rawId, task]) => {
     const taskId = String(rawId).trim();
@@ -1259,10 +1396,7 @@ export function compileSgosProgram(requestValue) {
   const coverage = collectCoverageMaps(request, request.workflow, request.ratification, templates, clauses);
   assertCoverage(clauses, templates, coverage);
 
-  const rawJoins = clone(request.workflow.spec?.joins ?? {});
-  const joins = Array.isArray(rawJoins)
-    ? rawJoins
-    : Object.entries(rawJoins).map(([joinId, contract]) => ({ joinId, ...clone(contract) }));
+  const joins = joinsForProgram(request.workflow, templates);
   const terminalConditions = clone(request.workflow.spec?.terminalConditions ?? terminalTaskIds.map((taskId) => ({
     taskTemplateId: taskId, state: 'succeeded'
   })));
@@ -1282,7 +1416,7 @@ export function compileSgosProgram(requestValue) {
     storageProfileSha256,
     taskTemplates: templates,
     edges,
-    joins: joins.sort(canonicalCompare),
+    joins,
     budgets,
     recoveryPolicy,
     terminalConditions: terminalConditions.sort(canonicalCompare),

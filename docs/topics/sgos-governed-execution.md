@@ -12,11 +12,19 @@ commands:
   - process
   - task
   - request
+  - candidate
+  - execution-unit
+  - device
+  - authority-store
+  - pack
+  - learn
+  - memory
+  - meta-tool
 related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 3
+version: 5
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -30,17 +38,21 @@ Process Binding before any task—including `NOOP` or `END`—can run.
 
 Use this profile to inspect and exercise deterministic SGOS compiler profile v2 and the runtime.
 Start inside the selected governed repository with committed input JSON for the Intent IR, Workflow IR,
-Ratification, policy snapshot, registry snapshot, and optional Process Binding. The first profile is
-model-free and sequential. Unsupported agent and device execution refuses safely.
+Ratification, policy snapshot, registry snapshot, and optional Process Binding. The core profile is
+model-free and supports a bounded deterministic parallel wave for compatible resource contracts.
+Unsupported agent and device execution refuses safely.
 
 ## Use it from each surface
 
-- **Shell:** use `singularity-flow intent`, `program`, `process`, `task`, and `request`; run each
-  command with `--help` before a mutation.
+- **Shell:** use `singularity-flow intent`, `program`, `process`, `task`, and `request` for the
+  execution core. The bounded extension profile exposes `candidate`, `execution-unit`, `device`,
+  `authority-store`, `pack`, `learn`, `memory`, and `meta-tool`; run each command with `--help`
+  before a mutation.
 - **Copilot:** ask `@sflow /how` for the reviewed SGOS topic, then prepare the exact CLI command in
   the repository terminal. Help does not execute it for you.
-- **VS Code:** use the integrated terminal for this first profile and inspect the generated JSON
-  with the editor. A dedicated Process graph is a later surface, not a second execution engine.
+- **VS Code:** run **Singularity Flow: Open Command Center** for the projection-only Process board,
+  graph, evidence links, unavailable-Process diagnostics, and Human Request forms. Actions pass only
+  exact identifiers back to reviewed commands; the webview is not a second execution engine.
 
 ## Guided workflow
 
@@ -85,6 +97,10 @@ model-free and sequential. Unsupported agent and device execution refuses safely
    healthy peers visible and labels a refused private Process explicitly unavailable; it never hides,
    repairs, or resumes that Process.
    `process archive` remains only as a compatibility alias.
+10. For an intentional replay, preview `process replay <PROCESS-ID> --from <CHECKPOINT-SHA256>` and
+    repeat with the printed `--confirm` digest. The installed profile reopens only a pure suffix and
+    refuses prior writes, Devices, external effects, stale state, or exhausted attempts. Fork uses
+    the same preview/confirm pattern and supports only a genesis checkpoint.
 
 The same confirmed inputs compile to the same Program hash. Compilation refuses unknown task
 kinds, unbounded constructs, cycles, orphan tasks, unmapped clauses, unknown registry operations,
@@ -105,6 +121,11 @@ unreachable terminal states.
   immutable approved-configuration ref/commit/workflow-blob tuple recorded at Process start.
 - Process checkpoints live below the Git common directory and do not alter application or Story
   state. Existing Story transitions continue only through existing lifecycle commands.
+- Static fan-out is expanded by the compiler, joins are limited to `all-success` and `all-terminal`,
+  and parallel dispatch is selected canonically under exact resource leases. Timing is never an
+  authority input.
+- Standalone Execution Unit and Device profiles are inspectable through their CLI commands, but
+  their presence does not authorize the GVM to dispatch `AGENT` or `DEVICE` opcodes.
 
 ## Troubleshooting
 

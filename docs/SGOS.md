@@ -6,17 +6,17 @@ submission, approval, and Git publication remain the authority for existing work
 
 ## What this release implements
 
-The first SGOS vertical slice is deliberately small enough to audit end to end:
+The installed SGOS profile is deliberately bounded enough to audit end to end:
 
 ```text
 confirmed Intent IR
   -> ratified Workflow IR
   -> deterministic GVM Program
   -> resumable Process
-  -> deterministic ready task
+  -> deterministic compatible ready set
   -> verification
   -> immutable Task Receipt
-  -> boundary checkpoint
+  -> deterministic join or boundary checkpoint
   -> projection-only Work Object and evidence
 ```
 
@@ -28,8 +28,10 @@ It provides:
 - compile-time refusal of unbounded work, cycles, orphan tasks, unmapped confirmed clauses,
   missing evidence, ungoverned judgment, unsafe overlapping writes, and consequential external
   effects without recovery;
-- a sequential GVM executor for deterministic kernel operations, verification, checkpoints,
-  human requests, no-ops, and terminal steps;
+- a GVM executor for deterministic kernel operations, verification, checkpoints, human requests,
+  no-ops, terminal steps, and a bounded parallel wave selected from exact resource contracts;
+- static compile-time fan-out with stable item keys, installed `all-success` and `all-terminal`
+  joins, immutable resource leases, and join/fan-out receipts;
 - execution admission that requires an exact Program approval loaded from `sflow/config` (or its
   verified state mirror); deterministic recompilation can corroborate it, but a Program self-hash,
   caller-supplied digest, or compiler inputs alone are never authority;
@@ -41,17 +43,39 @@ It provides:
 - success only after deterministic verification creates a Task Receipt;
 - stale-response protection, configured-Git-identity authority pinning, JSON Schema input, and
   non-secret external/broker handles for typed Human Requests;
-- deterministic simulation, ready-set calculation, trace-to-evidence compilation, and
-  projection-only Work Objects;
+- deterministic simulation, ready-set calculation, bounded evidence construction from supplied
+  trusted observations, and projection-only Work Objects;
 - a compatibility adapter that can describe existing Story workflows without giving SGOS local
   state authority over a Story.
 
+The same build also contains separately bounded extension profiles:
+
+- a Git-backed Candidate lifecycle that freezes one exact tree behind a retained ref, verifies it
+  in an isolated worktree, and publishes only the exact confirmation-bound commit. Verification
+  receipts bind the admitted verifier digest, but portable race-free execution of arbitrary host
+  executables is not claimed;
+- deterministic, proposal-only Copilot and local-translator Execution Units; these adapters cannot
+  mint verification or advance Process authority. A fixed-argv pure-process factory remains
+  experimental and is not part of the installed manifest catalog because the host cannot yet pin
+  an executable handle portably across launch;
+- one read-only filesystem Device with durable Tool Intent/Tool Result recovery and exact
+  confirmation-bound revocation;
+- pure-suffix replay and genesis-only fork commands; replay preserves immutable attempt/receipt
+  history and refuses repeated writes, Devices, and external effects;
+- an experimental filesystem Authority Store, typed memory promotion, signed/revocable declarative
+  Capability Packs, a read-only role lesson catalog, and human-gated meta-tool review packets;
+- a projection-only VS Code Command Center with a deterministic process graph, human-request forms,
+  unavailable-Process diagnostics, and lazy slice leases.
+
+These extension profiles are not a claim that the complete SGOS v1 release criteria are met. Their
+installed limits and refusal behavior are part of the product contract.
+
 ## Safety boundary
 
-The first slice refuses `AGENT`, `DEVICE`, dynamic fan-out, and unsafe parallel execution at runtime.
-Those opcodes remain part of the closed Program vocabulary so later adapters do not require a
-format rewrite, but a Program cannot dispatch them until a reviewed execution-unit or device
-adapter is registered.
+The GVM still refuses `AGENT`, `DEVICE`, model-created fan-out, nested fan-out, unsafe parallel
+execution, and join policies other than `all-success` and `all-terminal`. Those opcodes remain part
+of the closed Program vocabulary so later adapters do not require a format rewrite, but standalone
+Execution Unit or Device availability does not authorize a Process to dispatch those opcodes.
 
 The runtime API also requires separately registered kernel handlers, Candidate Snapshot capture,
 and deterministic verifiers. The CLI installs only two reviewed read-only pairs:
@@ -59,9 +83,12 @@ and deterministic verifiers. The CLI installs only two reviewed read-only pairs:
 runs intrinsic `NOOP`, `CHECKPOINT`, `HUMAN_REQUEST`, and `END` boundaries. Every other kernel task
 without exact registry pins and trusted adapter wiring remains unavailable without mutating state.
 
-Operational SGOS files are rebuildable. Deleting them cannot alter Story or Git authority. A local
-process can observe and project existing Story state, but only the established lifecycle kernel may
-publish a phase, submit it, approve it, or advance it.
+Process projections and caches are rebuildable. Deleting Process operational state cannot alter
+Story or Git authority, but it can destroy resumability and evidence and is never an approved
+recovery action. Candidate retention refs and the experimental platform Authority Store are durable
+authority and are explicitly **not** rebuildable caches. A local Process can observe and project
+existing Story state, but only the established lifecycle kernel may publish a phase, submit it,
+approve it, or advance it.
 
 For a Story Process, start is admitted only after the Work ID resolves to a contract-valid Story in
 the exact baseline commit. The Process Binding pins that Story's repository-relative path, content
@@ -149,8 +176,10 @@ confirmed records produce the same Program hash.
 The scheduler derives the ready set from the Program and current durable Process state. Completion
 order is never an authority rule. Each state mutation compares the expected process revision while
 holding the process subject lock. Resume requires the exact checkpoint that guards that durable
-state; checkpoint-payload restoration and replay remain staged. A tampered checkpoint, changed
-Program, changed policy, stale request, or lost revision is refused.
+state. The installed replay profile can reopen only a pure suffix from an ancestor checkpoint, and
+the installed fork profile can create an independent Process only from genesis. General
+checkpoint-payload restoration and non-genesis prefix import remain unavailable. A tampered
+checkpoint, changed Program, changed policy, stale request, or lost revision is refused.
 
 Before `process start`, the exact Program must be reviewed at
 `singularity/sgos/program-authorities/<PROGRAM-SHA256-WITHOUT-PREFIX>.json` on the approved
@@ -189,14 +218,21 @@ candidate, Action Evidence, Human Response, and unresolved external-reference st
 The following larger SGOS capabilities remain behind explicit refusal boundaries until their
 conformance suites exist:
 
-- parallel resource leases, deterministic joins, bounded fan-out, suffix replay, and forks;
-- Copilot and other Governed Execution Unit adapters;
-- typed device mediation and Tool Intent/Tool Result recovery;
-- full candidate freeze/verify/publish commands across every lifecycle;
-- unified memory promotion and secret-broker integration;
-- a general Authority Store SPI and non-Git authority profile;
-- signed Capability Packs, meta-tool promotion, `sf-learn`, and multi-domain packs;
-- full Command Center and process-graph UI.
+- GVM dispatch through `AGENT` and `DEVICE` adapters, including a complete independent adapter
+  conformance program and counterfeit-model tripwire;
+- dynamic or nested fan-out, quorum/reducer/manual-reconcile joins, general idempotent effect replay,
+  non-genesis fork import, and arbitrary task retry;
+- Candidate execution as the universal publication path for every existing lifecycle;
+- working-set memory composition inside Process checkpoints, secret-broker execution integration,
+  garbage-collection plans, and portable Authority Store migration/cutover;
+- a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
+  remains explicitly experimental;
+- Capability Pack consumption by the compiler/runtime, full guided learning missions, governed
+  meta-tool activation/rollback, and multi-domain proof packs;
+- fresh-authority trace-to-evidence reconstruction, assurance-classified simulation, OpenTelemetry
+  export, and measured semantic read-model latency targets;
+- full software-conversion and hypothesis-analysis end-to-end proofs, the supported OS/Node matrix,
+  and an exact signed release receipt for this change.
 
 This staged boundary is intentional. Existing product behavior stays compatible while each SGOS
 authority claim gains its own deterministic tests.

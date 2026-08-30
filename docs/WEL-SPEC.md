@@ -10,6 +10,8 @@
 
 **Related authority:** `docs/CAB-ROADMAP.md`, `docs/SGOS-PENDING-WORK.md`
 
+**Pending delivery tracker:** [`docs/WEL-PENDING-WORK.md`](WEL-PENDING-WORK.md)
+
 ---
 
 ## 0. Executive decision

@@ -22,7 +22,8 @@ static checks.
 - [Witnessed Engineering Loop v0.2](WEL-SPEC.md) — an observe-first integration profile over SGOS,
   CAB, specification quality, knowledge recall, optional AST diagnostics, and the existing
   publication authority. Enforce mode remains unavailable until its CAB and `SGOS-P0-001`
-  prerequisites are complete.
+  prerequisites are complete. Its stable deferred-delivery items are tracked in the
+  [WEL pending-work backlog](WEL-PENDING-WORK.md).
 
 ## P0 — release and portability
 

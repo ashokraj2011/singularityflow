@@ -5,6 +5,7 @@
  * initial code retrieval stops at signatures, and every deeper read crosses a sealed handle.
  */
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { readAgentBrief } from './agent-briefs.mjs';
 import { astQuery } from './ast-intelligence.mjs';
@@ -18,6 +19,8 @@ import {
 import { rankContextCandidates, selectContextCandidates } from './context-ranking.mjs';
 import { head } from './git.mjs';
 import { resolveWorldModelContext } from './grounding.mjs';
+import { readKnowledge } from './knowledge.mjs';
+import { projectKnowledge } from './knowledge-projection.mjs';
 import { readRawObservation } from './observation-compiler.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -26,18 +29,130 @@ import {
   normalizeTokenEconomy, selectedTokenEconomyProfile, tokenEconomyDigest
 } from './token-economy.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
-import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
+import {
+  loadConfig, loadStoryAggregate, storyWelEnrollmentStatus
+} from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { inspectWorkflowGrounding } from './worldmodel.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
-  'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'observation'
+  'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'knowledge', 'observation'
 ]);
-export const EVIDENCE_PACKET_COMPILER_VERSION = 2;
+export const EVIDENCE_PACKET_COMPILER_VERSION = 3;
+export const EVIDENCE_PACKET_KNOWLEDGE_LIMITS = Object.freeze({
+  maxEntries: 6,
+  maxBytes: 4096,
+  maxOmissionDetails: 8,
+  maxProvenanceReferences: 2
+});
+export const EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES = 8 * 1024;
 
 const DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024;
 const MAX_OUTPUT_BYTES = 128 * 1024;
 const MAX_CANDIDATES = 120;
+
+function knowledgeLimits(maximumOutputBytes) {
+  const maxBytes = Math.min(
+    EVIDENCE_PACKET_KNOWLEDGE_LIMITS.maxBytes,
+    Math.max(512, Math.floor(maximumOutputBytes / 8))
+  );
+  return Object.freeze({
+    maxEntries: Math.min(
+      EVIDENCE_PACKET_KNOWLEDGE_LIMITS.maxEntries,
+      Math.max(1, Math.floor(maxBytes / 512))
+    ),
+    maxBytes,
+    maxOmissionDetails: EVIDENCE_PACKET_KNOWLEDGE_LIMITS.maxOmissionDetails,
+    maxProvenanceReferences: EVIDENCE_PACKET_KNOWLEDGE_LIMITS.maxProvenanceReferences
+  });
+}
+
+function originRepositoryName(root) {
+  const origin = run('git', ['config', '--get', 'remote.origin.url'], {
+    cwd: root, allowFailure: true
+  }).stdout.trim();
+  return origin.split(/[/:]/).at(-1)?.replace(/\.git$/, '') || null;
+}
+
+function scalarIdentity(value) {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value.id ?? value.name ?? null;
+}
+
+function knowledgeRecallContext(root, workflow, plan, findings) {
+  const resolution = workflow?.resolution ?? {};
+  const targetPath = plan?.target?.kind === 'path' ? plan.target.reference : null;
+  const findingPaths = findings
+    .filter((finding) => ['code-file', 'test-file', 'configuration', 'build-configuration'].includes(finding.kind))
+    .map((finding) => finding.subject);
+  return {
+    capabilities: unique([resolution.capability?.id]),
+    repositories: unique([
+      originRepositoryName(root), path.basename(root), ...Object.keys(resolution.repositories ?? {})
+    ]),
+    paths: unique([targetPath, ...findingPaths]),
+    environments: unique([scalarIdentity(resolution.environment)])
+  };
+}
+
+function contentFreeKnowledge(projection) {
+  if (!projection) return null;
+  const { payload: _payload, ...guidance } = projection.guidance ?? {};
+  return {
+    schemaVersion: projection.schemaVersion,
+    resultType: projection.resultType,
+    recallEngine: projection.recallEngine,
+    status: projection.status,
+    authority: projection.authority,
+    limits: structuredClone(projection.limits),
+    selected: structuredClone(projection.selected),
+    omitted: structuredClone(projection.omitted),
+    omissions: structuredClone(projection.omissions),
+    guidance,
+    manifestSha256: projection.manifestSha256
+  };
+}
+
+async function compileKnowledge(root, workflow, plan, findings, limits) {
+  const projected = projectKnowledge(await readKnowledge(root), {
+    context: knowledgeRecallContext(root, workflow, plan, findings),
+    limits
+  });
+  return {
+    ...projected,
+    status: projected.omissions.total ? 'partial' : 'complete',
+    authority: 'untrusted-guidance-only'
+  };
+}
+
+function observedWelEnrollment(root, definition, workflow) {
+  if (!workflow || workflow.resolution?.wel?.mode !== 'observe') return false;
+  try {
+    const enrollment = storyWelEnrollmentStatus(root, definition, workflow.workItem.id);
+    return enrollment.classification === 'enrolled' && enrollment.mode === 'observe';
+  } catch {
+    return false;
+  }
+}
+
+function unavailableKnowledge(limits) {
+  const projection = {
+    schemaVersion: 1,
+    resultType: 'bounded-knowledge-projection',
+    recallEngine: 'knowledge.recallKnowledge',
+    status: 'unavailable',
+    authority: 'untrusted-guidance-only',
+    limits,
+    selected: [],
+    omitted: [],
+    omissions: { total: 0, byReason: {}, detail: null, omittedSetSha256: null },
+    guidance: {
+      trust: 'untrusted-data', representation: 'unavailable', entries: 0, bytes: 0
+    }
+  };
+  return { ...projection, manifestSha256: recordSha256(projection) };
+}
 
 function boundedText(value, maximumBytes) {
   const text = String(value ?? '');
@@ -464,7 +579,10 @@ function packetIdentity(binding, items, omissions, manifest) {
       tokenEconomyConfigurationDigest: binding.tokenEconomyConfigurationDigest
     },
     items: items.map((item) => ({ itemId: item.itemId, source: item.source, bytes: item.bytes })),
-    omissions: omissions.map((item) => item.itemId), cacheKey: manifest.cacheKey
+    omissions: omissions.map((item) => item.itemId), cacheKey: manifest.cacheKey,
+    ...(manifest.knowledge?.manifestSha256
+      ? { knowledgeManifestSha256: manifest.knowledge.manifestSha256 }
+      : {})
   };
 }
 
@@ -487,9 +605,11 @@ export async function compileEvidencePacket(root, request = {}) {
   });
   const phase = request.phase ?? workflow?.currentPhase ?? null;
   const generation = phase ? workflow?.phases?.[phase]?.generation ?? null : null;
-  const slices = unique(request.requestedSlices?.length ? request.requestedSlices : (
+  const welKnowledgeEnabled = observedWelEnrollment(root, definition, workflow);
+  let slices = unique(request.requestedSlices?.length ? request.requestedSlices : (
     request.slice ? [request.slice] : plan ? ['brief', 'impact', 'ast', 'evidence'] : ['brief', 'world-model', 'ast', 'evidence']
   ));
+  if (welKnowledgeEnabled) slices = unique([...slices, 'knowledge']);
   const invalidSlices = slices.filter((slice) => !EVIDENCE_PACKET_SLICES.includes(slice));
   if (invalidSlices.length) throw new SingularityFlowError(`Unsupported Evidence Packet slice(s): ${invalidSlices.join(', ')}.`, {
     code: 'EPC_CONTEXT_BUDGET_INVALID'
@@ -557,6 +677,42 @@ export async function compileEvidencePacket(root, request = {}) {
     });
   }
 
+  const boundedKnowledge = knowledgeLimits(maximumOutputBytes);
+  let knowledge = null;
+  if (requested(slices, 'knowledge')) {
+    if (!welKnowledgeEnabled) {
+      unavailable.push({
+        code: 'EPC_KNOWLEDGE_NOT_ENROLLED', subject: 'knowledge',
+        reason: 'The Story creation anchor is not enrolled in WEL observe mode.',
+        nextAction: 'Continue without knowledge guidance; existing Story authority is unchanged.'
+      });
+    } else if (maximumOutputBytes < EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES) {
+      throw new SingularityFlowError(
+        `The Evidence Packet output budget is too small for bounded knowledge guidance and its provenance; request at least ${EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES} bytes.`,
+        {
+          code: 'EPC_KNOWLEDGE_OUTPUT_BUDGET',
+          details: {
+            configuredLimitBytes: maximumOutputBytes,
+            minimumKnowledgePacketBytes: EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES,
+            nextAction: `Request the packet again with --max-output-bytes ${EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES} or greater.`
+          }
+        }
+      );
+    } else {
+      try {
+        knowledge = await compileKnowledge(root, workflow, plan, findings, boundedKnowledge);
+      } catch {
+        knowledge = unavailableKnowledge(boundedKnowledge);
+        unavailable.push({
+          code: 'EPC_KNOWLEDGE_UNAVAILABLE', subject: 'knowledge',
+          reason: 'The existing knowledge store could not be read and verified for bounded recall.',
+          nextAction: 'Continue without knowledge guidance, or repair the knowledge record and request a fresh packet.'
+        });
+      }
+    }
+  }
+  const knowledgeProvenance = contentFreeKnowledge(knowledge);
+
   const scopedDefinition = workflow ? withWorldModelSourceScope(
     definition,
     workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
@@ -569,6 +725,7 @@ export async function compileEvidencePacket(root, request = {}) {
     constitution: workflow?.resolution?.constitutionPin ?? workflow?.resolution?.constitution ?? null,
     capabilitySkeleton: sourceScope,
     flightPlan: plan,
+    knowledge: knowledgeProvenance,
     observation: request.observation ? {
       observationId: request.observation.observationId, source: request.observation.source,
       status: request.observation.status
@@ -611,7 +768,8 @@ export async function compileEvidencePacket(root, request = {}) {
     });
   }
   const makePacket = () => {
-    const includedContentBytes = items.reduce((total, item) => total + item.bytes, 0);
+    const includedContentBytes = items.reduce((total, item) => total + item.bytes, 0)
+      + Number(knowledge?.guidance?.bytes ?? 0);
     const omissions = compactOmission(omitted, omissionHandle);
     const status = omissions.length ? 'partial'
       : unavailable.length && !items.length ? 'unavailable'
@@ -651,6 +809,7 @@ export async function compileEvidencePacket(root, request = {}) {
         estimationMethod: 'utf8-bytes-divided-by-four', exact: false
       },
       items, omissions, unavailable,
+      knowledge,
       expansion: [
         ...(omissionHandle ? [{ kind: 'omission-group', handle: omissionHandle }] : []),
         ...items.filter((item) => item.expandHandle).map((item) => ({
@@ -689,6 +848,20 @@ export async function compileEvidencePacket(root, request = {}) {
   }
   if (Buffer.byteLength(JSON.stringify(packet)) > maximumOutputBytes) {
     const requiredBytes = Buffer.byteLength(JSON.stringify(packet));
+    if (knowledge) {
+      throw new SingularityFlowError(
+        'Bounded knowledge guidance and provenance cannot fit without evicting mandatory governance context.',
+        {
+          code: 'EPC_KNOWLEDGE_OUTPUT_BUDGET',
+          details: {
+            requiredBytes,
+            configuredLimitBytes: maximumOutputBytes,
+            knowledgeLimits: boundedKnowledge,
+            nextAction: `Request a packet with --max-output-bytes ${Math.min(MAX_OUTPUT_BYTES, Math.max(requiredBytes, EVIDENCE_PACKET_KNOWLEDGE_MINIMUM_OUTPUT_BYTES))}, or narrow the knowledge store scope.`
+          }
+        }
+      );
+    }
     throw new SingularityFlowError('Mandatory Evidence Packet metadata cannot fit the requested output budget.', {
       code: 'TKN_MANDATORY_CONTEXT_OVERFLOW', details: {
         requiredBytes, configuredLimitBytes: maximumOutputBytes,

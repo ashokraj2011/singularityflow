@@ -119,24 +119,27 @@ function knowledgeCore(record) {
   return core;
 }
 
-/** Append one schema-v2 entry. Recording the same claim twice is a no-op. */
-export async function recordKnowledge(root, {
+function normalizeKnowledgeInput({
   type, text = null, title = null, detail = null, provenance, scope,
-  status = 'active', validFrom = null, validUntil = null, supersedes = null,
-  approvedSourceVerified = false
+  status = 'active', validFrom = null, validUntil = null, supersedes = null
 } = {}) {
   if (!KNOWLEDGE_TYPES.has(type)) throw new SingularityFlowError(`Knowledge type must be one of ${[...KNOWLEDGE_TYPES].join(', ')}.`);
   const cleanText = String(text ?? [title, detail].filter(Boolean).join(' — ')).trim();
   if (!cleanText) throw new SingularityFlowError('A knowledge entry requires text.');
   if (!STATUS.has(status)) throw new SingularityFlowError('Knowledge status must be active, resolved, or superseded.');
   if (supersedes != null && !/^[a-f0-9]{64}$/.test(supersedes)) throw new SingularityFlowError('Knowledge supersedes must be a full record SHA-256.');
-  const normalizedProvenance = normalizeProvenance(provenance);
-  const normalizedScope = normalizeScope(scope);
-  if (!approvedSourceVerified) await approvedProvenance(root, normalizedProvenance);
+  return {
+    type, text: cleanText, provenance: normalizeProvenance(provenance), scope: normalizeScope(scope),
+    status, validFrom, validUntil, supersedes
+  };
+}
+
+async function plannedKnowledgeRecord(root, normalized) {
   const core = {
-    schemaVersion: KNOWLEDGE_SCHEMA_VERSION, type, text: cleanText, provenance: normalizedProvenance,
-    scope: normalizedScope, status, validFrom: validFrom ?? nowIso(),
-    validUntil: validUntil ?? null, createdBy: actorKey(identity(root)), supersedes: supersedes ?? null
+    schemaVersion: KNOWLEDGE_SCHEMA_VERSION, type: normalized.type, text: normalized.text,
+    provenance: normalized.provenance, scope: normalized.scope, status: normalized.status,
+    validFrom: normalized.validFrom ?? nowIso(), validUntil: normalized.validUntil ?? null,
+    createdBy: actorKey(identity(root)), supersedes: normalized.supersedes ?? null
   };
   const sha256 = recordSha256(knowledgeCore(core));
   const record = { ...core, id: `K-${sha256.slice(0, 12)}`, createdAt: nowIso() };
@@ -145,8 +148,30 @@ export async function recordKnowledge(root, {
     label: 'Knowledge record', type: 'file'
   });
   const created = !target.exists;
-  if (created) await writeText(target.absolute, canonicalJson(record));
-  return { sha256, path: target.relative, record, created };
+  return { sha256, path: target.relative, record, created, target };
+}
+
+/**
+ * Validate and provenance-check one proposed record without writing it.
+ *
+ * Importers use this for their all-entry preflight.  It deliberately has no equivalent of
+ * `approvedSourceVerified`: an external file is never itself proof that its cited source was
+ * approved.
+ */
+export async function preflightKnowledgeRecord(root, input = {}) {
+  const normalized = normalizeKnowledgeInput(input);
+  await approvedProvenance(root, normalized.provenance);
+  const { target: _target, ...plan } = await plannedKnowledgeRecord(root, normalized);
+  return { ...plan, input: normalized };
+}
+
+/** Append one schema-v2 entry. Recording the same claim twice is a no-op. */
+export async function recordKnowledge(root, input = {}) {
+  const normalized = normalizeKnowledgeInput(input);
+  if (!input.approvedSourceVerified) await approvedProvenance(root, normalized.provenance);
+  const { target, ...result } = await plannedKnowledgeRecord(root, normalized);
+  if (result.created) await writeText(target.absolute, canonicalJson(result.record));
+  return result;
 }
 
 export async function readKnowledgeWithDiagnostics(root) {

@@ -9,7 +9,7 @@ import {
   contextPacketTelemetryRecords, recordContextExpansionRequest,
   recordContextPacketTelemetry
 } from '../src/context-packet-telemetry.mjs';
-import { contextXray } from '../src/context-xray.mjs';
+import { contextXray, contextXrayText } from '../src/context-xray.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
@@ -42,7 +42,48 @@ function packet() {
     ],
     unavailable: [{ code: 'EPC_AST_UNAVAILABLE' }],
     observation: { rawBytes: 1600, includedBytes: 800 },
-    contextManifest: { cacheKey: 'safe-cache-key', itemDigests: ['b'.repeat(64)] }
+    contextManifest: { cacheKey: 'safe-cache-key', itemDigests: ['b'.repeat(64)] },
+    knowledge: {
+      schemaVersion: 1,
+      resultType: 'bounded-knowledge-projection',
+      recallEngine: 'knowledge.recallKnowledge',
+      status: 'partial',
+      authority: 'untrusted-guidance-only',
+      limits: { maxEntries: 2, maxBytes: 1024 },
+      selected: [{
+        recordSha256: '1'.repeat(64), kind: 'constraint', reasonCode: 'selected',
+        explanation: 'selected by deterministic recall', provenanceSha256: '2'.repeat(64),
+        provenanceReferences: [{
+          workId: 'OLD-1', artifact: 'artifacts/learning.md',
+          artifactSha256: '3'.repeat(64), approvedRevision: 2
+        }],
+        provenanceReferenceCount: 3,
+        provenanceReferencesTruncated: 2,
+        provenanceReferenceLimit: 1,
+        validity: { status: 'current', validFrom: '2020-01-01T00:00:00.000Z', validUntil: null },
+        scopeMatch: true, supersession: { status: 'current', supersededBy: null },
+        representation: 'untrusted-knowledge-json-lines-v1', bytes: 120,
+        tokens: null, tokenCountStatus: 'unavailable'
+      }],
+      omitted: [{
+        recordSha256: '4'.repeat(64), kind: 'gotcha', reasonCode: 'over-byte-budget',
+        explanation: 'entry exceeded the byte limit', provenanceSha256: '5'.repeat(64),
+        provenanceReferences: [],
+        validity: { status: 'current', validFrom: '2020-01-01T00:00:00.000Z', validUntil: null },
+        scopeMatch: true, supersession: { status: 'current', supersededBy: null },
+        representation: 'omitted', bytes: 2048, tokens: null, tokenCountStatus: 'unavailable'
+      }],
+      omissions: {
+        total: 5, byReason: { 'over-byte-budget': 5 },
+        detail: { limit: 1, retained: 1, truncated: 4, complete: false },
+        omittedSetSha256: '7'.repeat(64)
+      },
+      guidance: {
+        trust: 'untrusted-data', representation: 'untrusted-knowledge-json-lines-v1',
+        entries: 1, bytes: 420, payload: 'SECRET_KNOWLEDGE_BODY'
+      },
+      manifestSha256: '6'.repeat(64)
+    }
   };
 }
 
@@ -111,7 +152,23 @@ test('Context X-Ray projects content-free packet, expansion, model, and metric p
   assert.equal(xray.ledger.packets[0].expandedBytes.value, 120);
   assert.equal(xray.ledger.packets[0].expansions[0].subjectDigest.length, 64);
   assert.equal(xray.ledger.packets[0].observation.ratio.value, 2);
+  assert.equal(xray.knowledge.selected, 1);
+  assert.equal(xray.knowledge.omitted, 5);
+  assert.equal(xray.knowledge.byReason['over-byte-budget'], 5);
+  assert.equal(xray.knowledge.packets[0].omissions.detail.truncated, 4);
+  assert.equal(xray.knowledge.packets[0].omissions.omittedSetSha256, '7'.repeat(64));
+  assert.equal(xray.knowledge.packets[0].selected[0].scopeMatch, true);
+  assert.equal(xray.knowledge.packets[0].selected[0].provenanceReferenceCount, 3);
+  assert.equal(xray.knowledge.packets[0].selected[0].provenanceReferences.length, 1);
+  assert.equal(xray.knowledge.packets[0].selected[0].provenanceReferencesTruncated, 2);
+  assert.equal(xray.knowledge.packets[0].selected[0].provenanceReferenceLimit, 1);
+  assert.equal(xray.knowledge.packets[0].omitted[0].reasonCode, 'over-byte-budget');
+  assert.match(contextXrayText(xray), /over-byte-budget/);
+  assert.match(contextXrayText(xray), /4 truncated/);
+  assert.match(contextXrayText(xray), new RegExp(`omission digest ${'7'.repeat(64)}`));
+  assert.match(contextXrayText(xray), /provenance refs 1\/3 \(2 truncated\)/);
   assert.doesNotMatch(JSON.stringify(xray), /secret\/internal-symbol/);
+  assert.doesNotMatch(JSON.stringify(xray), /SECRET_KNOWLEDGE_BODY/);
 });
 
 test('Token Ledger can project the whole work while Context X-Ray defaults to the current phase', async () => {

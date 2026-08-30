@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   currentSchemaVersion, migrationRegistrySnapshot, readRecord, stampCurrentRecord
 } from '../src/schema-migrations.mjs';
+import { recordSha256 } from '../src/records.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,6 +46,31 @@ test('legacy governed records migrate without inventing authority or provenance'
   assert.equal(approval.decisions[0].decision, 'approved');
   assert.deepEqual(approval.decisions[0].legacySnapshot.artifacts,
     [{ path: 'spec.md', sha256: 'a'.repeat(64) }]);
+
+  const execution = readRecord('test-execution', {
+    schemaVersion: 1,
+    assurance: 'module-executed',
+    testcaseExecutionProven: false,
+    // Unknown in v1: matching a future field name must not manufacture v2 observation authority.
+    testcaseObservation: { status: 'observed', assurance: 'externally-attested' },
+    candidate: { sha256: 'b'.repeat(64) }
+  }).record;
+  assert.equal(execution.testcaseObservation.status, 'unavailable');
+  assert.equal(execution.testcaseObservation.assurance, 'unavailable');
+  assert.equal(execution.candidate, null);
+  assert.equal(execution.assurance, 'module-executed');
+  assert.equal(execution.testcaseExecutionProven, false);
+
+  const packet = readRecord('story-submission-packet', {
+    schemaVersion: 1,
+    witnessReview: {
+      enrollmentClassification: 'enrolled',
+      clauseMappings: [{ status: 'reviewed' }]
+    }
+  }).record;
+  assert.equal(packet.witnessReview.enrollmentClassification, 'legacy');
+  assert.equal(packet.witnessReview.enrollment, null);
+  assert.deepEqual(packet.witnessReview.clauseMappings, []);
 });
 
 test('legacy prompt and agent context retain their historical verification meaning', () => {
@@ -74,7 +100,61 @@ test('legacy context packet telemetry gains only content-free observation defaul
   assert.equal(migrated.contextManifestSha256, null);
   assert.equal(migrated.correlation.storyId, 'WRK-1');
   assert.deepEqual(migrated.itemUsage, []);
+  assert.equal(migrated.knowledge.status, 'unavailable');
+  assert.deepEqual(migrated.knowledge.selected, []);
+  assert.deepEqual(migrated.knowledge.omitted, []);
+  assert.equal(migrated.knowledge.omissions.detail, null);
+  assert.equal(migrated.knowledge.omissions.omittedSetSha256, null);
+  assert.equal(migrated.knowledge.manifestSha256, null);
   assert.equal(migrated.outcome, null);
+});
+
+test('legacy Evidence Packet integrity remains bound to raw v2 bytes before additive migration', () => {
+  const unsigned = {
+    schemaVersion: 2,
+    kind: 'evidence-packet',
+    packetId: 'ctx-0123456789abcdefabcd',
+    compilerVersion: 2,
+    binding: { workId: 'OLD-1' },
+    items: [], omissions: [], unavailable: [],
+    integrity: null
+  };
+  const stored = { ...unsigned, integrity: { sha256: recordSha256(unsigned) } };
+  const rawBytes = Buffer.from(JSON.stringify(stored));
+  const parsedRaw = JSON.parse(rawBytes);
+  assert.equal(recordSha256({ ...parsedRaw, integrity: null }), parsedRaw.integrity.sha256);
+
+  const migrated = readRecord('evidence-packet', rawBytes);
+  assert.equal(migrated.storedVersion, 2);
+  assert.deepEqual(migrated.migratedThrough, [{ from: 2, to: 3 }]);
+  assert.equal(migrated.record.integrity.sha256, stored.integrity.sha256);
+  assert.equal(migrated.record.knowledge, null);
+  assert.deepEqual(rawBytes, Buffer.from(JSON.stringify(stored)));
+});
+
+test('legacy context manifests preserve their exact regions and cache identities', () => {
+  const stored = {
+    schemaVersion: 2,
+    stablePrefix: [{ kind: 'kernel-contract', sha256: 'a'.repeat(64) }],
+    sessionStable: [{ kind: 'flight-plan', sha256: 'b'.repeat(64) }],
+    variable: [{ kind: 'current-observation', sha256: 'c'.repeat(64) }],
+    mutableTail: [
+      { kind: 'flight-plan', sha256: 'b'.repeat(64) },
+      { kind: 'current-observation', sha256: 'c'.repeat(64) }
+    ],
+    cacheKey: 'legacy-cache-key',
+    sessionCacheKey: 'legacy-session-key',
+    cacheManifestId: 'legacy-manifest-id'
+  };
+  const migrated = readRecord('context-manifest', stored).record;
+  assert.deepEqual(migrated.stablePrefix, stored.stablePrefix);
+  assert.deepEqual(migrated.sessionStable, stored.sessionStable);
+  assert.deepEqual(migrated.variable, stored.variable);
+  assert.deepEqual(migrated.mutableTail, stored.mutableTail);
+  assert.equal(migrated.cacheKey, stored.cacheKey);
+  assert.equal(migrated.sessionCacheKey, stored.sessionCacheKey);
+  assert.equal(migrated.cacheManifestId, stored.cacheManifestId);
+  assert.equal(migrated.knowledge, null);
 });
 
 test('legacy observation summaries do not gain a fabricated redaction claim', () => {

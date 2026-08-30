@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, open, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -28,6 +29,8 @@ const MAX_RESULT_FILES = 1_000;
 const MAX_RESULT_DEPTH = 8;
 const MAX_RESULT_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_RESULT_TOTAL_BYTES = 64 * 1024 * 1024;
+const MAX_TESTCASE_OCCURRENCES = 100_000;
+const LOCAL_JUNIT_PARSER = Object.freeze({ id: 'sflow-junit-xml-observer', version: 1 });
 
 const MANIFESTS = Object.freeze({
   'pom.xml': 'maven',
@@ -396,24 +399,137 @@ function integerAttribute(node, names, { required = false } = {}) {
   return Number(node.attributes[name]);
 }
 
-function junitCounts(xml) {
+function junitCaseState(node) {
+  const failures = node.children.filter((child) => child.localName === 'failure').length;
+  const errors = node.children.filter((child) => child.localName === 'error').length;
+  const skippedElements = node.children.filter((child) => child.localName === 'skipped').length;
+  const disabled = ['disabled', 'notrun', 'notexecuted']
+    .includes(String(node.attributes.status ?? '').toLowerCase());
+  if (failures + errors > 1 || skippedElements > 1 || ((failures || errors) && (skippedElements || disabled))) {
+    xmlFailure('testcase contains contradictory or repeated terminal outcomes');
+  }
+  return {
+    failure: failures === 1,
+    error: errors === 1,
+    skipped: skippedElements === 1 || disabled,
+    disabled
+  };
+}
+
+function declaredCount(node, names) {
+  const present = names.find((candidate) => Object.hasOwn(node.attributes, candidate));
+  return present ? { present, value: integerAttribute(node, [present]) } : null;
+}
+
+function validateJunitAggregate(node, cases) {
+  const states = cases.map(junitCaseState);
+  const actual = {
+    tests: cases.length,
+    failures: states.filter((state) => state.failure).length,
+    errors: states.filter((state) => state.error).length,
+    skipped: states.filter((state) => state.skipped).length,
+    disabled: states.filter((state) => state.disabled).length
+  };
+  for (const [field, names] of Object.entries({
+    tests: ['tests', 'total'], failures: ['failures', 'failed'], errors: ['errors'],
+    skipped: ['skipped', 'notExecuted'], disabled: ['disabled']
+  })) {
+    const declared = declaredCount(node, names);
+    if (declared && declared.value !== actual[field]) {
+      xmlFailure(`JUnit aggregate '${declared.present}' count differs from testcase outcomes`);
+    }
+  }
+}
+
+function junitCases(node, suiteName = null, output = [], maximumOccurrences = MAX_TESTCASE_OCCURRENCES) {
+  const currentSuite = node.localName === 'testsuite'
+    ? (node.attributes.name ?? suiteName)
+    : suiteName;
+  if (node.localName === 'testcase') {
+    if (output.length >= maximumOccurrences) {
+      xmlFailure(`testcase occurrence count exceeds ${maximumOccurrences}`);
+    }
+    const state = junitCaseState(node);
+    const seconds = Number(node.attributes.time);
+    output.push({
+      suite: currentSuite ?? null,
+      className: node.attributes.classname ?? null,
+      name: node.attributes.name ?? null,
+      outcome: state.failure || state.error ? 'failed' : state.skipped ? 'skipped' : 'passed',
+      verdict: 'inconclusive',
+      durationMs: Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null,
+      logicalTestId: null,
+      declarationSha256: null,
+      exact: false,
+      identityStatus: 'observed-name-only'
+    });
+  }
+  for (const child of node.children) junitCases(child, currentSuite, output, maximumOccurrences);
+  return output;
+}
+
+function classifyDisplayIdentities(occurrences) {
+  const displayIdentities = new Map();
+  for (const occurrence of occurrences) {
+    const key = JSON.stringify([occurrence.className, occurrence.name]);
+    displayIdentities.set(key, (displayIdentities.get(key) ?? 0) + 1);
+  }
+  for (const occurrence of occurrences) {
+    const key = JSON.stringify([occurrence.className, occurrence.name]);
+    if (occurrence.className == null || occurrence.name == null) {
+      occurrence.identityStatus = 'missing-display-identity';
+    } else if (displayIdentities.get(key) > 1) {
+      occurrence.identityStatus = 'ambiguous-display-identity';
+    }
+  }
+  return occurrences;
+}
+
+function validateJunitStructure(node, insideTestcase = false) {
+  const testcase = insideTestcase || node.localName === 'testcase';
+  if (!testcase && ['failure', 'error', 'skipped'].includes(node.localName)) {
+    xmlFailure(`suite-level '${node.localName}' outcome cannot produce a passing observation`);
+  }
+  if (['flakyFailure', 'flakyError', 'rerunFailure', 'rerunError'].includes(node.localName)) {
+    xmlFailure(`unsupported retried testcase outcome '${node.localName}'`);
+  }
+  for (const child of node.children) validateJunitStructure(child, testcase);
+}
+
+function junitObservation(xml, { maximumOccurrences = MAX_TESTCASE_OCCURRENCES } = {}) {
   const root = parseXml(xml);
   if (!['testsuite', 'testsuites'].includes(root.localName)) xmlFailure(`unrecognized JUnit root '${root.name}'`);
+  validateJunitStructure(root);
   const cases = descendants(root, 'testcase');
   if (cases.length) {
-    const failed = cases.filter((item) => item.children.some((child) => ['failure', 'error'].includes(child.localName))).length;
-    const skipped = cases.filter((item) => item.children.some((child) => child.localName === 'skipped')
-      || ['disabled', 'notrun', 'notexecuted'].includes(String(item.attributes.status ?? '').toLowerCase())).length;
+    if (cases.length > maximumOccurrences) {
+      xmlFailure(`testcase occurrence count exceeds ${maximumOccurrences}`);
+    }
+    const states = cases.map(junitCaseState);
+    const failed = states.filter((state) => state.failure || state.error).length;
+    const skipped = states.filter((state) => state.skipped).length;
     const counts = { discovered: cases.length, passed: cases.length - failed - skipped, failed, skipped };
-    const declared = integerAttribute(root, ['tests', 'total']);
-    if (declared != null && declared !== counts.discovered) xmlFailure('JUnit aggregate count differs from testcase elements');
-    return counts;
+    const aggregateNodes = root.localName === 'testsuite'
+      ? [root]
+      : [root, ...descendants(root, 'testsuite')];
+    for (const aggregate of aggregateNodes) {
+      validateJunitAggregate(aggregate, descendants(aggregate, 'testcase'));
+    }
+    return { tests: counts, occurrences: junitCases(root, null, [], maximumOccurrences) };
   }
   const discovered = integerAttribute(root, ['tests', 'total'], { required: true });
   const failed = (integerAttribute(root, ['failures', 'failed']) ?? 0) + (integerAttribute(root, ['errors']) ?? 0);
-  const skipped = (integerAttribute(root, ['skipped', 'notExecuted']) ?? 0) + (integerAttribute(root, ['disabled']) ?? 0);
+  const declaredSkipped = integerAttribute(root, ['skipped', 'notExecuted']);
+  const declaredDisabled = integerAttribute(root, ['disabled']);
+  if (declaredSkipped != null && declaredDisabled != null && declaredDisabled > declaredSkipped) {
+    xmlFailure('JUnit disabled count exceeds skipped count');
+  }
+  const skipped = declaredSkipped ?? declaredDisabled ?? 0;
   if (failed + skipped > discovered) xmlFailure('JUnit outcome counts exceed discovered tests');
-  return { discovered, passed: discovered - failed - skipped, failed, skipped };
+  return {
+    tests: { discovered, passed: discovered - failed - skipped, failed, skipped },
+    occurrences: []
+  };
 }
 
 function trxCounts(xml) {
@@ -546,9 +662,202 @@ async function resultFiles(absolute, adapter, state = { files: 0 }, depth = 0) {
   return output.sort((left, right) => left.absolute.localeCompare(right.absolute));
 }
 
+async function boundedDescriptorRead(handle, before, { label, code }) {
+  const contents = Buffer.allocUnsafe(before.size);
+  let offset = 0;
+  while (offset < contents.length) {
+    const { bytesRead } = await handle.read(
+      contents, offset, Math.min(64 * 1024, contents.length - offset), offset
+    );
+    if (!bytesRead) break;
+    offset += bytesRead;
+  }
+  const growthProbe = Buffer.allocUnsafe(1);
+  const { bytesRead: grew } = await handle.read(growthProbe, 0, 1, before.size);
+  const after = await handle.stat();
+  if (grew || offset !== before.size || after.size !== before.size
+      || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
+    throw new SingularityFlowError(`${label} changed while it was being read.`, { code });
+  }
+  return contents;
+}
+
+async function readResultFile(root, file) {
+  let handle;
+  try {
+    const relative = posix(path.relative(root, file.absolute));
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Structured test result', mustExist: true, type: 'file'
+    });
+    const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+    handle = await open(secured.absolute, flags);
+    const before = await handle.stat();
+    if (!before.isFile() || before.nlink !== 1) {
+      throw new SingularityFlowError(
+        `Structured test result must be one regular, non-hard-linked file: ${path.basename(file.absolute)}`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
+    if (before.size > MAX_RESULT_FILE_BYTES) {
+      throw new SingularityFlowError(
+        `Structured test result exceeds ${MAX_RESULT_FILE_BYTES} bytes: ${path.basename(file.absolute)}`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
+    if ((file.info.ino && before.ino && file.info.ino !== before.ino)
+        || (file.info.dev && before.dev && file.info.dev !== before.dev)) {
+      throw new SingularityFlowError(
+        `Structured test result changed while it was being opened: ${path.basename(file.absolute)}`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
+    return await boundedDescriptorRead(handle, before, {
+      label: `Structured test result '${path.basename(file.absolute)}'`,
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    throw new SingularityFlowError(
+      `Structured test result could not be read safely: ${path.basename(file.absolute)}: ${error.message}`,
+      { code: 'CODE_TEST_RESULT_REQUIRED', cause: error }
+    );
+  } finally {
+    await handle?.close();
+  }
+}
+
+/** Read a persisted local-observation artifact without following links or accepting mutable bytes. */
+export async function readDurableTestObservation(root, relativePath, {
+  expectedSha256 = null,
+  expectedBytes = null
+} = {}) {
+  let handle;
+  try {
+    const secured = await secureRepositoryPath(root, relativePath, {
+      label: 'Durable local test observation', mustExist: true, type: 'file'
+    });
+    const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+    handle = await open(secured.absolute, flags);
+    const before = await handle.stat();
+    if (!before.isFile() || before.nlink !== 1 || before.size > MAX_RESULT_FILE_BYTES) {
+      throw new SingularityFlowError(
+        `Durable local test observation must be one bounded, regular, non-hard-linked file: ${relativePath}`,
+        { code: 'WEL_RESULT_TAMPERED' }
+      );
+    }
+    if (Number.isInteger(expectedBytes) && before.size !== expectedBytes) {
+      throw new SingularityFlowError(
+        `Durable local test observation byte count differs from its reference: ${relativePath}`,
+        { code: 'WEL_RESULT_TAMPERED' }
+      );
+    }
+    const contents = await boundedDescriptorRead(handle, before, {
+      label: `Durable local test observation '${relativePath}'`,
+      code: 'WEL_RESULT_TAMPERED'
+    });
+    if (expectedSha256 && sha256(contents) !== expectedSha256) {
+      throw new SingularityFlowError(
+        `Durable local test observation differs from its content address: ${relativePath}`,
+        { code: 'WEL_RESULT_TAMPERED' }
+      );
+    }
+    return contents;
+  } catch (error) {
+    if (error instanceof SingularityFlowError && error.code === 'WEL_RESULT_TAMPERED') throw error;
+    throw new SingularityFlowError(
+      `Durable local test observation could not be read safely: ${relativePath}: ${error.message}`,
+      { code: 'WEL_RESULT_TAMPERED', cause: error }
+    );
+  } finally {
+    await handle?.close();
+  }
+}
+
+function decodeXmlReport(contents, index) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(contents);
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Structured XML test result ${index + 1} is not valid UTF-8: ${error.message}`,
+      { code: 'CODE_TEST_RESULT_REQUIRED', cause: error }
+    );
+  }
+}
+
+function combinedReports(contents) {
+  return Buffer.concat(contents.flatMap((content, index) => index ? [Buffer.from('\n'), content] : [content]));
+}
+
+function addTestCounts(total, counts) {
+  return {
+    discovered: total.discovered + counts.discovered,
+    passed: total.passed + counts.passed,
+    failed: total.failed + counts.failed,
+    skipped: total.skipped + counts.skipped
+  };
+}
+
+/** Deterministically replay the bounded local JUnit projection from retained raw bytes. */
+export function replayLocalJunitObservation(rawReports, {
+  maximumOccurrences = MAX_TESTCASE_OCCURRENCES
+} = {}) {
+  if (!Array.isArray(rawReports) || !rawReports.length || rawReports.length > MAX_RESULT_FILES) {
+    throw new SingularityFlowError('Local JUnit replay requires a bounded, non-empty raw report set.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  if (!Number.isInteger(maximumOccurrences) || maximumOccurrences < 1
+      || maximumOccurrences > MAX_TESTCASE_OCCURRENCES) {
+    throw new SingularityFlowError('Local JUnit replay occurrence limit is invalid.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const contents = rawReports.map((report) => Buffer.from(report.contents));
+  if (contents.some((content) => content.length > MAX_RESULT_FILE_BYTES)
+      || contents.reduce((total, content) => total + content.length, 0) > MAX_RESULT_TOTAL_BYTES) {
+    throw new SingularityFlowError('Local JUnit replay exceeds the configured report byte limits.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const digests = contents.map(sha256);
+  if (new Set(digests).size !== digests.length) {
+    throw new SingularityFlowError('Local JUnit replay contains duplicate report bytes.', {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  let remainingOccurrences = maximumOccurrences;
+  let tests = { discovered: 0, passed: 0, failed: 0, skipped: 0 };
+  const occurrences = [];
+  for (const [index, content] of contents.entries()) {
+    const observation = junitObservation(decodeXmlReport(content, index), {
+      maximumOccurrences: remainingOccurrences
+    });
+    remainingOccurrences -= observation.occurrences.length;
+    tests = addTestCounts(tests, observation.tests);
+    occurrences.push(...observation.occurrences);
+  }
+  classifyDisplayIdentities(occurrences);
+  const combined = combinedReports(contents);
+  return {
+    tests,
+    testcaseObservation: {
+      occurrences,
+      parser: structuredClone(LOCAL_JUNIT_PARSER)
+    },
+    result: {
+      sha256: sha256(combined),
+      bytes: combined.length,
+      files: contents.map((content, index) => ({ sha256: digests[index], bytes: content.length }))
+    }
+  };
+}
+
 export async function parseTestResult(root, command, { startedAt = null } = {}) {
   const normalizedCommand = normalizeRequiredTestCommand(command);
   const moduleRoot = normalizedCommand.workingDirectory === '.' ? '' : normalizedCommand.workingDirectory;
+  const repositoryRoot = (await secureRepositoryPath(root, '.', {
+    label: 'Repository root', mustExist: true, type: 'directory'
+  })).absolute;
   const secured = await secureRepositoryPath(
     root,
     path.join(moduleRoot, normalizedCommand.result.path),
@@ -573,12 +882,19 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
   if (oversized) throw new SingularityFlowError(`Structured test result exceeds ${MAX_RESULT_FILE_BYTES} bytes: ${path.basename(oversized.absolute)}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
   const declaredBytes = files.reduce((total, file) => total + file.info.size, 0);
   if (declaredBytes > MAX_RESULT_TOTAL_BYTES) throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_TOTAL_BYTES} total bytes.`, { code: 'CODE_TEST_RESULT_REQUIRED' });
-  const contents = await Promise.all(files.map((file) => readFile(file.absolute)));
-  const bytes = Buffer.concat(contents.flatMap((content, index) => index ? [Buffer.from('\n'), content] : [content]));
+  const contents = await Promise.all(files.map((file) => readResultFile(repositoryRoot, file)));
+  const actualBytes = contents.reduce((total, content) => total + content.length, 0);
+  if (actualBytes > MAX_RESULT_TOTAL_BYTES) {
+    throw new SingularityFlowError(`Structured test results exceed ${MAX_RESULT_TOTAL_BYTES} total bytes.`, {
+      code: 'CODE_TEST_RESULT_REQUIRED'
+    });
+  }
+  const bytes = combinedReports(contents);
   let tests;
+  let testcaseObservation = null;
   if (['junit-xml', 'dotnet-trx'].includes(adapter)) {
-    const documents = contents.map((content) => content.toString('utf8'));
     if (adapter === 'dotnet-trx') {
+      const documents = contents.map(decodeXmlReport);
       tests = documents.map(trxCounts).reduce((totals, counts) => ({
         discovered: totals.discovered + counts.discovered,
         passed: totals.passed + counts.passed,
@@ -586,12 +902,9 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
         skipped: totals.skipped + counts.skipped
       }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
     } else {
-      tests = documents.map(junitCounts).reduce((totals, counts) => ({
-        discovered: totals.discovered + counts.discovered,
-        passed: totals.passed + counts.passed,
-        failed: totals.failed + counts.failed,
-        skipped: totals.skipped + counts.skipped
-      }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
+      const replay = replayLocalJunitObservation(contents.map((content) => ({ contents: content })));
+      tests = replay.tests;
+      testcaseObservation = replay.testcaseObservation;
     }
   } else if (adapter === 'node-tap') {
     tests = nodeTapCounts(bytes.toString('utf8'));
@@ -602,8 +915,21 @@ export async function parseTestResult(root, command, { startedAt = null } = {}) 
     tests = countsFromJson(adapter, JSON.parse(bytes.toString('utf8')));
   }
   return {
-    adapter, tests,
-    result: { path: normalizedCommand.result.path, sha256: sha256(bytes), bytes: bytes.length },
+    adapter, tests, testcaseObservation,
+    result: {
+      path: normalizedCommand.result.path, sha256: sha256(bytes), bytes: bytes.length,
+      files: files.map((file, index) => ({
+        sourcePath: posix(path.relative(repositoryRoot, file.absolute)),
+        sha256: sha256(contents[index]),
+        bytes: contents[index].length
+      }))
+    },
+    rawReports: files.map((file, index) => ({
+      sourcePath: posix(path.relative(repositoryRoot, file.absolute)),
+      sha256: sha256(contents[index]),
+      bytes: contents[index].length,
+      contents: contents[index]
+    })),
     minimumDiscovered: normalizedCommand.result.minimumDiscovered,
     minimumPassed: normalizedCommand.result.minimumPassed
   };
@@ -631,7 +957,7 @@ export function testReceiptPassing(receipt, minimumDiscovered = 1, minimumPassed
     && number(receipt.tests?.failed) === 0;
 }
 
-export function buildTestExecutionReceipt(command, check, parsed) {
+export function buildTestExecutionReceipt(command, check, parsed, { testcasePolicy = null } = {}) {
   const countsValid = consistentTestCounts(parsed.tests);
   const status = check.status === 'passed'
     ? (!countsValid
@@ -639,6 +965,42 @@ export function buildTestExecutionReceipt(command, check, parsed) {
       || parsed.tests.passed < parsed.minimumPassed
       || parsed.tests.failed ? 'failed' : 'passed')
     : check.status === 'skipped-warning' ? 'skipped' : check.status;
+  const observationEnabled = testcasePolicy?.mode === 'observe';
+  const observationSupported = observationEnabled
+    && testcasePolicy?.adapter === 'junit5-surefire-v1'
+    && parsed.adapter === 'junit-xml'
+    && parsed.testcaseObservation != null;
+  const testcaseObservation = observationSupported ? {
+    status: 'observed',
+    assurance: 'testcase-local-observed',
+    exact: false,
+    verdict: 'inconclusive',
+    profile: testcasePolicy.adapter,
+    parser: parsed.testcaseObservation.parser,
+    occurrences: parsed.testcaseObservation.occurrences,
+    rawReports: [],
+    bindingGaps: [
+      'sgos-candidate-unavailable',
+      'gvm-program-unavailable',
+      'durable-attempt-id-and-nonce-unavailable',
+      'exact-static-test-identity-unavailable',
+      'reviewed-witness-mapping-unavailable'
+    ],
+    notice: 'candidate-controlled JUnit report captured as a non-exact local observation; verdict is inconclusive because SGOS Candidate, GVM Program, durable attempt/nonce, exact declaration, and reviewed witness bindings are unavailable; no independent execution attestation'
+  } : {
+    status: observationEnabled ? 'unsupported' : 'unavailable',
+    assurance: 'unavailable',
+    exact: false,
+    verdict: 'inconclusive',
+    profile: observationEnabled ? testcasePolicy?.adapter ?? null : null,
+    parser: null,
+    occurrences: [],
+    rawReports: [],
+    bindingGaps: [],
+    notice: observationEnabled
+      ? `configured exact-test observer does not support result adapter '${parsed.adapter}'`
+      : 'exact-test observation was not enrolled for this Story'
+  };
   const receipt = {
     schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution',
     commandId: command.id,
@@ -654,6 +1016,20 @@ export function buildTestExecutionReceipt(command, check, parsed) {
     suppressed: false,
     tests: parsed.tests,
     result: parsed.result,
+    candidate: null,
+    program: null,
+    attempt: null,
+    localExecution: observationSupported ? {
+      sourceCommit: check.sourceCommit ?? null,
+      sourceTreeSha256: check.sourceTreeSha256 ?? null,
+      startedAt: check.startedAt ?? null,
+      completedAt: check.completedAt ?? null
+    } : null,
+    adapterIdentity: observationSupported ? {
+      id: testcasePolicy.adapter,
+      parser: parsed.testcaseObservation.parser
+    } : null,
+    testcaseObservation,
     assurance: 'module-executed',
     testcaseExecutionProven: false,
     assuranceNotice: 'module executed; tagged test execution not independently proven'

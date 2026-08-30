@@ -19,6 +19,10 @@ static checks.
 - [Code Assurance Bridge corrected roadmap](CAB-ROADMAP.md) — design-only and not authorized for
   implementation. Its lifecycle bridge depends on `SGOS-P0-001` and must reuse the existing
   Candidate, Program, approval, evidence, and publication authorities.
+- [Witnessed Engineering Loop v0.2](WEL-SPEC.md) — an observe-first integration profile over SGOS,
+  CAB, specification quality, knowledge recall, optional AST diagnostics, and the existing
+  publication authority. Enforce mode remains unavailable until its CAB and `SGOS-P0-001`
+  prerequisites are complete.
 
 ## P0 — release and portability
 

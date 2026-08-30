@@ -513,6 +513,38 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
   assert.equal(feature.phases.find((phase) => phase.id === 'design').inputs[0].projection, undefined);
 });
 
+test('witnessed-clause configuration is normalized into the resolved phase policy and rejects nested drift', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-witnessed-clause-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+  definition.phases.specification.specificationQuality.witnessedClauses = {
+    profile: 'witnessed-v1',
+    clauseTypes: ['acceptance'],
+    enforceableWitnessTypes: ['test'],
+    lexicalHints: 'advisory',
+    limits: { maxClauses: 12 }
+  };
+  assert.doesNotThrow(() => validateDefinition(definition));
+
+  const resolved = resolveWorkType(definition, 'spec-driven-standard');
+  const policy = resolved.phases.find((phase) => phase.id === 'specification').specificationQuality;
+  assert.deepEqual(policy.witnessedClauses, {
+    profile: 'witnessed-v1',
+    clauseTypes: ['acceptance'],
+    enforceableWitnessTypes: ['test'],
+    lexicalHints: 'advisory',
+    limits: { maxClauses: 12, maxFieldBytes: 4096, maxReportBytes: 262144 }
+  });
+
+  // Resolution owns a normalized copy. A later edit to shared configuration cannot mutate the
+  // phase policy that createWorkflow places in the Story's immutable resolution.
+  definition.phases.specification.specificationQuality.witnessedClauses.limits.maxClauses = 99;
+  assert.equal(policy.witnessedClauses.limits.maxClauses, 12);
+
+  definition.phases.specification.specificationQuality.witnessedClauses.limits.unbounded = true;
+  assert.throws(() => validateDefinition(definition), /unknown field 'unbounded'/);
+});
+
 test('work-type phase overrides merge world model, quality, comparison, and approval policy', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-overrides-')); await initializeDefinition(root);
   const definition = await loadDefinition(root);

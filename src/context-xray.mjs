@@ -8,6 +8,93 @@ function unavailable(code, reason, action) {
   return Object.freeze({ code, reason, action });
 }
 
+function knowledgeEntry(entry = {}) {
+  return Object.freeze({
+    recordSha256: entry.recordSha256 ?? null,
+    kind: entry.kind ?? null,
+    reasonCode: entry.reasonCode ?? null,
+    explanation: entry.explanation ?? null,
+    provenanceSha256: entry.provenanceSha256 ?? null,
+    provenanceReferences: Object.freeze((entry.provenanceReferences ?? []).map((reference) => Object.freeze({
+      workId: reference.workId ?? null,
+      artifact: reference.artifact ?? null,
+      artifactSha256: reference.artifactSha256 ?? null,
+      approvedRevision: reference.approvedRevision ?? null
+    }))),
+    provenanceReferenceCount: Number.isInteger(entry.provenanceReferenceCount)
+      ? entry.provenanceReferenceCount : null,
+    provenanceReferencesTruncated: Number.isInteger(entry.provenanceReferencesTruncated)
+      ? entry.provenanceReferencesTruncated : null,
+    provenanceReferenceLimit: Number.isInteger(entry.provenanceReferenceLimit)
+      ? entry.provenanceReferenceLimit : null,
+    validity: Object.freeze({
+      status: entry.validity?.status ?? 'unavailable',
+      validFrom: entry.validity?.validFrom ?? null,
+      validUntil: entry.validity?.validUntil ?? null
+    }),
+    scopeMatch: typeof entry.scopeMatch === 'boolean' ? entry.scopeMatch : null,
+    supersession: Object.freeze({
+      status: entry.supersession?.status ?? 'unavailable',
+      supersededBy: entry.supersession?.supersededBy ?? null
+    }),
+    representation: entry.representation ?? null,
+    bytes: Number.isFinite(entry.bytes) ? entry.bytes : null,
+    tokens: Number.isFinite(entry.tokens) ? entry.tokens : null,
+    tokenCountStatus: entry.tokenCountStatus ?? 'unavailable'
+  });
+}
+
+function knowledgeProjection(records) {
+  const packets = records.filter((record) => record.knowledge
+    && (record.knowledge.limits || record.knowledge.manifestSha256
+      || record.knowledge.selected?.length || record.knowledge.omitted?.length)).map((record) => {
+    const knowledge = record.knowledge;
+    return Object.freeze({
+      packetId: record.packetId,
+      status: knowledge.status ?? 'unavailable',
+      authority: knowledge.authority ?? 'untrusted-guidance-only',
+      limits: knowledge.limits ? Object.freeze({
+        maxEntries: knowledge.limits.maxEntries ?? null,
+        maxBytes: knowledge.limits.maxBytes ?? null,
+        maxOmissionDetails: knowledge.limits.maxOmissionDetails ?? null,
+        maxProvenanceReferences: knowledge.limits.maxProvenanceReferences ?? null
+      }) : null,
+      selected: Object.freeze((knowledge.selected ?? []).map(knowledgeEntry)),
+      omitted: Object.freeze((knowledge.omitted ?? []).map(knowledgeEntry)),
+      omissions: Object.freeze({
+        total: Number(knowledge.omissions?.total ?? 0),
+        byReason: Object.freeze({ ...(knowledge.omissions?.byReason ?? {}) }),
+        detail: knowledge.omissions?.detail ? Object.freeze({
+          limit: Number(knowledge.omissions.detail.limit ?? 0),
+          retained: Number(knowledge.omissions.detail.retained ?? 0),
+          truncated: Number(knowledge.omissions.detail.truncated ?? 0),
+          complete: knowledge.omissions.detail.complete === true
+        }) : null,
+        omittedSetSha256: knowledge.omissions?.omittedSetSha256 ?? null
+      }),
+      guidance: knowledge.guidance ? Object.freeze({
+        trust: knowledge.guidance.trust ?? 'untrusted-data',
+        representation: knowledge.guidance.representation ?? null,
+        entries: Number(knowledge.guidance.entries ?? 0),
+        bytes: Number(knowledge.guidance.bytes ?? 0)
+      }) : null,
+      manifestSha256: knowledge.manifestSha256 ?? null
+    });
+  });
+  const byReason = {};
+  for (const packet of packets) {
+    for (const [reason, count] of Object.entries(packet.omissions.byReason)) {
+      byReason[reason] = Number(byReason[reason] ?? 0) + Number(count ?? 0);
+    }
+  }
+  return Object.freeze({
+    packets: Object.freeze(packets),
+    selected: packets.reduce((total, packet) => total + packet.selected.length, 0),
+    omitted: packets.reduce((total, packet) => total + packet.omissions.total, 0),
+    byReason: Object.freeze(Object.fromEntries(Object.entries(byReason).sort(([left], [right]) => left.localeCompare(right))))
+  });
+}
+
 export async function contextXray(root, workflow, {
   phase = null, packetId = null, defaultToCurrentPhase = true
 } = {}) {
@@ -29,6 +116,7 @@ export async function contextXray(root, workflow, {
     });
   }
   const ledger = tokenLedgerProjection(workflow, records, { phase: selectedPhase });
+  const knowledge = knowledgeProjection(records);
   const launches = (await listTelemetryLaunches(root, { storyId: workflow.workItem.id }))
     .filter((launch) => !selectedPhase || !launch.phase || launch.phase === selectedPhase)
     .map((launch) => ({
@@ -69,6 +157,7 @@ export async function contextXray(root, workflow, {
     }),
     launches: Object.freeze(launches),
     ledger,
+    knowledge,
     gaps: Object.freeze(gaps),
     provenance: Object.freeze({
       providerUsage: 'governed phase telemetry',
@@ -110,6 +199,26 @@ export function contextXrayText(xray) {
     lines.push('', 'Packets');
     for (const packet of ledger.packets) {
       lines.push(`- ${packet.packetId} · ${metricText(packet.estimatedTokens, 'estimated tokens')} · ${packet.tokenEconomy.mode ?? 'mode unavailable'}/${packet.tokenEconomy.profile ?? 'profile unavailable'} · omitted ${packet.omittedItems} · unavailable ${packet.unavailableItems} · expansions ${packet.expansionRequests}`);
+    }
+  }
+  if (xray.knowledge?.packets.length) {
+    lines.push('', 'Knowledge guidance');
+    for (const packet of xray.knowledge.packets) {
+      const detail = packet.omissions.detail?.truncated
+        ? ` · omission detail ${packet.omissions.detail.retained}/${packet.omissions.total} (${packet.omissions.detail.truncated} truncated)`
+        : '';
+      const omissionDigest = packet.omissions.omittedSetSha256
+        ? ` · omission digest ${packet.omissions.omittedSetSha256}` : '';
+      lines.push(`- ${packet.packetId} · ${packet.status} · selected ${packet.selected.length} · omitted ${packet.omissions.total}${detail}${omissionDigest} · ${packet.guidance?.bytes ?? 0} bytes · manifest ${packet.manifestSha256 ?? 'unavailable'}`);
+      for (const entry of [...packet.selected, ...packet.omitted]) {
+        const provenance = entry.provenanceReferences.map((reference) =>
+          `${reference.workId ?? 'work unavailable'}:${reference.artifact ?? 'artifact unavailable'}@${reference.artifactSha256?.slice(0, 12) ?? 'hash unavailable'}`
+        ).join(', ') || 'provenance unavailable';
+        const provenanceDetail = entry.provenanceReferenceCount == null
+          ? ''
+          : ` · provenance refs ${entry.provenanceReferences.length}/${entry.provenanceReferenceCount}${entry.provenanceReferencesTruncated ? ` (${entry.provenanceReferencesTruncated} truncated)` : ''}`;
+        lines.push(`  - ${entry.recordSha256?.slice(0, 12) ?? 'record unavailable'} · ${entry.kind ?? 'kind unavailable'} · ${entry.reasonCode ?? 'reason unavailable'} · validity ${entry.validity.status} · scope ${entry.scopeMatch == null ? 'unavailable' : entry.scopeMatch ? 'match' : 'mismatch'} · supersession ${entry.supersession.status} · ${entry.bytes ?? 'unavailable'} bytes · ${provenance}${provenanceDetail}`);
+      }
     }
   }
   if (ledger.outcomes.length) {

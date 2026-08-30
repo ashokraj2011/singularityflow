@@ -5,12 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import {
   commitAndPublish, createWorkflow, loadConfig, loadWorkflow, publishGeneration, submitPhase,
-  validateWorkflow
+  storyWelEnrollmentStatus, validateWorkflow
 } from '../src/state.mjs';
 
 function git(root, ...args) {
@@ -64,7 +65,7 @@ test('a migrated pre-anchor Story is not reported as policy tampering', async (t
   git(root, 'commit', '-m', 'legacy Story creation');
 
   const migrated = await loadWorkflow(root, config, 'LEGACY-1');
-  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.equal(migrated.resolution.policySha256, undefined);
   const validation = await validateWorkflow(root, config, migrated);
   assert.equal(validation.errors.some((message) =>
@@ -101,6 +102,40 @@ test('a migrated pre-anchor Story is not reported as policy tampering', async (t
   assert.ok(tamperedValidation.errors.some((message) =>
     /creation policy anchor .* does not match its committed resolution bytes/.test(message)),
   tamperedValidation.errors.join('\n'));
+
+  git(root, 'switch', 'main');
+  git(root, 'switch', '-c', 'ANCHOR-MALFORMED-1');
+  await setAgentSession(root, config, actor, 'developer', 'ANCHOR-MALFORMED-1', {
+    phaseId: 'intake', source: 'test'
+  });
+  await createWorkflow(root, config, {
+    id: 'ANCHOR-MALFORMED-1',
+    title: 'Keep WEL classification separate from policy validation',
+    source: {
+      type: 'manual', key: 'ANCHOR-MALFORMED-1',
+      title: 'Keep WEL classification separate from policy validation',
+      description: 'A malformed creation anchor is legacy for WEL and invalid for lifecycle policy.',
+      acceptanceCriteria: ['Classification does not weaken the immutable policy gate.']
+    },
+    baseBranch: 'main',
+    workType: 'feature',
+    agent: 'developer'
+  });
+  const malformedFile = path.join(root, config.workItemRoot, 'ANCHOR-MALFORMED-1', 'workflow.json');
+  const malformed = JSON.parse(await readFile(malformedFile, 'utf8'));
+  malformed.resolution.policySha256 = 'not-a-policy-digest';
+  await writeFile(malformedFile, `${JSON.stringify(malformed, null, 2)}\n`);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'malformed anchored Story creation');
+
+  const classification = storyWelEnrollmentStatus(root, config, 'ANCHOR-MALFORMED-1');
+  assert.equal(classification.classification, 'legacy');
+  assert.equal(classification.reason, 'creation-anchor-malformed');
+  const malformedWorkflow = await loadWorkflow(root, config, 'ANCHOR-MALFORMED-1');
+  const malformedValidation = await validateWorkflow(root, config, malformedWorkflow);
+  assert.equal(malformedValidation.valid, false);
+  assert.ok(malformedValidation.errors.some((message) =>
+    /creation policy anchor .* is malformed/.test(message)), malformedValidation.errors.join('\n'));
 });
 
 test('a Story can complete through manual authorship with model mode disabled', async () => {

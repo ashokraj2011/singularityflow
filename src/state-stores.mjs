@@ -230,7 +230,7 @@ export {
   generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
   inspectRequiredArtifactRegistration, previewReworkRollForward, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
-  sourceTreeHash, storyPublicationPending, submitPhase, validateId, workflowBranchAllowed,
+  sourceTreeHash, storyPublicationPending, storyWelEnrollmentStatus, submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
 } from './state.mjs';
 export {

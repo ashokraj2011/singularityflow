@@ -16,7 +16,7 @@ function git(root, args) {
   return result.stdout.trim();
 }
 
-test('review reads delivery and test evidence from the immutable submission commit', async () => {
+test('review replays v1 packet and test identities from the immutable submission commit', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-review-evidence-'));
   git(root, ['init', '-b', 'main']);
   git(root, ['config', 'user.name', 'Review Test']);
@@ -27,10 +27,13 @@ test('review reads delivery and test evidence from the immutable submission comm
   const artifactPath = 'singularity/work-items/REV-1/artifacts/implementation/implementation-summary.md';
   const artifactBytes = Buffer.from('# Immutable implementation evidence\n');
   const codeReceipt = { schemaVersion: currentSchemaVersion('code-delivery'), kind: 'code-delivery', status: 'ready' };
-  const testReceipt = { schemaVersion: currentSchemaVersion('test-execution'), kind: 'test-execution', status: 'passed' };
+  const testReceipt = {
+    schemaVersion: 1, kind: 'test-execution', status: 'passed',
+    assurance: 'module-executed', testcaseExecutionProven: false
+  };
   const digest = (record) => createHash('sha256').update(canonicalJson(record)).digest('hex');
   const base = {
-    schemaVersion: currentSchemaVersion('story-submission-packet'),
+    schemaVersion: 1,
     workId: 'REV-1', phase: 'implementation', generation: 1,
     artifacts: [{
       path: artifactPath,
@@ -71,5 +74,7 @@ test('review reads delivery and test evidence from the immutable submission comm
   const workflow = { workItem: { id: 'REV-1' }, lineage: { submissions: [{ packetSha256, path: packetPath }] } };
   const packet = await readStoryReviewPacket(root, {}, workflow, packetSha256);
   assert.equal(packet.evidenceCommit, evidenceCommit);
+  assert.equal(packet.schemaVersion, currentSchemaVersion('story-submission-packet'));
+  assert.equal(packet.witnessReview.enrollmentClassification, 'legacy');
   assert.equal(packet.submissionEvidence.testExecutions[0].status, 'passed');
 });

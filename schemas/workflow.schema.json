@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["schemaVersion", "workItem", "status", "currentPhase", "phaseOrder", "phases", "history"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2] },
+    "schemaVersion": { "enum": [1, 2, 3] },
     "executionOrigin": {
       "type": "object",
       "required": ["schemaVersion", "mode", "flightId", "planId", "planSha256"],
@@ -110,7 +110,23 @@
           "additionalProperties": false
         },
         "sessionLegacy": { "type": "boolean" },
-        "phases": { "type": "array", "items": { "type": "object" } }
+        "phases": { "type": "array", "items": { "type": "object" } },
+        "wel": {
+          "type": "object",
+          "required": ["schemaVersion", "mode", "witnessedClauses", "testcaseExact", "claimMapContractVersion", "cab", "sgos", "rollout", "configurationAuthority"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "mode": { "enum": ["disabled", "observe", "enforce"] },
+            "witnessedClauses": { "type": "object" },
+            "testcaseExact": { "type": "object" },
+            "claimMapContractVersion": { "type": "integer", "minimum": 1 },
+            "cab": { "type": ["object", "null"] },
+            "sgos": { "type": ["object", "null"] },
+            "rollout": { "type": "object" },
+            "configurationAuthority": { "type": ["object", "null"] }
+          },
+          "additionalProperties": false
+        }
       },
       "additionalProperties": true
     },

@@ -119,6 +119,27 @@ const PAGES = Object.freeze({
     examples: [['singularity-flow land', 'Create or reuse the local landing session and show the next exact intent-confirmation command.']],
     seeAlso: ['adhoc', 'status', 'start']
   },
+  knowledge: {
+    summary: 'Record and deterministically recall approved, provenance-bound engineering knowledge.',
+    description: [
+      'Knowledge records are append-only, content-addressed, explicitly scoped, and backed by an',
+      'approved Story or Initiative artifact revision. A seed manifest is transport only: import',
+      'strictly validates every entry and verifies every cited approval before writing the first',
+      'record. It does not create a second knowledge store or treat the manifest as approval.',
+      '',
+      'An unchanged re-import is a no-op. A successful multi-entry import creates one knowledge',
+      'commit, while --dry-run creates neither records nor a commit.'
+    ],
+    options: [
+      ['--dry-run', 'Validate the complete manifest and approved provenance without writing or committing.'],
+      ['--json', 'Emit manifest identity, counts, record hashes, and the resulting commit hash.']
+    ],
+    examples: [
+      ['singularity-flow knowledge import reviewed/knowledge-seeds.yaml --dry-run', 'Preflight every entry and approved provenance source.'],
+      ['singularity-flow knowledge import reviewed/knowledge-seeds.yaml', 'Record only new claims and make one knowledge commit.']
+    ],
+    seeAlso: ['initiative', 'story', 'artifact']
+  },
   intent: {
     summary: 'Capture, confirm, ratify, and compile intent without allowing natural language to become authority.',
     description: [

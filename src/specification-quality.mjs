@@ -19,11 +19,105 @@ import { createHash } from 'node:crypto';
 
 import { analysisLimits, assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
 import { extractMarkers, evaluateMarkerPolicy, markerPolicy, reconcileMarkers } from './clarification-markers.mjs';
-import { extractClauses } from './specifications.mjs';
+import { extractClauses, ignoredRanges, isIgnored } from './specifications.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const SPECIFICATION_QUALITY_MODES = Object.freeze(['off', 'warn', 'enforce']);
+
+/**
+ * The first witnessed-clause profile is intentionally small. `[WEL:REQ-002]` … `[WEL:REQ-005]`
+ *
+ * These values describe specification structure only. In particular, accepting `Witness:
+ * inspection` here does not make inspection enforce-grade evidence; that requires a separate typed
+ * evidence contract. v0.2 permits only `test` in the policy's enforceable set.
+ */
+export const WITNESSED_CLAUSE_PROFILE = 'witnessed-v1';
+export const WITNESS_TYPES = Object.freeze(['test', 'inspection', 'metric', 'runtime', 'manual']);
+const ENFORCEABLE_WITNESS_TYPES = Object.freeze(['test']);
+const WITNESSED_CLAUSE_TYPES = Object.freeze(['acceptance']);
+const WITNESSED_LEXICAL_HINT_MODES = Object.freeze(['off', 'advisory']);
+const DEFAULT_WITNESSED_LIMITS = Object.freeze({
+  maxClauses: 500,
+  maxFieldBytes: 4096,
+  maxReportBytes: 262144
+});
+const WITNESSED_LIMIT_MAXIMUMS = Object.freeze({
+  maxClauses: 10000,
+  maxFieldBytes: 1024 * 1024,
+  maxReportBytes: 10 * 1024 * 1024
+});
+const WITNESSED_FIELDS = Object.freeze(['behavior', 'observable', 'witness']);
+
+function rejectUnknownKeys(value, allowed, label) {
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) {
+      throw new SingularityFlowError(`${label} contains unknown field '${key}'. Allowed: ${allowed.join(', ')}.`);
+    }
+  }
+}
+
+function normalizedUniqueArray(value, { label, fallback, allowed }) {
+  const entries = value ?? fallback;
+  if (!Array.isArray(entries) || !entries.length || entries.some((entry) => typeof entry !== 'string' || !entry)) {
+    throw new SingularityFlowError(`${label} must be a non-empty array.`);
+  }
+  if (new Set(entries).size !== entries.length) throw new SingularityFlowError(`${label} must not contain duplicates.`);
+  for (const entry of entries) {
+    if (!allowed.includes(entry)) throw new SingularityFlowError(`${label} contains unsupported value '${entry}'. Allowed: ${allowed.join(', ')}.`);
+  }
+  return Object.freeze([...entries]);
+}
+
+/** Normalize the opt-in `specificationQuality.witnessedClauses` extension. */
+function witnessedClausePolicy(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SingularityFlowError('specificationQuality.witnessedClauses must be an object.');
+  }
+  rejectUnknownKeys(
+    value,
+    ['profile', 'clauseTypes', 'enforceableWitnessTypes', 'lexicalHints', 'limits'],
+    'specificationQuality.witnessedClauses'
+  );
+  if (value.profile !== WITNESSED_CLAUSE_PROFILE) {
+    throw new SingularityFlowError(`specificationQuality.witnessedClauses.profile must be '${WITNESSED_CLAUSE_PROFILE}'.`);
+  }
+  const clauseTypes = normalizedUniqueArray(value.clauseTypes, {
+    label: 'specificationQuality.witnessedClauses.clauseTypes',
+    fallback: WITNESSED_CLAUSE_TYPES,
+    allowed: WITNESSED_CLAUSE_TYPES
+  });
+  const enforceableWitnessTypes = normalizedUniqueArray(value.enforceableWitnessTypes, {
+    label: 'specificationQuality.witnessedClauses.enforceableWitnessTypes',
+    fallback: ENFORCEABLE_WITNESS_TYPES,
+    allowed: ENFORCEABLE_WITNESS_TYPES
+  });
+  const lexicalHints = value.lexicalHints ?? 'off';
+  if (!WITNESSED_LEXICAL_HINT_MODES.includes(lexicalHints)) {
+    throw new SingularityFlowError(`specificationQuality.witnessedClauses.lexicalHints must be ${WITNESSED_LEXICAL_HINT_MODES.join(' or ')}.`);
+  }
+  const configuredLimits = value.limits ?? {};
+  if (!configuredLimits || typeof configuredLimits !== 'object' || Array.isArray(configuredLimits)) {
+    throw new SingularityFlowError('specificationQuality.witnessedClauses.limits must be an object.');
+  }
+  rejectUnknownKeys(configuredLimits, Object.keys(DEFAULT_WITNESSED_LIMITS), 'specificationQuality.witnessedClauses.limits');
+  const limits = { ...DEFAULT_WITNESSED_LIMITS, ...configuredLimits };
+  for (const [key, maximum] of Object.entries(WITNESSED_LIMIT_MAXIMUMS)) {
+    const minimum = key === 'maxReportBytes' ? 2048 : 1;
+    if (!Number.isSafeInteger(limits[key]) || limits[key] < minimum || limits[key] > maximum) {
+      throw new SingularityFlowError(
+        `specificationQuality.witnessedClauses.limits.${key} must be an integer from ${minimum} to ${maximum}.`
+      );
+    }
+  }
+  return Object.freeze({
+    profile: WITNESSED_CLAUSE_PROFILE,
+    clauseTypes,
+    enforceableWitnessTypes,
+    lexicalHints,
+    limits: Object.freeze(limits)
+  });
+}
 
 /**
  * The starter checklist `[SPK:REQ-052]`.
@@ -74,12 +168,18 @@ export function specificationQualityPolicy(value = {}) {
   if (exceptionAuthority !== null && (typeof exceptionAuthority !== 'string' || !exceptionAuthority.trim())) {
     throw new SingularityFlowError('specificationQuality.exceptionAuthority must name an approval authority group.');
   }
+  const witnessedClauses = value?.witnessedClauses === undefined
+    ? undefined
+    : witnessedClausePolicy(value.witnessedClauses);
   return Object.freeze({
     mode,
     checklist,
     exceptionAuthority,
     // Assisted analysis is opt-in and never the default; the deterministic path must stand alone.
-    assisted: Boolean(value?.assisted ?? false)
+    assisted: Boolean(value?.assisted ?? false),
+    // Omission is preserved rather than normalized to a disabled object. This keeps old policy
+    // digests and old Story behaviour byte-for-byte stable when WEL was never configured.
+    ...(witnessedClauses ? { witnessedClauses } : {})
   });
 }
 
@@ -94,6 +194,218 @@ function sectionsOf(markdown) {
   return new Set(String(markdown).split('\n')
     .filter((line) => /^#{1,6}\s/.test(line))
     .map((line) => line.replace(/^#+\s*/, '').trim().toLowerCase()));
+}
+
+function asciiLowerCase(value) {
+  return String(value).replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
+}
+
+function escapedRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function witnessedHeadingIsValid(markdown, clause) {
+  const line = String(markdown).split('\n')[Number(clause.source?.line ?? 1) - 1] ?? '';
+  return new RegExp(
+    `^ {0,3}#{1,6}[\\t ]+${escapedRegExp(clause.anchor)}(?:[\\t ]+#+)?[\\t ]*\\r?$`
+  ).test(line);
+}
+
+/**
+ * Parse only explicit field declarations. There is no prose inference here: a sentence mentioning
+ * a behavior is not silently promoted into the governed `Behavior:` field. `[WEL:CON-007]`
+ */
+function witnessedFields(body) {
+  const occurrences = Object.fromEntries(WITNESSED_FIELDS.map((field) => [field, []]));
+  const malformed = Object.fromEntries(WITNESSED_FIELDS.map((field) => [field, []]));
+  const ignored = ignoredRanges(String(body));
+  let lineStart = 0;
+  for (const [offset, rawLine] of String(body).split('\n').entries()) {
+    const candidate = rawLine.trim().replace(/^[-*+]\s+/, '');
+    const candidateOffset = rawLine.indexOf(candidate);
+    if (!candidate || isIgnored(lineStart + Math.max(0, candidateOffset), ignored)) {
+      lineStart += rawLine.length + 1;
+      continue;
+    }
+    const recordMalformed = () => {
+      const folded = asciiLowerCase(candidate);
+      for (const field of WITNESSED_FIELDS) {
+        if (folded === field || folded.startsWith(`${field} `) || folded.startsWith(`${field}-`)) {
+          malformed[field].push(offset);
+        }
+      }
+    };
+    const colon = candidate.indexOf(':');
+    if (colon >= 0) {
+      const field = asciiLowerCase(candidate.slice(0, colon).trim());
+      if (WITNESSED_FIELDS.includes(field)) {
+        const value = candidate.slice(colon + 1).trim();
+        occurrences[field].push({
+          value,
+          bytes: Buffer.byteLength(value, 'utf8')
+        });
+      } else recordMalformed();
+    } else {
+      recordMalformed();
+    }
+    lineStart += rawLine.length + 1;
+  }
+  return { occurrences, malformed };
+}
+
+function boundedDiagnosticValue(value, maximum = 80) {
+  const compact = String(value).replace(/\s+/g, ' ').trim();
+  return compact.length <= maximum ? compact : `${compact.slice(0, maximum)}…`;
+}
+
+function fieldStatus(occurrences, malformedLines, maximumBytes) {
+  if (!occurrences.length) return malformedLines.length ? 'malformed' : 'missing';
+  if (occurrences.length > 1) return 'duplicate';
+  if (!occurrences[0].value) return 'empty';
+  if (occurrences[0].bytes > maximumBytes) return 'over-limit';
+  if (malformedLines.length) return 'malformed';
+  return 'present';
+}
+
+/** Build the optional witnessed-clause projection from the authoritative extracted clauses. */
+function analyzeWitnessedClauses(markdown, clauses, policy) {
+  const findings = [];
+  const add = (kind, message, detail = {}) => findings.push({ kind, message, ...detail });
+  // `acceptance` is the only v0.2 selector and maps to the kernel's existing `AC` identity. No
+  // second WEL anchor namespace or clause index is introduced.
+  const enrolled = clauses.filter((clause) => clause.type === 'AC');
+  const selected = enrolled.slice(0, policy.limits.maxClauses);
+  const truncations = [];
+  if (enrolled.length > selected.length) {
+    const dropped = enrolled.length - selected.length;
+    add(
+      'witnessed-clause-limit-exceeded',
+      `${enrolled.length} acceptance clauses exceed witnessedClauses.limits.maxClauses ${policy.limits.maxClauses}; ${dropped} clauses were not analyzed.`,
+      { actual: enrolled.length, limit: policy.limits.maxClauses, dropped }
+    );
+    truncations.push({
+      limit: 'maxClauses', actual: enrolled.length, kept: selected.length, dropped,
+      disclosure: `${dropped} enrolled acceptance clauses were not analyzed because the configured clause bound is ${policy.limits.maxClauses}.`
+    });
+  }
+
+  const projections = selected.map((clause) => {
+    const headingValid = witnessedHeadingIsValid(markdown, clause);
+    if (!headingValid) {
+      add(
+        'witnessed-clause-heading-malformed',
+        `clause ${clause.id} must use a standalone Markdown heading containing only its existing anchor`,
+        { clauseId: clause.id, line: clause.source?.line ?? null }
+      );
+    }
+    const parsed = witnessedFields(clause.body);
+    for (const field of WITNESSED_FIELDS) {
+      const entries = parsed.occurrences[field];
+      const malformedLines = parsed.malformed[field];
+      if (!entries.length) {
+        add('witnessed-field-missing', `clause ${clause.id} has no ${field[0].toUpperCase()}${field.slice(1)} field`, {
+          clauseId: clause.id, field
+        });
+      }
+      if (entries.length > 1) {
+        add('witnessed-field-duplicate', `clause ${clause.id} has ${entries.length} ${field[0].toUpperCase()}${field.slice(1)} fields; exactly one is required`, {
+          clauseId: clause.id, field, occurrences: entries.length
+        });
+      }
+      if (entries.some((entry) => !entry.value)) {
+        add('witnessed-field-empty', `clause ${clause.id} has an empty ${field[0].toUpperCase()}${field.slice(1)} field`, {
+          clauseId: clause.id, field
+        });
+      }
+      if (malformedLines.length) {
+        add('witnessed-field-malformed', `clause ${clause.id} has a malformed ${field[0].toUpperCase()}${field.slice(1)} declaration; use '${field[0].toUpperCase()}${field.slice(1)}: value'`, {
+          clauseId: clause.id, field
+        });
+      }
+      const oversized = entries.filter((entry) => entry.bytes > policy.limits.maxFieldBytes);
+      if (oversized.length) {
+        add(
+          'witnessed-field-limit-exceeded',
+          `clause ${clause.id} ${field[0].toUpperCase()}${field.slice(1)} field exceeds witnessedClauses.limits.maxFieldBytes ${policy.limits.maxFieldBytes}`,
+          { clauseId: clause.id, field, actualBytes: Math.max(...oversized.map((entry) => entry.bytes)), limit: policy.limits.maxFieldBytes }
+        );
+      }
+    }
+
+    const declaredWitnesses = parsed.occurrences.witness
+      .map((entry) => entry.value)
+      .filter(Boolean);
+    const unknownWitnesses = declaredWitnesses.filter((value) => !WITNESS_TYPES.includes(value));
+    if (unknownWitnesses.length) {
+      add(
+        'witnessed-witness-unknown',
+        `clause ${clause.id} declares unknown Witness value '${boundedDiagnosticValue(unknownWitnesses[0])}'; allowed values are ${WITNESS_TYPES.join(', ')}`,
+        { clauseId: clause.id, field: 'witness' }
+      );
+    }
+    const declaredWitnessType = declaredWitnesses.length === 1
+      ? (WITNESS_TYPES.includes(declaredWitnesses[0]) ? declaredWitnesses[0] : boundedDiagnosticValue(declaredWitnesses[0]))
+      : null;
+    const witnessType = declaredWitnesses.length === 1 && WITNESS_TYPES.includes(declaredWitnesses[0])
+      ? declaredWitnesses[0]
+      : null;
+    return {
+      clauseId: clause.id,
+      line: clause.source?.line ?? null,
+      heading: headingValid ? 'present' : 'malformed',
+      fields: Object.fromEntries(WITNESSED_FIELDS.map((field) => [field, {
+        status: fieldStatus(parsed.occurrences[field], parsed.malformed[field], policy.limits.maxFieldBytes),
+        occurrences: parsed.occurrences[field].length,
+        bytes: parsed.occurrences[field].length === 1 ? parsed.occurrences[field][0].bytes : null
+      }])),
+      declaredWitnessType,
+      witnessType,
+      enforceable: witnessType !== null && policy.enforceableWitnessTypes.includes(witnessType)
+    };
+  });
+
+  const report = (reportedClauses, disclosures = truncations) => ({
+    profile: policy.profile,
+    clauseTypes: policy.clauseTypes,
+    enforceableWitnessTypes: policy.enforceableWitnessTypes,
+    lexicalHintsMode: policy.lexicalHints,
+    enrolledClauseCount: enrolled.length,
+    analyzedClauseCount: selected.length,
+    reportedClauseCount: reportedClauses.length,
+    clauses: reportedClauses,
+    // Lexical hints are presentation-only and never enter `findings`, even when advisory mode is
+    // selected. The initial structural slice deliberately emits none.
+    lexicalHints: [],
+    findingCount: findings.length,
+    ...(disclosures.length ? { truncated: { disclosures } } : {})
+  });
+
+  let projection = report(projections);
+  const unboundedBytes = Buffer.byteLength(canonicalJson(projection), 'utf8');
+  if (unboundedBytes > policy.limits.maxReportBytes) {
+    add(
+      'witnessed-report-limit-exceeded',
+      `witnessed clause report exceeds witnessedClauses.limits.maxReportBytes ${policy.limits.maxReportBytes}; clause projections were truncated`,
+      { actualBytes: unboundedBytes, limit: policy.limits.maxReportBytes }
+    );
+    let kept = [...projections];
+    while (true) {
+      const reportDisclosure = {
+        limit: 'maxReportBytes', actualBytes: unboundedBytes, maximumBytes: policy.limits.maxReportBytes,
+        kept: kept.length, dropped: projections.length - kept.length,
+        disclosure: `${projections.length - kept.length} analyzed clause projections were omitted to keep the witnessed report within ${policy.limits.maxReportBytes} bytes.`
+      };
+      projection = report(kept, [...truncations, reportDisclosure]);
+      if (Buffer.byteLength(canonicalJson(projection), 'utf8') <= policy.limits.maxReportBytes) break;
+      if (!kept.length) {
+        throw new SingularityFlowError(
+          `specificationQuality.witnessedClauses.limits.maxReportBytes ${policy.limits.maxReportBytes} is too small for the bounded report envelope.`
+        );
+      }
+      kept = kept.slice(0, -1);
+    }
+  }
+  return { findings, report: projection };
 }
 
 /**
@@ -152,6 +464,11 @@ export function analyzeSpecification(markdown, {
     if (!present.has(section.toLowerCase())) add('missing-required-section', `the specification has no '${section}' section`, { section });
   }
 
+  const witnessed = resolved.witnessedClauses
+    ? analyzeWitnessedClauses(markdown, clauses, resolved.witnessedClauses)
+    : null;
+  if (witnessed) findings.push(...witnessed.findings);
+
   const ordered = findings.sort((left, right) =>
     left.kind.localeCompare(right.kind) || String(left.message).localeCompare(String(right.message)));
   // Capped *and disclosed*: a list of 500 findings that stops at 500 reads exactly like a complete
@@ -188,6 +505,7 @@ export function analyzeSpecification(markdown, {
       vanished: reconciled.vanished.map(({ question, questionHash, reason }) => ({ question, questionHash, reason })),
       malformed: malformed.map(({ line, reason }) => ({ line, reason }))
     },
+    ...(witnessed ? { witnessedClauses: witnessed.report } : {}),
     findings: sorted,
     ...(capped.disclosure ? { truncated: { dropped: capped.dropped, disclosure: capped.disclosure } } : {}),
     // Said out loud in the report itself, because a clean deterministic run is the moment someone

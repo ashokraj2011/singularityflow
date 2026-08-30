@@ -20,7 +20,7 @@ import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, opti
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, repoRoot } from './git.mjs';
 import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, CONFIG_PATH, createWorkflow, currentPhase, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
@@ -95,6 +95,7 @@ import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
+import { readRecord } from './schema-migrations.mjs';
 
 import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
@@ -105,6 +106,7 @@ import { remainingRequiredAuthorities, requireApprovalAuthority } from './approv
 import { answerSelectionReceipt, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, resolveCustomSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
+import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
 import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
 import { approveInitiative, evaluateInitiativePhase, initiativeBundle, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
@@ -1645,11 +1647,13 @@ export async function statusCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, positionals[1]);
+  const wel = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify(workflow, null, 2));
+    console.log(JSON.stringify({ ...workflow, welStatus: wel }, null, 2));
     return;
   }
   summary(workflow);
+  console.log(`WEL: ${wel.classification} · ${wel.mode}${wel.reason ? ` · ${wel.reason}` : ''}`);
   console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
     const phase = workflow.phases[id];
     return { index: index + 1, phase: id, agent: phase.defaultAgent ?? '', status: phase.status, artifacts: phase.artifacts.length };
@@ -3047,6 +3051,19 @@ async function specCommand(positionals, options) {
     console.log(`  policy:    quality ${gate.qualityMode}, markers ${gate.markerMode}, checklist ${gate.checklist}`);
     console.log(`  clauses:   ${gate.report.clauseCount}`);
     console.log(`  markers:   ${gate.report.markers.open.length} open, ${gate.report.markers.resolved.length} resolved since the last generation`);
+    if (gate.report.witnessedClauses) {
+      const witnessed = gate.report.witnessedClauses;
+      console.log(`  witnesses: ${witnessed.analyzedClauseCount}/${witnessed.enrolledClauseCount} analyzed · profile ${witnessed.profile}`);
+      for (const clause of witnessed.clauses) {
+        const fields = Object.entries(clause.fields)
+          .map(([name, field]) => `${name} ${field.status}`)
+          .join(' · ');
+        console.log(`    ${clause.clauseId}: ${fields} · witness ${clause.witnessType ?? clause.declaredWitnessType ?? 'unavailable'}${clause.enforceable ? ' (typed for future enforcement)' : ' (record only)'}`);
+      }
+      for (const disclosure of witnessed.truncated?.disclosures ?? []) {
+        console.warn(`    truncated: ${disclosure.disclosure}`);
+      }
+    }
     if (!gate.report.findings.length) console.log('\nNo checkable defects found.');
     else {
       console.log('');
@@ -3487,6 +3504,25 @@ async function phaseReview(root, config, workflow, phase) {
       content: await readFile(absolute, 'utf8')
     });
   }
+  const testcaseObservations = [];
+  for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
+    try {
+      const stored = await readFile(path.join(root, execution.receiptPath));
+      const receipt = readRecord('test-execution', stored).record;
+      if (receipt.testcaseObservation) testcaseObservations.push(receipt.testcaseObservation);
+    } catch {
+      testcaseObservations.push({
+        status: 'unavailable', assurance: 'unavailable', occurrences: [],
+        notice: `test receipt '${execution.commandId}' is unavailable`
+      });
+    }
+  }
+  const localObservations = testcaseObservations.filter((entry) => entry.status === 'observed'
+    && entry.assurance === 'testcase-local-observed'
+    && entry.exact === false
+    && entry.verdict === 'inconclusive');
+  const observedTestcases = localObservations
+    .flatMap((entry) => entry.occurrences ?? []);
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,
@@ -3499,7 +3535,20 @@ async function phaseReview(root, config, workflow, phase) {
       executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
       executionAssurance: 'module-executed',
       testcaseExecutionProven: false,
-      notice: 'module executed; tagged test execution not independently proven'
+      testcaseObservation: {
+        status: localObservations.length
+          ? 'observed'
+          : ['unavailable', 'unsupported'].includes(testcaseObservations.at(-1)?.status)
+            ? testcaseObservations.at(-1).status : 'inconclusive',
+        assurance: localObservations.length ? 'testcase-local-observed' : 'unavailable',
+        exact: false,
+        verdict: 'inconclusive',
+        occurrences: observedTestcases.length,
+        notice: localObservations.length
+          ? 'candidate-controlled testcase results observed locally as non-exact diagnostics; verdict is inconclusive and there is no independent attestation or reviewed witness mapping'
+          : testcaseObservations.at(-1)?.notice ?? 'exact testcase observation unavailable'
+      },
+      notice: 'module execution remains the authoritative delivery evidence; testcase observation is diagnostic and non-blocking'
     } : null,
     documents
   };
@@ -3520,6 +3569,8 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
   if (review.testEvidence) {
     console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s)`);
     console.log(`  ${review.testEvidence.notice}`);
+    console.log(`  Testcase observation: ${review.testEvidence.testcaseObservation.status} · ${review.testEvidence.testcaseObservation.occurrences} occurrence(s) · ${review.testEvidence.testcaseObservation.assurance} · ${review.testEvidence.testcaseObservation.verdict}`);
+    console.log(`  ${review.testEvidence.testcaseObservation.notice}`);
   }
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
@@ -7594,6 +7645,28 @@ async function bootstrapCommand(positionals, options) {
 async function knowledgeCommand(positionals, options) {
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'list';
+
+  if (subcommand === 'import') {
+    const manifestPath = requirePositional(positionals, 2, 'repository-relative JSON or YAML manifest');
+    if (positionals.length > 3) throw new SingularityFlowError('knowledge import accepts exactly one manifest path.');
+    const dryRun = optionBoolean(options, 'dry-run');
+    const result = await importKnowledgeSeedManifest(root, manifestPath, { dryRun });
+    const commitSha = !dryRun && result.created
+      ? commitKnowledge(root, `[knowledge][import] ${result.created} ${result.created === 1 ? 'entry' : 'entries'}`)
+      : null;
+    const output = { ...result, commit: commitSha };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(output, null, 2));
+    if (dryRun) {
+      return console.log(
+        `Validated ${result.validated} ${result.validated === 1 ? 'entry' : 'entries'} from ${result.manifest.path}; `
+        + `${result.wouldCreate} would be recorded and ${result.skipped} already exist. No records or commits were created.`
+      );
+    }
+    return console.log(
+      `Imported ${result.created} ${result.created === 1 ? 'entry' : 'entries'} from ${result.manifest.path}; `
+      + `${result.skipped} already existed.${commitSha ? ` Commit ${commitSha.slice(0, 8)}.` : ''}`
+    );
+  }
 
   if (subcommand === 'record') {
     const result = await recordKnowledge(root, {

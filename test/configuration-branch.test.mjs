@@ -650,6 +650,9 @@ test('Story start materializes approved configuration without requiring it on ap
     const workflow = JSON.parse(await readFile(
       path.join(checkout, 'singularity', 'work-items', 'CFG-100', 'workflow.json'), 'utf8'
     ));
+    assert.equal(workflow.schemaVersion, 3);
+    assert.equal(workflow.resolution.wel.mode, 'disabled');
+    assert.equal(workflow.resolution.wel.rollout.enrollment, 'new-story-only');
     assert.match(workflow.resolution.configurationSource.commit, /^[0-9a-f]{40}$/);
     assert.equal(workflow.resolution.configurationSource.branch, CONFIGURATION_BRANCH);
     assert.equal(workflow.phases.intake.approvalPolicy.allowSelfApproval, true,

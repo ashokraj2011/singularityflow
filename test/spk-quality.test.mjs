@@ -18,7 +18,8 @@ import {
 } from '../src/clarification-markers.mjs';
 import {
   CHECKLIST_DECISIONS, STARTER_CHECKLIST, analyzeSpecification, evaluateSpecificationQuality,
-  policyHash, specificationQualityPolicy, validateChecklistDecisions
+  policyHash, specificationQualityPolicy, validateChecklistDecisions, WITNESSED_CLAUSE_PROFILE,
+  WITNESS_TYPES
 } from '../src/specification-quality.mjs';
 
 const SPEC = [
@@ -33,6 +34,22 @@ const analyze = (markdown, options = {}) => analyzeSpecification(markdown, {
   artifactPath: 'artifacts/specification/spec.md', phase: 'specification', generation: 1,
   policy: { mode: 'enforce' }, namespace: 'DEMO', ...options
 });
+
+const WITNESSED_POLICY = Object.freeze({
+  mode: 'enforce',
+  witnessedClauses: { profile: 'witnessed-v1' }
+});
+
+const WITNESSED_SPEC = [
+  '# Specification', '', '## Actors', '', 'An authenticated account holder.', '',
+  '## User scenarios', '', 'Given an account, when its balance is requested, then its persisted balance is returned.', '',
+  '## Requirements', '',
+  '### [DEMO:AC-001]', '',
+  '- bEhAvIoR: When an authenticated user requests the balance, the service returns that user\'s balance.',
+  '- OBSERVABLE: The response is HTTP 200 and the amount and currency equal the persisted values.',
+  '- Witness: test', '',
+  '```markdown', '- Behavior: this example is not a governed field', '```'
+].join('\n');
 
 test('markers are found only where a marker can mean something', () => {
   // `[SPK:REQ-063]`: the same ignored regions as clause extraction — fenced code, inline code, and
@@ -153,6 +170,124 @@ test('the policy decides severity, and enforce is the starter default for specif
     policyHash({ mode: 'enforce' }),
     policyHash({ mode: 'enforce' }, { ...STARTER_CHECKLIST, version: 2 })
   );
+});
+
+test('witnessed-clause policy is strict, normalized, and absent unless explicitly enrolled', () => {
+  const legacy = specificationQualityPolicy({ mode: 'warn' });
+  assert.equal('witnessedClauses' in legacy, false, 'an absent profile changed the legacy policy projection');
+
+  const policy = specificationQualityPolicy(WITNESSED_POLICY);
+  assert.deepEqual(policy.witnessedClauses, {
+    profile: WITNESSED_CLAUSE_PROFILE,
+    clauseTypes: ['acceptance'],
+    enforceableWitnessTypes: ['test'],
+    lexicalHints: 'off',
+    limits: { maxClauses: 500, maxFieldBytes: 4096, maxReportBytes: 262144 }
+  });
+  assert.deepEqual([...WITNESS_TYPES], ['test', 'inspection', 'metric', 'runtime', 'manual']);
+  assert.throws(
+    () => specificationQualityPolicy({ witnessedClauses: { profile: 'witnessed-v1', surprise: true } }),
+    /unknown field 'surprise'/
+  );
+  assert.throws(
+    () => specificationQualityPolicy({ witnessedClauses: { profile: 'witnessed-v1', limits: { maxFields: 3 } } }),
+    /unknown field 'maxFields'/
+  );
+  assert.throws(
+    () => specificationQualityPolicy({ witnessedClauses: { profile: 'witnessed-v1', enforceableWitnessTypes: ['inspection'] } }),
+    /unsupported value 'inspection'/
+  );
+  assert.throws(
+    () => specificationQualityPolicy({ witnessedClauses: { profile: 'witnessed-v2' } }),
+    /must be 'witnessed-v1'/
+  );
+});
+
+test('witnessed acceptance fields are parsed from the existing clause index without semantic overclaim', () => {
+  const report = analyze(WITNESSED_SPEC, { policy: WITNESSED_POLICY });
+  assert.deepEqual(report.findings, []);
+  assert.equal(report.clauseCount, 1);
+  assert.equal(report.witnessedClauses.profile, 'witnessed-v1');
+  assert.equal(report.witnessedClauses.enrolledClauseCount, 1);
+  assert.deepEqual(report.witnessedClauses.clauses.map((clause) => clause.clauseId), ['DEMO:AC-001']);
+  assert.deepEqual(report.witnessedClauses.clauses[0].fields, {
+    behavior: { status: 'present', occurrences: 1, bytes: 89 },
+    observable: { status: 'present', occurrences: 1, bytes: 80 },
+    witness: { status: 'present', occurrences: 1, bytes: 4 }
+  });
+  assert.equal(report.witnessedClauses.clauses[0].witnessType, 'test');
+  assert.equal(report.witnessedClauses.clauses[0].enforceable, true);
+  assert.deepEqual(report.witnessedClauses.lexicalHints, []);
+  assert.match(report.disclaimer, /makes no claim that the specification is complete, clear, consistent, or correct/);
+
+  // A non-acceptance anchor remains under the existing analyzer and is not silently enrolled.
+  const legacyClauses = analyze(SPEC, { policy: WITNESSED_POLICY });
+  assert.equal(legacyClauses.witnessedClauses.enrolledClauseCount, 0);
+  assert.deepEqual(legacyClauses.findings, []);
+});
+
+test('witnessed structural defects are deterministic gate findings, not prose judgements', () => {
+  const malformed = [
+    '# Specification', '', '## Actors', '', 'A user.', '', '## User scenarios', '', 'A scenario.', '',
+    '## Requirements', '',
+    '- [DEMO:AC-001]',
+    '- Behavior: first behavior',
+    '- behavior: second behavior',
+    '- Observable:',
+    '- Witness: oracle', '',
+    '### [DEMO:AC-002]',
+    '- Behavior returns the result',
+    '- Observable: The result is visible.',
+    '- Witness: manual'
+  ].join('\n');
+  const report = analyze(malformed, { policy: WITNESSED_POLICY });
+  const kinds = report.findings.map((finding) => finding.kind);
+  assert.ok(kinds.includes('witnessed-clause-heading-malformed'));
+  assert.ok(kinds.includes('witnessed-field-duplicate'));
+  assert.ok(kinds.includes('witnessed-field-empty'));
+  assert.ok(kinds.includes('witnessed-field-malformed'));
+  assert.ok(kinds.includes('witnessed-field-missing'));
+  assert.ok(kinds.includes('witnessed-witness-unknown'));
+  assert.equal(report.witnessedClauses.clauses[1].witnessType, 'manual');
+  assert.equal(report.witnessedClauses.clauses[1].enforceable, false);
+  assert.ok(evaluateSpecificationQuality(report).errors.length >= 6);
+  assert.equal(evaluateSpecificationQuality({ ...report, mode: 'warn' }).errors.length, 0);
+});
+
+test('witnessed clause, field, and report bounds disclose every truncation', () => {
+  const clauses = Array.from({ length: 10 }, (_, index) => [
+    `### [DEMO:AC-${String(index + 1).padStart(3, '0')}]`,
+    `- Behavior: behavior number ${index + 1}`,
+    `- Observable: observable number ${index + 1}`,
+    '- Witness: test', ''
+  ].join('\n'));
+  const document = [
+    '# Specification', '', '## Actors', '', 'A user.', '', '## User scenarios', '', 'A scenario.', '',
+    '## Requirements', '', ...clauses
+  ].join('\n');
+
+  const clauseBound = analyze(document, { policy: {
+    mode: 'warn',
+    witnessedClauses: {
+      profile: 'witnessed-v1',
+      limits: { maxClauses: 1, maxFieldBytes: 5, maxReportBytes: 262144 }
+    }
+  } });
+  assert.ok(clauseBound.findings.some((finding) => finding.kind === 'witnessed-clause-limit-exceeded'));
+  assert.ok(clauseBound.findings.some((finding) => finding.kind === 'witnessed-field-limit-exceeded'));
+  assert.equal(clauseBound.witnessedClauses.analyzedClauseCount, 1);
+  assert.equal(clauseBound.witnessedClauses.truncated.disclosures[0].limit, 'maxClauses');
+
+  const reportBound = analyze(document, { policy: {
+    mode: 'warn',
+    witnessedClauses: {
+      profile: 'witnessed-v1',
+      limits: { maxClauses: 10, maxFieldBytes: 4096, maxReportBytes: 2048 }
+    }
+  } });
+  assert.ok(reportBound.findings.some((finding) => finding.kind === 'witnessed-report-limit-exceeded'));
+  assert.ok(reportBound.witnessedClauses.reportedClauseCount < reportBound.witnessedClauses.analyzedClauseCount);
+  assert.ok(reportBound.witnessedClauses.truncated.disclosures.some((entry) => entry.limit === 'maxReportBytes'));
 });
 
 test('every checklist article needs a decision, and an exception needs a reason', () => {

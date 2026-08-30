@@ -105,16 +105,18 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
    * not make the packet vary between renders of the same artifact.
    */
   const quality = resolvedSpecificationQualityPolicy(config, workflow, phase);
+  const qualityAnalysis = quality.mode !== 'off' && artifact
+    ? analyzeSpecification(artifact.content, {
+      artifactPath: artifact.path, phase: phase.id, generation: phase.generation, policy: quality
+    })
+    : null;
   const specificationQuality = quality.mode === 'off' ? null : {
     mode: quality.mode,
     exceptionAuthority: quality.exceptionAuthority,
     checklist: STARTER_CHECKLIST,
     checklistSha256: policyHash(quality, STARTER_CHECKLIST),
-    findings: artifact
-      ? analyzeSpecification(artifact.content, {
-        artifactPath: artifact.path, phase: phase.id, generation: phase.generation, policy: quality
-      }).findings
-      : [],
+    findings: qualityAnalysis?.findings ?? [],
+    witnessedClauses: qualityAnalysis?.witnessedClauses ?? null,
     /**
      * Assisted candidates when present `[SPK:REQ-059]`.
      *
@@ -248,6 +250,17 @@ function specificationQualitySection(bundle) {
     lines.push(...(quality.findings.length
       ? quality.findings.map((finding) => `- \`${finding.kind}\` — ${finding.message}`)
       : ['- None. This is not a claim that the specification is complete, clear, consistent, or correct; those are the articles above.']));
+    if (quality.witnessedClauses) {
+      lines.push('', '### Witnessed clause structure', '',
+        `- Profile: \`${quality.witnessedClauses.profile}\` · ${quality.witnessedClauses.analyzedClauseCount}/${quality.witnessedClauses.enrolledClauseCount} clauses analyzed`);
+      for (const clause of quality.witnessedClauses.clauses ?? []) {
+        const fields = Object.entries(clause.fields ?? {})
+          .map(([field, detail]) => `${field} **${detail.status}**`)
+          .join(' · ');
+        lines.push(`- \`${clause.clauseId}\` — ${fields} · witness **${clause.witnessType ?? clause.declaredWitnessType ?? 'unavailable'}**${clause.enforceable ? ' (typed for future enforcement)' : ' (record only)'}`);
+      }
+      lines.push('', '> Structural facts only. This does not review witness semantics or prove the requirement.');
+    }
     lines.push('', '### Assisted candidates', '',
       ...(quality.assistedCandidates.length
         ? quality.assistedCandidates.map((candidate) => `- \`${candidate.concern}\`${candidate.clauseIds?.length ? ` (${candidate.clauseIds.join(', ')})` : ''} — ${candidate.text}`)

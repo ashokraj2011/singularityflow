@@ -1,4 +1,4 @@
-import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rm } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -120,9 +120,10 @@ import {
 } from './change-flight-plan.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { canonicalJson } from './records.mjs';
+import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
 import {
-  buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule,
-  testReceiptPassing
+  buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
+  resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
   buildRepositoryChangeSet, buildRepositoryTreeChangeSet, repositoryCaseInsensitivePaths
@@ -348,7 +349,7 @@ function resolutionPolicySha256(resolution) {
   return `sha256:${createHash('sha256').update(canonicalJson(policy)).digest('hex')}`;
 }
 
-function committedResolutionPolicySha256(root, config, workId) {
+function initialWorkflowRecord(root, config, workId) {
   const relative = workDirRelative(config, workId);
   const workflowRelative = `${relative}/workflow.json`;
   const history = run('git', [
@@ -373,6 +374,12 @@ function committedResolutionPolicySha256(root, config, workId) {
     );
   }
   const anchor = initial?.resolution?.policySha256;
+  return { record: initial, commit: history[0], workflowRelative, anchor };
+}
+
+function verifiedInitialPolicyAnchor(initial, workId) {
+  if (!initial) return null;
+  const { anchor, commit, record } = initial;
   // Stories created before policy anchoring are deliberately compatible. Their schema migration
   // adds normalized resolution fields that did not exist in the creation bytes, so comparing the
   // migrated projection with a digest those bytes never declared would make every legacy Story
@@ -383,23 +390,96 @@ function committedResolutionPolicySha256(root, config, workId) {
       `The immutable creation policy anchor for Story '${workId}' is malformed.`,
       {
         code: 'STORY_POLICY_ANCHOR_INVALID',
-        details: { workId, commit: history[0], actual: anchor }
+        details: { workId, commit, actual: anchor }
       }
     );
   }
   // Recompute from the committed bytes. Trusting a digest field stored beside the policy would
   // accept a stale or hand-edited receipt without proving that it describes those exact bytes.
-  const derived = resolutionPolicySha256(initial.resolution);
+  const derived = resolutionPolicySha256(record.resolution);
   if (anchor !== derived) {
     throw new SingularityFlowError(
       `The immutable creation policy anchor for Story '${workId}' does not match its committed resolution bytes.`,
       {
         code: 'STORY_POLICY_ANCHOR_INVALID',
-        details: { workId, commit: history[0], expected: derived, actual: anchor }
+        details: { workId, commit, expected: derived, actual: anchor }
       }
     );
   }
   return anchor;
+}
+
+function committedResolutionPolicySha256(root, config, workId) {
+  const initial = initialWorkflowRecord(root, config, workId);
+  return verifiedInitialPolicyAnchor(initial, workId);
+}
+
+/** Classify WEL only from the immutable creation commit; migrated working-tree defaults never enroll. */
+export function storyWelEnrollmentStatus(root, config, workId) {
+  let initial;
+  try { initial = initialWorkflowRecord(root, config, workId); }
+  catch (error) {
+    return {
+      classification: 'legacy', mode: 'disabled', reason: error?.code ?? 'creation-record-unavailable',
+      creationCommit: null
+    };
+  }
+  if (!initial) return {
+    classification: 'legacy', mode: 'disabled', reason: 'creation-record-unavailable', creationCommit: null
+  };
+  const storedVersion = initial.record?.schemaVersion ?? 1;
+  if (!Number.isInteger(storedVersion) || storedVersion < 3) return {
+    classification: 'legacy', mode: 'disabled', reason: `created-with-story-workflow-v${storedVersion}`,
+    creationCommit: initial.commit
+  };
+  if (storedVersion > currentSchemaVersion('story-workflow')) return {
+    classification: 'legacy', mode: 'disabled', reason: `unsupported-story-workflow-v${storedVersion}`,
+    creationCommit: initial.commit
+  };
+  if (initial.anchor == null) return {
+    classification: 'legacy', mode: 'disabled', reason: 'creation-anchor-missing',
+    creationCommit: initial.commit
+  };
+  if (typeof initial.anchor !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(initial.anchor)) return {
+    classification: 'legacy', mode: 'disabled', reason: 'creation-anchor-malformed',
+    creationCommit: initial.commit
+  };
+  if (initial.anchor !== resolutionPolicySha256(initial.record.resolution)) return {
+    classification: 'legacy', mode: 'disabled', reason: 'creation-anchor-mismatch',
+    creationCommit: initial.commit
+  };
+  const validation = validateWelEnrollment(initial.record?.resolution?.wel);
+  if (!validation.valid) return {
+    classification: 'legacy', mode: 'disabled', reason: validation.reason,
+    creationCommit: initial.commit
+  };
+  let expectedEnrollment;
+  try {
+    expectedEnrollment = buildWelEnrollment({
+      phases: initial.record.resolution?.phases,
+      codeDelivery: initial.record.resolution?.codeDelivery,
+      configurationSource: initial.record.resolution?.configurationSource,
+      // Reproduce the contract that was pinned at creation. A later claim-map schema bump must not
+      // silently reclassify an in-flight Story merely because the current writer moved forward.
+      claimMapContractVersion: initial.record.resolution.wel.claimMapContractVersion
+    });
+  } catch {
+    return {
+      classification: 'legacy', mode: 'disabled', reason: 'component-policy-invalid',
+      creationCommit: initial.commit
+    };
+  }
+  if (canonicalJson(expectedEnrollment) !== canonicalJson(initial.record.resolution.wel)) return {
+    classification: 'legacy', mode: 'disabled', reason: 'component-policy-mismatch',
+    creationCommit: initial.commit
+  };
+  return {
+    classification: 'enrolled',
+    mode: initial.record.resolution.wel.mode,
+    reason: null,
+    creationCommit: initial.commit,
+    enrollment: structuredClone(initial.record.resolution.wel)
+  };
 }
 
 export function storyArtifactMetadata(workflow, phase) {
@@ -727,6 +807,11 @@ export async function createWorkflow(root, config, {
       capability.policy.maxDocumentBytes
     );
   }
+  workflow.resolution.wel = buildWelEnrollment({
+    phases: workflow.resolution.phases,
+    codeDelivery: workflow.resolution.codeDelivery,
+    configurationSource: workflow.resolution.configurationSource
+  });
   if (capability && !worldModelDisabledForWorkflow(workflow)) {
     await mkdir(workDir(root, config, id), { recursive: true });
     const context = await materializeCapabilityWorldModelPack(root, capability, {
@@ -771,7 +856,9 @@ function normalizeCurrentWorkflow(workflow) {
     ['telemetry', workflow.telemetry]
   ].filter(([, value]) => value == null).map(([name]) => name);
   if (missing.length) {
-    throw new SingularityFlowError(`Story workflow schema 2 is incomplete (${missing.join(', ')}). Run singularity-flow factory-reset and recreate the Story.`);
+    throw new SingularityFlowError(
+      `Story workflow schema ${currentSchemaVersion('story-workflow')} is incomplete (${missing.join(', ')}). Run singularity-flow factory-reset and recreate the Story.`
+    );
   }
   workflow.resolution.session = normalizeSessionPolicy(workflow.resolution.session);
   workflow.resolution.contextPolicy = normalizeContextPolicy(workflow.resolution.contextPolicy);
@@ -2212,10 +2299,10 @@ async function restoreTransientQualityResult(check) {
   await restore();
 }
 
-async function qualityChecks(root, phase, config, commands = phase.qualityCommands ?? []) {
+async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? []) {
   const checks = [];
   const sourceCommit = head(root);
-  const sourceTreeSha256 = await sourceTreeHash(root, config);
+  const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
   let activeTransientRestore = null;
@@ -2294,7 +2381,7 @@ async function qualityChecks(root, phase, config, commands = phase.qualityComman
         timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
         killTree: true
       });
-    const completedTreeSha256 = await sourceTreeHash(root, config);
+    const completedTreeSha256 = await sourceTreeHash(root, config, workflow);
     if (completedTreeSha256 !== sourceTreeSha256) {
       throw new SingularityFlowError(
         `Quality command '${policy.id}' changed application source or tests. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
@@ -2369,7 +2456,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       { code: 'CODE_DELIVERY_TEST_COMMAND_REQUIRED' }
     );
   }
-  const checks = await qualityChecks(root, phase, config, commands);
+  const checks = await qualityChecks(root, phase, config, workflow, commands);
   const passing = [];
   try {
     for (const command of commands) {
@@ -2384,7 +2471,9 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
         throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
       }
       const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-      const receipt = buildTestExecutionReceipt(command, check, parsed);
+      const receipt = buildTestExecutionReceipt(command, check, parsed, {
+        testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+      });
       if (receipt.tests.discovered < parsed.minimumDiscovered) {
         throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests before publication.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
       }
@@ -2407,6 +2496,35 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     }
   }
   return { commands, checks };
+}
+
+async function persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt) {
+  if (receipt.testcaseObservation?.status !== 'observed') return receipt;
+  const directoryRelative = posix(path.join(
+    workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests', 'raw',
+    `${phase.id}-gen${phase.generation}`, command.id.replace(/[^A-Za-z0-9._-]+/g, '-')
+  ));
+  await ensureSecureRepositoryDirectory(root, directoryRelative, {
+    label: 'Durable local test observation directory'
+  });
+  const references = [];
+  for (const report of parsed.rawReports ?? []) {
+    const extension = path.posix.extname(report.sourcePath).toLowerCase() === '.xml' ? '.xml' : '.bin';
+    const relative = `${directoryRelative}/${report.sha256}${extension}`;
+    const absolute = path.join(root, relative);
+    try {
+      await writeFile(absolute, report.contents, { flag: 'wx', mode: 0o600 });
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    await readDurableTestObservation(root, relative, {
+      expectedSha256: report.sha256,
+      expectedBytes: report.bytes
+    });
+    references.push({ path: relative, sha256: report.sha256, bytes: report.bytes });
+  }
+  receipt.testcaseObservation.rawReports = references;
+  return receipt;
 }
 
 export function qualityValidationVerdict(checks = [], { required = false } = {}) {
@@ -2604,7 +2722,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       { code: 'CODE_DELIVERY_TESTS_CANNOT_BE_SKIPPED' }
     );
   }
-  phase.checks = runChecks ? await qualityChecks(root, phase, config, deliveryCommands) : [];
+  phase.checks = runChecks ? await qualityChecks(root, phase, config, workflow, deliveryCommands) : [];
   if (!codeDeliveryRequired) {
     for (const check of phase.checks) await restoreTransientQualityResult(check);
   }
@@ -2623,7 +2741,9 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
           throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
         }
         const parsed = await parseTestResult(root, command, { startedAt: check.startedAt });
-        const receipt = buildTestExecutionReceipt(command, check, parsed);
+        const receipt = buildTestExecutionReceipt(command, check, parsed, {
+          testcasePolicy: workflow.resolution?.codeDelivery?.tests?.testcaseExact ?? null
+        });
         const minimumPassed = Math.max(
           parsed.minimumPassed,
           workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
@@ -2634,6 +2754,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
         if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
           throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
         }
+        await persistObservedTestReports(root, config, workflow, phase, command, parsed, receipt);
         const safeId = command.id.replace(/[^A-Za-z0-9._-]+/g, '-');
         const receiptPath = posix(path.join(
           workDirRelative(config, workflow.workItem.id), 'context', 'code-delivery', 'tests',
@@ -2674,12 +2795,29 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} is not ready:\n- ${errors.join('\n- ')}`);
   phase.validationVerdict = validation.verdict;
   if (codeDeliveryRequired) {
+    const validatedSourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+    const changedAfterCheck = phase.checks.find((check) =>
+      check.sourceTreeSha256 && check.sourceTreeSha256 !== validatedSourceTreeSha256);
+    if (changedAfterCheck) {
+      throw new SingularityFlowError(
+        `Quality command '${changedAfterCheck.id}' no longer describes the current source tree. `
+        + 'Publish a fresh generation and rerun submission.',
+        {
+          code: 'QUALITY_COMMAND_SOURCE_MUTATION',
+          details: {
+            commandId: changedAfterCheck.id,
+            beforeSha256: changedAfterCheck.sourceTreeSha256,
+            afterSha256: validatedSourceTreeSha256
+          }
+        }
+      );
+    }
     const generationTree = phase.generationCommit
       ? run('git', ['rev-parse', `${phase.generationCommit}^{tree}`], { cwd: root }).stdout.trim()
       : null;
     phase.deliveryEvidence.validation = {
       sourceCommit: phase.generationCommit,
-      sourceTreeSha256: await sourceTreeHash(root, config, workflow),
+      sourceTreeSha256: validatedSourceTreeSha256,
       commands: deliveryCommands.map((command, index) => ({
         id: phase.checks[index]?.id ?? `quality-${index + 1}`,
         command: externalCommandText(command, index)
@@ -2727,7 +2865,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       testExecutions: testExecutions.map(({ affectedRoots: _affectedRoots, ...entry }) => entry),
       tree: {
         ...deliveryReceipt.tree,
-        workingStateDigest: await sourceTreeHash(root, config, workflow),
+        workingStateDigest: validatedSourceTreeSha256,
         generationCommit: phase.generationCommit,
         generationTree
       },

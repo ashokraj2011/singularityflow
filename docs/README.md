@@ -45,6 +45,7 @@ is not part of the current product.
 | Additive intent compiler and bounded governed runtime | [SGOS](SGOS.md) |
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
+| Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |
 | Validate an orphan-ledger deployment and trust tier | [Ledger deployment validation](LEDGER-DEPLOYMENT.md) |
 | Epic/Initiative orchestration across repositories | [Initiative orchestration](../INITIATIVE-ORCHESTRATION.md) |

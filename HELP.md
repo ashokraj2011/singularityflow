@@ -3065,7 +3065,8 @@ singularity-flow home [--workspace ID] [--request TEXT] [--json]
 singularity-flow journal today|refresh|settings|pause|resume|delete|export|doctor ...
 singularity-flow recommend [--workspace ID] [--json]
 singularity-flow workspace list|current|use|prompt|copilot
-singularity-flow knowledge list|show|record|harvest|resolve ...
+singularity-flow knowledge list|show|record|import|harvest|resolve ...
+singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
 singularity-flow capability tree|show|of|add|set|remove|map|edit|world-model|organisation|leads
 singularity-flow hook turn-intent|turn-end|agent-start|session-start|agent-guard
 singularity-flow secrets scan [--staged] [--json]

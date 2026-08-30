@@ -59,6 +59,18 @@ interface StoryReviewBundle {
       articles?: Array<{ id?: string; title?: string; question?: string }>;
     };
     findings?: Array<{ kind?: string; message?: string }>;
+    witnessedClauses?: {
+      profile?: string;
+      enrolledClauseCount?: number;
+      analyzedClauseCount?: number;
+      clauses?: Array<{
+        clauseId?: string;
+        fields?: Record<string, { status?: string }>;
+        witnessType?: string | null;
+        declaredWitnessType?: string | null;
+        enforceable?: boolean;
+      }>;
+    } | null;
   } | null;
   priorExceptions?: Array<{
     article?: string; decision?: string; reason?: string;
@@ -395,6 +407,7 @@ export async function approveWithReceipt(
         .filter((article): article is { id: string; title: string; question: string } =>
           Boolean(article.id && article.title && article.question)),
       findings: storyReview?.specificationQuality?.findings ?? [],
+      witnessedClauses: storyReview?.specificationQuality?.witnessedClauses ?? null,
       priorExceptions: (storyReview?.priorExceptions ?? []).map((entry) => ({
         article: entry.article,
         decision: entry.decision,

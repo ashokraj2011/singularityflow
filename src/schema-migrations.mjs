@@ -508,6 +508,16 @@ function contextManifestV1ToV2(source) {
   };
 }
 
+function contextManifestV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    // v2 had no knowledge-selection region. Preserve every historical entry and both cache keys;
+    // an additive migration cannot infer a selection from the current knowledge store.
+    knowledge: clone(source.knowledge ?? null)
+  };
+}
+
 function evidencePacketV1ToV2(source) {
   return {
     ...source,
@@ -532,6 +542,16 @@ function evidencePacketV1ToV2(source) {
       cacheClass: item.cacheClass ?? 'variable',
       estimatedTokens: item.estimatedTokens ?? Math.ceil(Number(item.bytes ?? 0) / 4)
     }))
+  };
+}
+
+function evidencePacketV2ToV3(source) {
+  return {
+    ...source,
+    schemaVersion: 3,
+    // The v2 integrity field remains the digest of the raw v2 bytes. Readers must verify that raw
+    // stored projection before calling readRecord; migration never re-hashes or invents a slice.
+    knowledge: clone(source.knowledge ?? null)
   };
 }
 
@@ -654,6 +674,26 @@ function contextPacketTelemetryV2ToV3(source) {
   };
 }
 
+function contextPacketTelemetryV3ToV4(source) {
+  return {
+    ...source,
+    schemaVersion: 4,
+    knowledge: clone(source.knowledge ?? {
+      schemaVersion: 1,
+      resultType: 'bounded-knowledge-projection',
+      recallEngine: null,
+      status: 'unavailable',
+      authority: 'unavailable',
+      limits: null,
+      selected: [],
+      omitted: [],
+      omissions: { total: 0, byReason: {}, detail: null, omittedSetSha256: null },
+      guidance: null,
+      manifestSha256: null
+    })
+  };
+}
+
 function codeDeliveryV1ToV2(source) {
   return {
     ...source,
@@ -677,6 +717,43 @@ function codeDeliveryV1ToV2(source) {
     }),
     status: source.status ?? (source.validation?.status === 'passed' ? 'ready' : 'pending-tests'),
     legacyV1: true
+  };
+}
+
+function testExecutionV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    // These fields did not exist in v1. A v1 record may contain unknown keys, but migration must
+    // not reinterpret them as v2 authority merely because their names match the later contract.
+    candidate: null,
+    program: null,
+    attempt: null,
+    adapterIdentity: null,
+    testcaseObservation: {
+      status: 'unavailable',
+      assurance: 'unavailable',
+      profile: null,
+      occurrences: [],
+      rawReports: [],
+      notice: 'legacy module receipt; testcase execution was not observed'
+    }
+  };
+}
+
+function storySubmissionPacketV1ToV2(source) {
+  return {
+    ...source,
+    schemaVersion: 2,
+    // v1 had no witnessed-review contract. Ignore same-named unknown input rather than allowing a
+    // historical packet to acquire enrollment or reviewed mappings through migration.
+    witnessReview: {
+      enrollment: null,
+      enrollmentClassification: 'legacy',
+      enrollmentReason: 'story-submission-packet-v1',
+      clauseMappings: [],
+      testcaseObservations: []
+    }
   };
 }
 
@@ -989,8 +1066,8 @@ const families = [
   }),
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
   family({
-    id: 'story-workflow', currentVersion: 2,
-    steps: [migration(1, 2, storyWorkflowV1ToV2)],
+    id: 'story-workflow', currentVersion: 3,
+    steps: [migration(1, 2, storyWorkflowV1ToV2), migration(2, 3, identity(3))],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),
   family({
@@ -1045,7 +1122,8 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/[^/]+-gen\d+-changes\.json$/], immutable: true
   }),
   family({
-    id: 'test-execution', currentVersion: 1,
+    id: 'test-execution', currentVersion: 2,
+    steps: [migration(1, 2, testExecutionV1ToV2)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/code-delivery\/tests\/[^/]+\.json$/], immutable: true
   }),
   family({
@@ -1095,7 +1173,11 @@ const families = [
   family({ id: 'specification-index', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/], immutable: true }),
   family({ id: 'specification-claim-map', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true }),
   family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'story-submission-packet', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/submissions\/[^/]+\/[^/]+\.json$/], immutable: true }),
+  family({
+    id: 'story-submission-packet', currentVersion: 2,
+    steps: [migration(1, 2, storySubmissionPacketV1ToV2)],
+    paths: [/^singularity\/work-items\/[^/]+\/submissions\/[^/]+\/[^/]+\.json$/], immutable: true
+  }),
   family({
     id: 'return-locator', currentVersion: 1,
     paths: [/^singularity\/work-items\/[^/]+\/context\/return-locator\.json$/], immutable: true
@@ -1297,14 +1379,14 @@ const families = [
   family({ id: 'change-flight-plan-delta', currentVersion: 1 }),
   family({ id: 'change-flight-plan-receipt', currentVersion: 1 }),
   family({
-    id: 'evidence-packet', currentVersion: 2,
-    steps: [migration(1, 2, evidencePacketV1ToV2)],
+    id: 'evidence-packet', currentVersion: 3,
+    steps: [migration(1, 2, evidencePacketV1ToV2), migration(2, 3, evidencePacketV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/evidence-packets\/ctx-[a-f0-9]{20}\.json$/],
     immutable: true
   }),
   family({
-    id: 'context-manifest', currentVersion: 2,
-    steps: [migration(1, 2, contextManifestV1ToV2)]
+    id: 'context-manifest', currentVersion: 3,
+    steps: [migration(1, 2, contextManifestV1ToV2), migration(2, 3, contextManifestV2ToV3)]
   }),
   family({
     id: 'context-expansion-handle', currentVersion: 1,
@@ -1316,8 +1398,12 @@ const families = [
     paths: [/^\$git\/evidence-packets\/observations\/(?:v2\/)?summaries\/[a-f0-9]{64}\.json$/]
   }),
   family({
-    id: 'context-packet-telemetry', currentVersion: 3,
-    steps: [migration(1, 2, contextPacketTelemetryV1ToV2), migration(2, 3, contextPacketTelemetryV2ToV3)],
+    id: 'context-packet-telemetry', currentVersion: 4,
+    steps: [
+      migration(1, 2, contextPacketTelemetryV1ToV2),
+      migration(2, 3, contextPacketTelemetryV2ToV3),
+      migration(3, 4, contextPacketTelemetryV3ToV4)
+    ],
     paths: [/^\$git\/evidence-packets\/telemetry\/ctx-[a-f0-9]{20}\.json$/]
   }),
   family({

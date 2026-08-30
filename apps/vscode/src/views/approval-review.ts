@@ -31,6 +31,18 @@ export interface ApprovalReviewRequest {
   artifact: { path?: string | null; sha256?: string | null } | null;
   articles: Array<{ id: string; title: string; question: string }>;
   findings: Array<{ kind?: string; message?: string }>;
+  witnessedClauses: {
+    profile?: string;
+    enrolledClauseCount?: number;
+    analyzedClauseCount?: number;
+    clauses?: Array<{
+      clauseId?: string;
+      fields?: Record<string, { status?: string }>;
+      witnessType?: string | null;
+      declaredWitnessType?: string | null;
+      enforceable?: boolean;
+    }>;
+  } | null;
   priorExceptions: Array<{ article?: string; decision?: string; reason?: string; actor?: string }>;
   selfApproval: boolean;
 }
@@ -140,6 +152,18 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       request.findings.map((finding) => `<li><strong>${escape(finding.kind ?? 'finding')}</strong> ${escape(finding.message ?? '')}</li>`).join('')
     }</ul></details>`
     : '<p class="ok-text">No deterministic specification-quality findings are recorded.</p>';
+  const witnessed = request.witnessedClauses
+    ? `<details class="approval-evidence" open><summary>Witnessed clause structure (${request.witnessedClauses.analyzedClauseCount ?? 0}/${request.witnessedClauses.enrolledClauseCount ?? 0})</summary>
+      <p class="muted">Structural facts only. This does not review witness semantics or prove the requirement.</p><ul>${
+      (request.witnessedClauses.clauses ?? []).map((clause) => {
+        const fields = Object.entries(clause.fields ?? {})
+          .map(([name, field]) => `${escape(name)} <strong>${escape(field.status ?? 'unavailable')}</strong>`)
+          .join(' · ');
+        const witness = clause.witnessType ?? clause.declaredWitnessType ?? 'unavailable';
+        return `<li><code>${escape(clause.clauseId ?? 'unknown clause')}</code> — ${fields} · witness <strong>${escape(witness)}</strong>${clause.enforceable ? ' (typed for future enforcement)' : ' (record only)'}</li>`;
+      }).join('')
+    }</ul></details>`
+    : '';
   const prior = request.priorExceptions.length
     ? `<details class="approval-evidence"><summary>Earlier exceptions (${request.priorExceptions.length})</summary><ul>${
       request.priorExceptions.map((entry) => `<li><strong>${escape(entry.article ?? 'article')}</strong> — ${escape(entry.decision ?? 'exception')}${entry.reason ? `: ${escape(entry.reason)}` : ''}</li>`).join('')
@@ -159,7 +183,7 @@ function reviewBody(request: ApprovalReviewRequest, errors: string[] = []): stri
       <p class="meta">Review the exact generation, record every required decision, then type the phase confirmation.</p>
     </header>
     <div class="review-binding approval-binding">${binding}</div>
-    ${findings}${prior}${selfApproval}
+    ${findings}${witnessed}${prior}${selfApproval}
     <form class="approval-form" data-expected="${escape(request.expected)}">
       ${checklist}
       <section class="approval-confirmation">

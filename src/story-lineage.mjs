@@ -6,7 +6,7 @@ import { assertNotDefaultBranch, branch, changes, defaultBranchName, head, ident
 import { loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
-  workflowPublicationBranch, workDir
+  storyWelEnrollmentStatus, workflowPublicationBranch, workDir
 } from './state-stores.mjs';
 import { nowIso, run, SingularityFlowError, snapshot, writeJson } from './util.mjs';
 import { evaluateVisualCoverage } from './visual-coverage.mjs';
@@ -33,6 +33,61 @@ function reviewArtifactIdentity(artifacts = []) {
 
 export function reviewArtifactSetSha256(artifacts = []) {
   return hash(reviewArtifactIdentity(artifacts));
+}
+
+async function witnessReviewSnapshot(root, config, workflow, phase) {
+  const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
+  const testcaseObservations = [];
+  for (const execution of phase.deliveryEvidence?.testExecutions ?? []) {
+    const stored = JSON.parse(await readFile(path.join(root, execution.receiptPath), 'utf8'));
+    const storedSha256 = createHash('sha256').update(canonicalJson(stored)).digest('hex');
+    if (storedSha256 !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
+      throw new SingularityFlowError(
+        `Test execution '${execution.commandId}' changed before its review snapshot was created.`,
+        { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+      );
+    }
+    const receipt = readRecord('test-execution', stored).record;
+    const observation = receipt.testcaseObservation;
+    if (!observation) continue;
+    const localDiagnostic = observation.status === 'observed'
+      && observation.assurance === 'testcase-local-observed'
+      && observation.exact === false
+      && observation.verdict === 'inconclusive'
+      && receipt.testcaseExecutionProven === false
+      && receipt.candidate == null && receipt.program == null && receipt.attempt == null;
+    const outcomes = (observation.occurrences ?? []).reduce((summary, occurrence) => {
+      summary.inconclusive += 1;
+      if (occurrence.identityStatus !== 'observed-name-only') summary.ambiguous += 1;
+      return summary;
+    }, { passed: 0, failed: 0, skipped: 0, inconclusive: 0, ambiguous: 0 });
+    testcaseObservations.push({
+      commandId: execution.commandId,
+      receiptSha256: storedSha256,
+      status: localDiagnostic
+        ? 'observed'
+        : ['unavailable', 'unsupported'].includes(observation.status) ? observation.status : 'inconclusive',
+      assurance: localDiagnostic ? 'testcase-local-observed' : 'unavailable',
+      exact: false,
+      verdict: 'inconclusive',
+      profile: observation.profile ?? null,
+      occurrences: (observation.occurrences ?? []).length,
+      outcomes,
+      rawReports: (observation.rawReports ?? []).map(({ path: reportPath, sha256, bytes }) => ({
+        path: reportPath, sha256, bytes
+      })),
+      notice: localDiagnostic
+        ? observation.notice ?? null
+        : 'testcase evidence did not satisfy the supported non-exact local-observation contract'
+    });
+  }
+  return {
+    enrollment: status.classification === 'enrolled' ? status.enrollment : null,
+    enrollmentClassification: status.classification,
+    enrollmentReason: status.reason,
+    clauseMappings: [],
+    testcaseObservations
+  };
 }
 
 function gitBlobAtCommit(root, commit, relativePath) {
@@ -269,6 +324,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     checksSha256: hash(phase.checks ?? []),
     artifactSetSha256: reviewArtifactSetSha256(artifacts)
   };
+  const witnessReview = await witnessReviewSnapshot(root, config, workflow, phase);
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
     workId: workflow.workItem.id,
@@ -302,6 +358,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     approvals: phase.approvals?.filter((entry) => !entry.invalidatedAt) ?? [],
     visualAssurance,
     submissionEvidence,
+    witnessReview,
     submittedAt: phase.submittedAt ?? nowIso(),
     submittedBy: identity(root),
     status: phase.status === 'approved'
@@ -345,10 +402,17 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
     const historical = run('git', ['show', `${evidenceCommit}:${selected.path}`], { cwd: root, allowFailure: true });
     if (historical.status !== 0) continue;
     let packet;
-    try { packet = readRecord('story-submission-packet', historical.stdout).record; }
+    try {
+      const storedPacket = JSON.parse(historical.stdout);
+      const { packetSha256: storedSha256, ...storedBase } = storedPacket;
+      // Submission identities bind the exact schema version that was committed. Verify that raw
+      // projection before migration so additive defaults cannot invalidate a historical packet.
+      if (storedSha256 !== selected.packetSha256 || hash(storedBase) !== storedSha256) continue;
+      packet = readRecord('story-submission-packet', storedPacket).record;
+    }
     catch (error) { failures.push(`${evidenceCommit.slice(0, 12)} packet unreadable: ${error.message}`); continue; }
-    const { packetSha256: provided, ...base } = packet;
-    if (provided !== selected.packetSha256 || hash(base) !== provided) continue;
+    const provided = packet.packetSha256;
+    if (provided !== selected.packetSha256) continue;
     if (!packet.submissionEvidence
       || packet.submissionEvidence.checksSha256 !== hash(packet.checks ?? [])
       || packet.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(packet.artifacts ?? [])) {
@@ -387,13 +451,15 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       const evidence = run('git', ['show', `${evidenceCommit}:${binding.path}`], { cwd: root, allowFailure: true });
       if (evidence.status !== 0) { failures.push(`${evidenceCommit.slice(0, 12)} lacks ${binding.path}`); valid = false; break; }
       try {
-        const record = readRecord(binding.kind, evidence.stdout).record;
-        const digest = createHash('sha256').update(canonicalJson(record)).digest('hex');
+        const storedRecord = JSON.parse(evidence.stdout);
+        const digest = createHash('sha256').update(canonicalJson(storedRecord)).digest('hex');
         if (digest !== String(binding.sha256 ?? '').replace(/^sha256:/, '')) {
           failures.push(`${evidenceCommit.slice(0, 12)} has a different ${binding.path}`);
           valid = false;
           break;
         }
+        // Apply migrations only after the externally bound stored projection is authenticated.
+        readRecord(binding.kind, storedRecord);
       } catch (error) {
         failures.push(`${evidenceCommit.slice(0, 12)} has unreadable ${binding.path}: ${error.message}`);
         valid = false;

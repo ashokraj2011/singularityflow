@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readlink, rm, symlink, utimes, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, mkdir, readFile, readlink, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   buildTestExecutionReceipt, inferModuleTestCommand, isExecutableTestSourcePath, isSupportingTestResourcePath,
-  normalizeRequiredTestCommand, parseTestResult, resolveAffectedModule, testReceiptPassing,
-  testSuppression
+  normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
+  replayLocalJunitObservation, resolveAffectedModule, testReceiptPassing, testSuppression
 } from '../src/code-delivery-tests.mjs';
 import { generationSkillForPhase, normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
@@ -220,6 +220,22 @@ test('unsupported code-delivery policy alternatives are rejected instead of sile
   assert.equal(normalizeCodeDeliveryPolicy().model.minimumAssurance, 'unavailable',
     'the external Copilot host cannot inherit a kernel-audit assurance floor');
   assert.equal(normalizeCodeDeliveryPolicy().tests.minimumPassed, 1);
+  assert.equal(normalizeCodeDeliveryPolicy().tests.testcaseExact.mode, 'disabled');
+  assert.deepEqual(normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
+    mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
+    evidenceTier: 'testcase-local-observed'
+  } } }).tests.testcaseExact, {
+    mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
+    evidenceTier: 'testcase-local-observed'
+  });
+  assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: { mode: 'observe' } } }),
+    (error) => error.code === 'WEL_TEST_ADAPTER_REQUIRED');
+  assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
+    mode: 'observe', adapter: 'junit5-surefire-v1', inventedAuthority: true
+  } } }), (error) => error.code === 'WEL_POLICY_UNSUPPORTED');
+  assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { testcaseExact: {
+    mode: 'enforce', adapter: 'junit5-surefire-v1'
+  } } }), (error) => error.code === 'WEL_ENFORCEMENT_UNAVAILABLE');
   assert.throws(() => normalizeCodeDeliveryPolicy({ mode: 'warn' }), /codeDelivery.mode/);
   assert.throws(() => normalizeCodeDeliveryPolicy({ changeSet: { includeUntracked: false } }), /currently supports only true/);
   assert.throws(() => normalizeCodeDeliveryPolicy({ tests: { stringCommands: 'compatibility-warn' } }), /stringCommands/);
@@ -409,6 +425,113 @@ test('XML adapters reject malformed documents and entity declarations', async ()
   await assert.rejects(() => parseTestResult(root, command), /closing tag/);
   await writeFile(path.join(root, 'results', 'result.xml'), '<!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><testsuite tests="1"/>');
   await assert.rejects(() => parseTestResult(root, command), /entity declarations are forbidden/);
+  await writeFile(path.join(root, 'results', 'result.xml'), [
+    '<testsuite tests="1" failures="1"><testcase classname="ExampleTest" name="passes"/></testsuite>'
+  ].join(''));
+  await assert.rejects(() => parseTestResult(root, command), /aggregate 'failures' count differs/);
+  await writeFile(path.join(root, 'results', 'result.xml'), [
+    '<testsuite tests="1" failures="0" errors="0">',
+    '<testcase classname="ExampleTest" name="passes"/><error message="afterAll failed"/>',
+    '</testsuite>'
+  ].join(''));
+  await assert.rejects(() => parseTestResult(root, command), /suite-level 'error'/);
+  await writeFile(path.join(root, 'results', 'result.xml'), [
+    '<testsuite tests="1"><testcase classname="ExampleTest" name="flaky">',
+    '<flakyFailure message="first attempt failed"/></testcase></testsuite>'
+  ].join(''));
+  await assert.rejects(() => parseTestResult(root, command), /unsupported retried testcase/);
+  await writeFile(path.join(root, 'results', 'result.xml'), Buffer.concat([
+    Buffer.from('<testsuite tests="1"><testcase classname="ExampleTest" name="'),
+    Buffer.from([0xff]),
+    Buffer.from('"/></testsuite>')
+  ]));
+  await assert.rejects(() => parseTestResult(root, command), /not valid UTF-8/);
+});
+
+test('JUnit observations remain local, name-only, inconclusive, and non-authoritative', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-junit-observe-'));
+  await mkdir(path.join(root, 'target', 'surefire-reports'), { recursive: true });
+  await writeFile(path.join(root, 'target', 'surefire-reports', 'TEST-order.xml'), [
+    '<testsuite name="OrderTest" tests="2" failures="0" skipped="1">',
+    '  <testcase classname="example.OrderTest" name="calculatesInterest" time="0.125"/>',
+    '  <testcase classname="example.OrderTest" name="missingRate"><skipped/></testcase>',
+    '</testsuite>'
+  ].join('\n'));
+  const command = {
+    id: 'maven', kind: 'test', argv: ['mvn', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'target/surefire-reports', minimumDiscovered: 1 }
+  };
+  const parsed = await parseTestResult(root, command);
+  const receipt = buildTestExecutionReceipt(command, {
+    status: 'passed', exitCode: 0, stderr: '', startedAt: new Date(0).toISOString(),
+    completedAt: new Date(1_000).toISOString(), sourceCommit: 'a'.repeat(40),
+    sourceTreeSha256: 'b'.repeat(64)
+  }, parsed, { testcasePolicy: {
+    mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
+    evidenceTier: 'testcase-local-observed'
+  } });
+  assert.equal(receipt.testcaseObservation.status, 'observed');
+  assert.equal(receipt.testcaseObservation.assurance, 'testcase-local-observed');
+  assert.equal(receipt.testcaseObservation.exact, false);
+  assert.equal(receipt.testcaseObservation.verdict, 'inconclusive');
+  assert.equal(receipt.testcaseObservation.occurrences.length, 2);
+  assert.equal(receipt.testcaseObservation.occurrences[0].durationMs, 125);
+  assert.equal(receipt.testcaseObservation.occurrences[0].logicalTestId, null);
+  assert.equal(receipt.testcaseObservation.occurrences[0].verdict, 'inconclusive');
+  assert.deepEqual(receipt.localExecution, {
+    sourceCommit: 'a'.repeat(40), sourceTreeSha256: 'b'.repeat(64),
+    startedAt: new Date(0).toISOString(), completedAt: new Date(1_000).toISOString()
+  });
+  assert.equal(receipt.candidate, null);
+  assert.equal(receipt.program, null);
+  assert.equal(receipt.attempt, null);
+  assert.equal(receipt.testcaseExecutionProven, false);
+  assert.match(receipt.testcaseObservation.notice, /non-exact local observation/);
+});
+
+test('local JUnit replay bounds the whole report set and marks cross-report display collisions', () => {
+  const first = Buffer.from([
+    '<testsuite name="One" tests="1"><testcase classname="ExampleTest" name="same"/></testsuite>'
+  ].join(''));
+  const second = Buffer.from([
+    '<testsuite name="Two" tests="1"><testcase classname="ExampleTest" name="same"/></testsuite>'
+  ].join(''));
+  assert.throws(() => replayLocalJunitObservation([
+    { contents: first }, { contents: second }
+  ], { maximumOccurrences: 1 }), /occurrence count exceeds 0/);
+  const replay = replayLocalJunitObservation([{ contents: first }, { contents: second }]);
+  assert.equal(replay.testcaseObservation.occurrences.length, 2);
+  assert.equal(replay.testcaseObservation.occurrences.every((entry) =>
+    entry.identityStatus === 'ambiguous-display-identity'), true);
+  assert.throws(() => replayLocalJunitObservation([
+    { contents: first }, { contents: first }
+  ]), /duplicate report bytes/);
+});
+
+test('durable local observations reject link substitution', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-durable-link-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-durable-link-source-'));
+  await mkdir(path.join(root, 'reports'), { recursive: true });
+  const target = path.join(outside, 'report.xml');
+  const contents = Buffer.from('<testsuite tests="1"><testcase classname="ExampleTest" name="one"/></testsuite>');
+  await writeFile(target, contents);
+  await symlink(target, path.join(root, 'reports', 'report.xml'));
+  await assert.rejects(() => readDurableTestObservation(root, 'reports/report.xml', {
+    expectedSha256: createHash('sha256').update(contents).digest('hex'), expectedBytes: contents.length
+  }), (error) => error.code === 'WEL_RESULT_TAMPERED');
+});
+
+test('structured result ingestion rejects hard-linked reports', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-hardlink-'));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-wel-hardlink-source-'));
+  await mkdir(path.join(root, 'results'), { recursive: true });
+  const source = path.join(outside, 'result.xml');
+  await writeFile(source, '<testsuite tests="1"><testcase name="one"/></testsuite>');
+  await link(source, path.join(root, 'results', 'result.xml'));
+  await assert.rejects(() => parseTestResult(root, {
+    id: 'junit', kind: 'test', argv: ['mvn', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'results/result.xml' }
+  }), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED' && /hard-linked/.test(error.message));
 });
 
 test('Rust module inference reports the structured adapter requirement explicitly', async () => {
@@ -631,4 +754,121 @@ test('approval replay binds the committed tree, change-set policy, and exact tes
   assert.equal(replay.valid, false);
   assert.ok(replay.errors.some((message) => /bound digest/.test(message)));
   assert.ok(replay.errors.some((message) => /not passing/.test(message)));
+});
+
+test('local JUnit delivery replay derives semantics from durable bytes without gaining exact authority', async () => {
+  const root = await repository('junit-replay');
+  const baseline = git(root, ['rev-parse', 'HEAD']);
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'payment.js'), 'export const payment = true;\n');
+  await writeFile(path.join(root, 'tests', 'payment.test.js'), '// @ac:CGA:AC-001\ntest("payment", () => {});\n');
+  const changeSet = await buildRepositoryChangeSet(root, { baseCommit: baseline });
+  const changeSetPath = 'singularity/work-items/CGA-JUNIT/context/code-delivery/implementation-gen1-changes.json';
+  await mkdir(path.dirname(path.join(root, changeSetPath)), { recursive: true });
+  await writeFile(path.join(root, changeSetPath), `${JSON.stringify(changeSet, null, 2)}\n`);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-m', '[CGA-JUNIT][phase:implementation][generated:1] publish artifacts']);
+  const generationCommit = git(root, ['rev-parse', 'HEAD']);
+  const generationTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+
+  const reportBytes = Buffer.from([
+    '<testsuite name="PaymentTest" tests="1" failures="0" errors="0" skipped="0">',
+    '  <testcase classname="example.PaymentTest" name="payment" time="0.01"/>',
+    '</testsuite>'
+  ].join('\n'));
+  const reportSha256 = createHash('sha256').update(reportBytes).digest('hex');
+  const rawReportPath = `singularity/work-items/CGA-JUNIT/context/code-delivery/tests/raw/${reportSha256}.xml`;
+  await mkdir(path.dirname(path.join(root, rawReportPath)), { recursive: true });
+  await writeFile(path.join(root, rawReportPath), reportBytes);
+  const replayed = replayLocalJunitObservation([{ contents: reportBytes }]);
+  const command = {
+    id: 'maven', kind: 'test', argv: ['mvn', 'test'], workingDirectory: '.', affectedRoots: ['.'],
+    modelPolicy: 'never', result: { adapter: 'junit-xml', path: 'target/surefire-reports', minimumDiscovered: 1 }
+  };
+  const testReceipt = buildTestExecutionReceipt(command, {
+    status: 'passed', exitCode: 0, stderr: '', sourceCommit: generationCommit,
+    sourceTreeSha256: 'c'.repeat(64), startedAt: new Date(0).toISOString(),
+    completedAt: new Date(1_000).toISOString()
+  }, {
+    adapter: 'junit-xml', tests: replayed.tests,
+    testcaseObservation: replayed.testcaseObservation,
+    result: {
+      path: command.result.path, sha256: replayed.result.sha256, bytes: replayed.result.bytes,
+      files: [{ sourcePath: 'target/surefire-reports/TEST-payment.xml', ...replayed.result.files[0] }]
+    },
+    minimumDiscovered: 1, minimumPassed: 1
+  }, { testcasePolicy: {
+    mode: 'observe', adapter: 'junit5-surefire-v1', requiredWitnessTypes: ['test'],
+    evidenceTier: 'testcase-local-observed'
+  } });
+  testReceipt.testcaseObservation.rawReports = [{
+    path: rawReportPath, sha256: reportSha256, bytes: reportBytes.length
+  }];
+  const testReceiptPath = 'singularity/work-items/CGA-JUNIT/context/code-delivery/tests/implementation-gen1-maven.json';
+  await mkdir(path.dirname(path.join(root, testReceiptPath)), { recursive: true });
+
+  const deliveryReceipt = {
+    schemaVersion: 2, kind: 'code-delivery', workId: 'CGA-JUNIT', phase: 'implementation', generation: 1,
+    generationIntentId: 'intent',
+    changeSet: {
+      path: changeSetPath, digest: changeSet.digest, sourcePaths: ['src/payment.js'],
+      executableTestPaths: ['tests/payment.test.js'], supportingTestPaths: []
+    },
+    traceability: {
+      required: ['CGA:AC-001'], bound: ['CGA:AC-001'], missing: [], ambiguous: [],
+      bindings: [{
+        clauseId: 'CGA:AC-001', testSource: 'tests/payment.test.js', bindingAssurance: 'namespace-qualified',
+        testIdentity: null, moduleRoot: '.', commandId: 'maven', executionAssurance: 'module-executed'
+      }]
+    },
+    testExecutions: [{
+      commandId: 'maven', receiptPath: testReceiptPath, receiptSha256: null,
+      status: 'passed', affectedRoots: ['.']
+    }],
+    tree: { workingStateDigest: 'c'.repeat(64), generationCommit, generationTree },
+    model: { task: 'code', required: false, authorshipProducer: 'human', assurance: 'unavailable', invocationIds: [] },
+    status: 'ready', capturedAt: new Date(0).toISOString()
+  };
+  const storeReceipt = async (value) => {
+    await writeFile(path.join(root, testReceiptPath), `${JSON.stringify(value, null, 2)}\n`);
+    deliveryReceipt.testExecutions[0].receiptSha256 = createHash('sha256')
+      .update(canonicalJson(value)).digest('hex');
+  };
+
+  await storeReceipt(testReceipt);
+  assert.equal((await verifyCodeDeliveryReceipt(root, deliveryReceipt)).valid, true);
+
+  await writeFile(path.join(root, rawReportPath), Buffer.from('<testsuite tests="0"/>'));
+  const rawTamper = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
+  assert.equal(rawTamper.valid, false);
+  assert.ok(rawTamper.errors.some((message) => /raw report is unavailable/.test(message)));
+  await writeFile(path.join(root, rawReportPath), reportBytes);
+
+  const contextTamper = structuredClone(testReceipt);
+  contextTamper.localExecution.sourceCommit = 'd'.repeat(40);
+  await storeReceipt(contextTamper);
+  const contextReplay = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
+  assert.equal(contextReplay.valid, false);
+  assert.ok(contextReplay.errors.some((message) => /not bound to the retained generation/.test(message)));
+
+  const normalizedTamper = structuredClone(testReceipt);
+  normalizedTamper.testcaseObservation.occurrences[0].outcome = 'failed';
+  await storeReceipt(normalizedTamper);
+  const semanticReplay = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
+  assert.equal(semanticReplay.valid, false);
+  assert.ok(semanticReplay.errors.some((message) => /normalized testcase observation does not replay/.test(message)));
+
+  const moduleTamper = structuredClone(testReceipt);
+  moduleTamper.tests = { discovered: 2, passed: 2, failed: 0, skipped: 0 };
+  await storeReceipt(moduleTamper);
+  const moduleReplay = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
+  assert.equal(moduleReplay.valid, false);
+  assert.ok(moduleReplay.errors.some((message) => /module counts do not replay/.test(message)));
+
+  const externalClaim = structuredClone(testReceipt);
+  externalClaim.testcaseObservation.assurance = 'testcase-externally-attested';
+  await storeReceipt(externalClaim);
+  const externalReplay = await verifyCodeDeliveryReceipt(root, deliveryReceipt);
+  assert.equal(externalReplay.valid, false);
+  assert.ok(externalReplay.errors.some((message) => /overstates its local observation assurance/.test(message)));
 });

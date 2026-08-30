@@ -5,7 +5,8 @@ import path from 'node:path';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import {
   inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, resolveAffectedModule, testReceiptPassing
+  isSupportingTestResourcePath, readDurableTestObservation, replayLocalJunitObservation,
+  resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
   buildRepositoryChangeSet, evaluateSourceBoundary,
@@ -555,6 +556,13 @@ function pathCoveredByRoots(candidate, roots = []) {
     || candidate.startsWith(`${root.replace(/\/$/, '')}/`));
 }
 
+function safeEvidencePath(value) {
+  const candidate = String(value ?? '');
+  return candidate && !path.posix.isAbsolute(candidate) && !candidate.includes('\\')
+    && !candidate.includes(':') && !candidate.includes('\0')
+    && !candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..');
+}
+
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
@@ -639,17 +647,159 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     let testReceipt;
     try {
       const source = evidenceCommit
-        ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], { cwd: root, allowFailure: true })
+        ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], {
+          cwd: root, allowFailure: true, encoding: 'buffer'
+        })
         : null;
       if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
-      testReceipt = readRecord('test-execution', source ? source.stdout : await readFile(path.join(root, execution.receiptPath))).record;
+      const storedBytes = source
+        ? source.stdout
+        : await readDurableTestObservation(root, execution.receiptPath);
+      const storedRecord = JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
+      // The binding was created over the version that was actually stored. Verify those raw
+      // canonical bytes before applying an additive schema migration; hashing the migrated shape
+      // would make every valid historical v1 receipt appear tampered after v2 ships.
+      if (receiptDigest(storedRecord) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
+        fail(`test receipt ${execution.commandId} differs from its bound digest`);
+      }
+      testReceipt = readRecord('test-execution', storedRecord).record;
     }
     catch (error) {
       fail(`test receipt ${execution.commandId} is unavailable: ${error.message}`);
       continue;
     }
-    if (receiptDigest(testReceipt) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
-      fail(`test receipt ${execution.commandId} differs from its bound digest`);
+    const observation = testReceipt.testcaseObservation;
+    if (observation?.status === 'observed') {
+      if (testReceipt.assurance !== 'module-executed' || testReceipt.testcaseExecutionProven !== false) {
+        fail(`test receipt ${execution.commandId} does not preserve module execution as its sole authority`);
+      }
+      if (observation.assurance !== 'testcase-local-observed') {
+        fail(`test receipt ${execution.commandId} overstates its local observation assurance`);
+      }
+      if (observation.exact !== false || observation.verdict !== 'inconclusive') {
+        fail(`test receipt ${execution.commandId} presents a name-only local observation as exact or conclusive`);
+      }
+      if (testReceipt.candidate != null || testReceipt.program != null || testReceipt.attempt != null) {
+        fail(`test receipt ${execution.commandId} invents unavailable Candidate, Program, or attempt authority`);
+      }
+      const requiredBindingGaps = [
+        'sgos-candidate-unavailable',
+        'gvm-program-unavailable',
+        'durable-attempt-id-and-nonce-unavailable',
+        'exact-static-test-identity-unavailable',
+        'reviewed-witness-mapping-unavailable'
+      ];
+      if (!requiredBindingGaps.every((gap) => observation.bindingGaps?.includes(gap))) {
+        fail(`test receipt ${execution.commandId} does not disclose its unavailable exact bindings`);
+      }
+      if (testReceipt.adapter !== 'junit-xml'
+          || observation.profile !== 'junit5-surefire-v1'
+          || testReceipt.adapterIdentity?.id !== observation.profile) {
+        fail(`test receipt ${execution.commandId} local JUnit profile binding is inconsistent`);
+      }
+      const localExecution = testReceipt.localExecution;
+      const startedAt = Date.parse(localExecution?.startedAt ?? '');
+      const completedAt = Date.parse(localExecution?.completedAt ?? '');
+      const observedCommit = localExecution?.sourceCommit;
+      const observedCommitExists = observedCommit
+        ? run('git', ['rev-parse', '--verify', `${observedCommit}^{commit}`], {
+          cwd: root, allowFailure: true
+        }).status === 0
+        : false;
+      const followsGeneration = observedCommitExists && generationCommit
+        ? run('git', ['merge-base', '--is-ancestor', generationCommit, observedCommit], {
+          cwd: root, allowFailure: true
+        }).status === 0
+        : false;
+      if (!followsGeneration
+          || localExecution?.sourceTreeSha256 !== receipt.tree?.workingStateDigest
+          || !Number.isFinite(startedAt) || !Number.isFinite(completedAt) || completedAt < startedAt) {
+        fail(`test receipt ${execution.commandId} local execution context is not bound to the retained generation`);
+      }
+      if ((observation.occurrences ?? []).some((occurrence) => occurrence.exact !== false
+          || occurrence.verdict !== 'inconclusive'
+          || occurrence.logicalTestId != null
+          || occurrence.declarationSha256 != null)) {
+        fail(`test receipt ${execution.commandId} overstates a name-only JUnit occurrence`);
+      }
+      if (!observation.rawReports?.length) {
+        fail(`test receipt ${execution.commandId} has no durable raw report evidence`);
+      }
+      const replayReports = [];
+      const referencedPaths = new Set();
+      let replayable = true;
+      for (const report of observation.rawReports ?? []) {
+        const contentAddressedPath = typeof report.path === 'string'
+          && report.path.includes('/context/code-delivery/tests/raw/')
+          && report.path.endsWith(`/${report.sha256}.xml`);
+        if (!safeEvidencePath(report.path) || !contentAddressedPath
+            || !/^[0-9a-f]{64}$/.test(report.sha256 ?? '')
+            || !Number.isInteger(report.bytes) || report.bytes < 0) {
+          fail(`test receipt ${execution.commandId} contains an invalid raw report reference`);
+          replayable = false;
+          continue;
+        }
+        if (referencedPaths.has(report.path)) {
+          fail(`test receipt ${execution.commandId} repeats a raw report reference`);
+          replayable = false;
+          continue;
+        }
+        referencedPaths.add(report.path);
+        try {
+          let bytes;
+          if (evidenceCommit) {
+            const raw = run('git', ['show', `${evidenceCommit}:${report.path}`], {
+              cwd: root, allowFailure: true, encoding: 'buffer'
+            });
+            if (raw.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
+            bytes = raw.stdout;
+          } else {
+            bytes = await readDurableTestObservation(root, report.path, {
+              expectedSha256: report.sha256,
+              expectedBytes: report.bytes
+            });
+          }
+          if (createHash('sha256').update(bytes).digest('hex') !== report.sha256
+              || (Number.isInteger(report.bytes) && bytes.length !== report.bytes)) {
+            fail(`test receipt ${execution.commandId} raw report differs from its content address`);
+            replayable = false;
+            continue;
+          }
+          replayReports.push({ contents: bytes });
+        } catch (error) {
+          fail(`test receipt ${execution.commandId} raw report is unavailable: ${error.message}`);
+          replayable = false;
+        }
+      }
+      if (replayable && replayReports.length === observation.rawReports?.length) {
+        try {
+          const replay = replayLocalJunitObservation(replayReports);
+          if (canonicalJson(replay.tests) !== canonicalJson(testReceipt.tests)) {
+            fail(`test receipt ${execution.commandId} module counts do not replay from its raw reports`);
+          }
+          if (canonicalJson(replay.testcaseObservation.parser) !== canonicalJson(observation.parser)
+              || canonicalJson(replay.testcaseObservation.occurrences)
+                !== canonicalJson(observation.occurrences ?? [])) {
+            fail(`test receipt ${execution.commandId} normalized testcase observation does not replay`);
+          }
+          if (replay.result.sha256 !== testReceipt.result?.sha256
+              || replay.result.bytes !== testReceipt.result?.bytes) {
+            fail(`test receipt ${execution.commandId} aggregate result binding does not replay`);
+          }
+          const storedFiles = testReceipt.result?.files ?? [];
+          if (storedFiles.length !== replay.result.files.length
+              || storedFiles.some((file, index) => !safeEvidencePath(file.sourcePath)
+                || file.sha256 !== replay.result.files[index].sha256
+                || file.bytes !== replay.result.files[index].bytes)) {
+            fail(`test receipt ${execution.commandId} report-set binding does not replay`);
+          }
+        } catch (error) {
+          fail(`test receipt ${execution.commandId} raw report replay failed: ${error.message}`);
+        }
+      }
+    } else if (observation && (observation.assurance !== 'unavailable'
+        || !['unavailable', 'unsupported'].includes(observation.status))) {
+      fail(`test receipt ${execution.commandId} contains an unsupported testcase assurance claim`);
     }
     if (!testReceiptPassing(testReceipt, minimumDiscovered, minimumPassed)) fail(`test receipt ${execution.commandId} is not passing`);
     executions.set(execution.commandId, testReceipt);

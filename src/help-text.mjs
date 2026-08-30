@@ -465,7 +465,8 @@ Usage:
   singularity-flow initiative restart <INIT-ID> [--reason TEXT] [--confirm INIT-ID]
   singularity-flow knowledge [list] [--type TYPE] [--status open|resolved] [--tag TAG] [--query TEXT] [--json]
   singularity-flow knowledge show <SHA256> [--json]
-  singularity-flow knowledge record <decision|learning|uncertainty|result> --title TEXT [--detail TEXT]
+  singularity-flow knowledge record <insight|decision|gotcha|constraint|uncertainty> --title TEXT [--detail TEXT]
+  singularity-flow knowledge import <REPOSITORY-RELATIVE-MANIFEST.json|yaml|yml> [--dry-run] [--json]
   singularity-flow knowledge harvest [--initiative INIT-ID] [--phase PHASE] [--dry-run] [--json]
   singularity-flow knowledge resolve <SHA256> --resolution TEXT [--json]
 

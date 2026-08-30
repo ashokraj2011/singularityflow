@@ -10,6 +10,7 @@ const LABELS = Object.freeze({
   ast: 'Expand bounded structural context',
   evidence: 'Expand governed evidence references',
   history: 'Find similar completed governed work',
+  knowledge: 'Open bounded prior knowledge guidance',
   observation: 'Open the current compressed observation'
 });
 

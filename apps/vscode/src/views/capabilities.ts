@@ -14,6 +14,7 @@ import { buildCapabilityDashboard } from './capability-dashboard-model.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 export type CapabilitiesMessage =
   | { type: 'save'; id: string; edits: Record<string, string> }
@@ -26,18 +27,25 @@ export class CapabilitiesPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private selected: string | null = null;
   private error: string | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
-    onMessage: (message: CapabilitiesMessage) => void
+    onMessage: (message: CapabilitiesMessage) => void,
+    private readonly lease: { dispose(): void }
   ) {
     this.panel = panel;
     this.store = store;
-    this.subscription = store.onDidChange(() => this.render());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.render()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
 
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -87,25 +95,41 @@ export class CapabilitiesPanel {
     }, null, this.disposables);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
   }
 
-  static show(
+  static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: CapabilitiesMessage) => void
-  ): CapabilitiesPanel {
+  ): Promise<CapabilitiesPanel> {
     if (CapabilitiesPanel.current) {
       CapabilitiesPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return CapabilitiesPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.capabilities', 'Capabilities', vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-      });
-    CapabilitiesPanel.current = new CapabilitiesPanel(panel, store, onMessage);
+    const lease = await store.acquireSlices(['configuration', 'diagnostics']);
+    const raced = CapabilitiesPanel.current as CapabilitiesPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel(
+        'singularityFlow.capabilities', 'Capabilities', vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        });
+      CapabilitiesPanel.current = new CapabilitiesPanel(panel, store, onMessage, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     return CapabilitiesPanel.current;
   }
 
@@ -130,6 +154,7 @@ export class CapabilitiesPanel {
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const map = this.store.current.snapshot?.capabilityMap;
     const dashboard = buildCapabilityDashboard(this.store.current.snapshot);
     const token = nonce();
@@ -146,8 +171,12 @@ export class CapabilitiesPanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     CapabilitiesPanel.current = null;
     this.subscription.dispose();
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

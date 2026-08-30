@@ -2127,6 +2127,89 @@ test('documentation and resources merge on edit rather than replacing', async ()
   assert.equal((await read()).documentation, undefined);
 });
 
+test('capability readiness shares one asynchronous remote session across its worker pool', async () => {
+  const source = await readFile(new URL('../src/organisation.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function capabilityReadiness(');
+  const end = source.indexOf('\nexport function composeCapabilityWorldModel(', start);
+  assert.ok(start >= 0 && end > start, 'capability readiness implementation is present');
+  const implementation = source.slice(start, end);
+
+  const session = implementation.indexOf('const session = new GitRemoteSession();');
+  const workers = implementation.indexOf('const resolved = await mapLimit(');
+  assert.ok(session >= 0 && session < workers,
+    'the operation-scoped session must be created before workers fan out');
+  assert.match(implementation, /await session\.observeAsync\(/,
+    'remote advertisements must not block the event loop inside a worker');
+  assert.equal((implementation.match(/new GitRemoteSession\(\)/g) ?? []).length, 1,
+    'identical remotes must share and coalesce through one session');
+  assert.doesNotMatch(implementation, /session\.observe\(/,
+    'the synchronous remote probe must not return to the readiness critical path');
+});
+
+test('capability onboarding and review keep every direct remote Git call off the event loop', async () => {
+  const source = await readFile(new URL('../src/organisation.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf('async function recoverMergedProposalRef(');
+  const end = source.indexOf('\nexport async function initializeWorkspaceState(', start);
+  assert.ok(start >= 0 && end > start, 'capability onboarding implementation is present');
+  const capabilityOperations = source.slice(start, end);
+
+  assert.match(capabilityOperations, /await runRemoteGitAsync\(/,
+    'capability operations must cross the supervised asynchronous Git boundary');
+  assert.doesNotMatch(capabilityOperations, /\brunRemoteGit\(/,
+    'an async capability operation still blocks the event loop with remote Git');
+  assert.doesNotMatch(capabilityOperations, /\.observe\(/,
+    'an async capability operation still uses the synchronous remote observation API');
+});
+
+test('an unreachable capability authority reaches its deadline without blocking the event loop', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-deadline-'));
+  const bin = path.join(root, 'bin');
+  const cache = path.join(root, 'cache');
+  await mkdir(bin, { recursive: true });
+  const fakeGit = path.join(bin, 'git');
+  await writeFile(fakeGit, [
+    '#!/usr/bin/env node',
+    "process.on('SIGTERM', () => {});",
+    'setInterval(() => {}, 1000);',
+    ''
+  ].join('\n'));
+  await chmod(fakeGit, 0o755);
+
+  const keys = [
+    'PATH',
+    'SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS',
+    'SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS',
+    'SINGULARITY_FLOW_ORGANISATION_CACHE'
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
+  process.env.SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS = '30';
+  process.env.SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS = '40';
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = cache;
+
+  let eventLoopAdvanced = false;
+  const tick = setTimeout(() => { eventLoopAdvanced = true; }, 5);
+  const startedAt = performance.now();
+  try {
+    await assert.rejects(
+      readOrganisation('https://performance.invalid/capability-authority.git', { refresh: true }),
+      (error) => error?.code === 'CAPABILITY_AUTHORITY_UNAVAILABLE'
+    );
+  } finally {
+    clearTimeout(tick);
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(eventLoopAdvanced, true,
+    'the event loop could not advance while capability Git waited for its deadline');
+  assert.ok(elapsedMs < 500, `capability remote deadline escaped its bounded grace (${elapsedMs}ms)`);
+});
+
 /**
  * A grouping's world model is composed from its children, and stored nowhere.
  *

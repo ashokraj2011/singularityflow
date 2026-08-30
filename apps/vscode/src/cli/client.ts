@@ -282,6 +282,15 @@ export class SingularityFlowClient {
 
   private invoke<T>(args: string[], timeoutMs: number, signal?: AbortSignal, json = true,
     input: string | null = null): Promise<T> {
+    // JSON stdout is the read model, not progress. Streaming it into VS Code's Output channel made
+    // every structured payload exist three times (runner buffer, Output channel, parsed object) and
+    // could flood the UI with megabytes of implementation detail. Human progress and diagnostics
+    // are emitted on stderr; prose commands deliberately retain their stdout stream.
+    const visibleOutput = json
+      ? (text: string, stream: OutputStream): void => {
+          if (stream === 'stderr') this.options.onOutput?.(text, stream);
+        }
+      : this.options.onOutput;
     return invokeCli<T>({
       executable: this.options.location.executable,
       cli: this.options.location.cli,
@@ -292,7 +301,7 @@ export class SingularityFlowClient {
       env: this.options.environment,
       timeoutMs,
       commandClass: commandClass(args),
-      onOutput: this.options.onOutput,
+      onOutput: visibleOutput,
       onTiming: (event) => {
         try {
           this.options.onOutput?.(

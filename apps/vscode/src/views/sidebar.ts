@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import type { TreeNode } from './tree-model.ts';
 import { brandSymbol, contentSecurityPolicy, escape, icon, ICON_NAMES, nonce, type IconName } from './webview.ts';
 import { isProfilePersonaId, resolveProfilePersona, type ProfilePersona } from './profile-personas.ts';
+import { MicrotaskCoalescer } from '../single-flight.ts';
 
 export type SidebarSection = 'favorites' | 'workspaces' | 'lifecycle' | 'inbox' | 'logs' | 'configuration' | 'help';
 
@@ -285,6 +286,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private awaitingFirstRead = false;
   private favoriteIds: string[];
   private favoritesCustomized: boolean;
+  /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
+  private readonly renders = new MicrotaskCoalescer(() => this.render());
 
   constructor(
     private readonly state: Pick<vscode.Memento, 'get' | 'update'>,
@@ -341,7 +344,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         runCommand: menu.command
       }] : [];
     });
-    this.render();
+    this.renders.request();
   }
 
   async manageFavorites(): Promise<void> {
@@ -392,7 +395,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   setFreshness(text: string | null): void {
     if (this.freshness === text) return;
     this.freshness = text;
-    this.render();
+    this.renders.request();
   }
 
   /**
@@ -405,7 +408,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   setAwaitingFirstRead(value: boolean): void {
     if (this.awaitingFirstRead === value) return;
     this.awaitingFirstRead = value;
-    this.render();
+    this.renders.request();
   }
 
   bind(section: SidebarSection, source: TreeSource): void {
@@ -416,9 +419,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.roots[section] = source.snapshot();
     this.subscriptions.push(source.onDidChangeTreeData(() => {
       this.roots[section] = source.snapshot();
-      this.render();
+      this.renders.request();
     }));
-    this.render();
+    this.renders.request();
   }
 
   /**
@@ -438,7 +441,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.view = view;
     view.webview.options = { enableScripts: true };
     this.subscriptions.push(view.webview.onDidReceiveMessage((message: unknown) => this.receive(message)));
-    this.render();
+    // First paint is deliberately immediate. Any setup notifications already queued are included
+    // in this paint and invalidated, while later provider bursts use the coalesced path above.
+    this.renders.flush();
   }
 
   private receive(message: unknown): void {
@@ -741,6 +746,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   dispose(): void {
+    this.renders.dispose();
     for (const subscription of this.subscriptions.splice(0)) subscription.dispose();
     this.view = null;
   }

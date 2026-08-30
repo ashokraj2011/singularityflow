@@ -42,8 +42,12 @@ export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'world-model', 'organisation', 'leads'
 ]);
 
-export function excludesActiveWorkspaceRouting(command, subcommand = null) {
+export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {
   return ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has(command)
+    // `doctor --performance` measures the Git checkout a person invoked it from, including a fresh
+    // checkout with no workflow yet. Ordinary doctor remains repository-scoped and follows the
+    // selected workspace when Copilot starts it outside a checkout.
+    || (command === 'doctor' && options.performance === true)
     || (command === 'capability' && REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS.has(subcommand))
     // Portable Process Evidence verification consumes only the named bundle bytes. It must work
     // in a fresh directory and must never be redirected to the last selected workspace.
@@ -150,9 +154,10 @@ export function hasRemoteGovernanceAuthority(root) {
 export async function activeWorkspaceRepositoryRoot(command, {
   env = process.env,
   home = undefined,
-  subcommand = null
+  subcommand = null,
+  options = {}
 } = {}) {
-  if (excludesActiveWorkspaceRouting(command, subcommand)) return null;
+  if (excludesActiveWorkspaceRouting(command, subcommand, options)) return null;
   const {
     activeWorkspaceFile,
     readActiveWorkspaceContext,
@@ -251,9 +256,9 @@ export async function main(argv) {
     }, () => console.log(renderCommandHelp(definition.name)));
   }
   const subcommand = positionals[1] ?? null;
-  const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand);
+  const routingExcluded = excludesActiveWorkspaceRouting(definition.name, subcommand, options);
   if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
-    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand });
+    const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, { subcommand, options });
     const selectedDiffers = selectedRoot && (!root || path.resolve(selectedRoot) !== path.resolve(root));
     const currentClaimsAuthority = selectedDiffers && root ? hasRemoteGovernanceAuthority(root) : false;
     if (selectedRoot && !currentClaimsAuthority) {
@@ -299,9 +304,17 @@ export async function main(argv) {
      *
      * `commands/legacy.mjs` is a four-line shim in front of `cli.mjs`, so importing the shim
      * measures nothing and the 110 ms it fronts landed in `execute` alongside the command's real
-     * work. Optional, because the other sixteen command modules have nothing deferred to declare.
+     * work. Optional, because command modules with no deferred graph have nothing to declare.
      */
-    await module.load?.();
+    await module.load?.({
+      argv: effectiveArgv,
+      positionals: [definition.name, ...positionals.slice(1)],
+      options,
+      definition,
+      operation,
+      requestedOperation,
+      modelMode
+    });
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
     const result = await withCommandTiming(timer, () => withOperationContext({

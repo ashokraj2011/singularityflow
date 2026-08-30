@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
@@ -383,6 +383,92 @@ const TRUE = new Set(['1', 'true', 'yes', 'on']);
  */
 export function networkDisabled(env = process.env) {
   return TRUE.has(String(env.SINGULARITY_FLOW_NO_NETWORK ?? '').trim().toLowerCase());
+}
+
+/**
+ * Signal a subprocess and every descendant that still belongs to its execution tree.
+ *
+ * A direct `child.kill()` only reaches the immediate Git process. Credential helpers, SSH, proxy
+ * commands, and hooks can keep its stdout/stderr handles open after that process exits, which in
+ * turn prevents Node's `close` event from ever settling the operation. Callers that need this
+ * guarantee must spawn the child detached on POSIX so its PID is also a private process-group ID.
+ * Windows has no equivalent negative-PID signal, so `taskkill /T` is started without a shell. The
+ * result is observed: a non-zero exit, spawn error, or bounded timeout falls back to signalling the
+ * direct child. Waiting for that closed-vocabulary outcome is important because otherwise a remote
+ * Git promise can report completion while its credential helper or SSH descendant is still alive.
+ *
+ * Diagnostics from `taskkill` are discarded because they can contain managed-host details and do
+ * not change the caller's classified failure. The helper returns only whether either the tree or
+ * direct-child signal was accepted. Callers still own an independent outer settlement deadline;
+ * `timeoutMs` merely ensures the cleanup helper itself cannot retain that boundary.
+ */
+export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
+  platform = process.platform,
+  spawnCommand = spawn,
+  killProcess = process.kill,
+  timeoutMs = 1_000
+} = {}) {
+  if (!child) return false;
+  const signalDirectChild = () => {
+    try { return child.kill?.(terminationSignal) === true; } catch { return false; }
+  };
+  const pid = Number(child.pid);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return signalDirectChild();
+
+  if (platform === 'win32') {
+    const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
+    let killer;
+    try {
+      killer = spawnCommand('taskkill.exe', [
+        '/PID', String(pid), '/T', ...force
+      ], {
+        shell: false,
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } catch {
+      return signalDirectChild();
+    }
+
+    const parsedTimeout = Number(timeoutMs);
+    const boundedTimeoutMs = Math.max(1, Math.min(
+      5_000,
+      Number.isFinite(parsedTimeout) && parsedTimeout > 0 ? Math.trunc(parsedTimeout) : 1_000
+    ));
+    return await new Promise((resolve) => {
+      let settled = false;
+      let timer = null;
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        killer.removeListener?.('error', onError);
+        killer.removeListener?.('close', onClose);
+      };
+      const finish = (treeAccepted) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(treeAccepted || signalDirectChild());
+      };
+      const onError = () => finish(false);
+      const onClose = (code) => finish(code === 0);
+
+      killer.once?.('error', onError);
+      killer.once?.('close', onClose);
+      timer = setTimeout(() => {
+        // `taskkill` is itself outside the Git process tree. Do not let a broken system utility
+        // become the process that outlives the remote-operation deadline.
+        try { killer.kill?.('SIGKILL'); } catch { /* already gone */ }
+        finish(false);
+      }, boundedTimeoutMs);
+    });
+  }
+
+  try {
+    killProcess(-pid, terminationSignal);
+    return true;
+  } catch {
+    return signalDirectChild();
+  }
 }
 
 export function run(command, args = [], {

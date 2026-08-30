@@ -7,7 +7,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
-  cloneStrategyArguments, normalizeCloneStrategy, REQUIRED_SPARSE_ROOTS
+  classifyPartialCloneResult, cloneStrategyArguments, normalizeCloneStrategy, REQUIRED_SPARSE_ROOTS
 } from '../src/clone-strategy.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { porcelainV2RecordCount, repositoryPerformanceSnapshot } from '../src/performance-doctor.mjs';
@@ -40,6 +40,23 @@ test('porcelain-v2 counts a rename as one logical status entry', () => {
   const ordinary = '1 .M N... 100644 100644 100644 aaaaaaa bbbbbbb source.js\0';
   const untracked = '? new-file.js\0';
   assert.equal(porcelainV2RecordCount(`${rename}${ordinary}${untracked}`), 3);
+});
+
+test('partial-clone fallback distinguishes capability refusal from office transport failures', () => {
+  assert.equal(classifyPartialCloneResult({
+    status: 128, stderr: 'fatal: Authentication failed for https://example.invalid/repo.git'
+  }).kind, 'transport-failed');
+  assert.equal(classifyPartialCloneResult({
+    status: 128, stderr: 'fatal: unable to access repository: SSL certificate problem'
+  }).kind, 'transport-failed');
+  assert.equal(classifyPartialCloneResult({
+    status: 1, stderr: 'fatal: server does not support filter blob:none'
+  }).kind, 'filter-rejected');
+  assert.equal(classifyPartialCloneResult({
+    status: 0, stderr: 'warning: --filter is ignored in local clones', stdout: ''
+  }, { configured: false }).kind, 'filter-ignored');
+  assert.equal(classifyPartialCloneResult({ status: 0 }, { configured: true }).kind,
+    'partial-established');
 });
 
 function looseObjects(root) {
@@ -144,6 +161,7 @@ test('workspace materialization honors blobless sparse checkout without touching
     { path: 'apps/catalog/kept.txt', materialization: 'sparse-absent' }
   ], 'a read-only fingerprint must use the sparse index without fetching the omitted blob');
 
+  const fallbackTrace = path.join(base, 'fallback-trace.jsonl');
   const fallback = await createWorkspaceConfiguration({
     baseDirectory: path.join(base, 'fallback-workspaces'),
     id: 'explicit-full-fallback',
@@ -158,10 +176,17 @@ test('workspace materialization honors blobless sparse checkout without touching
         clone: { mode: 'blobless', fallback: 'full' }
       }
     }
-  }, { confirmation: 'explicit-full-fallback' });
+  }, {
+    confirmation: 'explicit-full-fallback',
+    env: { ...process.env, GIT_TRACE2_EVENT: fallbackTrace }
+  });
   assert.equal(fallback.materialization[0].fallbackUsed, true);
   assert.equal(fallback.materialization[0].requested.mode, 'blobless');
   assert.equal(fallback.materialization[0].actual.mode, 'full');
+  const fallbackEvents = (await readFile(fallbackTrace, 'utf8')).trim().split('\n')
+    .filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(fallbackEvents.filter((event) => event.event === 'cmd_name' && event.name === 'clone').length, 1,
+    'a successful clone which ignored filtering is retained instead of downloading the monorepo twice');
   const refusedRoot = path.join(base, 'refused-workspaces');
   await assert.rejects(createWorkspaceConfiguration({
     baseDirectory: refusedRoot,

@@ -10,7 +10,7 @@
  * Deliberately kept dependency-free and free of any `vscode` import, so it can be unit-tested in a
  * plain Node process against a fake spawn.
  */
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -47,13 +47,9 @@ function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
  * missing. `validateRepositoryDirectory` is already `async` and already awaits its filesystem checks,
  * so nothing here needed the synchrony.
  *
- * The local Git calls around it are deliberately left synchronous. They read refs and blobs from
- * this repository, cost milliseconds, and rewriting them would mean rewriting the two closures they
- * live inside for no measurable gain.
- *
- * Shaped like a `spawnSync` result so the calling code reads the same: a timeout, a non-zero exit and
- * a missing executable are all "this remote did not answer", which is what the caller already does
- * with `status !== 0`.
+ * Local Git inspection uses the same asynchronous process boundary. Ref discovery and object reads
+ * are batched, so repositories with thousands of remote-tracking refs cannot freeze the extension
+ * host or launch one child per ref.
  */
 export type RemoteGitFailure = 'ref-absent' | 'timeout' | 'network-unavailable'
   | 'authentication-required' | 'git-unavailable' | 'fetch-failed' | 'cancelled' | 'output-overflow';
@@ -64,26 +60,94 @@ export interface RemoteGitResult {
 }
 export type RemoteGitRunner = (
   args: string[],
-  options: { cwd: string; timeout: number; signal?: AbortSignal }
+  options: { cwd: string; timeout: number; signal?: AbortSignal; spawnImpl?: typeof spawn }
 ) => Promise<RemoteGitResult>;
 
-function terminateProcessTree(child: ChildProcess): void {
-  if (child.pid && process.platform !== 'win32') {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
-    const force = setTimeout(() => {
-      try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
-    }, 1_000);
-    force.unref();
-    return;
-  }
+const PROCESS_TERMINATION_DEADLINE_MS = 2_000;
+const PROCESS_TERMINATION_GRACE_MS = 250;
+const TASKKILL_ATTEMPT_MS = 750;
+
+function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (closed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener('close', closedListener);
+      resolve(closed);
+    };
+    const closedListener = () => finish(true);
+    const timer = setTimeout(() => finish(false), Math.max(0, timeoutMs));
+    child.once('close', closedListener);
+  });
+}
+
+/** Run Windows' descendant-aware terminator and observe its exit instead of assuming spawn means success. */
+function runTaskkill(pid: number, force: boolean, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let killer: ChildProcess | undefined;
+    const finish = (killed: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(killed);
+    };
+    const timer = setTimeout(() => {
+      try { killer?.kill('SIGKILL'); } catch { /* best effort for the supervisor itself */ }
+      finish(false);
+    }, Math.max(1, timeoutMs));
+    try {
+      killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])], {
+        windowsHide: true, stdio: 'ignore'
+      });
+    } catch {
+      finish(false);
+      return;
+    }
+    killer.once('error', () => finish(false));
+    killer.once('close', (code) => finish(code === 0));
+  });
+}
+
+async function signalProcessTree(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  timeoutMs = TASKKILL_ATTEMPT_MS
+): Promise<boolean> {
   if (child.pid && process.platform === 'win32') {
-    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
-      windowsHide: true, stdio: 'ignore'
-    });
-    killer.unref();
-    return;
+    const killed = await runTaskkill(child.pid, signal === 'SIGKILL', timeoutMs);
+    if (killed) return true;
+    // A missing/non-zero/timed-out taskkill must not be treated as cleanup. Direct termination is
+    // weaker than `/T`, but is the last bounded fallback available to the extension host.
+    try { return child.kill(signal); } catch { return false; }
   }
-  child.kill('SIGTERM');
+  if (child.pid) {
+    try { process.kill(-child.pid, signal); return true; } catch { /* fall through */ }
+  }
+  try { return child.kill(signal); } catch { return false; }
+}
+
+/**
+ * Quiesce a child tree before its caller reports timeout/cancellation, but settle independently of
+ * `close` even when a broken child or pipe-holding descendant never emits it.
+ */
+async function terminateProcessTree(child: ChildProcess): Promise<boolean> {
+  const deadline = Date.now() + PROCESS_TERMINATION_DEADLINE_MS;
+  const remaining = () => Math.max(0, deadline - Date.now());
+
+  const gracefulClose = waitForChildClose(child, Math.min(PROCESS_TERMINATION_GRACE_MS, remaining()));
+  await signalProcessTree(child, 'SIGTERM', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
+  if (await gracefulClose) return true;
+
+  const forcedClose = waitForChildClose(child, remaining());
+  await signalProcessTree(child, 'SIGKILL', Math.min(TASKKILL_ATTEMPT_MS, Math.max(1, remaining())));
+  if (await forcedClose) return true;
+
+  // Do not let an uncooperative close event defeat the independent settlement deadline.
+  try { child.kill('SIGKILL'); } catch { /* already gone or inaccessible */ }
+  return false;
 }
 
 /** A bounded, cancellable, non-interactive remote Git boundary for the extension host. */
@@ -93,7 +157,8 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   let stderr = '';
   let outputBytes = 0;
   let settled = false;
-  let child: ChildProcess;
+  let child: ChildProcess | undefined;
+  let stoppingFailure: RemoteGitFailure | null = null;
   const finish = (result: RemoteGitResult) => {
     if (settled) return;
     settled = true;
@@ -102,14 +167,16 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
     resolve(result);
   };
   const stop = (failure: RemoteGitFailure) => {
-    if (settled) return;
-    terminateProcessTree(child);
-    finish({ status: null, stdout: '', failure });
+    if (settled || stoppingFailure) return;
+    stoppingFailure = failure;
+    if (!child) return finish({ status: null, stdout: '', failure });
+    const settle = () => finish({ status: null, stdout: '', failure });
+    void terminateProcessTree(child).then(settle, settle);
   };
   const cancel = () => stop('cancelled');
   const timer = setTimeout(() => stop('timeout'), options.timeout);
   try {
-    child = spawn('git', args, {
+    child = (options.spawnImpl ?? spawn)('git', args, {
       cwd: options.cwd,
       windowsHide: true,
       detached: process.platform !== 'win32',
@@ -123,17 +190,22 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   if (options.signal?.aborted) return cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
   child.stdout?.on('data', (chunk: Buffer) => {
+    if (stoppingFailure) return;
     outputBytes += chunk.length;
     if (outputBytes > outputLimit) return stop('output-overflow');
     stdout += chunk.toString('utf8');
   });
   child.stderr?.on('data', (chunk: Buffer) => {
+    if (stoppingFailure) return;
     outputBytes += chunk.length;
     if (outputBytes > outputLimit) stop('output-overflow');
     else stderr += chunk.toString('utf8');
   });
-  child.once('error', () => finish({ status: null, stdout: '', failure: 'git-unavailable' }));
+  child.once('error', () => {
+    if (!stoppingFailure) finish({ status: null, stdout: '', failure: 'git-unavailable' });
+  });
   child.once('close', (code) => {
+    if (stoppingFailure) return;
     let failure: RemoteGitFailure | null = null;
     if (code !== 0) {
       failure = /authentication failed|could not read username|terminal prompts disabled|credential/i.test(stderr)
@@ -146,6 +218,90 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
     }
     finish({ status: code, stdout: code === 0 ? stdout : '', failure });
   });
+});
+
+export type LocalGitFailure = 'timeout' | 'cancelled' | 'git-unavailable' | 'output-overflow';
+export interface LocalGitResult {
+  status: number | null;
+  stdout: Buffer;
+  stderr: string;
+  failure: LocalGitFailure | null;
+}
+export type LocalGitRunner = (
+  args: string[],
+  options: {
+    cwd: string;
+    timeout: number;
+    signal?: AbortSignal;
+    input?: Buffer | string | null;
+    spawnImpl?: typeof spawn;
+  }
+) => Promise<LocalGitResult>;
+
+/** Local repository inspection shares the same non-blocking, bounded process boundary as remotes. */
+export const localGit: LocalGitRunner = async (args, options) => new Promise((resolve) => {
+  const outputLimit = 32 * 1024 * 1024;
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let outputBytes = 0;
+  let settled = false;
+  let child: ChildProcess | undefined;
+  let timer: NodeJS.Timeout | undefined;
+  let stoppingFailure: LocalGitFailure | null = null;
+  const finish = (result: LocalGitResult) => {
+    if (settled) return;
+    settled = true;
+    if (timer) clearTimeout(timer);
+    options.signal?.removeEventListener('abort', cancel);
+    resolve(result);
+  };
+  const stop = (failure: LocalGitFailure) => {
+    if (settled || stoppingFailure) return;
+    stoppingFailure = failure;
+    if (!child) return finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure });
+    const settle = () => finish({
+      status: null, stdout: Buffer.alloc(0), stderr: '', failure
+    });
+    void terminateProcessTree(child).then(settle, settle);
+  };
+  const cancel = () => stop('cancelled');
+  if (options.signal?.aborted) return cancel();
+  try {
+    child = (options.spawnImpl ?? spawn)('git', args, {
+      cwd: options.cwd,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: nonInteractiveGitEnvironment()
+    });
+  } catch {
+    return finish({ status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable' });
+  }
+  timer = setTimeout(() => stop('timeout'), options.timeout);
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  const collect = (target: Buffer[], chunk: Buffer) => {
+    if (stoppingFailure) return;
+    outputBytes += chunk.length;
+    if (outputBytes > outputLimit) return stop('output-overflow');
+    target.push(chunk);
+  };
+  child.stdout?.on('data', (chunk: Buffer) => collect(stdoutChunks, chunk));
+  child.stderr?.on('data', (chunk: Buffer) => collect(stderrChunks, chunk));
+  child.once('error', () => {
+    if (!stoppingFailure) finish({
+      status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
+    });
+  });
+  child.once('close', (code) => {
+    if (!stoppingFailure) finish({
+      status: code,
+      stdout: code === 0 ? Buffer.concat(stdoutChunks) : Buffer.alloc(0),
+      stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      failure: null
+    });
+  });
+  if (options.input == null) child.stdin?.end();
+  else child.stdin?.end(options.input);
 });
 
 /*
@@ -256,6 +412,307 @@ export class CliTimeoutError extends Error {
   }
 }
 
+interface GitBatchObject {
+  oid: string;
+  type: string;
+  content: Buffer;
+}
+
+interface GitTreeEntry {
+  mode: string;
+  oid: string;
+}
+
+const LOCAL_GIT_TIMEOUT_MS = 15_000;
+const REMOTE_PROBE_CONCURRENCY = 4;
+
+interface RemoteProbePool {
+  result(index: number): Promise<RemoteGitResult | undefined>;
+  stop(): void;
+  done: Promise<void>;
+}
+
+function startRemoteProbePool(
+  remotes: readonly string[],
+  probe: (remote: string, signal: AbortSignal) => Promise<RemoteGitResult>,
+  signal?: AbortSignal
+): RemoteProbePool {
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener('abort', relayAbort, { once: true });
+
+  const slots = remotes.map(() => {
+    let resolve!: (result: RemoteGitResult | undefined) => void;
+    const promise = new Promise<RemoteGitResult | undefined>((complete) => { resolve = complete; });
+    return { promise, resolve, settled: false };
+  });
+  let cursor = 0;
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+    controller.abort();
+  };
+  const worker = async () => {
+    while (!stopped && !controller.signal.aborted) {
+      const index = cursor;
+      const remote = remotes[index];
+      if (!remote) return;
+      cursor += 1;
+      let result: RemoteGitResult;
+      try { result = await probe(remote, controller.signal); }
+      catch { result = { status: null, stdout: '', failure: 'fetch-failed' }; }
+      const slot = slots[index]!;
+      slot.settled = true;
+      slot.resolve(result);
+      if (result.failure === 'cancelled' || controller.signal.aborted) stop();
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(REMOTE_PROBE_CONCURRENCY, remotes.length) },
+    () => worker()
+  );
+  const done = Promise.all(workers).then(() => {
+    signal?.removeEventListener('abort', relayAbort);
+    for (const slot of slots) {
+      if (!slot.settled) {
+        slot.settled = true;
+        slot.resolve(undefined);
+      }
+    }
+  });
+  return {
+    result: (index) => slots[index]?.promise ?? Promise.resolve(undefined),
+    stop,
+    done
+  };
+}
+
+function parseBatchObjects(expressions: readonly string[], output: Buffer): Map<string, GitBatchObject | null> {
+  const parsed = new Map<string, GitBatchObject | null>();
+  let offset = 0;
+  for (const expression of expressions) {
+    const newline = output.indexOf(0x0a, offset);
+    if (newline < 0) return new Map();
+    const header = output.subarray(offset, newline).toString('utf8');
+    offset = newline + 1;
+    if (/ (?:missing|ambiguous)$/.test(header)) {
+      parsed.set(expression, null);
+      continue;
+    }
+    const match = /^([0-9a-f]{40,64}) ([a-z]+) (\d+)$/.exec(header);
+    if (!match) return new Map();
+    const size = Number(match[3]);
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size >= output.length) return new Map();
+    const content = output.subarray(offset, offset + size);
+    offset += size;
+    if (output[offset] !== 0x0a) return new Map();
+    offset += 1;
+    parsed.set(expression, { oid: match[1]!, type: match[2]!, content });
+  }
+  return parsed;
+}
+
+async function batchObjects(
+  root: string,
+  expressions: readonly string[],
+  runner: LocalGitRunner,
+  signal?: AbortSignal
+): Promise<Map<string, GitBatchObject | null>> {
+  if (!expressions.length) return new Map();
+  const result = await runner(['cat-file', '--batch'], {
+    cwd: root,
+    timeout: LOCAL_GIT_TIMEOUT_MS,
+    signal,
+    input: `${expressions.join('\n')}\n`
+  });
+  return result.status === 0 ? parseBatchObjects(expressions, result.stdout) : new Map();
+}
+
+/** Parse Git's binary tree-object format without launching one `ls-tree` process per ref. */
+function parseTreeObject(object: GitBatchObject): Map<string, GitTreeEntry> | null {
+  if (object.type !== 'tree') return null;
+  const oidBytes = object.oid.length / 2;
+  const entries = new Map<string, GitTreeEntry>();
+  let offset = 0;
+  while (offset < object.content.length) {
+    const space = object.content.indexOf(0x20, offset);
+    const nul = space < 0 ? -1 : object.content.indexOf(0, space + 1);
+    if (space < 0 || nul < 0 || nul + 1 + oidBytes > object.content.length) return null;
+    const mode = object.content.subarray(offset, space).toString('ascii');
+    const name = object.content.subarray(space + 1, nul).toString('utf8');
+    const oid = object.content.subarray(nul + 1, nul + 1 + oidBytes).toString('hex');
+    if (!name || entries.has(name)) return null;
+    entries.set(name, { mode, oid });
+    offset = nul + 1 + oidBytes;
+  }
+  return entries;
+}
+
+function validDestinationRef(ref: string): boolean {
+  if (!ref.startsWith('refs/') || ref.endsWith('/') || ref.endsWith('.') || ref === '@') return false;
+  if (ref.includes('..') || ref.includes('@{') || ref.includes('//')) return false;
+  if (/[\x00-\x20\x7f~^:?*\[\\]/.test(ref)) return false;
+  return ref.split('/').every((part) => part && !part.startsWith('.') && !part.endsWith('.lock'));
+}
+
+interface StateMirrorCandidate {
+  ref: string;
+  manifest: any;
+  root: GitBatchObject;
+}
+
+async function verifiedStateCandidate(
+  root: string,
+  candidates: readonly StateMirrorCandidate[],
+  runner: LocalGitRunner,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const treeObjects = new Map<string, GitBatchObject | null>();
+  for (const candidate of candidates) treeObjects.set(candidate.root.oid, candidate.root);
+  const parsedTrees = new Map<string, Map<string, GitTreeEntry> | null>();
+  const entriesFor = (treeObject: GitBatchObject): Map<string, GitTreeEntry> | null => {
+    if (parsedTrees.has(treeObject.oid)) return parsedTrees.get(treeObject.oid) ?? null;
+    const entries = parseTreeObject(treeObject);
+    parsedTrees.set(treeObject.oid, entries);
+    return entries;
+  };
+
+  const requestedPaths = new Map<StateMirrorCandidate, string[]>();
+  for (const candidate of candidates) requestedPaths.set(candidate, Object.keys(candidate.manifest.assets));
+
+  const resolve = (candidate: StateMirrorCandidate, relative: string): GitTreeEntry | null | undefined => {
+    let treeOid = candidate.root.oid;
+    const parts = relative.split('/');
+    for (let index = 0; index < parts.length; index += 1) {
+      const treeObject = treeObjects.get(treeOid);
+      if (treeObject === undefined) return undefined;
+      if (treeObject === null) return null;
+      const entries = entriesFor(treeObject);
+      if (!entries) return null;
+      const part = parts[index];
+      if (!part) return null;
+      const entry = entries.get(part);
+      if (!entry) return null;
+      if (index === parts.length - 1) return entry;
+      if (entry.mode !== '40000' && entry.mode !== '040000') return null;
+      treeOid = entry.oid;
+    }
+    return null;
+  };
+
+  // Fetch each unique directory tree once per depth, across every state ref. Process count follows
+  // path depth rather than ref count; ordinary mirrors finish in three small batch processes.
+  for (let depth = 0; depth < 32; depth += 1) {
+    const missing = new Set<string>();
+    for (const [candidate, paths] of requestedPaths) {
+      for (const relative of paths) {
+        let treeOid = candidate.root.oid;
+        const parts = relative.split('/');
+        for (let index = 0; index < parts.length - 1; index += 1) {
+          const treeObject = treeObjects.get(treeOid);
+          if (treeObject === undefined) { missing.add(treeOid); break; }
+          if (treeObject === null) break;
+          const part = parts[index];
+          if (!part) break;
+          const entry = entriesFor(treeObject)?.get(part);
+          if (!entry || (entry.mode !== '40000' && entry.mode !== '040000')) break;
+          treeOid = entry.oid;
+        }
+        // The loop resolves directory entries. Its last successful step leaves `treeOid` pointing
+        // at the directory that contains the requested file, which has not necessarily been read
+        // yet (for `singularity/workflow.yml`, this is the `singularity` tree itself).
+        if (treeObjects.get(treeOid) === undefined) missing.add(treeOid);
+      }
+    }
+    if (!missing.size) break;
+    const fetched = await batchObjects(root, [...missing], runner, signal);
+    for (const oid of missing) treeObjects.set(oid, fetched.get(oid) ?? null);
+  }
+
+  // Git object identity and mode bind the receipt to the tree, while SHA-256 binds the receipt to
+  // the exact bytes SFlow will mount. Read every unique asset blob through one final batch instead
+  // of trusting two manifest fields that could be stale in the same way.
+  const blobOids = new Set<string>();
+  for (const [candidate, paths] of requestedPaths) {
+    for (const relative of paths) {
+      const entry = resolve(candidate, relative);
+      if (entry) blobOids.add(entry.oid);
+    }
+  }
+  const blobObjects = await batchObjects(root, [...blobOids], runner, signal);
+
+  return candidates.some((candidate) => requestedPaths.get(candidate)!.every((relative) => {
+    const descriptor = candidate.manifest.assets[relative];
+    const entry = resolve(candidate, relative);
+    const blob = entry ? blobObjects.get(entry.oid) : null;
+    return entry != null
+      && descriptor?.sha256 === candidate.manifest.files[relative]
+      && /^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
+      && /^100(?:644|755)$/.test(descriptor?.mode ?? '')
+      && entry.oid === descriptor.object
+      && entry.mode === descriptor.mode
+      && blob?.type === 'blob'
+      && createHash('sha256').update(blob.content).digest('hex') === candidate.manifest.files[relative];
+  }));
+}
+
+async function localAuthorityAvailable(
+  root: string,
+  runner: LocalGitRunner,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const refsResult = await runner([
+    'for-each-ref', '--format=%(refname)',
+    'refs/remotes/*/sflow/config', 'refs/heads/sflow/config',
+    'refs/remotes/*/state', 'refs/heads/state'
+  ], { cwd: root, timeout: LOCAL_GIT_TIMEOUT_MS, signal });
+  if (refsResult.status !== 0) return false;
+  const refs = refsResult.stdout.toString('utf8').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  const configRefs = refs.filter((ref) => ref === 'refs/heads/sflow/config' || ref.endsWith('/sflow/config'));
+  const stateRefs = refs.filter((ref) => ref === 'refs/heads/state' || ref.endsWith('/state'));
+  const expressions = [
+    ...configRefs.map((ref) => `${ref}:singularity/workflow.yml`),
+    ...stateRefs.flatMap((ref) => [
+      `${ref}:configuration/manifest.json`, `${ref}:singularity/workflow.yml`, `${ref}^{tree}`
+    ])
+  ];
+  const objects = await batchObjects(root, expressions, runner, signal);
+  if (configRefs.some((ref) => objects.get(`${ref}:singularity/workflow.yml`)?.type === 'blob')) return true;
+
+  const candidates: StateMirrorCandidate[] = [];
+  for (const ref of stateRefs) {
+    const manifestObject = objects.get(`${ref}:configuration/manifest.json`);
+    const workflowObject = objects.get(`${ref}:singularity/workflow.yml`);
+    const rootObject = objects.get(`${ref}^{tree}`);
+    if (!manifestObject || !workflowObject || !rootObject || rootObject.type !== 'tree') continue;
+    try {
+      const manifest = JSON.parse(manifestObject.content.toString('utf8'));
+      const files = manifest?.files;
+      const valid = manifest?.format === 'singularity-flow-configuration-mirror/v2'
+        && manifest?.layout === 'canonical-paths'
+        && manifest?.source?.branch === 'sflow/config'
+        && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
+        && files != null && typeof files === 'object' && !Array.isArray(files)
+        && files['singularity/workflow.yml']
+          === createHash('sha256').update(workflowObject.content).digest('hex');
+      if (!valid) continue;
+      if (manifest.assets == null) return true;
+      if (typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)) continue;
+      const assetPaths = Object.keys(manifest.assets).sort();
+      if (JSON.stringify(assetPaths) !== JSON.stringify(Object.keys(files).sort())) continue;
+      if (assetPaths.some((relative) => {
+        const parts = relative.split('/');
+        return parts.length > 32 || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))
+          || !(relative.startsWith('singularity/') || relative.startsWith('.github/agents/'))
+          || !/^[0-9a-f]{64}$/.test(files[relative] ?? '');
+      })) continue;
+      candidates.push({ ref, manifest, root: rootObject });
+    } catch { /* another ref may carry a valid authority */ }
+  }
+  return candidates.length > 0 && await verifiedStateCandidate(root, candidates, runner, signal);
+}
+
 /**
  * Refuse anything that is not a real Git working tree with a real control directory.
  *
@@ -265,7 +722,7 @@ export class CliTimeoutError extends Error {
  */
 export async function validateRepositoryDirectory(
   repository: string,
-  options: { remoteRunner?: RemoteGitRunner; signal?: AbortSignal } = {}
+  options: { remoteRunner?: RemoteGitRunner; localRunner?: LocalGitRunner; signal?: AbortSignal } = {}
 ): Promise<string> {
   const resolved = path.resolve(repository || '');
   const canonical = await realpath(resolved).catch(() => null);
@@ -276,15 +733,15 @@ export async function validateRepositoryDirectory(
   if (!git) throw new Error(`The selected folder is not a Git repository: ${resolved}`);
   if (git.isSymbolicLink()) throw new Error(`The selected repository has unsafe symbolic-link Git metadata: ${canonical}`);
 
-  const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-    cwd: canonical,
-    encoding: 'utf8',
-    windowsHide: true
+  const runLocal = options.localRunner ?? localGit;
+  const probe = await runLocal(['rev-parse', '--show-toplevel'], {
+    cwd: canonical, timeout: LOCAL_GIT_TIMEOUT_MS, signal: options.signal
   });
-  if (probe.status !== 0 || !probe.stdout?.trim()) {
+  const topLevelText = probe.stdout.toString('utf8').trim();
+  if (probe.status !== 0 || !topLevelText) {
     throw new Error(`The selected folder is not a valid Git working tree: ${canonical}`);
   }
-  const topLevel = await realpath(probe.stdout.trim()).catch(() => null);
+  const topLevel = await realpath(topLevelText).catch(() => null);
   if (!topLevel || topLevel !== canonical) {
     throw new Error(`Open the Git repository root instead of a nested directory: ${canonical}`);
   }
@@ -304,72 +761,15 @@ export async function validateRepositoryDirectory(
       }
       if (legacyWorkflow?.isFile() || legacyConfig?.isFile()) throw new LegacyControlRootError(canonical, legacyRoot);
     }
-    const approvedWorkflowAvailable = (): boolean => {
-      const refs = spawnSync('git', [
-        'for-each-ref', '--format=%(refname)',
-        'refs/remotes/*/sflow/config', 'refs/heads/sflow/config'
-      ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
-      return refs.status === 0 && refs.stdout.split(/\r?\n/)
-        .map((entry) => entry.trim()).filter(Boolean).some((ref) => spawnSync(
-          'git', ['cat-file', '-e', `${ref}:singularity/workflow.yml`],
-          { cwd: canonical, encoding: 'utf8', windowsHide: true }
-        ).status === 0);
-    };
-    const verifiedStateWorkflowAvailable = (): boolean => {
-      const refs = spawnSync('git', [
-        'for-each-ref', '--format=%(refname)', 'refs/remotes/*/state', 'refs/heads/state'
-      ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
-      return refs.status === 0 && refs.stdout.split(/\r?\n/)
-        .map((entry) => entry.trim()).filter(Boolean).some((ref) => {
-          const manifestResult = spawnSync('git', ['show', `${ref}:configuration/manifest.json`], {
-            cwd: canonical, encoding: 'utf8', windowsHide: true
-          });
-          const workflowResult = spawnSync('git', ['show', `${ref}:singularity/workflow.yml`], {
-            cwd: canonical, encoding: 'buffer', windowsHide: true
-          });
-          if (manifestResult.status !== 0 || workflowResult.status !== 0) return false;
-          try {
-            const manifest = JSON.parse(manifestResult.stdout);
-            const valid = manifest?.format === 'singularity-flow-configuration-mirror/v2'
-              && manifest?.layout === 'canonical-paths'
-              && manifest?.source?.branch === 'sflow/config'
-              && /^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
-              && manifest?.files?.['singularity/workflow.yml']
-                === createHash('sha256').update(workflowResult.stdout).digest('hex');
-            if (!valid || manifest.assets == null) return valid;
-            if (typeof manifest.assets !== 'object' || Array.isArray(manifest.assets)
-                || JSON.stringify(Object.keys(manifest.assets).sort())
-                  !== JSON.stringify(Object.keys(manifest.files).sort())) return false;
-            const tree = spawnSync('git', [
-              'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)', ref, '--',
-              'singularity', '.github/agents'
-            ], { cwd: canonical, encoding: 'utf8', windowsHide: true });
-            if (tree.status !== 0) return false;
-            const entries = new Map(tree.stdout.split('\0').filter(Boolean).map((line) => {
-              const first = line.indexOf(' ');
-              const second = line.indexOf(' ', first + 1);
-              return [line.slice(second + 1), {
-                mode: line.slice(0, first), object: line.slice(first + 1, second)
-              }];
-            }));
-            return Object.entries(manifest.assets).every(([relative, descriptor]: [string, any]) =>
-              descriptor?.sha256 === manifest.files[relative]
-              && /^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
-              && /^100(?:644|755)$/.test(descriptor?.mode ?? '')
-              && entries.get(relative)?.object === descriptor.object
-              && entries.get(relative)?.mode === descriptor.mode);
-          } catch { return false; }
-        });
-    };
-    if (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable()) return canonical;
+    if (await localAuthorityAvailable(canonical, runLocal, options.signal)) return canonical;
 
     // A narrow clone (for example `--single-branch main`) has not copied either governed
     // namespace. Refresh only the exact authority ref into the normal remote-tracking namespace;
     // never checkout it and never touch HEAD, the index, or application files.
-    const remotes = spawnSync('git', ['remote'], {
-      cwd: canonical, encoding: 'utf8', windowsHide: true
+    const remotes = await runLocal(['remote'], {
+      cwd: canonical, timeout: LOCAL_GIT_TIMEOUT_MS, signal: options.signal
     });
-    const names = remotes.status === 0 ? remotes.stdout.split(/\r?\n/)
+    const names = remotes.status === 0 ? remotes.stdout.toString('utf8').split(/\r?\n/)
       .map((entry) => entry.trim()).filter(Boolean)
       .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
         || left.localeCompare(right)) : [];
@@ -377,14 +777,16 @@ export async function validateRepositoryDirectory(
     const failures: Array<{ remote: string; operation: 'ls-remote' | 'fetch' | 'verify'; reason: string }> = [];
     let responsiveRemotes = 0;
     let authorityAdvertised = false;
-    for (const remote of names) {
-      const advertised = await runRemote([
+    const advertise = (remote: string, signal = options.signal) => runRemote([
         'ls-remote', '--heads', '--', remote, 'refs/heads/sflow/config', 'refs/heads/state'
-      ], { cwd: canonical, timeout: 30_000, signal: options.signal });
+      ], { cwd: canonical, timeout: 30_000, signal });
+    const useAdvertisement = async (
+      remote: string,
+      advertised: RemoteGitResult
+    ): Promise<'continue' | 'valid' | 'cancelled'> => {
       if (advertised.status !== 0) {
         failures.push({ remote, operation: 'ls-remote', reason: advertised.failure ?? `exit-${advertised.status}` });
-        if (advertised.failure === 'cancelled') break;
-        continue;
+        return advertised.failure === 'cancelled' ? 'cancelled' : 'continue';
       }
       responsiveRemotes += 1;
       const branches = new Set(advertised.stdout.split(/\r?\n/)
@@ -393,10 +795,7 @@ export async function validateRepositoryDirectory(
         if (!branches.has(`refs/heads/${authorityBranch}`)) continue;
         authorityAdvertised = true;
         const destination = `refs/remotes/${remote}/${authorityBranch}`;
-        const valid = spawnSync('git', ['check-ref-format', destination], {
-          cwd: canonical, encoding: 'utf8', windowsHide: true
-        });
-        if (valid.status !== 0) {
+        if (!validDestinationRef(destination)) {
           failures.push({ remote, operation: 'verify', reason: `invalid-ref-${authorityBranch}` });
           continue;
         }
@@ -405,15 +804,55 @@ export async function validateRepositoryDirectory(
           `+refs/heads/${authorityBranch}:${destination}`
         ], { cwd: canonical, timeout: 120_000, signal: options.signal });
         if (fetched.status === 0
-          && (approvedWorkflowAvailable() || verifiedStateWorkflowAvailable())) return canonical;
+          && await localAuthorityAvailable(canonical, runLocal, options.signal)) return 'valid';
         failures.push({
           remote,
           operation: fetched.status === 0 ? 'verify' : 'fetch',
           reason: fetched.status === 0 ? `invalid-${authorityBranch}-authority` : fetched.failure ?? `exit-${fetched.status}`
         });
-        if (fetched.failure === 'cancelled') break;
+        if (fetched.failure === 'cancelled') return 'cancelled';
       }
-      if (options.signal?.aborted) break;
+      if (options.signal?.aborted) {
+        failures.push({ remote, operation: 'ls-remote', reason: 'cancelled' });
+        return 'cancelled';
+      }
+      return 'continue';
+    };
+
+    // `origin` is authoritative by convention and is therefore observed and consumed first. Only
+    // when it cannot provide a valid authority do we inventory the remaining remotes. Their network
+    // waits run through a small cancellable pool; results are still consumed in sorted order so the
+    // chosen authority and user-facing failure order cannot depend on response timing.
+    const origin = names[0] === 'origin' ? names[0] : null;
+    const additional = origin ? names.slice(1) : names;
+    if (origin) {
+      const outcome = await useAdvertisement(origin, await advertise(origin, options.signal));
+      if (outcome === 'valid') return canonical;
+      if (outcome === 'cancelled') {
+        throw new RepositoryAuthorityUnavailableError(canonical, failures);
+      }
+    }
+
+    if (options.signal?.aborted && additional.length) {
+      await useAdvertisement(additional[0]!, { status: null, stdout: '', failure: 'cancelled' });
+    } else {
+      const pool = startRemoteProbePool(additional, advertise, options.signal);
+      let validAuthority = false;
+      try {
+        for (let index = 0; index < additional.length; index += 1) {
+          const advertised = await pool.result(index);
+          if (!advertised) break;
+          const outcome = await useAdvertisement(additional[index]!, advertised);
+          if (outcome === 'valid') { validAuthority = true; break; }
+          if (outcome === 'cancelled') break;
+        }
+      } finally {
+        // A deterministic winner or cancellation makes every later observation irrelevant. Abort
+        // and await their bounded tree cleanup before returning, so no probe survives validation.
+        pool.stop();
+        await pool.done;
+      }
+      if (validAuthority) return canonical;
     }
     if (failures.length && (responsiveRemotes < names.length || authorityAdvertised)) {
       throw new RepositoryAuthorityUnavailableError(canonical, failures);
@@ -498,20 +937,21 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
   const startedAtWall = new Date().toISOString();
   return new Promise<T>((resolve, reject) => {
     let child: ChildProcess | undefined;
-    let stdout = '';
-    let stderr = '';
+    // Keep every decoded chunk once and join once at completion. Repeated `output += chunk` copies
+    // all output received so far on every event, which turns a large snapshot into quadratic work
+    // and briefly retains several complete copies in the extension host.
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
     let outputBytes = 0;
     let settled = false;
     let timingReported = false;
     let timer: NodeJS.Timeout | undefined;
-    let hardKillTimer: NodeJS.Timeout | undefined;
     let pendingFailure: { error: Error; outcome: CliCommandTiming['outcome']; cancelled: boolean } | null = null;
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
-      if (hardKillTimer) clearTimeout(hardKillTimer);
       signal?.removeEventListener('abort', onAbort);
     };
     const reportTiming = (
@@ -549,24 +989,17 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       reportTiming(outcome, child?.exitCode ?? null, cancelled);
       reject(error instanceof Error ? error : new Error(String(error)));
     };
-    const signalTree = (terminationSignal: NodeJS.Signals) => {
-      if (!child) return false;
-      if (child.pid && process.platform === 'win32') {
-        const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
-        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...force], {
-          stdio: 'ignore', windowsHide: true, timeout: 5_000
-        });
-        if (!killed.error && killed.status === 0) return true;
-      } else if (child.pid) {
-        try { process.kill(-child.pid, terminationSignal); return true; } catch { /* fall through */ }
-      }
-      return child.kill(terminationSignal);
-    };
     const terminate = (error: Error, outcome: CliCommandTiming['outcome'], cancelled = false) => {
       if (settled || pendingFailure) return;
       pendingFailure = { error, outcome, cancelled };
-      signalTree('SIGTERM');
-      hardKillTimer = setTimeout(() => signalTree('SIGKILL'), 2_000);
+      if (!child) return fail(error, outcome, cancelled);
+      // Do not reject while taskkill/process-group cleanup is still in progress. The supervisor has
+      // its own hard deadline, so a child that never emits `close` cannot strand this Promise.
+      const settle = () => {
+        const failure = pendingFailure;
+        if (failure) fail(failure.error, failure.outcome, failure.cancelled);
+      };
+      void terminateProcessTree(child).then(settle, settle);
     };
     function onAbort() {
       terminate(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
@@ -574,16 +1007,17 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
 
     if (signal?.aborted) return fail(new Error('The Singularity Flow command was cancelled.'), 'cancelled', true);
 
-    const collect = (target: string, chunk: Buffer, stream: OutputStream): string => {
+    const collect = (target: string[], chunk: Buffer, stream: OutputStream): void => {
+      if (pendingFailure) return;
       outputBytes += chunk.length;
       if (outputBytes > MAX_OUTPUT_BYTES) {
         terminate(new Error('The Singularity Flow CLI returned too much data to display.'), 'error');
-        return target;
+        return;
       }
       const text = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
       // A progress observer that throws must never take the command down with it.
       try { onOutput?.(text, stream); } catch { /* ignored on purpose */ }
-      return target + text;
+      if (text) target.push(text);
     };
 
     try {
@@ -606,14 +1040,22 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     }, timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    child.stdout?.on('data', (chunk: Buffer) => { stdout = collect(stdout, chunk, 'stdout'); });
-    child.stderr?.on('data', (chunk: Buffer) => { stderr = collect(stderr, chunk, 'stderr'); });
-    child.on('error', fail);
+    child.stdout?.on('data', (chunk: Buffer) => { collect(stdoutChunks, chunk, 'stdout'); });
+    child.stderr?.on('data', (chunk: Buffer) => { collect(stderrChunks, chunk, 'stderr'); });
+    child.on('error', (error) => {
+      if (!pendingFailure) fail(error);
+    });
     child.on('close', (code) => {
       if (settled) return;
-      stdout += stdoutDecoder.end();
-      stderr += stderrDecoder.end();
-      if (pendingFailure) return fail(pendingFailure.error, pendingFailure.outcome, pendingFailure.cancelled);
+      // The termination supervisor also observes `close` and owns settlement for a timeout or
+      // cancellation. Reporting here could beat a still-running Windows taskkill process.
+      if (pendingFailure) return;
+      const stdoutTail = stdoutDecoder.end();
+      const stderrTail = stderrDecoder.end();
+      if (stdoutTail) stdoutChunks.push(stdoutTail);
+      if (stderrTail) stderrChunks.push(stderrTail);
+      const stdout = stdoutChunks.join('');
+      const stderr = stderrChunks.join('');
       if (code !== 0) {
         let result: unknown = null;
         if (json && stdout.trim()) {

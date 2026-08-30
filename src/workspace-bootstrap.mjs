@@ -17,7 +17,7 @@ import {
   workspaceStatus
 } from './workspace.mjs';
 import { gitWorkerCount, mapLimit, run, SingularityFlowError } from './util.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -565,24 +565,73 @@ export function portableWorkspacePathFindings(target, { platform = process.platf
   return findings;
 }
 
-function configuredGitValue(runCommand, key) {
-  const result = runCommand('git', ['config', '--global', '--get', key], { allowFailure: true, timeoutMs: 10_000 });
-  return result.status === 0 && Boolean(String(result.stdout ?? '').trim());
+const ENTERPRISE_GIT_CONFIG_PATTERN = String.raw`^(http(\..+)?\.(proxy|proxyauthmethod|sslcainfo|sslcapath|sslbackend|schannelusesslcainfo)|credential(\..+)?\.(helper|usehttppath))$`;
+
+function enterpriseGitConfigSources(runCommand, env) {
+  const sources = {
+    proxy: [], certificateAuthority: [], tlsBackend: [], credentialHelper: []
+  };
+  for (const scope of ['system', 'global']) {
+    // `--name-only` is deliberate: proxy credentials, CA paths, helper commands, usernames and
+    // provider URLs must never enter the diagnostics result or an error. One bounded query per
+    // scope covers both unscoped and URL-scoped forms without an N-key subprocess loop.
+    const result = runCommand('git', [
+      'config', `--${scope}`, '--includes', '--name-only', '--get-regexp',
+      ENTERPRISE_GIT_CONFIG_PATTERN
+    ], { env, allowFailure: true, timeoutMs: 10_000, maxBuffer: 256 * 1024 });
+    if (result.status !== 0) continue;
+    const keys = String(result.stdout ?? '').split(/\r?\n/)
+      .map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+    const source = (category) => `git-${scope}:${category}`;
+    if (keys.some((key) => /\.(?:proxy|proxyauthmethod)$/.test(key))) {
+      sources.proxy.push(source('http-proxy'));
+    }
+    if (keys.some((key) => /\.(?:sslcainfo|sslcapath|schannelusesslcainfo)$/.test(key))) {
+      sources.certificateAuthority.push(source('certificate-authority'));
+    }
+    if (keys.some((key) => /\.sslbackend$/.test(key))) {
+      sources.tlsBackend.push(source('tls-backend'));
+    }
+    if (keys.some((key) => /^credential\..*\.(?:helper|usehttppath)$/.test(key)
+      || /^credential\.(?:helper|usehttppath)$/.test(key))) {
+      sources.credentialHelper.push(source('credential-helper'));
+    }
+  }
+  return sources;
 }
 
 /** Report only configuration sources, never proxy URLs, certificate paths, or credentials. */
 export function enterpriseGitDiagnostics({ env = process.env, runCommand = run } = {}) {
+  const configured = enterpriseGitConfigSources(runCommand, env);
   const proxySources = [
-    ...['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY'].filter((name) => Boolean(env[name])),
-    ...(configuredGitValue(runCommand, 'http.proxy') ? ['git:http.proxy'] : [])
+    ...[
+      'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'ALL_PROXY', 'all_proxy'
+    ].filter((name) => Boolean(env[name])),
+    ...configured.proxy
   ];
+  const proxyBypassSources = ['NO_PROXY', 'no_proxy'].filter((name) => Boolean(env[name]));
   const caSources = [
-    ...['GIT_SSL_CAINFO', 'SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS'].filter((name) => Boolean(env[name])),
-    ...(configuredGitValue(runCommand, 'http.sslCAInfo') ? ['git:http.sslCAInfo'] : [])
+    ...[
+      'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH', 'SSL_CERT_FILE', 'SSL_CERT_DIR',
+      'NODE_EXTRA_CA_CERTS'
+    ].filter((name) => Boolean(env[name])),
+    ...configured.certificateAuthority
   ];
   return {
     proxy: { configured: proxySources.length > 0, sources: proxySources },
+    proxyBypass: {
+      configured: proxyBypassSources.length > 0,
+      sources: proxyBypassSources
+    },
     certificateAuthority: { configured: caSources.length > 0, sources: caSources },
+    tlsBackend: {
+      configured: configured.tlsBackend.length > 0,
+      sources: configured.tlsBackend
+    },
+    credentialHelper: {
+      configured: configured.credentialHelper.length > 0,
+      sources: configured.credentialHelper
+    },
     credentialOwnership: 'git-or-operating-system',
     guidance: 'Use organisation-approved Git, proxy, and certificate configuration. Singularity Flow never disables TLS or stores credentials.'
   };
@@ -743,22 +792,18 @@ function rebuiltPlan(plan, branchUpdates) {
   });
 }
 
-async function asynchronousRemoteProbe(remote, { branch = null, env = process.env } = {}) {
+async function asynchronousRemoteProbe(remote, {
+  branch = null, env = process.env, session = new GitRemoteSession({ env })
+} = {}) {
   const url = assertCredentialFreeRemote(remote);
-  const transport = frozenRemoteTransport(url, { env });
-  const result = await runRemoteGitAsync([
-    'ls-remote', '--symref', '--', transport.remote, 'HEAD', 'refs/heads/*'
-  ], { operation: 'remote-probe', env: transport.env, allowFailure: true });
-  const branches = [...String(result.stdout ?? '').matchAll(
-    /^[0-9a-f]{40,64}\s+refs\/heads\/(.+)$/gmi
-  )].map((match) => match[1]).sort();
-  const defaultBranch = String(result.stdout ?? '')
-    .match(/^ref:\s+refs\/heads\/(.+?)\s+HEAD$/m)?.[1] ?? null;
+  const observed = await session.observeAsync(url, { includeHead: true, includeAllHeads: true });
+  const branches = observed.branches;
+  const defaultBranch = observed.defaultBranch;
   const base = {
     remote: sanitizeRemote(url), remoteFingerprint: remoteFingerprint(url),
     defaultBranch, branches
   };
-  if (result.status !== 0) return { ...base, ok: false, failure: result.failure };
+  if (!observed.ok) return { ...base, ok: false, failure: observed.failure };
   if (branch && !branches.includes(branch)) {
     return {
       ...base, ok: false,
@@ -777,13 +822,17 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   const findings = [];
   const branchUpdates = new Map();
   let liveCapabilityValidation = null;
+  // One operation-scoped observation cache lets duplicate repository URLs and the capability
+  // authority reuse a single broad HEAD + heads inventory. The final materialization boundary
+  // still performs its separate exact-ref freshness check through the branded validation receipt.
+  const remoteSession = new GitRemoteSession({ env });
   const observations = await mapLimit(
     plan.repositories, gitWorkerCount(plan.repositories.length, { env }), async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
     const probe = runCommand === run
       ? await asynchronousRemoteProbe(actualUrl, {
-          branch: inferDefault ? null : repository.defaultBranch, env
+          branch: inferDefault ? null : repository.defaultBranch, env, session: remoteSession
         })
       : probeGitRemote(actualUrl, {
           branch: inferDefault ? null : repository.defaultBranch, runCommand, env
@@ -832,7 +881,7 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   ])].sort();
   if (requestedCapabilities.length) {
     try {
-      const validation = await validateWorkspaceCapabilityRegistration(manifest, { env });
+      const validation = await validateWorkspaceCapabilityRegistration(manifest, { env, remoteSession });
       liveCapabilityValidation = validation;
       checks.push({
         id: 'configuration:capability-catalog',

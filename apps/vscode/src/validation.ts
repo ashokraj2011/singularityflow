@@ -13,11 +13,14 @@ import * as vscode from 'vscode';
 import { realpathSync } from 'node:fs';
 import { isGovernedConfiguration } from './governed.ts';
 import type { SingularityFlowClient } from './cli/client.ts';
+import { LatestSingleFlight } from './single-flight.ts';
 
 interface ValidationReport {
   valid?: boolean;
   errors?: string[];
   error?: string;
+  /** Internal cancellation receipt; never emitted by the CLI. */
+  repositoryMoved?: true;
 }
 
 /**
@@ -32,6 +35,8 @@ export class ConfigurationValidator implements vscode.Disposable {
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('singularityFlow');
   private readonly subscription: vscode.Disposable;
   private readonly client: SingularityFlowClient;
+  private readonly flights = new Map<string, LatestSingleFlight<ValidationReport>>();
+  private disposed = false;
 
   /**
    * The repository is read from the client rather than captured, because it moves: choosing a
@@ -64,14 +69,32 @@ export class ConfigurationValidator implements vscode.Disposable {
   }
 
   async validate(document: vscode.TextDocument): Promise<void> {
-    let report: ValidationReport;
-    try {
-      report = await this.client.run<ValidationReport>(['configuration', 'validate', '--json']);
-    } catch (error) {
-      // A non-zero exit is itself the finding: the CLI refuses to report on a configuration it
-      // cannot load, and its message is the useful part.
-      report = { valid: false, error: (error as Error).message };
+    if (this.disposed) return;
+    const repository = this.client.repository;
+    let flight = this.flights.get(repository);
+    if (!flight) {
+      flight = new LatestSingleFlight(async () => {
+        // A trailing request belongs to the repository that scheduled this flight. If the shared
+        // client moved while the first process was running, do not accidentally validate the new
+        // repository under the old flight's key.
+        if (repository !== this.client.repository) return { repositoryMoved: true };
+        try {
+          return await this.client.run<ValidationReport>(['configuration', 'validate', '--json']);
+        } catch (error) {
+          // A non-zero exit is itself the finding: the CLI refuses to report on a configuration it
+          // cannot load, and its message is the useful part.
+          return { valid: false, error: (error as Error).message };
+        }
+      });
+      this.flights.set(repository, flight);
     }
+
+    const report = await flight.request();
+
+    // The client can be rebound while a validation process is running. Its process already used
+    // the captured repository, but diagnostics belong only in the repository currently displayed.
+    // A later save after switching back will request a fresh run through the same coordinator.
+    if (this.disposed || report.repositoryMoved || repository !== this.client.repository) return;
 
     if (report.valid) {
       this.diagnostics.delete(document.uri);
@@ -91,6 +114,8 @@ export class ConfigurationValidator implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.flights.clear();
     this.subscription.dispose();
     this.diagnostics.dispose();
   }

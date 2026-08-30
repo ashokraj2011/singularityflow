@@ -93,6 +93,7 @@
       "status",
       "nextsteps",
       "snapshot",
+      "snapshotUi",
       "snapshotFull"
     ],
     "subprocessGrowth": {
@@ -108,11 +109,14 @@
         "a 1.59x growth, and the scale tier's own wall clock from 6,151ms to 1,855ms.",
         "What remains is linear in refs and not in Stories, which is correct: twelve branches",
         "genuinely hold twelve trees to read. 2.0 locks that in with room for one more per-ref call",
-        "and refuses any return to per-Story work. Never raise it."
+        "and refuses any return to per-Story work. The VS Code slice adds exactly one bounded read",
+        "per additional branch (37 vs 29); 1.3 records that current shape without allowing file- or",
+        "Story-proportional fan-out. Never raise either allowance."
       ],
       "status": 1.2,
       "nextsteps": 1.2,
       "snapshot": 1.2,
+      "snapshotUi": 1.3,
       "snapshotFull": 2.0
     },
     "budgets": {
@@ -122,6 +126,23 @@
         "would fail for load rather than for regression. Times are reported, not gated."
       ]
     }
+  },
+  "workingTree": {
+    "why": [
+      "The reference fixture has four untracked files, but a real IDE checkout also carries modified",
+      "tracked files and staged renames while file watchers request repeated UI snapshots.",
+      "This tier applies all three status shapes to the same deterministic fixture, then measures the",
+      "exact snapshot slices requested by VS Code. It reports p50 and p95, while enforcing the",
+      "machine-independent subprocess count: a dirty tree must not turn one refresh into per-path work."
+    ],
+    "command": "snapshotUi",
+    "samples": 10,
+    "topology": {
+      "modifiedFiles": 64,
+      "renamedFiles": 64,
+      "untrackedFiles": 128
+    },
+    "subprocessGrowth": 1.2
   },
   "connected": {
     "why": [

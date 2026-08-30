@@ -381,11 +381,17 @@ export class AstIntelligencePanel {
   private repositoryInventoryError: string | null = null; private repositoryInventoryLoaded = false;
   private refreshRevision = 0;
   private refreshPending = false;
+  private disposed = false;
   private readonly subscription: { dispose(): void };
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
   private readonly store: WorkspaceStore;
-  private constructor(panel: vscode.WebviewPanel, client: SingularityFlowClient, store: WorkspaceStore) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    client: SingularityFlowClient,
+    store: WorkspaceStore,
+    private readonly lease: { dispose(): void }
+  ) {
     this.panel = panel; this.client = client; this.store = store;
     this.subscription = store.onDidChange((_state, change) => {
       if (change.kind !== 'snapshot' || !change.revisionChanged) return;
@@ -395,7 +401,7 @@ export class AstIntelligencePanel {
     panel.webview.onDidReceiveMessage((raw) => {
       const navigation = navigationTarget(raw); if (navigation) return void navigateTo(navigation); this.router.route(raw);
     });
-    panel.onDidDispose(() => { this.subscription.dispose(); AstIntelligencePanel.current = null; });
+    panel.onDidDispose(() => this.dispose());
     panel.onDidChangeViewState?.(({ webviewPanel }) => {
       if (webviewPanel.visible === false || !this.refreshPending) return;
       this.refreshPending = false;
@@ -403,11 +409,25 @@ export class AstIntelligencePanel {
     });
     this.render(); void this.refresh();
   }
-  static show(context: vscode.ExtensionContext, client: SingularityFlowClient, store: WorkspaceStore): AstIntelligencePanel {
+  static async show(context: vscode.ExtensionContext, client: SingularityFlowClient, store: WorkspaceStore): Promise<AstIntelligencePanel> {
     if (AstIntelligencePanel.current) { AstIntelligencePanel.current.panel.reveal(); void AstIntelligencePanel.current.refresh(); return AstIntelligencePanel.current; }
-    const panel = vscode.window.createWebviewPanel('singularityFlow.astIntelligence', 'AST Intelligence', vscode.ViewColumn.Active,
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
-    AstIntelligencePanel.current = new AstIntelligencePanel(panel, client, store); return AstIntelligencePanel.current;
+    const lease = await store.acquireSlices(['configuration']);
+    const raced = AstIntelligencePanel.current as AstIntelligencePanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal();
+      void raced.refresh();
+      return raced;
+    }
+    try {
+      const panel = vscode.window.createWebviewPanel('singularityFlow.astIntelligence', 'AST Intelligence', vscode.ViewColumn.Active,
+        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
+      AstIntelligencePanel.current = new AstIntelligencePanel(panel, client, store, lease);
+      return AstIntelligencePanel.current;
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
   }
   static repositoryChanged(): void { if (AstIntelligencePanel.current) { AstIntelligencePanel.current.doctor = null; AstIntelligencePanel.current.preview = null; AstIntelligencePanel.current.warmPreview = null; AstIntelligencePanel.current.result = null; AstIntelligencePanel.current.notice = null; AstIntelligencePanel.current.error = null; AstIntelligencePanel.current.repositoryInventory = null; AstIntelligencePanel.current.repositoryInventoryError = null; AstIntelligencePanel.current.repositoryInventoryLoaded = false; void AstIntelligencePanel.current.refresh(); } }
   private router = registerMessageRouter('singularityFlow.astIntelligence', {
@@ -428,6 +448,13 @@ export class AstIntelligencePanel {
       void vscode.commands.executeCommand('singularityFlow.openHelp', { id: 'help:world-model' });
     }
   });
+  private dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.subscription.dispose();
+    this.lease.dispose();
+    AstIntelligencePanel.current = null;
+  }
   private repositoryContext(): ActiveRepositoryContext | null { return activeRepositoryContext(); }
   private repositoryScope(): AstRepositoryScopeView | null {
     const context = this.repositoryContext(); return context ? astRepositoryScopeView(context) : null;
@@ -450,6 +477,8 @@ export class AstIntelligencePanel {
     return astWorkspaceRepositoryInventory(current, status);
   }
   private async refresh(): Promise<void> {
+    // A direct reveal/refresh consumes any snapshot change retained while the panel was hidden.
+    this.refreshPending = false;
     const revision = ++this.refreshRevision;
     const inventory = this.repositoryInventoryLoaded
       ? Promise.resolve(this.repositoryInventory)

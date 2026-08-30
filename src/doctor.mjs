@@ -29,6 +29,37 @@ import { runRemoteGit } from './git-execution.mjs';
 
 function check(id, status, message, fix = null, details = {}) { return { id, status, message, fix, ...details }; }
 
+async function appendPerformanceCheck(checks, root, definition = null, workflow = null) {
+  try {
+    const measuredDefinition = definition
+      ? withWorldModelSourceScope(
+          definition,
+          workflow?.resolution?.worldModelSourceScope ?? null
+        )
+      : {};
+    const report = await repositoryPerformanceSnapshot(root, measuredDefinition);
+    checks.push(check(
+      'repository-performance',
+      report.recommendations.some((entry) => entry.severity === 'high') ? 'warn' : 'pass',
+      `${report.files.scoped.toLocaleString('en-US')} of ${report.files.tracked.toLocaleString('en-US')} tracked files are in scope; `
+        + `warm status ${report.timings.status.warmMs} ms; warm world-model fingerprint ${report.timings.worldModelFingerprint.warmMs} ms.`,
+      report.recommendations.length
+        ? report.recommendations.map((entry) => entry.message).join(' ')
+        : null,
+      { target: root }
+    ));
+    return report;
+  } catch (error) {
+    checks.push(check(
+      'repository-performance', 'warn',
+      `Performance diagnostics for '${root}' could not complete: ${error.message}`,
+      'Run git status, repair the measured checkout if necessary, and retry singularity-flow doctor --performance.',
+      { target: root }
+    ));
+    return null;
+  }
+}
+
 export async function doctorSnapshot(root, {
   workId = null, offline = false, performance = false, probeModelProvider = true
 } = {}) {
@@ -147,7 +178,8 @@ export async function doctorSnapshot(root, {
   const workflowConfig = path.join(root, WORKFLOW_PATH);
   if (!existsSync(workflowConfig)) {
     checks.push(check('configuration', 'fail', `${WORKFLOW_PATH} is missing.`, 'Run singularity-flow init.'));
-    return summarize(root, checks, null, null, null, null, null, schemaReport);
+    if (performance) performanceReport = await appendPerformanceCheck(checks, root);
+    return summarize(root, checks, null, null, null, null, performanceReport, schemaReport);
   }
   let definition;
   try {
@@ -155,7 +187,8 @@ export async function doctorSnapshot(root, {
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
-    return summarize(root, checks, null, null, definition, null, null, schemaReport);
+    if (performance) performanceReport = await appendPerformanceCheck(checks, root);
+    return summarize(root, checks, null, null, definition, null, performanceReport, schemaReport);
   }
   const configuredProvider = resolveModelProvider(definition);
   if (probeModelProvider) {
@@ -400,25 +433,7 @@ export async function doctorSnapshot(root, {
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
   else checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${session.workId}.`));
   if (performance) {
-    try {
-      const measuredDefinition = withWorldModelSourceScope(
-        definition,
-        workflow?.resolution?.worldModelSourceScope ?? null
-      );
-      performanceReport = await repositoryPerformanceSnapshot(root, measuredDefinition);
-      checks.push(check(
-        'repository-performance',
-        performanceReport.recommendations.some((entry) => entry.severity === 'high') ? 'warn' : 'pass',
-        `${performanceReport.files.scoped.toLocaleString('en-US')} of ${performanceReport.files.tracked.toLocaleString('en-US')} tracked files are in scope; `
-          + `warm status ${performanceReport.timings.status.warmMs} ms; warm world-model fingerprint ${performanceReport.timings.worldModelFingerprint.warmMs} ms.`,
-        performanceReport.recommendations.length
-          ? performanceReport.recommendations.map((entry) => entry.message).join(' ')
-          : null
-      ));
-    } catch (error) {
-      checks.push(check('repository-performance', 'warn', `Performance diagnostics could not complete: ${error.message}`,
-        'Run git status, repair the worktree if necessary, and retry singularity-flow doctor --performance.'));
-    }
+    performanceReport = await appendPerformanceCheck(checks, root, definition, workflow);
   }
   checks.push(check('working-tree', changes(root).trim() ? 'warn' : 'pass', changes(root).trim() ? 'Working tree has uncommitted changes.' : 'Working tree is clean.', changes(root).trim() ? 'Review git status before lifecycle publication.' : null));
   const remote = definition.git?.remote ?? 'origin';

@@ -42,10 +42,9 @@ import {
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
   configurationAssetPolicyFromRef, configurationTreeEntries,
   ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
-  remoteHasConfigurationBranch
 } from './configuration-branch.mjs';
 import { mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
-import { normalizeCloneStrategy } from './clone-strategy.mjs';
+import { classifyPartialCloneResult, normalizeCloneStrategy } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
@@ -53,6 +52,13 @@ import {
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
 } from './git-execution.mjs';
+import {
+  forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
+} from './lead-repositories.mjs';
+
+export {
+  forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
+};
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
@@ -203,7 +209,7 @@ function proposalAssetPolicy(root, ...refs) {
 }
 
 /** Recover a deleted review branch from its exact reviewed commit, when the remote still retains it. */
-function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
+async function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
   const commit = fullCommit(expectedCommit);
   if (!commit) return null;
   const ref = `refs/singularity/capability-proposal-recovery/${commit}`;
@@ -217,7 +223,7 @@ function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
     // GitHub and many office providers retain a just-merged review commit after deleting its source
     // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
     // recovery stays fail-closed rather than guessing from the target tree.
-    const recovered = runRemoteGit([
+    const recovered = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `${commit}:${ref}`
     ], { cwd: root, operation: 'remote-configuration' });
@@ -247,7 +253,14 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
-  if (!remoteHasConfigurationBranch(remote)) {
+  const session = new GitRemoteSession();
+  const configurationObservation = await session.observeAsync(remote, {
+    includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
+  });
+  const configurationHead = configurationBranchHead(remote, {
+    session, observation: configurationObservation
+  });
+  if (!configurationHead.reachable || !configurationHead.exists) {
     throw new SingularityFlowError(`'${sanitizeRemote(remote)}' has no '${CONFIGURATION_BRANCH}' branch. Map the first capability to initialize its configuration authority.`, {
       code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
       details: capabilityRecovery({
@@ -262,7 +275,7 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
     // this branch plus the exact proposal ref fetched below is the complete review input.
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -277,13 +290,13 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
           })
         });
     }
-    const fetched = runRemoteGit(['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
       cwd: scratch, operation: 'remote-configuration'
     });
     const proposalRef = fetched.status === 0
       ? `refs/remotes/origin/${proposalBranch}`
-      : recoverMergedProposalRef(scratch, expectedCommit, proposalBranch);
+      : await recoverMergedProposalRef(scratch, expectedCommit, proposalBranch);
     if (!proposalRef) {
       throw new SingularityFlowError(
         `Capability proposal '${proposalBranch}' does not exist on '${sanitizeRemote(remote)}'. Refresh the proposal list before retrying.`, {
@@ -299,43 +312,6 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
   } finally {
     await removeTemporaryTree(scratch);
   }
-}
-
-/** Where the pointers live. Overridable so tests never touch a real machine's list. */
-export function leadRegistryFile() {
-  return process.env.SINGULARITY_FLOW_LEAD_REGISTRY
-    ?? path.join(os.homedir(), '.singularity-flow', 'leads.json');
-}
-
-/** The lead repositories this machine knows about, most recently used first. */
-export async function listLeadRepositories(file = leadRegistryFile()) {
-  let stored;
-  try { stored = readRecord('capability-lead-registry', await readJson(file)).record; }
-  catch (error) {
-    if (error?.message?.startsWith('Required file not found:')) return [];
-    throw error;
-  }
-  return Array.isArray(stored?.leads) ? stored.leads : [];
-}
-
-export async function rememberLeadRepository(url, file = leadRegistryFile()) {
-  const remote = String(url ?? '').trim();
-  if (!remote) return listLeadRepositories(file);
-  const existing = await listLeadRepositories(file);
-  const leads = [
-    { url: remote, usedAt: new Date().toISOString() },
-    ...existing.filter((lead) => lead.url !== remote)
-  ].slice(0, 20);
-  await mkdir(path.dirname(file), { recursive: true });
-  await atomicJson(file, { schemaVersion: currentSchemaVersion('capability-lead-registry'), leads });
-  return leads;
-}
-
-export async function forgetLeadRepository(url, file = leadRegistryFile()) {
-  const leads = (await listLeadRepositories(file)).filter((lead) => lead.url !== url);
-  await mkdir(path.dirname(file), { recursive: true });
-  await atomicJson(file, { schemaVersion: currentSchemaVersion('capability-lead-registry'), leads });
-  return leads;
 }
 
 /** One private cache file per lead URL; overridable so tests never touch a developer's cache. */
@@ -408,10 +384,17 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   const baseBranch = CONFIGURATION_BRANCH;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
   try {
-    const cloned = runRemoteGit([
+    const clone = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--branch', baseBranch, remote, scratch
+      ...(filtered ? ['--filter=blob:none'] : []), '--branch', baseBranch, remote, scratch
     ], { operation: 'remote-configuration' });
+    let cloned = await clone(true);
+    if (cloned.status !== 0
+      && classifyPartialCloneResult(cloned).kind === 'filter-rejected') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability proposal.`, {
@@ -453,7 +436,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
     // commit that is not pushed is a commit that never existed. This deliberately targets only a
     // new review branch. The approved configuration and orphan state branches remain unchanged.
-    const pushed = runRemoteGit([
+    const pushed = await runRemoteGitAsync([
       'push', '--porcelain', `--force-with-lease=refs/heads/${reviewBranch}:`, 'origin',
       `HEAD:refs/heads/${reviewBranch}`
     ], { cwd: scratch, operation: 'remote-push' });
@@ -519,22 +502,6 @@ function selectedDefaultBranch(observed) {
     ?? null;
 }
 
-function observedDefaultBranch(url, session = new GitRemoteSession(), observation = null) {
-  const observed = observation ?? session.observe(url, { includeHead: true });
-  requireRemoteObservation(observed, `capability repository '${sanitizeRemote(url)}'`);
-  if (observed.defaultBranch) return observed.defaultBranch;
-  const fallback = session.observe(url, { includeHead: true, includeAllHeads: true });
-  requireRemoteObservation(fallback, `capability repository '${sanitizeRemote(url)}'`);
-  const branch = selectedDefaultBranch(fallback);
-  if (branch) return branch;
-  throw new SingularityFlowError(
-    `Capability repository '${sanitizeRemote(url)}' has no advertised default or application branch. Create and publish its initial branch before mapping it.`, {
-      code: 'CAPABILITY_REPOSITORY_DEFAULT_BRANCH_UNKNOWN',
-      details: { remote: sanitizeRemote(url), recoverable: true }
-    }
-  );
-}
-
 async function observedDefaultBranchAsync(url, session, observation = null) {
   const observed = observation ?? await session.observeAsync(url, { includeHead: true });
   requireRemoteObservation(observed, `capability repository '${sanitizeRemote(url)}'`);
@@ -559,7 +526,7 @@ async function leadApplicationBranch(root, url, session = new GitRemoteSession()
     const branch = typeof declared === 'string' ? declared.trim() : '';
     if (branch && branch !== CONFIGURATION_BRANCH) return branch;
   }
-  return observedDefaultBranch(url, session, observation);
+  return observedDefaultBranchAsync(url, session, observation);
 }
 
 /**
@@ -582,7 +549,7 @@ async function repairLeadDefaultBranch(
   const id = repositoryIdFromUrl(url);
   const document = YAML.parseDocument(await readFile(file, 'utf8'));
   if (String(document.getIn(['repositories', id, 'defaultBranch']) ?? '') !== CONFIGURATION_BRANCH) return;
-  document.setIn(['repositories', id, 'defaultBranch'], observedDefaultBranch(
+  document.setIn(['repositories', id, 'defaultBranch'], await observedDefaultBranchAsync(
     url, session, observation
   ));
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
@@ -613,7 +580,7 @@ async function loadCapabilityStateSnapshot(remote, branch, commit) {
   // the same complete-file, digest, Git-identity, source-commit, and operational-definition gates.
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-custom-state-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--depth', '1', '--filter=blob:none', '--branch', branch, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -681,7 +648,7 @@ async function loadCapabilityStateSnapshot(remote, branch, commit) {
 
 /** Read and completely verify the state-branch configuration mirror without moving a checkout. */
 async function capabilityMapFromState(remote, branch = 'state') {
-  const observed = new GitRemoteSession().observe(remote, {
+  const observed = await new GitRemoteSession().observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${branch}`]
   });
   if (!observed.ok) {
@@ -736,7 +703,13 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   });
   const branch = CONFIGURATION_BRANCH;
   const cached = await readOrganisationCache(remote);
-  const tip = configurationBranchHead(remote);
+  const session = new GitRemoteSession();
+  const configurationObservation = await session.observeAsync(remote, {
+    includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
+  });
+  const tip = configurationBranchHead(remote, {
+    session, observation: configurationObservation
+  });
   if (!tip.reachable) {
     if (cached) {
       return {
@@ -780,7 +753,7 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--filter=blob:none', '--no-checkout', '--branch', branch, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -1182,7 +1155,7 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     };
     // Retire configuration paths removed by the reviewed commit without touching runtime roots.
     const remoteRef = `refs/remotes/${ledger.remote}/${ledger.branch}`;
-    const stateFetch = runRemoteGit([
+    const stateFetch = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
       `+refs/heads/${ledger.branch}:${remoteRef}`
     ], { cwd: root, operation: 'remote-configuration' });
@@ -1257,7 +1230,14 @@ export async function publishOrganisationCapabilityMap(url) {
     })
   });
   const baseBranch = CONFIGURATION_BRANCH;
-  if (!remoteHasConfigurationBranch(remote)) {
+  const session = new GitRemoteSession();
+  const configurationObservation = await session.observeAsync(remote, {
+    includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
+  });
+  const configurationHead = configurationBranchHead(remote, {
+    session, observation: configurationObservation
+  });
+  if (!configurationHead.reachable || !configurationHead.exists) {
     throw new SingularityFlowError(
       `Cannot publish capabilities because '${sanitizeRemote(remote)}' has no '${CONFIGURATION_BRANCH}' branch. Activate a reviewed proposal first.`, {
         code: 'CAPABILITY_CONFIGURATION_BRANCH_MISSING',
@@ -1270,7 +1250,7 @@ export async function publishOrganisationCapabilityMap(url) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--filter=blob:none', '--branch', baseBranch, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -1308,7 +1288,7 @@ export async function listCapabilityProposals(url, {
     })
   });
   const session = new GitRemoteSession();
-  const advertised = session.observe(remote, {
+  const advertised = await session.observeAsync(remote, {
     includeHead: false,
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`]
   });
@@ -1335,7 +1315,7 @@ export async function listCapabilityProposals(url, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
   try {
-    const cloned = runRemoteGit([
+    const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, remote, scratch
     ], { operation: 'remote-configuration' });
@@ -1344,7 +1324,7 @@ export async function listCapabilityProposals(url, {
         code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE'
       });
     }
-    const fetched = runRemoteGit([
+    const fetched = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`
     ], { cwd: scratch, operation: 'remote-configuration' });
@@ -1706,7 +1686,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
   }
 
   const targetRef = `refs/heads/${proposalBranch}`;
-  const deleted = runRemoteGit([
+  const deleted = await runRemoteGitAsync([
     'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
     remote, `:${targetRef}`
   ], { operation: 'remote-push' });
@@ -1722,7 +1702,7 @@ export async function discardStaleCapabilityProposal(url, branch, {
       }
     );
   }
-  const observed = new GitRemoteSession().observe(remote, {
+  const observed = await new GitRemoteSession().observeAsync(remote, {
     includeHead: false, refs: [targetRef], refresh: true
   });
   if (!observed.ok || observed.refs.has(targetRef)) {
@@ -1921,7 +1901,7 @@ export async function activateCapabilityProposal(url, branch, {
           );
         }
         const proposedMergeCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-        let pushed = runRemoteGit([
+        let pushed = await runRemoteGitAsync([
           'push', '--porcelain',
           `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${targetBefore}`,
           'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
@@ -1940,7 +1920,7 @@ export async function activateCapabilityProposal(url, branch, {
           // actor acquires the old->new transition around receive-pack. Re-read the exact authority
           // in both cases. Matching bytes are an external merge, never a direct activation by this
           // reviewer; any other result takes the ordinary recoverable failure path.
-          const authority = new GitRemoteSession().observe(remote, {
+          const authority = await new GitRemoteSession().observeAsync(remote, {
             includeHead: false, refs: [targetRef], refresh: true
           });
           if (authority.ok && authority.refs.get(targetRef) === proposedMergeCommit) {
@@ -2203,10 +2183,14 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
   const repositories = organisation.repositories ?? {};
   const entries = Object.entries(repositories).filter(([, declared]) => Boolean(declared?.url));
   const workers = Math.max(1, Math.min(4, entries.length || 1));
+  // One session is deliberately shared by the whole readiness operation. Apart from coalescing
+  // identical remotes, this makes the worker limit real: the old synchronous `observe` blocked the
+  // event loop inside each worker, so four repositories paid four serial office-proxy delays before
+  // their fetches could become concurrent.
+  const session = new GitRemoteSession();
   const resolved = await mapLimit(entries, workers, async ([id, declared]) => {
     const url = declared?.url;
-    const session = new GitRemoteSession();
-    const advertised = session.observe(url, { includeHead: false, includeAllHeads: true });
+    const advertised = await session.observeAsync(url, { includeHead: false, includeAllHeads: true });
     const refs = advertised.refs;
     const hasState = advertised.ok && refs.has(`refs/heads/${stateBranch}`);
     const defaultBranch = declared.defaultBranch ?? 'main';

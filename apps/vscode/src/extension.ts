@@ -66,14 +66,13 @@ import {
   activeRepositoryContext, gatewaySession, provideAcknowledgedAt, provideHomeLens,
   resetGatewaySession, setActiveRepositoryContext, type ActiveRepositoryContext, type GatewayRepositoryContext
 } from './gateway-session.ts';
-import { primaryAction } from '../../../src/gateway/result.mjs';
-import { planDeveloperConversation } from '../../../src/gateway/conversation.mjs';
 import { latestWorkspaceBootstrap } from '../../../src/workspace-bootstrap.mjs';
 import { readRecord } from '../../../src/schema-migrations.mjs';
 import { registerSflowChat } from './sflow-chat.ts';
 import { recordHelpMetric } from '../../../src/help-metrics.mjs';
 import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
+import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -282,6 +281,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const requestedHome = lastHome;
     try {
       const { kernel } = gatewaySession(requestedHome.route);
+      const { planDeveloperConversation } = await import('../../../src/gateway/conversation.mjs');
       const conversation = planDeveloperConversation(request);
       const currentWork = requestedHome.envelope.data?.currentWork ?? requestedHome.envelope.data?.activeWork ?? null;
       const workOperations = new Set(['work.continue', 'work.return', 'work.readiness', 'review.packet']);
@@ -2237,6 +2237,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // binding rather than the value, so they all follow — which is the point: choosing a workspace
   // used to require a window reload precisely because this was a constant.
   let { repository } = resolved;
+  const repositoryEpoch = new RepositoryEpochGuard(repository);
   const { origin } = resolved;
   setActiveRepositoryContext({
     root: repository,
@@ -2371,13 +2372,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * treated as no cache at all. A stale-cache bug must degrade to today's behaviour, never to a
    * broken sidebar.
    */
-  const snapshotCacheKey = `snapshot:${repository}`;
+  // `repository` is deliberately rebound by workspace selection. Resolve the key at each access so
+  // a window that moves A -> B -> A never reads or overwrites another repository's last snapshot.
+  const snapshotCacheKey = (): string => `snapshot:${repository}`;
   const snapshotCache = {
     read: (): RepositorySnapshot | null => {
-      try { return context.workspaceState.get<RepositorySnapshot>(snapshotCacheKey) ?? null; }
+      try { return context.workspaceState.get<RepositorySnapshot>(snapshotCacheKey()) ?? null; }
       catch { return null; }
     },
-    write: (snapshot: RepositorySnapshot): void => { void context.workspaceState.update(snapshotCacheKey, snapshot); }
+    write: (snapshot: RepositorySnapshot): void => {
+      void context.workspaceState.update(snapshotCacheKey(), snapshot);
+    }
   };
 
   const store = new WorkspaceStore(client, snapshotCache);
@@ -2406,8 +2411,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     warnings: string[];
   }
   const refreshWorkspaceLogsTree = async (): Promise<void> => {
+    const scope = repositoryEpoch.capture();
     try {
       const report = await client.run<WorkspaceLogsSummary>(['logs', 'workspace', '--limit', '500', '--json']);
+      if (!repositoryEpoch.isCurrent(scope)) return;
       const errors = report.entries.filter((entry) => entry.severity === 'error').length;
       const warnings = report.entries.filter((entry) => entry.severity === 'warn').length;
       const latest = report.entries[0]?.timestamp;
@@ -2424,6 +2431,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         icon: 'waiting', runCommand: 'singularityFlow.openWorkspaceLogs'
       }]);
     } catch (error) {
+      if (!repositoryEpoch.isCurrent(scope)) return;
       logsTree.replace([{
         kind: 'action', id: 'logs:error', label: 'Workspace logs unavailable',
         description: 'open for details', tooltip: (error as Error).message,
@@ -2477,16 +2485,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let readiness: CapabilityReadiness = {};
   let configurationTree: LifecycleTreeProvider | null = null;
   const refreshReadiness = async (force = false): Promise<void> => {
+    const scope = repositoryEpoch.capture();
     try {
       const leads = await client.run<{ url?: string }[]>(['capability', 'leads', '--json']);
+      if (!repositoryEpoch.isCurrent(scope)) return;
       const url = leads.find((lead) => lead.url)?.url;
       if (!url) return;
       const organisation = await client.run<{ readiness?: CapabilityReadiness }>(
         ['capability', 'organisation', url, '--readiness', ...(force ? ['--refresh'] : []), '--json']);
+      if (!repositoryEpoch.isCurrent(scope)) return;
       if (!organisation.readiness) return;
       readiness = organisation.readiness;
       configurationTree?.refresh();
     } catch (error) {
+      if (!repositoryEpoch.isCurrent(scope)) return;
       output.appendLine(`Capability readiness could not be read: ${(error as Error).message}`);
     }
   };
@@ -2503,8 +2515,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sidebar.bind('lifecycle', tree);
   sidebar.bind('inbox', inboxTree);
   sidebar.bind('configuration', configurationTree);
-  void refreshReadiness();
-  void refreshWorkspaceLogsTree();
+  // Readiness may touch a remote and logs load a second legacy CLI process. Neither may compete
+  // with the initial snapshot that establishes which repository and Story this window represents.
+  // A failed initial read leaves these deferred; the first later confirmed snapshot starts them.
+  let initialRefreshCompleted = false;
+  let auxiliaryEpoch = -1;
+  const startAuxiliaryReadsAfterConfirmedSnapshot = (forceReadiness = false): void => {
+    const state = store.current;
+    if (!initialRefreshCompleted || state.stale || state.error || !state.snapshot) return;
+    const scope = repositoryEpoch.capture();
+    if (!forceReadiness && auxiliaryEpoch === scope.epoch) return;
+    auxiliaryEpoch = scope.epoch;
+    void refreshReadiness(forceReadiness);
+    void refreshWorkspaceLogsTree();
+  };
+  context.subscriptions.push(store.onDidChange((state, change) => {
+    if (change.kind !== 'snapshot' || state.stale || state.error || !state.snapshot) return;
+    startAuxiliaryReadsAfterConfirmedSnapshot();
+  }));
 
   /**
    * The readiness gates for one work item, or null when they cannot be read.
@@ -2512,15 +2540,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Null rather than zeros: "no gates" and "we could not ask" are different facts, and a status bar
    * that renders `gates 0/0` on a failed read is asserting the first while meaning the second.
    */
-  const gateCountFor = async (workId: string) => {
+  const gateCountFor = async (workId: string, scope: RepositoryEpochToken) => {
+    if (!repositoryEpoch.isCurrent(scope)) return null;
     const active = activeRepositoryContext();
-    if (!active) return null;
+    if (!active || path.resolve(active.root) !== scope.repository) return null;
     try {
       const { kernel } = gatewaySession(active);
       // The registered phrase, not a word that looks like the operation's name.
       const resolution = await kernel.resolve({ utterance: 'am I ready', arguments: { workId } });
+      if (!repositoryEpoch.isCurrent(scope)) return null;
       if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
-      return gateSummary(await kernel.read({ resolutionId: resolution.next[0].handle }));
+      const gates = gateSummary(await kernel.read({ resolutionId: resolution.next[0].handle }));
+      if (!repositoryEpoch.isCurrent(scope)) return null;
+      return gates;
     } catch {
       return null;
     }
@@ -2544,15 +2576,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * surfaces that each decide what is most important will eventually disagree about it, and the one
    * that is always visible is the one a reader trusts.
    */
-  const homeChromeFor = async () => {
+  const homeChromeFor = async (scope: RepositoryEpochToken) => {
+    if (!repositoryEpoch.isCurrent(scope)) return null;
     const active = activeRepositoryContext();
-    if (!active) return null;
+    if (!active || path.resolve(active.root) !== scope.repository) return null;
     try {
       const { kernel } = gatewaySession(active);
       const resolution = await kernel.resolve({ utterance: 'home' });
+      if (!repositoryEpoch.isCurrent(scope)) return null;
       if (resolution.kind !== 'read' || resolution.next.length !== 1) return null;
       const envelope = await kernel.read({ resolutionId: resolution.next[0].handle });
+      if (!repositoryEpoch.isCurrent(scope)) return null;
       const recovery = (envelope.why ?? []).find((entry: { code: string }) => entry.code === 'home.recovery-required');
+      const { primaryAction } = await import('../../../src/gateway/result.mjs');
+      if (!repositoryEpoch.isCurrent(scope)) return null;
       return {
         recoveryWorkId: recovery?.slots?.work ?? null,
         decisions: Number(envelope.data?.needsYourDecision ?? 0),
@@ -2589,6 +2626,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase}`;
       status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`;
       status.show();
+      // Cached content is useful first paint, but it is not authority for new repository reads.
+      // Invalidate late work from the previous Story immediately and wait for the confirmed
+      // snapshot before launching the two kernel derivations below.
+      statusWorkId = workflow.workItem.id;
+      if (state.stale) return;
       /**
        * The gate count, from the same derivation the card uses. `[UXH:AC-002]`
        *
@@ -2602,11 +2644,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        * count that arrives late is worth having; a status bar that waits for it is not.
        */
       const renderedFor = workflow.workItem.id;
+      const renderedScope = repositoryEpoch.capture();
       statusWorkId = renderedFor;
-      void gateCountFor(renderedFor).then((gates) => {
+      void gateCountFor(renderedFor, renderedScope).then((gates) => {
         // Discard a count that arrived after the reader moved on: a gate total from the previous
         // Story rendered beside the current one is worse than no count at all.
-        if (!gates || statusWorkId !== renderedFor) return;
+        if (!gates || statusWorkId !== renderedFor || !repositoryEpoch.isCurrent(renderedScope)) return;
         status.text = `$(git-pull-request) ${workflow.workItem.id} · ${phase} · gates ${gates.met}/${gates.total}`;
         status.tooltip = `${where}${workflow.workItem.title ?? 'Governed Story workflow'}`
           + `\n${gates.unmet} unmet, ${gates.outstanding - gates.unmet} not evaluated`;
@@ -2621,8 +2664,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        * half-finished publication is the state where doing anything else first can lose work, and
        * appending it to "WRK-1978 · implement" would put it at the same weight as the phase name.
        */
-      void homeChromeFor().then((home) => {
-        if (!home || statusWorkId !== renderedFor) return;
+      void homeChromeFor(renderedScope).then((home) => {
+        if (!home || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== renderedFor) return;
         if (home.recoveryWorkId) {
           status.text = `$(warning) ${home.recoveryWorkId} · finish publishing`;
           status.tooltip = `${where}A publication was interrupted and is not finished.`
@@ -2653,14 +2696,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
        * being told they are the blocker is most useful.
        */
       statusWorkId = null;
-      void homeChromeFor().then((home) => {
-        if (!home?.decisions || statusWorkId !== null) return;
+      if (state.stale) return;
+      const renderedScope = repositoryEpoch.capture();
+      void homeChromeFor(renderedScope).then((home) => {
+        if (!home?.decisions || !repositoryEpoch.isCurrent(renderedScope) || statusWorkId !== null) return;
         status.text = `$(person) ${where}${home.decisions} waiting on you`;
         status.tooltip = `${home.decisions} decision(s) are waiting on you.`
           + '\nNothing governed is checked out on this branch.';
       });
       return;
     }
+    statusWorkId = null;
     const phase = initiative.state.currentPhase ?? 'complete';
     status.text = `$(rocket) ${initiative.state.initiative.id} · ${phase}`;
     status.tooltip = initiative.nextActions?.[0]?.reason ?? 'Singularity Flow';
@@ -2680,36 +2726,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   workspaceSelected.push(async (selected) => {
     const target = path.resolve(selected.repositoryPath);
+    let canonicalTarget: string;
     try {
-      await validateRepositoryDirectory(target, { signal: extensionLifetime.signal });
+      canonicalTarget = await validateRepositoryDirectory(target, { signal: extensionLifetime.signal });
     } catch (error) {
       void vscode.window.showWarningMessage(
         `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
       return;
     }
-    repository = target;
-    client.useRepository(target);
-    watchGovernedRepository(target);
+    repositoryEpoch.moved(canonicalTarget);
+    repository = canonicalTarget;
+    client.useRepository(canonicalTarget);
+    watchGovernedRepository(canonicalTarget);
     workspaceLabel = selected.workspaceName;
     lastHome = null;
     setActiveRepositoryContext({
-      root: target,
+      root: canonicalTarget,
       workspaceId: selected.workspaceId,
       workspaceName: selected.workspaceName,
       repositoryId: selected.repositoryId,
-      leadRepositoryPath: await workspaceLeadDirectory(selected.workspacePath) ?? target,
+      leadRepositoryPath: await workspaceLeadDirectory(selected.workspacePath) ?? canonicalTarget,
       origin: `the selected repository of your active workspace, ${selected.workspaceName}`
     });
     readiness = {};
+    statusWorkId = null;
+    // Publish B's cache only after every repository-aware closure points at B. Store listeners may
+    // render synchronously; none of them may observe B data through A's gateway/session context.
+    store.repositoryChanged();
     await store.refresh();
     diagnosticHasRepository = true;
-    diagnosticClient.useRepository(target);
+    diagnosticClient.useRepository(canonicalTarget);
     const [{ GoalsPanel }, { FaultRepairsPanel }, { JournalPanel }, { DiagnosticsPanel }, { AstIntelligencePanel }] = await Promise.all([
       import('./views/goals.ts'), import('./views/fault-repairs.ts'), import('./views/journal.ts'), import('./views/diagnostics.ts'), import('./views/ast-intelligence.ts')
     ]);
     GoalsPanel.repositoryChanged(); FaultRepairsPanel.repositoryChanged(); JournalPanel.repositoryChanged(); DiagnosticsPanel.refreshCurrent(); AstIntelligencePanel.repositoryChanged();
-    void refreshReadiness();
-    void refreshWorkspaceLogsTree();
+    startAuxiliaryReadsAfterConfirmedSnapshot();
     output.appendLine(`Governed repository: ${repository} (the selected repository of your active workspace, ${selected.workspaceName})`);
   });
 
@@ -3503,7 +3554,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
     const { CapabilitiesPanel } = await import('./views/capabilities.ts');
-    const panel = CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
     if (message.type === 'review-proposals') {
       await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
       return;
@@ -3795,9 +3846,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   const openConfigurationCenter = async (tab: ConfigurationTab = 'overview'): Promise<void> => {
-    await store.ensureSlices(['configuration', 'integrations']);
     const { ConfigurationCenterPanel } = await import('./views/configuration-center.ts');
-    ConfigurationCenterPanel.show(context, store, () => {
+    await ConfigurationCenterPanel.show(context, store, () => {
       const settings = vscode.workspace.getConfiguration('singularityFlow');
       return {
         name: settings.get<string>('userName') ?? '',
@@ -3818,7 +3868,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const registered: Record<string, (...args: never[]) => unknown> = {
     'singularityFlow.openCapabilities':
       async () => {
-        await store.ensureSlices(['configuration', 'diagnostics']);
         const { CapabilitiesPanel } = await import('./views/capabilities.ts');
         return CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       },
@@ -3837,7 +3886,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
     'singularityFlow.openApprovals':
       async () => {
-        await store.ensureSlices(['configuration']);
         const { ApprovalsPanel } = await import('./views/approvals.ts');
         return ApprovalsPanel.show(context, store, (message) => { void onApprovalsMessage(message); });
       },
@@ -3962,7 +4010,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.showImpact': () => showImpact(client, output),
     'singularityFlow.openDashboard': async () => {
-      await store.ensureSlices(['configuration', 'integrations', 'diagnostics']);
       const { DashboardPanel } = await import('./views/dashboard.ts');
       return DashboardPanel.show(context, store);
     },
@@ -4098,7 +4145,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
     'singularityFlow.openDesigner': async () => {
-      await store.ensureSlices(['configuration']);
       const { DesignerPanel } = await import('./views/designer.ts');
       const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
         try {
@@ -4244,7 +4290,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }[]>(['workflow', 'proposals', '--json']));
     },
     'singularityFlow.openInstructionDesigner': async () => {
-      await store.ensureSlices(['configuration']);
       const { InstructionDesignerPanel } = await import('./views/instruction-designer.ts');
       return InstructionDesignerPanel.show(context, store, async (message) => {
       if (message.type === 'agent-action') {
@@ -4297,7 +4342,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
     'singularityFlow.configureAstIntelligence': async () => {
-      await store.ensureSlices(['configuration']);
       const { AstIntelligencePanel } = await import('./views/ast-intelligence.ts');
       return AstIntelligencePanel.show(context, client, store);
     },
@@ -4447,7 +4491,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }) as never,
     'singularityFlow.editCapability': (async (node?: TreeNode) => {
       const { CapabilitiesPanel } = await import('./views/capabilities.ts');
-      const panel = CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
+      const panel = await CapabilitiesPanel.show(context, store, (message) => { void onCapabilitiesMessage(message); });
       const capability = capabilityIdOf(node);
       if (capability) panel.focus(capability);
     }) as never
@@ -4462,6 +4506,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // sidebar is empty for the whole of that second, on every single open.
   store.primeFromCache();
   await store.refresh();
+  initialRefreshCompleted = true;
+  startAuxiliaryReadsAfterConfirmedSnapshot();
   const pendingStartWizard = context.globalState.get<PendingStartWizard | null>(START_WIZARD_KEY, null);
   if (pendingStartWizard?.step === 'work' && pendingStartWizard.resumeOnActivation) {
     // Clear only the auto-resume bit before opening the form. A second reload must not repeatedly

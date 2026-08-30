@@ -89,6 +89,15 @@ test('every contributed view can wake the extension', () => {
   assert.deepEqual(missing, [], `${missing.join(', ')} cannot wake the extension`);
 });
 
+test('activation is scoped to Singularity Flow rather than every generic workspace manifest', () => {
+  const workspaceMarkers = activation.filter((event) => event.startsWith('workspaceContains:'));
+  assert.deepEqual(workspaceMarkers, ['workspaceContains:singularity/workflow.yml']);
+  assert.equal(activation.includes('workspaceContains:workspace.json'), false,
+    'an unrelated project-level workspace.json must not activate Singularity Flow');
+  assert.ok(activation.includes('onView:singularityFlow.navigation'),
+    'an SFlow workspace root without a checked-out repository must still activate when its navigation opens');
+});
+
 test('every contributed command is registered somewhere in activation', () => {
   // A contributed command with no registerCommand is offered by the palette and answers "command
   // not found" — a sentence about the extension's internals rather than about the repository.

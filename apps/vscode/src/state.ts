@@ -7,9 +7,10 @@
  * governance state is not a cosmetic problem: a tree saying "approved" beside a panel saying
  * "awaiting approval" is worse than either being briefly stale.
  *
- * So there is exactly one in-flight refresh and everyone waits on it. A refresh requested while one
- * is running is coalesced into one follow-up; paid work is not aborted and an older answer is never
- * published over the newer request.
+ * So there is exactly one in-flight refresh per selected repository and everyone waits on it. A
+ * refresh requested while one is running is coalesced into one follow-up; paid work is not aborted
+ * unless the selected repository changes, and an older answer is never published over the newer
+ * request.
  */
 import { CORE_SNAPSHOT_SLICES, type SingularityFlowClient } from './cli/client.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './cli/snapshot.ts';
@@ -109,6 +110,40 @@ export class WorkspaceStore {
     return true;
   }
 
+  /**
+   * Invalidate every repository-bound answer before the shared client is refreshed elsewhere.
+   *
+   * A VS Code window can move from repository A to B without reloading. Keeping A's snapshot here
+   * made B's first request carry A's subject revision and let A remain visible until that request
+   * completed. The injected cache resolves its key from the currently selected repository, so this
+   * reset can immediately paint B's own cached answer while making any in-flight A generation
+   * ineligible for publication.
+   */
+  repositoryChanged(): boolean {
+    this.refreshGeneration += 1;
+    this.forceFullSnapshot = true;
+    // A snapshot for repository A is not useful work for repository B. Detach it before the caller
+    // starts B's refresh so B never queues behind a slow or uncooperative A process. Aborting is a
+    // best-effort cancellation; the identity guards in refresh() make a late A completion unable to
+    // clear B's controller/flight after B has already started.
+    const previousController = this.controller;
+    this.controller = null;
+    this.inFlight = null;
+    previousController?.abort();
+    let cached: RepositorySnapshot | null = null;
+    try { cached = this.cache?.read() ?? null; } catch { /* A broken cache is simply empty. */ }
+    if (cached) {
+      this.publish({ snapshot: cached, error: null, loading: this.inFlight !== null, stale: true }, {
+        kind: 'cache', revisionChanged: true
+      });
+      return true;
+    }
+    this.publish({ snapshot: null, error: null, loading: this.inFlight !== null, stale: false }, {
+      kind: 'snapshot', revisionChanged: true
+    });
+    return false;
+  }
+
   get current(): WorkspaceState { return this.state; }
 
   onDidChange(listener: StateListener): { dispose(): void } {
@@ -133,6 +168,14 @@ export class WorkspaceStore {
       added = true;
     }
     if (added) this.forceFullSnapshot = true;
+    // A second panel can request the same slice while the first panel's expansion is still in
+    // flight. The slice is already in `loadedSlices`, but its bytes are not publishable yet. Wait
+    // for that exact coalesced read instead of opening the second panel against the smaller core
+    // projection, and do not increment the generation (which would buy an unnecessary follow-up).
+    if (!added && this.inFlight) {
+      await this.inFlight;
+      return false;
+    }
     if (added || !this.state.snapshot) {
       await this.refresh();
       return true;
@@ -143,10 +186,10 @@ export class WorkspaceStore {
   /**
    * Keep heavyweight read-model slices only while a surface is using them.
    *
-   * Older panels use `ensureSlices` and retain their historical behaviour. New heavy surfaces use
-   * this lease so closing the panel stops future refreshes from paying for its domain. SGOS is also
-   * removed from the in-memory/cache projection immediately because it has a single, isolated
-   * snapshot key; no authority is changed by releasing a read projection.
+   * A transient command preflight may still use `ensureSlices`; heavyweight panels use this lease
+   * so closing the last panel stops future refreshes from paying for its domain. SGOS is also removed
+   * from the in-memory/cache projection immediately because it has a single, isolated snapshot key;
+   * no authority is changed by releasing a read projection.
    */
   async acquireSlices(slices: readonly SnapshotSlice[]): Promise<{ dispose(): void }> {
     const unique = [...new Set(slices)];
@@ -300,10 +343,11 @@ export class WorkspaceStore {
       const controller = new AbortController();
       this.controller = controller;
       const active = this.refreshLoop(controller);
-      this.inFlight = active.finally(() => {
+      const flight = active.finally(() => {
         if (this.controller === controller) this.controller = null;
-        this.inFlight = null;
+        if (this.inFlight === flight) this.inFlight = null;
       });
+      this.inFlight = flight;
     }
     await this.inFlight;
   }

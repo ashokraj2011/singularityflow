@@ -13,6 +13,7 @@ import {
 import {
   instructionDesignerHtml, INSTRUCTION_DESIGNER_SCRIPT, type InstructionDesignerView
 } from './instruction-designer-page.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 export type InstructionDesignerMessage =
   | { type: 'save'; path: string; content: string }
@@ -31,7 +32,9 @@ export class InstructionDesignerPanel {
   private static current: InstructionDesignerPanel | null = null;
   private readonly panel: vscode.WebviewPanel;
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private tab: InstructionTab = 'agents';
   private selectedPath: string | null = null;
   private agent: AgentDraft | null = null;
@@ -43,10 +46,15 @@ export class InstructionDesignerPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     private readonly store: WorkspaceStore,
-    private readonly onMessage: (message: InstructionDesignerMessage) => Promise<string | null>
+    private readonly onMessage: (message: InstructionDesignerMessage) => Promise<string | null>,
+    private readonly lease: { dispose(): void }
   ) {
     this.panel = panel;
-    this.subscription = store.onDidChange(() => this.render());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.render()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
     panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -55,30 +63,46 @@ export class InstructionDesignerPanel {
       void this.receive(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
   }
 
-  static show(
+  static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: InstructionDesignerMessage) => Promise<string | null>
-  ): InstructionDesignerPanel {
+  ): Promise<InstructionDesignerPanel> {
     if (InstructionDesignerPanel.current) {
       InstructionDesignerPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return InstructionDesignerPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.instructionDesigner', 'Agents, prompts & skills', vscode.ViewColumn.Active,
-      // Pinned like every other panel. Omitting it falls back to the extension root plus every
-      // workspace folder, which widens what `webview.cspSource` can address — one copy of the
-      // posture, not one copy per panel that remembers.
-      {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-      }
-    );
-    InstructionDesignerPanel.current = new InstructionDesignerPanel(panel, store, onMessage);
+    const lease = await store.acquireSlices(['configuration']);
+    const raced = InstructionDesignerPanel.current as InstructionDesignerPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel(
+        'singularityFlow.instructionDesigner', 'Agents, prompts & skills', vscode.ViewColumn.Active,
+        // Pinned like every other panel. Omitting it falls back to the extension root plus every
+        // workspace folder, which widens what `webview.cspSource` can address — one copy of the
+        // posture, not one copy per panel that remembers.
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        }
+      );
+      InstructionDesignerPanel.current = new InstructionDesignerPanel(panel, store, onMessage, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     return InstructionDesignerPanel.current;
   }
 
@@ -203,6 +227,7 @@ export class InstructionDesignerPanel {
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const catalog = this.catalog();
     if (!catalog) {
       const token = nonce();
@@ -219,7 +244,11 @@ export class InstructionDesignerPanel {
   }
 
   private dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.subscription.dispose(); this.disposables.forEach((item) => item.dispose());
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
     InstructionDesignerPanel.current = null;
   }
 }

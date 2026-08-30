@@ -26,7 +26,7 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
 const {
   invokeCli, CliError, CliTimeoutError, terminalCommand, validateRepositoryDirectory,
-  UninitializedRepositoryError, RepositoryAuthorityUnavailableError
+  localGit, remoteGit, UninitializedRepositoryError, RepositoryAuthorityUnavailableError
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
@@ -71,6 +71,34 @@ function fakeSpawn({ stdout = '', stderr = '', code = 0, delayMs = 0 } = {}) {
     child.kill = () => { child.killed = true; clearTimeout(timer); setTimeout(close, 10); return true; };
     return child;
   };
+}
+
+/** A child that closes only after termination, or deliberately never closes. */
+function terminationHarness(closeAfterKillMs) {
+  const children = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end() {} };
+    child.signals = [];
+    child.closed = false;
+    let closeScheduled = false;
+    child.kill = (signal) => {
+      child.signals.push(signal);
+      if (closeAfterKillMs != null && !closeScheduled) {
+        closeScheduled = true;
+        setTimeout(() => {
+          child.closed = true;
+          child.emit('close', null);
+        }, closeAfterKillMs);
+      }
+      return true;
+    };
+    children.push(child);
+    return child;
+  };
+  return { children, spawnImpl };
 }
 
 const invoke = (overrides) => invokeCli({
@@ -275,6 +303,80 @@ test('an aborted run is killed and reports cancellation', async () => {
   await assert.rejects(pending, /cancelled/);
 });
 
+test('Git and CLI cancellation report only after process-tree close', async () => {
+  const remote = terminationHarness(40);
+  const local = terminationHarness(40);
+  const command = terminationHarness(40);
+  const remoteController = new AbortController();
+  const localController = new AbortController();
+  const commandController = new AbortController();
+
+  let remoteReportedEarly = false;
+  let localReportedEarly = false;
+  let commandReportedEarly = false;
+  const remotePending = remoteGit(['ls-remote', 'origin'], {
+    cwd: process.cwd(), timeout: 30_000, signal: remoteController.signal, spawnImpl: remote.spawnImpl
+  }).then((result) => {
+    remoteReportedEarly = !remote.children[0].closed;
+    return result;
+  });
+  const localPending = localGit(['status'], {
+    cwd: process.cwd(), timeout: 30_000, signal: localController.signal, spawnImpl: local.spawnImpl
+  }).then((result) => {
+    localReportedEarly = !local.children[0].closed;
+    return result;
+  });
+  const commandPending = invoke({
+    signal: commandController.signal,
+    spawnImpl: command.spawnImpl
+  }).catch((error) => {
+    commandReportedEarly = !command.children[0].closed;
+    return error;
+  });
+
+  remoteController.abort();
+  localController.abort();
+  commandController.abort();
+  const [remoteResult, localResult, commandError] = await Promise.all([
+    remotePending, localPending, commandPending
+  ]);
+
+  assert.equal(remoteResult.failure, 'cancelled');
+  assert.equal(localResult.failure, 'cancelled');
+  assert.match(commandError.message, /cancelled/);
+  assert.equal(remoteReportedEarly, false);
+  assert.equal(localReportedEarly, false);
+  assert.equal(commandReportedEarly, false);
+});
+
+test('Git and CLI termination have a hard settlement deadline when close never arrives', async () => {
+  const remote = terminationHarness(null);
+  const local = terminationHarness(null);
+  const command = terminationHarness(null);
+  const startedAt = performance.now();
+
+  const [remoteResult, localResult, commandError] = await Promise.all([
+    remoteGit(['ls-remote', 'origin'], {
+      cwd: process.cwd(), timeout: 5, spawnImpl: remote.spawnImpl
+    }),
+    localGit(['status'], {
+      cwd: process.cwd(), timeout: 5, spawnImpl: local.spawnImpl
+    }),
+    invoke({ timeoutMs: 5, spawnImpl: command.spawnImpl }).catch((error) => error)
+  ]);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(remoteResult.failure, 'timeout');
+  assert.equal(localResult.failure, 'timeout');
+  assert.ok(commandError instanceof CliTimeoutError);
+  assert.ok(elapsedMs >= 1_500, `termination settled before its bounded cleanup window (${elapsedMs} ms)`);
+  assert.ok(elapsedMs < 3_500, `termination did not honor its hard settlement deadline (${elapsedMs} ms)`);
+  for (const harness of [remote, local, command]) {
+    assert.ok(harness.children[0].signals.includes('SIGTERM'));
+    assert.ok(harness.children[0].signals.includes('SIGKILL'));
+  }
+});
+
 test('a signal already aborted never spawns anything', async () => {
   const controller = new AbortController();
   controller.abort();
@@ -301,6 +403,39 @@ test('progress is reported per stream as it arrives', async () => {
     spawnImpl: fakeSpawn({ stdout: '{"ok":true}', stderr: 'building world model' })
   });
   assert.deepEqual(seen, [['stdout', '{"ok":true}'], ['stderr', 'building world model']]);
+});
+
+test('the VS Code client keeps structured stdout out of the Output channel', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-output-'));
+  const cli = path.join(directory, 'fake-cli.mjs');
+  await writeFile(cli, `
+    process.stderr.write('indexing repository\\n');
+    if (process.argv.includes('--prose')) process.stdout.write('visible prose');
+    else process.stdout.write(JSON.stringify({ ready: true, privatePayload: 'x'.repeat(1024 * 1024) }));
+  `);
+  const seen = [];
+  const client = new SingularityFlowClient({
+    location: { executable: process.execPath, cli, source: 'setting' },
+    repository: directory,
+    onOutput: (text, stream) => seen.push([stream, text])
+  });
+  try {
+    const result = await client.run(['status', '--json']);
+    assert.equal(result.privatePayload.length, 1024 * 1024, 'suppressing display changed parsed data');
+    const rendered = seen.map(([, text]) => text).join('');
+    assert.match(rendered, /indexing repository/);
+    assert.match(rendered, /\[Singularity Flow timing\]/);
+    assert.doesNotMatch(rendered, /privatePayload|"ready"/,
+      'structured stdout was copied into the Output channel');
+    assert.ok(rendered.length < 4_096, `Output channel received ${rendered.length} bytes for a JSON read`);
+
+    seen.length = 0;
+    assert.equal(await client.runText(['status', '--prose']), 'visible prose');
+    assert.match(seen.map(([, text]) => text).join(''), /visible prose/,
+      'human-readable stdout disappeared with structured stdout');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('VS Code preserves UTF-8 split across CLI output chunks', async () => {
@@ -333,6 +468,20 @@ async function initializedRepository() {
 test('an initialized repository root validates and resolves to its canonical path', async () => {
   const { root } = await initializedRepository();
   assert.equal(await validateRepositoryDirectory(root), await realpath(root));
+});
+
+test('the asynchronous local Git boundary honors cancellation before spawning work', async () => {
+  const { root } = await initializedRepository();
+  const controller = new AbortController();
+  controller.abort();
+  const result = await localGit(['rev-parse', '--show-toplevel'], {
+    cwd: root,
+    timeout: 15_000,
+    signal: controller.signal
+  });
+  assert.equal(result.status, null);
+  assert.equal(result.failure, 'cancelled');
+  assert.equal(result.stdout.length, 0);
 });
 
 test('a Git repository without Singularity Flow is refused, naming the remedy', async () => {
@@ -410,6 +559,230 @@ test('responsive remotes that advertise no governed authority remain truly unini
   );
 });
 
+test('repository validation probes origin before additional remotes', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-origin-first-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  for (const remote of ['zeta', 'origin', 'alpha']) {
+    run('git', ['remote', 'add', remote, `https://example.invalid/${remote}.git`], { cwd: root });
+  }
+  const probes = [];
+  await assert.rejects(validateRepositoryDirectory(root, {
+    remoteRunner: async (args) => {
+      probes.push(args[3]);
+      return { status: 0, stdout: '', failure: null };
+    }
+  }), (error) => error instanceof UninitializedRepositoryError);
+  assert.deepEqual(probes, ['origin', 'alpha', 'zeta']);
+});
+
+test('additional remote inventory runs in a bounded pool after origin', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-remote-pool-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  const additional = Array.from({ length: 8 }, (_, index) => `remote-${index}`);
+  for (const remote of ['origin', ...additional]) {
+    run('git', ['remote', 'add', remote, `https://example.invalid/${remote}.git`], { cwd: root });
+  }
+
+  const starts = [];
+  let originFinished = false;
+  let startedBeforeOriginFinished = false;
+  let active = 0;
+  let maxActive = 0;
+  const delayMs = 75;
+  const startedAt = performance.now();
+  await assert.rejects(validateRepositoryDirectory(root, {
+    remoteRunner: async (args) => {
+      const remote = args[3];
+      starts.push(remote);
+      if (remote === 'origin') {
+        originFinished = true;
+        return { status: 0, stdout: '', failure: null };
+      }
+      if (!originFinished) startedBeforeOriginFinished = true;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      active -= 1;
+      return { status: 0, stdout: '', failure: null };
+    }
+  }), (error) => error instanceof UninitializedRepositoryError);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.equal(starts[0], 'origin');
+  assert.equal(startedBeforeOriginFinished, false, 'an additional remote raced the origin probe');
+  assert.equal(maxActive, 4, 'additional remote probing did not use the bounded four-worker pool');
+  assert.ok(elapsedMs < 450,
+    `additional remote probing took ${elapsedMs.toFixed(1)} ms and appears serialized`);
+});
+
+test('cancelling additional remote inventory stops the bounded pool before another wave', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-remote-pool-cancel-'));
+  const root = path.join(base, 'plain');
+  await mkdir(root, { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  const additional = Array.from({ length: 12 }, (_, index) => `remote-${index}`);
+  for (const remote of ['origin', ...additional]) {
+    run('git', ['remote', 'add', remote, `https://example.invalid/${remote}.git`], { cwd: root });
+  }
+
+  const controller = new AbortController();
+  const starts = [];
+  let abortScheduled = false;
+  let active = 0;
+  let maxActive = 0;
+  await assert.rejects(validateRepositoryDirectory(root, {
+    signal: controller.signal,
+    remoteRunner: async (args, options) => {
+      const remote = args[3];
+      starts.push(remote);
+      if (remote === 'origin') return { status: 0, stdout: '', failure: null };
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (!abortScheduled) {
+        abortScheduled = true;
+        setTimeout(() => controller.abort(), 10);
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => finish({ status: 0, stdout: '', failure: null }), 250);
+        const cancelled = () => finish({ status: null, stdout: '', failure: 'cancelled' });
+        const finish = (result) => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener('abort', cancelled);
+          active -= 1;
+          resolve(result);
+        };
+        options.signal?.addEventListener('abort', cancelled, { once: true });
+      });
+    }
+  }), (error) => {
+    assert.ok(error instanceof RepositoryAuthorityUnavailableError);
+    assert.equal(error.failures[0].reason, 'cancelled');
+    return true;
+  });
+
+  assert.equal(starts[0], 'origin');
+  assert.equal(starts.length, 5, 'cancellation allowed the pool to start another wave');
+  assert.equal(maxActive, 4);
+  assert.equal(active, 0);
+});
+
+test('the earliest deterministic valid remote cancels later hung inventory', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-remote-pool-winner-'));
+  const root = path.join(base, 'plain');
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Remote Winner Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'remote-winner@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 1\n');
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: root });
+  run('git', ['commit', '-qm', 'Configuration authority'], { cwd: root });
+  const authority = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  run('git', ['rm', '-q', 'singularity/workflow.yml'], { cwd: root });
+  run('git', ['commit', '-qm', 'Application branch'], { cwd: root });
+  for (const remote of ['origin', 'alpha', 'beta', 'gamma', 'zeta']) {
+    run('git', ['remote', 'add', remote, `https://example.invalid/${remote}.git`], { cwd: root });
+  }
+
+  let hungStarted = 0;
+  let hungCancelled = 0;
+  const remoteRunner = async (args, options) => {
+    if (args[0] === 'fetch') {
+      assert.equal(args[5], 'alpha');
+      run('git', ['update-ref', 'refs/remotes/alpha/sflow/config', authority], { cwd: root });
+      return { status: 0, stdout: '', failure: null };
+    }
+    const remote = args[3];
+    if (remote === 'origin') return { status: 0, stdout: '', failure: null };
+    if (remote === 'alpha') {
+      return { status: 0, stdout: `${authority}\trefs/heads/sflow/config\n`, failure: null };
+    }
+    hungStarted += 1;
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', cancel);
+        resolve(result);
+      };
+      const cancel = () => {
+        hungCancelled += 1;
+        finish({ status: null, stdout: '', failure: 'cancelled' });
+      };
+      timer = setTimeout(() => finish({ status: 0, stdout: '', failure: null }), 5_000);
+      if (options.signal?.aborted) cancel();
+      else options.signal?.addEventListener('abort', cancel, { once: true });
+    });
+  };
+
+  const startedAt = performance.now();
+  assert.equal(await validateRepositoryDirectory(root, { remoteRunner }), await realpath(root));
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(hungStarted, 3);
+  assert.equal(hungCancelled, 3, 'later remote observations survived deterministic selection');
+  assert.ok(elapsedMs < 1_000,
+    `validation waited for later hung remotes after selecting alpha (${elapsedMs.toFixed(1)} ms)`);
+});
+
+test('repository validation stays asynchronous and process-bounded with thousands of authority refs', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-many-refs-'));
+  const root = path.join(base, 'app');
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
+  run('git', ['config', 'user.name', 'Many Refs Tester'], { cwd: root });
+  run('git', ['config', 'user.email', 'many-refs@example.test'], { cwd: root });
+  await writeFile(path.join(root, 'singularity/workflow.yml'), 'version: 1\n');
+  run('git', ['add', 'singularity/workflow.yml'], { cwd: root });
+  run('git', ['commit', '-qm', 'Configuration authority'], { cwd: root });
+  const authority = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  run('git', ['rm', '-q', 'singularity/workflow.yml'], { cwd: root });
+  run('git', ['commit', '-qm', 'Configuration-free application branch'], { cwd: root });
+
+  const refCount = 2_000;
+  const updates = Array.from({ length: refCount }, (_, index) =>
+    `update refs/remotes/repository-${String(index).padStart(4, '0')}/sflow/config ${authority}\n`).join('');
+  run('git', ['update-ref', '--stdin'], { cwd: root, input: updates });
+
+  const calls = [];
+  const localRunner = async (args, options) => {
+    calls.push([...args]);
+    return localGit(args, options);
+  };
+  let eventLoopTicks = 0;
+  let maxEventLoopGapMs = 0;
+  let previousTick = performance.now();
+  let ticking = true;
+  const tick = () => {
+    if (!ticking) return;
+    const now = performance.now();
+    maxEventLoopGapMs = Math.max(maxEventLoopGapMs, now - previousTick);
+    previousTick = now;
+    eventLoopTicks += 1;
+    setImmediate(tick);
+  };
+  setImmediate(tick);
+  try {
+    assert.equal(await validateRepositoryDirectory(root, { localRunner }), await realpath(root));
+  } finally {
+    ticking = false;
+  }
+
+  assert.ok(eventLoopTicks > 0, 'local authority inspection blocked the Node event loop');
+  assert.ok(maxEventLoopGapMs < 50,
+    `high-ref validation stalled the event loop for ${maxEventLoopGapMs.toFixed(1)} ms`);
+  assert.equal(calls.length, 3,
+    'local Git process count grew with the number of configuration authority refs');
+  assert.deepEqual(calls.map((args) => args[0]), ['rev-parse', 'for-each-ref', 'cat-file']);
+  assert.equal(calls.filter((args) => args[0] === 'cat-file' && args[1] === '--batch').length, 1,
+    'authority blobs were not read through one batch process');
+});
+
 test('a configuration-free application branch validates through a hash-bound state mirror', async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-state-'));
   const root = path.join(base, 'app');
@@ -426,19 +799,46 @@ test('a configuration-free application branch validates through a hash-bound sta
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await mkdir(path.join(root, 'configuration'), { recursive: true });
   await writeFile(path.join(root, 'singularity/workflow.yml'), workflow);
+  const workflowObject = run('git', ['hash-object', 'singularity/workflow.yml'], { cwd: root }).stdout.trim();
+  const workflowSha256 = createHash('sha256').update(workflow).digest('hex');
   await writeFile(path.join(root, 'configuration/manifest.json'), `${JSON.stringify({
     format: 'singularity-flow-configuration-mirror/v2',
     layout: 'canonical-paths',
     source: { branch: 'sflow/config', commit: sourceCommit },
     files: {
-      'singularity/workflow.yml': createHash('sha256').update(workflow).digest('hex')
+      'singularity/workflow.yml': workflowSha256
+    },
+    assets: {
+      'singularity/workflow.yml': { sha256: workflowSha256, object: workflowObject, mode: '100644' }
     }
   }, null, 2)}\n`);
   run('git', ['add', '-A'], { cwd: root });
   run('git', ['commit', '-qm', 'Verified state configuration mirror'], { cwd: root });
   run('git', ['switch', '-q', 'main'], { cwd: root });
 
-  assert.equal(await validateRepositoryDirectory(root), await realpath(root));
+  const stateValidationCalls = [];
+  const stateLocalRunner = async (args, options) => {
+    stateValidationCalls.push([...args]);
+    return localGit(args, options);
+  };
+  assert.equal(await validateRepositoryDirectory(root, { localRunner: stateLocalRunner }), await realpath(root));
+  assert.deepEqual(stateValidationCalls.map((args) => args[0]),
+    ['rev-parse', 'for-each-ref', 'cat-file', 'cat-file', 'cat-file'],
+    'state manifests, blobs, and tree entries should use bounded batch processes');
+
+  // Matching content hashes alone are not sufficient: the state receipt binds the exact Git object
+  // and file mode. A stale or forged descriptor must not turn a configuration-free branch into an
+  // initialized workspace.
+  run('git', ['switch', '-q', 'state'], { cwd: root });
+  const manifestPath = path.join(root, 'configuration/manifest.json');
+  const invalidManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  invalidManifest.assets['singularity/workflow.yml'].mode = '100755';
+  await writeFile(manifestPath, `${JSON.stringify(invalidManifest, null, 2)}\n`);
+  run('git', ['add', 'configuration/manifest.json'], { cwd: root });
+  run('git', ['commit', '-qm', 'Corrupt state configuration identity'], { cwd: root });
+  run('git', ['switch', '-q', 'main'], { cwd: root });
+  await assert.rejects(validateRepositoryDirectory(root), (error) =>
+    error instanceof UninitializedRepositoryError);
 });
 
 test('repository validation refreshes a verified state authority for a narrow clone', async () => {

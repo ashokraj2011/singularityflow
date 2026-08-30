@@ -68,6 +68,11 @@ test('repository commands can route through the explicitly selected workspace', 
     'organisation capability onboarding must work before a workspace exists');
   assert.equal(await activeWorkspaceRepositoryRoot('capability', { env, subcommand: 'tree' }), await realpath(repository),
     'repository-local capability reads still use the explicitly selected workspace');
+  assert.equal(await activeWorkspaceRepositoryRoot('doctor', { env }), await realpath(repository),
+    'ordinary doctor remains repository-scoped and follows the selected workspace');
+  assert.equal(await activeWorkspaceRepositoryRoot('doctor', {
+    env, options: { performance: true }
+  }), null, 'doctor --performance deliberately measures the invoking checkout');
   assert.ok(ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS.has('factory-reset'),
     'destructive repository reset must always require an explicit working directory');
 

@@ -1,9 +1,10 @@
 # Developer-experience performance
 
-Singularity Flow treats command latency as a release property. The fast-path commands are
-`about`, `status`, `nextsteps`, and a repository-only `snapshot` slice. They use lazy command
-modules and do not load Jira, external storage, model, visual, workspace, or Initiative domains
-unless the requested state actually requires one of them.
+Singularity Flow treats command latency as a release property. The repository fast-path commands
+are `about`, `status`, `nextsteps`, and a repository-only `snapshot` slice. The machine-state reads
+used repeatedly during editor activation—`workspace list`, `workspace current`, `workspace prompt`,
+and `capability leads`—also use bounded lazy modules. They do not load the legacy CLI monolith,
+Jira, model, visual, or Initiative domains unless a different subcommand actually requires one.
 
 Audited improvements that are deliberately deferred are tracked with stable IDs and exit gates in
 the [pending-work roadmap](PENDING-WORK-ROADMAP.md). That backlog does not change the current
@@ -32,8 +33,9 @@ are disabled.
 
 A budget on one repository size cannot say a command does not get more expensive as the repository
 grows, and that is the more useful sentence. The `scale` tier in the same manifest runs `status`,
-`nextsteps`, `snapshot` and `snapshot --json` again on 10,000 tracked files, 40 Stories and 12
-branches, and gates each on **how many subprocesses it ran relative to the reference fixture**.
+`nextsteps`, the repository-only snapshot, the repository/lifecycle/capabilities snapshot used by
+VS Code, and `snapshot --json` again on 10,000 tracked files, 40 Stories and 12 branches. It gates
+each on **how many subprocesses it ran relative to the reference fixture**.
 
 A count is used rather than a clock deliberately: it is the same on a fast runner and a loaded one,
 so it can carry a complexity claim. `status`, `nextsteps` and the sliced `snapshot` are pinned at
@@ -46,7 +48,20 @@ Reading one tree per ref instead (`src/git-ref-tree.mjs`) took that to 108, a 1.
 remains is linear in refs and not in Stories, which is correct: twelve branches genuinely hold twelve
 trees to read. Never raise it.
 
+The VS Code snapshot is allowed 1.3×: it currently adds one bounded read for each additional branch
+(37 processes against 29), while the repository grows 20× and its Story count grows 40×. That cap
+keeps the real editor refresh in the scale test and refuses any return to per-file or per-Story work.
+
 Pass `--skip-scale` to leave the tier out of a quick local run.
+
+## The working-tree tail tier
+
+The reference fixture's four untracked files are not representative of an active IDE checkout. The
+`workingTree` tier therefore stages 64 renames, modifies 64 other tracked files, and carries 128
+untracked files before repeatedly running the exact VS Code snapshot. Its p50, p95, and maximum are
+reported so release runs expose tail behavior. Its enforced contract is machine-independent: the
+subprocess count may grow by at most 1.2× from the clean reference, so a save or watcher burst cannot
+turn refresh into one subprocess per changed path.
 
 ## Run the benchmark
 
@@ -126,4 +141,6 @@ privacy-safe duration envelope to its Singularity Flow Output channel, including
 failed, timed-out, and cancelled commands.
 
 The test suite locks the lazy boundary: fast commands may not statically import unrelated Jira,
-model, provider, visual, workspace, Initiative, or remote-agent modules.
+model, provider, visual, workspace, Initiative, or remote-agent modules. The activation reads also
+have explicit static-closure ceilings (25 modules for workspace reads and 10 for capability leads),
+and byte-for-byte parity tests compare their human and JSON output with the legacy implementation.

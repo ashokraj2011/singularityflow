@@ -16,6 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -88,6 +89,148 @@ test('only a confirmed snapshot is remembered for next time', () => {
     'the failure-recovery inventory was cached as if it were the repository');
 });
 
+test('A-to-B-to-A switching restores only that repository cache and forces a full confirmation', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let repository = 'A';
+    const cache = new Map([
+      ['A', { workItems: [], initiatives: [], marker: 'cached-A', revision: { subjectRevision: 'cached-revision-A' } }],
+      ['B', { workItems: [], initiatives: [], marker: 'cached-B', revision: { subjectRevision: 'cached-revision-B' } }]
+    ]);
+    const calls = [];
+    const client = {
+      async snapshot(_signal, _slices, ifRevision) {
+        calls.push({ repository, ifRevision });
+        return {
+          workItems: [], initiatives: [], marker: 'live-' + repository,
+          revision: { subjectRevision: 'live-revision-' + repository }
+        };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client, {
+      read: () => cache.get(repository) ?? null,
+      write: (snapshot) => cache.set(repository, snapshot)
+    });
+    const paints = [];
+    store.onDidChange((state, change) => {
+      if (change.kind !== 'loading') paints.push({ repository, marker: state.snapshot?.marker ?? null, stale: state.stale });
+    });
+    store.primeFromCache();
+    await store.refresh();
+    repository = 'B';
+    store.repositoryChanged();
+    const immediateB = store.current.snapshot?.marker;
+    await store.refresh();
+    repository = 'A';
+    store.repositoryChanged();
+    const immediateA = store.current.snapshot?.marker;
+    await store.refresh();
+    process.stdout.write(JSON.stringify({ calls, paints, immediateB, immediateA, final: store.current.snapshot?.marker }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  const outcome = JSON.parse(result.stdout);
+  assert.equal(outcome.immediateB, 'cached-B');
+  assert.equal(outcome.immediateA, 'live-A', 'returning to A used B cache or discarded A cache');
+  assert.equal(outcome.final, 'live-A');
+  assert.deepEqual(outcome.calls.map(({ repository }) => repository), ['A', 'B', 'A']);
+  assert.equal(outcome.calls[1].ifRevision, null, 'B was queried using A subject revision');
+  assert.equal(outcome.calls[2].ifRevision, null, 'A was queried using B subject revision');
+  assert.ok(outcome.paints.some((paint) => paint.repository === 'B' && paint.marker === 'cached-B' && paint.stale));
+  assert.equal(outcome.paints.some((paint) => paint.repository === 'B' && /A$/.test(paint.marker ?? '')), false,
+    'repository A was painted after switching to B');
+});
+
+test('switching repositories aborts and detaches the old snapshot flight before starting the new one', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let repository = 'A';
+    let releaseA;
+    let releaseB;
+    const aResult = new Promise((resolve) => { releaseA = resolve; });
+    const bResult = new Promise((resolve) => { releaseB = resolve; });
+    const calls = [];
+    const writes = [];
+    let aSignal;
+    const client = {
+      async snapshot(signal) {
+        const requestedRepository = repository;
+        calls.push(requestedRepository);
+        if (requestedRepository === 'A') {
+          aSignal = signal;
+          // Deliberately ignore cancellation, as a real child process may take time to terminate.
+          await aResult;
+        } else {
+          await bResult;
+        }
+        return {
+          workItems: [], initiatives: [], marker: 'live-' + requestedRepository,
+          revision: { subjectRevision: 'revision-' + requestedRepository }
+        };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client, {
+      read: () => null,
+      write: (snapshot) => writes.push(snapshot.marker)
+    });
+
+    const aRefresh = store.refresh();
+    repository = 'B';
+    store.repositoryChanged();
+    const bRefresh = store.refresh();
+    const bStartedBeforeASettled = calls.join(',') === 'A,B';
+    const aWasAborted = aSignal?.aborted === true;
+
+    // Keep a broken implementation from making the regression test wait for its child timeout:
+    // release both gates after capturing the failure if B incorrectly queued behind A.
+    if (!bStartedBeforeASettled) {
+      releaseA();
+      releaseB();
+      await Promise.allSettled([aRefresh, bRefresh]);
+      process.stdout.write(JSON.stringify({
+        bStartedBeforeASettled, aWasAborted, callsWhileBPending: [...calls], waitedForB: false,
+        final: store.current.snapshot?.marker, writes
+      }));
+      process.exit(0);
+    }
+
+    releaseA();
+    await aRefresh;
+
+    // A's late finally must not clear B's flight. An already-loaded core slice should join B,
+    // rather than observe no flight and start a third snapshot because the repository is empty.
+    let sliceWaitSettled = false;
+    const sliceWait = store.ensureSlices(['repository']).then(() => { sliceWaitSettled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    const callsWhileBPending = [...calls];
+    const waitedForB = !sliceWaitSettled;
+
+    releaseB();
+    await Promise.all([bRefresh, sliceWait]);
+    process.stdout.write(JSON.stringify({
+      bStartedBeforeASettled, aWasAborted, callsWhileBPending, waitedForB,
+      final: store.current.snapshot?.marker, writes
+    }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    bStartedBeforeASettled: true,
+    aWasAborted: true,
+    callsWhileBPending: ['A', 'B'],
+    waitedForB: true,
+    final: 'live-B',
+    writes: ['live-B']
+  });
+});
+
 test('a leased SGOS slice loads lazily and is released when Command Center closes', () => {
   const source = `
     import { WorkspaceStore } from ${JSON.stringify(storeModule)};
@@ -125,4 +268,105 @@ test('a leased SGOS slice loads lazily and is released when Command Center close
   assert.equal(value.loaded, true);
   assert.equal(value.released, true);
   assert.equal(value.afterRelease.includes('sgos'), false);
+});
+
+test('shared panel slice leases stop heavyweight polling only after the final panel closes', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    const calls = [];
+    const client = {
+      async snapshot(_signal, slices) {
+        calls.push([...slices]);
+        return {
+          workItems: [], initiatives: [], included: [...slices],
+          revision: { subjectRevision: 'revision-' + calls.length }
+        };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client);
+    await store.refresh();
+    const configurationPanel = await store.acquireSlices(['configuration']);
+    const dashboardPanel = await store.acquireSlices(['configuration', 'diagnostics']);
+    await store.refresh();
+    const whileBothOpen = calls.at(-1);
+    configurationPanel.dispose();
+    await store.refresh();
+    const afterFirstClose = calls.at(-1);
+    dashboardPanel.dispose();
+    await store.refresh();
+    const afterFinalClose = calls.at(-1);
+    process.stdout.write(JSON.stringify({ whileBothOpen, afterFirstClose, afterFinalClose }));
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  const value = JSON.parse(result.stdout);
+  assert.ok(value.whileBothOpen.includes('configuration'));
+  assert.ok(value.whileBothOpen.includes('diagnostics'));
+  assert.ok(value.afterFirstClose.includes('configuration'), 'a shared slice was released while another panel still held it');
+  assert.ok(value.afterFirstClose.includes('diagnostics'));
+  assert.equal(value.afterFinalClose.includes('configuration'), false);
+  assert.equal(value.afterFinalClose.includes('diagnostics'), false);
+});
+
+test('a concurrent panel waits for the first shared slice expansion without triggering another read', () => {
+  const source = `
+    import { WorkspaceStore } from ${JSON.stringify(storeModule)};
+    let calls = 0;
+    let releaseExpansion;
+    let expansionStarted;
+    const started = new Promise((resolve) => { expansionStarted = resolve; });
+    const expansion = new Promise((resolve) => { releaseExpansion = resolve; });
+    const client = {
+      async snapshot(_signal, slices) {
+        calls += 1;
+        if (slices.includes('configuration')) {
+          expansionStarted();
+          await expansion;
+        }
+        return { workItems: [], initiatives: [], included: [...slices], revision: { subjectRevision: String(calls) } };
+      },
+      async configurationSnapshot() { throw new Error('unexpected'); }
+    };
+    const store = new WorkspaceStore(client);
+    await store.refresh();
+    const first = store.acquireSlices(['configuration']);
+    await started;
+    let secondSettled = false;
+    const second = store.acquireSlices(['configuration']).then((lease) => { secondSettled = true; return lease; });
+    await Promise.resolve();
+    const settledBeforeExpansion = secondSettled;
+    releaseExpansion();
+    const leases = await Promise.all([first, second]);
+    process.stdout.write(JSON.stringify({ calls, settledBeforeExpansion }));
+    leases.forEach((lease) => lease.dispose());
+  `;
+  const result = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', source], {
+    encoding: 'utf8', cwd: packageRoot, timeout: 60_000
+  });
+  assert.equal(result.status, 0, `child failed: ${result.stderr}`);
+  assert.deepEqual(JSON.parse(result.stdout), { calls: 2, settledBeforeExpansion: false });
+});
+
+test('heavy VS Code panels own and release their snapshot slice leases', () => {
+  const panels = new Map([
+    ['configuration-center.ts', ['configuration', 'integrations']],
+    ['capabilities.ts', ['configuration', 'diagnostics']],
+    ['approvals.ts', ['configuration']],
+    ['dashboard.ts', ['configuration', 'integrations', 'diagnostics']],
+    ['designer.ts', ['configuration']],
+    ['instruction-designer.ts', ['configuration']],
+    ['ast-intelligence.ts', ['configuration']]
+  ]);
+  for (const [name, slices] of panels) {
+    const source = readFileSync(path.join(packageRoot, 'apps/vscode/src/views', name), 'utf8');
+    const argumentsPattern = slices.map((slice) => `'${slice}'`).join(', ');
+    assert.match(source, new RegExp(`acquireSlices\\(\\[${argumentsPattern}\\]\\)`), `${name} does not acquire its heavy slices`);
+    assert.match(source, /this\.lease\.dispose\(\)/, `${name} does not release its slice lease on disposal`);
+  }
+  const extension = readFileSync(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.equal((extension.match(/ensureSlices\(/g) ?? []).length, 1,
+    'panel commands still pin heavy slices outside panel lifecycle; only Start Work may ensure configuration transiently');
 });

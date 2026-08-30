@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,10 @@ test('DX benchmark protocol is reproducible and carries the release budgets', ()
   assert.deepEqual(manifest.budgets.snapshotFull, { p50Ms: 850, p95Ms: 1100 });
   assert.equal(manifest.topology.trackedFiles, 500);
   assert.equal(manifest.topology.localSubjectIndex, 'absent');
+  assert.ok(manifest.scale.commands.includes('snapshotUi'),
+    'the 10k-file tier must measure the snapshot VS Code actually requests');
+  assert.deepEqual(manifest.workingTree.topology,
+    { modifiedFiles: 64, renamedFiles: 64, untrackedFiles: 128 });
 });
 
 test('latency summaries and the 20-percent baseline gate are deterministic', () => {
@@ -75,6 +79,13 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
     assert.ok(result.p50Ms > 0);
     assert.ok(result.p95Ms >= result.p50Ms);
   }
+  assert.deepEqual(report.workingTree.topology, manifest.workingTree.topology);
+  assert.equal(report.workingTree.command, 'snapshotUi');
+  assert.equal(report.workingTree.samples, 3);
+  assert.ok(report.workingTree.p95Ms >= report.workingTree.p50Ms);
+  assert.ok(report.workingTree.maxMs >= report.workingTree.p95Ms);
+  assert.ok(report.workingTree.subprocessGrowth <= manifest.workingTree.subprocessGrowth,
+    'dirty paths caused the UI snapshot to spawn work per path');
 });
 
 test('every command the benchmark runs carries a budget, including the ones nobody made fast', async () => {
@@ -83,7 +94,7 @@ test('every command the benchmark runs carries a budget, including the ones nobo
    *
    * `about`, `status`, `nextsteps` and `snapshot` are the four commands served by their own lazy
    * modules, and they were also the only four with a budget — so the measurement confirmed work that
-   * was already done and could not see anything else. Eighty-one of the ninety-eight registered
+   * was already done and could not see anything else. Most registered
    * commands dispatch to `commands/legacy.mjs` instead, and ten of those are reads a person waits
    * on. Measured on the reference fixture: 166-231 ms against the fast four's 37-102 ms, with about
    * 120 ms of `cli.mjs` module load inside each.
@@ -141,6 +152,8 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
     assert.ok(result.subprocessGrowth <= manifest.scale.subprocessGrowth[name],
       `${name} grew ${result.subprocessGrowth}x, past the declared ${manifest.scale.subprocessGrowth[name]}x`);
   }
+  assert.ok(scale.commands.snapshotUi,
+    'the scale tier omitted the repository/lifecycle/capabilities snapshot used by VS Code');
 
   /**
    * The three that already hold the property hold it exactly, not approximately.
@@ -153,6 +166,73 @@ test('the growth tier measures what follows the repository', { timeout: 600_000 
     assert.equal(scale.commands[name].subprocessGrowth, 1,
       `${name} spawned ${scale.commands[name].subprocesses} subprocesses against`
       + ` ${scale.commands[name].referenceSubprocesses} on a repository it answers identically`);
+  }
+});
+
+test('doctor performance measures the invoking checkout even when it has no workflow', async () => {
+  /**
+   * A selected workspace is a routing convenience for governed commands, but this diagnostic is
+   * explicitly about the checkout from which it was invoked. Before this boundary was named, an
+   * uninitialised repository was silently replaced by the last workspace selection and the report
+   * measured a different repository — precisely when a person was trying to diagnose setup cost.
+   */
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-doctor-performance-routing-'));
+  const invoking = path.join(machine, 'invoking');
+  const selected = path.join(machine, 'selected');
+  const selectionFile = path.join(machine, 'active-workspace.json');
+  try {
+    for (const repository of [invoking, selected]) {
+      await mkdir(repository, { recursive: true });
+      const init = spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: repository, encoding: 'utf8' });
+      assert.equal(init.status, 0, init.stderr);
+      spawnSync('git', ['config', 'user.name', 'DX Doctor'], { cwd: repository });
+      spawnSync('git', ['config', 'user.email', 'dx-doctor@example.invalid'], { cwd: repository });
+    }
+    await writeFile(path.join(invoking, 'README.md'), '# invoking checkout\n');
+    spawnSync('git', ['add', 'README.md'], { cwd: invoking });
+    spawnSync('git', ['commit', '-qm', 'invoking fixture'], { cwd: invoking });
+
+    await writeFile(path.join(selected, 'README.md'), '# selected workspace\n');
+    await writeFile(path.join(selected, 'extra.txt'), 'this makes the wrong repository observable\n');
+    spawnSync('git', ['add', '.'], { cwd: selected });
+    spawnSync('git', ['commit', '-qm', 'selected fixture'], { cwd: selected });
+    await writeFile(selectionFile, `${JSON.stringify({
+      schemaVersion: 1,
+      workspaceId: 'selected',
+      workspaceName: 'Selected elsewhere',
+      workspacePath: path.join(machine, 'workspace'),
+      repositoryId: 'application',
+      repositoryPath: selected,
+      repositoryState: 'ready',
+      branch: 'main',
+      selectedAt: '2026-08-30T00:00:00.000Z'
+    })}\n`);
+
+    const run = spawnSync(process.execPath, [
+      path.join(root, 'bin/singularity-flow.mjs'), 'doctor', '--performance', '--offline', '--json'
+    ], {
+      cwd: invoking,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SINGULARITY_FLOW_ACTIVE_WORKSPACE: selectionFile,
+        SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machine, 'workspaces.json'),
+        SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+        SINGULARITY_FLOW_NO_MODEL: '1'
+      }
+    });
+    assert.equal(run.status, 2, run.stderr || run.stdout,
+      'missing workflow remains a visible doctor failure');
+    const report = JSON.parse(run.stdout);
+    assert.equal(path.resolve(report.repository), await realpath(invoking));
+    assert.equal(report.performance.files.tracked, 1,
+      'performance measurements came from the selected workspace instead of the invoking checkout');
+    const performance = report.checks.find((entry) => entry.id === 'repository-performance');
+    assert.ok(performance, 'doctor returned before measuring the workflow-less Git checkout');
+    assert.equal(path.resolve(performance.target), await realpath(invoking));
+    assert.equal(report.checks.find((entry) => entry.id === 'configuration').status, 'fail');
+  } finally {
+    await rm(machine, { recursive: true, force: true });
   }
 });
 
@@ -194,10 +274,12 @@ test('heavy VS Code domains are loaded by their surfaces rather than activation'
   const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
   assert.match(client, /CORE_SNAPSHOT_SLICES[^]*'repository', 'lifecycle', 'capabilities'/,
     'the activation snapshot includes heavyweight domains');
-  const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
-  assert.match(extension, /openConfigurationCenter[^]*ensureSlices\(\['configuration', 'integrations'\]\)/,
+  const configuration = await readFile(path.join(root,
+    'apps/vscode/src/views/configuration-center.ts'), 'utf8');
+  assert.match(configuration, /acquireSlices\(\['configuration', 'integrations'\]\)/,
     'configuration and integration data are not loaded when their surface opens');
-  assert.match(extension, /openDashboard[^]*ensureSlices\(\['configuration', 'integrations', 'diagnostics'\]\)/,
+  const dashboard = await readFile(path.join(root, 'apps/vscode/src/views/dashboard.ts'), 'utf8');
+  assert.match(dashboard, /acquireSlices\(\['configuration', 'integrations', 'diagnostics'\]\)/,
     'the dashboard assumes heavyweight slices were eagerly loaded');
 });
 
@@ -233,7 +315,7 @@ test('the command that loads most of the codebase says so under module-load', ()
   /**
    * `--timings` was blind on the path that needs it most.
    *
-   * `commands/legacy.mjs` is the dispatch target for eighty-one of the ninety-eight registered
+   * `commands/legacy.mjs` is the dispatch target for seventy-nine of the 115 registered
    * commands, and its whole body was `await import('../cli.mjs')` — *inside* `run`, which the
    * dispatcher does not reach until after it has closed the `module-load` stage. So every one of
    * those commands reported `module-load=0.3ms` while roughly 110 ms of module loading sat inside
@@ -244,12 +326,18 @@ test('the command that loads most of the codebase says so under module-load', ()
    * one with three. A diagnostic that reports the opposite of the truth is worse than none, because
    * it sends the next reader to look at execution.
    */
-  const timings = (command) => {
-    const run = spawnSync(process.execPath, ['bin/singularity-flow.mjs', command, '--timings'], {
+  const timings = (command, args = [], env = {}) => {
+    const run = spawnSync(process.execPath, ['bin/singularity-flow.mjs', command, ...args, '--timings'], {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1', SINGULARITY_FLOW_NO_NETWORK: '1' }
+      env: {
+        ...process.env,
+        SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+        SINGULARITY_FLOW_NO_NETWORK: '1',
+        ...env
+      }
     });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
     const stages = Object.fromEntries([...run.stderr.matchAll(/([a-z-]+)=([\d.]+)ms/g)]
       .map(([, name, value]) => [name, Number(value)]));
     assert.ok(stages['module-load'] !== undefined, `no module-load stage for ${command}: ${run.stderr}`);
@@ -264,6 +352,22 @@ test('the command that loads most of the codebase says so under module-load', ()
   // Not merely larger by a rounding accident: the closure is two orders of magnitude bigger.
   assert.ok(monolith['module-load'] > 20,
     `module load for the 264-module closure was reported as ${monolith['module-load']}ms`);
+
+  const absent = path.join(os.tmpdir(), `sflow-dx-lazy-${process.pid}`);
+  const machine = {
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: `${absent}-workspaces.json`,
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: `${absent}-active.json`,
+    SINGULARITY_FLOW_LEAD_REGISTRY: `${absent}-leads.json`
+  };
+  for (const [label, measured] of [
+    ['workspace list', timings('workspace', ['list', '--json'], machine)],
+    ['workspace current', timings('workspace', ['current', '--json'], machine)],
+    ['capability leads', timings('capability', ['leads', '--json'], machine)]
+  ]) {
+    assert.ok(measured['module-load'] < monolith['module-load'],
+      `${label} loaded ${measured['module-load']}ms of modules against the legacy graph's`
+      + ` ${monolith['module-load']}ms`);
+  }
 });
 
 test('command timing events use the privacy-safe versioned envelope', () => {

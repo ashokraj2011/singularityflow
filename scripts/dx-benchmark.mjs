@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -83,6 +83,9 @@ async function createFixture(topology = fixtureManifest.topology) {
   git(root, ['init', '-q', '-b', 'main']);
   git(root, ['config', 'user.name', 'DX Benchmark']);
   git(root, ['config', 'user.email', 'dx@example.invalid']);
+  // The working-tree tier asserts type-2 porcelain records. Keep a developer's global preference
+  // to disable rename detection from changing the declared fixture topology.
+  git(root, ['config', 'status.renames', 'true']);
   await mkdir(path.join(root, 'singularity/templates/chore'), { recursive: true });
   await writeFile(path.join(root, 'singularity/templates/chore/intake.md'), '# Intake\n\nWhat is being asked for.\n', 'utf8');
   /**
@@ -182,6 +185,67 @@ async function createFixture(topology = fixtureManifest.topology) {
   await forEachConcurrent(topology.untrackedFiles, (index) =>
     writeFile(path.join(root, `untracked-${index}.txt`), 'untracked\n', 'utf8'));
   return root;
+}
+
+/**
+ * Apply the three working-tree shapes an IDE produces without changing the committed fixture.
+ *
+ * Renames are staged so porcelain v2 reports a real type-2 rename record rather than an unrelated
+ * deletion plus untracked file. Modified and untracked files are created afterwards and remain
+ * unstaged, matching the ordinary edit/save loop. Setup cost is outside every measured sample.
+ */
+async function applyWorkingTreePressure(root, topology) {
+  const renamed = [];
+  for (let index = 0; index < topology.renamedFiles; index += 1) {
+    const source = `src/${Math.floor(index / 100)}/file-${index}.txt`;
+    const destination = `src/${Math.floor(index / 100)}/renamed-${index}.txt`;
+    await rename(path.join(root, source), path.join(root, destination));
+    renamed.push(source, destination);
+  }
+  if (renamed.length) git(root, ['add', '-A', '--', ...renamed]);
+
+  const modifiedStart = topology.renamedFiles;
+  await forEachConcurrent(topology.modifiedFiles, (offset) => {
+    const index = modifiedStart + offset;
+    return writeFile(path.join(root, `src/${Math.floor(index / 100)}/file-${index}.txt`),
+      `modified fixture ${index}\n`, 'utf8');
+  });
+
+  const existingUntracked = git(root, ['ls-files', '--others', '--exclude-standard'])
+    .split('\n').filter(Boolean).length;
+  if (existingUntracked > topology.untrackedFiles) {
+    throw new Error(`Working-tree fixture already has ${existingUntracked} untracked files;`
+      + ` requested topology has only ${topology.untrackedFiles}.`);
+  }
+  await forEachConcurrent(topology.untrackedFiles - existingUntracked, (index) =>
+    writeFile(path.join(root, `working-tree-untracked-${index}.txt`), 'untracked pressure\n', 'utf8'));
+}
+
+/** Count logical porcelain-v2 records, consuming the extra source-path token after a rename. */
+function workingTreeTopology(root) {
+  const fields = execFileSync('git', ['status', '--porcelain=v2', '-z', '--untracked-files=all'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']
+  }).split('\0');
+  const actual = { modifiedFiles: 0, renamedFiles: 0, untrackedFiles: 0 };
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index];
+    if (record.startsWith('2 ')) {
+      actual.renamedFiles += 1;
+      index += 1; // type-2 records carry the original path in the next NUL field
+    } else if (record.startsWith('1 ')) actual.modifiedFiles += 1;
+    else if (record.startsWith('? ')) actual.untrackedFiles += 1;
+  }
+  return actual;
+}
+
+function verifyWorkingTreeTopology(root, declared) {
+  const actual = workingTreeTopology(root);
+  for (const [key, expected] of Object.entries(declared)) {
+    if (actual[key] !== expected) {
+      throw new Error(`Working-tree fixture ${key} is ${actual[key]}; expected ${expected}.`);
+    }
+  }
+  return actual;
 }
 
 /**
@@ -584,6 +648,41 @@ try {
   }
 
   /**
+   * Dirty-tree refresh tail: the exact UI snapshot under modified, renamed and untracked pressure.
+   *
+   * Wall-clock percentiles are reported so a release benchmark can see the tail, but the enforced
+   * contract is subprocess growth. It is deterministic across machines and catches the dangerous
+   * implementation shape: one Git/process query per changed path during a watcher refresh.
+   */
+  const workingTree = fixtureManifest.workingTree;
+  let workingTreeResults = null;
+  if (workingTree) {
+    await applyWorkingTreePressure(fixture, workingTree.topology);
+    const dirtyTopology = verifyWorkingTreeTopology(fixture, workingTree.topology);
+    const args = commands[workingTree.command];
+    timed(fixture, args); // discarded warm-up after the dirty shape is established
+    const values = Array.from({ length: Math.min(samples, workingTree.samples) }, () => timed(fixture, args));
+    const subprocesses = countSubprocesses(invoke(fixture, args, { probe: true }).stderr);
+    const reference = referenceSubprocesses[workingTree.command];
+    const growth = reference ? subprocesses / reference : null;
+    const summary = summarizeSamples(values);
+    workingTreeResults = {
+      topology: dirtyTopology,
+      command: workingTree.command,
+      ...summary,
+      subprocesses,
+      referenceSubprocesses: reference,
+      subprocessGrowth: growth
+    };
+    if (growth !== null && growth > workingTree.subprocessGrowth) {
+      failures.push(`workingTree.${workingTree.command} ran ${subprocesses} subprocesses against`
+        + ` ${reference} on the reference tree (${growth.toFixed(2)}x, allowed`
+        + ` ${workingTree.subprocessGrowth}x). Dirty paths must be observed in bounded Git calls,`
+        + ' not one subprocess per path.');
+    }
+  }
+
+  /**
    * The growth tier: the same commands with twenty times the files and forty times the Stories.
    * `[UXH:REQ-120]`
    *
@@ -634,6 +733,7 @@ try {
     schemaVersion: 1,
     recordedAt: new Date().toISOString(),
     connected: connectedResults,
+    workingTree: workingTreeResults,
     scale: scaleResults,
     runtime: { node: process.version, nodeMajor: Number(process.versions.node.split('.')[0]), platform: process.platform, architecture: process.arch },
     protocol: { ...fixtureManifest.protocol, samples }, topology,
@@ -655,6 +755,17 @@ try {
       console.log(`\nconnected tier · remote + ledger · ${connectedTopology.remoteBranches} remote branches`);
       console.log(`snapshotFull p50 ${connectedSnapshot.p50Ms.toFixed(1)}ms · p95 ${connectedSnapshot.p95Ms.toFixed(1)}ms`
         + ` · network calls: ${networkCalls} · repository writes: ${connectedResults.repositoryWrites}`);
+    }
+    if (workingTreeResults) {
+      console.log(`\nworking-tree tier · ${workingTreeResults.topology.modifiedFiles} modified`
+        + ` · ${workingTreeResults.topology.renamedFiles} renamed`
+        + ` · ${workingTreeResults.topology.untrackedFiles} untracked`);
+      console.log(`${workingTreeResults.command} p50 ${workingTreeResults.p50Ms.toFixed(1)}ms`
+        + ` · p95 ${workingTreeResults.p95Ms.toFixed(1)}ms`
+        + ` · max ${workingTreeResults.maxMs.toFixed(1)}ms`
+        + ` · subprocesses ${workingTreeResults.subprocesses} vs`
+        + ` ${workingTreeResults.referenceSubprocesses}`
+        + ` (${workingTreeResults.subprocessGrowth === null ? 'n/a' : `${workingTreeResults.subprocessGrowth.toFixed(2)}x`})`);
     }
     if (scaleResults) {
       const { topology: scaleTopology, commands: scaled } = scaleResults;

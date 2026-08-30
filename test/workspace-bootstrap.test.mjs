@@ -219,6 +219,67 @@ test('prepare persists a resumable plan before destination mutation and resume l
   assert.equal(registry.workspaces.length, 1);
 });
 
+test('bootstrap preflight observes each unique remote once even when multiple repositories share it', async () => {
+  const fixture = await remoteFixture('trunk');
+  const trace = path.join(fixture.root, 'git-trace.jsonl');
+  const env = { ...environment(fixture.root), GIT_TRACE2_EVENT: trace };
+  const createInput = input(fixture.root, fixture.remote, 'trunk');
+  createInput.id = 'shared-remote';
+  createInput.name = 'Shared remote';
+  createInput.repositories.secondary = {
+    url: fixture.remote,
+    defaultBranch: 'trunk',
+    required: false,
+    path: 'repos/secondary'
+  };
+
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput
+  }, { env });
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+
+  const events = (await readFile(trace, 'utf8')).trim().split('\n')
+    .filter(Boolean).map((line) => JSON.parse(line));
+  const probes = events.filter((event) => event.event === 'cmd_name' && event.name === 'ls-remote');
+  assert.equal(probes.length, 1,
+    'one broad operation-scoped inventory must satisfy every repository bound to the same remote');
+});
+
+test('capability preflight reuses the lead inventory before its single catalog transfer', async () => {
+  const fixture = await remoteFixture('trunk');
+  await ensureConfigurationBranch(fixture.remote, {
+    capability: {
+      capabilityId: 'declared-capability',
+      capabilityName: 'Declared capability',
+      kind: 'delivery',
+      repositoryId: 'application',
+      jiraProject: null,
+      teams: []
+    }
+  });
+  const trace = path.join(fixture.root, 'capability-git-trace.jsonl');
+  const env = { ...environment(fixture.root), GIT_TRACE2_EVENT: trace };
+  const createInput = input(fixture.root, fixture.remote, 'trunk');
+  createInput.id = 'catalog-transfer';
+  createInput.name = 'Catalog transfer';
+  createInput.capabilities = ['declared-capability'];
+  createInput.repositories.application.capabilities = ['declared-capability'];
+
+  const prepared = await prepareWorkspaceBootstrap({
+    source: { kind: 'manifest', reference: fixture.remote },
+    createInput
+  }, { env });
+  assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
+
+  const events = (await readFile(trace, 'utf8')).trim().split('\n')
+    .filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(events.filter((event) => event.event === 'cmd_name' && event.name === 'ls-remote').length, 1,
+    'capability authority lookup must reuse the repository inventory');
+  assert.equal(events.filter((event) => event.event === 'cmd_name' && event.name === 'clone').length, 1,
+    'preflight transfers the approved capability catalog exactly once');
+});
+
 test('bootstrap probes and materialization cannot be redirected away from the exact reviewed URL', async () => {
   const approved = await remoteFixture('trunk');
   const decoy = await remoteFixture('trunk');
@@ -476,20 +537,74 @@ test('native Windows path rules reject reserved names and trailing characters wi
 });
 
 test('enterprise Git diagnostics disclose configuration sources but never their secret values', () => {
-  const secretProxy = 'https://employee:secret@example.invalid:8443';
+  const upperSecretProxy = 'https://employee:upper-secret@example.invalid:8443';
+  const lowerSecretProxy = 'https://employee:lower-secret@example.invalid:8443';
   const secretCaPath = '/private/company/root-ca.pem';
+  const env = {
+    HTTPS_PROXY: upperSecretProxy,
+    https_proxy: lowerSecretProxy,
+    NO_PROXY: 'private-secret.example.invalid',
+    no_proxy: 'lower-private-secret.example.invalid',
+    GIT_SSL_CAINFO: secretCaPath,
+    GIT_SSL_CAPATH: '/private/company/certificate-directory'
+  };
+  const calls = [];
   const diagnostics = enterpriseGitDiagnostics({
-    env: { HTTPS_PROXY: secretProxy, GIT_SSL_CAINFO: secretCaPath },
-    runCommand: (_command, args) => ({
-      status: args.at(-1) === 'http.proxy' ? 0 : 1,
-      stdout: args.at(-1) === 'http.proxy' ? secretProxy : secretCaPath
-    })
+    env,
+    runCommand: (_command, args, options) => {
+      calls.push({ args, options });
+      if (args.includes('--system')) return {
+        status: 0,
+        stdout: [
+          'http.proxy',
+          'http.https://private-provider.example.invalid.sslcainfo',
+          'credential.helper'
+        ].join('\n')
+      };
+      return {
+        status: 0,
+        stdout: [
+          'http.https://private-provider.example.invalid.proxy',
+          'http.sslbackend',
+          'credential.https://dev.azure.com.usehttppath'
+        ].join('\n')
+      };
+    }
   });
   assert.equal(diagnostics.proxy.configured, true);
+  assert.equal(diagnostics.proxyBypass.configured, true);
   assert.equal(diagnostics.certificateAuthority.configured, true);
-  assert.deepEqual(diagnostics.proxy.sources, ['HTTPS_PROXY', 'git:http.proxy']);
-  assert.doesNotMatch(JSON.stringify(diagnostics), /employee|secret|root-ca/);
+  assert.equal(diagnostics.tlsBackend.configured, true);
+  assert.equal(diagnostics.credentialHelper.configured, true);
+  assert.deepEqual(diagnostics.proxy.sources, [
+    'HTTPS_PROXY', 'https_proxy',
+    'git-system:http-proxy', 'git-global:http-proxy'
+  ]);
+  assert.deepEqual(diagnostics.proxyBypass.sources, ['NO_PROXY', 'no_proxy']);
+  assert.deepEqual(diagnostics.certificateAuthority.sources, [
+    'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH', 'git-system:certificate-authority'
+  ]);
+  assert.deepEqual(diagnostics.tlsBackend.sources, ['git-global:tls-backend']);
+  assert.deepEqual(diagnostics.credentialHelper.sources, [
+    'git-system:credential-helper', 'git-global:credential-helper'
+  ]);
+  assert.equal(calls.length, 2, 'system and global config are each read once');
+  assert.ok(calls.every((entry) => entry.args.includes('--name-only')),
+    'Git must not return proxy, CA, or credential-helper values');
+  assert.ok(calls.every((entry) => entry.options.env === env),
+    'diagnostics inspect the same environment supplied to the Git supervisor');
+  assert.doesNotMatch(JSON.stringify(diagnostics),
+    /employee|secret|root-ca|certificate-directory|private-provider|dev\.azure|example\.invalid/);
   assert.match(diagnostics.guidance, /never disables TLS/);
+
+  const bypassOnly = enterpriseGitDiagnostics({
+    env: { no_proxy: 'bypass-only-secret.example.invalid' },
+    runCommand: () => ({ status: 1, stdout: '' })
+  });
+  assert.equal(bypassOnly.proxy.configured, false,
+    'NO_PROXY alone is a bypass rule, not evidence that a proxy endpoint is configured');
+  assert.deepEqual(bypassOnly.proxyBypass, { configured: true, sources: ['no_proxy'] });
+  assert.doesNotMatch(JSON.stringify(bypassOnly), /bypass-only-secret|example\.invalid/);
 });
 
 test('session integrity detects local record tampering', async () => {

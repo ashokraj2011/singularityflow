@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -7,10 +9,12 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { run } from '../src/util.mjs';
+import { runRemoteGitAsync } from '../src/git-execution.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
+  isolatedCacheGitEnvironment,
   mergePackagedConfiguration,
   PACKAGE_BASELINE_PATH,
   refreshPackagedConfiguration,
@@ -172,6 +176,245 @@ async function withGitUrlRewrite(from, to, callback) {
     }
   }
 }
+
+test('confirmed refresh preserves allowlisted enterprise Git transport and auth without leaking unsafe configuration', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-enterprise-git-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const systemConfig = path.join(root, 'system.gitconfig');
+  const globalConfig = path.join(root, 'global.gitconfig');
+  const systemCa = path.join(root, 'system-ca.pem');
+  const globalCa = path.join(root, 'global-ca.pem');
+  const secretHeader = 'Authorization: Bearer must-not-enter-refresh';
+  const secretKey = path.join(root, 'must-not-enter-refresh-client.key');
+  const hostileHooks = path.join(root, 'must-not-enter-refresh-hooks');
+
+  const configure = (file, args) => run('git', ['config', '--file', file, ...args]);
+  configure(systemConfig, ['http.proxy', 'http://system-proxy.example.test:8080']);
+  configure(systemConfig, ['http.sslCAInfo', systemCa]);
+  configure(systemConfig, ['--add', 'credential.helper', 'system-corporate-manager']);
+  configure(systemConfig, ['http.sslBackend', 'openssl']);
+  configure(globalConfig, ['http.proxy', 'http://global-proxy.example.test:8443']);
+  configure(globalConfig, ['http.sslCAInfo', globalCa]);
+  configure(globalConfig, ['--add', 'credential.helper', '']);
+  configure(globalConfig, ['--add', 'credential.helper', 'global-corporate-manager']);
+  configure(globalConfig, [
+    'credential.https://git.example.test.useHttpPath', 'true'
+  ]);
+  configure(globalConfig, [
+    'http.https://git.example.test.sslCAInfo', path.join(root, 'provider-ca.pem')
+  ]);
+  // These values could execute code, redirect authority, or carry credentials. They must remain
+  // unavailable even though they share the same trusted global file as the allowlisted settings.
+  configure(globalConfig, ['core.hooksPath', hostileHooks]);
+  configure(globalConfig, ['url.file:///decoy.git.insteadOf', 'https://git.example.test/']);
+  configure(globalConfig, ['http.extraHeader', secretHeader]);
+  configure(globalConfig, ['http.sslKey', secretKey]);
+  configure(globalConfig, ['http.sslVerify', 'false']);
+  configure(globalConfig, ['credential.interactive', 'always']);
+  configure(globalConfig, ['credential.username', 'must-not-enter-refresh@example.test']);
+
+  const sourceEnv = {
+    ...process.env,
+    GIT_CONFIG_SYSTEM: systemConfig,
+    GIT_CONFIG_GLOBAL: globalConfig,
+    GIT_DIR: path.join(root, 'attacker.git'),
+    GIT_WORK_TREE: path.join(root, 'attacker-worktree'),
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: hostileHooks,
+    GIT_TRACE_CURL: path.join(root, 'must-not-enter-refresh-curl-trace.log'),
+    GIT_TRACE2_EVENT: path.join(root, 'must-not-enter-refresh-trace2.jsonl')
+  };
+  delete sourceEnv.GIT_CONFIG_NOSYSTEM;
+  const isolated = isolatedCacheGitEnvironment(sourceEnv);
+  const values = (key) => {
+    const result = run('git', ['config', '--null', '--get-all', key], {
+      cwd: root, env: isolated, allowFailure: true
+    });
+    return result.status === 0 ? result.stdout.split('\0').slice(0, -1) : [];
+  };
+
+  assert.deepEqual(values('http.proxy'), [
+    'http://system-proxy.example.test:8080',
+    'http://global-proxy.example.test:8443'
+  ], 'system and global proxy ordering survives the isolated confirmed operation');
+  assert.equal(run('git', ['config', '--get', 'http.proxy'], { cwd: root, env: isolated }).stdout.trim(),
+    'http://global-proxy.example.test:8443',
+    'Git still resolves the global proxy as the effective higher-precedence value');
+  assert.deepEqual(values('http.sslCAInfo'), [systemCa, globalCa]);
+  assert.equal(run('git', ['config', '--get', 'http.sslCAInfo'], {
+    cwd: root, env: isolated
+  }).stdout.trim(), globalCa,
+  'Git still resolves the global CA as the effective higher-precedence value');
+  assert.deepEqual(values('credential.helper'), [
+    'system-corporate-manager', '', 'global-corporate-manager'
+  ], 'an empty global helper keeps Git credential-helper reset semantics');
+  assert.deepEqual(values('credential.https://git.example.test.useHttpPath'), ['true']);
+  assert.deepEqual(values('http.https://git.example.test.sslCAInfo'), [
+    path.join(root, 'provider-ca.pem')
+  ]);
+  assert.deepEqual(values('http.sslBackend'), ['openssl']);
+
+  for (const key of [
+    'core.hooksPath', 'url.file:///decoy.git.insteadOf', 'http.extraHeader', 'http.sslKey',
+    'http.sslVerify', 'credential.interactive', 'credential.username'
+  ]) assert.deepEqual(values(key), [], `${key} must not cross the confirmed-refresh boundary`);
+  assert.equal(isolated.GIT_DIR, undefined);
+  assert.equal(isolated.GIT_WORK_TREE, undefined);
+  assert.equal(isolated.GIT_CONFIG_NOSYSTEM, '1');
+  assert.equal(isolated.GIT_CONFIG_GLOBAL, os.devNull);
+  assert.equal(isolated.GIT_CONFIG_SYSTEM, os.devNull);
+  assert.equal(isolated.GIT_TRACE_CURL, undefined);
+  assert.equal(isolated.GIT_TRACE2_EVENT, undefined);
+  const admittedConfiguration = Object.entries(isolated)
+    .filter(([key]) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key))
+    .map(([, value]) => value).join('\n');
+  assert.doesNotMatch(admittedConfiguration,
+    /must-not-enter-refresh|Authorization: Bearer|decoy\.git|client\.key/,
+    'unsafe or credential-bearing configuration must not leak into child environments');
+});
+
+test('confirmed refresh failures never disclose allowlisted proxy or credential-helper secrets', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-enterprise-redaction-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const globalConfig = path.join(root, 'global.gitconfig');
+  const proxySecret = 'sflow-proxy-password-must-not-leak';
+  const helperSecret = 'sflow-helper-password-must-not-leak';
+  run('git', [
+    'config', '--file', globalConfig, 'http.proxy',
+    `http://employee:${proxySecret}@127.0.0.1:1`
+  ]);
+  run('git', [
+    'config', '--file', globalConfig, 'credential.helper',
+    `!f() { printf 'password=${helperSecret}\\n'; }; f`
+  ]);
+  const workspaceRoot = path.join(root, 'workspace');
+  const manifest = {
+    version: 1,
+    id: 'enterprise-redaction',
+    name: 'Enterprise redaction',
+    path: workspaceRoot,
+    anchor: { provider: 'workspace', key: 'enterprise-redaction', title: 'Enterprise redaction' },
+    leadRepository: 'application',
+    repositories: {
+      application: {
+        id: 'application', url: 'https://git.example.invalid/acme/application.git',
+        defaultBranch: 'main', required: true, path: 'repos/application', role: 'lead',
+        capabilities: []
+      }
+    }
+  };
+  await mkdir(workspaceRoot, { recursive: true });
+  await writeFile(path.join(workspaceRoot, 'workspace.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  const registry = path.join(root, 'workspaces.json');
+  await rememberWorkspace(registry, manifest);
+  const changed = {
+    GIT_CONFIG_GLOBAL: globalConfig,
+    GIT_CONFIG_SYSTEM: os.devNull,
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '2000'
+  };
+  const previous = Object.fromEntries(Object.keys(changed).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, changed);
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const result = await refreshWorkspaceConfigurations({
+    registryFile: registry,
+    confirmPlan: 'cfgp-000000000000000000000000'
+  });
+  assert.equal(result.status, 'blocked');
+  const disclosed = JSON.stringify(result);
+  assert.doesNotMatch(disclosed, /employee|sflow-proxy-password|sflow-helper-password/);
+  assert.match(result.results[0].error, /Cannot read|network|proxy|offline|retry/i);
+});
+
+test('confirmed refresh carries Windows GCM, proxy case variants, and custom trust through cancellation without disclosure', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-enterprise-windows-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const systemConfig = path.join(root, 'system.gitconfig');
+  const globalConfig = path.join(root, 'global.gitconfig');
+  const windowsManager = 'C:/Program Files/Git Credential Manager/git-credential-manager.exe';
+  const windowsCa = 'C:/ProgramData/Enterprise PKI/root-ca.pem';
+  run('git', ['config', '--file', systemConfig, '--add', 'credential.helper', 'manager']);
+  run('git', ['config', '--file', globalConfig, '--add', 'credential.helper', '']);
+  run('git', ['config', '--file', globalConfig, '--add', 'credential.helper', windowsManager]);
+  run('git', ['config', '--file', globalConfig, 'http.sslBackend', 'schannel']);
+  run('git', ['config', '--file', globalConfig, 'http.sslCAInfo', windowsCa]);
+  run('git', ['config', '--file', globalConfig, 'http.schannelUseSSLCAInfo', 'true']);
+  run('git', [
+    'config', '--file', globalConfig,
+    'credential.https://dev.azure.com.useHttpPath', 'true'
+  ]);
+  const upperProxySecret = 'upper-proxy-secret-must-not-leak';
+  const lowerProxySecret = 'lower-proxy-secret-must-not-leak';
+  const sourceEnv = {
+    ...process.env,
+    GIT_CONFIG_SYSTEM: systemConfig,
+    GIT_CONFIG_GLOBAL: globalConfig,
+    HTTPS_PROXY: `http://employee:${upperProxySecret}@upper-proxy.example.test:8080`,
+    https_proxy: `http://employee:${lowerProxySecret}@lower-proxy.example.test:8080`,
+    HTTP_PROXY: 'http://upper-http-proxy.example.test:8080',
+    http_proxy: 'http://lower-http-proxy.example.test:8080',
+    NO_PROXY: 'upper-no-proxy.example.test',
+    no_proxy: 'lower-no-proxy.example.test',
+    GIT_SSL_CAINFO: windowsCa,
+    GIT_SSL_CAPATH: 'C:/ProgramData/Enterprise PKI/certificates',
+    GIT_SSL_NO_VERIFY: '1'
+  };
+  delete sourceEnv.GIT_CONFIG_NOSYSTEM;
+  const isolated = isolatedCacheGitEnvironment(sourceEnv);
+  const controller = new AbortController();
+  let childEnvironment = null;
+  const signals = [];
+  const spawnCommand = (_command, _args, options) => {
+    childEnvironment = options.env;
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    queueMicrotask(() => controller.abort(new Error('user cancelled enterprise refresh')));
+    return child;
+  };
+  const terminateTree = (child, signal) => {
+    signals.push(signal);
+    if (signal === 'SIGTERM') queueMicrotask(() => child.emit('close', null, signal));
+    return true;
+  };
+  const result = await runRemoteGitAsync([
+    'ls-remote', '--heads', '--', 'https://git.example.test/acme/application.git'
+  ], {
+    env: isolated,
+    signal: controller.signal,
+    spawnCommand,
+    terminateTree,
+    timeoutMs: 5_000,
+    terminationGraceMs: 40
+  });
+
+  assert.equal(result.aborted, true);
+  assert.equal(result.failure.code, 'REMOTE_OPERATION_ABORTED');
+  assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
+  for (const key of [
+    'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy',
+    'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH'
+  ]) assert.equal(childEnvironment[key], sourceEnv[key], `${key} must reach the Git supervisor unchanged`);
+  assert.equal(childEnvironment.GIT_SSL_NO_VERIFY, undefined,
+    'enterprise trust configuration must never disable certificate verification');
+  const gitValues = (key) => run('git', ['config', '--null', '--get-all', key], {
+    cwd: root, env: childEnvironment
+  }).stdout.split('\0').slice(0, -1);
+  assert.deepEqual(gitValues('credential.helper'), ['manager', '', windowsManager]);
+  assert.deepEqual(gitValues('credential.https://dev.azure.com.useHttpPath'), ['true']);
+  assert.deepEqual(gitValues('http.sslBackend'), ['schannel']);
+  assert.deepEqual(gitValues('http.sslCAInfo'), [windowsCa]);
+  assert.deepEqual(gitValues('http.schannelUseSSLCAInfo'), ['true']);
+  assert.doesNotMatch(JSON.stringify(result),
+    /upper-proxy-secret|lower-proxy-secret|Credential Manager|ProgramData|root-ca/,
+    'cancellation results expose only closed-vocabulary status, never enterprise config values');
+});
 
 test('three-way package merging updates untouched values and retains repository customizations', () => {
   const base = {

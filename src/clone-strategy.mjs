@@ -44,3 +44,25 @@ export function partialCloneConfigured(root, remote = 'origin', runGit) {
   return read(`remote.${remote}.promisor`).stdout.trim() === 'true'
     && read(`remote.${remote}.partialclonefilter`).stdout.trim() === 'blob:none';
 }
+
+const FILTER_UNSUPPORTED = /(?:filter(?:ing)?[^\n]*(?:ignored|not recognized|not supported|unsupported|does not support)|does not support[^\n]*filter|server does not support filter)/i;
+
+/**
+ * Classify only the partial-clone capability result, never a general transport failure.
+ *
+ * A full retry is safe only when Git explicitly says that filtering is unsupported. Authentication,
+ * proxy, TLS, timeout, and ordinary network failures must retain their original diagnosis and must
+ * not consume a second office-network timeout behind an unfiltered clone.
+ */
+export function classifyPartialCloneResult(result, { configured = null } = {}) {
+  const output = [result?.stderr, result?.stdout, result?.error?.message]
+    .filter(Boolean).map(String).join('\n');
+  const rejected = FILTER_UNSUPPORTED.test(output);
+  if (Number(result?.status ?? 1) !== 0) {
+    return Object.freeze({ kind: rejected ? 'filter-rejected' : 'transport-failed' });
+  }
+  if (configured === false || rejected) {
+    return Object.freeze({ kind: 'filter-ignored' });
+  }
+  return Object.freeze({ kind: 'partial-established' });
+}

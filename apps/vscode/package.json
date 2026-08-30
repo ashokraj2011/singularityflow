@@ -18,8 +18,7 @@
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onView:singularityFlow.navigation",
-    "workspaceContains:singularity/workflow.yml",
-    "workspaceContains:workspace.json"
+    "workspaceContains:singularity/workflow.yml"
   ],
   "contributes": {
     "chatParticipants": [

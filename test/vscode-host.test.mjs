@@ -1001,7 +1001,7 @@ test('menu personas tailor first-use Favorites and section order without overrid
   await until(() => settings.get('role') === 'product-owner');
   assert.ok(registered.executedCommands.some((entry) => entry.id === 'singularityFlow.choosePersona'));
   assert.equal(registered.inputBoxes.length, 0, 'the header persona switch does not ask for the name again');
-  assert.match(navigation.webview.html, /Change Product owner menu persona/);
+  await until(() => navigation.webview.html.includes('Change Product owner menu persona'));
 
   settings.set('role', 'architect');
   navigation.provider.profileChanged();

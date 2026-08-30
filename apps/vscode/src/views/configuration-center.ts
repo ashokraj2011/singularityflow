@@ -13,6 +13,7 @@ import {
   type WorldModelDraft
 } from './configuration-center-model.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 export type ConfigurationCenterMessage =
   | { type: 'save'; path: string; content: string; expectedSha256: string }
@@ -42,17 +43,24 @@ export class ConfigurationCenterPanel {
   private errors: string[] = [];
   private dirty = false;
   private saving = false;
+  private disposed = false;
   private renderedTexts = { definitionText: '', portfolioText: '' };
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly store: WorkspaceStore,
     private readonly profile: () => { name: string; role: string },
-    private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>
+    private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>,
+    private readonly lease: { dispose(): void }
   ) {
-    this.subscription = store.onDidChange(() => this.storeChanged());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.storeChanged()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
     panel.webview.onDidReceiveMessage(async (raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -61,21 +69,39 @@ export class ConfigurationCenterPanel {
       await this.receive(raw);
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
   }
 
-  static show(context: vscode.ExtensionContext, store: WorkspaceStore, profile: () => { name: string; role: string }, onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>, tab: ConfigurationTab = 'overview'): ConfigurationCenterPanel {
+  static async show(context: vscode.ExtensionContext, store: WorkspaceStore, profile: () => { name: string; role: string }, onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>, tab: ConfigurationTab = 'overview'): Promise<ConfigurationCenterPanel> {
     if (ConfigurationCenterPanel.current) {
       ConfigurationCenterPanel.current.tab = tab;
       ConfigurationCenterPanel.current.panel.reveal(vscode.ViewColumn.Active);
       ConfigurationCenterPanel.current.render();
       return ConfigurationCenterPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel('singularityFlow.configurationCenter', 'Configuration Center', vscode.ViewColumn.Active, {
-      enableScripts: true, retainContextWhenHidden: true,
-      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-    });
-    ConfigurationCenterPanel.current = new ConfigurationCenterPanel(panel, store, profile, onMessage);
+    const lease = await store.acquireSlices(['configuration', 'integrations']);
+    const raced = ConfigurationCenterPanel.current as ConfigurationCenterPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.tab = tab;
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      raced.render();
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel('singularityFlow.configurationCenter', 'Configuration Center', vscode.ViewColumn.Active, {
+        enableScripts: true, retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+      });
+      ConfigurationCenterPanel.current = new ConfigurationCenterPanel(panel, store, profile, onMessage, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     ConfigurationCenterPanel.current.tab = tab;
     ConfigurationCenterPanel.current.render();
     return ConfigurationCenterPanel.current;
@@ -261,6 +287,7 @@ export class ConfigurationCenterPanel {
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const view = this.view(); const token = nonce();
     if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
     this.renderedTexts = this.texts();
@@ -269,5 +296,13 @@ export class ConfigurationCenterPanel {
     this.panel.webview.html = page('Configuration Center', configurationCenterHtml(view, this.tab, selectedAuthority, selectedMcp, this.notice, this.errors), contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT, { nav: 'configuration' });
   }
 
-  private dispose(): void { this.subscription.dispose(); this.disposables.forEach((item) => item.dispose()); ConfigurationCenterPanel.current = null; }
+  private dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.subscription.dispose();
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
+    this.disposables.forEach((item) => item.dispose());
+    ConfigurationCenterPanel.current = null;
+  }
 }

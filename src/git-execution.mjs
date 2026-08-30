@@ -13,7 +13,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn } from 'node:child_process';
-import { networkDisabled, run, SingularityFlowError } from './util.mjs';
+import { networkDisabled, run, signalProcessTree, SingularityFlowError } from './util.mjs';
 
 const positive = (value, fallback) => {
   const parsed = Number(value);
@@ -48,6 +48,17 @@ const timeoutFor = (operation, env) => {
   if (operation === 'remote-push') return timeouts.push;
   return timeouts.configuration;
 };
+
+// A managed installation may shorten or modestly extend cleanup, but it cannot turn the grace
+// period into another unbounded network timeout.
+const MAX_TERMINATION_GRACE_MS = 5_000;
+const boundedTerminationGrace = (value, fallback = 2_000) => Math.min(
+  MAX_TERMINATION_GRACE_MS,
+  positive(value, fallback)
+);
+const terminationGraceFor = (env) => boundedTerminationGrace(
+  env.SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS
+);
 
 const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']);
 
@@ -140,7 +151,9 @@ export function runRemoteGit(args, {
 export async function runRemoteGitAsync(args, {
   cwd = process.cwd(), env = process.env, operation = 'remote-probe',
   timeoutMs = timeoutFor(operation, env), allowFailure = true,
-  maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null
+  maxBuffer = 16 * 1024 * 1024, spawnCommand = spawn, signal = null,
+  terminationGraceMs = terminationGraceFor(env),
+  terminateTree = signalProcessTree
 } = {}) {
   if (networkDisabled(env)) {
     return runRemoteGit(args, {
@@ -150,12 +163,18 @@ export async function runRemoteGitAsync(args, {
   }
   recordRemoteGitInvocation(args, operation);
   const result = signal?.aborted
-    ? { status: 1, stdout: '', stderr: '', error: signal.reason, timedOut: false, aborted: true }
+    // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
+    // closed-vocabulary cancellation classification below is the complete public diagnosis; never
+    // copy an arbitrary AbortSignal reason into a result, log, receipt, or JSON response.
+    ? { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, aborted: true }
     : await new Promise((resolve) => {
     let child;
     try {
       child = spawnCommand('git', args, {
         cwd, env: nonInteractiveGitEnvironment(env), shell: false,
+        // A private POSIX process group lets the timeout boundary reach Git, credential helpers,
+        // SSH, proxy commands, and any other descendant in one signal. Windows uses taskkill /T.
+        detached: process.platform !== 'win32',
         stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true
       });
     } catch (error) {
@@ -166,46 +185,159 @@ export async function runRemoteGitAsync(args, {
     let stderr = '';
     let bytes = 0;
     let timedOut = false;
+    let aborted = false;
     let outputOverflow = false;
     let spawnError = null;
+    let settled = false;
+    let terminationReason = null;
+    let deadlineTimer = null;
     let forceTimer = null;
-    const terminate = () => {
-      child.kill('SIGTERM');
-      forceTimer ??= setTimeout(() => child.kill('SIGKILL'), 1_000);
+    let settleTimer = null;
+    let forceSent = false;
+    const cleanupAttempts = new Set();
+    const graceMs = boundedTerminationGrace(terminationGraceMs, terminationGraceFor(env));
+    const forceDelayMs = Math.max(0, Math.min(1_000, Math.floor(graceMs / 2)));
+    let cleanupDeadlineAt = Infinity;
+
+    const destroyPipes = () => {
+      child.stdout?.removeListener?.('data', onStdout);
+      child.stderr?.removeListener?.('data', onStderr);
+      child.stdout?.destroy?.();
+      child.stderr?.destroy?.();
     };
+
+    const cleanup = () => {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      if (forceTimer) clearTimeout(forceTimer);
+      if (settleTimer) clearTimeout(settleTimer);
+      signal?.removeEventListener('abort', onAbort);
+      child.removeListener?.('error', onError);
+      child.removeListener?.('close', onClose);
+    };
+
+    const settle = (code, terminationSignal) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (terminationReason) destroyPipes();
+      // Once a boundary fired, a wrapper exiting zero in response to SIGTERM did not produce a
+      // valid remote answer. Preserve failure even when that late exit reports code 0.
+      const failedByBoundary = terminationReason != null || outputOverflow;
+      resolve({
+        status: failedByBoundary ? 1 : (code ?? 1),
+        stdout,
+        stderr,
+        error: spawnError,
+        signal: terminationSignal,
+        timedOut,
+        outputOverflow,
+        aborted
+      });
+    };
+
+    const signalTree = (treeSignal) => {
+      // Keep the real Windows taskkill supervisor inside the outer operation grace. The outer hard
+      // timer still wins if an injected or broken implementation never settles.
+      const remainingMs = Math.max(1, cleanupDeadlineAt - Date.now() - 5);
+      let finishAttempt;
+      const attempt = new Promise((resolveAttempt) => { finishAttempt = resolveAttempt; });
+      // Register the placeholder before invoking an injected implementation. A direct-child test
+      // double may emit `close` synchronously while it is being called; that close must still wait
+      // for both the graceful and forced cleanup attempts it triggered.
+      cleanupAttempts.add(attempt);
+      attempt.then(() => cleanupAttempts.delete(attempt));
+      try {
+        Promise.resolve(terminateTree(child, treeSignal, {
+          timeoutMs: Math.max(1, Math.min(remainingMs, treeSignal === 'SIGTERM'
+            ? Math.max(1, forceDelayMs - 5)
+            : remainingMs))
+        })).then(finishAttempt, () => finishAttempt(false));
+      } catch {
+        finishAttempt(false);
+      }
+      return attempt;
+    };
+
+    const settleAfterCleanup = (code, terminationSignal) => {
+      if (settled) return;
+      const pending = [...cleanupAttempts];
+      if (!pending.length) {
+        settle(code, terminationSignal);
+        return;
+      }
+      Promise.allSettled(pending).then(() => {
+        if (!settled) settle(code, terminationSignal);
+      });
+    };
+
+    const force = () => {
+      if (settled || forceSent) return null;
+      forceSent = true;
+      return signalTree('SIGKILL');
+    };
+
+    const terminate = (reason) => {
+      if (settled || terminationReason) return;
+      terminationReason = reason;
+      timedOut = reason === 'timeout';
+      aborted = reason === 'abort';
+      cleanupDeadlineAt = Date.now() + graceMs;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      deadlineTimer = null;
+      signalTree('SIGTERM');
+      // Force termination happens inside the grace window. The second timer is independent of
+      // `close`, so a descendant retaining a pipe cannot retain the awaiting command forever.
+      forceTimer = setTimeout(force, forceDelayMs);
+      settleTimer = setTimeout(() => {
+        force();
+        // This deadline is deliberately independent of both Git's `close` event and cleanup
+        // promises supplied by an injected implementation. The real Windows supervisor is given
+        // a tighter inner timeout, but no test double or damaged host can retain the operation.
+        settle(1, forceSent ? 'SIGKILL' : 'SIGTERM');
+      }, graceMs);
+    };
+
     const append = (channel, chunk) => {
+      if (outputOverflow || settled) return;
       const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
       bytes += value.byteLength;
       if (bytes > maxBuffer) {
         outputOverflow = true;
-        terminate();
+        terminate('output-overflow');
         return;
       }
       if (channel === 'stdout') stdout += value.toString('utf8');
       else stderr += value.toString('utf8');
     };
-    child.stdout?.on('data', (chunk) => append('stdout', chunk));
-    child.stderr?.on('data', (chunk) => append('stderr', chunk));
-    child.on('error', (error) => { spawnError = error; });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminate();
-    }, timeoutMs);
-    const abort = () => terminate();
-    signal?.addEventListener('abort', abort, { once: true });
-    // These timers are part of the promise's completion machinery. Unreferencing the deadline (or
-    // the forced-kill grace timer) lets Node conclude that the event loop is empty while callers are
-    // still awaiting this operation. `node:test` then reports a pending promise instead of the
-    // classified timeout result. Keep both referenced until `close` settles the operation.
-    child.on('close', (code, terminationSignal) => {
-      clearTimeout(timer);
-      if (forceTimer) clearTimeout(forceTimer);
-      signal?.removeEventListener('abort', abort);
-      resolve({
-        status: code ?? 1, stdout, stderr, error: spawnError,
-        signal: terminationSignal, timedOut, outputOverflow, aborted: signal?.aborted === true
-      });
-    });
+    const onStdout = (chunk) => append('stdout', chunk);
+    const onStderr = (chunk) => append('stderr', chunk);
+    const onError = (error) => {
+      spawnError = error;
+      // Spawn failures have no process tree and do not reliably emit `close` on every injected
+      // implementation. Settle them immediately; post-spawn errors still get bounded cleanup.
+      if (!child.pid) settle(1, null);
+      else terminate('spawn-error');
+    };
+    const onClose = (code, terminationSignal) => {
+      // `close` proves only that this child's pipes closed. A helper that redirected its own stdio
+      // may still be alive in the process group/tree, so complete the escalation before reporting
+      // quiescence after any boundary-triggered termination.
+      if (terminationReason) {
+        force();
+        settleAfterCleanup(code, terminationSignal);
+      } else settle(code, terminationSignal);
+    };
+    const onAbort = () => terminate('abort');
+
+    child.stdout?.on('data', onStdout);
+    child.stderr?.on('data', onStderr);
+    child.on('error', onError);
+    child.on('close', onClose);
+    deadlineTimer = setTimeout(() => terminate('timeout'), timeoutMs);
+    // The signal may have changed after the pre-spawn check (an injected launcher can abort while
+    // returning the child). Do not miss that narrow cancellation window.
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
   });
   const failure = result.aborted
     ? {
@@ -240,6 +372,12 @@ function observationPatterns({ refs = [], includeHead = true, includeAllHeads = 
     ...refs.map((ref) => String(ref).trim()).filter(Boolean),
     ...(includeAllHeads ? ['refs/heads/*'] : [])
   ])];
+}
+
+function observationPatternsCover(available, requested) {
+  const held = new Set(available);
+  return requested.every((pattern) => held.has(pattern)
+    || (pattern.startsWith('refs/heads/') && pattern !== 'refs/heads/*' && held.has('refs/heads/*')));
 }
 
 function remoteObservation(url, patterns, result) {
@@ -281,6 +419,40 @@ export class GitRemoteSession {
     return generation;
   }
 
+  reusableObservation(remoteIdentity, patterns) {
+    for (const [key, observation] of this.observations) {
+      let observedRemote;
+      let observedPatterns;
+      try { [observedRemote, observedPatterns] = JSON.parse(key); } catch { continue; }
+      if (observedRemote !== remoteIdentity
+        || !observationPatternsCover(observedPatterns, patterns)) continue;
+      // An exact waiter may share the exact classified failure it requested. A narrower request
+      // must not inherit a failed broad inventory, however: providers can reject/overflow
+      // `refs/heads/*` while still answering one exact ref successfully.
+      if (JSON.stringify(observedPatterns) === JSON.stringify(patterns) || observation.ok) {
+        return observation;
+      }
+    }
+    return null;
+  }
+
+  reusablePendingObservation(remoteIdentity, patterns) {
+    for (const pending of this.pendingObservations.values()) {
+      if (!pending.invalidated && pending.remoteIdentity === remoteIdentity
+        && observationPatternsCover(pending.patterns, patterns)) return pending;
+    }
+    return null;
+  }
+
+  invalidatePendingRemote(remoteIdentity) {
+    for (const [key, pending] of this.pendingObservations) {
+      if (pending.remoteIdentity !== remoteIdentity) continue;
+      pending.invalidated = true;
+      this.nextObservationGeneration(key);
+      this.pendingObservations.delete(key);
+    }
+  }
+
   observe(remote, {
     refs = [], includeHead = true, includeAllHeads = false, refresh = false,
     timeoutMs = gitTimeouts(this.env).probe
@@ -288,10 +460,15 @@ export class GitRemoteSession {
     const url = assertCredentialFreeRemote(remote);
     const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
-    if (!refresh && this.observations.has(key)) return this.observations.get(key);
+    if (refresh) this.invalidate(url);
+    else {
+      const reusable = this.reusableObservation(url, patterns);
+      if (reusable) return reusable;
+    }
+    // A synchronous read cannot await an older async one. It supersedes every pending shape for the
+    // same transport so none can later repopulate the operation cache with pre-read authority.
+    this.invalidatePendingRemote(url);
     const generation = this.nextObservationGeneration(key);
-    const pending = this.pendingObservations.get(key);
-    if (pending) pending.invalidated = true;
     const transport = frozenRemoteTransport(url, { env: this.env });
     const result = runRemoteGit(['ls-remote', '--symref', '--', transport.remote, ...patterns], {
       operation: 'remote-probe', timeoutMs, env: transport.env,
@@ -312,13 +489,22 @@ export class GitRemoteSession {
     const url = assertCredentialFreeRemote(remote);
     const patterns = observationPatterns({ refs, includeHead, includeAllHeads });
     const key = JSON.stringify([url, patterns]);
-    if (!refresh && this.observations.has(key)) return this.observations.get(key);
-    if (!refresh && this.pendingObservations.has(key)) {
-      return this.pendingObservations.get(key).promise;
+    if (refresh) this.invalidate(url);
+    else {
+      const reusable = this.reusableObservation(url, patterns);
+      if (reusable) return reusable;
+      const pending = this.reusablePendingObservation(url, patterns);
+      if (pending) {
+        const observation = await pending.promise;
+        const exact = JSON.stringify(pending.patterns) === JSON.stringify(patterns);
+        if (exact || observation.ok) return observation;
+        // The broad request failed. Retry the narrower shape instead of turning a provider's
+        // all-heads limitation into a false absence for an exact authority ref.
+      }
     }
     const generation = this.nextObservationGeneration(key);
     const pendingState = {
-      remoteIdentity: url, promise: null, invalidated: false, generation
+      remoteIdentity: url, patterns, promise: null, invalidated: false, generation
     };
     const pending = (async () => {
       const transport = frozenRemoteTransport(url, { env: this.env });
@@ -355,13 +541,7 @@ export class GitRemoteSession {
       try { [observedRemote] = JSON.parse(key); } catch { /* an invalid private key is unrelated */ }
       if (observedRemote === remoteIdentity) this.observations.delete(key);
     }
-    for (const [key, pending] of this.pendingObservations) {
-      if (pending.remoteIdentity === remoteIdentity) {
-        pending.invalidated = true;
-        this.nextObservationGeneration(key);
-        this.pendingObservations.delete(key);
-      }
-    }
+    this.invalidatePendingRemote(remoteIdentity);
   }
 }
 

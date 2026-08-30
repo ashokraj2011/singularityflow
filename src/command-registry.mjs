@@ -43,6 +43,8 @@ const LAZY_MODULES = Object.freeze({
   learn: './commands/sgos-extensions.mjs',
   memory: './commands/sgos-extensions.mjs',
   'meta-tool': './commands/sgos-extensions.mjs',
+  workspace: './commands/workspace.mjs',
+  capability: './commands/capability.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
   explain: './commands/explain.mjs'

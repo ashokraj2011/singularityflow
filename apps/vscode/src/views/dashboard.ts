@@ -16,6 +16,7 @@ import { contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } fr
 import { navigateTo } from './navigate.ts';
 import type { IconName } from './webview.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 const PILL: Record<string, string> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: '' };
 const GLYPH: Record<string, IconName> = { fail: 'bad', warn: 'wait', pass: 'ok', skip: 'wait' };
@@ -230,12 +231,22 @@ export class DashboardPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
 
-  private constructor(panel: vscode.WebviewPanel, store: WorkspaceStore) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    store: WorkspaceStore,
+    private readonly lease: { dispose(): void }
+  ) {
     this.panel = panel;
     this.store = store;
-    this.subscription = store.onDidChange(() => this.render());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.render()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -248,25 +259,42 @@ export class DashboardPanel {
       if (command) void vscode.commands.executeCommand(command);
     }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
   }
 
-  static show(context: vscode.ExtensionContext, store: WorkspaceStore): DashboardPanel {
+  static async show(context: vscode.ExtensionContext, store: WorkspaceStore): Promise<DashboardPanel> {
     if (DashboardPanel.current) {
       DashboardPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return DashboardPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.dashboard', 'Lifecycle analytics', vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-      });
-    DashboardPanel.current = new DashboardPanel(panel, store);
+    const lease = await store.acquireSlices(['configuration', 'integrations', 'diagnostics']);
+    const raced = DashboardPanel.current as DashboardPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel(
+        'singularityFlow.dashboard', 'Lifecycle analytics', vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        });
+      DashboardPanel.current = new DashboardPanel(panel, store, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     return DashboardPanel.current;
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const token = nonce();
     this.panel.webview.html = page(
       'Lifecycle analytics',
@@ -278,8 +306,12 @@ export class DashboardPanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     DashboardPanel.current = null;
     this.subscription.dispose();
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

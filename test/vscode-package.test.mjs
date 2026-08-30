@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,19 @@ test('the CommonJS extension build uses a host-safe package root without import.
 
   assert.equal(result.status, 0, output);
   assert.doesNotMatch(output, /empty-import-meta|import\.meta.*not available/i, output);
+});
+
+test('the single-file extension package contains dynamically loaded gateway helpers', async () => {
+  const extension = path.join(root, 'apps', 'vscode');
+  const built = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
+  assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
+  const manifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
+  const bundle = await readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8');
+  assert.equal(manifest.activationEvents.includes('workspaceContains:workspace.json'), false);
+  assert.match(bundle, /investigate-problem/,
+    'the dynamically loaded conversation router was left outside the packaged CommonJS bundle');
+  assert.match(bundle, /function primaryAction\(/,
+    'the dynamically loaded result selector was left outside the packaged CommonJS bundle');
 });
 
 test('VS Code packaging pins one Artifactory-compatible MSAL dependency graph', () => {

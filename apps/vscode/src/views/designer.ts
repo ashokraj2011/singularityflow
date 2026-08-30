@@ -16,6 +16,7 @@ import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.
 import { navigateTo } from './navigate.ts';
 import type { WorkspaceStore } from '../state.ts';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 export type DesignerMessage =
   | { type: 'open'; path: string }
@@ -44,7 +45,9 @@ export class DesignerPanel {
   private readonly onMessage: (message: DesignerMessage) => Promise<string | null>;
   private readonly loadProposals: () => Promise<WorkflowProposalSummary[]>;
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
   private tab: DesignerTab = 'phases';
   private profile: string | null = null;
   private filter = 'all';
@@ -61,13 +64,18 @@ export class DesignerPanel {
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
     onMessage: (message: DesignerMessage) => Promise<string | null>,
-    loadProposals: () => Promise<WorkflowProposalSummary[]>
+    loadProposals: () => Promise<WorkflowProposalSummary[]>,
+    private readonly lease: { dispose(): void }
   ) {
     this.panel = panel;
     this.store = store;
     this.onMessage = onMessage;
     this.loadProposals = loadProposals;
-    this.subscription = store.onDidChange(() => this.render());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.render()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.
@@ -75,28 +83,45 @@ export class DesignerPanel {
       if (navigation) return void navigateTo(navigation);
  void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
     void this.refreshProposals();
   }
 
-  static show(
+  static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: DesignerMessage) => Promise<string | null>,
     loadProposals: () => Promise<WorkflowProposalSummary[]>
-  ): DesignerPanel {
+  ): Promise<DesignerPanel> {
     if (DesignerPanel.current) {
       DesignerPanel.current.panel.reveal(vscode.ViewColumn.Active);
       void DesignerPanel.current.refreshProposals();
       return DesignerPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.designer', 'Workflows & artifacts', vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-      });
-    DesignerPanel.current = new DesignerPanel(panel, store, onMessage, loadProposals);
+    const lease = await store.acquireSlices(['configuration']);
+    const raced = DesignerPanel.current as DesignerPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      void raced.refreshProposals();
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel(
+        'singularityFlow.designer', 'Workflows & artifacts', vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        });
+      DesignerPanel.current = new DesignerPanel(panel, store, onMessage, loadProposals, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     return DesignerPanel.current;
   }
 
@@ -395,6 +420,7 @@ export class DesignerPanel {
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const snapshot = this.store.current.snapshot;
     const token = nonce();
     const portfolioPath = snapshot?.portfolioPath ?? 'singularity/portfolio.yml';
@@ -420,8 +446,12 @@ export class DesignerPanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     DesignerPanel.current = null;
     this.subscription.dispose();
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

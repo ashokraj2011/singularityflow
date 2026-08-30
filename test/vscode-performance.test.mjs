@@ -32,6 +32,18 @@ test('VS Code activation keeps heavyweight webview panels behind dynamic imports
   }
 });
 
+test('gateway-only helpers initialize only when their surfaces are invoked', async () => {
+  const source = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
+  for (const module of ['conversation', 'result']) {
+    assert.doesNotMatch(source,
+      new RegExp(`^import(?!\\s+type\\b)[^\\n]*['"]\\.\\.\\/\\.\\.\\/\\.\\.\\/src/gateway/${module}\\.mjs['"]`, 'm'),
+      `${module}.mjs still initializes with the extension entry point`);
+    assert.match(source,
+      new RegExp(`await import\\(['"]\\.\\.\\/\\.\\.\\/\\.\\.\\/src/gateway/${module}\\.mjs['"]\\)`),
+      `${module}.mjs is not loaded by its invoking surface`);
+  }
+});
+
 test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', async () => {
   const runner = codeOnly(await readFile(path.join(root, 'apps/vscode/src/cli/runner.ts'), 'utf8'));
   const client = await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8');
@@ -40,6 +52,43 @@ test('VS Code CLI diagnostics use the versioned privacy-safe timing envelope', a
   assert.match(runner, /stages: \{ spawnMs: number \}/);
   assert.match(client, /\[Singularity Flow timing\]/);
   assert.doesNotMatch(client, /JSON\.stringify\(args\)/, 'command arguments must not enter diagnostics');
+});
+
+test('activation defers auxiliary CLI reads until the initial snapshot is confirmed', async () => {
+  const source = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
+  const prime = source.indexOf('store.primeFromCache()');
+  const refresh = source.indexOf('await store.refresh()', prime);
+  const confirmed = source.indexOf('initialRefreshCompleted = true', refresh);
+  const auxiliary = source.indexOf('startAuxiliaryReadsAfterConfirmedSnapshot()', confirmed);
+  assert.ok(prime >= 0 && refresh > prime && confirmed > refresh && auxiliary > confirmed,
+    'readiness or logs can start before the initial confirmed store refresh');
+  assert.match(source, /if \(!initialRefreshCompleted \|\| state\.stale \|\| state\.error \|\| !state\.snapshot\) return/,
+    'the auxiliary-read gate accepts an unconfirmed or failed snapshot');
+  assert.match(source, /statusWorkId = workflow\.workItem\.id;\s*if \(state\.stale\) return/,
+    'cached first paint launches status-chrome derivations before repository confirmation');
+});
+
+test('structured CLI payloads are buffered linearly and hidden from the Output channel', async () => {
+  const runner = codeOnly(await readFile(path.join(root, 'apps/vscode/src/cli/runner.ts'), 'utf8'));
+  const client = codeOnly(await readFile(path.join(root, 'apps/vscode/src/cli/client.ts'), 'utf8'));
+  const invoke = runner.slice(runner.indexOf('export function invokeCli'));
+  assert.match(invoke, /const stdoutChunks: string\[\] = \[\]/);
+  assert.match(invoke, /stdoutChunks\.join\(''\)/);
+  assert.doesNotMatch(invoke, /return target \+ text|stdout \+=|stderr \+=/,
+    'chunk collection copies all previously received output for every chunk');
+  assert.match(client, /if \(stream === 'stderr'\) this\.options\.onOutput\?\.\(text, stream\)/,
+    'JSON stdout is still forwarded to the VS Code Output channel');
+});
+
+test('snapshot cache identity is resolved from the currently selected repository', async () => {
+  const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
+  assert.match(extension, /const snapshotCacheKey = \(\): string => `snapshot:\$\{repository\}`/);
+  const useRepository = extension.indexOf('client.useRepository(canonicalTarget)');
+  const activeContext = extension.indexOf('setActiveRepositoryContext({', useRepository);
+  const reset = extension.indexOf('store.repositoryChanged()', useRepository);
+  const refresh = extension.indexOf('await store.refresh()', reset);
+  assert.ok(useRepository >= 0 && activeContext > useRepository && reset > activeContext && refresh > reset,
+    'repository switching leaves the previous snapshot/cache identity active or publishes before context is rebound');
 });
 
 test('nothing on the activation path stops the extension host with a synchronous subprocess', async () => {
@@ -58,8 +107,9 @@ test('nothing on the activation path stops the extension host with a synchronous
    * long the operation could take. That path is the narrow-clone recovery, reached only when both
    * local authorities are missing, which is exactly when a remote is most likely to be slow.
    *
-   * The local Git calls in `runner.ts` are deliberately still synchronous: they read refs and blobs
-   * from this repository and cost milliseconds. The rule is about the host, not about purity.
+   * Local ref and object inspection uses the same asynchronous boundary and batches work across
+   * refs. A local repository with thousands of remote-tracking refs can otherwise freeze the host
+   * just as effectively as a slow remote, one short synchronous process at a time.
    */
   // `codeOnly`: the paragraph above says "spawnSync" four times, and a grep over raw source would
   // read its own explanation as the defect it describes.
@@ -67,12 +117,21 @@ test('nothing on the activation path stops the extension host with a synchronous
   assert.doesNotMatch(extension, /\bspawnSync\b/,
     'the extension entry point runs a synchronous subprocess; it blocks the whole extension host');
 
-  const runner = await readFile(path.join(root, 'apps/vscode/src/cli/runner.ts'), 'utf8');
-  for (const [verb, bound] of [['ls-remote', '30_000'], ['fetch', '120_000']]) {
-    const call = new RegExp(`(spawnSync|await (?:remoteGit|runRemote))\\((?:'git', )?\\[[^\\]]*'${verb}'`, 's');
-    const matched = call.exec(runner);
-    assert.ok(matched, `the ${verb} call on the resolution path is no longer recognisable`);
-    assert.match(matched[1], /^await (?:remoteGit|runRemote)$/,
-      `remote Git \`${verb}\` is synchronous again, so a slow remote freezes the host for ${bound}ms`);
-  }
+  const runnerRaw = await readFile(path.join(root, 'apps/vscode/src/cli/runner.ts'), 'utf8');
+  const runner = codeOnly(runnerRaw);
+  assert.doesNotMatch(runner, /\bspawnSync\b/,
+    'repository validation or CLI cancellation still blocks the extension host synchronously');
+  assert.match(runner, /spawn\('taskkill\.exe'/,
+    'Windows process-tree termination no longer uses the asynchronous supervisor');
+  assert.match(runner, /killer\.once\('close', \(code\) => finish\(code === 0\)\)/,
+    'Windows taskkill is assumed successful without observing its exit status');
+  assert.match(runner, /if \(killed\) return true;[\s\S]*?child\.kill\(signal\)/,
+    'taskkill failure has no direct-child fallback');
+  assert.match(runner,
+    /const advertise = \(remote: string, signal = options\.signal\) => runRemote\(\[\s*'ls-remote'[\s\S]*?timeout: 30_000/,
+    'the bounded asynchronous ls-remote observation is no longer recognisable');
+  assert.match(runner, /const fetched = await runRemote\(\[\s*'fetch'[\s\S]*?timeout: 120_000/,
+    'the bounded asynchronous fetch is no longer recognisable');
+  assert.match(runner, /startRemoteProbePool\(additional, advertise, options\.signal\)/,
+    'additional remotes are back behind serial timeout windows');
 });

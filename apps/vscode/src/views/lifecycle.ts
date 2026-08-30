@@ -35,7 +35,10 @@ export class LifecycleTreeProvider implements vscode.TreeDataProvider<TreeNode>,
       this.subscription = { dispose() {} };
       return;
     }
-    this.subscription = store.onDidChange((state) => {
+    this.subscription = store.onDidChange((state, change) => {
+      // Loading changes only status chrome. Rebuilding every tree from the unchanged snapshot made
+      // the sidebar replace its whole document before the repository had produced any new data.
+      if (change.kind === 'loading') return;
       this.roots = this.build(state.snapshot, state.error);
       this.emitter.fire(undefined);
     });

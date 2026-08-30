@@ -45,12 +45,15 @@ test('the status bar and the card count gates with the same function', async () 
 test('a gate count that cannot be read is absent, not zero', async () => {
   // "No gates" and "we could not ask" are different facts, and `gates 0/0` asserts the first.
   const source = codeOnly(await read('apps', 'vscode', 'src', 'extension.ts'));
-  assert.match(source, /const gateCountFor = async[\s\S]{0,700}?return null;\s*\}\s*\};/);
+  const gateCount = source.slice(source.indexOf('const gateCountFor = async'), source.indexOf('const homeChromeFor'));
+  assert.match(gateCount, /catch \{\s*return null;\s*\}/);
+  assert.match(gateCount, /if \(!repositoryEpoch\.isCurrent\(scope\)\) return null/);
 });
 
 test('a late gate count for the previous Story is discarded', async () => {
   const source = codeOnly(await read('apps', 'vscode', 'src', 'extension.ts'));
-  assert.match(source, /if \(!gates \|\| statusWorkId !== renderedFor\) return;/);
+  assert.match(source,
+    /if \(!gates \|\| statusWorkId !== renderedFor \|\| !repositoryEpoch\.isCurrent\(renderedScope\)\) return;/);
 });
 
 test('the home renders one menu, from the envelope', async () => {

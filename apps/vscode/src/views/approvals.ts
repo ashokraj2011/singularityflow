@@ -14,6 +14,7 @@ import { contentSecurityPolicy, escape, navigationTarget, nonce, page, icon } fr
 import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import type { WorkspaceStore } from '../state.ts';
+import { RetainedPanelRenderGate } from '../single-flight.ts';
 
 const STANDING_PILL: Record<string, { className: string; label: string }> = {
   yours: { className: 'ok', label: 'yours to sign' },
@@ -127,16 +128,23 @@ export class ApprovalsPanel {
   private readonly panel: vscode.WebviewPanel;
   private readonly store: WorkspaceStore;
   private readonly subscription: { dispose(): void };
+  private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private disposed = false;
 
   private constructor(
     panel: vscode.WebviewPanel,
     store: WorkspaceStore,
-    onMessage: (message: ApprovalsMessage) => void
+    onMessage: (message: ApprovalsMessage) => void,
+    private readonly lease: { dispose(): void }
   ) {
     this.panel = panel;
     this.store = store;
-    this.subscription = store.onDidChange(() => this.render());
+    this.snapshotRenders = new RetainedPanelRenderGate(
+      () => this.panel.visible !== false,
+      () => this.render()
+    );
+    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
 
     /**
      * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
@@ -165,29 +173,46 @@ export class ApprovalsPanel {
     }, null, this.disposables);
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.panel.onDidChangeViewState?.(({ webviewPanel }) => {
+      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+    }, null, this.disposables);
     this.render();
   }
 
-  static show(
+  static async show(
     context: vscode.ExtensionContext,
     store: WorkspaceStore,
     onMessage: (message: ApprovalsMessage) => void
-  ): ApprovalsPanel {
+  ): Promise<ApprovalsPanel> {
     if (ApprovalsPanel.current) {
       ApprovalsPanel.current.panel.reveal(vscode.ViewColumn.Active);
       return ApprovalsPanel.current;
     }
-    const panel = vscode.window.createWebviewPanel(
-      'singularityFlow.approvals', 'Approvals', vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
-      });
-    ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage);
+    const lease = await store.acquireSlices(['configuration']);
+    const raced = ApprovalsPanel.current as ApprovalsPanel | null;
+    if (raced) {
+      lease.dispose();
+      raced.panel.reveal(vscode.ViewColumn.Active);
+      return raced;
+    }
+    let panel: vscode.WebviewPanel;
+    try {
+      panel = vscode.window.createWebviewPanel(
+        'singularityFlow.approvals', 'Approvals', vscode.ViewColumn.Active, {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
+        });
+      ApprovalsPanel.current = new ApprovalsPanel(panel, store, onMessage, lease);
+    } catch (error) {
+      lease.dispose();
+      throw error;
+    }
     return ApprovalsPanel.current;
   }
 
   private render(): void {
+    this.snapshotRenders.rendered();
     const token = nonce();
     this.panel.webview.html = page(
       'Approvals',
@@ -200,8 +225,12 @@ export class ApprovalsPanel {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     ApprovalsPanel.current = null;
     this.subscription.dispose();
+    this.snapshotRenders.dispose();
+    this.lease.dispose();
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }

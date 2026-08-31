@@ -7,10 +7,12 @@ import path from 'node:path';
 import YAML from 'yaml';
 import {
   ARTIFACT_TEMPLATE_TOKENS,
+  assertPlannedClaimsReady,
   initializeDefinition,
   loadDefinition,
   normalizeArtifactTemplateCompatibility,
   normalizePhaseInputs,
+  normalizePlannedClaimsPolicy,
   normalizePlanning,
   normalizeSequenceGates,
   normalizeSessionPolicy,
@@ -91,6 +93,13 @@ test('the shipped workflow schema stays in parity with token economy and code-de
     schema.properties.models.properties.providers.additionalProperties.properties.promptTransport,
     { enum: ['auto', 'acp-stdio', 'attachment'], default: 'auto' }
   );
+  assert.equal(
+    schema.properties.workTypes.additionalProperties.properties.plannedClaims.$ref,
+    '#/$defs/plannedClaimsPolicy'
+  );
+  assert.deepEqual(schema.$defs.plannedClaimsPolicy.oneOf.map((branch) => branch.properties.mode.const), [
+    'required', 'opt-out'
+  ]);
   assert.doesNotThrow(() => validateDefinition(structuredClone(template)));
 
   const tokenSchema = schema.$defs.tokenEconomy.properties;
@@ -207,6 +216,10 @@ test('legacy implementation contracts are upgraded to code and unsafe scopes fai
   validateDefinition(definition);
   delete definition.phases.implementation.generation;
   delete definition.workTypes.chore.phaseOverrides.implementation.generation;
+  definition.workTypes.chore.plannedClaims = {
+    mode: 'opt-out',
+    reason: 'This document-only legacy profile deliberately carries no specification contract.'
+  };
 
   const feature = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'implementation');
   assert.equal(feature.generation.task, 'code');
@@ -511,6 +524,190 @@ test('spec-driven phases use approval-bound summaries while legacy work types re
   assert.deepEqual(implementation.inputs[1].preserve, ['Test strategy', 'Risks and rollback']);
   const feature = resolveWorkType(definition, 'feature');
   assert.equal(feature.phases.find((phase) => phase.id === 'design').inputs[0].projection, undefined);
+});
+
+test('planned-claim topology is inferred, resolved, and pinned for specification workflows', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-planned-claims-config-'));
+  await initializeDefinition(root);
+  const definition = await loadDefinition(root);
+
+  const feature = resolveWorkType(definition, 'feature');
+  assert.deepEqual(feature.plannedClaims, {
+    mode: 'required',
+    clausePhases: ['requirements', 'implementation-spec'],
+    owners: { implementation: 'implementation-spec' },
+    reason: null
+  });
+  const specDriven = resolveWorkType(definition, 'spec-driven-standard');
+  assert.deepEqual(specDriven.plannedClaims, {
+    mode: 'required',
+    clausePhases: ['specification'],
+    owners: { implementation: 'planning' },
+    reason: null
+  });
+
+  const snapshot = await snapshotResolution(root, definition, specDriven);
+  assert.deepEqual(snapshot.plannedClaims, specDriven.plannedClaims);
+});
+
+test('future custom workflows must resolve an authoritative clause phase and owner before code', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  definition.workTypes['custom-delivery'] = {
+    label: 'Custom delivery',
+    phases: ['intake', 'design', 'implementation'],
+    spec: { mode: 'enforce', acceptance: 'presence' },
+    phaseOverrides: { intake: { artifact: { kind: 'requirements' } } },
+    plannedClaims: {
+      mode: 'required',
+      clausePhases: ['intake'],
+      owners: { implementation: 'design' }
+    }
+  };
+
+  assert.doesNotThrow(() => validateDefinition(definition));
+  assert.deepEqual(resolveWorkType(definition, 'custom-delivery').plannedClaims, {
+    mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }, reason: null
+  });
+
+  const missing = structuredClone(definition);
+  delete missing.workTypes['custom-delivery'].plannedClaims;
+  delete missing.workTypes['custom-delivery'].phaseOverrides;
+  assert.doesNotThrow(() => validateDefinition(missing),
+    'an older custom workflow must not make the complete catalog unreadable');
+  const unresolved = resolveWorkType(missing, 'custom-delivery');
+  assert.equal(unresolved.plannedClaims.mode, 'migration-required');
+  assert.match(unresolved.plannedClaims.reason, /no authoritative requirements or implementation-spec phase/);
+  assert.throws(
+    () => assertPlannedClaimsReady(unresolved),
+    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
+  );
+
+  const wrongKind = structuredClone(definition);
+  wrongKind.workTypes['custom-delivery'].plannedClaims.clausePhases = ['design'];
+  assert.throws(
+    () => validateDefinition(wrongKind),
+    /'design' is not authoritative: artifact\.kind must be requirements or implementation-spec/
+  );
+
+  const lateOwner = structuredClone(definition);
+  lateOwner.workTypes['custom-delivery'].plannedClaims.owners.implementation = 'implementation';
+  assert.throws(() => validateDefinition(lateOwner), /owner 'implementation' must precede code phase 'implementation'/);
+
+  const missingOwner = structuredClone(definition);
+  missingOwner.workTypes['custom-delivery'].plannedClaims.owners = {};
+  assert.throws(() => validateDefinition(missingOwner), /owners is missing code phase 'implementation'/);
+});
+
+test('deliberately non-spec code workflows require a concrete explicit opt-out', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  definition.workTypes['short-delivery'] = {
+    label: 'Short delivery',
+    phases: ['intake', 'implementation'],
+    spec: { mode: 'enforce', acceptance: 'presence' },
+    plannedClaims: {
+      mode: 'opt-out',
+      reason: 'This deliberately short operational change has no authoritative specification phase.'
+    }
+  };
+
+  assert.doesNotThrow(() => validateDefinition(definition));
+  const resolved = resolveWorkType(definition, 'short-delivery');
+  assert.equal(resolved.plannedClaims.mode, 'opt-out');
+  assert.equal(resolved.spec.acceptance, 'off');
+
+  const placeholder = structuredClone(definition);
+  placeholder.workTypes['short-delivery'].plannedClaims.reason = 'TODO';
+  assert.throws(() => validateDefinition(placeholder), /concrete 20-1000 character explanation/);
+
+  const mixed = structuredClone(definition);
+  mixed.workTypes['short-delivery'].plannedClaims.owners = { implementation: 'intake' };
+  assert.throws(() => validateDefinition(mixed), /opt-out must not declare clausePhases or owners/);
+
+  const hasSpecification = structuredClone(definition);
+  hasSpecification.workTypes['short-delivery'].phaseOverrides = {
+    intake: { artifact: { kind: 'requirements' } }
+  };
+  assert.throws(() => validateDefinition(hasSpecification), /cannot opt out because authoritative specification phase/);
+});
+
+test('packaged pre-contract profiles keep their shim and old custom profiles require migration without breaking load', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  validateDefinition(definition);
+  assert.equal(resolveWorkType(definition, 'quick-fix').plannedClaims.mode, 'opt-out');
+  assert.equal(resolveWorkType(definition, 'chore').plannedClaims.disabledBecause, 'no-code-delivery-phases');
+
+  const legacy = structuredClone(definition);
+  delete legacy.workTypes['quick-fix'].plannedClaims;
+  validateDefinition(legacy);
+  const quickFix = resolveWorkType(legacy, 'quick-fix');
+  assert.equal(quickFix.plannedClaims.mode, 'legacy-opt-out');
+  assert.equal(quickFix.spec.acceptance, 'off');
+
+  const enforcedLegacyId = structuredClone(legacy);
+  enforcedLegacyId.workTypes['quick-fix'].spec.mode = 'enforce';
+  assert.doesNotThrow(() => validateDefinition(enforcedLegacyId));
+  const unresolvedPackagedVariant = resolveWorkType(enforcedLegacyId, 'quick-fix');
+  assert.equal(unresolvedPackagedVariant.plannedClaims.mode, 'migration-required');
+  assert.throws(
+    () => assertPlannedClaimsReady(unresolvedPackagedVariant),
+    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
+  );
+
+  const custom = structuredClone(legacy);
+  custom.workTypes['custom-quick'] = {
+    ...structuredClone(custom.workTypes['quick-fix']),
+    label: 'Custom quick'
+  };
+  assert.doesNotThrow(() => validateDefinition(custom), 'an old custom workflow must not make its whole catalog unreadable');
+  const unresolved = resolveWorkType(custom, 'custom-quick');
+  assert.equal(unresolved.plannedClaims.mode, 'migration-required');
+  assert.equal(unresolved.spec.acceptance, 'presence', 'migration is not an implicit acceptance opt-out');
+  assert.throws(
+    () => assertPlannedClaimsReady(unresolved),
+    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
+      && /cannot start a new Story/.test(error.message)
+  );
+
+  for (const spec of [
+    { mode: 'enforce', coverage: 'enforce', acceptance: 'verify' },
+    { mode: 'record', coverage: 'off', acceptance: 'presence' },
+    { mode: 'record', coverage: 'record', acceptance: 'verify' },
+    { mode: 'off', coverage: 'off', acceptance: 'off' }
+  ]) {
+    const variant = structuredClone(custom);
+    variant.workTypes['custom-quick'].spec = spec;
+    assert.doesNotThrow(() => validateDefinition(variant),
+      `legacy spec policy ${JSON.stringify(spec)} made the catalog unreadable`);
+    assert.equal(resolveWorkType(variant, 'custom-quick').plannedClaims.mode, 'migration-required');
+  }
+});
+
+test('planned-claim policy disables non-code topology and rejects unknown configuration', () => {
+  const nonCode = [{ id: 'intake', order: 0, artifact: { kind: 'intake' } }];
+  assert.deepEqual(
+    normalizePlannedClaimsPolicy({ mode: 'required' }, {
+      workTypeId: 'docs', phases: nonCode,
+      spec: { mode: 'enforce', acceptance: 'presence' }
+    }),
+    {
+      mode: 'disabled', clausePhases: [], owners: {}, reason: null,
+      disabledBecause: 'no-code-delivery-phases'
+    }
+  );
+  assert.throws(
+    () => normalizePlannedClaimsPolicy({ mode: 'disabled' }, {
+      workTypeId: 'docs', phases: nonCode,
+      spec: { mode: 'enforce', acceptance: 'presence' }
+    }),
+    /mode must be required or opt-out/
+  );
+  assert.throws(
+    () => normalizePlannedClaimsPolicy({ mode: 'required', guessed: true }, {
+      workTypeId: 'docs', phases: nonCode,
+      spec: { mode: 'enforce', acceptance: 'presence' }
+    }),
+    /unknown field 'guessed'/
+  );
 });
 
 test('witnessed-clause configuration is normalized into the resolved phase policy and rejects nested drift', async () => {

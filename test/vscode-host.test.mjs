@@ -2236,6 +2236,17 @@ test('the packaged POC release candidate journey survives publication, review, C
     phaseText = phaseText
       .replace(/TODO:[^\n]*/g, 'Verified evidence is bound to the authorized checkout target, exact Story branch, and reviewed POC acceptance criterion.')
       .replace(/\bTODO\b/g, 'verified evidence');
+    if (phaseId === 'poc-ui-exploration') {
+      phaseText += [
+        '',
+        '## Reviewed exact planned evidence',
+        '',
+        '| Clause | Expected paths | Planned tests |',
+        '|---|---|---|',
+        '| `POC:AC-001` | `tests/poc-generated.test.mjs` | `tests/poc-generated.test.mjs` |',
+        ''
+      ].join('\n');
+    }
     phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
     await writeFile(phaseFile, phaseText);
     if (phaseId === 'poc-test-generation') {

@@ -16,6 +16,29 @@ function firstPhase(workflow, candidates) {
   return candidates.find((id) => workflow.phases?.[id]) ?? null;
 }
 
+function configuredPlannedClaimOwner(workflow, referencePhaseId = null) {
+  const owners = workflow.resolution?.plannedClaims?.mode === 'required'
+    ? workflow.resolution.plannedClaims.owners ?? {}
+    : {};
+  const reference = referencePhaseId ?? workflow.currentPhase ?? null;
+  if (reference && owners[reference]) return owners[reference];
+  if (reference && Object.values(owners).includes(reference) && workflow.phases?.[reference]) return reference;
+
+  // A final gate or a downstream verification phase belongs to the latest code interval before it,
+  // not the first owner in the workflow. This matters for workflows with more than one delivery
+  // phase: plan-a -> code-a -> plan-b -> code-b -> verify must recover code-b at plan-b.
+  const boundary = reference == null
+    ? workflow.phaseOrder.length
+    : workflow.phaseOrder.indexOf(reference);
+  const eligible = workflow.phaseOrder
+    .map((codePhaseId, index) => ({ codePhaseId, index, owner: owners[codePhaseId] }))
+    .filter((entry) => entry.owner && workflow.phases?.[entry.owner]
+      && (boundary < 0 || entry.index <= boundary));
+  return eligible.at(-1)?.owner
+    ?? workflow.phaseOrder.map((codePhaseId) => owners[codePhaseId]).find((owner) => owner && workflow.phases?.[owner])
+    ?? null;
+}
+
 function phaseFromMessage(workflow, message) {
   const escaped = workflow.phaseOrder
     .map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
@@ -36,15 +59,16 @@ function pathFromMessage(message) {
 
 function storyOwner(workflow, message) {
   const explicit = phaseFromMessage(workflow, message);
-  if (explicit) return explicit;
-  if (/\bconformance\b/i.test(message)) return firstPhase(workflow, ['conformance', 'release']);
   // A planned-test binding is authored before implementation. Routing it to implementation makes
   // a completed Story reopen at the wrong lifecycle boundary and cannot repair the missing claim
   // record. Prefer the workflow's planning owner, including feature profiles that call that phase
   // `implementation-spec`; implementation is only a compatibility fallback for shorter profiles.
   if (/\b(?:has no planned test|missing planned test(?: evidence)?)\b/i.test(message)) {
-    return firstPhase(workflow, ['planning', 'implementation-spec', 'implementation', 'verification', 'test', 'testing']);
+    return configuredPlannedClaimOwner(workflow, explicit)
+      ?? firstPhase(workflow, ['planning', 'implementation-spec', 'implementation', 'verification', 'test', 'testing']);
   }
+  if (explicit) return explicit;
+  if (/\bconformance\b/i.test(message)) return firstPhase(workflow, ['conformance', 'release']);
   if (/\b(?:has no observed test result|missing observed test(?: result| evidence)?)\b/i.test(message)) {
     return firstPhase(workflow, ['verification', 'test', 'testing', 'implementation', 'conformance']);
   }

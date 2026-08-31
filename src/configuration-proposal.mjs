@@ -17,6 +17,7 @@ import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote
 } from './configuration-branch.mjs';
+import { validateDefinition } from './config.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
 import { gitCommitIdentity } from './git.mjs';
 import {
@@ -289,8 +290,11 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
 
     // Validate the complete merged configuration, including agents and routing, before a ref can
     // move. This is the same read-only validator used by Configuration Center.
+    const baselineDefinition = validateDefinition(
+      yamlAtRef(scratch, reviewed.targetCommit, 'singularity/workflow.yml')
+    );
     await import('./editor.mjs').then(({ validateEditorConfiguration }) =>
-      validateEditorConfiguration(scratch));
+      validateEditorConfiguration(scratch, { baselineDefinition }));
     const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
     if (!alreadyMerged) {
       if (!acknowledgeUnprotected) {

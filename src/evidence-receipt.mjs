@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
-import { changedRepositoryPaths, loadActiveSpecRecords } from './specifications.mjs';
+import {
+  changedRepositoryPaths, loadActiveSpecRecords, mergeObservedClaimRecords, mergePlannedClaimRecords
+} from './specifications.mjs';
 import { applicationPathContext } from './application-paths.mjs';
 import { workDir } from './state-stores.mjs';
 import { run } from './util.mjs';
@@ -68,7 +70,8 @@ function requirementProjection(records, policy) {
     return { status: 'unavailable', configured: true, clauses: null, claimed: null };
   }
   const clauses = new Set((records.indexes ?? []).flatMap((index) => index.clauses ?? []).map((clause) => clause.id));
-  const observed = Object.assign({}, ...(records.observed ?? []).map((entry) => entry.claims ?? {}));
+  const planned = mergePlannedClaimRecords(records.planned ?? []);
+  const observed = mergeObservedClaimRecords(records.observed ?? [], planned);
   const claimed = [...clauses].filter((id) => observed[id] && observed[id].verdict !== 'missing').length;
   return { status: 'exact', configured: true, clauses: clauses.size, claimed };
 }

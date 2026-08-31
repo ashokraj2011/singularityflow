@@ -22,7 +22,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
-import { WORKFLOW_PATH, validateDefinition } from './config.mjs';
+import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 
 /**
@@ -136,6 +136,28 @@ async function saveIn(file, document, store) {
 }
 
 /**
+ * Make the planning contract explicit on every newly-authored Story workflow.
+ *
+ * Old hand-authored catalogs remain readable as `migration-required`, but an authoring command is
+ * a forward migration boundary. A resolvable inferred topology is pinned into YAML; an unresolved
+ * one is refused with the same actionable error used by Story start.
+ */
+function pinAuthoredStoryPlannedClaims(document, store, workflowId) {
+  if (store.governs !== 'story') return null;
+  const definition = validateDefinition(document.toJS());
+  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workflowId));
+  const declared = document.getIn([store.workflows, workflowId, 'plannedClaims']);
+  if (declared == null && resolved.plannedClaims.mode === 'required') {
+    document.setIn([store.workflows, workflowId, 'plannedClaims'], document.createNode({
+      mode: 'required',
+      clausePhases: resolved.plannedClaims.clausePhases,
+      owners: resolved.plannedClaims.owners
+    }));
+  }
+  return resolved.plannedClaims;
+}
+
+/**
  * Refuse a phase that expects an agent this repository does not have.
  *
  * An agent named in a phase but absent from the repository fails at the moment the phase is run,
@@ -216,12 +238,16 @@ export async function defineWorkflow(root, workflowId, {
   label = null,
   description = '',
   phases = [],
-  governs = null
+  governs = null,
+  plannedClaims = undefined
 } = {}) {
   const id = requireId(workflowId, 'A workflow identifier');
   if (!phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
   // Inferred from where the phases live, so nobody has to know which file holds which.
   const store = governs ? storeFor(governs) : (await locate(root, { phases })) ?? STORES.initiative;
+  if (plannedClaims !== undefined && store.governs !== 'story') {
+    throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
+  }
   const { file, document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
 
@@ -244,10 +270,12 @@ export async function defineWorkflow(root, workflowId, {
   document.setIn([store.workflows, id], document.createNode({
     label: label ?? id,
     ...(description ? { description } : {}),
-    phases
+    phases,
+    ...(plannedClaims !== undefined && plannedClaims !== null ? { plannedClaims } : {})
   }));
+  const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id);
   await saveIn(file, document, store);
-  return { workflowId: id, governs: store.governs, phases, path: store.file };
+  return { workflowId: id, governs: store.governs, phases, path: store.file, plannedClaims: plannedClaimsPolicy };
 }
 
 /**
@@ -271,6 +299,9 @@ export async function editWorkflow(root, workflowId, changes = {}) {
   }
   const { file, document } = await loadIn(root, store);
   const content = document.toJS() ?? {};
+  if (Object.hasOwn(changes, 'plannedClaims') && store.governs !== 'story') {
+    throw new SingularityFlowError('plannedClaims applies only to Story workflows.');
+  }
 
   if (changes.phases) {
     if (!changes.phases.length) throw new SingularityFlowError('A workflow needs at least one phase.');
@@ -287,8 +318,13 @@ export async function editWorkflow(root, workflowId, changes = {}) {
     if (changes[field] === '') document.deleteIn([store.workflows, id, field]);
     else document.setIn([store.workflows, id, field], changes[field]);
   }
+  if (Object.hasOwn(changes, 'plannedClaims')) {
+    if (changes.plannedClaims == null) document.deleteIn([store.workflows, id, 'plannedClaims']);
+    else document.setIn([store.workflows, id, 'plannedClaims'], document.createNode(changes.plannedClaims));
+  }
+  const plannedClaimsPolicy = pinAuthoredStoryPlannedClaims(document, store, id);
   await saveIn(file, document, store);
-  return { workflowId: id, governs: store.governs, path: store.file };
+  return { workflowId: id, governs: store.governs, path: store.file, plannedClaims: plannedClaimsPolicy };
 }
 
 /**

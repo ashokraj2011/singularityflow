@@ -5,7 +5,7 @@ import { branch, changedFiles, gitDir, head } from './git.mjs';
 import {
   buildRepositoryChangeSet, changeSetPaths, repositoryCaseInsensitivePaths, repositoryChangeSetDigest
 } from './repository-change-set.mjs';
-import { loadActiveSpecRecords } from './specifications.mjs';
+import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
   SingularityFlowError, nowIso, posix, readJson, run, secureRepositoryPath, writeJson
@@ -278,7 +278,7 @@ async function fileEvidence(root, paths) {
 
 async function plannedPaths(itemDirectory, workflow) {
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  const claims = Object.assign({}, ...(records.planned ?? []).map((entry) => entry.claims ?? {}));
+  const claims = mergePlannedClaimRecords(records.planned ?? []);
   const byPath = new Map();
   for (const [clauseId, claim] of Object.entries(claims)) {
     for (const candidate of [...(claim.expectedPaths ?? []), ...(claim.tests ?? [])]) {

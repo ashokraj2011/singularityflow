@@ -25,7 +25,7 @@ import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedCo
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { CAPABILITIES_PATH } from '../capabilities.mjs';
 import { resolveLifecycleCapability } from '../capability-context.mjs';
-import { resolveWorkType } from '../config.mjs';
+import { assertPlannedClaimsReady, resolveWorkType } from '../config.mjs';
 import { readConfigurationSource } from '../configuration-branch.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import { advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection, serializeConvergence } from '../convergence.mjs';
@@ -38,7 +38,14 @@ import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadSession } from '../session.mjs';
-import { evaluateSpecAcceptance, extractClauses, loadActiveSpecRecords, loadSpecRecords } from '../specifications.mjs';
+import {
+  evaluateSpecAcceptance,
+  extractClauses,
+  loadActiveSpecRecords,
+  loadSpecRecords,
+  mergeObservedClaimRecords,
+  mergePlannedClaimRecords
+} from '../specifications.mjs';
 import {
   StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
   currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, previewReworkRollForward,
@@ -288,7 +295,7 @@ export async function storyFetchCommand(positionals, options) {
     if (!config.workTypes?.[workType]) {
       throw new SingularityFlowError(`Approved Story plan pins workflow '${workType}', but repository '${repositoryId}' does not configure it.`);
     }
-    const resolvedWorkType = resolveWorkType(config, workType);
+    const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
     const agent = await activatePhaseAgent(
       target, config, storyKey, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
     );
@@ -637,7 +644,10 @@ async function convergenceSubject(root, config, workflow) {
  */
 async function runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model = null }) {
   const clauses = subject.records.indexes.flatMap((index) => index.clauses ?? []);
-  const observedClaims = Object.assign({}, ...subject.records.observed.map((map) => map.claims ?? {}));
+  // Convergence can span multiple implementation intervals. A later partial record must not erase
+  // exact paths, tests, or verdict evidence established by an earlier interval for the same clause.
+  const plannedClaims = mergePlannedClaimRecords(subject.records.planned ?? []);
+  const observedClaims = mergeObservedClaimRecords(subject.records.observed ?? [], plannedClaims);
   const prompt = assistedConvergencePrompt({
     clauses,
     observedClaims,
@@ -915,9 +925,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
     );
   }
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
-  const plannedClaims = Object.assign({}, ...(records.planned ?? []).map((record) => record.claims ?? {}));
-  const observedClaims = Object.assign({}, ...(records.observed ?? []).map((record) => record.claims ?? {}));
-  const radius = blastRadius(diff, { claims: plannedClaims }, { observed: { claims: observedClaims } });
+  const radius = intentAmendmentBlastRadius(diff, records);
   const session = await loadSession(root);
   const index = (workflow.intentAmendments ?? []).length + 1;
   const id = `AMD-${String(index).padStart(3, '0')}`;
@@ -1004,6 +1012,18 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
     }
   );
   return { proposal, summary, publication };
+}
+
+/**
+ * Project cumulative implementation evidence into an intent-amendment blast radius.
+ *
+ * Exported for the deterministic amendment regression suite. This is deliberately computation
+ * only: the command remains responsible for reading durable records and writing the proposal.
+ */
+export function intentAmendmentBlastRadius(diff, records = {}) {
+  const plannedClaims = mergePlannedClaimRecords(records.planned ?? []);
+  const observedClaims = mergeObservedClaimRecords(records.observed ?? [], plannedClaims);
+  return blastRadius(diff, { claims: plannedClaims }, { observed: { claims: observedClaims } });
 }
 
 /**

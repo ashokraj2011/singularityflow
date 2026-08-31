@@ -236,6 +236,9 @@ Usage:
   singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
   singularity-flow workflow list [--json] [--for-start]    every workflow, Story and Initiative
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]
+    [--planned-claims required --clause-phases a,b --claim-owners code=plan]
+    [--planned-claims opt-out --opt-out-reason TEXT]
+  singularity-flow workflow edit <ID> [--phases a,b,c] [--planned-claims auto|required|opt-out]
   singularity-flow workflow proposals [--all] [--json]     pending configuration review branches
   singularity-flow workflow proposal <BRANCH> [--json]     exact commits, files and diff to review
   singularity-flow workflow activate <BRANCH> --confirm <COMMIT> [--acknowledge-unprotected]
@@ -251,6 +254,7 @@ Usage:
     [--template FILE] [--optional] [--consumes phase/output,...]
   singularity-flow workflow install <ID> [--dry-run] [--replace]   a packaged workflow
     (add and upgrade are the former names and still work)
+  singularity-flow workflow validate [TYPE] [--json]       verify every code phase has a clause source and plan owner
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
 
   # SGOS — deterministic intent compilation and governed execution

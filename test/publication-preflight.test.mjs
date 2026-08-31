@@ -17,8 +17,11 @@ import {
 } from '../src/publication-preflight.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { generationStartPublicationBinding } from '../src/generation-boundary.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { buildSpecIndex, canonicalJson } from '../src/specifications.mjs';
 import {
-  commitAndPublish, createWorkflow, inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
+  assertPlannedSpecificationClaims, commitAndPublish, createWorkflow,
+  inspectRequiredArtifactRegistration, loadConfig, preparePhaseInputs,
   generationResultMatches, publishGeneration, registerArtifact, scanArtifacts, submitPhase
 } from '../src/state.mjs';
 
@@ -110,6 +113,14 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
   const config = await loadConfig(root);
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
+  // This deliberately reduced one-phase fixture has no specification/planning owner. Make that
+  // omission explicit so tests of code-delivery mechanics do not accidentally depend on a legacy
+  // implicit opt-out from the planned-claim contract.
+  resolved.plannedClaims = {
+    mode: 'opt-out', clausePhases: [], owners: {},
+    reason: 'This isolated code-delivery fixture intentionally excludes specification and planning phases.'
+  };
+  resolved.spec = { ...resolved.spec, acceptance: 'off' };
   const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
   resolved.phases = [{
     ...implementation,
@@ -167,6 +178,81 @@ async function codeFixture(name, { acceptance = true, trackedResult = false } = 
   }
   return { root, config, workflow, phase, target };
 }
+
+test('historical code snapshots without plannedClaims retain their zero-clause behavior', async (t) => {
+  const context = await codeFixture('historical-no-clauses', { acceptance: false });
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  delete context.workflow.resolution.plannedClaims;
+  context.workflow.resolution.spec = {
+    ...context.workflow.resolution.spec, mode: 'enforce', coverage: 'enforce', acceptance: 'presence'
+  };
+  await assert.doesNotReject(() => assertPlannedSpecificationClaims(
+    context.root, context.config, context.workflow, context.phase
+  ));
+});
+
+test('required code entry trusts only its phase-bound planned claim map', async (t) => {
+  const context = await codeFixture('planned-claim-binding');
+  t.after(() => rm(context.root, { recursive: true, force: true }));
+  const itemRelative = 'singularity/work-items/DELIVERY-1';
+  const requirementsRelative = `${itemRelative}/artifacts/requirements/requirements.md`;
+  await buildSpecIndex(context.root, requirementsRelative, {
+    workId: 'DELIVERY-1', phase: 'requirements', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/requirements-gen1.json`,
+    policy: { mode: 'enforce', coverage: 'enforce', acceptance: 'presence' }
+  });
+  const planning = {
+    id: 'planning', label: 'Planning', order: 1, status: 'approved', generation: 1,
+    requiredArtifact: { path: 'artifacts/planning/plan.md', kind: 'plan' },
+    artifacts: [], approvals: [], usage: [], qualityCommands: [], claimMaps: {}
+  };
+  context.workflow.phases.planning = planning;
+  context.phase.order = 2;
+  context.workflow.phaseOrder = ['requirements', 'planning', 'implementation'];
+  context.workflow.resolution.plannedClaims = {
+    mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'planning' }, reason: null
+  };
+  context.workflow.resolution.spec = {
+    ...context.workflow.resolution.spec, mode: 'enforce', coverage: 'enforce', acceptance: 'presence'
+  };
+  const planned = {
+    schemaVersion: currentSchemaVersion('specification-claim-map'),
+    kind: 'planned', recordedAt: '2026-08-31T00:00:00.000Z',
+    workId: 'DELIVERY-1', phase: 'planning', generation: 1,
+    claims: {
+      'DELIVERY-1:AC-001': {
+        expectedPaths: ['src/app.java'], tests: ['src/test/AppTest.java'],
+        testDisposition: 'applicable', testReason: null, deviation: null
+      }
+    }
+  };
+  const claimRelative = `${itemRelative}/context/claims/planning-gen1-planned.json`;
+  await mkdir(path.join(context.root, itemRelative, 'context', 'claims'), { recursive: true });
+  await writeFile(path.join(context.root, claimRelative), canonicalJson(planned));
+
+  await assert.rejects(
+    () => assertPlannedSpecificationClaims(context.root, context.config, context.workflow, context.phase),
+    (error) => error.code === 'SPEC_PLANNED_CLAIM_MAP_REQUIRED',
+    'a directory candidate bypassed the missing phase pointer'
+  );
+
+  planning.claimMaps.planned = {
+    generation: 1,
+    path: claimRelative,
+    sha256: createHash('sha256').update(canonicalJson(planned)).digest('hex')
+  };
+  await assert.doesNotReject(() => assertPlannedSpecificationClaims(
+    context.root, context.config, context.workflow, context.phase
+  ));
+
+  planned.claims['DELIVERY-1:AC-001'].tests = ['src/test/TamperedTest.java'];
+  await writeFile(path.join(context.root, claimRelative), canonicalJson(planned));
+  await assert.rejects(
+    () => assertPlannedSpecificationClaims(context.root, context.config, context.workflow, context.phase),
+    (error) => error.code === 'SPEC_PLANNED_CLAIM_MAP_STALE',
+    'changed planned-claim bytes survived their published digest'
+  );
+});
 
 function inContext(root, run) {
   return withOperationContext({

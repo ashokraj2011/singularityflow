@@ -12,7 +12,7 @@ import {
   publicationPushOutcome, pushCommitToBranch, remoteContains, untrackedFiles
 } from './git.mjs';
 import {
-  WORKFLOW_PATH, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
+  WORKFLOW_PATH, assertPlannedClaimsReady, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
   normalizeSessionPolicy, renderArtifactTemplate, resolveWorkType, snapshotResolution
 } from './config.mjs';
 import { loadSession } from './session.mjs';
@@ -98,6 +98,7 @@ import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
   buildSpecIndex, deriveObservedClaimMap, derivePlannedClaimMap, evaluateSpecAcceptance,
   isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
+  readBoundSpecificationClaimMap,
   predecessorSpecClauses
 } from './specifications.mjs';
 import {
@@ -657,7 +658,7 @@ export async function createWorkflow(root, config, {
     expectedMapSha256: capabilityMapSha256
   });
   assertCapabilitySource(capability, source);
-  const selectedResolution = resolved ?? resolveWorkType(config, selectedType);
+  const selectedResolution = assertPlannedClaimsReady(resolved ?? resolveWorkType(config, selectedType));
   const resolution = applyCapabilityPolicyToWorkResolution(
     { ...selectedResolution, storage: structuredClone(config.storage ?? null) },
     capability
@@ -1034,9 +1035,87 @@ function specificationPolicy(config, workflow) {
   return normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
 }
 
+function plannedClaimsPolicy(workflow) {
+  const value = workflow.resolution?.plannedClaims;
+  return value && typeof value === 'object' ? value : null;
+}
+
+function plannedClaimsEnforced(workflow, specPolicy) {
+  const policy = plannedClaimsPolicy(workflow);
+  // New Story resolutions pin the specific early-planning obligation. Historical snapshots do
+  // not have this field, so retain their original spec.mode behavior instead of retroactively
+  // changing an in-flight lifecycle.
+  return policy ? policy.mode === 'required' : specPolicy.mode === 'enforce';
+}
+
+function explicitPlannedClaimsRequired(workflow) {
+  return plannedClaimsPolicy(workflow)?.mode === 'required';
+}
+
+function phaseDefinesSpecificationClaims(workflow, phase) {
+  const policy = plannedClaimsPolicy(workflow);
+  if (policy?.mode === 'required' && Array.isArray(policy.clausePhases)) {
+    // Configuration validation already proves the kind, but re-check it at runtime because the
+    // pinned Story snapshot is the actual authority and may predate that validator.
+    return policy.clausePhases.includes(phase.id) && isSpecificationDefinitionPhase(phase);
+  }
+  return isSpecificationDefinitionPhase(phase);
+}
+
 function specificationClauseIds(records) {
   return [...new Set((records.indexes ?? []).flatMap((index) =>
     (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
+}
+
+function plannedRecordsForCodePhase(workflow, codePhase, records) {
+  const plannedPolicy = plannedClaimsPolicy(workflow);
+  if (plannedPolicy?.mode !== 'required') return records.planned ?? [];
+  const ownerId = plannedPolicy.owners?.[codePhase.id];
+  return ownerId
+    ? (records.planned ?? []).filter((record) => record.phase === ownerId)
+    : [];
+}
+
+async function authoritativePlannedRecordsForCodePhase(root, config, workflow, codePhase, records, policy) {
+  const candidates = plannedRecordsForCodePhase(workflow, codePhase, records);
+  const owner = planningOwnerForCode(workflow, codePhase);
+  const pointer = owner?.claimMaps?.planned;
+  if (!owner || !pointer) return explicitPlannedClaimsRequired(workflow) ? [] : candidates;
+  let record;
+  try {
+    record = await readBoundSpecificationClaimMap(
+      root,
+      workDir(root, config, workflow.workItem.id),
+      workflow,
+      owner,
+      'planned',
+      { clauseIds: specificationClauseIds(records), policy }
+    );
+  } catch (error) {
+    // Preserve the lifecycle-facing recovery code while sharing the terminal-grade verifier.
+    if (error?.code === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE') {
+      throw new SingularityFlowError(error.message, { code: 'SPEC_PLANNED_CLAIM_MAP_STALE' });
+    }
+    throw error;
+  }
+  return [record];
+}
+
+function noSpecificationClausesError(workflow, phaseId) {
+  const clausePhases = plannedClaimsPolicy(workflow)?.clausePhases ?? [];
+  const target = clausePhases.at(-1) ?? phaseId;
+  return new SingularityFlowError(
+    `No authoritative specification clauses exist before code phase '${phaseId}'. `
+    + `Return to '${target}' and add stable fully qualified anchors such as [${workflow.workItem.id}:AC-001] before planning tests.`,
+    {
+      code: 'SPECIFICATION_CLAUSE_SOURCE_REQUIRED',
+      details: {
+        phase: phaseId,
+        clausePhases,
+        recoveryCommand: `singularity-flow recover ${workflow.workItem.id} --phase ${target}`
+      }
+    }
+  );
 }
 
 function claimMapRelativePath(config, workflow, phase, kind) {
@@ -1099,13 +1178,27 @@ function placeholderTestReason(reason) {
  */
 async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
   const policy = specificationPolicy(config, workflow);
-  const upcoming = nextPhase(workflow, phase);
+  const plannedPolicy = plannedClaimsPolicy(workflow);
+  const configuredCodePhases = plannedPolicy?.mode === 'required'
+    ? Object.entries(plannedPolicy.owners ?? {})
+      .filter(([, ownerId]) => ownerId === phase.id)
+      .map(([codePhaseId]) => workflow.phases[codePhaseId])
+      .filter(Boolean)
+    : [];
+  const upcoming = configuredCodePhases[0]
+    ?? (plannedPolicy == null ? nextPhase(workflow, phase) : null);
   if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(upcoming)) return null;
+  const enforce = plannedClaimsEnforced(workflow, policy);
 
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
   const clauseIds = specificationClauseIds(records);
-  if (!clauseIds.length) return null;
+  if (!clauseIds.length) {
+    // Zero-clause refusal is the new topology contract. Historical enforce-mode Stories did not
+    // require an index before this field existed and must retain their pinned behavior.
+    if (explicitPlannedClaimsRequired(workflow)) throw noSpecificationClausesError(workflow, upcoming.id);
+    return null;
+  }
   const relative = claimMapRelativePath(config, workflow, phase, 'planned');
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
@@ -1123,7 +1216,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
     );
   }
   const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
-  if (gaps.length && policy.mode === 'enforce') {
+  if (gaps.length && enforce) {
     throw new SingularityFlowError(
       `Phase ${phase.id} cannot publish because its planned-test contract is incomplete:\n- `
       + gaps.map((id) => `clause ${id} has no exact planned test or reviewed not-applicable reason`).join('\n- ')
@@ -1162,7 +1255,7 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
 
   const effective = { ...records, planned: [record] };
   const effectiveGaps = plannedTestGaps(effective, policy);
-  if (effectiveGaps.length && policy.mode === 'enforce') {
+  if (effectiveGaps.length && enforce) {
     throw new SingularityFlowError(
       `Phase ${phase.id} cannot advance toward implementation:\n- `
       + effectiveGaps.map((id) => `clause ${id} has no planned test`).join('\n- '),
@@ -1174,26 +1267,35 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
 }
 
 function planningOwnerForCode(workflow, codePhase) {
+  const configured = plannedClaimsPolicy(workflow)?.owners?.[codePhase.id];
+  if (configured) return workflow.phases[configured] ?? null;
   const index = workflow.phaseOrder.indexOf(codePhase.id);
   if (index <= 0) return null;
   return workflow.phases[workflow.phaseOrder[index - 1]] ?? null;
 }
 
 /** Refuse at implementation entry/publish, rather than surprising the Story at its terminal gate. */
-async function assertPlannedSpecificationClaims(root, config, workflow, codePhase) {
+export async function assertPlannedSpecificationClaims(root, config, workflow, codePhase) {
   const policy = specificationPolicy(config, workflow);
   if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(codePhase)) return;
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const clauseIds = specificationClauseIds(records);
-  if (!clauseIds.length) return;
-  const gaps = plannedTestGaps(records, policy);
+  if (!clauseIds.length) {
+    if (explicitPlannedClaimsRequired(workflow)) throw noSpecificationClausesError(workflow, codePhase.id);
+    return;
+  }
   const owner = planningOwnerForCode(workflow, codePhase);
-  if (!records.planned.length || gaps.length) {
+  const ownedPlanned = await authoritativePlannedRecordsForCodePhase(
+    root, config, workflow, codePhase, records, policy
+  );
+  const scopedRecords = { ...records, planned: ownedPlanned };
+  const gaps = plannedTestGaps(scopedRecords, policy);
+  if (!ownedPlanned.length || gaps.length) {
     const ownerId = owner?.id ?? 'the planning phase';
-    const message = !records.planned.length
+    const message = !ownedPlanned.length
       ? `No reviewed planned-test claim map exists before phase '${codePhase.id}'.`
       : `Planned-test evidence is missing for ${gaps.join(', ')}.`;
-    if (policy.mode !== 'enforce') {
+    if (!plannedClaimsEnforced(workflow, policy)) {
       console.warn(`Warning: ${message}`);
       return;
     }
@@ -1212,16 +1314,6 @@ async function assertPlannedSpecificationClaims(root, config, workflow, codePhas
       }
     );
   }
-  if (owner?.claimMaps?.planned) {
-    const pointer = owner.claimMaps.planned;
-    if (Number(pointer.generation) !== Number(owner.generation)) {
-      throw new SingularityFlowError(`Phase '${owner.id}' planned-test claim binding is stale.`, { code: 'SPEC_PLANNED_CLAIM_MAP_STALE' });
-    }
-    const raw = await readJson(path.join(root, pointer.path));
-    if (claimMapSha256(raw) !== pointer.sha256) {
-      throw new SingularityFlowError(`Phase '${owner.id}' planned-test claim map changed after publication.`, { code: 'SPEC_PLANNED_CLAIM_MAP_STALE' });
-    }
-  }
 }
 
 async function refreshObservedSpecificationClaims(root, config, workflow, phase, deliveryReceipt) {
@@ -1229,9 +1321,12 @@ async function refreshObservedSpecificationClaims(root, config, workflow, phase,
   if (policy.mode === 'off' || policy.acceptance === 'off') return null;
   const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
   const clauseIds = specificationClauseIds(records);
-  if (!clauseIds.length || !records.planned.length) return null;
+  const ownedPlanned = await authoritativePlannedRecordsForCodePhase(
+    root, config, workflow, phase, records, policy
+  );
+  if (!clauseIds.length || !ownedPlanned.length) return null;
   const planned = {
-    claims: Object.assign({}, ...records.planned.map((entry) => entry.claims ?? {}))
+    claims: Object.assign({}, ...ownedPlanned.map((entry) => entry.claims ?? {}))
   };
   const derived = deriveObservedClaimMap(planned, deliveryReceipt, {
     clauseIds,
@@ -3572,7 +3667,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
   // Only definition-bearing artifacts may enlarge the Story's authoritative clause universe.
   // Conformance/release reports cite that universe; indexing their citations as new clauses made
   // a terminal report invent requirements that no planning phase could possibly have covered.
-  if (specPolicy.mode === 'off' || !isSpecificationDefinitionPhase(phase)) return null;
+  if (specPolicy.mode === 'off' || !phaseDefinesSpecificationClaims(workflow, phase)) return null;
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const priorSpecRecords = await loadActiveSpecRecords(itemDirectory, workflow);
   const specIndexPath = posix(path.join(
@@ -3594,7 +3689,7 @@ async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
     indexSha256: specIndex.indexSha256,
     sourceSha256: specIndex.source.sha256
   };
-  if (specPolicy.mode === 'enforce' && !specIndex.clauses.length) {
+  if (plannedClaimsEnforced(workflow, normalizeSpecPolicy(specPolicy)) && !specIndex.clauses.length) {
     throw new SingularityFlowError(
       `Phase ${phase.id} requires stable clause anchors such as [${specPolicy.namespace ?? 'APP'}:REQ-001].`
     );

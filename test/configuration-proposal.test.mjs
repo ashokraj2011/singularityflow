@@ -58,7 +58,10 @@ test('workflow proposals publish from approved configuration without changing th
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story', '--propose', '--json'
+      '--phases', 'intake,implementation', '--governs', 'story',
+      '--planned-claims', 'opt-out', '--opt-out-reason',
+      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--propose', '--json'
     ], {
       cwd: item.story,
       encoding: 'utf8',
@@ -90,12 +93,16 @@ test('workflow proposals publish from approved configuration without changing th
       '--git-dir', item.remote, 'show', `${result.branch}:singularity/workflow.yml`
     ]).stdout);
     assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['intake', 'implementation']);
+    assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'opt-out');
     assert.match(result.nextAction, /Merge .* into sflow\/config.*refresh-configuration/);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',
       '--label', 'Customer onboarding', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story', '--propose', '--json'
+      '--phases', 'intake,implementation', '--governs', 'story',
+      '--planned-claims', 'opt-out', '--opt-out-reason',
+      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--propose', '--json'
     ], {
       cwd: item.story,
       encoding: 'utf8',
@@ -230,7 +237,10 @@ test('workflow activation keeps a generic pre-receive refusal pending with its d
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'security-scanned-flow',
       '--label', 'Security scanned flow', '--description', 'A reviewed delivery path.',
-      '--phases', 'intake,implementation', '--governs', 'story', '--propose', '--json'
+      '--phases', 'intake,implementation', '--governs', 'story',
+      '--planned-claims', 'opt-out', '--opt-out-reason',
+      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--propose', '--json'
     ], {
       cwd: item.story,
       encoding: 'utf8',
@@ -283,6 +293,46 @@ exit 1
   }
 });
 
+test('workflow proposal activation rejects a newly added migration-required Story workflow', async () => {
+  const item = await fixture();
+  const authoring = path.join(item.base, 'unsafe-proposal');
+  const proposalBranch = 'sflow/config-change/workflow/unsafe-legacy-custom';
+  try {
+    run('git', ['clone', '-q', '-b', 'sflow/config', item.remote, authoring]);
+    run('git', ['config', 'user.name', 'Workflow Author'], { cwd: authoring });
+    run('git', ['config', 'user.email', 'workflow@example.test'], { cwd: authoring });
+    run('git', ['switch', '-q', '-c', proposalBranch], { cwd: authoring });
+    const workflowPath = path.join(authoring, 'singularity/workflow.yml');
+    const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+    definition.workTypes['legacy-custom'] = {
+      ...structuredClone(definition.workTypes['quick-fix']),
+      label: 'Legacy custom'
+    };
+    delete definition.workTypes['legacy-custom'].plannedClaims;
+    await writeFile(workflowPath, YAML.stringify(definition));
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: authoring });
+    run('git', ['commit', '-qm', 'propose unresolved legacy workflow'], { cwd: authoring });
+    run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
+    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+
+    await assert.rejects(
+      () => activateWorkflowConfigurationProposal(item.story, proposalBranch, {
+        confirm: commit,
+        acknowledgeUnprotected: true
+      }),
+      (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
+        && /cannot be added or materially changed/.test(error.message)
+    );
+    assert.equal(
+      run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config']).stdout.trim(),
+      item.approved,
+      'rejected proposal must not move approved configuration'
+    );
+  } finally {
+    await rm(item.base, { recursive: true, force: true });
+  }
+});
+
 test('workflow proposal publication distinguishes local authorities whose display URLs collide', async () => {
   const item = await fixture({ remoteName: 'application.git?blue' });
   try {
@@ -293,7 +343,10 @@ test('workflow proposal publication distinguishes local authorities whose displa
     const created = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'exact-authority',
       '--label', 'Exact authority', '--description', 'Publish only to the selected authority.',
-      '--phases', 'intake,implementation', '--governs', 'story', '--propose', '--json'
+      '--phases', 'intake,implementation', '--governs', 'story',
+      '--planned-claims', 'opt-out', '--opt-out-reason',
+      'This reviewed short workflow deliberately has no separate specification phase.',
+      '--propose', '--json'
     ], {
       cwd: item.story,
       encoding: 'utf8',

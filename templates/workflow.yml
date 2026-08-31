@@ -465,6 +465,10 @@ workTypes:
   feature:
     label: Feature
     phases: [intake, requirements, design, implementation-spec, implementation, verification, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [requirements, implementation-spec]
+      owners: { implementation: implementation-spec }
     templateOverrides:
       intake: feature/intake.md
       requirements: feature/requirements.md
@@ -480,6 +484,10 @@ workTypes:
   bugfix:
     label: Bug fix
     phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [fix-spec]
+      owners: { implementation: fix-spec }
     templateOverrides:
       intake: bugfix/intake.md
       reproduction: bugfix/reproduction.md
@@ -506,6 +514,10 @@ workTypes:
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [mobile-spec]
+      owners: { implementation: mobile-spec }
     designSources:
       capturePhase: design-intake
       consumeIn: [design-inventory, component-mapping, mobile-spec, visual-verification, conformance]
@@ -547,6 +559,9 @@ workTypes:
   quick-fix:
     label: Quick fix
     phases: [implement, verify]
+    plannedClaims:
+      mode: opt-out
+      reason: This low-risk two-phase profile intentionally has no approved pre-code specification phase.
     templateOverrides:
       implement: quick-fix/implement.md
       verify: quick-fix/verify.md
@@ -559,6 +574,10 @@ workTypes:
     # Experimental arm: identical lifecycle, templates, agents, artifacts, and approvals to
     # Benchmark B. Only the pinned intelligence profile and input projection differ.
     phases: [intake, design, implementation, testing, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [intake]
+      owners: { implementation: design }
     intelligence: { worldModel: required, ast: optional-context, agentBriefs: required }
     templateOverrides:
       intake: benchmark/intake.md
@@ -567,6 +586,8 @@ workTypes:
       testing: benchmark/testing.md
       conformance: benchmark/conformance.md
     phaseOverrides:
+      intake:
+        artifact: { kind: requirements }
       design:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria, Scope and constraints], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
@@ -592,6 +613,10 @@ workTypes:
     # Control arm: full approved upstream artifacts, with no world-model, AST, or agent-brief
     # enrichment. The lifecycle contract remains byte-for-byte comparable with Benchmark A.
     phases: [intake, design, implementation, testing, conformance]
+    plannedClaims:
+      mode: required
+      clausePhases: [intake]
+      owners: { implementation: design }
     intelligence: { worldModel: off, ast: off, agentBriefs: off }
     templateOverrides:
       intake: benchmark/intake.md
@@ -600,7 +625,7 @@ workTypes:
       testing: benchmark/testing.md
       conformance: benchmark/conformance.md
     phaseOverrides:
-      intake: { worldModel: { views: [] } }
+      intake: { artifact: { kind: requirements }, worldModel: { views: [] } }
       design:
         inputs: [intake]
         worldModel: { views: [] }
@@ -620,6 +645,10 @@ workTypes:
     # and isolated Story branch are supplied by normal Story start; this profile never writes the
     # selected base branch directly.
     phases: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review]
+    plannedClaims:
+      mode: required
+      clausePhases: [poc-intake]
+      owners: { poc-test-generation: poc-ui-exploration }
     templateOverrides:
       poc-intake: poc-workflow/intake.md
       poc-impact-analysis: poc-workflow/impact-analysis.md
@@ -628,6 +657,7 @@ workTypes:
       poc-validation: poc-workflow/validation.md
       poc-publication-review: poc-workflow/publication-review.md
     phaseOverrides:
+      poc-intake: { artifact: { kind: requirements } }
       poc-impact-analysis: { inputs: [poc-intake] }
       poc-ui-exploration: { inputs: [poc-intake, poc-impact-analysis] }
       poc-test-generation: { inputs: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
@@ -639,6 +669,10 @@ workTypes:
     # This profile promises clause-level continuity. Display-only labels such as "AC-001" must be
     # replaced with stable [WORK-ID:AC-001] anchors before its specification can be approved.
     spec: { mode: enforce }
+    plannedClaims:
+      mode: required
+      clausePhases: [specification]
+      owners: { implementation: planning }
     # specification -> planning -> implementation -> convergence -> verification -> release
     # [SPK:REQ-031]
     phases: [specification, planning, implementation, convergence, verification, release]

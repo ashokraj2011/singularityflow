@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { blastRadius, clauseDiff, radiusSummary } from '../src/amendment.mjs';
+import { intentAmendmentBlastRadius } from '../src/commands/story.mjs';
 import { extractClauses, normalizeClaimMap } from '../src/specifications.mjs';
 
 const G2 = `# Spec
@@ -108,6 +109,39 @@ test('the last reconciliation verdict rides along, so a reader can tell settled 
   const radius = blastRadius(diffOfShipped(), planned, { observed });
   assert.equal(radius.affected[0].verdict, 'matched',
     'a claim already reconciled looks identical to one never started');
+});
+
+test('intent-amendment radius retains cumulative plan and observation evidence across intervals', () => {
+  const clauseId = 'S:REQ-002';
+  const records = {
+    planned: [
+      { phase: 'implementation-plan', generation: 1, claims: { [clauseId]: {
+        expectedPaths: ['src/pay.js'], tests: ['test/pay.test.mjs'], testDisposition: 'applicable'
+      } } },
+      { phase: 'implementation-plan', generation: 2, claims: { [clauseId]: {
+        expectedPaths: ['src/audit.js'], tests: ['test/audit.test.mjs'], testDisposition: 'applicable'
+      } } }
+    ],
+    observed: [
+      { phase: 'implementation', generation: 1, claims: { [clauseId]: {
+        observedPaths: ['src/pay.js'], testResults: ['test/pay.test.mjs'],
+        commits: ['a'.repeat(40)], verdict: 'partial'
+      } } },
+      { phase: 'implementation', generation: 2, claims: { [clauseId]: {
+        observedPaths: ['src/audit.js'], testResults: ['test/audit.test.mjs'],
+        commits: ['b'.repeat(40)], verdict: 'partial'
+      } } }
+    ]
+  };
+
+  const radius = intentAmendmentBlastRadius(diffOfShipped(), records);
+  const affected = radius.affected.find((entry) => entry.clauseId === clauseId);
+  assert.deepEqual([...affected.artifacts], ['src/audit.js', 'src/pay.js'],
+    'the later plan replaced an earlier expected path for the same clause');
+  assert.deepEqual([...affected.tests], ['test/audit.test.mjs', 'test/pay.test.mjs'],
+    'the later plan replaced an earlier test obligation for the same clause');
+  assert.equal(affected.verdict, 'matched',
+    'two cumulative partial observations were not recomputed as one complete claim');
 });
 
 test('the computation refuses nonsense rather than inventing a radius', () => {

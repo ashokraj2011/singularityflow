@@ -118,6 +118,52 @@ test('every fact kind the clause names is reachable', () => {
   for (const kind of FACT_KINDS) assert.ok(kinds.has(kind), `no input produces a '${kind}' fact`);
 });
 
+test('exact AC test-only evidence is not mislabeled as a stale source binding', () => {
+  const facts = convergenceFacts({
+    reconciliation: { ...RECONCILIATION, findings: [] },
+    indexes: [{ clauses: [{ id: 'D:AC-001', body: 'The computed result is observable.' }] }],
+    planned: [{ claims: {
+      'D:AC-001': { expectedPaths: [], tests: ['test/result.test.mjs'], testDisposition: 'applicable' }
+    } }],
+    observed: [{ claims: {
+      'D:AC-001': {
+        verdict: 'matched', observedPaths: [], testResults: ['test/result.test.mjs']
+      }
+    } }]
+  });
+  assert.equal(facts.some((item) => item.kind === 'stale-claim-binding'), false);
+  assert.equal(facts.some((item) => item.kind === 'absent-observed-claim'), false);
+});
+
+test('convergence accumulates evidence from multiple code-delivery intervals', () => {
+  const facts = convergenceFacts({
+    reconciliation: { ...RECONCILIATION, findings: [] },
+    indexes: [{ clauses: [{ id: 'D:REQ-001', body: 'Both delivery slices are required.' }] }],
+    planned: [
+      { phase: 'backend', generation: 1, claims: {
+        'D:REQ-001': { expectedPaths: ['src/backend.ts'], tests: ['test/backend.test.ts'] }
+      } },
+      { phase: 'frontend', generation: 1, claims: {
+        'D:REQ-001': { expectedPaths: ['src/frontend.ts'], tests: ['test/frontend.test.ts'] }
+      } }
+    ],
+    observed: [
+      { phase: 'backend', generation: 1, claims: {
+        'D:REQ-001': {
+          verdict: 'partial', observedPaths: ['src/backend.ts'], testResults: ['test/backend.test.ts']
+        }
+      } },
+      { phase: 'frontend', generation: 1, claims: {
+        'D:REQ-001': {
+          verdict: 'partial', observedPaths: ['src/frontend.ts'], testResults: ['test/frontend.test.ts']
+        }
+      } }
+    ]
+  });
+  assert.equal(facts.some((item) => item.kind === 'absent-observed-claim'), false);
+  assert.equal(facts.some((item) => item.kind === 'stale-claim-binding'), false);
+});
+
 test('the same bound inputs always produce the same facts, and the same IDs', () => {
   // `[SPK:REQ-075]` and `[SPK:REQ-078]`. Content-derived IDs are what let a reviewer recognise an
   // item they already dismissed; a counter would rename it every iteration and hide the repetition.

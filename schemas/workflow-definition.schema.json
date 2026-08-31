@@ -325,6 +325,7 @@
           "phases": { "type": "array", "minItems": 1, "items": { "type": "string" }, "uniqueItems": true },
           "intelligence": { "$ref": "#/$defs/workTypeIntelligence" },
           "auto": { "$ref": "#/$defs/autoWorkTypePolicy" },
+          "plannedClaims": { "$ref": "#/$defs/plannedClaimsPolicy" },
           "templateOverrides": { "type": "object", "additionalProperties": { "type": "string" } },
           "phaseOverrides": {
             "type": "object",
@@ -783,6 +784,36 @@
         "agentBriefs": { "enum": ["inherit", "required", "off"], "default": "inherit" }
       },
       "additionalProperties": false
+    },
+    "plannedClaimsPolicy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": { "const": "required" },
+            "clausePhases": {
+              "type": "array", "minItems": 1, "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+            },
+            "owners": {
+              "type": "object",
+              "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+              "additionalProperties": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["mode", "reason"],
+          "properties": {
+            "mode": { "const": "opt-out" },
+            "reason": { "type": "string", "minLength": 20, "maxLength": 1000 }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "phaseInputs": {
       "type": "array",

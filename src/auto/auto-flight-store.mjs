@@ -141,13 +141,16 @@ export async function mutateAutoFlightState(root, value, mutate, { expectedCheck
 }
 
 async function requestStopMutation(root, id, mutate, timeoutMs = 2_000) {
-  const deadline = Date.now() + timeoutMs;
+  const maximumAttempts = Math.max(1, Math.ceil(timeoutMs / 20));
+  let attempts = 0;
   for (;;) {
     try { return await mutateAutoFlightState(root, id, mutate); }
     catch (error) {
-      if (error?.code !== 'SUBJECT_LOCK_BUSY' || Date.now() >= deadline) throw error;
+      if (error?.code !== 'SUBJECT_LOCK_BUSY' || ++attempts >= maximumAttempts) throw error;
       // The executor holds this lock only while sealing one checkpoint. A human interrupt waits
       // for that tiny CAS window, then records stopRequested before waiting on the step lease.
+      // Count actual acquisition failures rather than elapsed wall time so an event-loop stall does
+      // not exhaust the budget without either side receiving a scheduling turn.
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }

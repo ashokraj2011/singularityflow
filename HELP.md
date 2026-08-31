@@ -2576,13 +2576,26 @@ uses JSON-aware and textual secret redaction before content-addressed storage. U
 
 ```bash
 singularity-flow workflow list
+singularity-flow workflow validate
 singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
-singularity-flow workflow create customer-onboarding --phases intake,implementation,verification --governs story --propose
+singularity-flow workflow create customer-onboarding --phases requirements,implementation-spec,implementation,verification --governs story --propose
 ```
 
-`workflow add` copies the profile plus missing Markdown templates/agent prompts and validates the resulting YAML. Customized profiles are never overwritten unless `--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work items keep their immutable resolution snapshots.
+`workflow validate [TYPE]` proves every code phase has an authoritative clause source and an earlier
+reviewed planned-claim owner, or reports a deliberate opt-out/non-code contract. The same validation
+runs before workflow authoring writes configuration, so a future code workflow cannot silently omit
+the plan-to-test boundary. `workflow add` copies the profile plus missing Markdown templates/agent
+prompts and validates the resulting YAML. Customized profiles are never overwritten unless
+`--replace` is explicit. Changes remain uncommitted for normal configuration review. Active work
+items keep their immutable resolution snapshots.
+
+Older organization-authored workflows remain readable and are reported as `migration-required`,
+but cannot start new Stories until reviewed. Migrate one with `workflow edit <ID>
+--planned-claims required --clause-phases <phase,...> --claim-owners <code=owner,...> --propose`,
+or record a deliberate exception with `--planned-claims opt-out --opt-out-reason "<concrete reviewed
+reason>"`. Use `--planned-claims auto` to re-infer and pin a valid topology after changing phases.
 
 Workflow Designer saves and `workflow ... --propose` author from the approved `sflow/config`
 revision in a disposable checkout and push one `sflow/config-change/workflow/...` review branch.
@@ -2934,7 +2947,7 @@ singularity-flow cockpit
 singularity-flow doctor [WORK-ID] [--offline] [--performance] [--json]
 singularity-flow review [PHASE] [--phase PHASE] [--format md|html|json] [--out FILE]
 singularity-flow pr describe [WORK-ID] [--format markdown|json] [--clipboard] [--write] [--yes]
-singularity-flow workflow list|simulate|diff|add|upgrade
+singularity-flow workflow list|validate|simulate|diff|add|upgrade
 singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
 singularity-flow recover [WORK-ID] [--fetch] [--apply]

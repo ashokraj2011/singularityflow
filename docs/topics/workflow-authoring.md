@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 6
+version: 7
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -52,10 +52,44 @@ CLI example:
 ```bash
 singularity-flow workflow create customer-onboarding \
   --label "Customer onboarding" \
-  --phases intake,implementation,verification \
+  --phases requirements,implementation-spec,implementation,verification \
   --governs story \
   --propose
 ```
+
+## Validate code-phase planning contracts
+
+Every Story workflow that contains a code-delivery phase must resolve two things before it can be
+used: an authoritative `requirements` or `implementation-spec` clause phase, and a reviewed
+planned-claim owner before each code phase. Validate the entire approved catalog, or one workflow,
+without starting a Story:
+
+```bash
+singularity-flow workflow validate
+singularity-flow workflow validate customer-onboarding --json
+```
+
+The validator runs during configuration load and every Workflow Designer/CLI save as well. A future
+workflow cannot silently reach implementation with no clause source or planning owner. A deliberately
+short code workflow must declare `plannedClaims.mode: opt-out` with a concrete reviewable reason;
+non-code workflows are reported as not applicable. New Stories pin the resolved contract, while
+historical Stories without that field keep their original policy.
+
+Existing organization-authored workflows from an older installation remain readable and appear as
+`migration-required`; they cannot start a new Story until reviewed. Migrate one without hand-editing
+YAML:
+
+```bash
+singularity-flow workflow edit customer-onboarding \
+  --planned-claims required \
+  --clause-phases requirements,implementation-spec \
+  --claim-owners implementation=implementation-spec \
+  --propose
+```
+
+For a deliberately short, low-risk workflow with no specification phase, use
+`--planned-claims opt-out --opt-out-reason "<concrete reviewed reason>"`. Use
+`--planned-claims auto` after changing phases to re-infer and pin a valid required topology.
 
 ## Guided workflow
 

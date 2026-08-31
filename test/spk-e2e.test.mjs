@@ -490,4 +490,26 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const terminalGate = sflow(root, ['gate', '--terminal']);
   assert.match(terminalGate.output, /Governance gate passed/i,
     'the full lifecycle completed but failed only when the terminal gate finally ran');
+
+  // Terminal arithmetic trusts only the workflow aggregate's claim pointers. A current-generation
+  // JSON file beside the bound map is audit debris, not another vote about what was planned.
+  const boundPlannedPath = complete.phases.planning.claimMaps.planned.path;
+  const injected = JSON.parse(await readFile(path.join(root, boundPlannedPath), 'utf8'));
+  injected.recordedAt = '2026-08-31T23:59:59.000Z';
+  injected.claims['E2E:REQ-001'].tests = ['tests/unbound-injected.test.mjs'];
+  await write(root, `singularity/work-items/${WORK}/context/claims/unbound-injected-planned.json`,
+    `${JSON.stringify(injected, null, 2)}\n`);
+  const injectionGate = sflow(root, ['gate', '--terminal']);
+  assert.match(injectionGate.output, /Governance gate passed/i,
+    'an unbound claim-map file participated in terminal governance');
+
+  // Conversely, bytes reached through a pointer are immutable authority. Keeping the pointer while
+  // changing its file must fail before the altered claim can participate in coverage arithmetic.
+  const boundObservedPath = complete.phases.implementation.claimMaps.observed.path;
+  const tampered = JSON.parse(await readFile(path.join(root, boundObservedPath), 'utf8'));
+  tampered.recordedAt = '2026-08-31T23:59:59.000Z';
+  await write(root, boundObservedPath, `${JSON.stringify(tampered, null, 2)}\n`);
+  const tamperedGate = sflow(root, ['gate', '--terminal'], { allowFailure: true });
+  assert.notEqual(tamperedGate.status, 0, 'terminal governance accepted changed bound claim-map bytes');
+  assert.match(tamperedGate.output, /observed claim map changed after publication/i);
 });

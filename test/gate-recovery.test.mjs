@@ -107,6 +107,46 @@ test('feature workflows assign missing planned tests to implementation-spec befo
   assert.match(finding.recovery.command, /recover REC-1 --phase implementation-spec/);
 });
 
+test('future workflow recovery uses its pinned planned-claim owner instead of phase-name guesses', () => {
+  const workflow = story(['intent', 'test-plan', 'delivery', 'proof']);
+  workflow.currentPhase = 'delivery';
+  workflow.resolution = {
+    plannedClaims: {
+      mode: 'required', clausePhases: ['intent'], owners: { delivery: 'test-plan' }
+    }
+  };
+  const [finding] = classifyStoryGateFailures(workflow, [
+    'clause REC-1:AC-001 has no planned test'
+  ]);
+  assert.equal(finding.phase, 'test-plan');
+  assert.match(finding.recovery.command, /recover REC-1 --phase test-plan/);
+});
+
+test('multi-delivery workflow recovery selects the relevant latest planning owner', () => {
+  const workflow = story(['intent', 'plan-a', 'delivery-a', 'plan-b', 'delivery-b', 'proof'], { complete: true });
+  workflow.resolution = {
+    plannedClaims: {
+      mode: 'required',
+      clausePhases: ['intent'],
+      owners: { 'delivery-a': 'plan-a', 'delivery-b': 'plan-b' }
+    }
+  };
+
+  const [explicit] = classifyStoryGateFailures(workflow, [
+    'phase delivery-b has no planned test for clause REC-1:AC-002'
+  ]);
+  assert.equal(explicit.phase, 'plan-b');
+  assert.match(explicit.recovery.command, /reopen REC-1 --to plan-b/);
+
+  workflow.status = 'in_progress';
+  workflow.currentPhase = 'proof';
+  const [downstream] = classifyStoryGateFailures(workflow, [
+    'clause REC-1:AC-002 has no planned test'
+  ]);
+  assert.equal(downstream.phase, 'plan-b');
+  assert.match(downstream.recovery.command, /recover REC-1 --phase plan-b/);
+});
+
 test('a completed Story previews a hash-bound gate recovery when ordinary rejectTo omits the owner', () => {
   const workflow = story(['specification', 'implementation', 'convergence', 'release'], { complete: true });
   workflow.phases.release.approvalPolicy.rejectTo = ['implementation', 'release'];

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -14,11 +15,16 @@ import {
   evaluateSpecCoverage,
   extractClauses,
   isSpecificationDefinitionPhase,
+  canonicalJson,
+  loadBoundActiveSpecRecords,
+  mergeObservedClaimRecords,
+  mergePlannedClaimRecords,
   normalizeClaimMap,
   renderClauseContext,
   runSpecAcceptance, selectActiveSpecRecords, specificationSourceTreeHash,
   selectClauseContext
 } from '../src/specifications.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
 
 const markdown = `# Governed specification
@@ -153,6 +159,125 @@ test('reference-only phase indexes are preserved but excluded from active specif
   assert.equal(isSpecificationDefinitionPhase(workflow.phases.implementation), true);
   assert.equal(isSpecificationDefinitionPhase(workflow.phases.release), false);
   assert.equal(selected.indexes.includes(legacyRelease), false);
+});
+
+test('pinned planned-claim topology selects only its validated authoritative clause phases', () => {
+  const workflow = {
+    workItem: { id: 'WORK-1' },
+    resolution: {
+      plannedClaims: { mode: 'required', clausePhases: ['intake', 'release'], owners: { implementation: 'design' } }
+    },
+    phases: {
+      intake: { generation: 1, requiredArtifact: { kind: 'requirements' } },
+      laterSpec: { generation: 1, requiredArtifact: { kind: 'implementation-spec' } },
+      release: { generation: 1, requiredArtifact: { kind: 'conformance-report' } }
+    }
+  };
+  const intake = { workId: 'WORK-1', phase: 'intake', generation: 1, clauses: [{ id: 'APP:AC-001' }] };
+  const unselected = { workId: 'WORK-1', phase: 'laterSpec', generation: 1, clauses: [{ id: 'APP:REQ-002' }] };
+  const malformedPinnedReport = { workId: 'WORK-1', phase: 'release', generation: 1, clauses: [{ id: 'APP:REQ-999' }] };
+  const selected = selectActiveSpecRecords({ indexes: [intake, unselected, malformedPinnedReport] }, workflow);
+  assert.deepEqual(selected.indexes, [intake]);
+});
+
+async function boundClaimFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bound-claims-'));
+  const itemDirectory = path.join(root, 'singularity/work-items/BOUND-1');
+  const claimsDirectory = path.join(itemDirectory, 'context/claims');
+  await mkdir(claimsDirectory, { recursive: true });
+  const planned = {
+    schemaVersion: currentSchemaVersion('specification-claim-map'),
+    kind: 'planned', recordedAt: '2026-08-31T00:00:00.000Z',
+    workId: 'BOUND-1', phase: 'planning', generation: 1,
+    claims: { 'APP:REQ-001': {
+      expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'],
+      testDisposition: 'applicable', testReason: null, deviation: null
+    } }
+  };
+  const observed = {
+    schemaVersion: currentSchemaVersion('specification-claim-map'),
+    kind: 'observed', recordedAt: '2026-08-31T00:01:00.000Z',
+    workId: 'BOUND-1', phase: 'implementation', generation: 1,
+    claims: { 'APP:REQ-001': {
+      observedPaths: ['src/app.mjs'], testResults: ['test/app.test.mjs'],
+      commits: ['a'.repeat(40)], verdict: 'matched', deviation: null
+    } }
+  };
+  const plannedPath = 'singularity/work-items/BOUND-1/context/claims/planning-gen1-planned.json';
+  const observedPath = 'singularity/work-items/BOUND-1/context/claims/implementation-gen1-observed.json';
+  await writeFile(path.join(root, plannedPath), canonicalJson(planned));
+  await writeFile(path.join(root, observedPath), canonicalJson(observed));
+  const digest = (record) => createHash('sha256').update(canonicalJson(record)).digest('hex');
+  const workflow = {
+    workItem: { id: 'BOUND-1' },
+    resolution: {
+      plannedClaims: {
+        mode: 'required', clausePhases: ['requirements'], owners: { implementation: 'planning' }
+      }
+    },
+    phases: {
+      requirements: { id: 'requirements', generation: 0, requiredArtifact: { kind: 'requirements' } },
+      planning: {
+        id: 'planning', generation: 1,
+        claimMaps: { planned: { generation: 1, path: plannedPath, sha256: digest(planned) } }
+      },
+      implementation: {
+        id: 'implementation', generation: 1,
+        claimMaps: { observed: { generation: 1, path: observedPath, sha256: digest(observed) } }
+      }
+    }
+  };
+  return { root, itemDirectory, planned, plannedPath, workflow };
+}
+
+test('bound terminal claim loading ignores unbound directory injection and rejects a missing pointer', async () => {
+  const fixture = await boundClaimFixture();
+  const injected = {
+    ...fixture.planned,
+    recordedAt: '2026-08-31T00:02:00.000Z',
+    claims: { 'APP:REQ-001': {
+      expectedPaths: ['src/injected.mjs'], tests: ['test/injected.test.mjs'],
+      testDisposition: 'applicable', testReason: null, deviation: null
+    } }
+  };
+  await writeFile(
+    path.join(fixture.itemDirectory, 'context/claims/unbound-injected.json'),
+    canonicalJson(injected)
+  );
+  const records = await loadBoundActiveSpecRecords(
+    fixture.root, fixture.itemDirectory, fixture.workflow, { mode: 'enforce', acceptance: 'presence' }
+  );
+  assert.equal(records.planned.length, 1);
+  assert.deepEqual(records.planned[0].claims['APP:REQ-001'].tests, ['test/app.test.mjs']);
+
+  const historical = structuredClone(fixture.workflow);
+  delete historical.resolution.plannedClaims;
+  const historicalRecords = await loadBoundActiveSpecRecords(
+    fixture.root, fixture.itemDirectory, historical, { mode: 'enforce', acceptance: 'presence' }
+  );
+  assert.equal(historicalRecords.planned.length, 2,
+    'a historical snapshot without plannedClaims lost its directory compatibility path');
+
+  delete fixture.workflow.phases.planning.claimMaps.planned;
+  await assert.rejects(
+    () => loadBoundActiveSpecRecords(
+      fixture.root, fixture.itemDirectory, fixture.workflow, { mode: 'enforce', acceptance: 'presence' }
+    ),
+    /no authoritative planned claim-map binding/
+  );
+});
+
+test('bound terminal claim loading rejects bytes changed after their workflow digest was pinned', async () => {
+  const fixture = await boundClaimFixture();
+  const tampered = structuredClone(fixture.planned);
+  tampered.claims['APP:REQ-001'].tests = ['test/tampered.test.mjs'];
+  await writeFile(path.join(fixture.root, fixture.plannedPath), canonicalJson(tampered));
+  await assert.rejects(
+    () => loadBoundActiveSpecRecords(
+      fixture.root, fixture.itemDirectory, fixture.workflow, { mode: 'enforce', acceptance: 'presence' }
+    ),
+    /planned claim map changed after publication/
+  );
 });
 
 test('planned claims are derived only from an exact structured Markdown table', () => {
@@ -348,6 +473,50 @@ test('partial or unplanned AC test evidence remains terminally incomplete', () =
   assert.deepEqual(coverage.unimplemented, ['APP:AC-001']);
   assert.deepEqual(coverage.unclaimedChangedPaths, ['test/unplanned.spec.ts']);
   assert.match(coverage.invalidEvidence.join(' '), /without source-path evidence/);
+});
+
+test('claim evidence accumulates across code phases instead of using the last record only', () => {
+  const id = 'APP:REQ-001';
+  const planned = [
+    { phase: 'plan-a', generation: 1, claims: { [id]: {
+      expectedPaths: ['src/a.mjs'], tests: ['test/a.test.mjs'], testDisposition: 'applicable', testReason: null
+    } } },
+    { phase: 'plan-b', generation: 1, claims: { [id]: {
+      expectedPaths: ['src/b.mjs'], tests: ['test/b.test.mjs'], testDisposition: 'applicable', testReason: null
+    } } }
+  ];
+  const mergedPlan = mergePlannedClaimRecords(planned);
+  assert.deepEqual(mergedPlan[id].expectedPaths, ['src/a.mjs', 'src/b.mjs']);
+  assert.deepEqual(mergedPlan[id].tests, ['test/a.test.mjs', 'test/b.test.mjs']);
+
+  const observed = [
+    { phase: 'code-a', generation: 1, claims: { [id]: {
+      observedPaths: ['src/a.mjs'], testResults: ['test/a.test.mjs'], commits: ['a'.repeat(40)], verdict: 'partial'
+    } } },
+    { phase: 'code-b', generation: 1, claims: { [id]: {
+      observedPaths: ['src/b.mjs'], testResults: ['test/b.test.mjs'], commits: ['b'.repeat(40)], verdict: 'partial'
+    } } }
+  ];
+  const mergedObserved = mergeObservedClaimRecords(observed, mergedPlan);
+  assert.equal(mergedObserved[id].verdict, 'matched');
+  assert.deepEqual(mergedObserved[id].observedPaths, ['src/a.mjs', 'src/b.mjs']);
+
+  const index = { clauses: [{ id }] };
+  assert.equal(evaluateSpecCoverage(
+    { indexes: [index], planned, observed },
+    ['src/a.mjs', 'src/b.mjs'],
+    { coverage: 'enforce' }
+  ).complete, true);
+
+  const laterEmpty = { phase: 'code-b', generation: 2, claims: { [id]: {
+    observedPaths: [], testResults: [], commits: [], verdict: 'missing'
+  } } };
+  const onePlan = mergePlannedClaimRecords([planned[0]]);
+  assert.equal(mergeObservedClaimRecords([{
+    phase: 'code-a', generation: 1, claims: { [id]: {
+      observedPaths: ['src/a.mjs'], testResults: ['test/a.test.mjs'], commits: [], verdict: 'matched'
+    } }
+  }, laterEmpty], onePlan)[id].verdict, 'matched', 'a later empty interval erased earlier exact evidence');
 });
 
 test('acceptance policy distinguishes planned evidence from verified execution', async () => {

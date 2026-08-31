@@ -21,6 +21,7 @@ import {
   evaluateSpecCoverage,
   isSpecificationDefinitionPhase,
   loadActiveSpecRecords,
+  loadBoundActiveSpecRecords,
   specificationSourceTreeHash
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
@@ -338,7 +339,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off', coverage: 'off' };
   if (specPolicy.mode !== 'off') {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
-    const records = await loadActiveSpecRecords(itemDirectory, workflow);
+    const records = terminal && workflow.resolution?.plannedClaims?.mode === 'required'
+      ? await loadBoundActiveSpecRecords(root, itemDirectory, workflow, specPolicy)
+      : await loadActiveSpecRecords(itemDirectory, workflow);
     const fail = (message) => (specPolicy.mode === 'enforce' ? errors : warnings).push(message);
     for (const phaseId of workflow.phaseOrder) {
       const phase = workflow.phases[phaseId];

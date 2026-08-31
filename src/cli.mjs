@@ -60,7 +60,7 @@ import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
 import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
-import { initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
 import {
@@ -99,7 +99,7 @@ import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { createReviewBundle, reviewHtml, reviewMarkdown } from './review.mjs';
 import { readRecord } from './schema-migrations.mjs';
 
-import { installWorkflow, simulateWorkflow, simulationText, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
@@ -1402,7 +1402,7 @@ export async function startCommand(positionals, options) {
     label: 'POC target URL'
   });
   if (targetOrigin) source = { ...source, targetOrigin };
-  const resolvedWorkType = resolveWorkType(config, workType);
+  const resolvedWorkType = assertPlannedClaimsReady(resolveWorkType(config, workType));
   const selectedAgent = await activatePhaseAgent(
     root, config, id, resolvedWorkType.phases[0], optionString(options, 'agent') ?? null
   );
@@ -6023,12 +6023,59 @@ async function workflowCommand(positionals, options) {
     const id = requirePositional(positionals, 2, 'workflow ID');
     const list = (option) => (optionString(options, option) ?? '')
       .split(',').map((entry) => entry.trim()).filter(Boolean);
+    const plannedClaimsInput = () => {
+      const rawMode = optionString(options, 'planned-claims');
+      const clausePhases = list('clause-phases');
+      const ownerEntries = list('claim-owners');
+      const reason = optionString(options, 'opt-out-reason');
+      if (rawMode == null && !clausePhases.length && !ownerEntries.length && reason == null) return undefined;
+      if (rawMode == null) {
+        throw new SingularityFlowError(
+          'Use --planned-claims required or --planned-claims opt-out with the planned-claim options.'
+        );
+      }
+      const mode = rawMode === 'automatic' ? 'auto' : rawMode;
+      if (!['auto', 'required', 'opt-out'].includes(mode)) {
+        throw new SingularityFlowError('--planned-claims must be auto, required, or opt-out.');
+      }
+      if (mode === 'auto') {
+        if (clausePhases.length || ownerEntries.length || reason != null) {
+          throw new SingularityFlowError('--planned-claims auto cannot be combined with clause, owner, or opt-out options.');
+        }
+        return null;
+      }
+      if (mode === 'opt-out') {
+        if (clausePhases.length || ownerEntries.length) {
+          throw new SingularityFlowError('A planned-claim opt-out cannot declare clause phases or claim owners.');
+        }
+        return { mode: 'opt-out', reason };
+      }
+      if (reason != null) throw new SingularityFlowError('--opt-out-reason is only valid with --planned-claims opt-out.');
+      const owners = {};
+      for (const entry of ownerEntries) {
+        const match = entry.match(/^([a-z0-9]+(?:-[a-z0-9]+)*)=([a-z0-9]+(?:-[a-z0-9]+)*)$/);
+        if (!match) {
+          throw new SingularityFlowError(
+            `Claim owner '${entry}' must use code-phase=planning-phase lower-case kebab-case syntax.`
+          );
+        }
+        if (Object.hasOwn(owners, match[1])) throw new SingularityFlowError(`Claim owner '${match[1]}' is declared more than once.`);
+        owners[match[1]] = match[2];
+      }
+      return {
+        mode: 'required',
+        ...(clausePhases.length ? { clausePhases } : {}),
+        ...(ownerEntries.length ? { owners } : {})
+      };
+    };
+    const plannedClaims = plannedClaimsInput();
     if (subcommand === 'create') {
       const input = {
         label: optionString(options, 'label'),
         description: optionString(options, 'description', ''),
         phases: list('phases'),
-        governs: optionString(options, 'governs')
+        governs: optionString(options, 'governs'),
+        plannedClaims
       };
       const created = await author({
         operation: 'create-workflow', subject: id,
@@ -6046,6 +6093,7 @@ async function workflowCommand(positionals, options) {
       if (value != null) changes[field] = value;
     }
     if (optionString(options, 'phases') != null) changes.phases = list('phases');
+    if (plannedClaims !== undefined) changes.plannedClaims = plannedClaims;
     const edited = await author({
       operation: 'edit-workflow', subject: id,
       message: `[configuration] edit workflow ${id}`,
@@ -6132,6 +6180,29 @@ async function workflowCommand(positionals, options) {
       const result = await simulateWorkflow(root, positionals[2]);
       if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(simulationText(result));
     });
+  }
+  if (subcommand === 'validate') {
+    return withApprovedConfigurationRead(root, async () => {
+      const result = await validateWorkflowCatalog(root, positionals[2] ?? null);
+      if (optionBoolean(options, 'json')) {
+        console.log(JSON.stringify(result, null, 2));
+        if (!result.valid) process.exitCode = 1;
+        return;
+      }
+      console.log(table(result.workflows.map((workflow) => ({
+        id: workflow.id,
+        status: workflow.status,
+        clauses: workflow.clausePhases.join(', ') || 'none',
+        owners: Object.entries(workflow.owners).map(([code, owner]) => `${code}←${owner}`).join(', ') || 'none',
+        reason: workflow.reason ?? ''
+      })), [
+        { key: 'id', label: 'WORKFLOW' }, { key: 'status', label: 'PLANNED CLAIMS' },
+        { key: 'clauses', label: 'CLAUSE PHASES' }, { key: 'owners', label: 'CODE ← PLAN OWNER' },
+        { key: 'reason', label: 'REASON' }
+      ]));
+      console.log(`Validated ${result.workflows.length} Story workflow(s).`);
+      if (!result.valid) process.exitCode = 1;
+    }, { preferAuthority: true });
   }
   if (subcommand === 'diff') {
     return withApprovedConfigurationRead(root, async () => {

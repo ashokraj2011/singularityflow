@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +13,7 @@ import { sessionStartAgentHook } from '../src/agent-hooks.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { saveStoryDraft } from '../src/state-stores.mjs';
+import { buildSpecIndex, canonicalJson, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { snapshot } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -170,15 +172,57 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   const repositoryPath = `${itemRelative}/${longArtifact}`;
   const designFile = path.join(repository, repositoryPath);
   await mkdir(path.dirname(designFile), { recursive: true });
-  await writeFile(designFile, '# Approved design\n\nUse the repository-rooted implementation boundary.\n');
+  const designText = [
+    '# Approved design', '', 'Use the repository-rooted implementation boundary.', '',
+    '| Clause | Expected paths | Planned tests |',
+    '|---|---|---|',
+    '| `GROUND-1:AC-001` | `src/implementation.ts` | `test/implementation.test.ts` |', ''
+  ].join('\n');
+  await writeFile(designFile, designText);
+  const intakeRelative = `${itemRelative}/${workflow.phases.intake.requiredArtifact.path}`;
+  const intakeFile = path.join(repository, intakeRelative);
+  await writeFile(intakeFile, [
+    '# Intake', '', '[GROUND-1:AC-001]',
+    'Preparation and composition preserve every complete repository-rooted path.', ''
+  ].join('\n'));
+  const intakeInfo = await snapshot(intakeFile);
+  const specIndex = await buildSpecIndex(repository, intakeRelative, {
+    workId: 'GROUND-1', phase: 'intake', generation: 1,
+    outputPath: `${itemRelative}/context/spec-indexes/intake-gen1.json`,
+    policy: workflow.resolution.spec
+  });
+  const planned = {
+    ...derivePlannedClaimMap(designText, {
+      clauseIds: ['GROUND-1:AC-001'], policy: workflow.resolution.spec
+    }).claimMap,
+    workId: 'GROUND-1', phase: 'design', generation: 1
+  };
+  const plannedRelative = `${itemRelative}/context/claims/design-gen1-planned.json`;
+  await mkdir(path.dirname(path.join(repository, plannedRelative)), { recursive: true });
+  await writeFile(path.join(repository, plannedRelative), canonicalJson(planned));
   const info = await snapshot(designFile);
   workflow.phases.intake.status = 'approved';
   workflow.phases.intake.generation = 1;
+  workflow.phases.intake.artifacts = [{ path: intakeRelative, status: 'approved', ...intakeInfo }];
+  workflow.phases.intake.specIndex = {
+    generation: 1,
+    path: `${itemRelative}/context/spec-indexes/intake-gen1.json`,
+    clauses: specIndex.clauses.length,
+    indexSha256: specIndex.indexSha256,
+    sourceSha256: specIndex.source.sha256
+  };
   workflow.phases.design.status = 'approved';
   workflow.phases.design.generation = 1;
   workflow.phases.design.approvedAt = '2026-08-22T00:00:00.000Z';
   workflow.phases.design.approvedBy = 'path-grounding@example.invalid';
   workflow.phases.design.artifacts = [{ path: repositoryPath, status: 'approved', ...info }];
+  workflow.phases.design.claimMaps = {
+    planned: {
+      generation: 1,
+      path: plannedRelative,
+      sha256: createHash('sha256').update(canonicalJson(planned)).digest('hex')
+    }
+  };
   workflow.currentPhase = 'implementation';
   workflow.phases.implementation.status = 'in_progress';
   await saveStoryDraft(repository, config, workflow);

@@ -604,12 +604,163 @@ export async function loadSpecRecords(itemDirectory) {
   return { indexes, planned, observed, acceptance };
 }
 
+function expectedClaimMapPath(root, itemDirectory, phase, kind) {
+  return posix(path.relative(root, path.join(
+    itemDirectory, 'context', 'claims', `${phase.id}-gen${phase.generation}-${kind}.json`
+  )));
+}
+
+/**
+ * Read one claim map through the workflow aggregate's authoritative pointer.
+ *
+ * The directory is audit storage, not an authority index. Current planned-claim Stories therefore
+ * bind every live claim through `phase.claimMaps`; otherwise an extra JSON file can participate in
+ * terminal arithmetic merely by naming the current work item, phase, and generation.
+ */
+export async function readBoundSpecificationClaimMap(root, itemDirectory, workflow, phase, kind, {
+  clauseIds = [], policy = {}
+} = {}) {
+  if (!['planned', 'observed'].includes(kind)) {
+    throw new SingularityFlowError(`Claim-map binding kind must be planned or observed.`);
+  }
+  const pointer = phase?.claimMaps?.[kind];
+  if (!phase || !pointer) {
+    throw new SingularityFlowError(
+      `Phase '${phase?.id ?? 'unknown'}' has no authoritative ${kind} claim-map binding.`,
+      { code: 'SPECIFICATION_CLAIM_MAP_BINDING_REQUIRED' }
+    );
+  }
+  const expectedPath = expectedClaimMapPath(root, itemDirectory, phase, kind);
+  if (pointer.path !== expectedPath || Number(pointer.generation) !== Number(phase.generation)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' ${kind} claim-map binding is stale.`,
+      { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' }
+    );
+  }
+  const boundary = await secureRepositoryPath(root, pointer.path, {
+    label: `Phase '${phase.id}' ${kind} claim map`, mustExist: true, type: 'file'
+  });
+  const raw = JSON.parse(await readFile(boundary.absolute, 'utf8'));
+  if (sha256(canonicalJson(raw)) !== pointer.sha256) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' ${kind} claim map changed after publication.`,
+      { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE' }
+    );
+  }
+  const record = readRecord('specification-claim-map', raw).record;
+  if (record.kind !== kind
+      || record.workId !== workflow?.workItem?.id
+      || record.phase !== phase.id
+      || Number(record.generation) !== Number(phase.generation)) {
+    throw new SingularityFlowError(
+      `${kind} specification claim map does not bind ${workflow?.workItem?.id ?? 'unknown'}/${phase.id} generation ${phase.generation}.`,
+      { code: 'SPECIFICATION_CLAIM_MAP_IDENTITY_INVALID' }
+    );
+  }
+  // Schema migration proves readability; normalization enforces the pinned clause and path bounds.
+  normalizeClaimMap(record, { kind, clauseIds, policy });
+  return record;
+}
+
 function recordOrder(left, right) {
   const generation = Number(left?.generation ?? -1) - Number(right?.generation ?? -1);
   if (generation) return generation;
   const timestamp = String(left?.completedAt ?? left?.recordedAt ?? '').localeCompare(String(right?.completedAt ?? right?.recordedAt ?? ''));
   if (timestamp) return timestamp;
   return String(left?.phase ?? '').localeCompare(String(right?.phase ?? ''));
+}
+
+function sortedUnique(values) {
+  return [...new Set(values.filter((value) => value != null).map(String))].sort();
+}
+
+/** Merge planned evidence cumulatively across multiple code intervals. */
+export function mergePlannedClaimRecords(maps = []) {
+  const grouped = new Map();
+  for (const map of [...maps].sort(recordOrder)) {
+    for (const [id, claim] of Object.entries(map?.claims ?? {})) {
+      const current = grouped.get(id) ?? {
+        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null
+      };
+      current.expectedPaths.push(...(claim.expectedPaths ?? []));
+      current.tests.push(...(claim.tests ?? []));
+      current.dispositions.push(claim.testDisposition ?? 'unspecified');
+      if (claim.testReason) current.reasons.push(claim.testReason);
+      if (claim.deviation != null) current.deviation = claim.deviation;
+      grouped.set(id, current);
+    }
+  }
+  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, value]) => {
+    const tests = sortedUnique(value.tests);
+    const allNotApplicable = value.dispositions.length > 0
+      && value.dispositions.every((entry) => entry === 'not-applicable');
+    return [id, {
+      expectedPaths: sortedUnique(value.expectedPaths),
+      tests,
+      testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : 'unspecified',
+      testReason: tests.length || !allNotApplicable ? null : value.reasons.at(-1) ?? null,
+      deviation: value.deviation
+    }];
+  }));
+}
+
+/**
+ * Merge observed evidence cumulatively instead of letting a later interval's empty/missing result
+ * erase an earlier exact match. Completeness is recomputed against the cumulative planned paths and
+ * tests, so two partial implementation intervals can together form one matched claim.
+ */
+export function mergeObservedClaimRecords(maps = [], plannedClaims = {}) {
+  const grouped = new Map();
+  for (const map of [...maps].sort(recordOrder)) {
+    for (const [id, claim] of Object.entries(map?.claims ?? {})) {
+      const current = grouped.get(id) ?? {
+        observedPaths: [], testResults: [], commits: [], verdicts: [], deviation: null
+      };
+      current.observedPaths.push(...(claim.observedPaths ?? []));
+      current.testResults.push(...(claim.testResults ?? []));
+      current.commits.push(...(claim.commits ?? []));
+      current.verdicts.push(claim.verdict ?? 'missing');
+      if (claim.deviation != null) current.deviation = claim.deviation;
+      grouped.set(id, current);
+    }
+  }
+  return Object.fromEntries([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([id, value]) => {
+    const observedPaths = sortedUnique(value.observedPaths);
+    const testResults = sortedUnique(value.testResults);
+    const plan = plannedClaims[id] ?? null;
+    let verdict;
+    if (value.verdicts.includes('deviated')) verdict = 'deviated';
+    else if (value.verdicts.includes('unplanned')) verdict = 'unplanned';
+    else if (plan) {
+      const expectedPaths = plan.expectedPaths ?? [];
+      const sourceComplete = expectedPaths.length > 0
+        && expectedPaths.every((candidate) => observedPaths.includes(candidate));
+      const testsComplete = !(plan.tests ?? []).length
+        || plan.tests.every((candidate) => testResults.includes(candidate));
+      const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
+      verdict = observedPaths.length
+        ? (sourceComplete && testsComplete ? 'matched' : 'partial')
+        : acceptanceTestOnly
+          ? (!expectedPaths.length && testsComplete ? 'matched' : 'partial')
+          // Preserve an invalid producer verdict when it has no source path. Convergence and
+          // terminal coverage must expose that stale binding; normalizing it to `missing` here
+          // would erase the stronger integrity defect from the fact set.
+          : value.verdicts.includes('matched')
+            ? 'matched'
+            : value.verdicts.includes('partial')
+              ? 'partial'
+              : 'missing';
+    } else if (value.verdicts.includes('matched')) verdict = 'matched';
+    else if (value.verdicts.includes('partial')) verdict = 'partial';
+    else verdict = 'missing';
+    return [id, {
+      observedPaths,
+      testResults,
+      commits: sortedUnique(value.commits),
+      verdict,
+      deviation: value.deviation
+    }];
+  }));
 }
 
 /**
@@ -619,6 +770,10 @@ function recordOrder(left, right) {
  */
 export function selectActiveSpecRecords(records, workflow) {
   const workId = workflow?.workItem?.id ?? null;
+  const configuredClausePhases = workflow?.resolution?.plannedClaims?.mode === 'required'
+    && Array.isArray(workflow.resolution.plannedClaims.clausePhases)
+    ? new Set(workflow.resolution.plannedClaims.clausePhases)
+    : null;
   const active = (record) => {
     const phase = workflow?.phases?.[record?.phase];
     return Boolean(
@@ -630,7 +785,11 @@ export function selectActiveSpecRecords(records, workflow) {
   };
   return {
     indexes: (records.indexes ?? []).filter((record) =>
-      active(record) && isSpecificationDefinitionPhase(workflow?.phases?.[record.phase])).sort(recordOrder),
+      active(record)
+      && (configuredClausePhases
+        ? configuredClausePhases.has(record.phase)
+          && isSpecificationDefinitionPhase(workflow?.phases?.[record.phase])
+        : isSpecificationDefinitionPhase(workflow?.phases?.[record.phase]))).sort(recordOrder),
     planned: (records.planned ?? []).filter(active).sort(recordOrder),
     observed: (records.observed ?? []).filter(active).sort(recordOrder),
     acceptance: (records.acceptance ?? []).filter(active).sort(recordOrder)
@@ -639,6 +798,48 @@ export function selectActiveSpecRecords(records, workflow) {
 
 export async function loadActiveSpecRecords(itemDirectory, workflow) {
   return selectActiveSpecRecords(await loadSpecRecords(itemDirectory), workflow);
+}
+
+/**
+ * Load terminal specification evidence for a Story that explicitly pins required planned claims.
+ * Indexes and acceptance runs remain directory records; planned and observed maps are admitted only
+ * through the exact current-generation bindings in the workflow aggregate.
+ */
+export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}) {
+  const plannedPolicy = workflow?.resolution?.plannedClaims;
+  if (plannedPolicy?.mode !== 'required') return loadActiveSpecRecords(itemDirectory, workflow);
+
+  const indexes = [];
+  const acceptance = [];
+  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'spec-indexes'))) {
+    indexes.push(readRecord('specification-index', await readFile(file)).record);
+  }
+  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'acceptance'))) {
+    acceptance.push(readRecord('specification-acceptance', await readFile(file)).record);
+  }
+  const base = selectActiveSpecRecords({ indexes, planned: [], observed: [], acceptance }, workflow);
+  const clauseIds = [...new Set(base.indexes.flatMap((index) =>
+    (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
+  const planned = [];
+  const observed = [];
+  const ownerIds = [...new Set(Object.values(plannedPolicy.owners ?? {}))];
+  for (const ownerId of ownerIds) {
+    const owner = workflow.phases?.[ownerId];
+    planned.push(await readBoundSpecificationClaimMap(
+      root, itemDirectory, workflow, owner, 'planned', { clauseIds, policy }
+    ));
+  }
+  for (const codePhaseId of Object.keys(plannedPolicy.owners ?? {})) {
+    const codePhase = workflow.phases?.[codePhaseId];
+    observed.push(await readBoundSpecificationClaimMap(
+      root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy }
+    ));
+  }
+  return {
+    ...base,
+    planned: planned.sort(recordOrder),
+    observed: observed.sort(recordOrder)
+  };
 }
 
 export function predecessorSpecClauses(records, workflow, phaseId) {
@@ -676,8 +877,8 @@ function acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims) {
 export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
-  const plannedClaims = Object.assign({}, ...planned.map((map) => map.claims ?? {}));
-  const observedClaims = Object.assign({}, ...observed.map((map) => map.claims ?? {}));
+  const plannedClaims = mergePlannedClaimRecords(planned);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
   const activePaths = [...new Set(changedPaths.map(posix))].filter((candidate) => !pathExcluded(candidate, normalized.excludes)).sort();
   const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
     ...(claim.observedPaths ?? []),
@@ -733,8 +934,8 @@ export function evaluateSpecCoverage({ indexes = [], planned = [], observed = []
 export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = [], acceptance = [] }, policy = {}, expected = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
-  const plannedClaims = Object.assign({}, ...planned.map((map) => map.claims ?? {}));
-  const observedClaims = Object.assign({}, ...observed.map((map) => map.claims ?? {}));
+  const plannedClaims = mergePlannedClaimRecords(planned);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
   const candidates = [...acceptance].sort(recordOrder);
   const latestRun = candidates.at(-1) ?? null;
   const missingPlannedTests = normalized.acceptance === 'off'

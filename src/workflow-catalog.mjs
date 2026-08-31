@@ -2,8 +2,8 @@ import path from 'node:path';
 import { cp, mkdir, readFile, readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseAgentDependencies } from './agents.mjs';
-import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { exists, writeText } from './util.mjs';
+import { loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { exists, SingularityFlowError, writeText } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 
 const starterPath = path.join(PACKAGE_ROOT, 'templates', 'workflow.yml');
@@ -137,4 +137,43 @@ export async function workflowDiff(root, id) {
   const installed = await loadDefinition(root); const starter = await starterDefinition();
   if (!starter.workTypes[id]) throw new Error(`Workflow '${id}' is not in the bundled catalog.`);
   return { id, installed: installed.workTypes[id] ?? null, bundled: starter.workTypes[id], equal: stable(installed.workTypes[id]) === stable(starter.workTypes[id]) };
+}
+
+/**
+ * Validate and explain the planned-claim contract for every Story workflow.
+ *
+ * `loadDefinition` performs structural validation first. A pre-contract custom workflow remains
+ * readable as `migration-required` so it cannot hide every other workflow or strand historical
+ * Stories; this report returns invalid and Story start refuses it. Current authored workflows fail
+ * closed before write. The report makes the topology visible instead of reducing validation to a
+ * silent exit code.
+ */
+export async function validateWorkflowCatalog(root, requestedId = null) {
+  const definition = await loadDefinition(root);
+  const ids = requestedId == null ? Object.keys(definition.workTypes) : [requestedId];
+  for (const id of ids) if (!definition.workTypes[id]) throw new SingularityFlowError(`Unknown workflow '${id}'.`);
+  const workflows = ids.map((id) => {
+    const resolved = resolveWorkType(definition, id);
+    const plannedClaims = resolved.plannedClaims;
+    return {
+      id,
+      label: resolved.label,
+      status: plannedClaims.mode === 'required'
+        ? 'protected'
+        : plannedClaims.mode === 'legacy-opt-out'
+          ? 'legacy-compatibility'
+          : plannedClaims.mode === 'migration-required'
+            ? 'migration-required'
+            : plannedClaims.mode === 'opt-out'
+              ? 'explicit-opt-out'
+              : 'not-applicable',
+      clausePhases: plannedClaims.clausePhases,
+      owners: plannedClaims.owners,
+      reason: plannedClaims.reason ?? plannedClaims.disabledBecause ?? null
+    };
+  });
+  return {
+    valid: workflows.every((workflow) => workflow.status !== 'migration-required'),
+    workflows
+  };
 }

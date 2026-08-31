@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
-import { initializeDefinition } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import {
   addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput
 } from '../src/workflow-authoring.mjs';
@@ -133,6 +133,47 @@ test('identifiers are kebab-case, like every other identifier in the product', a
   await assert.rejects(() => defineWorkflow(root, 'Discovery First', { phases: ['define'] }),
     /lower-case kebab-case/);
   await assert.rejects(() => addPhase(root, 'Market_Validation', {}), /lower-case kebab-case/);
+});
+
+test('future Story workflow authoring validates planned claims before writing configuration', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-workflow-contract-'));
+  await initializeDefinition(root);
+
+  await assert.rejects(
+    () => defineWorkflow(root, 'unsafe-delivery', {
+      phases: ['intake', 'implementation'], governs: 'story'
+    }),
+    /Workflow 'unsafe-delivery' predates the planned-claim contract and cannot start a new Story/
+  );
+  const afterRefusal = await loadDefinition(root);
+  assert.equal(afterRefusal.workTypes['unsafe-delivery'], undefined, 'invalid workflow was written before validation');
+
+  await defineWorkflow(root, 'safe-delivery', {
+    phases: ['requirements', 'implementation-spec', 'implementation'], governs: 'story'
+  });
+  const resolved = resolveWorkType(await loadDefinition(root), 'safe-delivery');
+  assert.deepEqual(resolved.plannedClaims, {
+    mode: 'required',
+    clausePhases: ['requirements', 'implementation-spec'],
+    owners: { implementation: 'implementation-spec' },
+    reason: null
+  });
+  const authored = YAML.parse(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'));
+  assert.deepEqual(authored.workTypes['safe-delivery'].plannedClaims, {
+    mode: 'required',
+    clausePhases: ['requirements', 'implementation-spec'],
+    owners: { implementation: 'implementation-spec' }
+  }, 'a future authored workflow pins its inferred contract instead of depending on legacy inference');
+
+  await defineWorkflow(root, 'reviewed-short-delivery', {
+    phases: ['intake', 'implementation'],
+    governs: 'story',
+    plannedClaims: {
+      mode: 'opt-out',
+      reason: 'This reviewed emergency workflow deliberately carries no separate specification phase.'
+    }
+  });
+  assert.equal(resolveWorkType(await loadDefinition(root), 'reviewed-short-delivery').plannedClaims.mode, 'opt-out');
 });
 
 /**

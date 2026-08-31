@@ -14,6 +14,7 @@ import {
   ensureRepositoryWorldModelViews,
   loadDefinition,
   normalizePlanning,
+  resolveWorkType,
   validateDefinition,
   withDefinitionCache,
   worldModelPromptViewReferences,
@@ -1401,6 +1402,44 @@ function contentSha256(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
+function plannedClaimsReadinessShape(resolved) {
+  return {
+    spec: resolved.spec,
+    phases: resolved.phases.map((phase) => ({
+      id: phase.id,
+      artifactKind: phase.artifact?.kind ?? null,
+      generationTask: phase.generation?.task ?? null
+    }))
+  };
+}
+
+/**
+ * Keep old catalogs readable, but do not let an authoring boundary introduce or reshape an
+ * unresolved planned-claim topology. Presentation-only edits remain possible while the legacy
+ * workflow is being migrated; phase order, specification policy, and the artifact/task signals
+ * that determine clause ownership are the material contract.
+ */
+export function assertWorkflowReadinessChanges(previousDefinition, candidateDefinition) {
+  for (const workTypeId of Object.keys(candidateDefinition.workTypes)) {
+    const candidate = resolveWorkType(candidateDefinition, workTypeId);
+    if (candidate.plannedClaims.mode !== 'migration-required') continue;
+    const previousWorkType = previousDefinition.workTypes?.[workTypeId];
+    const previous = previousWorkType ? resolveWorkType(previousDefinition, workTypeId) : null;
+    const unchangedLegacy = previous?.plannedClaims.mode === 'migration-required'
+      && JSON.stringify(plannedClaimsReadinessShape(previous))
+        === JSON.stringify(plannedClaimsReadinessShape(candidate));
+    if (unchangedLegacy) continue;
+    throw new SingularityFlowError(
+      `Workflow '${workTypeId}' has a migration-required planned-claim contract and cannot be added or materially changed. `
+      + 'Declare a resolvable required topology, or use an explicit reviewed opt-out with a concrete reason.',
+      {
+        code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
+        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null }
+      }
+    );
+  }
+}
+
 async function copyConfigurationSource(root, validationRoot, relative) {
   if (!relative || relative === '.' || relative.startsWith('..') || path.isAbsolute(relative)) return;
   const source = path.join(root, relative);
@@ -1434,6 +1473,7 @@ async function validateConfigurationCandidate(root, relative, content, definitio
     await writeText(candidatePath, content);
 
     const updatedDefinition = await loadDefinition(validationRoot);
+    assertWorkflowReadinessChanges(definition, updatedDefinition);
     if (existsSync(path.join(validationRoot, IMPACT_CONFIG_PATH))) {
       await loadImpactDefinition(validationRoot, { required: true });
     }
@@ -1610,8 +1650,9 @@ export async function exportConfigurationBundle(root) {
   return { files, repository: path.basename(root), exportedAt: new Date().toISOString(), worldModelRepositoryOwned: true };
 }
 
-export async function validateEditorConfiguration(root) {
+export async function validateEditorConfiguration(root, { baselineDefinition = null } = {}) {
   const definition = await loadDefinition(root);
+  if (baselineDefinition) assertWorkflowReadinessChanges(baselineDefinition, definition);
   const portfolio = await loadPortfolio(root, { required: false });
   if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);

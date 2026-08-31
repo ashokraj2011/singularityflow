@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { loadDefinition, resolveWorkType } from './config.mjs';
+import { assertPlannedClaimsReady, loadDefinition, resolveWorkType } from './config.mjs';
 import {
   assertClean,
   branch,
@@ -451,7 +451,7 @@ export async function startStory(root, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(definition, id)
   });
   if (!definition.workTypes?.[workType]) throw new SingularityFlowError(`Unknown work type '${workType ?? ''}'.`);
-  const resolved = resolveWorkType(definition, workType);
+  const resolved = assertPlannedClaimsReady(resolveWorkType(definition, workType));
   const targetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
     required: !existed && workType === 'poc-workflow',
     label: 'POC target URL'

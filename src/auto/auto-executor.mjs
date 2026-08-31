@@ -145,7 +145,12 @@ export async function mutateAutoExecutorState(root, flightId, mutate, {
   allowStopRequested = false,
   timeoutMs = 2_000
 } = {}) {
-  const deadline = Date.now() + timeoutMs;
+  // Count actual failed acquisitions rather than wall-clock delay. A busy CI host or suspended
+  // event loop can consume two seconds without giving either participant a scheduling turn; using
+  // that elapsed time as the retry budget leaked SUBJECT_LOCK_BUSY even though the human stop was
+  // already queued. The attempt ceiling remains bounded while measuring real contention.
+  const maximumAttempts = Math.max(1, Math.ceil(timeoutMs / 20));
+  let attempts = 0;
   const statusSet = new Set(expectedStatuses);
   for (;;) {
     const current = await readAutoFlightState(root, flightId);
@@ -168,7 +173,7 @@ export async function mutateAutoExecutorState(root, flightId, mutate, {
       }
       // A changed checkpoint with no stop is a real competing mutation. The complete-step lease
       // means it cannot be another legitimate executor, so never adopt and overwrite it.
-      if (error.code === 'AUTO_CHECKPOINT_STALE' || Date.now() >= deadline) throw error;
+      if (error.code === 'AUTO_CHECKPOINT_STALE' || ++attempts >= maximumAttempts) throw error;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }

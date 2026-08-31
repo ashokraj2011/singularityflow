@@ -24,6 +24,7 @@
 import { analysisLimits, capWithDisclosure } from './analysis-limits.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+import { mergeObservedClaimRecords, mergePlannedClaimRecords } from './specifications.mjs';
 
 import { currentSchemaVersion } from './schema-migrations.mjs';
 
@@ -91,15 +92,11 @@ function fact(kind, { clauseIds = [], paths = [], evidence = [], detail }) {
   return { id: itemId('CF', body), ...body, detail };
 }
 
-/**
- * Merge the claim maps the way the rest of the product does.
- *
- * Later records win, matching `evaluateSpecCoverage`. Convergence must agree with `spec coverage`
- * about what was claimed, or the same Story gets two different answers depending on which command
- * the reader ran.
- */
-function mergeClaims(maps) {
-  return Object.assign({}, ...(maps ?? []).map((map) => map.claims ?? {}));
+function exactAcceptanceTestOnlyEvidence(id, plannedClaims, claim) {
+  if (!/:AC-\d{3}$/.test(id) || (claim.observedPaths ?? []).length) return false;
+  const plannedTests = plannedClaims[id]?.tests ?? [];
+  const observedTests = new Set(claim.testResults ?? []);
+  return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
 }
 
 /**
@@ -125,8 +122,8 @@ export function convergenceFacts({
   const bounds = analysisLimits(limits);
   const disclosures = [];
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
-  const plannedClaims = mergeClaims(planned);
-  const observedClaims = mergeClaims(observed);
+  const plannedClaims = mergePlannedClaimRecords(planned);
+  const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
   const amended = new Set(amendedClauses.map((id) => String(id).toUpperCase()));
   const facts = [];
 
@@ -189,7 +186,9 @@ export function convergenceFacts({
       }));
       continue;
     }
-    if (['matched', 'partial', 'deviated'].includes(claim.verdict) && !(claim.observedPaths ?? []).length) {
+    if (['matched', 'partial', 'deviated'].includes(claim.verdict)
+        && !(claim.observedPaths ?? []).length
+        && !exactAcceptanceTestOnlyEvidence(id, plannedClaims, claim)) {
       facts.push(fact('stale-claim-binding', {
         clauseIds: [id],
         detail: `${id} claims verdict '${claim.verdict}' with no source evidence bound to it`

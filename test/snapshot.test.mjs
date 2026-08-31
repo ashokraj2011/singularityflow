@@ -561,6 +561,43 @@ test('invalid configuration candidates are validated before replacing governed f
   assert.equal(after.mtimeNs, before.mtimeNs, 'validation must not touch the governed file before success');
 });
 
+test('visual editor preserves unchanged legacy workflows but rejects new or materially changed unresolved topology', async () => {
+  const root = await repository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const original = YAML.parse(await readFile(workflowPath, 'utf8'));
+  const legacy = {
+    ...structuredClone(original.workTypes['quick-fix']),
+    label: 'Legacy custom'
+  };
+  delete legacy.plannedClaims;
+
+  const added = structuredClone(original);
+  added.workTypes['legacy-custom'] = legacy;
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(added)),
+    (error) => error.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED'
+      || /migration-required planned-claim contract/.test(error.message)
+  );
+
+  // Simulate an installed pre-contract definition. Loading and unrelated authoring must remain
+  // possible so operators can reach the migration controls instead of losing the whole catalog.
+  await writeFile(workflowPath, YAML.stringify(added));
+  const unrelated = structuredClone(added);
+  unrelated.workTypes.feature.label = 'Feature delivery';
+  await saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(unrelated));
+  assert.equal(YAML.parse(await readFile(workflowPath, 'utf8')).workTypes.feature.label, 'Feature delivery');
+
+  const materiallyChanged = structuredClone(unrelated);
+  materiallyChanged.workTypes['legacy-custom'].spec = {
+    mode: 'enforce', coverage: 'record', acceptance: 'presence'
+  };
+  await assert.rejects(
+    () => saveConfigurationFile(root, 'singularity/workflow.yml', YAML.stringify(materiallyChanged)),
+    /migration-required planned-claim contract/
+  );
+  assert.equal(YAML.parse(await readFile(workflowPath, 'utf8')).workTypes['legacy-custom'].spec, undefined);
+});
+
 test('Flow Impact configuration is editable through the governed configuration API', async () => {
   const root = await repository();
   const impactPath = path.join(root, 'singularity/impact.yml');

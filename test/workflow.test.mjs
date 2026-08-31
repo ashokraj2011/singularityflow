@@ -608,6 +608,44 @@ test('advisory world-model grounding warns and continues without launching a mod
   assert.equal(await readFile(path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md'), 'utf8').then(Boolean), true);
 });
 
+test('required planned claims refuse a zero-clause definition before code work can start', async () => {
+  const root = await repository();
+  const workId = 'CLAUSE-SOURCE-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
+    '--title', 'Reject missing clause authority', '--description', 'Prove future workflows fail before implementation.'
+  ]);
+  const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
+  let workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  await completeArtifact(root, workflow, 'intake');
+  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  flow(root, ['submit'], { selection: selection('feature', 'product-owner') });
+  flow(root, ['approve', '--yes'], { selection: selection('feature', 'product-owner') });
+
+  flow(root, ['prepare', 'requirements'], { selection: selection('feature', 'product-owner') });
+  flow(root, ['resume', workId], { selection: selection('feature', 'product-owner') });
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  const artifact = await completeArtifact(root, workflow, 'requirements');
+  const withoutAnchors = (await readFile(artifact, 'utf8'))
+    .replace(/\[CLAUSE-SOURCE-1:(?:REQ|BEH|IFC|AC|CON)-\d{3}\]/g, 'display-only clause');
+  await writeFile(artifact, withoutAnchors);
+  flow(root, ['wm', 'compose', '--phase', 'requirements']);
+  flow(root, [
+    'clarification', 'record', 'requirements',
+    '--question', 'Are stable clause anchors present?',
+    '--answer', 'No. This fixture intentionally proves the definition-phase refusal.'
+  ]);
+  const publish = flow(root, ['phase', 'publish', 'requirements'], {
+    allowFailure: true, selection: selection('feature', 'product-owner')
+  });
+  assert.notEqual(publish.status, 0);
+  assert.match(publish.stderr, /requires stable clause anchors/);
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
+  assert.equal(workflow.currentPhase, 'requirements');
+  assert.equal(workflow.phases.requirements.status, 'in_progress');
+  assert.equal(workflow.phases.requirements.specIndex, undefined);
+});
+
 test('feature profile publishes generations, records tokens, approvals, and conformance', async () => {
   const root = await repository(); const workId = 'FEATURE-101';
   const definitionPath = path.join(root, 'singularity/workflow.yml');
@@ -630,7 +668,21 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
     let workflow = JSON.parse(await readFile(workflowFile, 'utf8')); assert.equal(workflow.currentPhase, phaseId); flow(root, ['prepare', phaseId], { selection: selection('feature', agents[phaseId]) });
     flow(root, ['resume', workId], { selection: selection('feature', agents[phaseId]) });
-    await completeArtifact(root, workflow, phaseId);
+    const completedArtifact = await completeArtifact(root, workflow, phaseId);
+    if (phaseId === 'implementation-spec') {
+      await writeFile(completedArtifact, `${await readFile(completedArtifact, 'utf8')}
+
+## Reviewed exact planned evidence
+
+| Clause | Expected paths | Planned tests |
+|---|---|---|
+| \`${workId}:AC-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
+| \`${workId}:CON-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
+| \`${workId}:CON-002\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
+| \`${workId}:IFC-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
+| \`${workId}:REQ-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
+`);
+    }
     if (phaseId === 'verification') {
       flow(root, ['wm', 'light', '--views', 'business,architecture,development,testing,release,operations,security']);
     }
@@ -690,7 +742,18 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
     flow(root, ['prepare', phaseId], { selection: selection('figma-mobile', agents[phaseId]) });
     flow(root, ['resume', workId], { selection: selection('figma-mobile', agents[phaseId]) });
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
-    await completeArtifact(root, workflow, phaseId);
+    const completedArtifact = await completeArtifact(root, workflow, phaseId);
+    if (phaseId === 'mobile-spec') {
+      await writeFile(completedArtifact, `${await readFile(completedArtifact, 'utf8')}
+
+## Reviewed exact planned evidence
+
+| Clause | Expected paths | Planned tests |
+|---|---|---|
+| \`${workId}:AC-001\` | \`src/mobile.mjs\` | \`tests/mobile.test.mjs\` |
+| \`${workId}:IFC-001\` | \`src/mobile.mjs\` | \`tests/mobile.test.mjs\` |
+`);
+    }
     if (phaseId === 'design-intake') {
       await writeFile(path.join(root, 'figma-metadata.xml'), '<figma><frame id="1:3" name="Checkout" /></figma>\n');
       flow(root, ['mcp', 'record', 'figma', '--kind', 'design-source', '--tool', 'get_metadata', '--phase', phaseId,
@@ -724,6 +787,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.status, 'complete');
   assert.equal(workflow.phases['design-intake'].designSourceSets.length, 1);
+  assert.match(workflow.phases['mobile-spec'].claimMaps?.planned?.sha256 ?? '', /^[0-9a-f]{64}$/);
   assert.equal(workflow.phases['design-intake'].approvals.at(-1).designSourceSet.records[0].fileVersion, 'v1');
   assert.equal(workflow.phases['visual-verification'].approvals.filter((approval) => approval.decision === 'approved').length, 1);
   assert.equal(flow(root, ['gate', '--terminal']).status, 0);

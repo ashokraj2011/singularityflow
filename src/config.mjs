@@ -43,7 +43,7 @@ import { constitutionPolicy } from './constitution.mjs';
 import { assertModelTask } from './model-tasks.mjs';
 import { isTemplateReference, normalizeTemplateCatalog, parseTemplateReference, resolveTemplate } from './template-catalog.mjs';
 import { normalizeMcpServers, normalizePhaseMcpPolicy, validateMcpAgentTools } from './mcp.mjs';
-import { normalizeSpecPolicy } from './specifications.mjs';
+import { isSpecificationDefinitionPhase, normalizeSpecPolicy } from './specifications.mjs';
 import { normalizeHarnessImports } from './harness-imports.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -54,7 +54,7 @@ import { normalizeWorkItemRoot } from './work-item-location.mjs';
 import { normalizeFaultRepairPolicy } from './fault-repair.mjs';
 import { normalizeAstPolicy } from './ast-policy.mjs';
 import {
-  assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, pinCodeDeliveryTask
+  assertCodeDeliveryConfiguration, normalizeCodeDeliveryPolicy, phaseRequiresCodeDelivery, pinCodeDeliveryTask
 } from './code-delivery-policy.mjs';
 import {
   normalizeWorkTypeIntelligence, worldModelModeForIntelligence
@@ -104,6 +104,268 @@ export const SEQUENCE_GATE_IDS = [
   'generationCommit', 'remoteGeneration', 'publicationPending', 'documentPhase', 'binding'
 ];
 const SEQUENCE_GATE_MODES = new Set(['hard', 'soft']);
+
+/**
+ * Exact packaged version-2 profiles that predate the planned-claim topology contract.
+ *
+ * This is deliberately not a generic `record`-mode escape hatch. A newly authored work type with
+ * the same unsafe shape must either add a real definition/owner topology or record a reviewed
+ * opt-out. Matching both the stable id and its historical phase sequence keeps already-installed
+ * configuration readable until refresh writes the explicit policy, without making future custom
+ * workflows silently inherit the old omission.
+ */
+const LEGACY_PLANNED_CLAIM_OPT_OUTS = new Map([
+  ['quick-fix', ['implement', 'verify']],
+  ['benchmarking-a', ['intake', 'design', 'implementation', 'testing', 'conformance']],
+  ['benchmarking-b', ['intake', 'design', 'implementation', 'testing', 'conformance']],
+  ['poc-workflow', [
+    'poc-intake', 'poc-impact-analysis', 'poc-ui-exploration', 'poc-test-generation',
+    'poc-validation', 'poc-publication-review'
+  ]]
+]);
+
+function exactLegacyPlannedClaimOptOut(workTypeId, phases) {
+  const expected = LEGACY_PLANNED_CLAIM_OPT_OUTS.get(workTypeId);
+  return expected != null
+    && expected.length === phases.length
+    && expected.every((id, index) => phases[index]?.id === id);
+}
+
+function definitionArtifactKind(phase) {
+  return phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
+}
+
+function currentSpecificationDefinitionPhase(phase) {
+  // `isSpecificationDefinitionPhase` accepts an absent kind only while reading historical Story
+  // snapshots. New workflow configuration is not historical state: without an explicit kind it
+  // cannot prove that a phase defines clauses rather than merely citing them.
+  return definitionArtifactKind(phase) != null && isSpecificationDefinitionPhase(phase);
+}
+
+function plannedClaimOptOutReason(value, label) {
+  if (typeof value !== 'string') throw new SingularityFlowError(`${label}.reason must be a concrete string.`);
+  const reason = value.trim();
+  if (reason.length < 20 || reason.length > 1000
+    || /\b(?:todo|tbd|fixme|placeholder|to be (?:determined|defined))\b/i.test(reason)
+    || /^<[^>]+>$/.test(reason)) {
+    throw new SingularityFlowError(
+      `${label}.reason must be a concrete 20-1000 character explanation, not a placeholder.`
+    );
+  }
+  return reason;
+}
+
+/**
+ * Resolve the specification-definition and planned-claim owner topology for a work type.
+ *
+ * Public configuration accepts two intentionally small shapes:
+ *
+ *   plannedClaims:
+ *     mode: required
+ *     clausePhases: [requirements]       # optional; inferred from artifact kinds
+ *     owners: { implementation: design } # optional; inferred as the preceding phase
+ *
+ *   plannedClaims:
+ *     mode: opt-out
+ *     reason: "This short workflow deliberately has no specification contract."
+ *
+ * The returned form is complete and is pinned into every new Story resolution. Internal
+ * `disabled` and `legacy-opt-out` modes are read-only normalized outcomes; configuration cannot
+ * request them.
+ */
+export function normalizePlannedClaimsPolicy(value, {
+  workTypeId = 'work-type', phases = [], spec = {}
+} = {}) {
+  const label = `Work type '${workTypeId}' plannedClaims`;
+  const policy = normalizeSpecPolicy(spec);
+  const codePhases = phases.filter((phase) => phaseRequiresCodeDelivery(phase));
+  const acceptanceEnabled = policy.mode !== 'off' && policy.acceptance !== 'off';
+
+  if (value != null && (!value || typeof value !== 'object' || Array.isArray(value))) {
+    throw new SingularityFlowError(`${label} must be an object.`);
+  }
+  if (value != null) {
+    for (const key of Object.keys(value)) {
+      if (!['mode', 'clausePhases', 'owners', 'reason'].includes(key)) {
+        throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
+      }
+    }
+    if (!['required', 'opt-out'].includes(value.mode)) {
+      throw new SingularityFlowError(`${label}.mode must be required or opt-out.`);
+    }
+    if (value.mode === 'required') {
+      if (value.reason != null) throw new SingularityFlowError(`${label}.reason is only valid with mode opt-out.`);
+      if (value.clausePhases != null
+        && (!Array.isArray(value.clausePhases) || !value.clausePhases.length
+          || value.clausePhases.some((id) => typeof id !== 'string' || !id.trim()))) {
+        throw new SingularityFlowError(`${label}.clausePhases must be a non-empty array of phase IDs.`);
+      }
+      if (Array.isArray(value.clausePhases)
+        && new Set(value.clausePhases.map((id) => id.trim())).size !== value.clausePhases.length) {
+        throw new SingularityFlowError(`${label}.clausePhases must not contain duplicates.`);
+      }
+      if (value.owners != null
+        && (!value.owners || typeof value.owners !== 'object' || Array.isArray(value.owners))) {
+        throw new SingularityFlowError(`${label}.owners must be an object keyed by code-delivery phase ID.`);
+      }
+      if (value.owners && Object.values(value.owners).some((id) => typeof id !== 'string' || !id.trim())) {
+        throw new SingularityFlowError(`${label}.owners values must be non-empty phase IDs.`);
+      }
+    } else if (value.clausePhases != null || value.owners != null) {
+      throw new SingularityFlowError(`${label} opt-out must not declare clausePhases or owners.`);
+    }
+  }
+
+  const authoritative = phases.filter((phase) => currentSpecificationDefinitionPhase(phase));
+  if (!codePhases.length) {
+    return {
+      mode: 'disabled', clausePhases: [], owners: {}, reason: null,
+      disabledBecause: 'no-code-delivery-phases'
+    };
+  }
+
+  if (value?.mode === 'opt-out') {
+    if (authoritative.length) {
+      throw new SingularityFlowError(
+        `${label} cannot opt out because authoritative specification phase(s) `
+        + `${authoritative.map((phase) => phase.id).join(', ')} are active. Use mode required.`
+      );
+    }
+    return {
+      mode: 'opt-out', clausePhases: [], owners: {},
+      reason: plannedClaimOptOutReason(value.reason, label)
+    };
+  }
+
+  if (!acceptanceEnabled) {
+    if (value != null) {
+      throw new SingularityFlowError(
+        `${label} mode required cannot operate while spec acceptance is disabled. Enable acceptance or record a reviewed opt-out.`
+      );
+    }
+    return {
+      mode: 'migration-required', clausePhases: [], owners: {},
+      reason: 'Code delivery has no explicit planned-claim contract and specification acceptance is disabled.'
+    };
+  }
+
+  const explicit = value?.mode === 'required';
+  let clausePhases;
+  if (value?.clausePhases != null) {
+    clausePhases = value.clausePhases.map((id) => id.trim());
+  } else {
+    clausePhases = authoritative.map((phase) => phase.id);
+  }
+
+  const phaseById = new Map(phases.map((phase) => [phase.id, phase]));
+  for (const phaseId of clausePhases) {
+    const phase = phaseById.get(phaseId);
+    if (!phase) throw new SingularityFlowError(`${label}.clausePhases references inactive phase '${phaseId}'.`);
+    if (!currentSpecificationDefinitionPhase(phase)) {
+      throw new SingularityFlowError(
+        `${label}.clausePhases '${phaseId}' is not authoritative: artifact.kind must be requirements or implementation-spec.`
+      );
+    }
+  }
+
+  const configuredOwners = value?.owners ?? null;
+  const codeIds = new Set(codePhases.map((phase) => phase.id));
+  if (configuredOwners) {
+    for (const codePhaseId of Object.keys(configuredOwners)) {
+      if (!codeIds.has(codePhaseId)) {
+        throw new SingularityFlowError(`${label}.owners references non-code or inactive phase '${codePhaseId}'.`);
+      }
+    }
+  }
+
+  const owners = {};
+  const topologyErrors = [];
+  for (const codePhase of codePhases) {
+    const inferredOwner = phases[codePhase.order - 1]?.id ?? null;
+    const ownerId = configuredOwners ? configuredOwners[codePhase.id] : inferredOwner;
+    if (typeof ownerId !== 'string' || !ownerId.trim()) {
+      topologyErrors.push(`code phase '${codePhase.id}' has no planned-claim owner before it`);
+      continue;
+    }
+    const owner = phaseById.get(ownerId.trim());
+    if (!owner) {
+      topologyErrors.push(`code phase '${codePhase.id}' references inactive owner '${ownerId}'`);
+      continue;
+    }
+    if (owner.order >= codePhase.order) {
+      topologyErrors.push(`owner '${owner.id}' must precede code phase '${codePhase.id}'`);
+      continue;
+    }
+    if (phaseRequiresCodeDelivery(owner)) {
+      topologyErrors.push(`owner '${owner.id}' for code phase '${codePhase.id}' is itself a code-delivery phase`);
+      continue;
+    }
+    if (!clausePhases.some((phaseId) => phaseById.get(phaseId).order <= owner.order)) {
+      topologyErrors.push(`owner '${owner.id}' for code phase '${codePhase.id}' has no authoritative clause phase before it`);
+      continue;
+    }
+    owners[codePhase.id] = owner.id;
+  }
+
+  if (!clausePhases.length) topologyErrors.unshift('no authoritative requirements or implementation-spec phase is active');
+  if (configuredOwners) {
+    for (const codePhase of codePhases) {
+      if (!Object.hasOwn(configuredOwners, codePhase.id)) {
+        topologyErrors.push(`owners is missing code phase '${codePhase.id}'`);
+      }
+    }
+  }
+
+  if (topologyErrors.length) {
+    if (!explicit
+      && policy.mode === 'record'
+      && policy.coverage === 'record'
+      && policy.acceptance === 'presence'
+      && exactLegacyPlannedClaimOptOut(workTypeId, phases)) {
+      return {
+        mode: 'legacy-opt-out', clausePhases: [], owners: {},
+        reason: 'Compatibility for an exact packaged version-2 workflow that predates planned-claim topology.'
+      };
+    }
+    // A repository may already contain an organization-authored version-2 workflow that predates
+    // this field. Refusing the whole definition here would also make its already-running Stories
+    // unreadable, even though their immutable snapshots correctly retain the old behavior. Keep
+    // the catalog readable, but mark the unresolved workflow as migration-required. Story start,
+    // `workflow validate`, and every supported authoring surface refuse this outcome; it is not an
+    // opt-out and it never disables acceptance gates. The only way forward for a new Story is to
+    // add an explicit required topology or a reviewed opt-out.
+    if (!explicit && value == null) {
+      return {
+        mode: 'migration-required', clausePhases: [], owners: {},
+        reason: `Legacy workflow has no explicit planned-claim contract: ${[...new Set(topologyErrors)].join('; ')}.`
+      };
+    }
+    throw new SingularityFlowError(
+      `${label} is not operational:\n- ${[...new Set(topologyErrors)].join('\n- ')}\n`
+      + 'Declare a resolvable mode required topology, or use mode opt-out with a concrete reason for deliberately short non-spec work.'
+    );
+  }
+
+  return { mode: 'required', clausePhases, owners, reason: null };
+}
+
+/** Refuse starting new work from a readable-but-unmigrated legacy workflow. */
+export function assertPlannedClaimsReady(resolved) {
+  if (resolved?.plannedClaims?.mode !== 'migration-required') return resolved;
+  const id = resolved.id ?? 'unknown';
+  throw new SingularityFlowError(
+    `Workflow '${id}' predates the planned-claim contract and cannot start a new Story. `
+    + 'Review it with singularity-flow workflow validate, then run workflow edit with '
+    + '--planned-claims required --clause-phases <phase,...> --claim-owners <code=owner,...>, '
+    + 'or use --planned-claims opt-out --opt-out-reason <reviewed reason>. Existing Stories keep their pinned policy.',
+    {
+      code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
+      details: { workType: id, reason: resolved.plannedClaims.reason ?? null }
+    }
+  );
+  return resolved;
+}
+
 function assertId(value, label) {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) throw new SingularityFlowError(`${label} '${value}' must be lower-case kebab-case.`);
 }
@@ -1067,6 +1329,16 @@ export function resolveWorkType(definition, workTypeId) {
   const contextPolicy = normalizeContextPolicy(definition.contextPolicy ?? {}, { phaseIds: Object.keys(definition.phases) });
   const tokenEconomy = normalizeTokenEconomy(definition.tokenEconomy ?? {});
   const intelligence = normalizeWorkTypeIntelligence(workType.intelligence, `Work type '${workTypeId}' intelligence`);
+  const configuredSpec = normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) });
+  const plannedClaims = normalizePlannedClaimsPolicy(workType.plannedClaims, {
+    workTypeId, phases, spec: configuredSpec
+  });
+  // An explicit topology opt-out is an acceptance-policy decision, not documentation beside a
+  // still-active gate. Resolve acceptance to off so every existing lifecycle consumer observes
+  // the decision even before it learns about the richer plannedClaims metadata.
+  const spec = ['opt-out', 'legacy-opt-out'].includes(plannedClaims.mode)
+    ? { ...configuredSpec, acceptance: 'off' }
+    : configuredSpec;
   return {
     id: workTypeId,
     label: workType.label,
@@ -1092,7 +1364,8 @@ export function resolveWorkType(definition, workTypeId) {
     // A workflow can opt into stricter clause continuity without turning it on for legacy work
     // types. In particular, a zero-clause spec-driven specification must not silently disable
     // every downstream traceability and active-clause safeguard.
-    spec: normalizeSpecPolicy({ ...(definition.spec ?? {}), ...(workType.spec ?? {}) }),
+    spec,
+    plannedClaims,
     codeDelivery: normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {}),
     // Fault policy is pinned with the Story resolution so a repair requested for that Story cannot
     // acquire more authority merely because shared configuration changed later.
@@ -1159,6 +1432,7 @@ export async function snapshotResolution(root, definition, resolved) {
     tokenEconomy: structuredClone(resolved.tokenEconomy ?? normalizeTokenEconomy(definition.tokenEconomy ?? {})),
     ledger: structuredClone(resolved.ledger ?? normalizeLedgerConfig(definition.ledger ?? {})),
     spec: structuredClone(resolved.spec ?? normalizeSpecPolicy(definition.spec ?? {})),
+    plannedClaims: structuredClone(resolved.plannedClaims ?? null),
     codeDelivery: structuredClone(resolved.codeDelivery ?? normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {})),
     // Fault-repair is resolved per workflow just like code delivery. It must be pinned into the
     // Story snapshot; otherwise every later recovery gate silently falls back to product defaults.

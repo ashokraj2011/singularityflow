@@ -983,6 +983,10 @@ async function initializationFiles(source, destination, output = []) {
 }
 
 export async function initializationStatus(root) {
+  // Read approved configuration through the request-local overlay when the application branch
+  // intentionally has no `singularity/` copy. Outside that scope this resolves to `root`, so the
+  // ordinary branch-local repair check keeps its existing behavior.
+  const definitionRoot = configurationReadRoot(root);
   const expectedFiles = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
     const absolute = path.join(PACKAGE_ROOT, 'templates', source);
@@ -991,9 +995,9 @@ export async function initializationStatus(root) {
     } else expectedFiles.push(destination);
   }
   expectedFiles.sort();
-  const missingFiles = expectedFiles.filter((file) => !existsSync(path.join(root, file)));
+  const missingFiles = expectedFiles.filter((file) => !existsSync(path.join(definitionRoot, file)));
   let configurationError = null;
-  if (existsSync(path.join(root, WORKFLOW_PATH))) {
+  if (existsSync(path.join(definitionRoot, WORKFLOW_PATH))) {
     try {
       await loadDefinition(root);
       await loadImpactDefinition(root, { required: true });

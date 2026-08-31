@@ -6,6 +6,7 @@ import { loadCopilotSession } from './session.mjs';
 import { SingularityFlowError, nowIso, writeAtomic } from './util.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { configurationReadSnapshot } from './configuration-read-scope.mjs';
 
 const RECEIPT_TTL_MS = 15 * 60 * 1000;
 const RECEIPT_LOCK_TIMEOUT_MS = 5 * 1000;
@@ -68,7 +69,8 @@ async function choiceSets(root, definition, action, workflow = null) {
     const { storyBaseCatalog } = await import('./capability-start.mjs');
     const catalog = await storyBaseCatalog(root, {
       remote: definition.git?.remote ?? 'origin',
-      defaultBranch: definition.defaultBaseBranch ?? 'main'
+      defaultBranch: definition.defaultBaseBranch ?? 'main',
+      configurationSnapshot: configurationReadSnapshot(root)
     });
     if (catalog.unreachable.length) {
       const first = catalog.unreachable[0];

@@ -5,11 +5,12 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
-  isConfigurationReadPath, withConfigurationReadRoot
+  configurationReadScope, isConfigurationReadPath, withConfigurationReadRoot
 } from './configuration-read-scope.mjs';
 import {
   configurationAssetPolicy, configurationAssetSearchRoots
 } from './configuration-assets.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 
@@ -18,8 +19,50 @@ const CONFIGURATION_BRANCH = 'sflow/config';
 const STATE_BRANCH = 'state';
 const STATE_MANIFEST = 'configuration/manifest.json';
 const STATE_FORMAT = 'singularity-flow-configuration-mirror/v2';
+const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
+
+function stateConfigurationHistoryBranch(sourceCommit) {
+  const commit = String(sourceCommit ?? '').trim();
+  return /^[0-9a-f]{40,64}$/.test(commit)
+    ? `${STATE_CONFIGURATION_HISTORY_PREFIX}/${commit}`
+    : null;
+}
+
+async function withExistingConfigurationRead(root, scope, fn, { selectPaths = null } = {}) {
+  if (selectPaths == null) return fn(scope.authority);
+  const selected = [...new Set(selectPaths)].sort();
+  if (!selected.includes(WORKFLOW_PATH)
+      || selected.some((relative) => !isConfigurationReadPath(relative, scope.assetPolicy))) {
+    throw new SingularityFlowError('Approved configuration selection contains an unsupported path.', {
+      code: 'APPROVED_CONFIGURATION_SELECTION_INVALID'
+    });
+  }
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-config-narrow-read-'));
+  try {
+    for (const relative of selected) {
+      const source = path.join(scope.configurationRoot, relative);
+      const info = await lstat(source).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
+      if (!info?.isFile() || info.isSymbolicLink()) {
+        throw new SingularityFlowError(
+          `Approved configuration ${scope.authority?.ref ?? 'scope'} does not contain '${relative}'.`,
+          { code: 'APPROVED_CONFIGURATION_INCOMPLETE', details: { missing: [relative] } }
+        );
+      }
+      const target = path.join(temporaryRoot, relative);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, await readFile(source));
+      await chmod(target, info.mode & 0o111 ? 0o755 : 0o644);
+    }
+    return await withConfigurationReadRoot(
+      root, temporaryRoot, scope.authority, () => fn(scope.authority),
+      { assetPolicy: scope.assetPolicy }
+    );
+  } finally {
+    await removeTemporaryTree(temporaryRoot);
+  }
+}
 
 function yamlAtCommit(root, commit, relative) {
   const shown = run('git', ['show', `${commit}:${relative}`], { cwd: root, allowFailure: true });
@@ -45,7 +88,10 @@ function configurationAuthorityAtRef(root, ref) {
       cwd: root, allowFailure: true
     });
     return workflow.status === 0
-      ? { kind: 'approved-configuration-ref', ref, commit }
+      ? {
+          kind: 'approved-configuration-ref', ref, commit,
+          remote: remoteIdentityForAuthorityRef(root, ref)
+        }
       : null;
   }
   if (!(ref.endsWith(`/${STATE_BRANCH}`) || ref === `refs/heads/${STATE_BRANCH}`)) return null;
@@ -65,11 +111,17 @@ function configurationAuthorityAtRef(root, ref) {
       !isConfigurationReadPath(relative, policy) || !/^[0-9a-f]{64}$/.test(sha))) return null;
   if (assets != null && (typeof assets !== 'object' || Array.isArray(assets)
     || JSON.stringify(Object.keys(assets).sort()) !== JSON.stringify(Object.keys(files).sort())
-    || Object.entries(assets).some(([relative, descriptor]) =>
+      || Object.entries(assets).some(([relative, descriptor]) =>
       descriptor?.sha256 !== files[relative]
       || !/^[0-9a-f]{40,64}$/.test(descriptor?.object ?? '')
       || !/^100(?:644|755)$/.test(descriptor?.mode ?? '')))) return null;
-  return { kind: 'verified-state-mirror', ref, commit, manifest };
+  if (manifest.history != null
+    && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
+      || manifest.history?.commit !== manifest.source.commit)) return null;
+  return {
+    kind: 'verified-state-mirror', ref, commit, manifest,
+    remote: remoteIdentityForAuthorityRef(root, ref)
+  };
 }
 
 function remoteNameForAuthorityRef(ref) {
@@ -80,6 +132,17 @@ function remoteNameForAuthorityRef(ref) {
     if (ref.endsWith(suffix)) return ref.slice(prefix.length, -suffix.length);
   }
   return null;
+}
+
+/**
+ * Freeze the credential-free fetch identity at the same moment the authority ref is selected.
+ * Reconstructing it later from mutable `.git/config` could stamp a different repository into a
+ * Story even though the configuration bytes came from the already-selected ref.
+ */
+function remoteIdentityForAuthorityRef(root, ref) {
+  const remote = remoteNameForAuthorityRef(ref);
+  if (!remote) return null;
+  return configuredRemoteAuthority(root, remote, { direction: 'fetch' }).url;
 }
 
 function approvedConfigurationAuthority(root, {
@@ -277,9 +340,10 @@ async function extractConfiguration(root, authority, destination, { selectPaths 
 }
 
 /**
- * Use the working-tree configuration when present; otherwise mount the fetched approved commit in
- * a disposable directory. A narrow clone may refresh one ordinary remote-tracking authority ref;
- * the selected ref, HEAD, index and application files are never changed.
+ * Use the working-tree configuration when present; otherwise mount the verified approved commit in
+ * a disposable directory. Online new-work reads select the same remote authority as Story start and
+ * retain one private snapshot without changing refs, HEAD, index, or application files. Explicit
+ * cached/offline reads retain the legacy local-ref path for reviewed local-head operation.
  *
  * `preferAuthority` is for operations that describe a *new* Story. An active Story must keep
  * reading its immutable pinned configuration, while new-work intake must see the latest approved
@@ -293,11 +357,47 @@ export async function withApprovedConfigurationRead(root, fn, {
   canonicalRemote = null,
   selectPaths = null
 } = {}) {
+  const existingScope = configurationReadScope(root);
+  if (existingScope) {
+    // Nested readers share the already-observed authority. A narrower caller receives a genuinely
+    // narrower private view; it must not trigger a second remote observation or inherit files the
+    // caller deliberately excluded.
+    return withExistingConfigurationRead(root, existingScope, fn, { selectPaths });
+  }
   const workflow = await lstat(path.join(root, WORKFLOW_PATH)).catch((error) => {
     if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
     throw error;
   });
   if (workflow && !preferAuthority) return fn({ kind: 'working-tree', ref: null, commit: null });
+
+  // Online new-work reads must use the same authority precedence as Story start. In a managed
+  // workspace the explicit capabilityAuthority can be repository A while the member's origin is B;
+  // refreshing B's remote-tracking refs here previously made Auto/CFP/help see a different policy
+  // than the Story created one command later. The canonical resolver observes the chosen remote,
+  // and the retained snapshot is mounted without changing this checkout or its refs.
+  const canonicalOnlineRead = refreshAuthority && canonicalRemote == null;
+  if (canonicalOnlineRead) {
+    // Keep fast read-only commands out of the full configuration-authority dependency graph.
+    // Workspace/remote authority is needed only when this online branch is actually executed.
+    const {
+      hasStoryConfigurationAuthorityCandidate, loadStoryConfigurationSnapshot,
+      resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead
+    } = await import('./configuration-branch.mjs');
+    const resolved = await resolveStoryConfigurationAuthority(root);
+    if (resolved) {
+      const snapshot = await loadStoryConfigurationSnapshot(resolved);
+      return withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths });
+    }
+    if (requireAuthorityRefresh) return fn(null);
+    // A truly local repository may deliberately author an offline configuration head. Preserve
+    // that mode, but never substitute a cached local/remote-tracking ref after a configured remote
+    // positively reported that no approved authority exists.
+    if (await hasStoryConfigurationAuthorityCandidate(root)) {
+      return workflow
+        ? fn({ kind: 'working-tree', ref: null, commit: null })
+        : fn(null);
+    }
+  }
   const authority = preferAuthority
     ? (refreshAuthority
       ? refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })

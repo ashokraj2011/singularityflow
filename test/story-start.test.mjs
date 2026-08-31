@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import YAML from 'yaml';
 import { manualStorySource, startStory } from '../src/story-start.mjs';
+import {
+  ensureConfigurationBranch, resolveStoryConfigurationAuthority
+} from '../src/configuration-branch.mjs';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -21,7 +24,7 @@ function run(command, args, cwd) {
   return result;
 }
 
-async function repository() {
+async function repository({ configurationAuthority = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-'));
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Desktop Story Tester'], root);
@@ -38,11 +41,12 @@ async function repository() {
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
+  if (configurationAuthority) await ensureConfigurationBranch(remote);
   return root;
 }
 
 test('Story intake creates durable manual state and resumes an existing branch', async () => {
-  const root = await repository();
+  const root = await repository({ configurationAuthority: true });
   const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-story-source-'));
   const sourceFile = path.join(sourceDirectory, 'brief.md');
   await writeFile(sourceFile, '# Brief\nPinned desktop evidence.\n');
@@ -91,14 +95,104 @@ test('Story intake creates durable manual state and resumes an existing branch',
   assert.equal((log.match(/\[WORK-901\]\[documents\]\[upload\]/g) ?? []).length, 1,
     'all initial evidence is published in one governed transaction');
 
+  // Resume is governed by the Story's immutable pin. A newer checkout policy can reject the old
+  // ID and the authority can be offline without changing what this already-created Story means.
+  run('git', ['switch', 'main'], root);
+  const currentDefinitionPath = path.join(root, 'singularity/workflow.yml');
+  const currentDefinition = YAML.parse(await readFile(currentDefinitionPath, 'utf8'));
+  currentDefinition.idPattern = '^NEW-[0-9]+$';
+  await writeFile(currentDefinitionPath, YAML.stringify(currentDefinition));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'Change policy for future Stories'], root);
+  run('git', ['remote', 'set-url', 'origin', path.join(root, 'offline-authority.git')], root);
   const resumed = await startStory(root, {
     id: 'WORK-901',
-    source: manualStorySource('WORK-901', { title: 'Ignored because state exists' }),
-    workType: 'bugfix',
     agent: 'developer'
   });
   assert.equal(resumed.resumed, true);
   assert.equal(resumed.workflow.workItem.workType, 'feature');
+});
+
+test('Story authority resolution refuses a configured remote whose URL cannot be read', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  run('git', ['config', '--unset-all', 'remote.origin.url'], root);
+  await assert.rejects(
+    () => resolveStoryConfigurationAuthority(root, 'origin'),
+    (error) => {
+      assert.equal(error?.code, 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE');
+      assert.match(error.message, /no readable fetch URL/);
+      return true;
+    }
+  );
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-UNREADABLE-REMOTE',
+      source: manualStorySource('WORK-UNREADABLE-REMOTE', { title: 'Do not fall through' }),
+      workType: 'feature'
+    }),
+    (error) => error?.code === 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE'
+  );
+  assert.equal(run('git', ['branch', '--list', 'WORK-UNREADABLE-REMOTE'], root).stdout.trim(), '');
+});
+
+test('desktop resume fails closed when the immutable Story pin is missing or corrupt', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  for (const mode of ['missing', 'corrupt']) {
+    const id = `WORK-PIN-${mode.toUpperCase()}`;
+    await startStory(root, {
+      id,
+      source: manualStorySource(id, { title: `Pinned Story ${mode}` }),
+      workType: 'feature',
+      baseBranch: 'main'
+    });
+    const pin = path.join(root, 'singularity/configuration-source.json');
+    if (mode === 'missing') await rm(pin);
+    else await writeFile(pin, '{corrupt pin\n');
+    run('git', ['add', '-A'], root);
+    run('git', ['commit', '-m', `${mode} immutable Story pin`], root);
+    run('git', ['switch', 'main'], root);
+    await assert.rejects(
+      () => startStory(root, { id }),
+      (error) => {
+        assert.equal(error?.code, 'STORY_CONFIGURATION_PIN_INVALID', error?.stack);
+        return true;
+      }
+    );
+    assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main',
+      'a refused resume restores the stable checkout');
+  }
+});
+
+test('desktop Story intake never substitutes a local workflow for an unreadable authority', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })
+  ]));
+  run('git', ['remote', 'set-url', 'origin', path.join(path.dirname(root), 'missing-authority.git')], root);
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const beforeStatus = run('git', ['status', '--porcelain=v1'], root).stdout;
+
+  await assert.rejects(
+    () => startStory(root, {
+      id: 'WORK-OFFLINE-AUTHORITY',
+      source: manualStorySource('WORK-OFFLINE-AUTHORITY', { title: 'Refuse stale policy' }),
+      workType: 'chore',
+      baseBranch: 'main'
+    }),
+    /Cannot reach Story configuration authority/
+  );
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, beforeStatus);
+  assert.equal(run('git', ['branch', '--list', 'WORK-OFFLINE-AUTHORITY'], root).stdout.trim(), '');
 });
 
 test('Story start refuses a remote retarget after its push authority is captured', async () => {
@@ -176,8 +270,62 @@ test('Story intake pins refreshed remote configuration and world-model files fro
   assert.match(await readFile(path.join(clone, 'singularity/world-model/manifest.json'), 'utf8'), /"marker":"remote"/);
 });
 
+test('desktop new Story uses current authority instead of an older Story workflow remote', async (t) => {
+  const root = await repository({ configurationAuthority: true });
+  const authorityRemote = `${root}.git`;
+  const publisher = await mkdtemp(path.join(os.tmpdir(), 'sflow-desktop-current-authority-'));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(authorityRemote, { recursive: true, force: true }),
+    rm(publisher, { recursive: true, force: true })
+  ]));
+  run('git', ['clone', '-q', '-b', 'sflow/config', authorityRemote, publisher], root);
+  run('git', ['config', 'user.name', 'Configuration Publisher'], publisher);
+  run('git', ['config', 'user.email', 'publisher@example.com'], publisher);
+  const workflowFile = path.join(publisher, 'singularity/workflow.yml');
+  const oldDefinition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  oldDefinition.git.remote = 'obsolete';
+  oldDefinition.git.publish = 'off';
+  oldDefinition.approvalSecurity.autoEnrollNewIdentities = false;
+  await writeFile(workflowFile, YAML.stringify(oldDefinition));
+  run('git', ['add', 'singularity/workflow.yml'], publisher);
+  run('git', ['commit', '-qm', 'publish old Story destination'], publisher);
+  run('git', ['push', '-q', 'origin', 'sflow/config'], publisher);
+  run('git', ['remote', 'add', 'obsolete', authorityRemote], root);
+
+  const oldStory = await startStory(root, {
+    id: 'WORK-OLD-REMOTE',
+    source: manualStorySource('WORK-OLD-REMOTE', { title: 'Pin the old destination' }),
+    workType: 'feature',
+    baseBranch: 'main'
+  });
+  assert.equal(oldStory.base.remote, 'obsolete');
+
+  const currentDefinition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  currentDefinition.git.remote = 'company';
+  await writeFile(workflowFile, YAML.stringify(currentDefinition));
+  run('git', ['add', 'singularity/workflow.yml'], publisher);
+  run('git', ['commit', '-qm', 'publish current Story destination'], publisher);
+  run('git', ['push', '-q', 'origin', 'sflow/config'], publisher);
+  const currentAuthorityCommit = run('git', ['rev-parse', 'HEAD'], publisher).stdout.trim();
+  run('git', ['remote', 'add', 'company', authorityRemote], root);
+  run('git', ['remote', 'remove', 'obsolete'], root);
+  run('git', ['remote', 'remove', 'origin'], root);
+
+  const currentStory = await startStory(root, {
+    id: 'WORK-CURRENT-REMOTE',
+    source: manualStorySource('WORK-CURRENT-REMOTE', { title: 'Use current authority' }),
+    workType: 'feature',
+    baseBranch: 'main'
+  });
+  assert.equal(currentStory.resumed, false);
+  assert.equal(currentStory.base.remote, 'company');
+  assert.equal(currentStory.workflow.resolution.configurationSource.commit,
+    currentAuthorityCommit);
+});
+
 test('POC Story intake requires and durably pins the authorized browser origin', async () => {
-  const root = await repository();
+  const root = await repository({ configurationAuthority: true });
   const source = manualStorySource('POC-901', { title: 'Generate staging regression coverage' });
 
   await assert.rejects(() => startStory(root, {

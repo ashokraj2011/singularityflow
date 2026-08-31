@@ -163,6 +163,84 @@ test('capability sibling Story branches are published for another machine', asyn
   }).status, 0);
 });
 
+test('Story preflight refuses a reused sibling path before contacting its replacement origin', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-path-reuse-'));
+  const repositories = [
+    await repository(base, 'lead', ['main']),
+    await repository(base, 'sibling', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const replacement = path.join(base, 'replacement.git');
+  git(base, 'init', '--bare', '--initial-branch=main', replacement);
+  const sibling = path.join(base, repositories[1].path);
+  const fetchRefspecBefore = git(sibling, 'config', '--local', '--get-all', 'remote.origin.fetch').stdout;
+  git(sibling, 'remote', 'set-url', 'origin', replacement);
+  let remoteCalls = 0;
+
+  await assert.rejects(
+    () => preflightStoryRepositories(base, { repositories, resolution }, 'S-PATH-REUSED', {
+      runGit: async () => {
+        remoteCalls += 1;
+        throw new Error('remote execution must not start');
+      }
+    }),
+    (error) => {
+      assert.equal(error?.code, 'CAPABILITY_WORKSPACE_BINDING_STALE', error?.stack);
+      assert.equal(error?.details?.repositoryId, 'sibling');
+      assert.equal(error?.details?.expectedRemote, repositories[1].url);
+      assert.equal(error?.details?.actualFetchRemote, replacement);
+      return true;
+    }
+  );
+  assert.equal(remoteCalls, 0, 'no approved or replacement remote was contacted');
+  assert.equal(
+    git(sibling, 'config', '--local', '--get-all', 'remote.origin.fetch').stdout,
+    fetchRefspecBefore,
+    'identity failure occurs before preflight mutates any checkout remote configuration'
+  );
+});
+
+test('Story preflight refuses a sibling pushurl outside the approved repository identity', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-push-identity-'));
+  const repositories = [
+    await repository(base, 'lead', ['main']),
+    await repository(base, 'sibling', ['main'])
+  ];
+  const { published } = publishedBranches(repositories);
+  const resolution = resolveCapabilityBase({
+    repositories: published, selection: parseBaseSelection(['main'])
+  });
+  const alternatePush = path.join(base, 'alternate-push.git');
+  git(base, 'init', '--bare', '--initial-branch=main', alternatePush);
+  const sibling = path.join(base, repositories[1].path);
+  git(sibling, 'config', 'remote.origin.pushurl', alternatePush);
+  let remoteCalls = 0;
+
+  await assert.rejects(
+    () => preflightStoryRepositories(base, { repositories, resolution }, 'S-PUSH-RETARGETED', {
+      runGit: async () => {
+        remoteCalls += 1;
+        throw new Error('remote execution must not start');
+      }
+    }),
+    (error) => {
+      assert.equal(error?.code, 'CAPABILITY_WORKSPACE_BINDING_STALE', error?.stack);
+      assert.equal(error?.details?.repositoryId, 'sibling');
+      assert.equal(error?.details?.expectedRemote, repositories[1].url);
+      assert.equal(error?.details?.actualFetchRemote, repositories[1].url);
+      assert.equal(error?.details?.actualPushRemote, alternatePush);
+      return true;
+    }
+  );
+  assert.equal(remoteCalls, 0, 'the alternate push endpoint was never probed');
+  assert.equal(run('git', [
+    '--git-dir', alternatePush, 'show-ref', '--verify', '--quiet', 'refs/heads/S-PUSH-RETARGETED'
+  ], { cwd: base, allowFailure: true }).status, 1);
+});
+
 test('capability publication keeps the verified remote authority when a pre-push hook retargets its name', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'sflow-capability-authority-race-'));
   const repositories = [

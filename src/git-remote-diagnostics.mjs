@@ -114,6 +114,51 @@ export function configuredRemoteAuthority(root, remote = 'origin', { direction =
   });
 }
 
+/**
+ * Read the repository identity exactly as it is stored in the checkout's local Git config.
+ *
+ * `git remote get-url` is the right command for selecting a transport, but it applies mutable
+ * `url.*.insteadOf` rules. That makes it the wrong identity proof for a reviewed workspace: a
+ * machine-level rewrite can make a differently configured remote look like the reviewed URL (or
+ * make the reviewed raw URL look different). Keep identity and transport selection separate.
+ *
+ * A push remote inherits the fetch URL when no explicit `pushurl` exists, matching Git's behavior.
+ * Multiple distinct URLs are reported as ambiguous rather than silently selecting one; a governed
+ * operation cannot prove which repository all of those endpoints identify.
+ */
+export function configuredRemoteIdentity(root, remote = 'origin', { direction = 'fetch' } = {}) {
+  if (!['fetch', 'push'].includes(direction)) {
+    throw new SingularityFlowError(`Unsupported Git remote direction '${direction}'.`);
+  }
+  const readValues = (key) => {
+    const result = run('git', ['config', '--local', '--get-all', key], {
+      cwd: root, allowFailure: true
+    });
+    if (result.status !== 0) return [];
+    return String(result.stdout ?? '').split('\n').map((value) => value.trim()).filter(Boolean)
+      .map(assertCredentialFreeRemote);
+  };
+  const fetchUrls = readValues(`remote.${remote}.url`);
+  const configuredPushUrls = direction === 'push'
+    ? readValues(`remote.${remote}.pushurl`)
+    : [];
+  const urls = direction === 'push' && configuredPushUrls.length
+    ? configuredPushUrls
+    : fetchUrls;
+  const unique = [...new Set(urls)];
+  const url = unique.length === 1 ? unique[0] : null;
+  return Object.freeze({
+    remote: String(remote),
+    direction,
+    url,
+    urls: Object.freeze([...urls]),
+    configured: urls.length > 0,
+    ambiguous: unique.length > 1,
+    inherited: direction === 'push' && configuredPushUrls.length === 0,
+    fingerprint: url ? remoteFingerprint(url) : null
+  });
+}
+
 /** Fingerprint the credential-free fetch or push authority configured behind one remote name. */
 export function configuredRemoteFingerprint(root, remote = 'origin', options = {}) {
   return configuredRemoteAuthority(root, remote, options).fingerprint;

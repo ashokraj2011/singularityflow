@@ -1,14 +1,16 @@
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { readFile, realpath, rm } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
   forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath, workspaceStatus
 } from './workspace.mjs';
-import { SingularityFlowError, writeAtomic } from './util.mjs';
+import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
+import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
 
@@ -38,6 +40,66 @@ function portableStoryId(value) {
 async function canonical(value) {
   const resolved = path.resolve(value);
   return realpath(resolved).catch(() => resolved);
+}
+
+function freezeSnapshot(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) freezeSnapshot(child);
+  return Object.freeze(value);
+}
+
+function workspaceSnapshotDigest(workspace) {
+  return `sha256:${createHash('sha256').update(JSON.stringify(workspace)).digest('hex')}`;
+}
+
+function withWorkspaceSnapshot(context, workspace) {
+  if (!workspace) return context;
+  const snapshot = freezeSnapshot(structuredClone(workspace));
+  Object.defineProperties(context, {
+    // Keep the manifest out of ordinary JSON responses while making every authority-sensitive
+    // consumer reuse the exact validated object which proved membership. Re-reading workspace.json
+    // after this point could combine repository membership from one atomic revision with an
+    // authority URL or delivery map from another.
+    workspace: { value: snapshot, enumerable: false, configurable: false, writable: false },
+    workspaceManifestSha256: {
+      value: workspaceSnapshotDigest(snapshot), enumerable: true, configurable: false, writable: false
+    }
+  });
+  return context;
+}
+
+async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
+  const expected = String(member.repository?.url ?? '').trim();
+  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd: root, allowFailure: true });
+  const actualTop = top.status === 0 && top.stdout.trim()
+    ? await canonical(top.stdout.trim())
+    : null;
+  let actualOrigin = '';
+  try {
+    // Workspace manifests retain the reviewed, raw remote URL. Do not compare it with
+    // `git remote get-url`: that command applies mutable url.*.insteadOf rewrites and therefore
+    // proves a transport choice, not the checkout's configured repository identity.
+    actualOrigin = configuredRemoteIdentity(root, 'origin', { direction: 'fetch' }).url ?? '';
+  } catch {
+    // Credential-bearing or otherwise unsafe remotes are identity drift. They are never copied
+    // into an error object or durable diagnostic.
+  }
+  const valid = actualTop === root && actualOrigin && actualOrigin === expected;
+  if (valid) return true;
+  if (strict) {
+    throw new SingularityFlowError(
+      `Workspace repository '${member.repositoryId}' no longer matches its reviewed Git identity. Select or repair the workspace before governed work.`,
+      {
+        code: 'WORKSPACE_REPOSITORY_IDENTITY_MISMATCH',
+        details: {
+          repositoryId: member.repositoryId,
+          expectedRemote: sanitizeRemote(expected),
+          actualRemote: actualOrigin ? sanitizeRemote(actualOrigin) : null
+        }
+      }
+    );
+  }
+  return false;
 }
 
 /**
@@ -395,5 +457,157 @@ export async function workspaceContextForRepository(repositoryRoot, selectionFil
       return { ...context, repositoryPath: root, canonicalRepositoryPath: repository, storyWorktree: true };
     }
   } catch { /* A non-Git path is simply not the selected workspace repository. */ }
+  return null;
+}
+
+/**
+ * Resolve any repository which belongs to the active workspace, not only the repository currently
+ * selected for navigation.
+ *
+ * The active selection remains a UI/session cursor. Capability and configuration authority are
+ * workspace-wide, so a command launched from another member (or one of that member's linked
+ * worktrees) must still retain the member's repository ID and policy. An unrelated repository must
+ * never inherit the machine's last selected workspace.
+ */
+export async function workspaceMemberContextForRepository(
+  repositoryRoot, selectionFile, registryFile, { strict = false } = {}
+) {
+  let selected;
+  try {
+    selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
+  } catch (error) {
+    if (strict) throw error;
+    return null;
+  }
+  if (!selected) return null;
+  const root = await canonical(repositoryRoot);
+  const selectedRepository = selected.repositoryPath
+    ? await canonical(selected.repositoryPath)
+    : null;
+  const selectedRepositoryExact = root === selectedRepository;
+  let workspacePath = selected.workspacePath ?? null;
+  let workspaceSnapshot = null;
+  const contextFor = (repositoryId, canonicalRepositoryPath, repositoryCapabilities) => {
+    const selectedMember = repositoryId === selected.repositoryId;
+    let currentBranch = null;
+    let currentHead = null;
+    const linkedWorktree = root !== canonicalRepositoryPath;
+    try {
+      currentBranch = branch(root);
+      currentHead = head(root);
+    } catch { /* Membership by canonical path remains useful for an unborn repository. */ }
+    return withWorkspaceSnapshot({
+      ...selected,
+      workspacePath: workspacePath ?? selected.workspacePath ?? null,
+      repositoryId,
+      repositoryPath: root,
+      canonicalRepositoryPath,
+      checkoutPath: root,
+      repositoryCapabilities: [...(repositoryCapabilities ?? [])],
+      branch: currentBranch,
+      head: currentHead,
+      storyId: selectedMember ? selected.storyId ?? null : null,
+      requestedStoryId: selectedMember ? selected.requestedStoryId ?? null : null,
+      storyWorktree: linkedWorktree,
+      selectionSource: selectedMember ? selected.selectionSource : 'workspace-member',
+      selectionStatus: 'ready',
+      selectionError: null,
+      prompt: workspacePromptLabel({ ...selected, repositoryId })
+    }, workspaceSnapshot);
+  };
+
+  // Older active-selection records did not retain a workspace path. A best-effort UI consumer can
+  // still use that cursor for the selected checkout, but an authority-sensitive consumer must
+  // recover and validate the current manifest from the machine registry. Cached capabilities are
+  // navigation hints, never configuration authority.
+  if (!workspacePath && strict) {
+    const candidates = (await readWorkspaceRegistry(registryFile))
+      .filter((entry) => !entry.archivedAt && entry.id === selected.workspaceId);
+    let matches = candidates;
+    if (candidates.length > 1 && selectedRepository) {
+      const exactLeadMatches = [];
+      for (const entry of candidates) {
+        if (entry.leadRepositoryPath
+          && await canonical(entry.leadRepositoryPath) === selectedRepository) {
+          exactLeadMatches.push(entry);
+        }
+      }
+      if (exactLeadMatches.length) matches = exactLeadMatches;
+    }
+    if (matches.length !== 1) {
+      throw new SingularityFlowError(
+        `The active workspace selection for '${selected.workspaceId}' cannot be revalidated. Select the workspace again.`,
+        { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+      );
+    }
+    workspacePath = matches[0].path;
+  }
+
+  if (!workspacePath) {
+    if (!selectedRepository) return null;
+    if (selectedRepositoryExact) {
+      return contextFor(
+        selected.repositoryId,
+        selected.canonicalRepositoryPath
+          ? await canonical(selected.canonicalRepositoryPath)
+          : selectedRepository,
+        selected.repositoryCapabilities
+      );
+    }
+    try {
+      if (await canonical(gitCommonDir(root)) === await canonical(gitCommonDir(selectedRepository))) {
+        return contextFor(
+          selected.repositoryId,
+          selected.canonicalRepositoryPath
+            ? await canonical(selected.canonicalRepositoryPath)
+            : selectedRepository,
+          selected.repositoryCapabilities
+        );
+      }
+    } catch { /* A non-Git path cannot be a linked checkout of the legacy selection. */ }
+    return null;
+  }
+
+  let workspace;
+  try {
+    workspace = await readWorkspace(workspacePath);
+    workspaceSnapshot = workspace;
+  } catch (error) {
+    // Authority-sensitive callers fail closed because an unreadable manifest cannot disprove that
+    // an adopted outside checkout belongs to this workspace. Best-effort navigation, audit and
+    // metrics callers fall back to repository-local behavior instead.
+    if (strict) throw error;
+    return null;
+  }
+
+  // Exact canonical member paths are the common case. Resolve all of them before asking Git for any
+  // common directories, so selecting the Nth repository does not spawn Git twice for every earlier
+  // member.
+  const members = await Promise.all(Object.entries(workspace.repositories).map(
+    async ([repositoryId, repository]) => ({
+      repositoryId,
+      repository,
+      canonicalRepositoryPath: await canonical(workspaceRepositoryPath(workspace, repository))
+    })
+  ));
+  const exact = members.find((member) => member.canonicalRepositoryPath === root);
+  if (exact) {
+    if (!await verifiedWorkspaceMemberRepository(root, exact, { strict })) return null;
+    return contextFor(exact.repositoryId, exact.canonicalRepositoryPath, exact.repository.capabilities);
+  }
+
+  let rootCommonDirectory;
+  try { rootCommonDirectory = await canonical(gitCommonDir(root)); }
+  catch { return null; }
+  for (const member of members) {
+    try {
+      if (await canonical(gitCommonDir(member.canonicalRepositoryPath)) === rootCommonDirectory) {
+        if (!await verifiedWorkspaceMemberRepository(root, member, { strict })) return null;
+        return contextFor(
+          member.repositoryId, member.canonicalRepositoryPath, member.repository.capabilities
+        );
+      }
+    } catch { /* A missing or non-Git member cannot own this linked checkout. */ }
+  }
   return null;
 }

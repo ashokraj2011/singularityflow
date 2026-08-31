@@ -13,12 +13,16 @@ import {
   configurationAssetPaths, isConfigurationAsset, loadStoryConfigurationDefinition,
   loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot, readConfigurationSource, resolveConfigurationRemote,
-  resolveStoryConfigurationAuthority,
-  STATE_CONFIGURATION_MANIFEST
+  resolveRemoteStoryConfigurationAuthority, resolveStoryConfigurationAuthority,
+  STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_MANIFEST,
+  withStoryConfigurationSnapshotRead
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
+import {
+  configurationReadRoot, configurationReadSnapshot
+} from '../src/configuration-read-scope.mjs';
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import { publishCurrentIdentityToConfiguration } from '../src/configuration-people.mjs';
@@ -378,11 +382,15 @@ test('custom configuration roots materialize while custom world-model output rem
     run('git', ['clone', '-q', '--single-branch', '--branch', 'main', fixture.remote, checkout], {
       cwd: fixture.root
     });
-    const readDefinition = await withApprovedConfigurationRead(checkout, () => loadDefinition(checkout), {
-      preferAuthority: true
-    });
-    assert.equal(readDefinition.templatesRoot, 'governance/templates');
-    assert.equal(readDefinition.worldModel.outputDir, 'governance/world-model');
+    const approvedRead = await withApprovedConfigurationRead(checkout, async () => ({
+      definition: await loadDefinition(checkout),
+      snapshot: configurationReadSnapshot(checkout)
+    }), { preferAuthority: true });
+    assert.equal(approvedRead.definition.templatesRoot, 'governance/templates');
+    assert.equal(approvedRead.definition.worldModel.outputDir, 'governance/world-model');
+    assert.ok(approvedRead.snapshot?.assets?.some(
+      (entry) => entry.relative === 'singularity/portfolio.yml'
+    ), 'the request-local approved read retains the exact verified portfolio bytes');
 
     run('git', ['switch', '-q', '-c', 'CUSTOM-ROOTS'], { cwd: checkout });
     await mkdir(path.join(checkout, 'governance/world-model'), { recursive: true });
@@ -440,6 +448,24 @@ test('one verified Story snapshot validates and materializes without a second re
     const prepared = await loadStoryConfigurationSnapshot(authority);
     assert.equal(prepared.definition.version, 2);
 
+    const fullRead = await withStoryConfigurationSnapshotRead(checkout, prepared, async () => ({
+      snapshot: configurationReadSnapshot(checkout),
+      workflow: await readFile(path.join(configurationReadRoot(checkout), 'singularity/workflow.yml'))
+    }));
+    assert.equal(fullRead.snapshot, prepared,
+      'the full request-local read exposes the exact already-verified snapshot internally');
+    assert.ok(fullRead.workflow.length > 0);
+
+    const narrowRead = await withStoryConfigurationSnapshotRead(checkout, prepared, async () => ({
+      snapshot: configurationReadSnapshot(checkout),
+      portfolioVisible: await readFile(
+        path.join(configurationReadRoot(checkout), 'singularity/portfolio.yml')
+      ).then(() => true, (error) => error?.code !== 'ENOENT')
+    }), { selectPaths: ['singularity/workflow.yml'] });
+    assert.equal(narrowRead.snapshot, null,
+      'selected-path scopes must not expose a parent snapshot containing omitted files');
+    assert.equal(narrowRead.portfolioVisible, false);
+
     // Removing the remote proves materialization consumes the already-verified bytes instead of
     // silently cloning the authority a second time.
     await rm(fixture.remote, { recursive: true, force: true });
@@ -453,9 +479,92 @@ test('one verified Story snapshot validates and materializes without a second re
   }
 });
 
+test('remote authority discovery observes configuration and state together exactly once', async () => {
+  const calls = [];
+  const session = {
+    observe(remote, options) {
+      calls.push({ remote, options });
+      return {
+        ok: true,
+        remote,
+        refs: new Map(),
+        failure: null
+      };
+    }
+  };
+
+  assert.equal(await resolveRemoteStoryConfigurationAuthority(
+    'https://example.invalid/authority.git', { session }
+  ), null);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.includeHead, false);
+  assert.deepEqual(calls[0].options.refs, [
+    `refs/heads/${CONFIGURATION_BRANCH}`,
+    `refs/heads/${STATE_CONFIGURATION_BRANCH}`
+  ]);
+});
+
+test('configuration remote resolution preserves probe failures instead of reporting absence', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: fixture.source });
+    const calls = [];
+    const session = {
+      observe(remote, options) {
+        calls.push({ remote, options });
+        return {
+          ok: false,
+          remote,
+          refs: new Map(),
+          failure: {
+            code: 'REMOTE_UNREACHABLE',
+            classification: 'offline',
+            retryable: true,
+            advice: 'Restore network access and retry.'
+          }
+        };
+      }
+    };
+
+    await assert.rejects(
+      () => resolveConfigurationRemote(fixture.source, 'origin', { session }),
+      (error) => error.code === 'REMOTE_UNREACHABLE'
+    );
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].options.refs, [`refs/heads/${CONFIGURATION_BRANCH}`]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('a verified state authority retains its snapshot for reuse after the remote disappears', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const mirror = await publishStateConfigurationMirror(fixture);
+    run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], {
+      cwd: fixture.remote
+    });
+
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    assert.equal(authority.branch, STATE_CONFIGURATION_BRANCH);
+    assert.equal(authority.commit, mirror.stateCommit);
+    assert.equal(authority.sourceCommit, mirror.sourceCommit);
+
+    await rm(fixture.remote, { recursive: true, force: true });
+    const snapshot = await loadStoryConfigurationSnapshot(authority);
+    assert.equal(snapshot.observedCommit, mirror.stateCommit);
+    assert.equal(snapshot.sourceCommit, mirror.sourceCommit);
+    assert.equal(snapshot.definition.version, 2);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test('a capability workspace uses its explicit organisation authority for Story intake', async () => {
   const authority = await repositoryFixture();
   const delivery = await repositoryFixture();
+  const sibling = await repositoryFixture();
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-split-configuration-authority-'));
   const registry = path.join(machine, 'workspaces.json');
   const selection = path.join(machine, 'active-workspace.json');
@@ -473,6 +582,9 @@ test('a capability workspace uses its explicit organisation authority for Story 
       repositories: {
         delivery: {
           url: delivery.remote, defaultBranch: 'main', required: true, path: 'repos/delivery'
+        },
+        sibling: {
+          url: sibling.remote, defaultBranch: 'main', required: true, path: 'repos/sibling'
         }
       }
     }, { confirmation: 'payments', clone: true });
@@ -489,6 +601,21 @@ test('a capability workspace uses its explicit organisation authority for Story 
     assert.equal(resolved.branch, CONFIGURATION_BRANCH);
     assert.equal(await resolveConfigurationRemote(checkout), authority.remote);
 
+    const siblingCheckout = workspaceRepositoryPath(
+      created.workspace, created.workspace.repositories.sibling
+    );
+    const siblingAuthority = await resolveStoryConfigurationAuthority(siblingCheckout);
+    assert.equal(siblingAuthority.remote, authority.remote,
+      'a non-selected workspace member retains the explicit capability authority');
+    assert.equal(await resolveConfigurationRemote(siblingCheckout), authority.remote);
+    const siblingLinked = path.join(machine, 'linked-sibling');
+    run('git', ['worktree', 'add', '-q', '-b', 'SIBLING-STORY', siblingLinked, 'main'], {
+      cwd: siblingCheckout
+    });
+    const linkedAuthority = await resolveStoryConfigurationAuthority(siblingLinked);
+    assert.equal(linkedAuthority.remote, authority.remote,
+      'a linked worktree of a non-selected member retains the explicit capability authority');
+
     run('git', ['switch', '-q', '-c', 'PAY-100'], { cwd: checkout });
     const snapshot = await materializeConfigurationSnapshot(checkout);
     assert.equal(snapshot.repository, authority.remote);
@@ -503,6 +630,7 @@ test('a capability workspace uses its explicit organisation authority for Story 
     else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
     await rm(authority.root, { recursive: true, force: true });
     await rm(delivery.root, { recursive: true, force: true });
+    await rm(sibling.root, { recursive: true, force: true });
     await rm(machine, { recursive: true, force: true });
   }
 });
@@ -589,6 +717,105 @@ test('new-Story workflow listing reads current authority instead of an older pin
     ), 'utf8'));
     assert.equal(state.workItem.workType, 'spec-driven-standard');
     assert.equal(state.resolution.configurationSource.branch, CONFIGURATION_BRANCH);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('new-Story choices and start freeze one current authority definition', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    run('git', ['push', '-q', fixture.remote, 'HEAD:refs/heads/trunk'], { cwd: fixture.source });
+
+    const checkout = path.join(fixture.root, 'one-snapshot-start');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Story Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'story@example.com'], { cwd: checkout });
+    run('git', ['remote', 'add', 'approved', fixture.remote], { cwd: checkout });
+    run('git', ['remote', 'set-url', '--push', 'approved', path.join(fixture.root, 'unreachable.git')], {
+      cwd: checkout
+    });
+    run('git', ['switch', '-q', '-c', 'PINNED-CHOICES'], { cwd: checkout });
+    await materializeConfigurationSnapshot(checkout, { remote: fixture.remote });
+    const pinnedFile = path.join(checkout, 'singularity/workflow.yml');
+    const pinned = YAML.parse(await readFile(pinnedFile, 'utf8'));
+    pinned.git.remote = 'stale-policy';
+    pinned.git.publish = 'required';
+    pinned.defaultBaseBranch = 'main';
+    delete pinned.workTypes['current-only'];
+    await writeFile(pinnedFile, YAML.stringify(pinned));
+    run('git', ['add', '-A'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'retain older start policy'], { cwd: checkout });
+
+    const publisher = path.join(fixture.root, 'one-snapshot-publisher');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, publisher], {
+      cwd: fixture.root
+    });
+    run('git', ['config', 'user.name', 'Configuration Publisher'], { cwd: publisher });
+    run('git', ['config', 'user.email', 'publisher@example.com'], { cwd: publisher });
+    const approvedFile = path.join(publisher, 'singularity/workflow.yml');
+    const approved = YAML.parse(await readFile(approvedFile, 'utf8'));
+    approved.git.remote = 'approved';
+    approved.git.publish = 'off';
+    approved.defaultBaseBranch = 'trunk';
+    approved.approvalSecurity.autoEnrollNewIdentities = false;
+    approved.workTypes['current-only'] = {
+      ...approved.workTypes['quick-fix'],
+      label: 'Current authority only'
+    };
+    await writeFile(approvedFile, YAML.stringify(approved));
+    run('git', ['add', 'singularity/workflow.yml'], { cwd: publisher });
+    run('git', ['commit', '-qm', 'change every new Story decision'], { cwd: publisher });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: publisher });
+
+    let receipt = JSON.parse(spawnSync(process.execPath, [
+      cli, 'choices', 'begin', 'start', 'CFG-ONE-SNAPSHOT', '--json'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } }).stdout);
+    assert.ok(receipt.choiceSets.find((entry) => entry.id === 'workflow-template')
+      .options.some((entry) => entry.id === 'current-only'));
+    assert.ok(receipt.choiceSets.find((entry) => entry.id === 'base-branch')
+      .options.some((entry) => entry.id === 'trunk'));
+    for (const [choice, answer] of [
+      ['base-branch', 'trunk'],
+      ['intake-source', 'manual'],
+      ['workflow-template', 'current-only']
+    ]) {
+      const answered = spawnSync(process.execPath, [
+        cli, 'choices', 'answer', receipt.token, choice, answer, '--json'
+      ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+      assert.equal(answered.status, 0, answered.stderr || answered.stdout);
+      receipt = JSON.parse(answered.stdout);
+    }
+    assert.equal(receipt.ready, true);
+
+    const started = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-ONE-SNAPSHOT', '--json', '--selection-receipt', receipt.token,
+      '--title', 'Use one current authority snapshot',
+      '--description', 'Every new Story decision comes from the same approved definition.'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(started.status, 0, started.stderr || started.stdout);
+    const result = JSON.parse(started.stdout);
+    assert.equal(result.data.workType, 'current-only');
+    assert.equal(result.data.base.branch, 'trunk');
+    assert.equal(result.data.base.remote, 'approved');
+    assert.equal(result.data.publication.pushed, false,
+      'approved publish=off must not require the deliberately unreachable push URL');
+
+    // An existing local Story is governed by its immutable pin. Starting the same ID again must
+    // resume without probing either the application destination or configuration authority.
+    run('git', ['remote', 'set-url', 'approved', path.join(fixture.root, 'offline-approved.git')], {
+      cwd: checkout
+    });
+    run('git', ['remote', 'set-url', 'origin', path.join(fixture.root, 'offline-origin.git')], {
+      cwd: checkout
+    });
+    const resumed = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-ONE-SNAPSHOT', '--json'
+    ], { cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } });
+    assert.equal(resumed.status, 0, resumed.stderr || resumed.stdout);
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(),
+      'CFG-ONE-SNAPSHOT');
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -706,9 +933,9 @@ test('Story start recovers from a verified state mirror when sflow/config is una
       cwd: checkout, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' }
     });
     assert.equal(branches.status, 0, branches.stderr || branches.stdout);
-    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+    assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
       cwd: checkout, allowFailure: true
-    }).status, 0, 'the read path refreshes only the missing authority ref');
+    }).status, 0, 'a read-only authority overlay must not mutate the checkout remote-tracking refs');
     assert.ok(JSON.parse(branches.stdout).choices.some((choice) => choice.branch === 'main' && choice.everywhere),
       'the VS Code base-branch command reads the local verified state mirror too');
 
@@ -881,6 +1108,57 @@ test('Story start changes nothing when neither configuration authority is availa
     assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/CFG-NONE'], {
       cwd: checkout, allowFailure: true
     }).status, 0);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('CLI Story start never substitutes a base workflow for an unreadable authority', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    const isolated = {
+      ...process.env,
+      NO_COLOR: '1',
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(fixture.root, 'empty-workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(fixture.root, 'no-active-workspace.json')
+    };
+    const initialized = spawnSync(process.execPath, [cli, 'init'], {
+      cwd: fixture.source, encoding: 'utf8', env: isolated
+    });
+    assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
+    run('git', ['add', '.github', 'singularity'], { cwd: fixture.source });
+    run('git', ['commit', '-qm', 'legacy checked-out configuration'], { cwd: fixture.source });
+    run('git', ['push', '-q', fixture.remote, 'main'], { cwd: fixture.source });
+
+    const checkout = path.join(fixture.root, 'unreadable-authority-checkout');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Offline Authority Tester'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'offline-authority@example.com'], { cwd: checkout });
+    const baseCommit = run('git', ['rev-parse', 'main'], { cwd: checkout }).stdout.trim();
+    run('git', ['switch', '-q', '-c', 'CFG-OFFLINE'], { cwd: checkout });
+    await mkdir(path.join(checkout, 'singularity/seeds'), { recursive: true });
+    await writeFile(path.join(checkout, 'singularity/seeds/CFG-OFFLINE.yml'), YAML.stringify({
+      story: { workId: 'CFG-OFFLINE', parentBranch: 'main', baseCommit }
+    }));
+    run('git', ['add', 'singularity/seeds/CFG-OFFLINE.yml'], { cwd: checkout });
+    run('git', ['commit', '-qm', 'materialize Story seed'], { cwd: checkout });
+    run('git', ['switch', '-q', 'main'], { cwd: checkout });
+    run('git', ['remote', 'set-url', 'origin', path.join(fixture.root, 'missing-authority.git')], {
+      cwd: checkout
+    });
+    const before = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+
+    const started = spawnSync(process.execPath, [
+      cli, 'start', 'CFG-OFFLINE', '--json', '--title', 'Refuse stale base configuration',
+      '--description', 'Do not silently govern with an older checked-out workflow.',
+      '--from-branch', 'main', '--work-type', 'chore', '--agent', 'developer'
+    ], { cwd: checkout, encoding: 'utf8', env: isolated });
+    assert.notEqual(started.status, 0, `${started.stderr}\n${started.stdout}`);
+    assert.match(started.stderr, /Cannot reach Story configuration authority/);
+    assert.equal(run('git', ['branch', '--show-current'], { cwd: checkout }).stdout.trim(), 'main');
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), before);
+    assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: checkout }).stdout, '');
+    assert.match(run('git', ['branch', '--list', 'CFG-OFFLINE'], { cwd: checkout }).stdout, /CFG-OFFLINE/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

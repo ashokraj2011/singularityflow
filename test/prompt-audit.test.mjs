@@ -345,9 +345,24 @@ test('turning prompt auditing off preserves existing records and stops future ca
 
 test('an active Flow workspace owns the prompt log instead of the repository clone', async () => {
   const root = await repository();
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/api.git'], { cwd: root });
   const workspacePath = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-workspace-'));
   const selectionFile = path.join(workspacePath, 'active-workspace.json');
   const registryFile = path.join(workspacePath, 'workspaces.json');
+  await writeFile(path.join(workspacePath, 'workspace.json'), `${JSON.stringify({
+    version: 1, id: 'payments', name: 'Payments',
+    anchor: { provider: 'workspace', key: 'payments', title: 'Payments' },
+    leadRepository: 'api',
+    repositories: {
+      api: {
+        url: 'https://example.invalid/api.git', path: 'repos/api', defaultBranch: 'main',
+        adoption: {
+          mode: 'existing-clone', canonicalPath: root,
+          proofHash: `sha256:${'a'.repeat(64)}`, reviewedAt: '2026-08-31T00:00:00.000Z'
+        }
+      }
+    }
+  }, null, 2)}\n`);
   await writeFile(selectionFile, JSON.stringify({
     schemaVersion: 1,
     workspaceId: 'payments',
@@ -405,6 +420,8 @@ test('workspace prompt audit resolves invocation evidence from the repository th
     await mkdir(repositoryPath, { recursive: true });
     run('git', ['init', '-q'], { cwd: repositoryPath });
   }
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/first.git'], { cwd: first });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/second.git'], { cwd: second });
   await writeFile(path.join(workspacePath, 'workspace.json'), `${JSON.stringify({
     version: 1, id: 'multi', name: 'Multi repository',
     anchor: { provider: 'workspace', key: 'multi', title: 'Multi repository' },
@@ -474,6 +491,7 @@ test('workspace prompt audit resolves receipts written by a managed Story worktr
   await writeFile(path.join(canonical, 'README.md'), '# App\n');
   run('git', ['add', 'README.md'], { cwd: canonical });
   run('git', ['commit', '-m', 'initialize'], { cwd: canonical });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/app.git'], { cwd: canonical });
   await mkdir(path.dirname(managed), { recursive: true });
   run('git', ['worktree', 'add', '-q', '-b', 'WORK-1', managed], { cwd: canonical });
   await writeFile(path.join(workspacePath, 'workspace.json'), `${JSON.stringify({

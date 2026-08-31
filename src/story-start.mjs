@@ -36,7 +36,7 @@ import { scheduleStoryStartAstWarm } from './ast-story-start-warm.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot,
-  materializeConfigurationSnapshot, resolveStoryConfigurationAuthority
+  materializeConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority
 } from './configuration-branch.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import {
@@ -47,6 +47,7 @@ import {
   serializeConfigurationRestorePoint, updateStoryStartJournal
 } from './story-start-journal.mjs';
 import { publishInitialStoryDocuments } from './story-start-documents.mjs';
+import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 
 function lines(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
@@ -95,6 +96,99 @@ function validateStorySource(source, id) {
   };
 }
 
+function assertSafeStoryId(id) {
+  if (!id || id === '.' || id === '..' || String(id).includes('/') || String(id).includes('\\')) {
+    throw new SingularityFlowError('Work ID must be one safe identifier without slashes.');
+  }
+}
+
+async function resumePinnedLocalStory(root, { id, agent = null } = {}) {
+  const originalBranch = branch(root);
+  assertClean(root);
+  const checkoutMode = checkout(root, id, { existingOnly: true, fetch: false });
+  let definition;
+  let workflow;
+  try {
+    const source = await readConfigurationSource(root, { verify: true });
+    if (!source) {
+      throw new SingularityFlowError('singularity/configuration-source.json is missing.');
+    }
+    definition = await loadDefinition(root);
+    validateId(definition, id);
+    workflow = await loadWorkflow(root, definition, id);
+    const pinned = workflow?.resolution?.configurationSource;
+    if (workflow?.workItem?.id !== id
+        || workflow?.workItem?.branch !== id
+        || workflow?.lineage?.canonicalBranch !== id
+        || pinned?.branch !== source.branch
+        || pinned?.repository !== source.repository
+        || pinned?.commit !== source.commit
+        || !pinned?.filesSha256
+        || pinned.filesSha256 !== source.filesSha256) {
+      throw new SingularityFlowError(
+        'The local configuration source is not bound to this Story resolution.'
+      );
+    }
+  } catch (error) {
+    if (originalBranch !== id) {
+      try { checkout(root, originalBranch, { existingOnly: true, fetch: false }); }
+      catch (restoreError) {
+        throw new SingularityFlowError(
+          `Story '${id}' has an invalid immutable configuration pin: ${error.message} `
+          + `Restoring branch '${originalBranch}' also failed: ${restoreError.message}`,
+          { code: 'STORY_CONFIGURATION_PIN_INVALID', cause: error }
+        );
+      }
+    }
+    throw new SingularityFlowError(
+      `Story '${id}' has an invalid immutable configuration pin: ${error.message}`,
+      { code: 'STORY_CONFIGURATION_PIN_INVALID', cause: error }
+    );
+  }
+  const actor = identity(root);
+  const resumedAgent = agent || workflow.phases?.[workflow.currentPhase]?.defaultAgent;
+  if (!definition.agents?.[resumedAgent]) {
+    throw new SingularityFlowError(`Story phase '${workflow.currentPhase}' has no valid governed agent.`);
+  }
+  await setAgentSession(root, definition, actor, resumedAgent, id, {
+    phaseId: workflow.currentPhase,
+    source: agent ? 'explicit-override' : 'phase-default'
+  });
+  return {
+    workId: id,
+    resumed: true,
+    checkoutMode,
+    branch: id,
+    workflow
+  };
+}
+
+async function currentPinnedConfigurationRemote(root) {
+  const current = branch(root);
+  if (!current) return null;
+  try {
+    const source = await readConfigurationSource(root, { verify: true });
+    if (!source) return null;
+    const definition = await loadDefinition(root);
+    validateId(definition, current);
+    const workflow = await loadWorkflow(root, definition, current);
+    const pinned = workflow?.resolution?.configurationSource;
+    if (workflow?.workItem?.id !== current
+        || workflow?.workItem?.branch !== current
+        || workflow?.lineage?.canonicalBranch !== current
+        || pinned?.branch !== source.branch
+        || pinned?.repository !== source.repository
+        || pinned?.commit !== source.commit
+        || !pinned?.filesSha256
+        || pinned.filesSha256 !== source.filesSha256) return null;
+    return source.repository;
+  } catch {
+    // A copied, corrupt, or unbound source record is not an authority candidate. Current workspace
+    // or raw-origin discovery still gets its normal fail-closed behavior.
+    return null;
+  }
+}
+
 /**
  * Desktop-safe Story start path.
  *
@@ -119,65 +213,47 @@ export async function startStory(root, {
   astWarmLauncher = undefined,
   afterPublicationAuthorityCapture = null
 } = {}) {
+  assertSafeStoryId(id);
+  await recoverStoryStart(root, id);
+  const localExisted = refExists(root, `refs/heads/${id}`);
+  // A local Story is already governed by the exact configuration materialized when it started.
+  // Resume it without consulting today's workspace authority or Git network, then verify that its
+  // full asset catalog and workflow bind the same immutable pin before opening a session.
+  if (localExisted) return resumePinnedLocalStory(root, { id, agent });
+
   let checkoutDefinition = null;
   let definitionError = null;
   try { checkoutDefinition = await loadDefinition(root); }
   catch (error) { definitionError = error; }
-  let remote = checkoutDefinition?.git?.remote ?? 'origin';
-  let configurationAuthority = null;
-  try { configurationAuthority = await resolveStoryConfigurationAuthority(root, remote); }
-  catch (error) {
-    if (!checkoutDefinition) throw error;
-  }
+  const pinnedConfigurationRemote = await currentPinnedConfigurationRemote(root);
+  // A local workflow is a compatibility fallback only after every higher-priority remote has
+  // positively reported no authority. Transport, permission, workspace, and mirror-integrity
+  // failures must remain refusals; otherwise an old checkout silently governs new work. In
+  // particular, an older Story's workflow may not redirect authority discovery through git.remote.
+  let configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
+    pinnedRemote: pinnedConfigurationRemote
+  });
   let approvedConfigurationSnapshot = configurationAuthority
     ? await loadStoryConfigurationSnapshot(configurationAuthority)
     : null;
   let initialDefinition = approvedConfigurationSnapshot?.definition ?? checkoutDefinition;
   if (!initialDefinition) throw definitionError;
   validateId(initialDefinition, id);
-  await recoverStoryStart(root, id);
   const normalizedSource = validateStorySource(source, id);
   const actor = identity(root);
-  remote = initialDefinition.git?.remote ?? remote;
+  let remote = initialDefinition.git?.remote ?? 'origin';
 
   assertClean(root);
-  const localExisted = refExists(root, `refs/heads/${id}`);
-  if (!localExisted) {
-    const initialFetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
-    if (!initialFetchAuthority.url) {
-      throw new SingularityFlowError(
-        `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
-        { code: 'STORY_REMOTE_UNREACHABLE' }
-      );
-    }
-    fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
+  const initialFetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
+  if (!initialFetchAuthority.url) {
+    throw new SingularityFlowError(
+      `Story remote '${remote}' has no credential-free fetch authority. Nothing was changed.`,
+      { code: 'STORY_REMOTE_UNREACHABLE' }
+    );
   }
+  fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
   const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
   const existed = localExisted || remoteExisted;
-  if (!existed && configurationAuthority?.branch === CONFIGURATION_BRANCH) {
-    const enrollment = await publishCurrentIdentityToConfiguration(root, {
-      target: '*', automatic: true
-    });
-    if (enrollment.changed && !enrollment.pushed) {
-      throw new SingularityFlowError(
-        `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
-          ? `Run: ${enrollment.nextAction.command}`
-          : 'Publish the retained configuration commit and start again.'}`,
-        { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
-      );
-    }
-    if (enrollment.changed) {
-      configurationAuthority = await resolveStoryConfigurationAuthority(root, remote);
-      if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
-        throw new SingularityFlowError(
-          'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
-          { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
-        );
-      }
-      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
-      initialDefinition = approvedConfigurationSnapshot.definition;
-    }
-  }
   // Reject incomplete POC intake while the caller is still on its original branch. Validation
   // after checkout remains below because the selected remote base owns the definitive workflow.
   const preflightTargetOrigin = normalizeMcpTargetOrigin(targetUrl ?? normalizedSource.targetOrigin, {
@@ -211,8 +287,46 @@ export async function startStory(root, {
       interactive: false,
       remote,
       defaultBranch: initialDefinition.defaultBaseBranch,
-      capabilityId
+      capabilityId,
+      configurationSnapshot: approvedConfigurationSnapshot
     });
+    const selectedCapabilityId = capabilityId ?? storyBase.capability ?? null;
+    // Validate the exact retained catalog and selected capability before automatic enrollment is
+    // allowed to mutate the shared configuration authority. A refused Story start must not leave an
+    // otherwise unrelated approval-membership commit behind.
+    validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+      capabilityId: selectedCapabilityId
+    });
+    if (configurationAuthority?.branch === CONFIGURATION_BRANCH
+        && initialDefinition.approvalSecurity?.autoEnrollNewIdentities !== false) {
+      const enrollment = await publishCurrentIdentityToConfiguration(root, {
+        target: '*', automatic: true
+      });
+      if (enrollment.changed && !enrollment.pushed) {
+        throw new SingularityFlowError(
+          `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
+            ? `Run: ${enrollment.nextAction.command}`
+            : 'Publish the retained configuration commit and start again.'}`,
+          { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
+        );
+      }
+      if (enrollment.changed) {
+        configurationAuthority = await resolveNewStoryConfigurationAuthority(root, {
+          pinnedRemote: pinnedConfigurationRemote
+        });
+        if (!configurationAuthority || configurationAuthority.commit !== enrollment.commit) {
+          throw new SingularityFlowError(
+            'Approved configuration changed again after automatic enrollment. Refresh Story intake and retry; nothing was changed.',
+            { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+          );
+        }
+        approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority);
+        initialDefinition = approvedConfigurationSnapshot.definition;
+        validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
+          capabilityId: selectedCapabilityId
+        });
+      }
+    }
     const publishRequired = (initialDefinition.git?.publish ?? 'required') !== 'off';
     const capabilityPreflight = storyBase.scope === 'capability'
       ? await preflightStoryRepositories(storyBase.workspaceRoot, storyBase.plan, id, {
@@ -378,6 +492,7 @@ export async function startStory(root, {
   }
 
   await setAgentSession(root, definition, actor, selectedAgent, id, { phaseId: resolved.phases[0]?.id, source: agent ? 'explicit-override' : 'phase-default' });
+  const workflowCapabilityId = capabilityId ?? storyBase?.capability ?? null;
   let returnLocator;
   await runDraftTransaction(root, {
     subject: { kind: 'story', id, branch: id },
@@ -394,7 +509,11 @@ export async function startStory(root, {
         workType,
         agent: selectedAgent,
         resolved,
-        capabilityId,
+        capabilityId: workflowCapabilityId,
+        // Always carry the verified catalog digest across the preflight/creation boundary. The
+        // creation guard applies it only when resolution selected a capability, so a valid
+        // collection-only catalog remains capability-free.
+        capabilityMapSha256: configurationSnapshot?.files?.['singularity/capabilities.yml'] ?? null,
         executionOrigin: auto?.executionOrigin ?? null
       });
       if (flightPlan) await pinAcceptedChangeFlightPlan(root, definition, workflow, flightPlan);

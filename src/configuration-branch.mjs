@@ -20,9 +20,12 @@ import {
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
 import { gitCommitIdentity } from './git.mjs';
-import { GitRemoteSession, requireRemoteObservation, runRemoteGit } from './git-execution.mjs';
-import { activeWorkspaceFile, readActiveWorkspaceContext, workspaceRegistryFile } from './workspace-context.mjs';
-import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
+import {
+  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+} from './git-execution.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
 import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
   assertCredentialFreeRemote, frozenRemoteTransport, sanitizeRemote
@@ -37,14 +40,106 @@ import {
   isConfigurationAssetPath,
   mergeConfigurationAssetPolicies
 } from './configuration-assets.mjs';
+import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 
 export const CONFIGURATION_BRANCH = 'sflow/config';
 export const CONFIGURATION_SOURCE_PATH = 'singularity/configuration-source.json';
 export const STATE_CONFIGURATION_BRANCH = 'state';
 export const STATE_CONFIGURATION_MANIFEST = 'configuration/manifest.json';
 export const STATE_CONFIGURATION_FORMAT = 'singularity-flow-configuration-mirror/v2';
+export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
+const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+
+export function stateConfigurationHistoryBranch(sourceCommit) {
+  const commit = String(sourceCommit ?? '').trim();
+  if (!/^[0-9a-f]{40,64}$/.test(commit)) {
+    throw new SingularityFlowError(
+      'State configuration history requires an exact approved configuration commit.',
+      { code: 'STATE_CONFIGURATION_HISTORY_INVALID' }
+    );
+  }
+  return `${STATE_CONFIGURATION_HISTORY_PREFIX}/${commit}`;
+}
+
+/**
+ * Retain the complete approved configuration ancestry behind an immutable advertised ref.
+ *
+ * Hosted Git services commonly refuse fetches by an arbitrary object ID and may garbage-collect an
+ * object after `sflow/config` is retired. One source-specific branch avoids both failure modes and
+ * cannot race with another refresh: a branch whose name embeds SHA A may only ever point at SHA A.
+ */
+export async function retainStateConfigurationHistory(root, remote, sourceCommit, {
+  env = process.env
+} = {}) {
+  const branch = stateConfigurationHistoryBranch(sourceCommit);
+  const ref = `refs/heads/${branch}`;
+  const available = run('git', ['rev-parse', '--verify', `${sourceCommit}^{commit}`], {
+    cwd: root, env, allowFailure: true
+  }).stdout.trim();
+  if (available !== sourceCommit) {
+    throw new SingularityFlowError(
+      'The exact approved configuration commit is unavailable for durable state history.',
+      {
+        code: 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE',
+        details: { sourceCommit, branch }
+      }
+    );
+  }
+  const observe = async () => {
+    const result = await runRemoteGitAsync([
+      'ls-remote', '--heads', '--', remote, ref
+    ], { cwd: root, operation: 'remote-configuration', env });
+    if (result.status !== 0) {
+      throw new SingularityFlowError(
+        'The remote configuration history ref could not be inspected before state publication.',
+        {
+          code: 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE',
+          details: { sourceCommit, branch, classification: result.failure?.classification ?? 'unknown' }
+        }
+      );
+    }
+    const rows = result.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    const commits = rows.map((line) => line.split(/\s+/u))
+      .filter(([, name]) => name === ref)
+      .map(([commit]) => commit);
+    if (commits.length > 1 || commits.some((commit) => !/^[0-9a-f]{40,64}$/.test(commit))) {
+      throw new SingularityFlowError('The remote configuration history ref is ambiguous.', {
+        code: 'STATE_CONFIGURATION_HISTORY_INVALID', details: { sourceCommit, branch }
+      });
+    }
+    return commits[0] ?? null;
+  };
+
+  // The immutable namespace lets the ordinary path be one push instead of probe-then-push. The
+  // empty lease makes an existing ref (whether exact or hostile) non-mutating; after rejection one
+  // observation distinguishes an identical concurrent winner from a permanent collision.
+  const pushed = await runRemoteGitAsync([
+    'push', `--force-with-lease=${ref}:`, '--', remote, `${sourceCommit}:${ref}`
+  ], { cwd: root, operation: 'remote-push', env });
+  if (pushed.status !== 0) {
+    const concurrent = await observe();
+    if (concurrent !== sourceCommit) {
+      throw new SingularityFlowError(
+        concurrent == null
+          ? 'The approved configuration history ref could not be retained before state publication.'
+          : 'An immutable configuration history ref points at a different commit.',
+        {
+          code: concurrent == null
+            ? 'STATE_CONFIGURATION_HISTORY_UNAVAILABLE'
+            : 'STATE_CONFIGURATION_HISTORY_COLLISION',
+          details: {
+            sourceCommit, branch,
+            classification: pushed.failure?.classification ?? 'unknown',
+            actualCommit: concurrent
+          }
+        }
+      );
+    }
+  }
+  return Object.freeze({ branch, commit: sourceCommit });
+}
 
 function slash(value) { return value.split(path.sep).join('/'); }
 
@@ -619,17 +714,10 @@ async function cloneConfiguration(remote, target, { env = process.env } = {}) {
   return run('git', ['rev-parse', 'HEAD'], { cwd: target, env: frozen.env }).stdout.trim();
 }
 
-function remoteBranchHead(remote, branch, session = new GitRemoteSession()) {
-  const observed = session.observe(remote, {
-    includeHead: false, refs: [`refs/heads/${branch}`]
-  });
-  if (!observed.ok) return null;
-  const sha = observed.refs.get(`refs/heads/${branch}`) ?? '';
-  return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
-}
-
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH, {
-  env = process.env
+  env = process.env,
+  allowUnmarked = false,
+  expectedCommit = null
 } = {}) {
   const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-read-'));
   try {
@@ -645,12 +733,45 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       );
     }
     const mirrorCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source, env: frozen.env }).stdout.trim();
+    if (expectedCommit && mirrorCommit !== expectedCommit) {
+      throw new SingularityFlowError(
+        `Approved state configuration authority moved from ${expectedCommit.slice(0, 12)} to ${mirrorCommit.slice(0, 12)} while its snapshot was being prepared. Refresh and retry; nothing was changed.`,
+        {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: {
+            branch,
+            expectedCommit,
+            actualCommit: mirrorCommit
+          }
+        }
+      );
+    }
+    // Identify the marker from the commit tree before reading its blob. A missing path is an ordinary
+    // application `state` branch; a present path whose object cannot be read is a corrupt SFlow mirror
+    // and must never be downgraded to absence.
+    const markerResult = run('git', [
+      'ls-tree', '--full-tree', '--name-only', 'HEAD', '--', STATE_CONFIGURATION_MANIFEST
+    ], { cwd: source, allowFailure: true, env: frozen.env });
+    const marked = markerResult.status === 0
+      && markerResult.stdout.split(/\r?\n/).includes(STATE_CONFIGURATION_MANIFEST);
+    if (!marked) {
+      if (markerResult.status !== 0) {
+        throw new SingularityFlowError(`Cannot inspect state configuration marker on branch '${branch}'.`, {
+          code: 'STATE_CONFIGURATION_MIRROR_INVALID'
+        });
+      }
+      if (allowUnmarked) return null;
+      throw new SingularityFlowError(
+        `State branch '${branch}' does not contain ${STATE_CONFIGURATION_MANIFEST}.`,
+        { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
+      );
+    }
     const manifestResult = run('git', ['show', `HEAD:${STATE_CONFIGURATION_MANIFEST}`], {
       cwd: source, allowFailure: true, env: frozen.env
     });
     if (manifestResult.status !== 0) {
       throw new SingularityFlowError(
-        `State branch '${branch}' does not contain ${STATE_CONFIGURATION_MANIFEST}.`,
+        `State branch '${branch}' contains an unreadable ${STATE_CONFIGURATION_MANIFEST}.`,
         { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
       );
     }
@@ -667,6 +788,14 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
       || !manifest?.files || typeof manifest.files !== 'object' || Array.isArray(manifest.files)) {
       throw new SingularityFlowError(
         `State configuration manifest must be ${STATE_CONFIGURATION_FORMAT} with canonical paths and an exact ${CONFIGURATION_BRANCH} source.`,
+        { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
+      );
+    }
+    if (manifest.history != null
+      && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
+        || manifest.history?.commit !== manifest.source.commit)) {
+      throw new SingularityFlowError(
+        'State configuration manifest contains an invalid immutable history authority.',
         { code: 'STATE_CONFIGURATION_MIRROR_INVALID' }
       );
     }
@@ -718,73 +847,262 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
     }
     // Hash integrity is necessary but not sufficient. A mirror is usable only when its complete
     // workflow, agent, prompt and template contract is operational under this engine build.
-    await loadDefinition(destination);
+    const definition = await loadDefinition(destination);
     return {
       remote, branch, mirrorCommit,
       sourceBranch: CONFIGURATION_BRANCH,
       sourceCommit: manifest.source.commit,
+      history: manifest.history ?? null,
       files: manifest.files,
-      assets: Object.fromEntries(copied.map((relative) => [relative, treeEntries.get(relative)]))
+      assets: Object.fromEntries(copied.map((relative) => [relative, treeEntries.get(relative)])),
+      definition
     };
   } finally {
     await removeTemporaryTree(source);
   }
 }
 
-export async function resolveRemoteStoryConfigurationAuthority(remote) {
+function storyConfigurationAuthorityObservation(remote, {
+  session = new GitRemoteSession()
+} = {}) {
   const url = String(remote ?? '').trim();
+  if (!url) return { url, configurationCommit: null, stateCommit: null, observation: null };
+  const observed = session.observe(url, {
+    includeHead: false,
+    refs: [
+      `refs/heads/${CONFIGURATION_BRANCH}`,
+      `refs/heads/${STATE_CONFIGURATION_BRANCH}`
+    ]
+  });
+  requireRemoteObservation(observed, 'Story configuration authority');
+  return {
+    url,
+    configurationCommit: observed.refs.get(`refs/heads/${CONFIGURATION_BRANCH}`) ?? null,
+    stateCommit: observed.refs.get(`refs/heads/${STATE_CONFIGURATION_BRANCH}`) ?? null,
+    observation: observed
+  };
+}
+
+export async function resolveRemoteStoryConfigurationAuthority(remote, options = {}) {
+  const selected = storyConfigurationAuthorityObservation(remote, options);
+  const { url, configurationCommit, stateCommit } = selected;
   if (!url) return null;
-  const configurationCommit = remoteBranchHead(url, CONFIGURATION_BRANCH);
   if (configurationCommit) {
     return { remote: url, branch: CONFIGURATION_BRANCH, commit: configurationCommit, source: 'configuration' };
   }
-  if (!remoteBranchHead(url, STATE_CONFIGURATION_BRANCH)) return null;
+  if (!stateCommit) return null;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-probe-'));
   try {
-    const mirror = await copyVerifiedStateConfiguration(url, scratch);
-    return {
+    const mirror = await copyVerifiedStateConfiguration(url, scratch, STATE_CONFIGURATION_BRANCH, {
+      allowUnmarked: true,
+      expectedCommit: stateCommit
+    });
+    if (!mirror) return null;
+    const authority = {
       remote: url, branch: STATE_CONFIGURATION_BRANCH, commit: mirror.mirrorCommit,
       sourceCommit: mirror.sourceCommit, source: 'verified-state-mirror'
     };
+    incrementCommandCounter('configuration.snapshot-read');
+    const retainedSnapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+      observedCommit: mirror.mirrorCommit,
+      sourceCommit: mirror.sourceCommit,
+      mirror,
+      definition: mirror.definition
+    });
+    Object.defineProperty(authority, STORY_CONFIGURATION_AUTHORITY_SNAPSHOT, {
+      configurable: false, enumerable: false, writable: false, value: retainedSnapshot
+    });
+    return authority;
   } finally {
     await removeTemporaryTree(scratch);
   }
 }
 
 async function activeWorkspaceForRepository(root) {
-  const active = await readActiveWorkspaceContext(
-    activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-  ).catch(() => null);
+  // Workspace authority applies to every manifest member, including a linked Story worktree whose
+  // path differs from the canonical clone. Resolve membership by canonical path/Git common directory
+  // so opening another repository in VS Code cannot silently drop the external authority.
+  const active = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  );
   if (!active?.workspacePath) return null;
-  const workspace = await readWorkspace(active.workspacePath).catch(() => null);
-  if (!workspace) return null;
-  const canonical = async (value) => realpath(value).catch(() => path.resolve(value));
-  const repositoryRoot = await canonical(root);
-  const memberRoots = await Promise.all(Object.values(workspace.repositories).map((repository) =>
-    canonical(workspaceRepositoryPath(workspace, repository))));
-  return memberRoots.includes(repositoryRoot) ? workspace : null;
+  // Use the exact, identity-verified manifest bytes retained with the membership decision. Reading
+  // workspace.json again here would allow a concurrent edit to swap configuration authority after
+  // membership was proven (a classic check/use race).
+  if (!active.workspace) {
+    throw new SingularityFlowError(
+      'The active workspace authority is not bound to a validated manifest snapshot.',
+      { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+    );
+  }
+  return active.workspace;
+}
+
+function configuredStoryRemote(root, remoteName) {
+  const listed = run('git', ['remote'], { cwd: root, allowFailure: true });
+  if (listed.status !== 0) {
+    throw new SingularityFlowError(
+      'Cannot enumerate configured Git remotes while resolving Story configuration authority.',
+      { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
+    );
+  }
+  const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  if (!remotes.includes(remoteName)) return { configured: false, url: null };
+  // `git remote get-url NAME` prints NAME itself when a remote section exists without a URL. Read
+  // the underlying setting first so that Git's fallback cannot be mistaken for a usable authority.
+  const configured = run('git', ['config', '--get-all', `remote.${remoteName}.url`], {
+    cwd: root, allowFailure: true
+  });
+  if (configured.status !== 0 || !configured.stdout.trim()) {
+    throw new SingularityFlowError(
+      `Configured Story authority remote '${remoteName}' has no readable fetch URL.`,
+      { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
+    );
+  }
+  const resolved = run('git', ['remote', 'get-url', remoteName], {
+    cwd: root, allowFailure: true
+  });
+  if (resolved.status === 0 && resolved.stdout.trim()) {
+    return { configured: true, url: resolved.stdout.trim() };
+  }
+  throw new SingularityFlowError(
+    `Configured Story authority remote '${remoteName}' has no readable fetch URL.`,
+    { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
+  );
 }
 
 /** Find a Story-readable authority in this repository or its active workspace lead. */
-export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin') {
+export async function resolveStoryConfigurationAuthority(root, remoteName = 'origin', {
+  session = new GitRemoteSession()
+} = {}) {
   const workspace = await activeWorkspaceForRepository(root);
   // A capability-derived workspace records the organisation repository that actually owns
   // sflow/config. It is deliberately separate from the delivery repository chosen to hold
   // workspace/runtime state, so it must win over both the member's origin and the delivery lead.
   const configuredAuthority = workspace?.capabilityAuthority?.url;
-  if (configuredAuthority) return resolveRemoteStoryConfigurationAuthority(configuredAuthority);
+  if (configuredAuthority) {
+    return resolveRemoteStoryConfigurationAuthority(configuredAuthority, { session });
+  }
 
-  const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
-  const ownAuthority = own ? await resolveRemoteStoryConfigurationAuthority(own) : null;
+  const own = configuredStoryRemote(root, remoteName);
+  // Candidate order is authority precedence. A failed higher-priority observation must throw and
+  // may never be converted to absence merely because a lower-priority lead happens to answer.
+  const ownAuthority = own.url
+    ? await resolveRemoteStoryConfigurationAuthority(own.url, { session })
+    : null;
   if (ownAuthority) return ownAuthority;
 
   const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
-  return lead ? resolveRemoteStoryConfigurationAuthority(lead) : null;
+  return lead ? resolveRemoteStoryConfigurationAuthority(lead, { session }) : null;
+}
+
+/**
+ * Resolve authority for genuinely new work without trusting the workflow checked out by an older
+ * Story to name today's Git remote. The caller may supply a repository URL only after proving it is
+ * carried by an immutable, branch-bound configuration pin.
+ */
+export async function resolveNewStoryConfigurationAuthority(root, {
+  pinnedRemote = null,
+  session = new GitRemoteSession()
+} = {}) {
+  const workspace = await activeWorkspaceForRepository(root);
+  const configuredAuthority = workspace?.capabilityAuthority?.url;
+  if (configuredAuthority) {
+    // An explicit organisation authority is authoritative even when it positively contains no
+    // configuration yet; never fall through to an older Story pin in that case.
+    return resolveRemoteStoryConfigurationAuthority(configuredAuthority, { session });
+  }
+
+  const origin = configuredStoryRemote(root, 'origin');
+  const candidates = [origin.url, pinnedRemote]
+    .map((value) => String(value ?? '').trim())
+    .filter((value, index, values) => value && values.indexOf(value) === index);
+  for (const candidate of candidates) {
+    const authority = await resolveRemoteStoryConfigurationAuthority(candidate, { session });
+    if (authority) return authority;
+  }
+
+  const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
+  if (lead && !candidates.includes(lead)) {
+    return resolveRemoteStoryConfigurationAuthority(lead, { session });
+  }
+  return null;
+}
+
+/**
+ * Report whether Story authority resolution had an explicit remote candidate.
+ *
+ * A null authority can mean either "the configured remote positively has no authority" or "this
+ * is a deliberately local repository". Read-only callers use this distinction to avoid falling
+ * through from the first case to an unrelated cached local sflow/config head.
+ */
+export async function hasStoryConfigurationAuthorityCandidate(root, remoteName = 'origin') {
+  const workspace = await activeWorkspaceForRepository(root);
+  if (workspace?.capabilityAuthority?.url) return true;
+  if (configuredStoryRemote(root, remoteName).configured) return true;
+  return Boolean(workspace?.repositories?.[workspace.leadRepository]?.url);
 }
 
 /** Load one Story authority as a complete disposable definition without touching the checkout. */
 export async function loadStoryConfigurationDefinition(authority) {
   return (await loadStoryConfigurationSnapshot(authority)).definition;
+}
+
+async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
+  observedCommit,
+  sourceCommit,
+  mirror = null,
+  definition: retainedDefinition = null
+}) {
+  const definition = retainedDefinition ?? await loadDefinition(scratch);
+  const assets = [];
+  const treeEntries = mirror?.assets
+    ? new Map(Object.entries(mirror.assets))
+    : configurationTreeEntries(scratch, 'HEAD');
+  for (const relative of await configurationAssetPaths(scratch)) {
+    const file = path.join(scratch, relative);
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
+    }
+    const contents = Buffer.from(await readFile(file));
+    const treeEntry = treeEntries.get(relative);
+    if (!treeEntry || !/^100(?:644|755)$/.test(treeEntry.mode)
+        || !/^[0-9a-f]{40,64}$/.test(treeEntry.object ?? '')) {
+      throw new SingularityFlowError(`Configuration asset has no canonical Git blob identity: ${relative}`);
+    }
+    assets.push(Object.freeze({
+      relative,
+      contents,
+      sha256: createHash('sha256').update(contents).digest('hex'),
+      mode: treeEntry.mode === '100755' ? 0o755 : 0o644,
+      gitMode: treeEntry.mode,
+      object: treeEntry.object
+    }));
+  }
+  if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
+    throw new SingularityFlowError(
+      `${CONFIGURATION_BRANCH}@${sourceCommit.slice(0, 12)} does not contain singularity/workflow.yml.`);
+  }
+  return Object.freeze({
+    [STORY_CONFIGURATION_SNAPSHOT]: true,
+    authority: Object.freeze({
+      remote: authority.remote,
+      branch: authority.branch,
+      commit: authority.commit,
+      ...(authority.sourceCommit ? { sourceCommit: authority.sourceCommit } : {}),
+      source: authority.source
+    }),
+    observedCommit,
+    sourceCommit,
+    mirror: mirror ? Object.freeze({
+      branch: mirror.branch,
+      commit: mirror.mirrorCommit,
+      history: mirror.history == null ? null : Object.freeze({ ...mirror.history })
+    }) : null,
+    definition,
+    assets: Object.freeze(assets)
+  });
 }
 
 /**
@@ -796,6 +1114,20 @@ export async function loadStoryConfigurationDefinition(authority) {
 export async function loadStoryConfigurationSnapshot(authority) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
+  }
+  const retained = authority[STORY_CONFIGURATION_AUTHORITY_SNAPSHOT];
+  if (retained) {
+    if (retained.authority.remote !== authority.remote
+        || retained.authority.branch !== authority.branch
+        || (authority.commit && retained.observedCommit !== authority.commit)
+        || (authority.sourceCommit && retained.sourceCommit !== authority.sourceCommit)) {
+      throw new SingularityFlowError(
+        'Retained Story configuration snapshot does not match its selected authority.',
+        { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+      );
+    }
+    incrementCommandCounter('configuration.snapshot-reused');
+    return retained;
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
   incrementCommandCounter('configuration.snapshot-read');
@@ -826,56 +1158,41 @@ export async function loadStoryConfigurationSnapshot(authority) {
         }
       );
     }
-    const definition = await loadDefinition(scratch);
-    const assets = [];
-    const treeEntries = mirror?.assets
-      ? new Map(Object.entries(mirror.assets))
-      : configurationTreeEntries(scratch, 'HEAD');
-    for (const relative of await configurationAssetPaths(scratch)) {
-      const file = path.join(scratch, relative);
-      const info = await lstat(file);
-      if (!info.isFile() || info.isSymbolicLink()) {
-        throw new SingularityFlowError(`Configuration asset must be a regular file: ${relative}`);
-      }
-      const contents = Buffer.from(await readFile(file));
-      const treeEntry = treeEntries.get(relative);
-      if (!treeEntry || !/^100(?:644|755)$/.test(treeEntry.mode)
-          || !/^[0-9a-f]{40,64}$/.test(treeEntry.object ?? '')) {
-        throw new SingularityFlowError(`Configuration asset has no canonical Git blob identity: ${relative}`);
-      }
-      assets.push(Object.freeze({
-        relative,
-        contents,
-        sha256: createHash('sha256').update(contents).digest('hex'),
-        mode: treeEntry.mode === '100755' ? 0o755 : 0o644,
-        gitMode: treeEntry.mode,
-        object: treeEntry.object
-      }));
-    }
-    if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
-      throw new SingularityFlowError(
-        `${CONFIGURATION_BRANCH}@${sourceCommit.slice(0, 12)} does not contain singularity/workflow.yml.`);
-    }
-    return Object.freeze({
-      [STORY_CONFIGURATION_SNAPSHOT]: true,
-      authority: Object.freeze({ ...authority }),
+    return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
       observedCommit,
       sourceCommit,
-      mirror: mirror ? Object.freeze({ branch: mirror.branch, commit: mirror.mirrorCommit }) : null,
-      definition,
-      assets: Object.freeze(assets)
+      mirror,
+      definition: mirror?.definition ?? null
     });
   } finally {
     await removeTemporaryTree(scratch);
   }
 }
 
-async function copyStoryConfigurationSnapshot(snapshot, destination) {
+async function copyStoryConfigurationSnapshot(snapshot, destination, { selectPaths = null } = {}) {
   if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
     throw new SingularityFlowError('Story configuration materialization requires a verified snapshot.');
   }
+  const selected = selectPaths == null ? null : new Set([...new Set(selectPaths)].sort());
+  if (selected && !selected.has('singularity/workflow.yml')) {
+    throw new SingularityFlowError(
+      'Approved configuration selection must include singularity/workflow.yml.',
+      { code: 'APPROVED_CONFIGURATION_SELECTION_INVALID' }
+    );
+  }
+  if (selected) {
+    const available = new Set(snapshot.assets.map((entry) => entry.relative));
+    const missing = [...selected].filter((relative) => !available.has(relative));
+    if (missing.length) {
+      throw new SingularityFlowError(
+        `Approved configuration ${snapshot.authority.branch}@${snapshot.sourceCommit.slice(0, 12)} does not contain '${missing[0]}'.`,
+        { code: 'APPROVED_CONFIGURATION_INCOMPLETE', details: { missing } }
+      );
+    }
+  }
   const copied = [];
   for (const entry of snapshot.assets) {
+    if (selected && !selected.has(entry.relative)) continue;
     if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
       throw new SingularityFlowError(
         `Verified Story configuration snapshot changed in memory: ${entry.relative}.`,
@@ -891,22 +1208,105 @@ async function copyStoryConfigurationSnapshot(snapshot, destination) {
   return copied.sort();
 }
 
+/**
+ * Mount one already-verified Story configuration snapshot for a read-only operation.
+ *
+ * This is deliberately separate from `materializeConfigurationSnapshot`: diagnostics must be able
+ * to inspect the authority selected by Story-start precedence without writing configuration into
+ * the application checkout. The snapshot's retained bytes are copied once to a private directory,
+ * then the ordinary configuration readers are redirected there for the callback only.
+ */
+export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { selectPaths = null } = {}) {
+  if (!snapshot?.[STORY_CONFIGURATION_SNAPSHOT]) {
+    throw new SingularityFlowError(
+      'Approved configuration diagnosis requires a verified Story configuration snapshot.'
+    );
+  }
+  const yamlFromSnapshot = (relative) => {
+    const entry = snapshot.assets.find((candidate) => candidate.relative === relative);
+    if (!entry) return {};
+    if (createHash('sha256').update(entry.contents).digest('hex') !== entry.sha256) {
+      throw new SingularityFlowError(
+        `Verified Story configuration snapshot changed in memory: ${relative}.`,
+        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+      );
+    }
+    return YAML.parse(entry.contents.toString('utf8')) ?? {};
+  };
+  // Compute the policy from the complete retained snapshot before applying a selected-path view.
+  // Deriving it from the partial scratch directory would treat an omitted portfolio as defaults and
+  // could silently broaden which custom roots the read scope accepts.
+  const assetPolicy = configurationAssetPolicy(
+    yamlFromSnapshot('singularity/workflow.yml'),
+    yamlFromSnapshot('singularity/portfolio.yml')
+  );
+  if (selectPaths != null) {
+    const selected = [...new Set(selectPaths)];
+    if (!selected.includes('singularity/workflow.yml')
+        || selected.some((relative) => !isConfigurationAsset(relative, assetPolicy))) {
+      throw new SingularityFlowError(
+        'Approved configuration selection contains an unsupported path.',
+        { code: 'APPROVED_CONFIGURATION_SELECTION_INVALID' }
+      );
+    }
+  }
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-overlay-'));
+  try {
+    await copyStoryConfigurationSnapshot(snapshot, scratch, { selectPaths });
+    // Match the durable configuration-source record rather than the transport branch. A verified
+    // state mirror transports these bytes through `state`, but the authority it attests remains
+    // the reviewed `sflow/config` source commit.
+    const stateMirror = snapshot.authority.source === 'verified-state-mirror';
+    const readAuthority = Object.freeze({
+      kind: stateMirror ? 'verified-state-mirror' : 'approved-configuration-ref',
+      ref: snapshot.authority.branch,
+      remote: snapshot.authority.remote,
+      commit: snapshot.observedCommit,
+      ...(stateMirror ? {
+        manifest: Object.freeze({
+          source: Object.freeze({ branch: CONFIGURATION_BRANCH, commit: snapshot.sourceCommit }),
+          ...(snapshot.mirror?.history == null ? {} : {
+            history: Object.freeze({ ...snapshot.mirror.history })
+          })
+        })
+      } : {})
+    });
+    return await withConfigurationReadRoot(root, scratch, readAuthority, () => fn(readAuthority), {
+      assetPolicy,
+      // A partial mount must not expose bytes omitted by selectPaths through request-local state.
+      configurationSnapshot: selectPaths == null ? snapshot : null
+    });
+  } finally {
+    await removeTemporaryTree(scratch);
+  }
+}
+
 /** Find the organisation configuration for a repository inside or outside a managed workspace. */
-export async function resolveConfigurationRemote(root, remoteName = 'origin') {
+export async function resolveConfigurationRemote(root, remoteName = 'origin', {
+  session = new GitRemoteSession()
+} = {}) {
   const workspace = await activeWorkspaceForRepository(root);
+  const resolveCandidate = (remote, label) => {
+    const selected = configurationBranchHead(remote, { session });
+    requireRemoteObservation(selected.observation, label);
+    return selected.exists ? remote : null;
+  };
   const configuredAuthority = workspace?.capabilityAuthority?.url;
   if (configuredAuthority) {
-    return remoteHasConfigurationBranch(configuredAuthority) ? configuredAuthority : null;
+    return resolveCandidate(configuredAuthority, 'workspace capability authority');
   }
 
   const own = run('git', ['remote', 'get-url', remoteName], { cwd: root, allowFailure: true }).stdout.trim();
-  if (own && remoteHasConfigurationBranch(own)) return own;
+  if (own) {
+    const selected = resolveCandidate(own, `repository remote '${remoteName}'`);
+    if (selected) return selected;
+  }
 
   if (workspace) {
     // A machine-wide active workspace is navigation context, not authority for every repository
     // on the machine. activeWorkspaceForRepository already proved membership before this fallback.
     const lead = workspace?.repositories?.[workspace.leadRepository]?.url;
-    if (lead && remoteHasConfigurationBranch(lead)) return lead;
+    if (lead) return resolveCandidate(lead, 'workspace lead authority');
   }
   return null;
 }
@@ -992,30 +1392,12 @@ export async function materializeConfigurationSnapshot(root, {
  * cannot assume the current worktree carries the governed capability catalog.
  */
 export async function resolveApprovedConfigurationCapability(remote, capabilityId) {
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-capability-'));
-  try {
-    const authority = typeof remote === 'string'
-      ? await resolveRemoteStoryConfigurationAuthority(remote)
-      : remote;
-    if (!authority) throw new SingularityFlowError('No Story-readable configuration authority is available.');
-    const materialized = authority.branch === STATE_CONFIGURATION_BRANCH
-      ? await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch)
-      : { sourceCommit: await cloneConfiguration(authority.remote, scratch) };
-    const { resolveLifecycleCapability } = await import('./capability-context.mjs');
-    const capability = await resolveLifecycleCapability(scratch, {
-      capabilityId,
-      required: true,
-      offline: true
-    });
-    return {
-      branch: authority.branch,
-      commit: materialized.sourceCommit,
-      mirrorCommit: materialized.mirrorCommit ?? null,
-      capability
-    };
-  } finally {
-    await removeTemporaryTree(scratch);
-  }
+  const authority = typeof remote === 'string'
+    ? await resolveRemoteStoryConfigurationAuthority(remote)
+    : remote;
+  if (!authority) throw new SingularityFlowError('No Story-readable configuration authority is available.');
+  const snapshot = await loadStoryConfigurationSnapshot(authority);
+  return resolveStoryConfigurationSnapshotCapability(snapshot, capabilityId);
 }
 
 /** Resolve a capability from an already-verified operation snapshot without another clone. */

@@ -13,9 +13,11 @@
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 // Synchronous: the git side of this module is sync throughout, and `exists` from util is a promise —
 // `if (!exists(p))` would be false forever, so the 'absent' branch below could never fire.
 import { existsSync } from 'node:fs';
+import YAML from 'yaml';
 
 import {
   baseBranchRecord, baseRefusalReport, branchChoices, capabilityRepositories,
@@ -25,8 +27,10 @@ import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservation, publicationPushOutcome,
   pushCommitToBranch, gitCommonDir, refExists, refHead, repoRoot, validBranch
 } from './git.mjs';
-import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
-import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import { workspaceRepositoryPath } from './workspace.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import {
   resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority,
@@ -35,9 +39,133 @@ import {
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
-import { configuredRemoteAuthority, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
+} from './git-remote-diagnostics.mjs';
+import { validatePortfolio } from './initiative-config.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
+
+function assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired }) {
+  const expected = String(repository.url ?? '').trim();
+  let fetchIdentity;
+  let pushIdentity;
+  try {
+    fetchIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+    pushIdentity = publishRequired
+      ? configuredRemoteIdentity(root, remote, { direction: 'push' })
+      : null;
+  } catch {
+    // Unsafe remote values are never copied into the refusal. Treat them as identity drift and
+    // retain only the reviewed, credential-free expected URL in structured diagnostics.
+    fetchIdentity = null;
+    pushIdentity = null;
+  }
+  const fetchMatches = fetchIdentity?.url === expected;
+  const pushMatches = !publishRequired || pushIdentity?.url === expected;
+  if (expected && fetchMatches && pushMatches) return { fetchIdentity, pushIdentity };
+  throw new SingularityFlowError(
+    `Required repository '${repository.id}' no longer matches its approved Git remote. `
+    + 'Repair or recreate the workspace before starting work. Nothing was changed.',
+    {
+      code: 'CAPABILITY_WORKSPACE_BINDING_STALE',
+      details: {
+        repositoryId: repository.id,
+        expectedRemote: sanitizeRemote(expected),
+        actualFetchRemote: fetchIdentity?.url ? sanitizeRemote(fetchIdentity.url) : null,
+        actualPushRemote: pushIdentity?.url ? sanitizeRemote(pushIdentity.url) : null
+      }
+    }
+  );
+}
+
+function approvedDeliveryRepositoryIds(capability) {
+  return [...new Set((capability?.deliveries ?? [])
+    .flatMap((delivery) => delivery.repositories ?? (delivery.repository ? [delivery.repository] : [])))]
+    .sort();
+}
+
+function portfolioFromConfigurationSnapshot(snapshot) {
+  const entry = snapshot?.assets?.find(
+    (candidate) => candidate.relative === 'singularity/portfolio.yml'
+  );
+  if (!entry) return null;
+  const actualSha256 = createHash('sha256').update(entry.contents).digest('hex');
+  if (!entry.sha256 || actualSha256 !== entry.sha256) {
+    throw new SingularityFlowError(
+      'Verified Story configuration snapshot changed in memory: singularity/portfolio.yml.',
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  try {
+    return validatePortfolio(YAML.parse(Buffer.from(entry.contents).toString('utf8')));
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Approved capability repository catalog is invalid: ${error.message}`,
+      { code: 'CAPABILITY_WORKSPACE_BINDING_STALE' }
+    );
+  }
+}
+
+/**
+ * Bind a machine-local workspace plan to the exact approved delivery definition.
+ *
+ * Workspace paths are navigation state. They cannot add, omit, or redirect repositories which the
+ * reviewed capability and portfolio say move together. This check runs before branch inventory or
+ * fetch so a stale workspace cannot contact or mutate an unrelated repository.
+ */
+export function assertApprovedCapabilityRepositoryPlan(
+  repositories, capability, configurationSnapshot = null
+) {
+  if (!capability) return null;
+  const planned = [...new Set((repositories ?? []).map((repository) => repository.id))].sort();
+  const expected = approvedDeliveryRepositoryIds(capability);
+  if (JSON.stringify(planned) !== JSON.stringify(expected)) {
+    throw new SingularityFlowError(
+      `Workspace repositories for capability '${capability.id}' do not match its approved delivery set. `
+      + `Expected: ${expected.join(', ') || 'none'}; workspace: ${planned.join(', ') || 'none'}. `
+      + 'Refresh or recreate the workspace before starting work.',
+      {
+        code: 'CAPABILITY_WORKSPACE_BINDING_STALE',
+        details: { capabilityId: capability.id, expectedRepositories: expected, plannedRepositories: planned }
+      }
+    );
+  }
+
+  const portfolio = portfolioFromConfigurationSnapshot(configurationSnapshot);
+  // Older approved configurations used capabilities.yml as the only repository catalog and ship
+  // the starter's intentionally empty portfolio. Their exact delivery IDs are still enforced.
+  // Once an approved portfolio declares any repository, its remote/default/required identity is
+  // authoritative and partial definitions are refused.
+  if (!portfolio || !Object.keys(portfolio.repositories ?? {}).length) {
+    return { expectedRepositories: expected, identityChecked: false };
+  }
+  for (const repository of repositories) {
+    const approved = portfolio.repositories?.[repository.id];
+    if (!approved) {
+      throw new SingularityFlowError(
+        `Approved portfolio does not define delivery repository '${repository.id}'.`,
+        { code: 'CAPABILITY_WORKSPACE_BINDING_STALE' }
+      );
+    }
+    const mismatches = [];
+    if (String(repository.url ?? '').trim() !== String(approved.url ?? '').trim()) mismatches.push('remote');
+    if (String(repository.defaultBranch ?? '').trim()
+        !== String(approved.defaultBranch ?? '').trim()) mismatches.push('default branch');
+    if ((repository.required !== false) !== (approved.required !== false)) mismatches.push('required flag');
+    if (mismatches.length) {
+      throw new SingularityFlowError(
+        `Workspace repository '${repository.id}' differs from the approved portfolio (${mismatches.join(', ')}). `
+        + 'Refresh or recreate the workspace before starting work.',
+        {
+          code: 'CAPABILITY_WORKSPACE_BINDING_STALE',
+          details: { capabilityId: capability.id, repositoryId: repository.id, mismatches }
+        }
+      );
+    }
+  }
+  return { expectedRepositories: expected, identityChecked: true };
+}
 
 /**
  * Which branches each repository publishes.
@@ -105,15 +233,38 @@ export async function publishedBranchesAsync(repositories, {
 export async function storyBaseCatalog(root, {
   remote = 'origin',
   defaultBranch = 'main',
-  capabilityId = null
+  capabilityId = null,
+  configurationSnapshot = null
 } = {}) {
-  const context = await workspaceContextForRepository(
-    root, activeWorkspaceFile(), workspaceRegistryFile()
-  ).catch(() => null);
+  const context = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  );
   const capability = capabilityId ?? context?.repositoryCapabilities?.[0] ?? null;
   if (context && capability) {
-    const workspace = await readWorkspace(context.workspacePath);
+    const workspace = context.workspace;
+    if (!workspace) {
+      throw new SingularityFlowError(
+        'The workspace capability plan is not bound to a validated manifest snapshot.',
+        { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+      );
+    }
     const repositories = capabilityRepositories(workspace, capability);
+    // The exact approved overlay is already active for CLI/VS Code choice collection. When a
+    // caller has retained the operation snapshot, use it directly; otherwise resolve through that
+    // request-local overlay (or the Story pin) before touching any capability remote. Machine-local
+    // workspace membership alone is never enough to decide which repositories move together.
+    const approvedCapability = configurationSnapshot
+      ? (await resolveStoryConfigurationSnapshotCapability(
+          configurationSnapshot, capability
+        )).capability
+      : await resolveLifecycleCapability(root, {
+          capabilityId: capability,
+          required: true,
+          offline: true
+        });
+    assertApprovedCapabilityRepositoryPlan(
+      repositories, approvedCapability, configurationSnapshot
+    );
     const { published, unreachable } = await publishedBranchesAsync(repositories);
     return {
       scope: 'capability',
@@ -203,13 +354,16 @@ export async function storyBaseForRepository(root, {
   remote = 'origin',
   defaultBranch = 'main',
   capabilityId = null,
+  configurationSnapshot = null,
   catalog: suppliedCatalog = null
 } = {}) {
   // `workspace branches --preflight-story` has already paid for an exact remote inventory so it can
   // render the choices alongside the result. Reusing those immutable bytes inside the same command
   // avoids asking every capability remote the identical question twice. Mutation-time Story start
   // still obtains its own fresh catalog and re-fetches every selected ref before changing a checkout.
-  const catalog = suppliedCatalog ?? await storyBaseCatalog(root, { remote, defaultBranch, capabilityId });
+  const catalog = suppliedCatalog ?? await storyBaseCatalog(root, {
+    remote, defaultBranch, capabilityId, configurationSnapshot
+  });
   if (catalog.unreachable.length) {
     const first = catalog.unreachable[0];
     throw new SingularityFlowError(
@@ -323,16 +477,21 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // createWorkflow will pin before fetching, checking out, or writing any repository. This prevents
   // a stale machine-local workspace from passing UI preflight and failing only after configuration
   // has been materialized onto a new Story branch.
+  let approvedCapability = null;
   if (lifecycleRoot && capabilityId) {
     const configurationAuthority = configurationSnapshot
       ? configurationSnapshot.authority
       : await resolveStoryConfigurationAuthority(lifecycleRoot, remote);
     if (configurationSnapshot) {
-      await resolveStoryConfigurationSnapshotCapability(configurationSnapshot, capabilityId);
+      approvedCapability = (await resolveStoryConfigurationSnapshotCapability(
+        configurationSnapshot, capabilityId
+      )).capability;
     } else if (configurationAuthority) {
-      await resolveApprovedConfigurationCapability(configurationAuthority, capabilityId);
+      approvedCapability = (await resolveApprovedConfigurationCapability(
+        configurationAuthority, capabilityId
+      )).capability;
     } else {
-      await resolveLifecycleCapability(lifecycleRoot, {
+      approvedCapability = await resolveLifecycleCapability(lifecycleRoot, {
         capabilityId,
         required: true,
         // Existence is the preflight question. Lease refresh remains part of authoritative workflow
@@ -340,6 +499,9 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         offline: true
       });
     }
+    assertApprovedCapabilityRepositoryPlan(
+      plan.repositories, approvedCapability, configurationSnapshot
+    );
   }
   // Validate every local precondition before the first network operation. Fetches may update only
   // remote-tracking refs; checkout/index/worktree mutations still wait for the complete capability
@@ -360,7 +522,10 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     // same Git common directory, so only sibling repositories still need the legacy clean-checkout
     // precondition here.
     if (!lifecycleRoot || gitCommonDir(root) !== gitCommonDir(repoRoot(lifecycleRoot))) assertClean(root);
-    run('git', ['remote', 'set-branches', remote, '*'], { cwd: root, allowFailure: false });
+    // Bind every checkout to the approved plan before the first fetch, dry-run push, or Git-config
+    // mutation. A stale workspace path may now contain an entirely different clone; the manifest
+    // URL alone does not prove the checkout at that path still belongs to the capability.
+    assertCheckoutRemoteIdentity(root, repository, remote, { publishRequired });
     const fetchAuthority = configuredRemoteAuthority(root, remote, { direction: 'fetch' });
     const pushAuthority = publishRequired
       ? configuredRemoteAuthority(root, remote, { direction: 'push' }) : null;
@@ -371,6 +536,14 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       );
     }
     candidates.push({ repository, root, fetchAuthority, pushAuthority });
+  }
+  // All repository identities are now proven as one set. Expanding the fetch refspec is a local
+  // mutation, so defer it until a later sibling cannot fail identity validation and leave earlier
+  // checkouts partially changed.
+  for (const candidate of candidates) {
+    run('git', ['remote', 'set-branches', remote, '*'], {
+      cwd: candidate.root, allowFailure: false
+    });
   }
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
     incrementCommandCounter('git.remote-fetch');
@@ -688,12 +861,12 @@ export async function capabilityBaseForRepository(root, { values = [], interacti
    *
    * `readActiveWorkspaceContext` answers "which workspace is selected on this machine", which is a
    * different question and the wrong one: a workspace selected elsewhere must not govern a
-   * repository that is not part of it. `workspaceContextForRepository` returns a context only when
-   * the selection actually names this root.
+   * repository that is not part of it. `workspaceMemberContextForRepository` proves membership by
+   * canonical path or Git common-directory identity without requiring this member to be selected.
    */
-  const context = await workspaceContextForRepository(
-    root, activeWorkspaceFile(), workspaceRegistryFile()
-  ).catch(() => null);
+  const context = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  );
   if (!context) {
     if (values.length) {
       throw new SingularityFlowError(
@@ -719,7 +892,13 @@ export async function capabilityBaseForRepository(root, { values = [], interacti
   // than reading every remote in the capability to answer a question nobody posed.
   if (!values.length && !interactive) return null;
 
-  const workspace = await readWorkspace(context.workspacePath);
+  const workspace = context.workspace;
+  if (!workspace) {
+    throw new SingularityFlowError(
+      'The workspace capability plan is not bound to a validated manifest snapshot.',
+      { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+    );
+  }
   const plan = await planCapabilityBase(workspace, capability, {}, { values, interactive });
   return {
     capability,

@@ -5,7 +5,7 @@ import { loadDefinition } from './config.mjs';
 import { ledgerStatus } from './ledger.mjs';
 import { renderCapabilityWorldModelPack, resolveLifecycleCapability } from './capability-context.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { run, snapshot } from './util.mjs';
+import { run, secureRepositoryPath, snapshot } from './util.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { initiativeRelative } from './state-stores.mjs';
 
@@ -63,7 +63,13 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
   }
 
   if (capability) {
-    const localMap = await snapshot(path.join(root, capability.map.path));
+    // A read-only authority overlay keeps application Git operations on `root` while redirecting
+    // governed configuration paths to the verified snapshot. Compare the same selected bytes that
+    // capability resolution parsed, not a stale branch-local map beneath the overlay.
+    const mapPath = await secureRepositoryPath(root, capability.map.path, {
+      label: 'Capability map', type: 'file'
+    });
+    const localMap = mapPath.exists ? await snapshot(mapPath.absolute) : { exists: false };
     if (localMap.exists) {
       checks.push(localMap.sha256 === capability.map.sha256
         ? check('map-pin', 'pass', 'Capability map hash matches the lifecycle binding.')

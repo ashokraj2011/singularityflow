@@ -10,7 +10,8 @@ import { BUILD_INFO } from './build-info.mjs';
 import {
   canonicalConfigurationAssets, configurationAssetPaths, CONFIGURATION_BRANCH,
   configurationAssetPolicyFromDirectory, configurationAssetPolicyFromRef,
-  ensureConfigurationBranch, isConfigurationAsset
+  ensureConfigurationBranch, isConfigurationAsset, retainStateConfigurationHistory,
+  stateConfigurationHistoryBranch
 } from './configuration-branch.mjs';
 import {
   configurationAssetSearchRoots, mergeConfigurationAssetPolicies
@@ -1404,6 +1405,9 @@ function observeStateProjection(root, desired, sourceCommit, product, {
     && manifest?.layout === 'canonical-paths'
     && manifest?.source?.branch === CONFIGURATION_BRANCH
     && manifest?.source?.commit === sourceCommit
+    && equal(manifest?.history ?? null, {
+      branch: stateConfigurationHistoryBranch(sourceCommit), commit: sourceCommit
+    })
     && manifest?.product?.revision === product.revision
     && equal(manifest?.files ?? {}, desired.hashes)
     && equal(manifest?.assets ?? {}, desired.assets);
@@ -1716,10 +1720,14 @@ async function publishCandidate(candidate) {
     stateCommit: candidate.stateBefore.stateCommit, env
   });
   const mirrored = { ...projection.files };
+  const history = await retainStateConfigurationHistory(
+    root, projection.stateConfig.remote, approvedCommit, { env }
+  );
   const manifest = {
     format: MIRROR_FORMAT,
     layout: 'canonical-paths',
     source: { branch: CONFIGURATION_BRANCH, commit: approvedCommit },
+    history,
     product: refresh.product,
     files: projection.hashes,
     assets: projection.assets

@@ -84,6 +84,20 @@ test('a selected workspace aggregates repository help under the workspace direct
   const root = path.join(workspace, 'repos', 'application');
   await mkdir(root, { recursive: true });
   run('git', ['init', '-q'], { cwd: root });
+  run('git', ['remote', 'add', 'origin', 'https://example.invalid/application.git'], {
+    cwd: root
+  });
+  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
+    version: 1, id: 'help-workspace', name: 'Help workspace',
+    anchor: { provider: 'workspace', key: 'help-workspace', title: 'Help workspace' },
+    leadRepository: 'application',
+    repositories: {
+      application: {
+        url: 'https://example.invalid/application.git', path: 'repos/application',
+        defaultBranch: 'main'
+      }
+    }
+  }, null, 2)}\n`);
   await writeFile(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, `${JSON.stringify({
     schemaVersion: currentSchemaVersion('active-workspace'),
     workspaceId: 'help-workspace', workspaceName: 'Help workspace', workspacePath: workspace,

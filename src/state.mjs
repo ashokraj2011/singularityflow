@@ -627,6 +627,7 @@ export async function saveWorkflow(root, config, workflow) {
 export async function createWorkflow(root, config, {
   id, title, source, baseBranch, baseCommit = null, baseRemote = null,
   canonicalBranch = id, workType, agent, resolved, capabilityId = null,
+  capabilityMapSha256 = null,
   executionOrigin = null
 } = {}) {
   validateId(config, id);
@@ -644,7 +645,13 @@ export async function createWorkflow(root, config, {
     required: selectedType === 'poc-workflow',
     label: 'POC target URL'
   });
-  const capability = await resolveLifecycleCapability(root, { capabilityId });
+  // The resolver compares the digest against the exact secure byte buffer it parses, before its
+  // capability-free early return. This keeps a vanished or collection-only replacement map from
+  // silently downgrading a preflighted delivery Story.
+  const capability = await resolveLifecycleCapability(root, {
+    capabilityId,
+    expectedMapSha256: capabilityMapSha256
+  });
   assertCapabilitySource(capability, source);
   const selectedResolution = resolved ?? resolveWorkType(config, selectedType);
   const resolution = applyCapabilityPolicyToWorkResolution(

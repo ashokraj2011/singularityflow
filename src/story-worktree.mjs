@@ -12,7 +12,9 @@ import path from 'node:path';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { gitCommonDir } from './git.mjs';
-import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
@@ -79,9 +81,9 @@ async function safeNewPath(root, candidate) {
 /** Resolve a deterministic machine-local path without writing into the source repository. */
 export async function storyWorktreePath(root, workId) {
   const id = portableId(workId);
-  const context = await workspaceContextForRepository(
-    root, activeWorkspaceFile(), workspaceRegistryFile()
-  ).catch(() => null);
+  const context = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  );
   if (context?.workspacePath && context?.repositoryId) {
     return path.join(context.workspacePath, '.singularity-flow', 'story-worktrees', id, 'repos', context.repositoryId);
   }

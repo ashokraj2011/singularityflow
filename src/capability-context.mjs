@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, mkdir, open, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -8,11 +9,17 @@ import {
   capabilityDeliveries,
   capabilityForRepository,
   capabilityPath,
-  loadCapabilities,
   resolveEffectiveCapabilityPolicy,
-  resolveCapabilitySourceScope
+  resolveCapabilitySourceScope,
+  validateCapabilities
 } from './capabilities.mjs';
 import { loadDefinition } from './config.mjs';
+import {
+  CONFIGURATION_SOURCE_PATH, readConfigurationSource
+} from './configuration-branch.mjs';
+import {
+  configurationReadAuthority, configurationReadRoot
+} from './configuration-read-scope.mjs';
 import {
   normalizeWorldModelManifest,
   resolveWorldModelSource,
@@ -23,11 +30,24 @@ import {
 } from './grounding.mjs';
 import { ledgerLog } from './ledger.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
-import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
-import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
-import { posix, run, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
+import { workspaceRepositoryPath } from './workspace.mjs';
+import {
+  posix, run, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText
+} from './util.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
+let capabilityMapReadObserverForTests = null;
+
+/** @internal Test-only hook for exercising path replacement at the descriptor boundary. */
+export function setCapabilityMapReadObserverForTests(observer = null) {
+  if (observer !== null && typeof observer !== 'function') {
+    throw new TypeError('Capability map read observer must be a function or null.');
+  }
+  capabilityMapReadObserverForTests = observer;
+}
 
 function unique(values) { return [...new Set(values.filter(Boolean))]; }
 
@@ -70,11 +90,12 @@ function tightenStorage(storage, policy = {}) {
 }
 
 async function sourceForRepository(root) {
-  const active = await workspaceContextForRepository(
+  const active = await workspaceMemberContextForRepository(
     root,
     activeWorkspaceFile(),
-    workspaceRegistryFile()
-  ).catch(() => null);
+    workspaceRegistryFile(),
+    { strict: true }
+  );
   if (!active) {
     let repositoryId = null;
     const portfolioPath = path.join(root, 'singularity/portfolio.yml');
@@ -91,7 +112,13 @@ async function sourceForRepository(root) {
     }
     return { active: null, workspace: null, mapRoot: root, repositoryId };
   }
-  const workspace = await readWorkspace(active.workspacePath);
+  const workspace = active.workspace;
+  if (!workspace) {
+    throw new SingularityFlowError(
+      'The active workspace member was not bound to a validated workspace manifest snapshot.',
+      { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+    );
+  }
   const lead = workspace.repositories[workspace.leadRepository];
   return {
     active,
@@ -113,39 +140,210 @@ function soleDelivery(definition) {
 }
 
 /**
+ * Retain one exact capability-map byte sequence for parsing, validation, and provenance.
+ *
+ * Returning null is reserved for a map that is genuinely absent at the secure path check. A map
+ * that disappears after that check, is unsafe, cannot be parsed, or violates the capability schema
+ * is an authority failure and must propagate to the caller.
+ */
+export function validateCapabilityMapBytes(value) {
+  const bytes = Buffer.from(value);
+  const definition = validateCapabilities(YAML.parse(bytes.toString('utf8')));
+  return {
+    definition,
+    snapshot: {
+      exists: true,
+      size: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex')
+    }
+  };
+}
+
+export function validateConfigurationSnapshotCapabilities(snapshot, { capabilityId = null } = {}) {
+  if (!snapshot) return null;
+  const asset = snapshot.assets?.find((entry) => entry.relative === CAPABILITIES_PATH) ?? null;
+  if (!asset) {
+    if (capabilityId) {
+      throw new SingularityFlowError(
+        `No ${CAPABILITIES_PATH} is available in the approved configuration snapshot.`);
+    }
+    return { definition: null, capabilityId: null, mapSha256: null };
+  }
+  const retained = validateCapabilityMapBytes(asset.contents);
+  if (asset.sha256 && retained.snapshot.sha256 !== asset.sha256) {
+    throw new SingularityFlowError(
+      `Verified Story configuration snapshot changed in memory: ${CAPABILITIES_PATH}.`,
+      { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+    );
+  }
+  if (capabilityId && !retained.definition.capabilities[capabilityId]) {
+    throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`, {
+      code: 'CAPABILITY_UNKNOWN',
+      details: {
+        capabilityId,
+        mapPath: CAPABILITIES_PATH,
+        mapSha256: retained.snapshot.sha256,
+        authority: 'approved-configuration-snapshot'
+      }
+    });
+  }
+  return {
+    definition: retained.definition,
+    capabilityId: capabilityId ?? soleDelivery(retained.definition),
+    mapSha256: retained.snapshot.sha256
+  };
+}
+
+async function readRetainedCapabilityMap(root) {
+  const located = await secureRepositoryPath(root, CAPABILITIES_PATH, {
+    label: 'Capability map', type: 'file'
+  });
+  if (!located.exists) return null;
+  await capabilityMapReadObserverForTests?.({ stage: 'located', path: located.absolute });
+  let handle;
+  try {
+    // `secureRepositoryPath` proves every path component, then this descriptor freezes the exact
+    // file used for both policy parsing and provenance. O_NOFOLLOW closes the replacement window
+    // on platforms that expose it; the descriptor/path identity comparison also fails closed on
+    // platforms where that flag is unavailable or a filesystem implements links as reparse points.
+    handle = await open(
+      located.absolute,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+    );
+    await capabilityMapReadObserverForTests?.({ stage: 'opened', path: located.absolute });
+    const [opened, current] = await Promise.all([
+      handle.stat(),
+      lstat(located.absolute)
+    ]);
+    if (!opened.isFile() || !current.isFile() || current.isSymbolicLink()
+        || opened.dev !== located.entry.dev || opened.ino !== located.entry.ino
+        || opened.dev !== current.dev || opened.ino !== current.ino) {
+      throw new SingularityFlowError(
+        `Capability map changed while it was being retained: ${CAPABILITIES_PATH}. Refresh approved configuration and retry; nothing was changed.`,
+        {
+          code: 'CAPABILITY_MAP_UNSAFE',
+          details: { path: CAPABILITIES_PATH, reason: 'descriptor-identity-changed' }
+        }
+      );
+    }
+    return validateCapabilityMapBytes(await handle.readFile());
+  } catch (error) {
+    if (error instanceof SingularityFlowError) throw error;
+    if (['ELOOP', 'ENOENT', 'ENOTDIR'].includes(error?.code)) {
+      throw new SingularityFlowError(
+        `Capability map changed while it was being retained: ${CAPABILITIES_PATH}. Refresh approved configuration and retry; nothing was changed.`,
+        {
+          code: 'CAPABILITY_MAP_UNSAFE',
+          details: { path: CAPABILITIES_PATH, reason: error.code.toLowerCase() }
+        }
+      );
+    }
+    throw error;
+  } finally {
+    await handle?.close();
+  }
+}
+
+/**
  * Resolve the organisational capability that owns the current repository.
  *
  * The map is read from the active workspace's lead repository when this is a participant clone;
  * otherwise the repository's own map is used. The returned value is safe to commit: it contains
  * hashes and repository identifiers, never machine-specific absolute paths.
  */
-export async function resolveLifecycleCapability(root, { capabilityId = null, required = false, offline = false } = {}) {
+export async function resolveLifecycleCapability(root, {
+  capabilityId = null,
+  required = false,
+  offline = false,
+  expectedMapSha256 = null
+} = {}) {
   const source = await sourceForRepository(root);
-  let mapRoot = source.mapRoot;
-  let definition = await loadCapabilities(mapRoot).catch(() => null);
-  if (!definition && mapRoot !== root) {
-    mapRoot = root;
-    definition = await loadCapabilities(root).catch(() => null);
+  const applicationRoot = path.resolve(root);
+  const scopedConfigurationRoot = configurationReadRoot(root);
+  const hasApprovedReadScope = path.resolve(scopedConfigurationRoot) !== applicationRoot;
+  const approvedReadAuthority = configurationReadAuthority(root);
+  const hasPinnedConfiguration = existsSync(path.join(root, CONFIGURATION_SOURCE_PATH));
+  let pinnedConfiguration = null;
+  if (hasPinnedConfiguration && !hasApprovedReadScope) {
+    // A lifecycle branch carries the exact approved configuration it was created with. Verify the
+    // complete pin before trusting any one file from it; falling back to the mutable workspace
+    // checkout when this record is corrupt would silently replace pinned policy with unrelated
+    // branch-local bytes.
+    pinnedConfiguration = await readConfigurationSource(root, { verify: true });
   }
-  if (!definition) {
+  // The active workspace identifies repository ownership, not configuration authority. During an
+  // isolated Story start its canonical checkout may be on an application branch with an old or
+  // generic map, while `root` already contains the exact approved snapshot. An approved read scope
+  // has the same rule: the secure capability-map read is deliberately redirected to its verified
+  // overlay. Parsing and provenance hashing share one retained byte buffer, so an authority change
+  // cannot produce policy from one version and a receipt for another.
+  let mapRoot = hasPinnedConfiguration || hasApprovedReadScope ? root : source.mapRoot;
+  let loadedMap = await readRetainedCapabilityMap(mapRoot);
+  if (!loadedMap && mapRoot !== root) {
+    mapRoot = root;
+    loadedMap = await readRetainedCapabilityMap(root);
+  }
+  if (!loadedMap) {
+    if (expectedMapSha256) {
+      throw new SingularityFlowError(
+        `Capability authority changed between Story preflight and creation: expected ${expectedMapSha256}, resolved no map. Refresh Story intake and retry; nothing was changed.`, {
+          code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+          details: {
+            capabilityId,
+            expectedMapSha256,
+            actualMapSha256: null
+          }
+        }
+      );
+    }
     if (required || capabilityId) throw new SingularityFlowError(`No ${CAPABILITIES_PATH} is available for this repository or its active workspace.`);
     return null;
   }
 
+  const { definition, snapshot: mapSnapshot } = loadedMap;
   let selected = capabilityId;
-  if (selected && !definition.capabilities[selected]) {
-    throw new SingularityFlowError(`Unknown capability '${selected}'.`, { code: 'CAPABILITY_UNKNOWN' });
-  }
   if (!selected && source.repositoryId) selected = capabilityForRepository(definition, source.repositoryId)?.id ?? null;
   if (!selected && source.workspace?.capabilities?.length === 1) selected = source.workspace.capabilities[0];
   if (!selected) selected = soleDelivery(definition);
+  // Compare the identity of the same retained bytes used for parsing before any early capability-free
+  // return. A map that disappeared, became collection-only, or stopped mapping this repository must
+  // not turn a preflighted delivery Story into an ungoverned Story merely because resolution now
+  // returns null.
+  if (expectedMapSha256 && mapSnapshot.sha256 !== expectedMapSha256) {
+    throw new SingularityFlowError(
+      `Capability authority changed between Story preflight and creation: expected ${expectedMapSha256}, resolved ${mapSnapshot.sha256}. Refresh Story intake and retry; nothing was changed.`, {
+        code: 'STORY_CONFIGURATION_AUTHORITY_STALE',
+        details: {
+          capabilityId: capabilityId ?? selected ?? null,
+          expectedMapSha256,
+          actualMapSha256: mapSnapshot.sha256
+        }
+      }
+    );
+  }
   if (!selected) {
     if (required) throw new SingularityFlowError('This repository maps to more than one capability. Pass --capability <id>.');
     return null;
   }
+  // Validate after every derivation path. Previously only an explicit --capability value was
+  // checked; a workspace-derived ID reached policy folding and produced a late, context-free
+  // "Unknown capability" failure.
+  if (!definition.capabilities[selected]) {
+    throw new SingularityFlowError(
+      `Unknown capability '${selected}'.`, {
+        code: 'CAPABILITY_UNKNOWN',
+        details: {
+          capabilityId: selected,
+          mapPath: CAPABILITIES_PATH,
+          mapSha256: mapSnapshot.sha256 ?? null,
+          authority: hasApprovedReadScope && approvedReadAuthority
+            ? 'approved-configuration'
+            : hasPinnedConfiguration ? 'pinned-story-configuration' : 'working-tree'
+        }
+      }
+    );
+  }
 
-  const mapFile = path.join(mapRoot, CAPABILITIES_PATH);
-  const mapSnapshot = await snapshot(mapFile);
   const config = await loadDefinition(mapRoot).catch(() => null);
   let entries = [];
   let leaseWarning = null;
@@ -157,6 +355,38 @@ export async function resolveLifecycleCapability(root, { capabilityId = null, re
   }
   const effective = resolveEffectiveCapabilityPolicy(definition, selected, entries);
   const node = definition.capabilities[selected];
+  // An explicit approved read overlay describes current configuration for new-work surfaces such
+  // as Auto planning. Its bytes and provenance must move together even when the launch checkout is
+  // an older pinned Story. Ordinary lifecycle calls have no overlay and continue to use the pin.
+  const authorityProvenance = hasApprovedReadScope && approvedReadAuthority
+    ? {
+        // The approved reader freezes this credential-free identity when it selects the ref.
+        // Do not reconstruct provenance later from mutable local Git configuration.
+        repository: approvedReadAuthority.remote ?? null,
+        branch: approvedReadAuthority.manifest?.source?.branch
+          ?? (String(approvedReadAuthority.ref ?? '').endsWith('/state') ? 'state' : 'sflow/config'),
+        commit: approvedReadAuthority.manifest?.source?.commit ?? approvedReadAuthority.commit ?? null,
+        authority: 'approved-configuration'
+      }
+    : pinnedConfiguration
+    ? {
+        repository: pinnedConfiguration.repository,
+        branch: pinnedConfiguration.branch,
+        commit: pinnedConfiguration.commit,
+        authority: 'pinned-story-configuration'
+      }
+    : {
+          repository: run('git', ['config', '--get', 'remote.origin.url'], {
+            cwd: mapRoot, allowFailure: true
+          }).stdout.trim() || null,
+          branch: run('git', ['branch', '--show-current'], {
+            cwd: mapRoot, allowFailure: true
+          }).stdout.trim() || null,
+          commit: run('git', ['rev-parse', '--verify', 'HEAD'], {
+            cwd: mapRoot, allowFailure: true
+          }).stdout.trim() || null,
+          authority: 'working-tree'
+      };
   return {
     schemaVersion: 1,
     id: selected,
@@ -168,8 +398,7 @@ export async function resolveLifecycleCapability(root, { capabilityId = null, re
     map: {
       path: CAPABILITIES_PATH,
       sha256: mapSnapshot.sha256,
-      repository: run('git', ['config', '--get', 'remote.origin.url'], { cwd: mapRoot, allowFailure: true }).stdout.trim() || null,
-      branch: run('git', ['branch', '--show-current'], { cwd: mapRoot, allowFailure: true }).stdout.trim() || null
+      ...authorityProvenance
     },
     basePolicy: effective.basePolicy,
     policy: effective.policy,

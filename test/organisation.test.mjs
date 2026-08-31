@@ -29,6 +29,7 @@ import {
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+import { readConfigurationSource } from '../src/configuration-branch.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -73,6 +74,47 @@ async function mapAndMerge(remote, options) {
   const proposal = await mapCapability(remote, options);
   await mergeProposal(remote, proposal);
   return proposal;
+}
+
+async function startPinnedCapabilityStory(org, workId) {
+  const workspacePath = path.join(org.base, `workspace-${workId.toLowerCase()}`);
+  const checkout = path.join(workspacePath, 'repos', 'platform');
+  await mkdir(path.dirname(checkout), { recursive: true });
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, checkout], { cwd: org.base });
+  run('git', ['config', 'user.email', 'story@example.com'], { cwd: checkout });
+  run('git', ['config', 'user.name', 'Story Author'], { cwd: checkout });
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const env = {
+    ...process.env,
+    NO_COLOR: '1',
+    SINGULARITY_FLOW_TEST_IDENTITY: 'Story Author',
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(org.base, `${workId}-active-workspace.json`),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(org.base, `${workId}-workspaces.json`),
+    SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base)
+  };
+  const output = execFileSync(process.execPath, [
+    cli, 'start', workId, '--json', '--from-branch', 'main', '--work-type', 'quick-fix',
+    '--capability', 'piassistnat', '--title', 'Exercise pinned capability provenance',
+    '--description', 'Keep the exact approved capability authority bound to this Story.'
+  ], { cwd: checkout, encoding: 'utf8', env });
+  JSON.parse(output);
+  return {
+    checkout,
+    workspace: {
+      id: `workspace-${workId.toLowerCase()}`,
+      name: `Workspace ${workId}`,
+      path: workspacePath,
+      leadRepository: 'platform',
+      capabilityAuthority: { url: org.platform },
+      capabilities: ['piassistnat'],
+      repositories: {
+        platform: {
+          id: 'platform', url: org.platform, path: 'repos/platform', capabilities: ['piassistnat']
+        }
+      }
+    },
+    workflowFile: path.join(checkout, 'singularity/work-items', workId, 'workflow.json')
+  };
 }
 
 function proposalRefs(remote) {
@@ -1270,6 +1312,171 @@ test('capability fsck detects machine workspace bindings absent from approved co
   assert.match(binding.remediation, /capability map/);
   assert.deepEqual(binding.details.unknown, ['missing-office-capability']);
   assert.ok(binding.details.alternatives.some((entry) => /workspace update/.test(entry)));
+});
+
+test('capability fsck detects an unpinned canonical map that diverges from approved configuration', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'piassistnat', name: 'PI Assistant Native', kind: 'delivery',
+    repositoryUrl: org.platform
+  });
+
+  const workspacePath = path.join(org.base, 'office-workspace');
+  const checkout = path.join(workspacePath, 'repos', 'platform');
+  await mkdir(path.dirname(checkout), { recursive: true });
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, checkout], { cwd: org.base });
+  await mkdir(path.join(checkout, 'singularity'), { recursive: true });
+  await writeFile(path.join(checkout, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      enterprise: { kind: 'collection', parent: null, policy: {} },
+      product: { kind: 'collection', parent: 'enterprise', policy: {} }
+    }
+  }));
+
+  const fsck = await capabilityFsck(org.platform, {
+    workspaces: [{
+      id: 'office-work',
+      name: 'Office work',
+      path: workspacePath,
+      leadRepository: 'platform',
+      capabilityAuthority: { url: org.platform },
+      capabilities: ['piassistnat'],
+      repositories: {
+        platform: {
+          id: 'platform', url: org.platform, path: 'repos/platform',
+          capabilities: ['piassistnat']
+        }
+      }
+    }]
+  });
+
+  assert.equal(fsck.valid, false);
+  const divergence = fsck.checks.find((entry) =>
+    entry.id === 'workspace:office-work:canonical-capability-map');
+  assert.equal(divergence.status, 'fail');
+  assert.match(divergence.summary, /diverges from approved 'sflow\/config'/);
+  assert.deepEqual(divergence.details.localCapabilities, ['enterprise', 'product']);
+  assert.ok(divergence.details.approvedCapabilities.includes('piassistnat'));
+  assert.match(divergence.details.note, /runtime ignores this unproven local map/i);
+  assert.match(divergence.remediation, /normal source control/);
+  assert.match(divergence.remediation, /No automatic deletion is performed/);
+  assert.doesNotMatch(divergence.remediation, /refresh-configuration/,
+    'configuration refresh cannot remove an application-branch shadow map');
+});
+
+test('capability fsck accepts an older pinned Story map only when its workflow binds the same authority', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'piassistnat', name: 'PI Assistant Native', kind: 'delivery',
+    repositoryUrl: org.platform
+  });
+  const story = await startPinnedCapabilityStory(org, 'PINNED-CAP-1');
+  const pinned = await readConfigurationSource(story.checkout, { verify: true });
+  const workflow = JSON.parse(await readFile(story.workflowFile, 'utf8'));
+  assert.equal(pinned.repository, org.platform);
+  assert.equal(workflow.workItem.branch, 'PINNED-CAP-1');
+  assert.equal(workflow.lineage.canonicalBranch, 'PINNED-CAP-1');
+  assert.equal(workflow.resolution.configurationSource.repository, pinned.repository);
+  assert.equal(workflow.resolution.configurationSource.commit, pinned.commit);
+  assert.equal(workflow.resolution.configurationSource.filesSha256, pinned.filesSha256);
+
+  // Advance approved policy after the Story started. The older exact Story snapshot remains a
+  // valid intentional pin; it must not be reported as application-branch divergence.
+  await mapAndMerge(org.platform, {
+    capabilityId: 'later-policy', name: 'Later policy', kind: 'collection'
+  });
+  const fsck = await capabilityFsck(org.platform, { workspaces: [story.workspace] });
+  const canonical = fsck.checks.find((entry) =>
+    entry.id === `workspace:${story.workspace.id}:canonical-capability-map`);
+  assert.equal(canonical.status, 'info');
+  assert.equal(canonical.branch, 'PINNED-CAP-1');
+  assert.equal(canonical.commit, pinned.commit);
+  assert.match(canonical.summary, /older Story snapshot is intentional/);
+  assert.doesNotMatch(canonical.summary, /diverge/i);
+});
+
+test('capability fsck rejects a self-consistent configuration-source copied without Story binding', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'piassistnat', name: 'PI Assistant Native', kind: 'delivery',
+    repositoryUrl: org.platform
+  });
+  const story = await startPinnedCapabilityStory(org, 'UNBOUND-CAP-1');
+  const pinned = await readConfigurationSource(story.checkout, { verify: true });
+  assert.match(pinned.filesSha256, /^[0-9a-f]{64}$/,
+    'the copied source record and every configuration asset verify before Story binding is checked');
+  const workflow = JSON.parse(await readFile(story.workflowFile, 'utf8'));
+  workflow.resolution.configurationSource = {
+    ...workflow.resolution.configurationSource,
+    commit: '0'.repeat(40)
+  };
+  await writeFile(story.workflowFile, `${JSON.stringify(workflow, null, 2)}\n`);
+  const stillSelfConsistent = await readConfigurationSource(story.checkout, { verify: true });
+  assert.equal(stillSelfConsistent.filesSha256, pinned.filesSha256);
+
+  const fsck = await capabilityFsck(org.platform, { workspaces: [story.workspace] });
+  const canonical = fsck.checks.find((entry) =>
+    entry.id === `workspace:${story.workspace.id}:canonical-capability-map`);
+  assert.equal(canonical.status, 'fail');
+  assert.match(canonical.summary, /not bound to this branch's governed Story resolution/);
+  assert.match(canonical.remediation, /workspace refresh-configuration/);
+});
+
+test('capability fsck warns without inventing unknown bindings or divergence when authority is unavailable', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
+  await mapAndMerge(org.platform, {
+    capabilityId: 'piassistnat', name: 'PI Assistant Native', kind: 'delivery',
+    repositoryUrl: org.platform
+  });
+  const current = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(current.stale, false);
+
+  const workspacePath = path.join(org.base, 'offline-office-workspace');
+  const checkout = path.join(workspacePath, 'repos', 'platform');
+  await mkdir(path.dirname(checkout), { recursive: true });
+  run('git', ['clone', '-q', '--branch', 'main', org.platform, checkout], { cwd: org.base });
+  await mkdir(path.join(checkout, 'singularity'), { recursive: true });
+  await writeFile(path.join(checkout, 'singularity/capabilities.yml'), YAML.stringify({
+    version: 1,
+    capabilities: {
+      enterprise: { kind: 'collection', parent: null, policy: {} }
+    }
+  }));
+  const workspace = {
+    id: 'offline-office', name: 'Offline office', path: workspacePath,
+    leadRepository: 'platform', capabilityAuthority: { url: org.platform },
+    capabilities: ['new-office-capability'],
+    repositories: {
+      platform: {
+        id: 'platform', url: org.platform, path: 'repos/platform',
+        capabilities: ['new-office-capability']
+      }
+    }
+  };
+  await rename(org.platform, `${org.platform}.offline`);
+  const stale = await readOrganisation(org.platform, { refresh: true });
+  assert.equal(stale.stale, true);
+
+  const fsck = await capabilityFsck(org.platform, { workspaces: [workspace] });
+  const approved = fsck.checks.find((entry) => entry.id === 'approved-capability-map');
+  const binding = fsck.checks.find((entry) =>
+    entry.id === 'workspace:offline-office:capability-binding');
+  const canonical = fsck.checks.find((entry) =>
+    entry.id === 'workspace:offline-office:canonical-capability-map');
+  assert.equal(approved.status, 'warn');
+  assert.match(approved.summary, /previously validated capability map/);
+  assert.equal(binding.status, 'warn');
+  assert.match(binding.summary, /could not be compared/);
+  assert.doesNotMatch(binding.summary, /absent|unknown/i);
+  assert.equal(canonical.status, 'warn');
+  assert.match(canonical.summary, /was not compared/);
+  assert.match(canonical.summary, /no divergence conclusion was inferred/);
 });
 
 test('mapping succeeds against a protected default branch and preserves existing singularity files', async () => {

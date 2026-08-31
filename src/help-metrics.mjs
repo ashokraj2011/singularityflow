@@ -5,7 +5,9 @@ import {
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 
-import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
 import { gitDir } from './git.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
@@ -64,8 +66,8 @@ async function withLock(directory, callback) {
 }
 
 async function location(root) {
-  const workspace = await workspaceContextForRepository(
-    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  const workspace = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile()
   );
   const directory = workspace
     ? path.join(workspace.workspacePath, '.singularity-flow', DIRECTORY)

@@ -23,7 +23,10 @@ import YAML from 'yaml';
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
+import { CAPABILITIES_PATH } from '../capabilities.mjs';
+import { resolveLifecycleCapability } from '../capability-context.mjs';
 import { resolveWorkType } from '../config.mjs';
+import { readConfigurationSource } from '../configuration-branch.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
 import { advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection, serializeConvergence } from '../convergence.mjs';
 import { assertClean, branch, changedFiles, changes, checkout, commit, identity, refHead, repoRoot } from '../git.mjs';
@@ -62,7 +65,9 @@ async function router() {
 
 export async function storyInboxCommand(options) {
   const root = repoRoot();
-  const portfolio = await withApprovedConfigurationRead(root, () => loadPortfolio(root));
+  const portfolio = await withApprovedConfigurationRead(root, () => loadPortfolio(root), {
+    preferAuthority: true
+  });
   if (!portfolio.jira?.enabled) {
     throw new SingularityFlowError('Story inbox requires the workspace Jira connection configured in singularity/portfolio.yml.');
   }
@@ -142,6 +147,38 @@ async function verifyFetchedStoryContext(target, storyKey, property) {
   return seed;
 }
 
+/**
+ * Bind Jira attachment to the exact capability catalog already carried by the fetched branch.
+ *
+ * A current Story pin wins over machine-local workspace configuration. Legacy branches without a
+ * pin retain their prior optional capability behavior, but a selected or sole-delivery capability
+ * still contributes its retained map digest so workflow creation can detect later drift.
+ */
+export async function preflightFetchedStoryCapability(target, { capabilityId = null } = {}) {
+  const pinned = await readConfigurationSource(target, { verify: true });
+  const pinnedMapSha256 = pinned?.files?.[CAPABILITIES_PATH]
+    ?? pinned?.assets?.[CAPABILITIES_PATH]?.sha256
+    ?? null;
+  const capability = await resolveLifecycleCapability(target, {
+    capabilityId,
+    required: Boolean(capabilityId),
+    offline: true,
+    expectedMapSha256: pinnedMapSha256
+  });
+  return {
+    capabilityId: capabilityId ?? capability?.id ?? null,
+    capabilityMapSha256: pinnedMapSha256 ?? capability?.map?.sha256 ?? null,
+    authority: pinned
+      ? {
+          repository: pinned.repository,
+          branch: pinned.branch,
+          commit: pinned.commit,
+          filesSha256: pinned.filesSha256
+        }
+      : null
+  };
+}
+
 export async function storyFetchCommand(positionals, options) {
   const leadRoot = repoRoot();
   const storyKey = requirePositional(positionals, 2, 'Jira Story key').toUpperCase();
@@ -149,7 +186,9 @@ export async function storyFetchCommand(positionals, options) {
   // Fetch starts on an application branch, which deliberately may not carry shared configuration.
   // Read and release the approved overlay before checkout so the fetched Story's pinned snapshot,
   // not a temporary latest-policy overlay, owns every lifecycle operation after attachment.
-  const portfolio = await withApprovedConfigurationRead(leadRoot, () => loadPortfolio(leadRoot));
+  const portfolio = await withApprovedConfigurationRead(leadRoot, () => loadPortfolio(leadRoot), {
+    preferAuthority: true
+  });
   const issue = await getIssue(storyKey);
   const storedProperty = await getIssueProperty(storyKey, STORY_LINEAGE_PROPERTY);
   if (!storedProperty) {
@@ -225,15 +264,19 @@ export async function storyFetchCommand(positionals, options) {
       { code: 'STORY_BRANCH_STALE' }
     );
   }
+  const seed = await verifyFetchedStoryContext(target, storyKey, property);
+  const capabilityPreflight = await preflightFetchedStoryCapability(target, {
+    capabilityId: optionString(options, 'capability') ?? capabilityBase?.capability ?? null
+  });
   if (capabilityBase) {
-    // After the delivery repository, for the same reason `start` does it in this order: if the Story
-    // cannot be fetched here there is no reason to have moved its siblings.
+    // Validate the seed and exact pinned capability catalog after fetching the delivery branch but
+    // before moving any sibling repository. An unknown/stale workspace ID therefore cannot leave a
+    // partially attached multi-repository Story behind.
     const prepared = prepareCapabilityRepositories(
       capabilityBase.workspaceRoot, capabilityBase.plan, storyKey
     );
     if (!optionBoolean(options, 'json')) printCapabilityBase(capabilityBase.plan, prepared);
   }
-  const seed = await verifyFetchedStoryContext(target, storyKey, property);
 
   const config = await loadConfig(target);
   let workflow;
@@ -266,7 +309,10 @@ export async function storyFetchCommand(positionals, options) {
       workType,
       agent: agent.agent,
       resolved: resolvedWorkType,
-      capabilityId: optionString(options, 'capability')
+      // Keep both the selected/inferred ID and the exact retained map identity from the preflight
+      // which ran before sibling movement. Workflow creation refuses if either authority changed.
+      capabilityId: capabilityPreflight.capabilityId,
+      capabilityMapSha256: capabilityPreflight.capabilityMapSha256
     });
     await commitAndPublish(
       target,

@@ -13,7 +13,8 @@ import {
   recordCopilotSession, setAgentSession, setNativeCopilotAgentSession, validAgentSession
 } from './session.mjs';
 import {
-  activeWorkspaceFile, workspaceContextForRepository, workspacePromptLabel, workspaceRegistryFile
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspacePromptLabel,
+  workspaceRegistryFile
 } from './workspace-context.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
@@ -113,7 +114,9 @@ export async function copilotAgentStartHook(root, payload = {}) {
 
 export async function sessionStartAgentHook(root, definition, workflow, payload = {}) {
   const log = repositoryLogger(root, definition, { context: { hook: 'session-start', sessionId: payload.sessionId ?? null } });
-  const workspace = await workspaceContextForRepository(root, activeWorkspaceFile(), workspaceRegistryFile());
+  const workspace = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile()
+  );
   const workspaceContext = workspace
     ? ` Active workspace: ${workspace.workspaceName}; repository: ${workspace.repositoryId}; context label: '${workspacePromptLabel(workspace)}'.`
     : '';

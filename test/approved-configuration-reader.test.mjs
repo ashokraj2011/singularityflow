@@ -36,8 +36,9 @@ async function listFiles(root, relative = '') {
   return files.sort();
 }
 
-async function stateMirrorFixture({ mismatchedDigestPath = null } = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-reader-'));
+async function stateMirrorFixture({ mismatchedDigestPath = null, root: requestedRoot = null } = {}) {
+  const root = requestedRoot ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-approved-reader-'));
+  if (requestedRoot) await mkdir(root, { recursive: true });
   run('git', ['init', '-q', '-b', 'main'], { cwd: root });
   run('git', ['config', 'user.name', 'Approved Reader Tester'], { cwd: root });
   run('git', ['config', 'user.email', 'approved-reader@example.test'], { cwd: root });
@@ -160,6 +161,130 @@ test('selected approved-configuration reads fail closed on repository escapes', 
     );
     assert.equal(callbackCalled, false, 'an invalid selection is rejected before mounting the read scope');
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('nested approved reads reuse one authority and enforce a narrower selected-path view', async () => {
+  const root = await stateMirrorFixture();
+  try {
+    // If the nested reader attempted another online authority observation this deliberately invalid
+    // remote would fail the test. The outer verified scope is the operation's one authority read.
+    run('git', ['remote', 'add', 'origin', path.join(root, 'missing-authority.git')], { cwd: root });
+    const result = await withApprovedConfigurationRead(root, async (outerAuthority) => {
+      assert.deepEqual(await listFiles(configurationReadRoot(root)), Object.keys(CONTENT).sort());
+      return withApprovedConfigurationRead(root, async (innerAuthority) => ({
+        outerAuthority,
+        innerAuthority,
+        files: await listFiles(configurationReadRoot(root))
+      }), {
+        preferAuthority: true,
+        selectPaths: SELECTED_PATHS
+      });
+    }, {
+      preferAuthority: true,
+      refreshAuthority: false
+    });
+    assert.equal(result.innerAuthority.commit, result.outerAuthority.commit);
+    assert.deepEqual(result.files, [...SELECTED_PATHS].sort(),
+      'a nested selected-path read must not see unrelated files from the outer full scope');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a positively absent workspace authority never falls through to a stale local configuration head', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-absent-authority-workspace-'));
+  const root = await stateMirrorFixture({ root: path.join(base, 'repos/application') });
+  const authority = path.join(base, 'empty-authority.git');
+  const selection = path.join(base, 'active-workspace.json');
+  const registry = path.join(base, 'workspaces.json');
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  try {
+    run('git', ['init', '--bare', '-q', authority], { cwd: base });
+    run('git', ['remote', 'add', 'origin', authority], { cwd: root });
+    const workspace = {
+      version: 1,
+      id: 'local--absent-authority',
+      name: 'Absent Authority',
+      anchor: { provider: 'workspace', siteId: 'local', key: 'absent-authority', title: 'Absent Authority' },
+      leadRepository: 'application',
+      capabilityAuthority: { url: authority },
+      repositories: {
+        application: {
+          id: 'application', url: authority, defaultBranch: 'main', required: true,
+          path: path.relative(base, root), capabilities: [],
+          clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
+        }
+      },
+      capabilities: [],
+      directories: { repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira' },
+      createdAt: '2026-08-31T00:00:00.000Z',
+      updatedAt: '2026-08-31T00:00:00.000Z'
+    };
+    await writeFile(path.join(base, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`);
+    await writeFile(selection, `${JSON.stringify({
+      schemaVersion: 1,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      workspacePath: base,
+      anchorKey: workspace.anchor.key,
+      repositoryId: 'application',
+      repositoryPath: root,
+      canonicalRepositoryPath: root,
+      checkoutPath: root,
+      repositoryState: 'ready',
+      branch: 'main',
+      capabilities: [],
+      repositoryCapabilities: [],
+      storyId: null,
+      selectedAt: '2026-08-31T00:00:00.000Z'
+    }, null, 2)}\n`);
+    await writeFile(registry, `${JSON.stringify({ schemaVersion: 1, workspaces: [] }, null, 2)}\n`);
+    process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = selection;
+    process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+
+    const selected = await withApprovedConfigurationRead(root, async (selectedAuthority) => selectedAuthority, {
+      preferAuthority: true,
+      refreshAuthority: true
+    });
+    assert.equal(selected, null,
+      'the stale local state head must not substitute for an explicitly configured authority that is absent');
+  } finally {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('an unreadable configured remote fails closed instead of selecting a stale local head', async () => {
+  const root = await stateMirrorFixture();
+  const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  try {
+    process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(root, 'no-active-workspace.json');
+    process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(root, 'no-workspace-registry.json');
+    run('git', ['remote', 'add', 'origin', path.join(root, 'authority.git')], { cwd: root });
+    run('git', ['config', '--unset-all', 'remote.origin.url'], { cwd: root, allowFailure: true });
+    await assert.rejects(
+      () => withApprovedConfigurationRead(root, () => null, {
+        preferAuthority: true,
+        refreshAuthority: true
+      }),
+      (error) => {
+        assert.match(error?.code ?? '', /^(?:STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE|REMOTE_)/,
+          error?.stack);
+        return true;
+      }
+    );
+  } finally {
+    if (previousSelection == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = previousSelection;
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
     await rm(root, { recursive: true, force: true });
   }
 });

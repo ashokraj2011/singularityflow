@@ -18,16 +18,22 @@ export function isConfigurationReadPath(value, policy = scopes.getStore()?.asset
 }
 
 export function withConfigurationReadRoot(applicationRoot, configurationRoot, authority, fn, {
-  assetPolicy = DEFAULT_CONFIGURATION_ASSET_POLICY
+  assetPolicy = DEFAULT_CONFIGURATION_ASSET_POLICY,
+  configurationSnapshot = null
 } = {}) {
-  const current = scopes.getStore();
-  if (current) return fn();
   return scopes.run({
     applicationRoot: path.resolve(applicationRoot),
     configurationRoot: path.resolve(configurationRoot),
     authority,
-    assetPolicy
+    assetPolicy,
+    configurationSnapshot
   }, fn);
+}
+
+/** Return the request-local approved-configuration scope for this application checkout. */
+export function configurationReadScope(root) {
+  const scope = scopes.getStore();
+  return scope && path.resolve(root) === scope.applicationRoot ? scope : null;
 }
 
 export function configurationReadRoot(root) {
@@ -44,4 +50,18 @@ export function configurationReadRootForPath(root, relative) {
 export function configurationReadAuthority(root) {
   const scope = scopes.getStore();
   return scope && path.resolve(root) === scope.applicationRoot ? scope.authority : null;
+}
+
+/**
+ * Return the exact verified configuration snapshot retained for this request, when available.
+ *
+ * Selected-path reads intentionally return null. Their private directory is a security boundary:
+ * exposing the parent snapshot would let a narrow verifier recover configuration files which the
+ * caller deliberately omitted from its view.
+ */
+export function configurationReadSnapshot(root) {
+  const scope = scopes.getStore();
+  return scope && path.resolve(root) === scope.applicationRoot
+    ? scope.configurationSnapshot ?? null
+    : null;
 }

@@ -16,7 +16,7 @@ import { gitCommonDir, gitDir } from './git.mjs';
 import { recordSha256 } from './records.mjs';
 import { localChangesFor } from './gateway/planners/work-continue.mjs';
 import {
-  activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
 import {
   exists, nowIso, run, SingularityFlowError, writeAtomic
@@ -503,7 +503,7 @@ export async function captureCommandOutcome({
   if (['failed', 'refused', 'blocked', 'cancelled'].includes(result?.outcome?.status)) {
     return { stored: false, reason: 'operation-not-successful' };
   }
-  const context = await workspaceContextForRepository(
+  const context = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(env, home), workspaceRegistryFile(env, home)
   );
   if (!context) return { stored: false, reason: 'repository-not-active' };

@@ -82,11 +82,30 @@ async function scenario() {
   const workspacePath = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-'));
   await mkdir(path.join(workspacePath, 'repos'), { recursive: true });
   await writeFile(path.join(workspacePath, 'workspace.json'), JSON.stringify({
-    schemaVersion: 1,
+    version: 1,
     id: 'selected',
     name: 'selected',
+    anchor: {
+      provider: 'workspace',
+      siteId: 'local',
+      key: 'selected',
+      title: 'selected'
+    },
     leadRepository: 'selected',
-    repositories: { selected: { path: path.relative(workspacePath, selected), url: 'https://example.invalid/selected.git' } }
+    repositories: {
+      selected: {
+        path: `repos/${path.basename(selected)}`,
+        adoption: {
+          mode: 'existing-clone',
+          canonicalPath: selected,
+          proofHash: `sha256:${'a'.repeat(64)}`,
+          reviewedAt: '2026-08-10T00:00:00.000Z'
+        },
+        url: 'https://example.invalid/selected.git',
+        capabilities: ['selected-capability']
+      }
+    },
+    capabilities: ['selected-capability']
   }, null, 2));
   await writeFile(env.SINGULARITY_FLOW_ACTIVE_WORKSPACE, JSON.stringify({
     schemaVersion: 1,

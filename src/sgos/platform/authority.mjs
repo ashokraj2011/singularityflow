@@ -1,6 +1,7 @@
 /** Runtime-owned authority for the experimental SGOS platform profile. */
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 import YAML from 'yaml';
@@ -11,7 +12,10 @@ import {
 import {
   configurationReadRoot, isConfigurationReadPath
 } from '../../configuration-read-scope.mjs';
+import { stateConfigurationHistoryBranch } from '../../configuration-branch.mjs';
 import { identity } from '../../git.mjs';
+import { runRemoteGit } from '../../git-execution.mjs';
+import { frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { SingularityFlowError, run } from '../../util.mjs';
 import { withTrustedSgosConfigurationRead } from '../authority-trust.mjs';
 import {
@@ -40,6 +44,8 @@ export const PLATFORM_MUTATION_AUTHORITIES = Object.freeze({
 
 const OPERATION_IDS = new Set(Object.keys(PLATFORM_MUTATION_AUTHORITIES));
 const AUTHORITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const GIT_OBJECT = /^[a-f0-9]{40,64}$/;
+const WORKFLOW_PATH = 'singularity/workflow.yml';
 
 function fail(message, code = 'SGOS_PLATFORM_AUTHORITY_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -103,6 +109,116 @@ async function assertApprovedConfigurationBoundary(root, approvedRoot) {
   if (divergent.length) {
     fail('SGOS platform mutation refuses protected configuration that is stale or differs from the exact approved configuration authority.',
       'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', { paths: divergent });
+  }
+}
+
+/**
+ * Read a historical workflow only from the object store that supplied the verified authority.
+ *
+ * An application repository can share history with configuration authority while still owning
+ * extra commits of its own. Asking that application object store to prove ancestry would let a
+ * B-only object participate in an A-authority decision. Remote authority objects are therefore
+ * fetched through the exact advertised branch that supplied it into a disposable bare store.
+ * State mirrors use a source-specific immutable history branch so deleting `sflow/config` cannot
+ * strand older approved policy. Offline local authority heads use their own object store directly.
+ */
+async function historicalAuthorityWorkflow(root, authority, sourceCommit, revision) {
+  let objectStore = root;
+  let temporary = null;
+  if (authority.remote) {
+    temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-platform-authority-'));
+    run('git', ['init', '--quiet', '--bare'], { cwd: temporary });
+    const transport = frozenRemoteTransport(authority.remote);
+    const retainedHistory = authority.kind === 'verified-state-mirror'
+      ? authority.manifest?.history ?? null : null;
+    const expectedHistoryBranch = stateConfigurationHistoryBranch(sourceCommit);
+    const namedBranch = authority.kind === 'approved-configuration-ref'
+      ? 'sflow/config'
+      : retainedHistory?.branch === expectedHistoryBranch
+          && retainedHistory?.commit === sourceCommit
+        ? retainedHistory.branch
+        : null;
+    // New state mirrors retain source history behind an immutable advertised branch. Existing v2
+    // mirrors predate that receipt; retain their legacy raw-object lookup only for compatibility,
+    // with a precise repair if the server refuses unadvertised wants or has collected the object.
+    const fetched = runRemoteGit(namedBranch ? [
+      'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
+      `+refs/heads/${namedBranch}:refs/sgos-authority/source`
+    ] : [
+      'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
+      `+${sourceCommit}:refs/sgos-authority/source`
+    ], {
+      cwd: temporary,
+      env: transport.env,
+      operation: 'remote-configuration'
+    });
+    if (fetched.status !== 0) {
+      await rm(temporary, { recursive: true, force: true });
+      fail(namedBranch
+        ? 'Pinned policy authorityRevision cannot be verified through its advertised configuration history ref.'
+        : 'This legacy state mirror does not retain advertised configuration history, and its source object is unavailable. Refresh workspace configuration to publish an immutable history ref, then retry.',
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+          policyAuthorityRevision: revision,
+          approvedConfigurationCommit: sourceCommit,
+          configurationHistoryBranch: namedBranch,
+          legacyStateMirror: authority.kind === 'verified-state-mirror' && namedBranch == null,
+          classification: fetched.failure?.classification ?? 'unknown'
+        });
+    }
+    objectStore = temporary;
+  } else if (authority.kind === 'verified-state-mirror' && authority.manifest?.history != null) {
+    const expectedHistoryBranch = stateConfigurationHistoryBranch(sourceCommit);
+    if (authority.manifest.history.branch !== expectedHistoryBranch
+        || authority.manifest.history.commit !== sourceCommit) {
+      fail('Verified state authority contains an invalid configuration history receipt.',
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+          approvedConfigurationCommit: sourceCommit
+        });
+    }
+    const retained = run('git', [
+      'rev-parse', '--verify', `refs/heads/${expectedHistoryBranch}^{commit}`
+    ], { cwd: root, allowFailure: true }).stdout.trim();
+    if (retained !== sourceCommit) {
+      fail('Verified local state authority is missing its retained configuration history ref.',
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+          approvedConfigurationCommit: sourceCommit,
+          configurationHistoryBranch: expectedHistoryBranch
+        });
+    }
+  }
+
+  try {
+    const retainedSource = run('git', [
+      'rev-parse', '--verify', authority.remote
+        ? 'refs/sgos-authority/source^{commit}' : `${sourceCommit}^{commit}`
+    ], { cwd: objectStore, allowFailure: true }).stdout.trim();
+    if (retainedSource !== sourceCommit) {
+      fail('The selected configuration authority object store does not contain its verified source commit.',
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+          policyAuthorityRevision: revision,
+          approvedConfigurationCommit: sourceCommit
+        });
+    }
+    const ancestry = run('git', [
+      'merge-base', '--is-ancestor', revision, sourceCommit
+    ], { cwd: objectStore, allowFailure: true });
+    if (ancestry.status !== 0) {
+      fail('Pinned policy authorityRevision is not an ancestor of the refreshed approved configuration.',
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
+          policyAuthorityRevision: revision,
+          approvedConfigurationCommit: sourceCommit
+        });
+    }
+    const pinned = run('git', [
+      'show', `${revision}:${WORKFLOW_PATH}`
+    ], { cwd: objectStore, allowFailure: true, encoding: 'buffer' });
+    if (pinned.status !== 0) {
+      fail(`Pinned policy authorityRevision does not contain ${WORKFLOW_PATH}.`,
+        'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', { policyAuthorityRevision: revision });
+    }
+    return pinned.stdout;
+  } finally {
+    if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }
 
@@ -172,27 +288,17 @@ export async function loadApprovedPlatformMutationAuthority(root, operation, {
       }
       const authoritySourceCommit = authority.kind === 'verified-state-mirror'
         ? authority.manifest?.source?.commit : authority.commit;
-      const ancestry = policyAuthorityRevision === authoritySourceCommit
-        ? { status: 0 }
-        : run('git', [
-          'merge-base', '--is-ancestor', policyAuthorityRevision, authoritySourceCommit
-        ], { cwd: root, allowFailure: true });
-      if (ancestry.status !== 0) {
-        fail('Pinned policy authorityRevision is not an ancestor of the refreshed approved configuration.',
-          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
-            policyAuthorityRevision, approvedConfigurationCommit: authoritySourceCommit
-          });
+      if (!GIT_OBJECT.test(authoritySourceCommit ?? '')) {
+        fail('Refreshed approved configuration does not identify an exact source commit.',
+          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED');
       }
-      if (policyAuthorityRevision !== authoritySourceCommit
-          || authority.kind !== 'verified-state-mirror') {
-        const pinned = run('git', [
-          'show', `${policyAuthorityRevision}:singularity/workflow.yml`
-        ], { cwd: root, allowFailure: true, encoding: 'buffer' });
-        if (pinned.status !== 0) {
-          fail('Pinned policy authorityRevision does not contain singularity/workflow.yml.',
-            'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', { policyAuthorityRevision });
-        }
-        workflowBytes = pinned.stdout;
+      // Equal-current means exactly the bytes already mounted from the verified snapshot. This is
+      // true for direct sflow/config as well as state transport; looking up the same SHA in member
+      // repository B is both redundant and wrong when authority lives in external repository A.
+      if (policyAuthorityRevision !== authoritySourceCommit) {
+        workflowBytes = await historicalAuthorityWorkflow(
+          root, authority, authoritySourceCommit, policyAuthorityRevision
+        );
       }
       authorityCommit = policyAuthorityRevision;
     }

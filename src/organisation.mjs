@@ -24,9 +24,11 @@ import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { mapLimit, removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
 import {
-  CAPABILITIES_PATH, capabilityRepositories, editCapability, validateCapabilities, capabilityTree
+  CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
+  validateCapabilities, capabilityTree
 } from './capabilities.mjs';
-import { atomicJson } from './workspace.mjs';
+import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
+import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { defaultBranchName, gitCommitIdentity, head, identity } from './git.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
@@ -42,6 +44,7 @@ import {
   canonicalConfigurationAssets, configurationAssetPaths, configurationBranchHead,
   configurationAssetPolicyFromRef, configurationTreeEntries,
   ensureConfigurationBranch, isConfigurationAsset, loadStoryConfigurationSnapshot,
+  readConfigurationSource, retainStateConfigurationHistory, stateConfigurationHistoryBranch,
 } from './configuration-branch.mjs';
 import { mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
 import { classifyPartialCloneResult, normalizeCloneStrategy } from './clone-strategy.mjs';
@@ -610,6 +613,13 @@ async function loadCapabilityStateSnapshot(remote, branch, commit) {
         `State configuration manifest must be ${STATE_CONFIGURATION_FORMAT} with canonical files, Git identities, and an exact ${CONFIGURATION_BRANCH} source.`
       );
     }
+    if (manifest.history != null
+      && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
+        || manifest.history?.commit !== manifest.source.commit)) {
+      throw new SingularityFlowError(
+        'State configuration manifest contains an invalid immutable history authority.'
+      );
+    }
     const paths = await configurationAssetPaths(scratch);
     const declared = Object.keys(manifest.files).sort();
     if (JSON.stringify(paths) !== JSON.stringify(declared)
@@ -1144,10 +1154,14 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
         mode: asset.mode
       };
     }
+    const history = await retainStateConfigurationHistory(
+      root, ledger.remote, configurationCommit
+    );
     const manifest = {
       format: STATE_CONFIGURATION_FORMAT,
       layout: 'canonical-paths',
       source: { branch: CONFIGURATION_BRANCH, commit: configurationCommit },
+      history,
       files: Object.fromEntries(Object.entries(configurationHashes)
         .sort(([left], [right]) => left.localeCompare(right))),
       assets: Object.fromEntries(Object.entries(configurationAssets)
@@ -1468,15 +1482,17 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
       ));
     } else {
       checks.push(capabilityFsckCheck(
-        'approved-capability-map', 'pass',
-        `Approved capability configuration is readable from '${organisation.branch}'.`,
+        'approved-capability-map', organisation.stale ? 'warn' : 'pass',
+        organisation.stale
+          ? `Only a previously validated capability map is available; '${organisation.branch}' could not be refreshed.`
+          : `Approved capability configuration is readable from '${organisation.branch}'.`,
         { branch: organisation.branch }
       ));
       const projection = organisation.stateProjection ?? {
         status: organisation.sourceBranch !== CONFIGURATION_BRANCH ? 'current' : 'missing',
         branch: organisation.sourceBranch, commit: organisation.sourceCommit, error: null
       };
-      const projected = projection.status === 'current';
+      const projected = !organisation.stale && projection.status === 'current';
       const invalidProjection = projection.status === 'invalid';
       checks.push(capabilityFsckCheck(
         'state-projection', projected ? 'pass' : invalidProjection ? 'fail' : 'warn',
@@ -1484,7 +1500,9 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
           ? `The approved configuration mirror is current on '${projection.branch}'.`
           : invalidProjection
             ? `The state-branch configuration mirror is invalid: ${projection.error}`
-            : 'The approved configuration is readable, but its state-branch mirror is absent or stale.',
+            : organisation.stale
+              ? 'The state-branch projection cannot be declared current while the configuration authority is unreachable.'
+              : 'The approved configuration is readable, but its state-branch mirror is absent or stale.',
         projected ? { branch: projection.branch, commit: projection.commit } : {
           remediation: capabilityCommand('publish', { remote })
         }
@@ -1521,6 +1539,25 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
       ...Object.values(workspace.repositories ?? {})
         .flatMap((repository) => repository?.capabilities ?? [])
     ])].sort();
+    if (!organisation || organisation.stale) {
+      checks.push(capabilityFsckCheck(
+        `workspace:${workspace.id}:capability-binding`, 'warn',
+        `Workspace '${workspace.name ?? workspace.id}' capability bindings could not be compared because current approved configuration is unavailable.`,
+        {
+          remediation: `singularity-flow capability organisation ${quoted(lead)} --refresh --json`,
+          details: { workspaceId: workspace.id, requested }
+        }
+      ));
+      checks.push(capabilityFsckCheck(
+        `workspace:${workspace.id}:canonical-capability-map`, 'warn',
+        'The canonical checkout was not compared with an unavailable or stale capability authority; no divergence conclusion was inferred.',
+        {
+          remediation: `singularity-flow capability organisation ${quoted(lead)} --refresh --json`,
+          details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository ?? null }
+        }
+      ));
+      continue;
+    }
     const unknown = requested.filter((capability) => !knownCapabilities.has(capability));
     checks.push(capabilityFsckCheck(
       `workspace:${workspace.id}:capability-binding`, unknown.length ? 'fail' : 'pass',
@@ -1540,6 +1577,118 @@ export async function capabilityFsck(url, { workspaces = [] } = {}) {
         }
       } : { details: { workspaceId: workspace.id, requested } }
     ));
+
+    const leadRepository = workspace.repositories?.[workspace.leadRepository];
+    const canonicalRoot = leadRepository && workspace.path
+      ? workspaceRepositoryPath(workspace, leadRepository)
+      : null;
+    const checkId = `workspace:${workspace.id}:canonical-capability-map`;
+    if (!canonicalRoot || !existsSync(path.join(canonicalRoot, '.git'))) {
+      checks.push(capabilityFsckCheck(
+        checkId, 'warn',
+        `Workspace '${workspace.name ?? workspace.id}' has no readable canonical lead checkout for branch-local capability diagnostics.`,
+        { details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository ?? null } }
+      ));
+      continue;
+    }
+    const sourceFile = path.join(canonicalRoot, 'singularity/configuration-source.json');
+    if (existsSync(sourceFile)) {
+      try {
+        const pinned = await readConfigurationSource(canonicalRoot, { verify: true });
+        if (!sameLeadAuthority(pinned.repository)) {
+          throw new SingularityFlowError(
+            `Pinned configuration names a different authority: ${sanitizeRemote(pinned.repository)}.`
+          );
+        }
+        const storyBranch = run('git', ['branch', '--show-current'], {
+          cwd: canonicalRoot, allowFailure: true
+        }).stdout.trim();
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(storyBranch)) {
+          throw new SingularityFlowError('Pinned configuration is not checked out on a governed Story branch.');
+        }
+        const localConfig = await loadDefinition(canonicalRoot);
+        const workflowFile = path.join(
+          canonicalRoot,
+          localConfig.workItemRoot ?? 'singularity/work-items',
+          storyBranch,
+          'workflow.json'
+        );
+        const workflow = await readJson(workflowFile);
+        const workflowSource = workflow?.resolution?.configurationSource;
+        if (workflow?.workItem?.branch !== storyBranch
+            || workflow?.lineage?.canonicalBranch !== storyBranch
+            || workflowSource?.repository !== pinned.repository
+            || workflowSource?.commit !== pinned.commit
+            || workflowSource?.filesSha256 !== pinned.filesSha256) {
+          throw new SingularityFlowError(
+            'Pinned configuration is not bound to this branch\'s governed Story resolution.'
+          );
+        }
+        checks.push(capabilityFsckCheck(
+          checkId, 'info',
+          `Canonical lead checkout pins reviewed configuration ${pinned.branch}@${pinned.commit.slice(0, 12)}; an older Story snapshot is intentional.`,
+          {
+            branch: storyBranch,
+            commit: pinned.commit,
+            details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository }
+          }
+        ));
+      } catch (error) {
+        checks.push(capabilityFsckCheck(
+          checkId, 'fail',
+          `Canonical lead checkout has an invalid pinned configuration: ${redactDiagnosticText(error?.message ?? String(error))}`,
+          {
+            remediation: `singularity-flow workspace refresh-configuration --repository ${quoted(workspace.leadRepository)} --dry-run`,
+            details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository }
+          }
+        ));
+      }
+      continue;
+    }
+    try {
+      const localDefinition = await loadCapabilities(canonicalRoot);
+      if (!localDefinition) {
+        checks.push(capabilityFsckCheck(
+          checkId, 'pass',
+          'The application checkout has no branch-local capability map shadowing approved configuration.',
+          { details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository } }
+        ));
+        continue;
+      }
+      const localTree = capabilityTree(localDefinition);
+      const agrees = canonicalJson(localTree) === canonicalJson(organisation?.capabilities ?? []);
+      checks.push(capabilityFsckCheck(
+        checkId, agrees ? 'pass' : 'fail',
+        agrees
+          ? 'The branch-local capability map agrees with approved configuration.'
+          : `The canonical application checkout carries an unpinned capability map that diverges from approved '${CONFIGURATION_BRANCH}'.`,
+        agrees ? {
+          details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository }
+        } : {
+          // Configuration refresh updates the authority and its state projection; it does not own
+          // application-branch files. Do not advertise that preview as a repair for this shadow.
+          // Removing a repository file is intentionally left to normal source-control review.
+          remediation: `Review ${CAPABILITIES_PATH} in repository '${workspace.leadRepository}' and remove it through normal source control if it is obsolete; then rerun capability fsck. No automatic deletion is performed.`,
+          details: {
+            workspaceId: workspace.id,
+            repositoryId: workspace.leadRepository,
+            branch: run('git', ['branch', '--show-current'], { cwd: canonicalRoot, allowFailure: true }).stdout.trim() || null,
+            localCapabilities: [...capabilityIds(localTree)].sort(),
+            approvedCapabilities: [...knownCapabilities].sort(),
+            note: 'The upgraded runtime ignores this unproven local map for new Story creation; review it before any cleanup.'
+          }
+        }
+      ));
+    } catch (error) {
+      checks.push(capabilityFsckCheck(
+        checkId, 'fail',
+        `The canonical application checkout capability map is not safe or readable: ${redactDiagnosticText(error?.message ?? String(error))}`,
+        {
+          remediation: `singularity-flow workspace refresh-configuration --repository ${quoted(workspace.leadRepository)} --dry-run`,
+          details: { workspaceId: workspace.id, repositoryId: workspace.leadRepository }
+        }
+      ));
+    }
   }
 
   let proposals = [];

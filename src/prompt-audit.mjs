@@ -3,7 +3,9 @@ import path from 'node:path';
 import {
   appendFile, chmod, mkdir, open, readFile, readdir, realpath, rm, stat, unlink
 } from 'node:fs/promises';
-import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from './workspace-context.mjs';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -187,7 +189,7 @@ function verifyRecordIntegrity(record, key, expectedPreviousMac, hasPriorSealed)
 }
 
 async function location(root) {
-  const workspace = await workspaceContextForRepository(
+  const workspace = await workspaceMemberContextForRepository(
     root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
   );
   const directory = workspace

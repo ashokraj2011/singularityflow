@@ -28,7 +28,9 @@ import {
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
-import { configurationReadRoot } from '../configuration-read-scope.mjs';
+import {
+  configurationReadRoot, configurationReadSnapshot
+} from '../configuration-read-scope.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -309,7 +311,10 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   }
   const remote = definition.git?.remote ?? 'origin';
   const catalog = options.baseCatalog ?? await storyBaseCatalog(root, {
-    remote, defaultBranch: definition.defaultBaseBranch, capabilityId: capability?.id
+    remote,
+    defaultBranch: definition.defaultBaseBranch,
+    capabilityId: capability?.id,
+    configurationSnapshot: configurationReadSnapshot(root)
   });
   if (catalog.unreachable.length) {
     throw new SingularityFlowError('Auto Plan cannot pin published base heads because a repository remote is unreachable.', {

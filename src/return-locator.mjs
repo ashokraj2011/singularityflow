@@ -4,9 +4,8 @@ import path from 'node:path';
 import { workDir } from './state-stores.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { posix, readJson, run, SingularityFlowError, writeJson } from './util.mjs';
-import { readWorkspace } from './workspace.mjs';
 import {
-  activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
 
 function canonical(value) {
@@ -53,22 +52,23 @@ export async function writeReturnLocator(root, config, workflow) {
   const projected = remoteProjection(result.status === 0 ? result.stdout.trim() : null);
   const repositoryId = workflow.resolution?.capability?.repositoryId ?? path.basename(root);
   let repositories = [{ id: repositoryId, remote, required: true, ...projected }];
-  try {
-    const context = await workspaceContextForRepository(
-      root, activeWorkspaceFile(process.env), workspaceRegistryFile(process.env)
-    );
-    if (context?.workspacePath) {
-      const workspace = await readWorkspace(context.workspacePath);
-      repositories = Object.entries(workspace.repositories ?? {}).map(([id, repository]) => ({
-        id,
-        remote: id === context.repositoryId ? remote : 'origin',
-        required: repository.required !== false,
-        ...remoteProjection(repository.url)
-      })).sort((left, right) => left.id.localeCompare(right.id));
+  const context = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(process.env), workspaceRegistryFile(process.env), { strict: true }
+  );
+  if (context?.workspacePath) {
+    const workspace = context.workspace;
+    if (!workspace) {
+      throw new SingularityFlowError(
+        'The Story return locator cannot read an unbound workspace manifest snapshot.',
+        { code: 'ACTIVE_WORKSPACE_UNAVAILABLE' }
+      );
     }
-  } catch {
-    // Workspace registration is machine-local convenience. The current repository remains enough
-    // to return to a standalone Story and is never replaced with guessed sibling paths.
+    repositories = Object.entries(workspace.repositories ?? {}).map(([id, repository]) => ({
+      id,
+      remote: id === context.repositoryId ? remote : 'origin',
+      required: repository.required !== false,
+      ...remoteProjection(repository.url)
+    })).sort((left, right) => left.id.localeCompare(right.id));
   }
   const body = {
     schemaVersion: currentSchemaVersion('return-locator'),

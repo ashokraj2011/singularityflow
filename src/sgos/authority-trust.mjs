@@ -1,9 +1,16 @@
 /** SGOS-only trust policy for approved configuration references. */
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import {
+  activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
+} from '../workspace-context.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
 
 const CONFIGURATION_SUFFIX = '/sflow/config';
 const STATE_SUFFIX = '/state';
+const CONFIGURATION_BRANCH = 'sflow/config';
+const STATE_BRANCH = 'state';
+const GIT_OBJECT = /^[0-9a-f]{40,64}$/;
 
 function fail(message, details = null) {
   throw new SingularityFlowError(message, {
@@ -44,6 +51,57 @@ function expectedSuffix(authority) {
   if (authority?.kind === 'approved-configuration-ref') return CONFIGURATION_SUFFIX;
   if (authority?.kind === 'verified-state-mirror') return STATE_SUFFIX;
   return null;
+}
+
+async function explicitWorkspaceCapabilityAuthority(root) {
+  const context = await workspaceMemberContextForRepository(
+    root, activeWorkspaceFile(), workspaceRegistryFile(), { strict: true }
+  );
+  if (!context?.workspacePath) return null;
+  const workspace = context.workspace;
+  if (!workspace) {
+    fail('SGOS could not bind workspace membership to an immutable workspace manifest snapshot.');
+  }
+  const remote = workspace.capabilityAuthority?.url ?? null;
+  return remote ? Object.freeze({
+    remote,
+    workspaceId: workspace.id,
+    repositoryId: context.repositoryId
+  }) : null;
+}
+
+function assertTrustedWorkspaceCapabilityAuthority(authority, expected) {
+  const expectedRef = authority?.kind === 'approved-configuration-ref'
+    ? CONFIGURATION_BRANCH
+    : authority?.kind === 'verified-state-mirror'
+      ? STATE_BRANCH
+      : null;
+  const stateSource = authority?.manifest?.source;
+  if (expectedRef == null
+      || authority?.remote !== expected.remote
+      || authority?.ref !== expectedRef
+      || !GIT_OBJECT.test(authority?.commit ?? '')
+      || (authority.kind === 'verified-state-mirror'
+        && (stateSource?.branch !== CONFIGURATION_BRANCH
+          || !GIT_OBJECT.test(stateSource?.commit ?? '')))) {
+    fail('SGOS configuration authority does not match the active workspace capability authority.', {
+      workspaceId: expected.workspaceId,
+      repositoryId: expected.repositoryId,
+      expectedRemote: expected.remote,
+      actualRemote: authority?.remote ?? null,
+      kind: authority?.kind ?? null,
+      ref: authority?.ref ?? null,
+      commit: authority?.commit ?? null
+    });
+  }
+  return Object.freeze({
+    mode: 'workspace-capability-authority',
+    remote: expected.remote,
+    repository: expected.remote,
+    branch: expectedRef,
+    workspaceId: expected.workspaceId,
+    repositoryId: expected.repositoryId
+  });
 }
 
 /**
@@ -100,6 +158,58 @@ export async function withTrustedSgosConfigurationRead(root, fn, {
   selectPaths = null
 } = {}) {
   const remotes = configuredRemotes(root);
+  const workspaceAuthority = await explicitWorkspaceCapabilityAuthority(root);
+  const ordinaryRemote = remotes.includes('origin')
+    ? 'origin'
+    : remotes.length === 1 ? remotes[0] : null;
+  const ordinaryRemoteUrl = ordinaryRemote
+    ? configuredRemoteAuthority(root, ordinaryRemote, { direction: 'fetch' }).url
+    : null;
+  const externalWorkspaceAuthority = workspaceAuthority
+    && workspaceAuthority.remote !== ordinaryRemoteUrl
+    ? workspaceAuthority
+    : null;
+  if (externalWorkspaceAuthority) {
+    // The workspace's explicit organisation authority has higher precedence than a member's
+    // delivery origin. It is a credential-free, validated manifest value whose membership was
+    // proven above. Never reinterpret member origin B as authority when the workspace names A.
+    if (!refreshAuthority) {
+      // There is no trustworthy repository-local ref namespace for an external authority URL. An
+      // offline SGOS read therefore reports no authority instead of borrowing member refs or a
+      // locally manufactured head. Callers that require authority will refuse with their stable
+      // domain-specific error; online new-work reads refresh A through the canonical resolver.
+      const localHeads = localAuthorityHeads(root);
+      if (localHeads.length) {
+        fail('SGOS refuses local-only configuration authority because this workspace declares an external capability authority.', {
+          localAuthorityRefs: localHeads,
+          workspaceAuthority: externalWorkspaceAuthority.remote
+        });
+      }
+      return fn(null, null);
+    }
+    return withApprovedConfigurationRead(root, async (authority) => {
+      if (!authority || authority.kind === 'working-tree') {
+        const localHeads = localAuthorityHeads(root);
+        if (localHeads.length) {
+          fail('SGOS refuses local-only configuration authority because this workspace declares an external capability authority.', {
+            localAuthorityRefs: localHeads,
+            workspaceAuthority: externalWorkspaceAuthority.remote
+          });
+        }
+        return fn(authority, null);
+      }
+      const trust = assertTrustedWorkspaceCapabilityAuthority(authority, externalWorkspaceAuthority);
+      return fn(authority, trust);
+    }, {
+      preferAuthority: true,
+      allowLocalHeads: false,
+      refreshAuthority: true,
+      // Positive absence on A must never fall through to cached member-origin B or a local head.
+      requireAuthorityRefresh: true,
+      canonicalRemote: null,
+      selectPaths
+    });
+  }
   const canonicalRemote = canonicalConfigurationRemote(remotes);
   return withApprovedConfigurationRead(root, async (authority) => {
     if (!authority || authority.kind === 'working-tree') {

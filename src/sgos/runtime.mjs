@@ -1901,7 +1901,11 @@ async function runNextSgosTaskWithinPolicy(root, processId, {
         if (!executionController.signal.aborted) executionController.abort(error);
       });
   }, 250);
-  stopMonitor.unref?.();
+  // This monitor is the durable stop signal for an in-process handler. Keep it
+  // referenced until execution settles: a handler may be waiting only on its
+  // AbortSignal, so unref'ing the monitor can leave the execution Promise
+  // pending while Node has no referenced work left to observe the persisted
+  // pause. The finally block below always clears it after quiescence.
 
   try {
     await observeStop();

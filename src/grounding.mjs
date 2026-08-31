@@ -416,6 +416,40 @@ export function worldModelSelectionEntry(manifest, selection, { allowLegacyFallb
   return missingTier();
 }
 
+/** Refuse aggregate routing records that point outside the model snapshot they accompany. */
+export function validateWorldModelPathIndexReferences(index, manifest) {
+  const normalized = manifest?.source_schema_version ? manifest : normalizeWorldModelManifest(manifest);
+  const readyViews = new Set(Object.entries(normalized.views ?? {}).filter(([, view]) => (
+    Object.values(view?.tiers ?? {}).some((tier) => tier?.status === 'ready')
+  )).map(([view]) => view));
+  const domains = new Set((normalized.domains ?? []).map((domain) => domain?.id).filter(Boolean));
+  const entries = Array.isArray(index?.entries) ? index.entries : [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    for (const view of Array.isArray(entry.views) ? entry.views : []) {
+      if (!readyViews.has(view)) {
+        throw new SingularityFlowError(`World-model path index references unavailable view '${view}'.`, {
+          code: 'world_model.path_index_reference_invalid', details: { kind: 'view', id: view }
+        });
+      }
+    }
+    for (const domain of Array.isArray(entry.domains) ? entry.domains : []) {
+      if (!domains.has(domain)) {
+        throw new SingularityFlowError(`World-model path index references unavailable domain '${domain}'.`, {
+          code: 'world_model.path_index_reference_invalid', details: { kind: 'domain', id: domain }
+        });
+      }
+    }
+  }
+  for (const view of Array.isArray(index?.fallback?.views) ? index.fallback.views : []) {
+    if (!readyViews.has(view)) {
+      throw new SingularityFlowError(`World-model path index fallback references unavailable view '${view}'.`, {
+        code: 'world_model.path_index_reference_invalid', details: { kind: 'view', id: view, fallback: true }
+      });
+    }
+  }
+}
+
 export async function validateWorldModelDirectory(directory, {
   expectedCommit = null, expectedTask = null, requiredSelections = [], requiredViews = [],
   requireEvidence = true, allowIncompleteMetadata = false, integrity = 'full', sourceLabel = 'world-model'
@@ -456,7 +490,17 @@ export async function validateWorldModelDirectory(directory, {
   }
   if (integrity === 'full') await register(coreModel, 'World-model core model', { json: true });
   if (modern && !manifest.path_index?.path) throw new SingularityFlowError('World-model manifest requires path_index.path.');
-  if (integrity === 'full' && manifest.path_index?.path) await register(manifest.path_index.path, 'World-model path index', { json: true });
+  let pathIndexValue = null;
+  if (integrity === 'full' && manifest.path_index?.path) {
+    const record = await register(manifest.path_index.path, 'World-model path index', { json: true });
+    if (manifest.schema_version === '3.0' && manifest.path_index.bytes != null && manifest.path_index.bytes !== record.size) {
+      throw new SingularityFlowError('World-model path index byte count differs from manifest.json.');
+    }
+    if (manifest.schema_version === '3.0' && manifest.path_index.sha256 && manifest.path_index.sha256 !== record.sha256) {
+      throw new SingularityFlowError('World-model path index hash differs from manifest.json.');
+    }
+    pathIndexValue = JSON.parse(await readFile(safeModelPath(directory, manifest.path_index.path, 'World-model path index'), 'utf8'));
+  }
 
   if (!manifest.views || typeof manifest.views !== 'object' || Array.isArray(manifest.views)) throw new SingularityFlowError('World-model manifest views must be an object.');
   if (manifest.domains != null && !Array.isArray(manifest.domains)) throw new SingularityFlowError('World-model manifest domains must be an array.');
@@ -497,11 +541,23 @@ export async function validateWorldModelDirectory(directory, {
     if (!guide?.id || !guide?.path || !guide?.task) throw new SingularityFlowError('Every world-model task guide requires id, path, and exact task text.');
     await register(guide.path, `World-model task guide '${guide.id}'`);
   }
+  if (pathIndexValue) validateWorldModelPathIndexReferences(pathIndexValue, normalizedManifest);
   if (expectedTask && !(manifest.task_guides ?? []).some((guide) => normalizeTask(guide.task) === normalizeTask(expectedTask))) throw new SingularityFlowError(`World-model builder did not create a task guide for '${expectedTask}'.`);
+  let evidenceRecord = null;
   if (requireEvidence) {
     if (!manifest.evidence?.path) throw new SingularityFlowError('World-model manifest requires evidence.path.');
-    await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
-  } else if (integrity === 'full' && manifest.evidence?.path) await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
+    evidenceRecord = await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
+  } else if (integrity === 'full' && manifest.evidence?.path) {
+    evidenceRecord = await register(manifest.evidence.path, 'World-model evidence ledger', { jsonl: true });
+  }
+  if (manifest.schema_version === '3.0' && evidenceRecord
+      && manifest.evidence.bytes != null && manifest.evidence.bytes !== evidenceRecord.size) {
+    throw new SingularityFlowError('World-model evidence ledger byte count differs from manifest.json.');
+  }
+  if (manifest.schema_version === '3.0' && evidenceRecord
+      && manifest.evidence.sha256 && manifest.evidence.sha256 !== evidenceRecord.sha256) {
+    throw new SingularityFlowError('World-model evidence ledger hash differs from manifest.json.');
+  }
 
   const actual = (await modelFiles(directory)).filter((file) => file !== 'manifest.json');
   const undeclared = integrity === 'full' ? actual.filter((file) => !registered.has(file)) : [];
@@ -539,107 +595,23 @@ export async function worldModelFreshness(root, config, manifest) {
 
 function normalizeTask(value) { return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' '); }
 
-/**
- * Where this repository's world model actually is.
- *
- * A model may live on the orphan state branch, in the working tree, or in both. The state branch
- * wins: it is the governed copy, written deliberately and never rewritten by a rebase of the code,
- * whereas a working tree holds whatever the last local build left behind. Reading whichever was
- * checked out is how two people on the same commit ground a phase differently.
- *
- * The branch copy is materialized into a temporary directory so every reader downstream keeps
- * taking a plain directory and none of them has to learn about Git. It is cached by tree hash, so
- * repeated reads of an unchanged model cost one `rev-parse`.
- */
-export async function resolveWorldModelSource(root, config, {
-  stateBranch = null,
-  refreshRemote = true
-} = {}) {
-  const worktree = path.join(root, config.outputDir);
-  const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
-  if (!branch) return {
-    directory: worktree, source: 'worktree', branch: null, ref: null,
-    commit: worldModelCommit(root, config.outputDir), treeSha: null,
-    authority: existsSync(path.join(worktree, 'manifest.json')) ? 'local-only' : 'absent',
-    refresh: 'not-configured'
-  };
-
-  const remote = config.remote ?? config.definition?.git?.remote ?? 'origin';
-  const stateFetchTimeoutMs = config.stateFetchTimeoutMs
-    ?? config.definition?.worldModel?.stateFetchTimeoutMs
-    ?? 10_000;
-  const remoteRef = `refs/remotes/${remote}/${branch}`;
-  const localRef = `refs/heads/${branch}`;
-  const remoteConfigured = run('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
-  let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
-  let fetchSucceeded = false;
-  if (remoteConfigured && refreshRemote) {
-    const fetched = runRemoteGit(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
-      cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs
-    });
-    const missingRemoteRef = fetched.status !== 0
-      && /couldn.t find remote ref|remote ref does not exist/i.test(`${fetched.stderr}\n${fetched.stdout}`);
-    // A repository that has never published a state branch is reachable but absent, not offline.
-    // Treating the ordinary first-run case as an offline cache made diagnostics claim a network
-    // problem and could retain a stale remote-tracking ref after the server branch was removed.
-    fetchSucceeded = fetched.status === 0 || missingRemoteRef;
-    if (missingRemoteRef) {
-      refresh = 'remote-absent';
-      run('git', ['update-ref', '-d', remoteRef], { cwd: root, allowFailure: true });
-    } else if (!fetchSucceeded) {
-      refresh = fetched.error?.code === 'ETIMEDOUT' ? 'timeout-cached' : 'offline-cached';
-    }
+async function manifestSourceTreeSha256(directory) {
+  try {
+    const manifest = JSON.parse(await readFile(path.join(directory, 'manifest.json'), 'utf8'));
+    return /^sha256:[a-f0-9]{64}$/.test(String(manifest?.source_tree_sha256 ?? ''))
+      ? manifest.source_tree_sha256
+      : null;
+  } catch {
+    return null;
   }
+}
 
-  // `rev-parse <ref>:<dir>` names the tree; absent from both refs means the branch has no model,
-  // which is the ordinary state of a repository whose model has only ever been built locally.
-  //
-  // The remote ref is tried first, and it is not redundant: a fresh clone has fetched the state
-  // branch without creating a local branch for it, so naming the branch plainly finds nothing on
-  // exactly the machines that have never published. Same precedence the ledger itself resolves by.
-  const treeOn = (ref) => {
-    const found = run('git', ['rev-parse', `${ref}:${config.outputDir}`], { cwd: root, allowFailure: true });
-    return found.status === 0 ? found.stdout.trim() : null;
-  };
-  const remoteTree = treeOn(remoteRef);
-  const localTree = treeOn(localRef);
-  const selectedRef = remoteTree ? remoteRef : localTree ? localRef : null;
-  const treeSha = selectedRef ? treeOn(selectedRef) : null;
-  const commitOn = (ref) => {
-    const found = run('git', ['rev-parse', ref], { cwd: root, allowFailure: true });
-    return found.status === 0 ? found.stdout.trim() : null;
-  };
-  const remoteCommit = remoteTree ? commitOn(remoteRef) : null;
-  const localCommit = localTree ? commitOn(localRef) : null;
-  const isAncestor = (ancestor, descendant) => Boolean(ancestor && descendant)
-    && run('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: root, allowFailure: true }).status === 0;
-  const localAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(remoteCommit, localCommit));
-  const remoteAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(localCommit, remoteCommit));
-  const diverged = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && !localAhead && !remoteAhead);
-  let authority;
-  if (diverged) authority = 'diverged';
-  else if (remoteConfigured && !fetchSucceeded) authority = selectedRef ? 'offline-unverified' : 'absent';
-  else if (remoteTree && localAhead) authority = 'unpublished-local-state';
-  else if (remoteTree) authority = 'remote-governed';
-  else if (localTree) authority = remoteConfigured ? 'unpublished-local-state' : 'local-only';
-  else authority = 'absent';
-  if (!treeSha) return {
-    directory: worktree, source: 'worktree', branch, ref: null,
-    commit: worldModelCommit(root, config.outputDir), treeSha: null, authority,
-    refresh: remoteConfigured && ['offline-cached', 'timeout-cached'].includes(refresh)
-      ? 'offline-no-state-copy'
-      : refresh,
-    diverged, stateFetchTimeoutMs
-  };
-  const commit = run('git', ['rev-parse', selectedRef], { cwd: root }).stdout.trim();
-
-  // The full tree identity avoids prefix collisions. Extraction is staged, fully validated, and
-  // atomically renamed so an interrupted or concurrent reader can never bless a partial cache just
-  // because manifest.json happened to arrive first.
+/** Materialize one immutable state-branch subtree without ever falling back to working-tree bytes. */
+async function materializeGovernedWorldModelTree(root, treeSha, selectedRef) {
   const cached = path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha}`);
   // Cache validation is deliberately Git-structural rather than schema-semantic. Historical state
-  // projections can still be read and diagnosed by the normal candidate validator, while a
-  // partial extraction can never be mistaken for the complete immutable tree.
+  // projections can still be diagnosed by the normal model validator, while a partial extraction
+  // can never be mistaken for the complete immutable tree.
   const validateExtractedTree = (directory) => {
     const expected = run('git', ['ls-tree', '-r', treeSha], { cwd: root }).stdout
       .split('\n').filter(Boolean).map((line) => {
@@ -668,23 +640,13 @@ export async function resolveWorldModelSource(root, config, {
       }
     }
   };
-  const validateCache = () => validateExtractedTree(cached);
   let cacheReady = false;
   if (existsSync(cached)) {
-    try { await validateCache(); cacheReady = true; }
+    try { validateExtractedTree(cached); cacheReady = true; }
     catch { await rm(cached, { recursive: true, force: true }); }
   }
   if (!cacheReady) {
     const staging = await mkdtemp(path.join(os.tmpdir(), `singularity-flow-world-model-${treeSha}-incoming-`));
-    // Extracted rather than checked out: a checkout would move the working tree out from under
-    // whoever is using it, to read something they did not ask to switch to.
-    //
-    // Two spawns rather than a shell pipeline. This was `bash -c 'git archive … | tar -x'`, and the
-    // failure is silent by design — it falls back to the working tree. On a machine with no bash on
-    // PATH that fallback fired every single time, so "the state branch wins" quietly stopped being
-    // true: two people on the same commit ground a phase from different bytes and nothing said so.
-    // `git archive -o` writes the file itself and `tar -xf` reads it, so no shell is involved and
-    // Windows works the same as everywhere else.
     const archive = path.join(staging, '.singularity-world-model.tar');
     const written = run('git', ['archive', '--format=tar', '--output', archive, treeSha], { cwd: root, allowFailure: true });
     const extracted = written.status === 0
@@ -694,29 +656,270 @@ export async function resolveWorldModelSource(root, config, {
     if (extracted.status !== 0) {
       await rm(staging, { recursive: true, force: true });
       throw new SingularityFlowError(
-        `Could not materialize governed world model ${selectedRef}:${config.outputDir}; `
-        + 'the working-tree copy was not used because that would change grounding authority silently.',
-        { code: 'world_model.state_extraction_failed', details: { branch, ref: selectedRef, treeSha } }
+        `Could not materialize governed world model ${selectedRef}; the working-tree copy was not used because that would change grounding authority silently.`,
+        { code: 'world_model.state_extraction_failed', details: { ref: selectedRef, treeSha } }
       );
     }
     try {
       validateExtractedTree(staging);
       try { await rename(staging, cached); }
       catch (error) {
-        // Another process may have completed the identical extraction first. Its directory wins
-        // only after the same full validation.
         if (!existsSync(cached)) throw error;
         await rm(staging, { recursive: true, force: true });
-        await validateCache();
+        validateExtractedTree(cached);
       }
     } catch (error) {
       await rm(staging, { recursive: true, force: true });
       throw error;
     }
   }
+  return cached;
+}
+
+/**
+ * Where this repository's world model actually is.
+ *
+ * A model may live on the orphan state branch, in the working tree, or in both. The state branch
+ * wins: it is the governed copy, written deliberately and never rewritten by a rebase of the code,
+ * whereas a working tree holds whatever the last local build left behind. Reading whichever was
+ * checked out is how two people on the same commit ground a phase differently.
+ *
+ * The branch copy is materialized into a temporary directory so every reader downstream keeps
+ * taking a plain directory and none of them has to learn about Git. It is cached by tree hash, so
+ * repeated reads of an unchanged model cost one `rev-parse`.
+ */
+export async function resolveWorldModelSource(root, config, {
+  stateBranch = null,
+  refreshRemote = true,
+  sourceTreeSha256 = null,
+  requiredSelections = [],
+  expectedTask = null,
+  requireEvidence = true
+} = {}) {
+  const worktree = path.join(root, config.outputDir);
+  const requestedSourceTreeSha256 = /^sha256:[a-f0-9]{64}$/.test(String(sourceTreeSha256 ?? ''))
+    ? sourceTreeSha256
+    : null;
+  const branch = stateBranch ?? config.stateBranch ?? config.ledger?.branch ?? null;
+  if (!branch) return {
+    directory: worktree, source: 'worktree', branch: null, ref: null,
+    commit: worldModelCommit(root, config.outputDir), treeSha: null,
+    authority: existsSync(path.join(worktree, 'manifest.json')) ? 'local-only' : 'absent',
+    refresh: 'not-configured',
+    requestedSourceTreeSha256,
+    sourceTreeSha256: await manifestSourceTreeSha256(worktree)
+  };
+
+  const remote = config.remote ?? config.definition?.git?.remote ?? 'origin';
+  const stateFetchTimeoutMs = config.stateFetchTimeoutMs
+    ?? config.definition?.worldModel?.stateFetchTimeoutMs
+    ?? 10_000;
+  const remoteRef = `refs/remotes/${remote}/${branch}`;
+  const localRef = `refs/heads/${branch}`;
+  const remoteConfigured = run('git', ['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
+  let refresh = remoteConfigured ? (refreshRemote ? 'refreshed' : 'cached') : 'no-remote';
+  let fetchSucceeded = false;
+  if (remoteConfigured && refreshRemote) {
+    const fetched = runRemoteGit(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${remoteRef}`], {
+      cwd: root, operation: 'remote-configuration', timeoutMs: stateFetchTimeoutMs
+    });
+    const missingRemoteRef = fetched.status !== 0
+      && /couldn.t find remote ref|remote ref does not exist/i.test(`${fetched.stderr}\n${fetched.stdout}`);
+    // A repository that has never published a state branch is reachable but absent, not offline.
+    // Treating the ordinary first-run case as an offline cache made diagnostics claim a network
+    // problem and could retain a stale remote-tracking ref after the server branch was removed.
+    fetchSucceeded = fetched.status === 0 || missingRemoteRef;
+    if (missingRemoteRef) {
+      refresh = 'remote-absent';
+      // Keep an already-fetched ref as an immutable read cache. Deleting it here destroys the only
+      // local proof that the remote branch once carried a model, making an intentional remote
+      // deletion indistinguishable from first use. Mutation policy below treats `remote-absent` as
+      // non-authoritative, so the cached bytes can be read but can never recreate the branch
+      // automatically.
+    } else if (!fetchSucceeded) {
+      refresh = fetched.error?.code === 'ETIMEDOUT' ? 'timeout-cached' : 'offline-cached';
+    }
+  }
+
+  // `rev-parse <ref>:<dir>` names the tree; absent from both refs means the branch has no model,
+  // which is the ordinary state of a repository whose model has only ever been built locally.
+  //
+  // The remote ref is tried first, and it is not redundant: a fresh clone has fetched the state
+  // branch without creating a local branch for it, so naming the branch plainly finds nothing on
+  // exactly the machines that have never published. Same precedence the ledger itself resolves by.
+  const treeOn = (ref) => {
+    const found = run('git', ['rev-parse', `${ref}:${config.outputDir}`], { cwd: root, allowFailure: true });
+    return found.status === 0 ? found.stdout.trim() : null;
+  };
+  const remoteTree = treeOn(remoteRef);
+  const localTree = treeOn(localRef);
+  let selectedRef = remoteTree ? remoteRef : localTree ? localRef : null;
+  let treeSha = selectedRef ? treeOn(selectedRef) : null;
+  const commitOn = (ref) => {
+    const found = run('git', ['rev-parse', ref], { cwd: root, allowFailure: true });
+    return found.status === 0 ? found.stdout.trim() : null;
+  };
+  const remoteBranchCommit = commitOn(remoteRef);
+  const localBranchCommit = commitOn(localRef);
+  const manifestPath = `${posix(config.outputDir).replace(/\/$/, '')}/manifest.json`;
+  // This is deliberately tri-state. `false` proves that the reachable/cached remote branch has
+  // never contained a model at this output path; `true` proves that the current omission is a
+  // removal; `null` means there is no remote history available from which either claim can be
+  // made. Mutation policy must never turn `null` into proven absence.
+  const remoteModelInHistory = remoteBranchCommit
+    ? (() => {
+      const history = run('git', ['log', '--format=%H', remoteRef, '--', manifestPath], {
+        cwd: root, allowFailure: true
+      });
+      if (history.status !== 0) return null;
+      return history.stdout.split(/\r?\n/).filter(Boolean).some((revision) => (
+        run('git', ['cat-file', '-e', `${revision}:${manifestPath}`], {
+          cwd: root, allowFailure: true
+        }).status === 0
+      ));
+    })()
+    : null;
+  const remoteCommit = remoteTree ? remoteBranchCommit : null;
+  const localCommit = localTree ? localBranchCommit : null;
+  const isAncestor = (ancestor, descendant) => Boolean(ancestor && descendant)
+    && run('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: root, allowFailure: true }).status === 0;
+  const localAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(remoteCommit, localCommit));
+  const remoteAhead = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && isAncestor(localCommit, remoteCommit));
+  const diverged = Boolean(remoteCommit && localCommit && remoteCommit !== localCommit && !localAhead && !remoteAhead);
+  let authority;
+  if (diverged) authority = 'diverged';
+  else if (remoteConfigured && !fetchSucceeded) authority = selectedRef ? 'offline-unverified' : 'absent';
+  else if (remoteTree && localAhead) authority = 'unpublished-local-state';
+  else if (remoteTree) authority = 'remote-governed';
+  else if (localTree) authority = remoteConfigured ? 'unpublished-local-state' : 'local-only';
+  else authority = 'absent';
+  let tipCommit = selectedRef ? commitOn(selectedRef) : null;
+  let commit = tipCommit;
+  let historical = false;
+
+  // The state branch deliberately projects one model at its tip, but every prior projection is
+  // immutable Git history. Resolve the exact source/scope identity from that history before ever
+  // asking a Story to regenerate it. Selection is validity-aware: a newer interrupted projection,
+  // or one that lacks the phase's requested view, cannot shadow an older complete projection for
+  // the same source identity.
+  // A reachable remote branch remains the authority even when its current projection removed the
+  // model directory. Search that immutable remote history before considering a leftover local
+  // state ref; otherwise an old unpublished local projection can silently outrank the governed
+  // history merely because the remote tip no longer contains `outputDir`.
+  const historyRef = remoteBranchCommit ? remoteRef : localBranchCommit ? localRef : null;
+  if (historyRef && requestedSourceTreeSha256) {
+    const historyTipCommit = commitOn(historyRef);
+    const manifestCache = new Map();
+    const manifestAt = (revision) => {
+      if (manifestCache.has(revision)) return manifestCache.get(revision);
+      const shown = run('git', ['show', `${revision}:${manifestPath}`], {
+        cwd: root, allowFailure: true
+      });
+      let manifest = null;
+      if (shown.status === 0) {
+        try { manifest = JSON.parse(shown.stdout); }
+        catch { /* Invalid candidates are retained for diagnosis only if no valid snapshot exists. */ }
+      }
+      manifestCache.set(revision, manifest);
+      return manifest;
+    };
+    const sourceAt = (revision) => {
+      return manifestAt(revision)?.source_tree_sha256 ?? null;
+    };
+    const history = run('git', ['log', '--format=%H', historyRef, '--', manifestPath], {
+      cwd: root, allowFailure: true
+    });
+    const revisions = [...new Set([
+      historyTipCommit,
+      ...(history.status === 0 ? history.stdout.split(/\r?\n/).filter(Boolean) : [])
+    ].filter(Boolean))];
+    let firstExact = null;
+    let selectedExact = null;
+    for (const revision of revisions) {
+      if (sourceAt(revision) !== requestedSourceTreeSha256) continue;
+      const candidateTree = treeOn(revision);
+      if (!candidateTree) continue;
+      firstExact ??= { revision, treeSha: candidateTree };
+      try {
+        const directory = await materializeGovernedWorldModelTree(
+          root,
+          candidateTree,
+          `${historyRef}@${revision}:${config.outputDir}`
+        );
+        await validateWorldModelDirectory(directory, {
+          integrity: 'full',
+          requiredSelections,
+          expectedTask,
+          requireEvidence,
+          sourceLabel: `governed state-branch model '${branch}' at ${revision}`
+        });
+        selectedExact = { revision, treeSha: candidateTree };
+        break;
+      } catch {
+        // Keep searching immutable history. If none is usable, the first exact candidate remains
+        // selected below so callers diagnose/preserve it instead of treating the model as absent.
+      }
+    }
+    const exact = selectedExact ?? firstExact;
+    if (exact) {
+      selectedRef = historyRef;
+      tipCommit = historyTipCommit;
+      commit = exact.revision;
+      treeSha = exact.treeSha;
+      historical = exact.revision !== historyTipCommit;
+      if (!diverged) {
+        authority = localAhead
+          ? 'unpublished-local-state'
+          : historyRef === remoteRef
+          ? remoteConfigured && !fetchSucceeded ? 'offline-unverified' : 'remote-governed'
+          : remoteConfigured ? 'unpublished-local-state' : 'local-only';
+      }
+    }
+  }
+  // A reachable remote branch whose current projection omits the model is still authoritative.
+  // If its immutable history has no snapshot for the requested source, a separate local state
+  // branch is not a fallback: it is unpublished state that needs review. Returning its directory
+  // here would let automatic materialization extend and reintroduce bytes the remote authority no
+  // longer contains.
+  if (remoteBranchCommit && !remoteTree && selectedRef === localRef) {
+    selectedRef = null;
+    treeSha = null;
+    commit = null;
+    historical = false;
+    tipCommit = remoteBranchCommit;
+  }
+  if (!treeSha) return {
+    directory: worktree, source: 'worktree', branch, ref: null,
+    commit: worldModelCommit(root, config.outputDir), treeSha: null, authority,
+    refresh: remoteConfigured && ['offline-cached', 'timeout-cached'].includes(refresh)
+      ? 'offline-no-state-copy'
+      : refresh,
+    diverged, stateFetchTimeoutMs,
+    requestedSourceTreeSha256,
+    sourceTreeSha256: await manifestSourceTreeSha256(worktree),
+    remoteBranchPresent: Boolean(remoteBranchCommit),
+    remoteModelAtTip: Boolean(remoteTree),
+    remoteModelInHistory,
+    localStatePresent: Boolean(localTree),
+    tipCommit
+  };
+  const cached = await materializeGovernedWorldModelTree(
+    root,
+    treeSha,
+    `${selectedRef}:${config.outputDir}`
+  );
   return {
     directory: cached, source: 'state-branch', branch, ref: selectedRef, commit, treeSha,
-    authority, refresh, diverged, stateFetchTimeoutMs
+    authority, refresh, diverged, stateFetchTimeoutMs,
+    historical,
+    tipCommit,
+    snapshotRef: commit,
+    requestedSourceTreeSha256,
+    sourceTreeSha256: await manifestSourceTreeSha256(cached),
+    remoteBranchPresent: Boolean(remoteBranchCommit),
+    remoteModelAtTip: Boolean(remoteTree),
+    remoteModelInHistory,
+    localStatePresent: Boolean(localTree)
   };
 }
 
@@ -737,7 +940,12 @@ export async function resolveWorldModelContext(root, config, phase, {
     context: config.context
   });
   // The state branch wins where it has a model; the working tree answers otherwise.
-  const located = suppliedLocated ?? await resolveWorldModelSource(root, config);
+  const located = suppliedLocated ?? await resolveWorldModelSource(root, config, {
+    sourceTreeSha256: (await worldModelSourceSnapshot(root, config.definition ?? config)).sha256,
+    requiredSelections: plan.selections,
+    expectedTask: plan.taskGuide.required ? plan.taskGuide.task : null,
+    requireEvidence: plan.includeEvidence
+  });
   const directory = located.directory;
   const { manifest, normalizedManifest } = await validateWorldModelDirectory(directory, {
     requiredSelections: plan.selections,
@@ -745,7 +953,7 @@ export async function resolveWorldModelContext(root, config, phase, {
     requireEvidence: plan.includeEvidence,
     sourceLabel: located.source === 'state-branch' ? `governed state-branch model${located.branch ? ` '${located.branch}'` : ''}` : 'working-tree model'
   });
-  const freshness = await worldModelFreshness(root, config, manifest);
+  const freshness = await worldModelFreshness(root, config.definition ?? config, manifest);
   const selected = [];
   const add = async (relative, level, reason, required = true) => {
     if (!relative) {

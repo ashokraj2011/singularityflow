@@ -121,6 +121,22 @@ test('post-authorization Auto state writes cannot bypass the stop-aware executor
   );
 });
 
+test('Auto uses model-routing tasks for authoring but never creates Story-specific world-model guides', async () => {
+  const source = await readFile(path.resolve('src/auto/auto-executor.mjs'), 'utf8');
+  const composition = source.match(/composePhasePrompt\(worktree,\s*\{([\s\S]*?)\}\);/);
+  assert.ok(composition, 'Auto phase prompt composition call disappeared');
+  assert.doesNotMatch(
+    composition[1],
+    /\btask\s*:/,
+    'a model-routing task must not be converted into a reusable world-model task guide'
+  );
+  assert.match(
+    source,
+    /runModel\(\{[\s\S]*?\btask,/,
+    'the phase model-routing task must still select the authoring model'
+  );
+});
+
 async function withRetriedSubjectLock(root, subject, callback, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {

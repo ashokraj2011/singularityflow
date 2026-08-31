@@ -53,7 +53,9 @@ import { runGovernanceGate } from './governance.mjs';
 import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
 import { inspectWorkflowGrounding, worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
-import { effectiveMaterializationPolicy } from './world-model-materialization.mjs';
+import {
+  automaticMaterializationDecision, effectiveMaterializationPolicy
+} from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
@@ -2323,9 +2325,21 @@ async function actionCommand(positionals, options) {
   };
 }
 
-async function materializeWorldModelForNext(root, config, workflow, phase, options) {
+async function materializeWorldModelForNext(root, config, workflow, phase, options, readiness) {
   const policy = effectiveMaterializationPolicy(config, workflow);
   if (policy.mode !== 'on-demand') return { materialized: false, policy, reason: `materialization mode is ${policy.mode}` };
+
+  if (policy.confirmation === 'automatic') {
+    const decision = automaticMaterializationDecision(readiness?.availability);
+    if (!decision.allowed) {
+      return {
+        materialized: false,
+        policy,
+        preservation: decision,
+        reason: `${decision.reason}; automatic world-model recreation is disabled`
+      };
+    }
+  }
 
   const deterministic = policy.depth === 'light' || operationContext()?.modelMode.enabled === false;
   const description = deterministic
@@ -2340,7 +2354,8 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
   const ensureOperation = operationById('wm.ensure');
   if (!ensureOperation) throw new SingularityFlowError("Registered operation 'wm.ensure' is unavailable.");
   const ensurePhase = (phaseId) => runOperation(ensureOperation, () => worldModelCommand(root, ['wm', 'ensure'], {
-    phase: phaseId
+    phase: phaseId,
+    automaticLifecycle: policy.confirmation === 'automatic'
   }));
   await ensurePhase(phase.id);
 
@@ -2407,7 +2422,7 @@ async function nextCommand(options) {
       agent: (await loadSession(root, { required: false }))?.agent ?? null
     });
     if (!readiness.availability.ready) {
-      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, options);
+      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, options, readiness);
       if (materialization.materialized) {
         try {
           await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });

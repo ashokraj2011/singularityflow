@@ -2082,9 +2082,11 @@ the explicit authorization boundary: it reuses valid v3 selections from the same
 and requires governed state-branch publication before a shared phase prompt consumes the result.
 When an ordinary lifecycle ensure finds a valid same-source model with a missing phase selection,
 it uses the deterministic light builder to warm both tiers of every approved repository view with
-zero model tokens. Existing same-source artifacts remain byte-identical, and later Stories reuse
-the completed catalog. Explicit depth, model, view, tier, and task requests are never widened.
-Changed source snapshots never reuse older generated selections.
+zero model tokens. Existing manifest-controlled payloads remain byte-identical; only the manifest
+is updated to register added selections and provenance. Later Stories reuse the completed catalog,
+and an exact earlier source snapshot is recovered from immutable state-branch history after newer
+source snapshots are published. Explicit depth, model, view, tier, and task requests are never
+widened. A different current source snapshot never consumes output generated for another source.
 
 ### Let `next` build deterministic light grounding
 
@@ -2101,7 +2103,7 @@ worldModel:
     lookahead: none
 ```
 
-`singularity-flow next` then builds and publishes the deterministic light model before preparing the current phase. It uses zero model tokens and never launches a model provider. Change `confirmation` to `prompt` to ask first; non-interactive callers must then pass `--yes`. `depth: phase` selects exact phase-depth generation and may invoke the configured provider, so it is valid only with `confirmation: prompt`. `mode: explicit` requires the separate command; `mode: disabled` forbids materialization. Read-only commands never build under any policy. The normalized policy is pinned when the Story starts.
+`singularity-flow next` may then create the first deterministic light model only when absence is proven on an existing governed state branch, or add missing views to an integrity-valid model for the exact same source snapshot, before preparing the current phase. It uses zero model tokens and never launches a model provider. A missing remote state branch might be a deletion and therefore requires an explicit command. Automatic mode does not replace stale, divergent, corrupt, unpublished, removed, offline-unverified, or different-source output. Change `confirmation` to `prompt` to ask before an explicit mutation; non-interactive callers must then pass `--yes`. `depth: phase` selects exact phase-depth generation and may invoke the configured provider, so it is valid only with `confirmation: prompt`. `mode: explicit` requires the separate command; `mode: disabled` forbids materialization. Read-only commands never build under any policy. The normalized policy is pinned when the Story starts.
 
 The low-level `wm init`, `wm light`, `wm build`, `wm availability`, `wm ensure`, `wm check`, and `wm context` commands remain
 repository-scoped and do not take a Jira/work-item argument. In the governed UI

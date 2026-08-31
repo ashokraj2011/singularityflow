@@ -1863,6 +1863,65 @@ test('governed publication rejects an editor write during snapshot staging witho
   assert.match(git(['status', '--porcelain'], root), /\?\? governed\.json/);
 });
 
+test('isolated publication cannot advance a different branch at the same commit', async () => {
+  const root = await repository('sflow-publication-branch-race-');
+  const before = git(['rev-parse', 'HEAD'], root);
+  git(['branch', 'story-a', before], root);
+  git(['branch', 'story-b', before], root);
+  git(['switch', 'story-a'], root);
+  await writeFile(path.join(root, 'governed.json'), '{"status":"ready"}\n');
+
+  await assert.rejects(
+    () => commitIsolated(root, 'must remain on story-a', ['governed.json'], {
+      expectedHead: before,
+      expectedRef: 'refs/heads/story-a',
+      fault: (stage) => {
+        if (stage === 'after-commit-object') git(['switch', 'story-b'], root);
+      }
+    }),
+    (error) => error.code === 'PUBLICATION_BRANCH_CHANGED'
+      && error.details.expectedRef === 'refs/heads/story-a'
+      && error.details.currentRef === 'refs/heads/story-b'
+      && error.publicationRefAdvanced === false
+  );
+
+  assert.equal(git(['branch', '--show-current'], root), 'story-b');
+  assert.equal(git(['rev-parse', 'story-a'], root), before);
+  assert.equal(git(['rev-parse', 'story-b'], root), before);
+  assert.match(git(['status', '--porcelain'], root), /\?\? governed\.json/);
+});
+
+test('a checkout switch after ref advancement retains the commit only on its captured branch', async () => {
+  const root = await repository('sflow-publication-post-advance-branch-race-');
+  const before = git(['rev-parse', 'HEAD'], root);
+  git(['branch', 'story-a', before], root);
+  git(['branch', 'story-b', before], root);
+  git(['switch', 'story-a'], root);
+  await writeFile(path.join(root, 'governed.json'), '{"status":"ready"}\n');
+  let retained = null;
+
+  await assert.rejects(
+    () => commitIsolated(root, 'retain only on story-a', ['governed.json'], {
+      expectedHead: before,
+      expectedRef: 'refs/heads/story-a',
+      onRefAdvanced: ({ sourceCommit }) => {
+        retained = sourceCommit;
+        git(['switch', '-f', 'story-b'], root);
+      }
+    }),
+    (error) => error.code === 'PUBLICATION_BRANCH_CHANGED'
+      && error.publicationRefAdvanced === true
+      && error.publicationCommit === retained
+  );
+
+  assert.match(retained, /^[0-9a-f]{40,64}$/);
+  assert.equal(git(['branch', '--show-current'], root), 'story-b');
+  assert.equal(git(['rev-parse', 'story-a'], root), retained);
+  assert.equal(git(['rev-parse', 'story-b'], root), before);
+  assert.equal(git(['diff', '--cached', '--name-only'], root), '', 'the other branch index is untouched');
+  assert.match(git(['status', '--porcelain'], root), /\?\? governed\.json/);
+});
+
 test('temporary-index faults before ref update leave no commit or index mutation', async (t) => {
   for (const stage of ['before-staging', 'after-staging', 'after-commit-object']) {
     await t.test(stage, async () => {

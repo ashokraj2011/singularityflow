@@ -25,7 +25,7 @@ argument-hint: "<JIRA-STORY-KEY>"
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>`; add `--target-url <AUTHORIZED-URL>` only for `poc-workflow`.
 7. Show the Epic → Jira Story → canonical branch lineage, base/commit, workflow, agent, phase, outputs, commit, and pushed Story ref. Verify the base ref did not move.
-8. Then run `singularity-flow wm availability --phase <CURRENT-PHASE> --task "<STORY-TITLE>"`. If grounding is missing/stale, show the matching `wm ensure` command and require authorization. Never use `--local`.
+8. Then run `singularity-flow wm availability --phase <CURRENT-PHASE>`. Story context comes from the governed workflow and must never become a world-model task guide. If grounding is missing/stale, show the matching `wm ensure` command and require authorization. Never use `--local`.
 9. Show world-model provenance and push status. On failure, keep intake and explain that `/sf-phase` waits for `/sf-worldmodel`.
 10. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 

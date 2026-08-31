@@ -1892,9 +1892,11 @@ test('epic stories add creates the first planned Story without a tracker', async
 test('the builder does not flag its own checkpoint as a worker escape', async () => {
   const source = await readFile(new URL('../src/worldmodel.mjs', import.meta.url), 'utf8');
 
-  // The checkpoint genuinely lives under the output directory, which is why the exclusion is needed
-  // rather than merely convenient.
-  assert.match(source, /const checkpointRoot = path\.join\(outputDirectory, '\.checkpoints'\)/);
+  // Ordinary checkouts retain the output-local checkpoint excluded below. A disposable linked
+  // branch worktree uses durable common-Git storage so resume data survives worktree removal.
+  assert.match(source, /const checkpointRoot = linkedWorktree/);
+  assert.match(source, /path\.join\(outputDirectory, '\.checkpoints'\)/);
+  assert.match(source, /path\.join\(commonGitDirectory\(root\), 'singularity-flow', 'world-model-checkpoints'\)/);
 
   // Asserted as behaviour rather than as a source line. This used to pin the exact text of the
   // exclusion, so tightening it from a substring match to a path-prefix one broke a test that had

@@ -1228,6 +1228,28 @@ async function activated() {
   return { root, api, registered, extension };
 }
 
+test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
+
+  await registered.commands.get('singularityFlow.configureWorldModel')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(panel, 'the World Model tab opened');
+  assert.match(panel.webview.html, /data-action="build-world-model"/);
+  await panel.post({ type: 'action', action: 'build-world-model' });
+
+  const handoff = registered.executedCommands.find((entry) =>
+    entry.id === 'workbench.action.chat.open' && entry.args[0]?.query?.startsWith('/sf-worldmodel '));
+  assert.ok(handoff, 'the guarded /sf-worldmodel review was prepared in Copilot');
+  assert.equal(handoff.args[0].isPartialQuery, true, 'the prepared request is not submitted automatically');
+  assert.match(handoff.args[0].query, /Proposed engine command: singularity-flow wm ensure/);
+  assert.match(registered.infos.at(-1), /Nothing has run/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus);
+});
+
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();

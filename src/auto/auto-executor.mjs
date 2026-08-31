@@ -348,7 +348,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       phase = workflow.phases[phase.id];
       const task = generationTaskForPhase(definition, phase.id);
       const composed = await composePhasePrompt(worktree, {
-        workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent, task
+        workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
       });
       if (state.execution.ceilings.tokenBudget.assurance === 'exact-required') {
         return stopActive('halted', 'token-assurance-unavailable',

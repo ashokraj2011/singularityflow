@@ -3747,6 +3747,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ...(snapshot?.worldModel?.views ?? []).map((view) => `${snapshot?.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`)
       ]);
       if (!listed.has(message.path)) return `This repository no longer lists ${message.path}. Refresh and try again.`;
+      const capturedWorldModelFile = snapshot?.worldModel?.files?.find((entry) => entry.path === message.path);
+      if (typeof capturedWorldModelFile?.content === 'string') {
+        // A governed model normally lives only on the state branch. Open the exact content already
+        // captured by the read-only snapshot instead of pretending the file exists in the
+        // application checkout or projecting state bytes into it.
+        const extension = message.path.split('.').pop()?.toLowerCase();
+        const language = extension === 'json' || extension === 'jsonl'
+          ? 'json'
+          : extension === 'yml' || extension === 'yaml'
+            ? 'yaml'
+            : 'markdown';
+        const document = await vscode.workspace.openTextDocument({
+          content: capturedWorldModelFile.content,
+          language
+        });
+        await vscode.window.showTextDocument(document, { preview: true });
+        return null;
+      }
       const label = message.path.split('/').pop() ?? message.path;
       await openArtifact(client.repository, { kind: 'artifact', id: `file:${message.path}`, label, path: message.path });
       return null;
@@ -3776,13 +3794,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'check-ledger-deployment') await vscode.commands.executeCommand('singularityFlow.checkLedgerDeployment');
     else if (message.action === 'open-impact-file') await openArtifact(client.repository, { kind: 'artifact', id: 'config:impact', label: 'impact.yml', path: 'singularity/impact.yml' });
     else if (message.action === 'build-world-model') {
-      // The sidebar ran the CLI directly here rather than through a registered command, and there is
-      // no VS Code command for it to borrow. Same shape as the Playwright scaffold action above.
-      output.appendLine('\n$ singularity-flow wm build');
+      // Generation is expensive and may let a provider inspect the repository or publish to the
+      // governed state branch. A button labelled Build/Rebuild is explicit interest, but it is not
+      // informed authorization for an unscoped semantic build. Re-read deterministic availability,
+      // then prepare the reviewed skill in native Copilot. Partial-query mode means nothing is sent
+      // or executed until the contributor submits it and accepts the skill's exact preflight.
       try {
-        await client.runText(['wm', 'build']);
-        await store.refresh();
-        void vscode.window.showInformationMessage('World model rebuilt. Governed prompts will use the new views.');
+        const availability = await client.run<{
+          ready?: boolean;
+          sourceTreeSha256?: string;
+          staleness?: { fresh?: boolean; status?: string };
+          action?: { command?: string; reason?: string } | null;
+          candidates?: Array<{ present?: boolean }>;
+        }>(['wm', 'availability', '--json']);
+        if (availability.ready === true && availability.staleness?.fresh !== false) {
+          void vscode.window.showInformationMessage(
+            'The exact shared world model is already ready. It was reused; no provider was invoked and no files were changed.'
+          );
+          return null;
+        }
+        const command = availability.action?.command ?? 'singularity-flow wm status --json';
+        const existing = (availability.candidates ?? []).some((candidate) => candidate.present === true);
+        const intent = existing
+          ? 'Review an explicit refresh or same-source extension without replacing anything yet.'
+          : 'Review creation of the first shared repository world model without running it yet.';
+        await vscode.commands.executeCommand('workbench.action.chat.open', {
+          query: `/sf-worldmodel ${intent} Proposed engine command: ${command} `,
+          isPartialQuery: true
+        });
+        void vscode.window.showInformationMessage(
+          `World-model ${existing ? 'refresh' : 'build'} is prepared for review in Copilot. Nothing has run.`
+        );
       } catch (error) { return (error as Error).message; }
       return null;
     }

@@ -11,6 +11,10 @@ import {
 } from '../src/workspace-impact.mjs';
 import { createWorkspaceConfiguration, stageWorkspaceDocuments } from '../src/workspace.mjs';
 import { run } from '../src/util.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { writeV3Manifest } from '../src/world-model-materialization.mjs';
+import YAML from 'yaml';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -24,6 +28,54 @@ async function repository(base, id) {
   await writeFile(path.join(source, 'service.txt'), `${id} service\n`);
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-m', 'initial'], { cwd: source });
+  run('git', ['clone', '--bare', source, bare], { cwd: base });
+  return bare;
+}
+
+async function stateRepository(base, id) {
+  const source = path.join(base, `${id}-state-source`);
+  const bare = path.join(base, `${id}-state.git`);
+  run('git', ['init', '-b', 'main', source], { cwd: base });
+  run('git', ['config', 'user.name', 'Impact Tester'], { cwd: source });
+  run('git', ['config', 'user.email', 'impact@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'service.txt'), `${id} service\n`);
+  await initializeDefinition(source);
+  const workflowPath = path.join(source, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.worldModel.outputDir = 'governed/repository-model';
+  await writeFile(workflowPath, YAML.stringify(definition));
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'initialize state model source'], { cwd: source });
+  const mainCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+  const sourceState = await worldModelSourceSnapshot(source, definition);
+  run('git', ['switch', '-c', 'state'], { cwd: source });
+  const directory = path.join(source, definition.worldModel.outputDir);
+  await mkdir(path.join(directory, 'core'), { recursive: true });
+  await mkdir(path.join(directory, 'evidence'), { recursive: true });
+  await writeFile(path.join(directory, 'core/summary.brief.md'), '# API brief\n');
+  await writeFile(path.join(directory, 'core/summary.md'), '# API full\n');
+  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
+  await writeFile(path.join(directory, 'path-index.json'), '{}\n');
+  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
+  await writeV3Manifest(directory, {
+    schema_version: '3.0', generated_at: '2026-08-31T00:00:00.000Z',
+    generated_date: '31 August 2026', builder_version: 'test',
+    builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
+    repository_commit: mainCommit, repository_branch: 'main', working_tree_clean: true,
+    source_tree_sha256: sourceState.sha256,
+    core: {
+      tiers: {
+        brief: { status: 'ready', path: 'core/summary.brief.md' },
+        full: { status: 'ready', path: 'core/summary.md' }
+      }, model: { path: 'core/model.json' }
+    },
+    views: {}, domains: [], task_guides: [],
+    path_index: { path: 'path-index.json' }, evidence: { path: 'evidence/evidence.jsonl' },
+    materializations: []
+  });
+  run('git', ['add', definition.worldModel.outputDir], { cwd: source });
+  run('git', ['commit', '-m', 'publish state model'], { cwd: source });
+  run('git', ['switch', 'main'], { cwd: source });
   run('git', ['clone', '--bare', source, bare], { cwd: base });
   return bare;
 }
@@ -128,6 +180,37 @@ test('workspace impact analyzes immutable repository copies without a Work ID or
   assert.equal(stored[0].id, 'impact-passkeys');
   assert.equal(await readFile(path.join(workspace.path, workspace.directories.copilotCache,
     'impact/impact-passkeys/summary.md'), 'utf8'), '# Impact summary\n\n## Executive summary\nPasskeys affect API and web.\n');
+});
+
+test('workspace impact reuses a custom-output governed-state model in its detached sandbox', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-impact-state-'));
+  const api = await stateRepository(root, 'api');
+  const web = await repository(root, 'web');
+  await approveImpactCapabilities(root, api, web);
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'state-impact', name: 'State impact',
+    leadRepository: 'api', capabilities: ['checkout-api'],
+    repositories: {
+      api: { url: api, defaultBranch: 'main', capabilities: ['checkout-api'] }
+    }
+  }, { confirmation: 'state-impact', clone: true });
+  const report = await analyzeWorkspaceImpact(created.workspace.path, {
+    id: 'impact-state-model', description: 'Assess the API using shared repository grounding.',
+    repositories: ['api']
+  }, {
+    runner: async ({ cwd, prompt }) => {
+      const manifest = JSON.parse(await readFile(path.join(
+        cwd, 'repos/api/governed/repository-model/manifest.json'
+      ), 'utf8'));
+      assert.equal(manifest.generated_at, '2026-08-31T00:00:00.000Z');
+      assert.match(prompt, /world model: governed-state/);
+      assert.doesNotMatch(prompt, /world model: missing/);
+      return { output: '# Impact summary\n\n## Executive summary\nState model reused.' };
+    }
+  });
+  assert.equal(report.repositories[0].worldModel.source, 'state-branch');
+  assert.equal(report.repositories[0].worldModel.outputDir, 'governed/repository-model');
+  assert.equal(report.warnings.length, 0);
 });
 
 test('workspace impact preview is write-free and promotion refuses stale evidence', async () => {

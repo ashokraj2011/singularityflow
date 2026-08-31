@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { loadDefinition } from './config.mjs';
+import {
+  resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
+} from './grounding.mjs';
 import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
@@ -27,6 +31,7 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 
 export { canonicalJson, recordSha256 };
 
@@ -669,11 +674,41 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
 
   const outputDir = initiative.resolution?.worldModelOutputDir ?? 'singularity/world-model';
   let manifest = null;
-  try { manifest = JSON.parse(await readFile(path.join(root, outputDir, 'manifest.json'), 'utf8')); }
-  catch { manifest = null; }
+  let modelDiagnostic = null;
+  try {
+    const definition = withWorldModelSourceScope(
+      await loadDefinition(root),
+      initiative.resolution?.worldModelSourceScope ?? null
+    );
+    const source = await worldModelSourceSnapshot(root, definition);
+    const ledger = initiative.resolution?.ledger ?? definition.ledger ?? {};
+    const located = await resolveWorldModelSource(root, {
+      ...(definition.worldModel ?? {}),
+      outputDir,
+      stateBranch: ledger.branch ?? definition.worldModel?.stateBranch ?? null,
+      remote: ledger.remote ?? definition.git?.remote ?? 'origin',
+      ledger,
+      definition
+    }, { sourceTreeSha256: source.sha256 });
+    const candidate = path.join(located.directory, 'manifest.json');
+    const validated = await validateWorldModelDirectory(located.directory, {
+      integrity: 'full',
+      sourceLabel: located.source === 'state-branch'
+        ? `governed state-branch world model '${located.branch}'`
+        : 'application-projection world model'
+    });
+    const freshness = await worldModelFreshness(root, definition, validated.manifest);
+    if (!freshness.fresh || freshness.built !== source.sha256) {
+      modelDiagnostic = `the preserved world model at ${candidate} describes ${freshness.built ?? 'an unknown source'}, not the current scoped source ${source.sha256}`;
+    } else {
+      manifest = validated.manifest;
+    }
+  } catch (error) {
+    modelDiagnostic = error.message;
+  }
   const mode = initiative.resolution?.worldModelGrounding ?? 'off';
   if (!manifest) {
-    const message = `impact map references world-model views but no committed world model exists in ${outputDir}`;
+    const message = `impact map references world-model views, but no exact-source validated model is available from governed state or the application projection (${outputDir}): ${modelDiagnostic ?? 'model authority is unavailable'}`;
     const referencesViews = Object.values(impact.repositories).some((entry) => (entry?.worldModelViews ?? entry?.views ?? []).length);
     if (!referencesViews) return { errors: [], warnings: [] };
     return mode === 'enforce' ? { errors: [message], warnings: [] } : { errors: [], warnings: [message] };

@@ -1,10 +1,11 @@
-import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
   normalizeWorldModelManifest,
   resolveWorldModelSource,
   validateWorldModelDirectory,
+  validateWorldModelPathIndexReferences,
   worldModelFreshness,
   worldModelSelectionEntry,
   worldModelSourceSnapshot
@@ -13,6 +14,7 @@ import { selectionId } from './world-model-selection.mjs';
 import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { canonicalJson } from './records.mjs';
 import { SingularityFlowError, snapshot, writeJson } from './util.mjs';
 
 export const MATERIALIZATION_MODES = Object.freeze(['on-demand', 'explicit', 'disabled']);
@@ -53,7 +55,17 @@ export function effectiveMaterializationPolicy(config = {}, workflow = null) {
  * `2.1-light` is what `buildLight` stamps; `2.0` is what synthesis stamps. The suffix is the test
  * rather than an exact match so a later light revision does not silently start reading as full.
  */
-export function isMinimalModel(manifest) {
+export function isMinimalModel(manifest, selections = null) {
+  const requested = Array.isArray(selections) ? selections.map((selection) => (
+    typeof selection === 'string' ? selection : selectionId(selection)
+  )) : [];
+  if (requested.length && Array.isArray(manifest?.materializations)) {
+    const kinds = requested.map((id) => selectionProductionKind(manifest, id));
+    if (kinds.includes('deterministic')) return true;
+    if (kinds.includes('semantic')) return false;
+  }
+  // Legacy manifests have no per-selection production receipt. Keep their historic builder suffix
+  // fallback, but never let it override exact mixed-model receipts above.
   return /-light$/.test(String(manifest?.builder_version ?? ''));
 }
 
@@ -86,7 +98,13 @@ function candidateTaskGuide(plan, manifest) {
 
 async function inspectCandidate(root, config, plan, candidate, sourceState) {
   if (!existsSync(path.join(candidate.directory, 'manifest.json'))) {
-    return { ...candidate, ready: false, fresh: false, error: 'manifest.json is absent', selections: [], taskGuide: candidateTaskGuide(plan, null) };
+    // An empty target is first creation. Any bytes without a manifest are an interrupted or invalid
+    // model and must be preserved for diagnosis rather than classified as absence and overwritten
+    // by unattended lifecycle materialization.
+    const present = existsSync(candidate.directory)
+      ? await readdir(candidate.directory).then((entries) => entries.length > 0, () => true)
+      : false;
+    return { ...candidate, present, ready: false, fresh: false, integrityValid: false, error: 'manifest.json is absent', selections: [], taskGuide: candidateTaskGuide(plan, null) };
   }
   let normalized = null;
   try {
@@ -116,24 +134,97 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
         sourceLabel: candidate.source,
         allowLegacyFallback
       });
-      return { ...candidate, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
+      return { ...candidate, present: true, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
     }
     const absent = [
       ...missing.map((entry) => entry.id),
       ...(taskGuide.status === 'missing' ? [`task guide for ${JSON.stringify(taskGuide.task)}`] : [])
     ];
-    return { ...candidate, complete: false, ready: false, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: `missing ${absent.join(', ')}` };
+    return { ...candidate, present: true, complete: false, ready: false, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: `missing ${absent.join(', ')}` };
   } catch (error) {
-    return { ...candidate, ready: false, fresh: false, integrityValid: false, selections: [], taskGuide: candidateTaskGuide(plan, normalized), manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
+    return { ...candidate, present: true, ready: false, fresh: false, integrityValid: false, selections: [], taskGuide: candidateTaskGuide(plan, normalized), manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
   }
+}
+
+/**
+ * Decide whether unattended lifecycle materialization may proceed.
+ *
+ * Automatic mode may create the first model, or add missing selections to an integrity-verified
+ * model for the exact same source snapshot. It must never replace an existing stale, divergent,
+ * or invalid model. That boundary requires an explicit `wm ensure` or `wm build` request.
+ */
+export function automaticMaterializationDecision(availability) {
+  if (!availability || !Array.isArray(availability.candidates)) {
+    return {
+      allowed: false,
+      mode: 'preserve-existing',
+      reason: 'world-model authority could not be inspected, so absence is not proven'
+    };
+  }
+  if (availability?.ready) {
+    return { allowed: false, mode: 'reuse', reason: 'the existing world model already satisfies the grounding plan' };
+  }
+  if (availability?.remoteModelInHistory === true && availability?.remoteModelAtTip === false) {
+    return {
+      allowed: false,
+      mode: 'preserve-existing',
+      reason: 'the governed state branch removed its world-model projection; automatic recreation or extension is prohibited'
+    };
+  }
+  if (Array.isArray(availability?.conflicts) && availability.conflicts.length > 0) {
+    return {
+      allowed: false,
+      mode: 'preserve-existing',
+      reason: `the existing world-model authority requires review: ${availability.conflicts[0].message}`
+    };
+  }
+  const present = (availability?.candidates ?? []).some((candidate) => candidate?.present === true);
+  if (!present) {
+    return { allowed: true, mode: 'initial-create', reason: 'no existing world model is present' };
+  }
+  if (availability?.extensionBase) {
+    return {
+      allowed: true,
+      mode: 'same-source-extension',
+      reason: 'an integrity-verified same-source model can retain its existing bytes while missing selections are added'
+    };
+  }
+  return {
+    allowed: false,
+    mode: 'preserve-existing',
+    reason: 'an existing world model is stale, invalid, or belongs to another source snapshot; automatic replacement is prohibited'
+  };
 }
 
 /** Fast, read-only availability. It never invokes a model, writes a file, or publishes. */
 export async function inspectGroundingAvailability(root, config, plan, { refreshRemote = true } = {}) {
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
-  const governed = await resolveWorldModelSource(root, config, { refreshRemote });
+  const governed = await resolveWorldModelSource(root, config, {
+    refreshRemote,
+    sourceTreeSha256: sourceState.sha256,
+    requiredSelections: plan.selections,
+    expectedTask: plan.taskGuide?.required ? plan.taskGuide.task : null,
+    requireEvidence: plan.includeEvidence === true
+  });
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
   const stalenessPolicy = config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn';
+  const authorityUnavailable = policy.publish === 'governed'
+    && governed.refresh === 'offline-no-state-copy'
+    && ['absent', 'unknown'].includes(governed.authority);
+  const offlineCachedAuthority = policy.publish === 'governed'
+    && governed.authority === 'offline-unverified';
+  const remoteBranchAbsent = policy.publish === 'governed'
+    && governed.refresh === 'remote-absent';
+  const remoteModelRemovedAtTip = policy.publish === 'governed'
+    && governed.remoteBranchPresent === true
+    && governed.remoteModelAtTip === false
+    && governed.remoteModelInHistory === true;
+  const unpublishedLocalAuthority = policy.publish === 'governed'
+    && governed.authority === 'unpublished-local-state';
+  const remotelyDeletedLocalState = policy.publish === 'governed'
+    && governed.authority === 'unpublished-local-state'
+    && (governed.refresh === 'remote-absent'
+      || (governed.remoteBranchPresent === true && governed.remoteModelAtTip === false));
   const worktree = { directory: path.join(root, config.outputDir), source: 'worktree', branch: null };
   const candidates = [];
   if (governed.source === 'state-branch') candidates.push(await inspectCandidate(root, config, plan, governed, sourceState));
@@ -142,7 +233,18 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
   }
   const usable = (item) => item?.complete === true
     && !worldModelStalenessDecision(stalenessPolicy, item.fresh).blocks;
-  const governedReady = candidates.find((item) => item.source === 'state-branch' && usable(item)) ?? null;
+  const usableGovernedCandidate = candidates.find((item) => item.source === 'state-branch' && usable(item)) ?? null;
+  // A complete exact cached/historical snapshot remains safe for read-only composition. Missing
+  // selections are different: extending it would assert authority that the unreachable remote or
+  // a remote tip deletion no longer grants.
+  const offlineAuthorityIncomplete = offlineCachedAuthority && !usableGovernedCandidate;
+  const absentRemoteAuthorityIncomplete = remoteBranchAbsent && !usableGovernedCandidate;
+  const removedProjectionIncomplete = remoteModelRemovedAtTip && !usableGovernedCandidate;
+  const authorityConflict = authorityUnavailable || unpublishedLocalAuthority || remotelyDeletedLocalState
+    || offlineAuthorityIncomplete || absentRemoteAuthorityIncomplete || removedProjectionIncomplete;
+  const governedReady = authorityConflict
+    ? null
+    : usableGovernedCandidate;
   const worktreeReady = candidates.find((item) => item.source === 'worktree' && usable(item)) ?? null;
   const legacyWorktreeReady = worktreeReady?.manifest?.source_schema_version !== '3.0'
     ? worktreeReady
@@ -160,7 +262,9 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
   const sameSource = (candidate) => candidate?.integrityValid
     && candidate?.manifest?.source_schema_version === '3.0'
     && candidate.sourceTreeSha256 === sourceState.sha256;
-  const extensionCandidate = !governed.diverged && (candidates.find((item) => item.source === 'state-branch' && sameSource(item))
+  const extensionCandidate = !governed.diverged && !authorityConflict
+    && !offlineCachedAuthority && !remoteBranchAbsent && !remoteModelRemovedAtTip
+    && (candidates.find((item) => item.source === 'state-branch' && sameSource(item))
     ?? candidates.find((item) => item.source === 'worktree' && sameSource(item))
     ?? null);
   const extensionBase = extensionCandidate ? {
@@ -178,6 +282,44 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
         source: 'state-branch',
         message: `Local and remote state branch '${governed.branch}' have diverged; synchronize the state branch before materializing more grounding.`
       }]
+    : authorityUnavailable
+      ? [{
+        code: 'world_model.state_authority_unavailable',
+        source: 'state-branch',
+        message: `The governed state branch '${governed.branch}' could not be inspected and no cached state copy proves that the world model is absent. Retry when the remote is reachable.`
+      }]
+      : remotelyDeletedLocalState
+        ? [{
+          code: 'world_model.state_removed_remotely',
+          source: 'state-branch',
+          message: governed.remoteBranchPresent
+            ? `The remote state branch '${governed.branch}' exists without a world model, but a leftover local ref still contains one. Review and explicitly republish or discard that local authority.`
+            : `The remote state branch '${governed.branch}' no longer exists, but a leftover local ref still contains a world model. Review and explicitly republish or discard that local authority.`
+        }]
+      : unpublishedLocalAuthority
+        ? [{
+          code: 'world_model.state_publication_pending',
+          source: 'state-branch',
+          message: `Local state branch '${governed.branch}' contains unpublished world-model history. Synchronize or explicitly review that state before any materialization; automatic generation will not duplicate its missing selections.`
+        }]
+      : removedProjectionIncomplete
+        ? [{
+          code: 'world_model.state_removed_remotely',
+          source: 'state-branch',
+          message: `The remote state branch '${governed.branch}' removed its world-model projection. An exact historical snapshot is available for read-only reuse, but it does not satisfy this grounding request; review before explicitly republishing or extending it.`
+        }]
+      : absentRemoteAuthorityIncomplete
+        ? [{
+          code: 'world_model.state_branch_absent',
+          source: 'state-branch',
+          message: `The remote state branch '${governed.branch}' is absent, so automatic materialization cannot prove this is a first build rather than a deleted shared model. Create or restore it only through an explicit world-model command.`
+        }]
+      : offlineAuthorityIncomplete
+        ? [{
+          code: 'world_model.state_authority_unavailable',
+          source: 'state-branch',
+          message: `The cached governed state branch '${governed.branch}' does not satisfy this grounding request and the remote could not be verified. Retry when the remote is reachable before extending it.`
+        }]
     : policy.publish === 'governed' && worktreeReady && !legacyWorktreeReady && !governedReady
       ? [{
         code: 'world_model.local_only',
@@ -219,11 +361,17 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     sourceRefresh: selected?.refresh ?? governed.refresh ?? null,
     sourceDiverged: selected?.diverged ?? governed.diverged ?? false,
     stateBranch: governed.branch ?? null,
+    // Keep `resolvedRef` as the public Git ref it has always represented. Historical resolution
+    // has its own commit field so scripts do not suddenly receive a SHA where they expect a ref.
     resolvedRef: selected?.ref ?? governed.ref ?? null,
+    snapshotRef: selected?.snapshotRef ?? governed.snapshotRef ?? selected?.commit ?? governed.commit ?? null,
     commit: selected?.commit ?? governed.commit ?? null,
     treeSha: selected?.treeSha ?? governed.treeSha ?? null,
     refreshStatus: selected?.refresh ?? governed.refresh ?? null,
     authority: selected?.authority ?? governed.authority ?? null,
+    remoteBranchPresent: governed.remoteBranchPresent ?? null,
+    remoteModelAtTip: governed.remoteModelAtTip ?? null,
+    remoteModelInHistory: governed.remoteModelInHistory ?? null,
     ready,
     sourceTreeSha256: sourceState.sha256,
     selected,
@@ -265,26 +413,22 @@ export async function ensureGrounding(root, config, plan, {
   // The availability probe, injectable so the fall-forward can be driven without a model provider
   // and a fully built world model. Production callers never pass it.
   inspect = inspectGroundingAvailability,
-  upgradeMinimal = true
+  upgradeMinimal = false,
+  refreshStaleMinimal = false,
+  preserveExisting = false
 } = {}) {
   let availability = await inspect(root, config, plan);
 
   /**
-   * A fallback model is good enough to compose against, and not good enough to stop trying.
-   *
-   * Composition must never block on grounding quality — that is the whole point of falling forward.
-   * But `ready` alone made the fall-forward a one-way door: once a light model was published it
-   * satisfied every later probe, so an authorized `wm ensure` short-circuited to `reuse` and the
-   * full build was never attempted again. One transient provider failure would have downgraded a
-   * repository's grounding permanently, while the failure message promised a retry that could not
-   * happen.
-   *
-   * So a caller that *can* build (authorized, with a materializer) treats a minimal model as work
-   * still to do. Every read-only caller keeps reusing it and keeps working.
+   * Reuse is the default even for a deterministic light fallback. Only a caller that carries an
+   * explicit upgrade request may replace a satisfying light model with semantic output. This keeps
+   * Story starts, phase changes, retries, and concurrent ensures from spending on the same model.
    */
   const canBuild = authorized && typeof materialize === 'function';
-  const minimalOnly = availability.ready && isMinimalModel(availability.selected?.manifest);
-  if (availability.ready && !(canBuild && minimalOnly && upgradeMinimal)) {
+  const minimalOnly = availability.ready && isMinimalModel(availability.selected?.manifest, plan.selections);
+  const minimalRefresh = minimalOnly && (upgradeMinimal
+    || (refreshStaleMinimal && availability.selected?.fresh === false));
+  if (availability.ready && !(canBuild && minimalRefresh)) {
     return { mode: 'reuse', availability, located: availability.selected, degraded: minimalOnly ? { reason: 'the available world model is a light fallback' } : null };
   }
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
@@ -297,6 +441,16 @@ export async function ensureGrounding(root, config, plan, {
       data: { availability, command: availability.action.command }
     });
   }
+  if (preserveExisting) {
+    const decision = automaticMaterializationDecision(availability);
+    if (!decision.allowed) {
+      throw new SingularityFlowError(
+        `${decision.reason}; automatic world-model recreation is disabled. Run ${availability.action?.command ?? 'singularity-flow wm status --json'} and choose an explicit refresh.`,
+        { code: 'world_model.automatic_recreation_refused', data: { availability, decision } }
+      );
+    }
+  }
+  const lockedSourceTreeSha256 = availability.sourceTreeSha256;
   return withSubjectLock(root, {
     kind: 'repository-world-model',
     // The exact source snapshot is the materialization task identity. Different phase callers that
@@ -304,10 +458,36 @@ export async function ensureGrounding(root, config, plan, {
     id: availability.sourceTreeSha256
   }, async () => {
     availability = await inspect(root, config, plan);
-    // Same rule under the lock: another process finishing a *full* build is a reason to stop, one
-    // finishing a light fallback is not.
-    if (availability.ready && !isMinimalModel(availability.selected?.manifest)) {
-      return { mode: 'reuse-after-lock', availability, located: availability.selected, degraded: null };
+    if (availability.sourceTreeSha256 !== lockedSourceTreeSha256) {
+      throw new SingularityFlowError(
+        'The repository source changed while world-model materialization was waiting for its lease. No model was replaced; retry against the new source snapshot.',
+        {
+          code: 'world_model.source_changed_before_materialization',
+          details: { before: lockedSourceTreeSha256, after: availability.sourceTreeSha256 }
+        }
+      );
+    }
+    // Apply the same reuse rule after acquiring the lock. A concurrent light build must not cause
+    // the waiter to replace it unless this caller explicitly requested an upgrade.
+    const lockedMinimal = availability.ready && isMinimalModel(availability.selected?.manifest, plan.selections);
+    const lockedRefresh = lockedMinimal && (upgradeMinimal
+      || (refreshStaleMinimal && availability.selected?.fresh === false));
+    if (availability.ready && !lockedRefresh) {
+      return {
+        mode: 'reuse-after-lock',
+        availability,
+        located: availability.selected,
+        degraded: lockedMinimal ? { reason: 'the available world model is a light fallback' } : null
+      };
+    }
+    if (preserveExisting) {
+      const decision = automaticMaterializationDecision(availability);
+      if (!decision.allowed) {
+        throw new SingularityFlowError(
+          `${decision.reason}; automatic world-model recreation is disabled. Run ${availability.action?.command ?? 'singularity-flow wm status --json'} and choose an explicit refresh.`,
+          { code: 'world_model.automatic_recreation_refused', data: { availability, decision } }
+        );
+      }
     }
 
     /**
@@ -326,18 +506,30 @@ export async function ensureGrounding(root, config, plan, {
      */
     let degraded = null;
     try {
-      await materialize({ availability, policy });
+      await materialize({
+        availability,
+        policy,
+        expectedSourceTreeSha256: lockedSourceTreeSha256
+      });
     } catch (error) {
       // Generation and validation have already succeeded once this marker is present. Re-running a
       // different builder would overwrite a valid governed selection and hide the transport fault.
-      if (error?.code === 'world_model.publication_recovery_required') throw error;
+      if (error?.code === 'world_model.publication_recovery_required'
+        || error?.code === 'world_model.source_changed_before_build'
+        || error?.code === 'world_model.source_changed_during_build'
+        || error?.code === 'world_model.analysis_source_mismatch') throw error;
       if (typeof materializeMinimal !== 'function') throw error;
       degraded = { reason: error.message, code: error.code ?? null };
       console.warn(
         `Warning: the full world-model build failed (${error.message}). `
         + 'Falling back to the deterministic light model so work can continue; semantic analysis was not performed.'
       );
-      await materializeMinimal({ availability, policy, error });
+      await materializeMinimal({
+        availability,
+        policy,
+        error,
+        expectedSourceTreeSha256: lockedSourceTreeSha256
+      });
     }
 
     availability = await inspect(root, config, plan);
@@ -370,6 +562,14 @@ async function tierRecord(directory, entry) {
   return info.exists && info.sha256
     ? { ...entry, status: 'ready', path: entry.path, bytes: info.size, sha256: info.sha256 }
     : { ...entry, status: 'missing', path: entry.path, bytes: 0, sha256: null };
+}
+
+async function aggregateRecord(directory, entry) {
+  if (!entry?.path) return entry ? { ...entry } : entry;
+  const info = await snapshot(path.join(directory, entry.path));
+  return info.exists && info.sha256
+    ? { ...entry, bytes: info.size, sha256: info.sha256 }
+    : { ...entry };
 }
 
 function truncateUtf8(value, maxBytes) {
@@ -416,6 +616,8 @@ export async function writeV3Manifest(directory, rawManifest, { materialization 
       entries: []
     });
   }
+  const pathIndexRecord = await aggregateRecord(directory, pathIndex);
+  const evidenceRecord = await aggregateRecord(directory, normalized.evidence ?? rawManifest.evidence);
   const core = { ...normalized.core, tiers: {} };
   for (const tier of ['brief', 'full']) core.tiers[tier] = await tierRecord(directory, normalized.core?.tiers?.[tier]);
   core.brief = core.tiers.brief?.path ?? null;
@@ -443,10 +645,13 @@ export async function writeV3Manifest(directory, rawManifest, { materialization 
     schema_version: '3.0',
     core,
     views,
-    path_index: pathIndex,
+    path_index: pathIndexRecord,
+    ...(evidenceRecord ? { evidence: evidenceRecord } : {}),
     materializations: [...(normalized.materializations ?? []), ...(materializationRecord ? [materializationRecord] : [])]
   };
   delete manifest.source_schema_version;
+  const pathIndexValue = JSON.parse(await readFile(path.join(directory, pathIndexRecord.path), 'utf8'));
+  validateWorldModelPathIndexReferences(pathIndexValue, manifest);
   await writeJson(path.join(directory, 'manifest.json'), manifest);
   return manifest;
 }
@@ -459,39 +664,248 @@ async function readySelectionIsValid(directory, entry) {
     && (entry.bytes == null || entry.bytes === actual.size);
 }
 
+async function referencedArtifactIsValid(directory, entry) {
+  if (!entry?.path) return false;
+  const actual = await snapshot(path.join(directory, entry.path));
+  if (!actual.exists || !actual.sha256) return false;
+  return (!entry.sha256 || entry.sha256 === actual.sha256)
+    && (entry.bytes == null || entry.bytes === actual.size);
+}
+
 function selectionProductionKind(manifest, id) {
   const records = [...(manifest?.materializations ?? [])].reverse();
-  const producer = records.find((record) => (record?.produced ?? []).includes(id));
+  const producer = records.find((record) => (record?.produced ?? []).includes(id)
+    && !(record?.reused ?? []).includes(id));
   if (!producer) return 'unknown';
   return producer.provider == null ? 'deterministic' : 'semantic';
 }
 
-function shouldReplaceReadySelection(existing, fragment, selection) {
+function shouldReplaceReadySelection(existing, fragment, selection, replaceRequested) {
   const id = selectionId(selection);
+  const existingKind = selectionProductionKind(existing, id);
+  const fragmentKind = selectionProductionKind(fragment, id);
   // A user-requested semantic build must be able to upgrade a same-source deterministic fallback.
-  // Every other ready artifact remains stable: light never downgrades semantic output, and two
-  // concurrent semantic publishers keep the first governed winner instead of churning bytes.
-  return selectionProductionKind(existing, id) === 'deterministic'
-    && selectionProductionKind(fragment, id) === 'semantic';
+  if (existingKind === 'deterministic' && fragmentKind === 'semantic') return true;
+  // Explicit build/light commands are the contributor's refresh boundary. They may replace the
+  // tiers they named at the same assurance level, but a deterministic refresh never downgrades a
+  // semantic winner. Automatic/ordinary ensure extensions leave every ready tier byte-identical.
+  if (!replaceRequested) return false;
+  if (existingKind === 'semantic' && fragmentKind === 'deterministic') return false;
+  return true;
 }
 
 async function mergeReferencedArtifacts({ fragmentDirectory, targetDirectory, existingEntries = [], fragmentEntries = [] }) {
   const merged = new Map(existingEntries.map((entry) => [entry.id, structuredClone(entry)]));
+  const retainedPaths = new Map();
+  for (const entry of existingEntries) {
+    if (entry?.path && await referencedArtifactIsValid(targetDirectory, entry)) {
+      retainedPaths.set(entry.path, entry.id);
+    }
+  }
   for (const entry of fragmentEntries) {
     if (!entry?.id || !entry?.path) continue;
     const prior = merged.get(entry.id);
+    if (prior && await referencedArtifactIsValid(targetDirectory, prior)) continue;
+    const pathOwner = retainedPaths.get(entry.path);
+    if (pathOwner && pathOwner !== entry.id) {
+      const existingFile = await snapshot(path.join(targetDirectory, entry.path));
+      const incomingFile = await snapshot(path.join(fragmentDirectory, entry.path));
+      if (existingFile.sha256 !== incomingFile.sha256) {
+        throw new SingularityFlowError(
+          `Same-source world-model extension cannot replace retained artifact '${entry.path}' owned by '${pathOwner}'.`,
+          { code: 'world_model.extension_artifact_collision', details: { path: entry.path, existingId: pathOwner, fragmentId: entry.id } }
+        );
+      }
+    }
     await mkdir(path.dirname(path.join(targetDirectory, entry.path)), { recursive: true });
     await cp(path.join(fragmentDirectory, entry.path), path.join(targetDirectory, entry.path), { force: true });
     merged.set(entry.id, structuredClone(entry));
+    retainedPaths.set(entry.path, entry.id);
     if (prior?.path && prior.path !== entry.path) {
       await rm(path.join(targetDirectory, prior.path), { force: true });
+      retainedPaths.delete(prior.path);
     }
   }
   return [...merged.values()];
 }
 
+function canonicalLine(value) {
+  return JSON.stringify(JSON.parse(canonicalJson(value)));
+}
+
+function stableEvidenceKey(record) {
+  const id = typeof record?.id === 'string' ? record.id.trim() : '';
+  return id ? `id:${id}` : `content:${canonicalLine(record)}`;
+}
+
+function stablePathIndexKey(entry) {
+  if (typeof entry === 'string') return `path:${entry}`;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return `content:${canonicalLine(entry)}`;
+  for (const field of ['id', 'stableId', 'key', 'path', 'glob']) {
+    const value = typeof entry[field] === 'string' ? entry[field].trim() : '';
+    if (value) return `${field}:${value}`;
+  }
+  return `content:${canonicalLine(entry)}`;
+}
+
+function indexedRecords(records, keyOf, label) {
+  const indexed = new Map();
+  for (const record of records) {
+    const key = keyOf(record);
+    if (indexed.has(key)) {
+      throw new SingularityFlowError(`${label} contains duplicate stable key '${key}'.`, {
+        code: 'world_model.aggregate_duplicate_key', details: { aggregate: label, key }
+      });
+    }
+    indexed.set(key, structuredClone(record));
+  }
+  return indexed;
+}
+
+function unionRecords(existing, fragment, { keyOf, label, replaceRequested }) {
+  const merged = indexedRecords(existing, keyOf, label);
+  const incoming = indexedRecords(fragment, keyOf, label);
+  for (const [key, record] of incoming) {
+    if (!merged.has(key) || replaceRequested) merged.set(key, record);
+  }
+  return [...merged.values()];
+}
+
+function parseEvidenceLedger(text, label) {
+  return String(text).split(/\r?\n/).filter((line) => line.trim()).map((line, index) => {
+    try {
+      const record = JSON.parse(line);
+      if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('record must be an object');
+      return record;
+    } catch (error) {
+      throw new SingularityFlowError(`${label} contains invalid JSON at line ${index + 1}: ${error.message}`, {
+        code: 'world_model.aggregate_invalid', details: { aggregate: label, line: index + 1 }
+      });
+    }
+  });
+}
+
+async function mergeEvidenceLedger({
+  existing, fragment, existingDirectory, fragmentDirectory, targetDirectory, replaceRequested
+}) {
+  const existingValid = existing && await referencedArtifactIsValid(existingDirectory, existing);
+  const fragmentValid = fragment && await referencedArtifactIsValid(fragmentDirectory, fragment);
+  if (!existingValid && !fragmentValid) {
+    return { entry: existing ? structuredClone(existing) : fragment ? structuredClone(fragment) : null, replacedPath: null };
+  }
+  if (!existingValid) {
+    await mkdir(path.dirname(path.join(targetDirectory, fragment.path)), { recursive: true });
+    await cp(path.join(fragmentDirectory, fragment.path), path.join(targetDirectory, fragment.path), { force: true });
+    return {
+      entry: structuredClone(fragment),
+      replacedPath: existing?.path && existing.path !== fragment.path ? existing.path : null
+    };
+  }
+  if (!fragmentValid) return { entry: structuredClone(existing), replacedPath: null };
+
+  const existingText = await readFile(path.join(existingDirectory, existing.path), 'utf8');
+  const fragmentText = await readFile(path.join(fragmentDirectory, fragment.path), 'utf8');
+  const existingRecords = parseEvidenceLedger(existingText, 'Existing world-model evidence ledger');
+  const mergedRecords = unionRecords(existingRecords, parseEvidenceLedger(fragmentText, 'Fragment world-model evidence ledger'), {
+    keyOf: stableEvidenceKey,
+    label: 'World-model evidence ledger',
+    replaceRequested
+  });
+  const changed = canonicalJson(mergedRecords) !== canonicalJson(existingRecords);
+  if (changed) {
+    await mkdir(path.dirname(path.join(targetDirectory, existing.path)), { recursive: true });
+    const body = mergedRecords.length ? `${mergedRecords.map(canonicalLine).join('\n')}\n` : '';
+    await writeFile(path.join(targetDirectory, existing.path), body);
+  }
+  return { entry: structuredClone(existing), replacedPath: null, records: mergedRecords };
+}
+
+function unionStrings(existing, fragment) {
+  return [...new Set([
+    ...(Array.isArray(existing) ? existing : []),
+    ...(Array.isArray(fragment) ? fragment : [])
+  ].filter((entry) => typeof entry === 'string' && entry.trim()))];
+}
+
+function mergePathIndexValue(existing, fragment, replaceRequested) {
+  const merged = structuredClone(existing);
+  for (const [key, value] of Object.entries(fragment)) {
+    if (!(key in merged)) merged[key] = structuredClone(value);
+  }
+  if (Array.isArray(existing.entries) || Array.isArray(fragment.entries)) {
+    merged.entries = unionRecords(existing.entries ?? [], fragment.entries ?? [], {
+      keyOf: stablePathIndexKey,
+      label: 'World-model path index',
+      replaceRequested
+    });
+  }
+  for (const field of ['representativePaths', 'paths']) {
+    if (Array.isArray(existing[field]) || Array.isArray(fragment[field])) {
+      merged[field] = unionStrings(existing[field], fragment[field]);
+    }
+  }
+  if ((existing.fallback && typeof existing.fallback === 'object')
+      || (fragment.fallback && typeof fragment.fallback === 'object')) {
+    merged.fallback = { ...(fragment.fallback ?? {}), ...(existing.fallback ?? {}) };
+    for (const field of ['views', 'anchors']) {
+      if (Array.isArray(existing.fallback?.[field]) || Array.isArray(fragment.fallback?.[field])) {
+        merged.fallback[field] = unionStrings(existing.fallback?.[field], fragment.fallback?.[field]);
+      }
+    }
+  }
+  if (Number.isFinite(existing.totalPaths) || Number.isFinite(fragment.totalPaths)) {
+    merged.totalPaths = Math.max(Number(existing.totalPaths) || 0, Number(fragment.totalPaths) || 0);
+    if (Array.isArray(merged.representativePaths)) {
+      merged.omittedPathCount = Math.max(0, merged.totalPaths - merged.representativePaths.length);
+    }
+  }
+  return merged;
+}
+
+async function mergePathIndex({
+  existing, fragment, existingDirectory, fragmentDirectory, targetDirectory, replaceRequested
+}) {
+  const existingValid = existing && await referencedArtifactIsValid(existingDirectory, existing);
+  const fragmentValid = fragment && await referencedArtifactIsValid(fragmentDirectory, fragment);
+  if (!existingValid && !fragmentValid) {
+    return { entry: existing ? structuredClone(existing) : fragment ? structuredClone(fragment) : null, replacedPath: null, value: null };
+  }
+  if (!existingValid) {
+    await mkdir(path.dirname(path.join(targetDirectory, fragment.path)), { recursive: true });
+    await cp(path.join(fragmentDirectory, fragment.path), path.join(targetDirectory, fragment.path), { force: true });
+    return {
+      entry: structuredClone(fragment),
+      replacedPath: existing?.path && existing.path !== fragment.path ? existing.path : null,
+      value: JSON.parse(await readFile(path.join(fragmentDirectory, fragment.path), 'utf8'))
+    };
+  }
+  const existingValue = JSON.parse(await readFile(path.join(existingDirectory, existing.path), 'utf8'));
+  if (!fragmentValid) return { entry: structuredClone(existing), replacedPath: null, value: existingValue };
+  const fragmentValue = JSON.parse(await readFile(path.join(fragmentDirectory, fragment.path), 'utf8'));
+  if (!existingValue || typeof existingValue !== 'object' || Array.isArray(existingValue)
+      || !fragmentValue || typeof fragmentValue !== 'object' || Array.isArray(fragmentValue)) {
+    throw new SingularityFlowError('World-model path indexes must be JSON objects.', {
+      code: 'world_model.aggregate_invalid', details: { aggregate: 'World-model path index' }
+    });
+  }
+  const mergedValue = mergePathIndexValue(existingValue, fragmentValue, replaceRequested);
+  if (canonicalJson(mergedValue) !== canonicalJson(existingValue)) {
+    await mkdir(path.dirname(path.join(targetDirectory, existing.path)), { recursive: true });
+    await writeFile(path.join(targetDirectory, existing.path), canonicalJson(mergedValue));
+  }
+  return { entry: structuredClone(existing), replacedPath: null, value: mergedValue };
+}
+
 /** Merge a same-source fragment without rewriting unrelated ready artifacts. */
-export async function mergeWorldModelSnapshot({ existingDirectory = null, fragmentDirectory, targetDirectory, plan, sourceTreeSha256, materialization }) {
+export async function mergeWorldModelSnapshot({
+  existingDirectory = null,
+  fragmentDirectory,
+  targetDirectory,
+  plan,
+  sourceTreeSha256,
+  materialization,
+  replaceRequested = false
+}) {
   await rm(targetDirectory, { recursive: true, force: true });
   await mkdir(targetDirectory, { recursive: true });
   let existing = null;
@@ -534,7 +948,7 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
   for (const selection of plan.selections) {
     const prior = worldModelSelectionEntry(existing, selection);
     const priorReady = await readySelectionIsValid(existingDirectory, prior);
-    if (priorReady && !shouldReplaceReadySelection(existing, fragment, selection)) {
+    if (priorReady && !shouldReplaceReadySelection(existing, fragment, selection, replaceRequested)) {
       reused.push(selectionId(selection));
       continue;
     }
@@ -551,25 +965,30 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
       merged.views[selection.view].tiers[selection.tier] = from;
     }
   }
-  for (const relative of [fragment.path_index?.path, fragment.evidence?.path].filter(Boolean)) {
-    await mkdir(path.dirname(path.join(targetDirectory, relative)), { recursive: true });
-    await cp(path.join(fragmentDirectory, relative), path.join(targetDirectory, relative), { force: true });
+  // Aggregate artifacts describe the retained union, not just the newest fragment. Merge their
+  // stable records so a newly added view can be discovered and can resolve its evidence without
+  // replacing unrelated, previously approved records.
+  const pathIndex = await mergePathIndex({
+    existing: existing.path_index,
+    fragment: fragment.path_index,
+    existingDirectory,
+    fragmentDirectory,
+    targetDirectory,
+    replaceRequested
+  });
+  const evidence = await mergeEvidenceLedger({
+    existing: existing.evidence,
+    fragment: fragment.evidence,
+    existingDirectory,
+    fragmentDirectory,
+    targetDirectory,
+    replaceRequested
+  });
+  for (const superseded of [pathIndex.replacedPath, evidence.replacedPath].filter(Boolean)) {
+    await rm(path.join(targetDirectory, superseded), { force: true });
   }
-  // The deterministic light builder and provider-backed builder may use different names for these
-  // CLI-owned indexes. Replacing the manifest pointer without deleting the superseded file leaves
-  // valid bytes that are no longer declared, causing full integrity validation to reject the union.
-  // Only these explicit singleton records are replaced; unrelated retained view/domain evidence is
-  // never swept from a progressive snapshot.
-  for (const [prior, replacement] of [
-    [existing.path_index?.path, fragment.path_index?.path],
-    [existing.evidence?.path, fragment.evidence?.path]
-  ]) {
-    if (prior && replacement && prior !== replacement) {
-      await rm(path.join(targetDirectory, prior), { force: true });
-    }
-  }
-  merged.path_index = fragment.path_index ?? existing.path_index;
-  merged.evidence = fragment.evidence ?? existing.evidence;
+  merged.path_index = pathIndex.entry;
+  merged.evidence = evidence.entry;
   // Domains and task guides are first-class manifest-controlled artifacts, not metadata-only
   // records. Copy every fragment-owned file before publishing the union. Merely merging the arrays
   // leaves the manifest pointing at files that exist only in the provider's temporary directory.
@@ -585,6 +1004,7 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
     existingEntries: existing.task_guides,
     fragmentEntries: fragment.task_guides
   });
+  validateWorldModelPathIndexReferences(pathIndex.value, merged);
   merged.materializations = [
     ...(existing.materializations ?? []),
     ...(fragment.materializations ?? [])
@@ -592,6 +1012,20 @@ export async function mergeWorldModelSnapshot({ existingDirectory = null, fragme
   if (!materialization && reused.length && merged.materializations.length) {
     const last = merged.materializations.at(-1);
     last.reused = [...new Set([...(last.reused ?? []), ...reused])].sort();
+    last.produced = (last.produced ?? []).filter((id) => !last.reused.includes(id));
+  }
+  const productionKinds = new Set(merged.materializations.flatMap((record) => (
+    (record.produced ?? []).filter((id) => !(record.reused ?? []).includes(id))
+      .map(() => record.provider == null ? 'deterministic' : 'semantic')
+  )));
+  if (productionKinds.has('semantic') && productionKinds.has('deterministic')) {
+    merged.builder_version = 'mixed';
+    merged.analysis_depth = 'mixed';
+  } else if (productionKinds.has('semantic')) {
+    // A light fragment whose requested selections were all reused must not downgrade the retained
+    // semantic model's global headline.
+    merged.builder_version = existing.builder_version;
+    merged.analysis_depth = existing.analysis_depth;
   }
   return writeV3Manifest(targetDirectory, merged, {
     materialization: materialization ? { ...materialization, reused: [...new Set([...(materialization.reused ?? []), ...reused])] } : null

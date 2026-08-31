@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile
+  copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -11,6 +11,10 @@ import {
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { loadDefinition } from './config.mjs';
+import {
+  resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
+} from './grounding.mjs';
 
 export const WORKSPACE_IMPACT_SCHEMA_VERSION = currentSchemaVersion('workspace-impact-report');
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -45,7 +49,81 @@ async function regularFile(file) {
   return info?.isFile() && !info.isSymbolicLink();
 }
 
-function repositorySnapshot(workspace, id) {
+async function resolvedRepositoryWorldModel(root, commit, dirty) {
+  const definition = await loadDefinition(root).catch(() => null);
+  const outputDir = definition?.worldModel?.outputDir ?? 'singularity/world-model';
+  const projected = run('git', ['show', `${commit}:${outputDir}/manifest.json`], {
+    cwd: root, allowFailure: true
+  });
+  if (!definition || dirty) {
+    return projected.status === 0
+      ? {
+          present: true, status: 'application-projection', source: 'application-projection',
+          outputDir, sha256: sha256(projected.stdout), sourceTreeSha256: null,
+          snapshotRef: commit,
+          reason: dirty
+            ? 'The analysis is pinned to committed HEAD; governed state was not selected against dirty working-tree bytes.'
+            : 'Repository configuration was unavailable, so only the committed application projection was inspected.'
+        }
+      : {
+          present: false, status: 'not-projected', source: 'application-projection',
+          outputDir, sha256: null, sourceTreeSha256: null, snapshotRef: commit,
+          reason: dirty
+            ? 'Committed HEAD does not project a world model; governed state was not selected against dirty working-tree bytes.'
+            : 'Committed HEAD does not project a world model and repository configuration was unavailable for governed-state resolution.'
+        };
+  }
+  try {
+    const source = await worldModelSourceSnapshot(root, definition);
+    const located = await resolveWorldModelSource(root, {
+      ...(definition.worldModel ?? {}),
+      outputDir,
+      stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
+      remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+      ledger: definition.ledger,
+      definition
+    }, { sourceTreeSha256: source.sha256 });
+    const validated = await validateWorldModelDirectory(located.directory, {
+      integrity: 'full',
+      sourceLabel: located.source === 'state-branch'
+        ? `governed state-branch world model '${located.branch}'`
+        : 'application-projection world model'
+    });
+    const freshness = await worldModelFreshness(root, definition, validated.manifest);
+    if (!freshness.fresh || freshness.built !== source.sha256) {
+      throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
+    }
+    const finalSource = await worldModelSourceSnapshot(root, definition);
+    if (finalSource.sha256 !== source.sha256) {
+      throw new SingularityFlowError('Repository source changed while governed world-model authority was being resolved.');
+    }
+    const text = await readFile(path.join(located.directory, 'manifest.json'), 'utf8');
+    return {
+      present: true,
+      status: located.source === 'state-branch' ? 'governed-state' : 'application-projection',
+      source: located.source,
+      outputDir,
+      sha256: sha256(text),
+      sourceTreeSha256: freshness.built,
+      snapshotRef: located.snapshotRef ?? located.commit ?? commit,
+      treeSha: located.treeSha ?? null,
+      authority: located.authority ?? null,
+      historical: located.historical === true,
+      directory: located.directory,
+      reason: null
+    };
+  } catch (error) {
+    return {
+      present: false, status: projected.status === 0 ? 'projection-invalid' : 'not-available',
+      source: projected.status === 0 ? 'application-projection' : null,
+      outputDir, sha256: projected.status === 0 ? sha256(projected.stdout) : null,
+      sourceTreeSha256: null, snapshotRef: commit,
+      reason: `No exact-source validated model was selected from governed state or the application projection: ${error.message}`
+    };
+  }
+}
+
+async function repositorySnapshot(workspace, id) {
   const repository = workspace.repositories[id];
   if (!repository) throw new SingularityFlowError(`Workspace repository '${id}' is not configured.`);
   const root = workspaceRepositoryPath(workspace, repository);
@@ -57,9 +135,13 @@ function repositorySnapshot(workspace, id) {
   if (!/^[0-9a-f]{40}$/i.test(commit)) throw new SingularityFlowError(`Repository '${id}' has no full HEAD commit.`);
   const branch = run('git', ['branch', '--show-current'], { cwd: root, allowFailure: true }).stdout.trim() || null;
   const dirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
-  const manifest = run('git', ['show', `${commit}:singularity/world-model/manifest.json`], {
-    cwd: root, allowFailure: true
-  });
+  const resolvedWorldModel = await resolvedRepositoryWorldModel(root, commit, dirty);
+  const finalCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  const finalDirty = run('git', ['status', '--porcelain'], { cwd: root, allowFailure: true }).stdout.trim().length > 0;
+  if (finalCommit !== commit || finalDirty !== dirty) {
+    throw new SingularityFlowError(`Repository '${id}' changed while its impact snapshot was being prepared; retry against a stable checkout.`);
+  }
+  const { directory: _directory, ...worldModel } = resolvedWorldModel;
   return {
     id,
     role: repository.role,
@@ -68,9 +150,7 @@ function repositorySnapshot(workspace, id) {
     branch,
     commit,
     dirty,
-    worldModel: manifest.status === 0
-      ? { present: true, sha256: sha256(manifest.stdout) }
-      : { present: false, sha256: null }
+    worldModel
   };
 }
 
@@ -87,7 +167,9 @@ function requestPrompt(record) {
     `- ${repository.id}: ${repository.sandboxPath}`,
     `  - revision: ${repository.commit}`,
     `  - configured branch: ${repository.branch ?? 'detached'}`,
-    `  - world model: ${repository.worldModel.present ? `present (${repository.worldModel.sha256})` : 'missing'}`
+    `  - world model: ${repository.worldModel.present
+      ? `${repository.worldModel.status} (${repository.worldModel.sha256})`
+      : `${repository.worldModel.status} — ${repository.worldModel.reason}`}`
   ].join('\n')).join('\n');
   const documents = record.documents.length
     ? record.documents.map((document) => `- documents/${document.name} (${document.sha256}, ${document.bytes} bytes)`).join('\n')
@@ -135,7 +217,7 @@ async function buildRecord(workspacePath, options = {}) {
     description,
     workspace: { id: workspace.id, name: workspace.name, path: workspace.path },
     capabilities,
-    repositories: repositoryIds.map((repositoryId) => repositorySnapshot(workspace, repositoryId)),
+    repositories: await Promise.all(repositoryIds.map((repositoryId) => repositorySnapshot(workspace, repositoryId))),
     documents,
     createdAt: nowIso(),
     completedAt: null,
@@ -149,7 +231,7 @@ async function buildRecord(workspacePath, options = {}) {
     ...record.repositories.filter((repository) => repository.dirty)
       .map((repository) => `${repository.id} has uncommitted changes; this analysis uses committed HEAD ${repository.commit.slice(0, 12)} only.`),
     ...record.repositories.filter((repository) => !repository.worldModel.present)
-      .map((repository) => `${repository.id} has no committed repository world model at this revision.`)
+      .map((repository) => `${repository.id}: ${repository.worldModel.reason}`)
   ];
   const prompt = requestPrompt(record);
   record.prompt.sha256 = sha256(prompt);
@@ -167,6 +249,27 @@ async function materializeSandbox(workspace, record) {
       if (clone.status !== 0) throw new SingularityFlowError(`Could not create detached analysis copy for '${repository.id}': ${clone.stderr.trim() || clone.stdout.trim()}`);
       const checkout = run('git', ['checkout', '--detach', repository.commit], { cwd: target, allowFailure: true });
       if (checkout.status !== 0) throw new SingularityFlowError(`Could not check out ${repository.id}@${repository.commit.slice(0, 12)} in the analysis sandbox.`);
+      if (repository.worldModel.present && repository.worldModel.source === 'state-branch') {
+        const resolved = await resolvedRepositoryWorldModel(repository.sourcePath, repository.commit, false);
+        if (!resolved.present || resolved.sha256 !== repository.worldModel.sha256
+          || resolved.sourceTreeSha256 !== repository.worldModel.sourceTreeSha256
+          || resolved.snapshotRef !== repository.worldModel.snapshotRef
+          || resolved.treeSha !== repository.worldModel.treeSha) {
+          throw new SingularityFlowError(`Governed world model for '${repository.id}' changed after impact preparation.`);
+        }
+        const sandboxDefinition = await loadDefinition(target);
+        const sandboxSource = await worldModelSourceSnapshot(target, sandboxDefinition);
+        if (sandboxSource.sha256 !== repository.worldModel.sourceTreeSha256) {
+          throw new SingularityFlowError(
+            `Governed world model for '${repository.id}' describes ${repository.worldModel.sourceTreeSha256}, `
+            + `but its detached repository snapshot is ${sandboxSource.sha256}.`
+          );
+        }
+        const destination = path.join(target, repository.worldModel.outputDir);
+        await rm(destination, { recursive: true, force: true });
+        await mkdir(path.dirname(destination), { recursive: true });
+        await cp(resolved.directory, destination, { recursive: true, force: false });
+      }
       // The analysis copy is self-contained. Removing origin prevents a model/tool invocation from
       // following the clone metadata back to the contributor's real working tree.
       run('git', ['remote', 'remove', 'origin'], { cwd: target, allowFailure: true });

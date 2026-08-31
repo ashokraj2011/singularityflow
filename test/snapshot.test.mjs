@@ -177,6 +177,27 @@ test('scoped snapshots construct only the requested schema-v2 slice', async () =
   assert.equal(Object.hasOwn(envelope, 'configuration'), false);
 });
 
+test('configuration snapshot reports an exact state-branch world model without a worktree copy', async () => {
+  const publisher = await repository();
+  run(process.execPath, [bin, 'wm', 'light', '--views', 'business'], publisher);
+
+  const cloneRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-editor-state-model-'));
+  const consumer = path.join(cloneRoot, 'consumer');
+  run('git', ['clone', `${publisher}.git`, consumer], cloneRoot);
+  run('git', ['config', 'user.name', 'State Consumer'], consumer);
+  run('git', ['config', 'user.email', 'consumer@example.com'], consumer);
+  assert.equal(existsSync(path.join(consumer, 'singularity/world-model/manifest.json')), false);
+
+  const scoped = await repositorySnapshot(consumer, null, null, { included: ['configuration'] });
+  assert.equal(scoped.configuration.worldModel.readiness.ready, true);
+  assert.equal(scoped.configuration.worldModel.readiness.status, 'ready');
+  assert.equal(scoped.configuration.worldModel.readiness.source, 'state-branch');
+  assert.equal(scoped.configuration.worldModel.rebuildReason, null);
+  assert.ok(scoped.configuration.worldModel.generatedAt);
+  assert.ok(scoped.configuration.worldModel.files.some((file) =>
+    file.path === 'singularity/world-model/views/business.brief.md'));
+});
+
 test('SGOS Command Center is a lazy isolated snapshot slice', async () => {
   const root = await repository();
   const scoped = await repositorySnapshot(root, null, null, { included: ['sgos'] });

@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 import {
   adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, gitValueAsync, listWorkspaceDocuments,
   normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
@@ -24,6 +25,9 @@ import {
 } from '../src/cli-entry.mjs';
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
+import { initializeDefinition } from '../src/config.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -732,8 +736,9 @@ test('workspace creation claims an empty repository folder and clones the config
   assert.equal(saved.status.repositories[0].branch, 'release/2026.07');
   assert.equal(await readFile(path.join(target, 'BRANCH.txt'), 'utf8'), 'configured branch\n');
   assert.equal(saved.status.repositories[0].worldModel.state, 'missing');
+  assert.equal(saved.status.repositories[0].worldModel.projectionStatus, 'not-projected');
   assert.equal(saved.status.warnings[0].code, 'world-model-missing');
-  assert.match(saved.status.warnings[0].message, /No repository world model was found/);
+  assert.match(saved.status.warnings[0].message, /No world model is projected into the checked-out application branch/);
 });
 
 test('workspace health recognizes an existing repository world model without warning', async () => {
@@ -766,6 +771,73 @@ test('workspace health recognizes an existing repository world model without war
   assert.equal(saved.status.repositories[0].worldModel.state, 'available');
   assert.equal(saved.status.repositories[0].worldModel.generatedAt, '2026-07-28T04:30:00.000Z');
   assert.equal(saved.status.counts.worldModels, 1);
+  assert.deepEqual(saved.status.warnings, []);
+});
+
+test('workspace health resolves a validated custom-output model from governed state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-state-world-model-'));
+  const source = path.join(root, 'source');
+  run('git', ['init', '-b', 'main', source], { cwd: root });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: source });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: source });
+  await writeFile(path.join(source, 'README.md'), '# state model\n');
+  await initializeDefinition(source);
+  const workflowPath = path.join(source, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.outputDir = 'governed/repository-model';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', '.'], { cwd: source });
+  run('git', ['commit', '-m', 'initialize custom model output'], { cwd: source });
+  const mainCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source }).stdout.trim();
+  const sourceState = await worldModelSourceSnapshot(source, workflow);
+
+  run('git', ['switch', '-c', 'state'], { cwd: source });
+  const directory = path.join(source, 'governed/repository-model');
+  await mkdir(path.join(directory, 'core'), { recursive: true });
+  await mkdir(path.join(directory, 'evidence'), { recursive: true });
+  await writeFile(path.join(directory, 'core/summary.brief.md'), '# Brief\n');
+  await writeFile(path.join(directory, 'core/summary.md'), '# Full\n');
+  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
+  await writeFile(path.join(directory, 'path-index.json'), '{}\n');
+  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
+  await writeV3Manifest(directory, {
+    schema_version: '3.0', generated_at: '2026-08-31T00:00:00.000Z',
+    generated_date: '31 August 2026', builder_version: 'test',
+    builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
+    repository_commit: mainCommit, repository_branch: 'main', working_tree_clean: true,
+    source_tree_sha256: sourceState.sha256,
+    core: {
+      tiers: {
+        brief: { status: 'ready', path: 'core/summary.brief.md' },
+        full: { status: 'ready', path: 'core/summary.md' }
+      },
+      model: { path: 'core/model.json' }
+    },
+    views: {}, domains: [], task_guides: [],
+    path_index: { path: 'path-index.json' }, evidence: { path: 'evidence/evidence.jsonl' },
+    materializations: []
+  });
+  run('git', ['add', 'governed/repository-model'], { cwd: source });
+  run('git', ['commit', '-m', 'publish governed state model'], { cwd: source });
+  run('git', ['switch', 'main'], { cwd: source });
+  const remote = path.join(root, 'platform.git');
+  run('git', ['clone', '--bare', source, remote], { cwd: root });
+
+  const saved = await saveWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'state-grounded', name: 'State grounded', leadRepository: 'platform',
+    repositories: {
+      platform: {
+        url: remote, defaultBranch: 'main', required: true,
+        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
+      }
+    }
+  }, { confirmation: 'state-grounded' });
+  const model = saved.status.repositories[0].worldModel;
+  assert.equal(model.state, 'available');
+  assert.equal(model.source, 'state-branch');
+  assert.equal(model.outputDirectory, 'governed/repository-model');
+  assert.equal(model.generatedAt, '2026-08-31T00:00:00.000Z');
   assert.deepEqual(saved.status.warnings, []);
 });
 

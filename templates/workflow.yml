@@ -205,8 +205,9 @@ worldModel:
     # succeeds. It uses the same confirmation and builder policy and never runs from read-only
     # status/nextsteps commands.
     lookahead: none
-    # To make `next` run the deterministic equivalent of `wm light --phase <current>`, set:
-    # mode: on-demand, depth: light, confirmation: automatic. That path never invokes a model.
+    # To let `next` create a proven-first-use model on an existing state branch or add missing views
+    # to the exact same source snapshot, set: mode: on-demand, depth: light, confirmation: automatic.
+    # That path never replaces stale, divergent, removed, unpublished, or invalid model authority.
     # Use depth: phase with confirmation: prompt when exact phase-depth generation is preferred.
     depth: phase
     confirmation: prompt

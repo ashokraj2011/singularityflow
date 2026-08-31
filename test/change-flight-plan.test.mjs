@@ -12,8 +12,10 @@ import {
   startChangeFlightPlan
 } from '../src/change-flight-plan.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { impactWhatIf } from '../src/gateway/planners/impact-what-if.mjs';
 import { loadStoryAggregate } from '../src/state-stores.mjs';
+import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
@@ -60,6 +62,41 @@ function worktrees(root) {
   return run('git', ['worktree', 'list', '--porcelain'], root).stdout;
 }
 
+async function publishStateWorldModel(root, outputDir, sourceTreeSha256, label = 'Flight plan model') {
+  const mainCommit = run('git', ['rev-parse', 'main'], root).stdout.trim();
+  run('git', ['switch', '-c', 'state'], root);
+  const directory = path.join(root, outputDir);
+  await mkdir(path.join(directory, 'core'), { recursive: true });
+  await mkdir(path.join(directory, 'evidence'), { recursive: true });
+  await writeFile(path.join(directory, 'core/summary.brief.md'), `# ${label} brief\n`);
+  await writeFile(path.join(directory, 'core/summary.md'), `# ${label} full\n`);
+  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
+  await writeFile(path.join(directory, 'path-index.json'), JSON.stringify({
+    paths: ['src/payment/notifier.mjs']
+  }));
+  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
+  await writeV3Manifest(directory, {
+    schema_version: '3.0', generated_at: '2026-08-31T00:00:00.000Z',
+    generated_date: '31 August 2026', builder_version: 'test',
+    builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
+    repository_commit: mainCommit, repository_branch: 'main', working_tree_clean: true,
+    source_tree_sha256: sourceTreeSha256,
+    core: {
+      tiers: {
+        brief: { status: 'ready', path: 'core/summary.brief.md' },
+        full: { status: 'ready', path: 'core/summary.md' }
+      }, model: { path: 'core/model.json' }
+    },
+    views: {}, domains: [], task_guides: [],
+    path_index: { path: 'path-index.json' }, evidence: { path: 'evidence/evidence.jsonl' },
+    materializations: []
+  });
+  run('git', ['add', outputDir], root);
+  run('git', ['commit', '-m', 'publish state world model'], root);
+  run('git', ['push', 'origin', 'HEAD:state'], root);
+  run('git', ['switch', 'main'], root);
+}
+
 test('preview is model-free, reproducible, locally disposable, and performs zero lifecycle writes', async () => {
   const root = await repository();
   const before = {
@@ -93,6 +130,30 @@ test('preview is model-free, reproducible, locally disposable, and performs zero
   assert.equal(excluded.classification, plan.findings[0].classification, 'disposition cannot rewrite evidence classification');
   assert.equal(excluded.disposition, 'excluded');
   assert.equal(excluded.dispositionReason, 'Handled by a separate change.');
+});
+
+test('preview reuses a validated custom-output world model from governed state', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.outputDir = 'governed/repository-model';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  run('git', ['add', definitionPath], root);
+  run('git', ['commit', '-m', 'configure custom model output'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const source = await worldModelSourceSnapshot(root, definition);
+  await publishStateWorldModel(root, definition.worldModel.outputDir, source.sha256);
+
+  const plan = await previewChangeFlightPlan(root, {
+    file: 'src/payment/notifier.mjs', ast: false, persist: false
+  });
+  assert.equal(plan.baseline.worldModelSource, 'state-branch');
+  assert.equal(plan.baseline.worldModelOutputDir, 'governed/repository-model');
+  assert.equal(plan.provenance.categories.worldModel.status, 'evaluated');
+  assert.equal(plan.provenance.categories.worldModel.source, 'state-branch');
+  assert.ok(plan.findings.some((finding) => finding.relationship === 'indexed-by-world-model'
+    && finding.subject === 'src/payment/notifier.mjs'));
+  assert.ok(!plan.unknowns.some((finding) => finding.subject === 'worldModel'));
 });
 
 test('outside paths and symlink targets are refused before analysis', async () => {

@@ -21,10 +21,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
-  buildTracer, checkpointRetainedNote, outsideBuilderScratch, recordDiscoveryCheckpoint,
-  restoreAnalysisWorktree
+  assertWorldModelPublicationSource, buildTracer, checkpointRetainedNote, outsideBuilderScratch,
+  recordDiscoveryCheckpoint, restoreAnalysisWorktree
 } from '../src/worldmodel.mjs';
-import { changedSnapshotPaths, repositoryContentSnapshot } from '../src/grounding.mjs';
+import {
+  changedSnapshotPaths, repositoryContentSnapshot, worldModelSourceSnapshot
+} from '../src/grounding.mjs';
 import { REDACTED, createLogger, parseLogLines, redact } from '../src/logging.mjs';
 import { ensureGrounding, isMinimalModel } from '../src/world-model-materialization.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -231,6 +233,26 @@ test('the discovery path emits an event for every action worth tracing', async (
   assert.ok(/finally \{/.test(finallyBlock.slice(0, 700)), 'build.end is not in the finally block');
 });
 
+test('publication revalidates the exact source after generation and before either publish path', async () => {
+  const { root } = await repositoryWithAnalysisWorktree();
+  const source = await worldModelSourceSnapshot(root, CONFIG);
+  await assertWorldModelPublicationSource(root, CONFIG, source.sha256);
+
+  await writeFile(path.join(root, 'src/app.js'), 'export const app = 2; // changed during generation\n');
+  await assert.rejects(
+    assertWorldModelPublicationSource(root, CONFIG, source.sha256),
+    (error) => error.code === 'world_model.source_changed_during_build'
+      && error.details.expectedSourceTreeSha256 === source.sha256
+      && error.details.currentSourceTreeSha256 !== source.sha256
+  );
+
+  const implementation = await readFile(new URL('../src/worldmodel.mjs', import.meta.url), 'utf8');
+  assert.ok(
+    (implementation.match(/await assertWorldModelPublicationSource\(\s*root, config, sourceState\.sha256, repositoryIdentity\s*\);/g)?.length ?? 0) >= 4,
+    'both builders must revalidate before and after governed state publication'
+  );
+});
+
 test('a worker that commits is still fatal — cleaning cannot undo it', async () => {
   const { analysisRoot, commit, git } = await repositoryWithAnalysisWorktree();
   await writeFile(path.join(analysisRoot, 'sneaky.md'), 'x\n');
@@ -364,10 +386,18 @@ test('with no light builder supplied the failure still surfaces, unchanged', asy
  * message promised a retry that could not happen. Found by re-reading a run I had already watched
  * and misread as an ordinary reuse.
  */
-const LIGHT = { selected: { source: 'state-branch', manifest: { builder_version: '2.1-light' } }, ready: true };
-const FULL = { selected: { source: 'state-branch', manifest: { builder_version: '2.0' } }, ready: true };
+const LIGHT = {
+  selected: { source: 'state-branch', manifest: { builder_version: '2.1-light' } },
+  ready: true,
+  sourceTreeSha256: 'abc'
+};
+const FULL = {
+  selected: { source: 'state-branch', manifest: { builder_version: '2.0' } },
+  ready: true,
+  sourceTreeSha256: 'abc'
+};
 
-test('an authorized ensure retries the full build when only a light model exists', async () => {
+test('an authorized ensure reuses a satisfying light model by default', async () => {
   const root = await gitRepository('sflow-oneway-');
   const calls = [];
   const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
@@ -376,8 +406,95 @@ test('an authorized ensure retries the full build when only a light model exists
     materialize: async () => { calls.push('full'); },
     materializeMinimal: async () => { calls.push('light'); }
   });
-  assert.deepEqual(calls, ['full'], 'the full build was skipped because a light model looked ready');
+  assert.deepEqual(calls, [], 'a satisfying light model was replaced without an explicit upgrade');
+  assert.equal(result.mode, 'reuse');
+  assert.match(result.degraded.reason, /light fallback/);
+});
+
+test('only an explicit upgrade request replaces a satisfying light model', async () => {
+  const root = await gitRepository('sflow-oneway-explicit-');
+  const calls = [];
+  const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    upgradeMinimal: true,
+    inspect: async () => LIGHT,
+    materialize: async () => { calls.push('full'); },
+    materializeMinimal: async () => { calls.push('light'); }
+  });
+  assert.deepEqual(calls, ['full']);
   assert.equal(result.mode, 'materialized');
+});
+
+test('a concurrent light model is reused after locking instead of being replaced', async () => {
+  const root = await gitRepository('sflow-oneway-lock-');
+  const calls = [];
+  let inspections = 0;
+  const result = await ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+    authorized: true,
+    inspect: async () => {
+      inspections += 1;
+      return inspections === 1
+        ? { ready: false, missing: [{ id: 'views/architecture' }], sourceTreeSha256: 'abc', action: { command: 'wm ensure' } }
+        : LIGHT;
+    },
+    materialize: async () => { calls.push('full'); },
+    materializeMinimal: async () => { calls.push('light'); }
+  });
+  assert.deepEqual(calls, []);
+  assert.equal(result.mode, 'reuse-after-lock');
+  assert.match(result.degraded.reason, /light fallback/);
+});
+
+test('automatic materialization rechecks preservation after locking', async () => {
+  const root = await gitRepository('sflow-auto-preserve-lock-');
+  const calls = [];
+  let inspections = 0;
+  await assert.rejects(
+    ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+      authorized: true,
+      preserveExisting: true,
+      inspect: async () => {
+        inspections += 1;
+        return inspections === 1
+          ? {
+              ready: false, candidates: [], conflicts: [], extensionBase: null,
+              sourceTreeSha256: 'sha256:source-a', action: { command: 'wm ensure' }
+            }
+          : {
+              ready: false, candidates: [{ present: true, integrityValid: false }], conflicts: [],
+              extensionBase: null, sourceTreeSha256: 'sha256:source-a', action: { command: 'wm ensure' }
+            };
+      },
+      materialize: async () => { calls.push('full'); },
+      materializeMinimal: async () => { calls.push('light'); }
+    }),
+    (error) => error.code === 'world_model.automatic_recreation_refused'
+  );
+  assert.deepEqual(calls, []);
+});
+
+test('materialization refuses source identity drift after locking', async () => {
+  const root = await gitRepository('sflow-source-drift-lock-');
+  const calls = [];
+  let inspections = 0;
+  await assert.rejects(
+    ensureGrounding(root, { outputDir: 'singularity/world-model', definition: {} }, PLAN, {
+      authorized: true,
+      preserveExisting: true,
+      inspect: async () => {
+        inspections += 1;
+        return {
+          ready: false, candidates: [], conflicts: [], extensionBase: null,
+          sourceTreeSha256: inspections === 1 ? 'sha256:source-a' : 'sha256:source-b',
+          action: { command: 'wm ensure' }
+        };
+      },
+      materialize: async () => { calls.push('full'); },
+      materializeMinimal: async () => { calls.push('light'); }
+    }),
+    (error) => error.code === 'world_model.source_changed_before_materialization'
+  );
+  assert.deepEqual(calls, []);
 });
 
 test('a full model is reused and never rebuilt', async () => {

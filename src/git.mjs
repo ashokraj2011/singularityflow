@@ -582,6 +582,7 @@ export function commit(root, message, paths = null) {
  */
 export async function commitIsolated(root, message, paths, {
   expectedHead = head(root),
+  expectedRef = undefined,
   sign = false,
   signingKey = null,
   fault = null,
@@ -590,6 +591,21 @@ export async function commitIsolated(root, message, paths, {
   onCommitCreated = null,
   onRefAdvanced = null
 } = {}) {
+  const checkedOutRef = () => {
+    const observed = git(['symbolic-ref', '-q', 'HEAD'], { cwd: root, allowFailure: true });
+    return observed.status === 0 ? observed.stdout.trim() : null;
+  };
+  const initialRef = checkedOutRef();
+  if (expectedRef !== undefined && initialRef !== expectedRef) {
+    throw new SingularityFlowError(
+      `Governed publication checkout changed before its commit began (expected ${expectedRef ?? 'detached HEAD'}, `
+      + `found ${initialRef ?? 'detached HEAD'}). Reload the lifecycle state and retry.`,
+      {
+        code: 'PUBLICATION_BRANCH_CHANGED',
+        details: { expectedRef, currentRef: initialRef }
+      }
+    );
+  }
   // Optional transaction roots may legitimately remain absent (for example an approval that was
   // allowed to harvest knowledge but found none). Git rejects an entirely unknown pathspec even
   // when `git add -A` is otherwise correct. Keep paths that exist now or were tracked at HEAD so
@@ -688,7 +704,21 @@ export async function commitIsolated(root, message, paths, {
     if (onCommitCreated) await onCommitCreated({ expectedHead, sourceCommit, tree, transaction: boundTransaction });
     if (fault) await fault('after-commit-object', { expectedHead, sourceCommit, tree });
 
-    const ref = git(['symbolic-ref', '-q', 'HEAD'], { cwd: root }).stdout.trim();
+    const observedRef = checkedOutRef();
+    if (expectedRef !== undefined && observedRef !== expectedRef) {
+      throw new SingularityFlowError(
+        `Governed publication checkout changed while its commit was being prepared (expected ${expectedRef ?? 'detached HEAD'}, `
+        + `found ${observedRef ?? 'detached HEAD'}). The commit was not installed; reload the lifecycle state and retry.`,
+        {
+          code: 'PUBLICATION_BRANCH_CHANGED',
+          details: { expectedRef, currentRef: observedRef }
+        }
+      );
+    }
+    const ref = expectedRef !== undefined ? expectedRef : observedRef;
+    if (!ref) {
+      throw new SingularityFlowError('Detached HEAD is not supported for governed publication.');
+    }
     const update = git(['update-ref', ref, sourceCommit, expectedHead], { cwd: root, allowFailure: true });
     if (update.status !== 0) {
       throw new SingularityFlowError(
@@ -699,9 +729,35 @@ export async function commitIsolated(root, message, paths, {
     refAdvanced = true;
     if (onRefAdvanced) await onRefAdvanced({ expectedHead, sourceCommit, tree, transaction: boundTransaction });
 
+    const refBeforeIndexRefresh = checkedOutRef();
+    if (expectedRef !== undefined && refBeforeIndexRefresh !== expectedRef) {
+      throw new SingularityFlowError(
+        `Governed publication checkout changed after ${expectedRef} advanced (found ${refBeforeIndexRefresh ?? 'detached HEAD'}). `
+        + `Commit ${sourceCommit.slice(0, 12)} was retained on its captured branch; recover or publish that exact commit before retrying.`,
+        {
+          code: 'PUBLICATION_BRANCH_CHANGED',
+          details: { expectedRef, currentRef: refBeforeIndexRefresh, commit: sourceCommit }
+        }
+      );
+    }
+
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
     git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root });
+    const refAfterIndexRefresh = checkedOutRef();
+    if (expectedRef !== undefined && refAfterIndexRefresh !== expectedRef) {
+      // A checkout racing the index refresh may now own this worktree. Restore its index from its
+      // own HEAD; the exact governed commit remains safely reachable from expectedRef.
+      git(['reset', '-q', 'HEAD', '--', ...scope], { cwd: root, allowFailure: true });
+      throw new SingularityFlowError(
+        `Governed publication checkout changed while ${expectedRef}'s index was being refreshed (found ${refAfterIndexRefresh ?? 'detached HEAD'}). `
+        + `Commit ${sourceCommit.slice(0, 12)} was retained on its captured branch and was not published.`,
+        {
+          code: 'PUBLICATION_BRANCH_CHANGED',
+          details: { expectedRef, currentRef: refAfterIndexRefresh, commit: sourceCommit }
+        }
+      );
+    }
     if (fault) await fault('after-ref-update', { expectedHead, sourceCommit, tree });
     return sourceCommit;
   } catch (error) {

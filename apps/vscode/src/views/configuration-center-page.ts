@@ -230,10 +230,10 @@ function worldModel(view: ConfigurationCenterView): string {
   return `<section class="plain world-model-settings">
     ${worldModelExplorer(view)}
     ${view.worldModelStatus.rebuildReason
-    ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Rebuild</button></p>`
+    ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Review explicit refresh</button></p>`
     : view.worldModelStatus.built
       ? ''
-      : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Build the world model</button></p>'}
+      : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Review world-model build</button></p>'}
     <details class="configuration-advanced-tools wm-settings"><summary>Behavior &amp; generation settings</summary>
     <div class="section-heading"><div><h2>${icon('configuration')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
     <form id="world-model-form">
@@ -251,7 +251,7 @@ function worldModel(view: ConfigurationCenterView): string {
         <div class="form-grid">
           <label><span>Mode</span><select name="materializationMode">${option('explicit', model.materialization.mode, 'Explicit — user runs world-model command')}${option('on-demand', model.materialization.mode, 'On demand — prepare when required')}${option('disabled', model.materialization.mode, 'Disabled — no automatic materialization; explicit builds remain available')}</select></label>
           <label><span>Generation depth</span><select name="materializationDepth" id="world-model-depth">${option('light', model.materialization.depth, 'Light — deterministic, zero model tokens')}${option('phase', model.materialization.depth, 'Phase — phase-aware, may invoke a model')}</select></label>
-          <label><span>Confirmation</span><select name="materializationConfirmation" id="world-model-confirmation">${option('prompt', model.materialization.confirmation, 'Prompt before generation')}${option('automatic', model.materialization.confirmation, 'Automatic — light depth only')}</select><small>Automatic is deliberately restricted to deterministic light generation. Model-driven generation always needs confirmation.</small></label>
+          <label><span>Confirmation</span><select name="materializationConfirmation" id="world-model-confirmation">${option('prompt', model.materialization.confirmation, 'Prompt before generation')}${option('automatic', model.materialization.confirmation, 'Automatic — proven-first or same-source light')}</select><small>Automatic requires proven first-use state or adds same-source missing views. It never recreates removed, unpublished, stale, divergent, or invalid authority. Model-driven generation always needs explicit confirmation.</small></label>
           <label><span>Publication</span><select name="materializationPublish">${option('governed', model.materialization.publish, 'Governed — commit and publish')}${option('local', model.materialization.publish, 'Local — do not publish')}</select></label>
           <label><span>Look ahead</span><select name="materializationLookahead">${option('none', model.materialization.lookahead, 'Current phase only')}${option('next-phase', model.materialization.lookahead, 'Also prepare next phase')}</select></label>
         </div>

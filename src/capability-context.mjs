@@ -13,8 +13,16 @@ import {
   resolveCapabilitySourceScope
 } from './capabilities.mjs';
 import { loadDefinition } from './config.mjs';
-import { resolveWorldModelSource } from './grounding.mjs';
+import {
+  normalizeWorldModelManifest,
+  resolveWorldModelSource,
+  validateWorldModelDirectory,
+  worldModelFreshness,
+  worldModelSelectionEntry,
+  worldModelSourceSnapshot
+} from './grounding.mjs';
 import { ledgerLog } from './ledger.mjs';
+import { withWorldModelSourceScope } from './source-scope.mjs';
 import { activeWorkspaceFile, workspaceContextForRepository, workspaceRegistryFile } from './workspace-context.mjs';
 import { readWorkspace, workspaceRepositoryPath } from './workspace.mjs';
 import { posix, run, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
@@ -298,14 +306,87 @@ export function applyCapabilityPolicyToInitiativeResolution(resolution, capabili
 }
 
 function modelFiles(manifest, views) {
-  const selected = new Map([['core/summary.md', new Set(['core'])]]);
+  const normalized = manifest?.source_schema_version ? manifest : normalizeWorldModelManifest(manifest);
+  const allowLegacyFallback = normalized.source_schema_version !== '3.0';
+  const core = worldModelSelectionEntry(normalized, { kind: 'core', tier: 'full' }, { allowLegacyFallback });
+  const selected = new Map(core?.path ? [[core.path, new Set(['core'])]] : []);
   for (const view of views) {
-    const relative = manifest.views?.[view]?.path;
+    const relative = worldModelSelectionEntry(normalized, {
+      kind: 'view', view, tier: 'full'
+    }, { allowLegacyFallback })?.path;
     if (!relative) continue;
     if (!selected.has(relative)) selected.set(relative, new Set());
     selected.get(relative).add(view);
   }
   return [...selected].map(([relative, matchedViews]) => ({ relative, views: [...matchedViews] }));
+}
+
+/** Resolve a sibling model against that repository's current capability-scoped source identity. */
+export async function resolveCapabilityWorldModelCandidate(repositoryRoot, definition, {
+  sourceScope = null,
+  views = []
+} = {}) {
+  const groundingDefinition = withWorldModelSourceScope(definition ?? {}, sourceScope);
+  const worldModel = groundingDefinition.worldModel ?? { outputDir: 'singularity/world-model' };
+  const outputDir = worldModel.outputDir ?? 'singularity/world-model';
+  const requiredSelections = [
+    { kind: 'core', tier: 'full' },
+    ...unique(views).map((view) => ({ kind: 'view', view, tier: 'full' }))
+  ];
+  const sourceState = await worldModelSourceSnapshot(repositoryRoot, groundingDefinition);
+  const worldModelConfig = {
+    ...worldModel,
+    ledger: groundingDefinition.ledger,
+    stateBranch: worldModel.stateBranch ?? groundingDefinition.ledger?.branch ?? null,
+    remote: worldModel.remote ?? groundingDefinition.git?.remote ?? 'origin',
+    definition: groundingDefinition
+  };
+  const located = await resolveWorldModelSource(repositoryRoot, worldModelConfig, {
+    sourceTreeSha256: sourceState.sha256,
+    requiredSelections
+  });
+  if (located.diverged) {
+    throw new SingularityFlowError('The capability repository local and remote state branches have diverged.', {
+      code: 'world_model.capability_authority_conflict',
+      details: { branch: located.branch, authority: located.authority }
+    });
+  }
+  if (located.refresh === 'remote-absent' && located.authority === 'unpublished-local-state') {
+    throw new SingularityFlowError('The capability repository remote state branch is absent; a leftover local state ref requires explicit review.', {
+      code: 'world_model.capability_authority_conflict',
+      details: { branch: located.branch, authority: located.authority }
+    });
+  }
+  const manifestPath = path.join(located.directory, 'manifest.json');
+  if (!existsSync(manifestPath)) {
+    throw new SingularityFlowError('No world-model manifest is available for the current scoped source snapshot.', {
+      code: 'world_model.capability_missing'
+    });
+  }
+  const validated = await validateWorldModelDirectory(located.directory, {
+    integrity: 'full',
+    requiredSelections,
+    sourceLabel: 'capability repository world model'
+  });
+  const freshness = await worldModelFreshness(repositoryRoot, groundingDefinition, validated.manifest);
+  if (!freshness.fresh || freshness.built !== sourceState.sha256) {
+    throw new SingularityFlowError('The capability repository world model does not match its current scoped source snapshot.', {
+      code: 'world_model.capability_stale',
+      details: {
+        requestedSourceTreeSha256: sourceState.sha256,
+        sourceTreeSha256: freshness.built ?? null
+      }
+    });
+  }
+  return {
+    outputDir,
+    requiredSelections,
+    sourceState,
+    located,
+    manifestPath,
+    manifest: validated.manifest,
+    normalizedManifest: validated.normalizedManifest
+  };
 }
 
 export function isLocalCapabilityRepository(repositoryId, sourceRepositoryId, repositoryRoot, currentRoot) {
@@ -348,34 +429,34 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       repositories.push({ id: repositoryId, status: 'local-grounding' });
       continue;
     }
-    const repositoryDefinition = await loadDefinition(repositoryRoot).catch(() => null);
-    const worldModel = repositoryDefinition?.worldModel ?? {
-      outputDir: 'singularity/world-model',
-      ledger: repositoryDefinition?.ledger
-    };
-    const outputDir = worldModel.outputDir ?? 'singularity/world-model';
-    const located = await resolveWorldModelSource(repositoryRoot, {
-      ...worldModel,
-      ledger: repositoryDefinition?.ledger
-    });
-    const manifestPath = path.join(located.directory, 'manifest.json');
-    if (!existsSync(manifestPath)) {
-      warnings.push(`Capability repository '${repositoryId}' has no world-model manifest.`);
-      repositories.push({ id: repositoryId, status: 'world-model-missing' });
-      continue;
+    const repositoryDefinition = await loadDefinition(repositoryRoot).catch(() => ({}));
+    let resolved;
+    try {
+      resolved = await resolveCapabilityWorldModelCandidate(repositoryRoot, repositoryDefinition, {
+        sourceScope: capability.sourceScope ?? null,
+        views
+      });
     }
-    let manifest;
-    try { manifest = JSON.parse(await readFile(manifestPath, 'utf8')); }
     catch (error) {
-      warnings.push(`Capability repository '${repositoryId}' has an invalid world-model manifest: ${error.message}`);
-      repositories.push({ id: repositoryId, status: 'world-model-invalid' });
+      const status = error.code === 'world_model.capability_missing'
+        ? 'world-model-missing'
+        : error.code === 'world_model.capability_stale'
+          ? 'world-model-stale'
+          : error.code === 'world_model.capability_authority_conflict'
+            ? 'world-model-authority-conflict'
+            : 'world-model-invalid';
+      warnings.push(`Capability repository '${repositoryId}' world model is unavailable: ${error.message}`);
+      repositories.push({ id: repositoryId, status, ...(error.details ?? {}) });
       continue;
     }
+    const {
+      outputDir, sourceState, located, manifestPath, manifest, normalizedManifest
+    } = resolved;
     const manifestInfo = await snapshot(manifestPath);
     const commit = manifest.repository_commit ?? manifest.repository?.commit
       ?? run('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, allowFailure: true }).stdout.trim();
     const selected = [];
-    for (const selection of modelFiles(manifest, views)) {
+    for (const selection of modelFiles(normalizedManifest, views)) {
       const { relative } = selection;
       const absolute = path.join(located.directory, relative);
       const info = await snapshot(absolute);
@@ -412,6 +493,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       commit,
       manifestSha256: manifestInfo.sha256,
       sourceTreeSha256: manifest.source_tree_sha256 ?? null,
+      requestedSourceTreeSha256: sourceState.sha256,
       source: located.source,
       files: selected
     });

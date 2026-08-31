@@ -1968,14 +1968,60 @@ async function repositoryWorldModelStatus(root) {
     };
   }
   if (manifest.state === 'missing') {
-    return {
-      state: 'missing',
-      exists: false,
-      outputDirectory: normalizedOutput,
-      manifestPath,
-      generatedAt: null,
-      warning: `No repository world model was found at ${manifestPath}.`
-    };
+    // Repository models are normally governed on the state branch and may intentionally be absent
+    // from the application checkout. Resolve that authority before describing the repository as
+    // ungrounded; workspace status is read-only, so it uses already-fetched refs and never triggers
+    // a network request or a rebuild.
+    try {
+      const [{ loadDefinition }, grounding] = await Promise.all([
+        import('./config.mjs'), import('./grounding.mjs')
+      ]);
+      const definition = await loadDefinition(root);
+      const source = await grounding.worldModelSourceSnapshot(root, definition);
+      const located = await grounding.resolveWorldModelSource(root, {
+        ...(definition.worldModel ?? {}),
+        outputDir: normalizedOutput,
+        stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
+        remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+        ledger: definition.ledger,
+        definition
+      }, { refreshRemote: false, sourceTreeSha256: source.sha256 });
+      const validated = await grounding.validateWorldModelDirectory(located.directory, {
+        integrity: 'full',
+        sourceLabel: located.source === 'state-branch'
+          ? `governed state-branch world model '${located.branch}'`
+          : 'application-projection world model'
+      });
+      const freshness = await grounding.worldModelFreshness(root, definition, validated.manifest);
+      if (!freshness.fresh || freshness.built !== source.sha256) {
+        throw new SingularityFlowError(`Preserved model describes ${freshness.built ?? 'an unknown source'}, not ${source.sha256}.`);
+      }
+      return {
+        state: 'available',
+        exists: true,
+        source: located.source,
+        authority: located.authority ?? null,
+        historical: located.historical === true,
+        outputDirectory: normalizedOutput,
+        manifestPath: `${normalizedOutput}/manifest.json`,
+        snapshotRef: located.snapshotRef ?? located.commit ?? null,
+        generatedAt: validated.manifest.generated_at ?? validated.manifest.generatedAt ?? null,
+        warning: null
+      };
+    } catch (error) {
+      return {
+        // Preserve the public compatibility value consumed by workspace automation. The more
+        // precise projection diagnosis is additive rather than a silent state-enum replacement.
+        state: 'missing',
+        projectionStatus: 'not-projected',
+        exists: false,
+        source: 'application-projection',
+        outputDirectory: normalizedOutput,
+        manifestPath,
+        generatedAt: null,
+        warning: `No world model is projected into the checked-out application branch at ${manifestPath}; governed state was not available for this read (${error.message}).`
+      };
+    }
   }
   if (manifest.state !== 'file') {
     return {

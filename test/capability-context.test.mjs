@@ -2,16 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import {
   applyCapabilityPolicyToInitiativeResolution,
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
   isLocalCapabilityRepository,
+  resolveCapabilityWorldModelCandidate,
   renderCapabilityWorldModelPack
 } from '../src/capability-context.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { snapshot } from '../src/util.mjs';
 import { initiativePublicationMode } from '../src/initiative-state.mjs';
+import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 
 const capability = {
   id: 'payments-api',
@@ -32,6 +36,57 @@ const capability = {
     allowedMimeTypes: ['text/markdown']
   }
 };
+
+function git(root, ...args) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, `${args.join(' ')} failed: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+async function seedCapabilityModel(root, sourceTreeSha256, label) {
+  const directory = path.join(root, 'singularity/world-model');
+  await rm(directory, { recursive: true, force: true });
+  await mkdir(path.join(directory, 'core'), { recursive: true });
+  await mkdir(path.join(directory, 'views'), { recursive: true });
+  await mkdir(path.join(directory, 'evidence'), { recursive: true });
+  await writeFile(path.join(directory, 'core/summary.brief.md'), `# ${label} brief\n`);
+  await writeFile(path.join(directory, 'core/summary.md'), `# ${label} full\n`);
+  await writeFile(path.join(directory, 'core/model.json'), '{}\n');
+  await writeFile(path.join(directory, 'path-index.json'), '{}\n');
+  await writeFile(path.join(directory, 'views/security.md'), `# ${label} security\n`);
+  await writeFile(path.join(directory, 'evidence/evidence.jsonl'), '{"id":"E-1"}\n');
+  await writeV3Manifest(directory, {
+    schema_version: '3.0',
+    generated_at: '2026-08-31T00:00:00.000Z',
+    generated_date: '31 August 2026',
+    builder_version: 'test',
+    builder_prompt_sha256: 'a'.repeat(64),
+    analysis_depth: 'standard',
+    repository_commit: git(root, 'rev-parse', 'main'),
+    repository_branch: 'main',
+    working_tree_clean: true,
+    source_tree_sha256: sourceTreeSha256,
+    core: {
+      tiers: {
+        brief: { status: 'ready', path: 'core/summary.brief.md' },
+        full: { status: 'ready', path: 'core/summary.md' }
+      },
+      model: { path: 'core/model.json' }
+    },
+    views: {
+      security: {
+        tiers: {
+          brief: { status: 'missing', path: 'views/security.brief.md' },
+          full: { status: 'ready', path: 'views/security.md' }
+        }
+      }
+    },
+    domains: [], task_guides: [],
+    path_index: { path: 'path-index.json' },
+    evidence: { path: 'evidence/evidence.jsonl' },
+    materializations: []
+  });
+}
 
 test('capability publication policy tightens Initiative publication', () => {
   const initiative = (gitPublication) => ({
@@ -159,4 +214,66 @@ test('a Story worktree does not pin its own repository as sibling capability con
   assert.equal(isLocalCapabilityRepository(
     'api', 'calc', '/workspace/repos/api', '/workspace/.story-worktrees/CFA/repos/calc'
   ), false);
+});
+
+test('sibling capability grounding resolves the exact scoped source from validated state history', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-sibling-source-'));
+  try {
+    git(root, 'init', '-q', '-b', 'main');
+    git(root, 'config', 'user.name', 'Capability Tester');
+    git(root, 'config', 'user.email', 'capability@example.com');
+    await mkdir(path.join(root, 'service'), { recursive: true });
+    await mkdir(path.join(root, 'unrelated'), { recursive: true });
+    await writeFile(path.join(root, 'service/api.js'), 'export const api = 1;\n');
+    await writeFile(path.join(root, 'unrelated/note.txt'), 'one\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-qm', 'source');
+
+    const sourceScope = { sourceRoots: ['service'], sharedRoots: [] };
+    const definition = {
+      worldModel: { outputDir: 'singularity/world-model', stateBranch: 'state' },
+      ledger: { branch: 'state' }
+    };
+    const source = await worldModelSourceSnapshot(root, {
+      worldModel: { sourceRoots: ['service'], sharedRoots: [] }
+    });
+    git(root, 'switch', '-qc', 'state');
+    await seedCapabilityModel(root, source.sha256, 'matching scoped model');
+    git(root, 'add', 'singularity/world-model');
+    git(root, 'commit', '-qm', 'matching scoped model');
+    const matchingCommit = git(root, 'rev-parse', 'HEAD');
+
+    await seedCapabilityModel(root, `sha256:${'b'.repeat(64)}`, 'different source tip');
+    git(root, 'add', '-A', 'singularity/world-model');
+    git(root, 'commit', '-qm', 'different source model');
+    git(root, 'switch', '-q', 'main');
+
+    // A file outside the capability scope does not invalidate the scoped source identity.
+    await writeFile(path.join(root, 'unrelated/note.txt'), 'two\n');
+    git(root, 'add', 'unrelated/note.txt');
+    git(root, 'commit', '-qm', 'change unrelated source');
+
+    const resolved = await resolveCapabilityWorldModelCandidate(root, definition, {
+      sourceScope,
+      views: ['security']
+    });
+    assert.equal(resolved.sourceState.sha256, source.sha256);
+    assert.equal(resolved.located.commit, matchingCommit);
+    assert.equal(resolved.located.historical, true);
+    assert.equal(resolved.located.requestedSourceTreeSha256, source.sha256);
+    assert.equal(resolved.located.sourceTreeSha256, source.sha256);
+
+    // A reachable remote that has no state branch is authoritative. The exact local state ref is
+    // now an unpublished leftover, not governed sibling context that may be pinned silently.
+    const remote = path.join(root, 'origin.git');
+    git(root, 'init', '--bare', '-q', '-b', 'main', remote);
+    git(root, 'remote', 'add', 'origin', remote);
+    git(root, 'push', '-q', '-u', 'origin', 'main');
+    await assert.rejects(
+      resolveCapabilityWorldModelCandidate(root, definition, { sourceScope, views: ['security'] }),
+      (error) => error.code === 'world_model.capability_authority_conflict'
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

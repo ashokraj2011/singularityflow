@@ -380,7 +380,9 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
   );
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
-  if (mode === 'off') return { text: '', files: [], warnings: [], record: { mode, available: false } };
+  if (mode === 'off') return {
+    text: '', files: [], directory: null, warnings: [], record: { mode, available: false }
+  };
   const plan = resolveGroundingPlan({
     phase: phase.id,
     phaseViews: phase.worldModel?.views ?? [],
@@ -416,6 +418,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     return {
       text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
       files: files.map(({ content, ...file }) => file),
+      directory: resolved.directory,
       warnings: staleness.warns ? [staleness.message] : [],
       record: {
         mode, available: true, fresh: resolved.freshness.fresh,
@@ -428,6 +431,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     if (mode === 'enforce') throw new SingularityFlowError(`Planning context requires fresh repository world-model grounding: ${error.message}`);
     return {
       text: '', files: [], warnings: [`Repository world model unavailable: ${error.message}`],
+      directory: null,
       record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
     };
   }
@@ -449,6 +453,7 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     agentId: agent,
     agentSha256: definition.agents?.[agent]?.sha256 ?? null
   });
+  const world = await workItemWorldModel(root, definition, workflow, phase, agent);
   const agentResult = await injectAgentPrompt(root, definition, agent, {
     agent,
     phase: phase.id,
@@ -456,9 +461,12 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     labels: []
   }, {
     promptOverride: promptStudy,
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
+    // A resolver failure is an explicit authority decision, not permission to fall back to whatever
+    // happens to exist in the application worktree. Warn mode may continue without grounding, but
+    // it must continue with zero world-model injection.
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow) || !world.record.available,
+    modelDirectory: world.directory
   });
-  const world = await workItemWorldModel(root, definition, workflow, phase, agent);
   const capability = worldModelDisabledForWorkflow(workflow)
     ? { text: '', files: [], warnings: [] }
     : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {

@@ -74,6 +74,9 @@ import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
 import { ledgerStatus } from './ledger.mjs';
 import {
+  resolveWorldModelSource, validateWorldModelDirectory, worldModelSourceSnapshot
+} from './grounding.mjs';
+import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
 import {
@@ -242,6 +245,72 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
   }
   await visit(absoluteRoot);
   return output.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function editorWorldModelStatus(root, definition, modelRoot) {
+  try {
+    const source = await worldModelSourceSnapshot(root, definition);
+    const located = await resolveWorldModelSource(root, {
+      outputDir: modelRoot,
+      stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
+      ledger: definition.ledger,
+      remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+      definition
+    }, { refreshRemote: false, sourceTreeSha256: source.sha256 });
+    const manifestPath = path.join(located.directory, 'manifest.json');
+    if (!existsSync(manifestPath)) return {
+      manifest: null,
+      located,
+      readiness: {
+        status: 'missing', ready: false, source: null, historical: false,
+        command: 'singularity-flow wm ensure --depth standard'
+      },
+      reason: 'No governed repository world model has been built.'
+    };
+    const validated = await validateWorldModelDirectory(located.directory, {
+      integrity: 'full',
+      sourceLabel: located.source === 'state-branch'
+        ? 'governed state-branch world model'
+        : 'working-tree world model'
+    });
+    const manifest = validated.normalizedManifest;
+    const exact = manifest.source_tree_sha256 === source.sha256;
+    return {
+      manifest,
+      located,
+      readiness: {
+        status: exact ? 'ready' : 'stale',
+        ready: exact,
+        source: located.source,
+        historical: located.historical === true,
+        command: exact ? null : 'singularity-flow wm ensure --depth standard'
+      },
+      reason: exact
+        ? null
+        : 'A governed world model exists for another source snapshot. It was preserved; refresh is explicit.'
+    };
+  } catch (error) {
+    return {
+      manifest: null,
+      located: null,
+      readiness: {
+        status: 'invalid', ready: false, source: null, historical: false,
+        command: 'singularity-flow wm status --json'
+      },
+      reason: `The governed repository world model could not be verified: ${error.message}`
+    };
+  }
+}
+
+/** Read explorer files from the resolved immutable model, not whichever projection is checked out. */
+async function editorWorldModelFiles(root, modelRoot, located) {
+  const extensions = ['.md', '.json', '.jsonl', '.yml', '.yaml'];
+  if (located?.source !== 'state-branch') return textFiles(root, modelRoot, { extensions });
+  const files = await textFiles(located.directory, '.', { extensions });
+  return files.map((file) => ({
+    ...file,
+    path: posix(path.join(modelRoot, file.path))
+  }));
 }
 
 function skillFrontmatter(content, fallbackId) {
@@ -576,8 +645,19 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     type: 'file'
   });
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  let worldModelManifest = null;
-  try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* A missing model is represented by rebuildReason below. */ }
+  const repositoryWorldModel = worldModelReadiness?.availability
+    ? null
+    : await editorWorldModelStatus(root, definition, modelRoot);
+  const locatedWorldModel = worldModelReadiness?.availability?.selected
+    ?? repositoryWorldModel?.located
+    ?? null;
+  let worldModelManifest = worldModelReadiness?.availability?.selected?.manifest
+    ?? repositoryWorldModel?.manifest
+    ?? null;
+  if (!worldModelManifest) {
+    try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); }
+    catch { /* Missing state is represented by readiness below. */ }
+  }
   const builderPrompt = await worldModelPrompt(root, definition);
   const plannerPrompt = await planningPrompt(root, definition);
   /**
@@ -671,14 +751,16 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       // created and checked out the canonical Story branch that will own the generated model.
       // A stale snapshot under `warn` remains usable, but the UI must still disclose the pinned
       // staleness decision. `reason` is null for fresh and explicitly ignored snapshots.
-      rebuildReason: worldModelReadiness?.reason ?? null,
+      rebuildReason: worldModelReadiness?.reason
+        ?? (workflow?.currentPhase ? repositoryWorldModel?.reason : null),
       readiness: worldModelReadiness?.availability ? {
         status: worldModelReadiness.availability.status,
         ready: worldModelReadiness.availability.ready,
         source: worldModelReadiness.availability.source,
+        historical: worldModelReadiness.availability.selected?.historical === true,
         staleness: worldModelReadiness.availability.staleness,
         command: worldModelReadiness.command
-      } : null,
+      } : repositoryWorldModel?.readiness ?? null,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],
@@ -689,7 +771,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
         ]
       })),
       workflows: worldModelWorkflowViewUsage(definition),
-      files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
+      files: await editorWorldModelFiles(root, modelRoot, locatedWorldModel)
     },
     agents: agents.map((agent) => ({
       id: agent.id,
@@ -991,8 +1073,8 @@ async function configurationSlice(root) {
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  let worldModelManifest = null;
-  try { worldModelManifest = await readJson(path.join(root, modelRoot, 'manifest.json')); } catch { /* Not built yet. */ }
+  const repositoryWorldModel = await editorWorldModelStatus(root, definition, modelRoot);
+  const worldModelManifest = repositoryWorldModel.manifest;
   const promptViewReferences = await worldModelPromptViewReferences(root, definition);
   const structuredViewReferences = structuredWorldModelViewReferences(definition);
   const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
@@ -1052,8 +1134,8 @@ async function configurationSlice(root) {
     worldModel: {
       root: modelRoot,
       generatedAt: worldModelManifest?.generated_at ?? null,
-      rebuildReason: worldModelManifest ? null : 'The governed repository world model has not been built.',
-      readiness: null,
+      rebuildReason: repositoryWorldModel.reason,
+      readiness: repositoryWorldModel.readiness,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],
@@ -1064,7 +1146,7 @@ async function configurationSlice(root) {
         ]
       })),
       workflows: worldModelWorkflowViewUsage(definition),
-      files: await textFiles(root, modelRoot, { extensions: ['.md', '.json', '.jsonl', '.yml', '.yaml'] })
+      files: await editorWorldModelFiles(root, modelRoot, repositoryWorldModel.located)
     },
     mcp: await mcpConfigurationStatus(root, definition)
   };

@@ -477,6 +477,11 @@ test('next can automatically build the configured deterministic light world mode
   execute('git', ['add', 'singularity/workflow.yml'], root);
   execute('git', ['commit', '-m', 'automate deterministic light grounding'], root);
   execute('git', ['push', 'origin', 'main'], root);
+  // Automatic first creation is allowed only when the shared state authority exists and its
+  // reachable history proves that no model has ever been published. An absent branch could instead
+  // be a deleted model and must fail closed.
+  execute('git', ['branch', 'state'], root);
+  execute('git', ['push', 'origin', 'state'], root);
   const workId = 'NEXT-LIGHT-AUTO-1';
   flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Automatic light grounding', '--description', 'Build deterministic grounding before intake without a separate command.']);
 
@@ -519,6 +524,44 @@ test('next can automatically build the configured deterministic light world mode
   const sharedManifest = JSON.parse(execute('git', ['show', 'refs/heads/state:singularity/world-model/manifest.json'], root).stdout);
   assert.deepEqual(sharedManifest.task_guides, []);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+});
+
+test('automatic lifecycle materialization never replaces an existing stale world model', async () => {
+  const root = await repository();
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  definition.worldModel.staleness = 'fail';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
+  };
+  await writeFile(definitionPath, YAML.stringify(definition));
+  execute('git', ['add', 'singularity/workflow.yml'], root);
+  execute('git', ['commit', '-m', 'configure preserve-existing grounding'], root);
+  execute('git', ['push', 'origin', 'main'], root);
+
+  flow(root, ['wm', 'light', '--phase', 'intake']);
+  execute('git', ['push', 'origin', 'main'], root);
+  const stateBeforeSourceChange = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
+  await writeFile(path.join(root, 'README.md'), '# Test\n\nsource changed after the shared model was built\n');
+  execute('git', ['add', 'README.md'], root);
+  execute('git', ['commit', '-m', 'change application source'], root);
+  execute('git', ['push', 'origin', 'main'], root);
+
+  const workId = 'NEXT-PRESERVE-WM-1';
+  flow(root, [
+    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
+    '--title', 'Preserve the existing world model',
+    '--description', 'A stale governed snapshot must require an explicit refresh instead of automatic replacement.'
+  ]);
+  const next = flow(root, ['next']);
+  assert.match(next.stdout, /No model was started/);
+  assert.match(next.stdout, /automatic world-model recreation is disabled/);
+  assert.match(next.stdout, /singularity-flow wm ensure --phase intake/);
+  assert.doesNotMatch(next.stdout, /Automatically building/);
+  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeSourceChange);
+  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
+  assert.equal(workflow.phases.intake.generation, 0);
 });
 
 test('prompted on-demand world-model materialization requires a TTY or --yes', async () => {

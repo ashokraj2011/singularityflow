@@ -623,6 +623,319 @@ test('wm light creates a compact validated repository inventory with zero model 
   );
 });
 
+test('semantic build refuses a source race before invoking discovery or synthesis', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-analysis-source-race-'));
+  const barrier = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-analysis-barrier-'));
+  const providerLog = path.join(barrier, 'provider.jsonl');
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Analysis Source Race Tester'], root);
+  run('git', ['config', 'user.email', 'analysis-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await configureMockProvider(root, path.join(root, 'mock-worldmodel-builder.mjs'));
+  await writeFile(path.join(root, 'mock-worldmodel-builder.mjs'), mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Captured source A\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+
+  const buildPromise = resultAsync(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--no-parallel', '--local'
+  ], root, {
+    ...process.env,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_DIR: barrier,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES: 'after-source-capture',
+    SFLOW_PARALLEL_TEST_LOG: providerLog
+  });
+  const ready = path.join(barrier, 'after-source-capture.ready');
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(ready)) {
+    if (Date.now() >= deadline) throw new Error('semantic source-capture barrier was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  await writeFile(path.join(root, 'README.md'), '# Source B arrived during the build\n');
+  await writeFile(path.join(barrier, 'after-source-capture.release'), 'release\n');
+  const built = await buildPromise;
+  assert.notEqual(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.match(`${built.stdout}\n${built.stderr}`, /analysis snapshot does not match the captured repository source/i);
+  assert.equal(existsSync(providerLog), false, 'no model process starts for a mismatched analysis snapshot');
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false);
+});
+
+test('semantic build remains bound to its captured Story branch when another branch has the same tree', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-semantic-branch-race-'));
+  const barrier = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-semantic-branch-barrier-'));
+  const providerLog = path.join(barrier, 'provider.jsonl');
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Semantic Branch Race Tester'], root);
+  run('git', ['config', 'user.email', 'semantic-branch-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await configureMockProvider(root, path.join(root, 'mock-worldmodel-builder.mjs'));
+  await writeFile(path.join(root, 'mock-worldmodel-builder.mjs'), mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# One tree shared by two Story branches\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  const before = run('git', ['rev-parse', 'HEAD'], root).trim();
+  run('git', ['branch', 'story-a', before], root);
+  run('git', ['branch', 'story-b', before], root);
+  run('git', ['switch', 'story-a'], root);
+
+  const buildPromise = resultAsync(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--no-parallel', '--local'
+  ], root, {
+    ...process.env,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_DIR: barrier,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES: 'after-source-capture',
+    SFLOW_PARALLEL_TEST_LOG: providerLog
+  });
+  const ready = path.join(barrier, 'after-source-capture.ready');
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(ready)) {
+    if (Date.now() >= deadline) throw new Error('semantic branch-capture barrier was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  run('git', ['switch', 'story-b'], root);
+  await writeFile(path.join(barrier, 'after-source-capture.release'), 'release\n');
+  const built = await buildPromise;
+
+  assert.notEqual(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.match(`${built.stdout}\n${built.stderr}`, /branch or HEAD changed while the world model was being built/i);
+  assert.equal(existsSync(providerLog), false, 'no model process starts after the captured Story branch changes');
+  assert.equal(run('git', ['rev-parse', 'story-a'], root).trim(), before);
+  assert.equal(run('git', ['rev-parse', 'story-b'], root).trim(), before);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false);
+});
+
+test('deterministic light generation reads only its verified isolated source snapshot', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-source-race-'));
+  const barrier = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-barrier-'));
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Light Source Race Tester'], root);
+  run('git', ['config', 'user.email', 'light-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const packagePath = path.join(root, 'package.json');
+  const sourceA = `${JSON.stringify({ name: 'source-a', scripts: { test: 'node --test' } }, null, 2)}\n`;
+  const sourceB = `${JSON.stringify({ name: 'source-b', scripts: { test: 'node --test' } }, null, 2)}\n`;
+  await writeFile(packagePath, sourceA);
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+
+  const buildPromise = resultAsync(process.execPath, [
+    bin, 'wm', 'light', '--phase', 'intake', '--local'
+  ], root, {
+    ...process.env,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_DIR: barrier,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES: 'light-analysis-ready,after-light-generation'
+  });
+  const waitFor = async (name) => {
+    const file = path.join(barrier, name);
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(file)) {
+      if (Date.now() >= deadline) throw new Error(`light source barrier '${name}' was not reached`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+  await waitFor('light-analysis-ready.ready');
+  await writeFile(packagePath, sourceB);
+  await writeFile(path.join(barrier, 'light-analysis-ready.release'), 'release\n');
+  await waitFor('after-light-generation.ready');
+  await writeFile(packagePath, sourceA);
+  await writeFile(path.join(barrier, 'after-light-generation.release'), 'release\n');
+  const built = await buildPromise;
+  assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  const model = JSON.parse(await readFile(path.join(root, 'singularity/world-model/core/model.json'), 'utf8'));
+  assert.equal(model.title, 'source-a', 'temporary live-root bytes never enter the A-bound model');
+});
+
+test('deterministic light build refuses publication after a same-tree Story branch switch', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-branch-race-'));
+  const barrier = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-light-branch-barrier-'));
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Light Branch Race Tester'], root);
+  run('git', ['config', 'user.email', 'light-branch-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# One light-model source tree\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  const before = run('git', ['rev-parse', 'HEAD'], root).trim();
+  run('git', ['branch', 'story-a', before], root);
+  run('git', ['branch', 'story-b', before], root);
+  run('git', ['switch', 'story-a'], root);
+
+  const buildPromise = resultAsync(process.execPath, [
+    bin, 'wm', 'light', '--phase', 'intake', '--local'
+  ], root, {
+    ...process.env,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_DIR: barrier,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES: 'after-light-generation'
+  });
+  const ready = path.join(barrier, 'after-light-generation.ready');
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(ready)) {
+    if (Date.now() >= deadline) throw new Error('light branch-race barrier was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  run('git', ['switch', 'story-b'], root);
+  await writeFile(path.join(barrier, 'after-light-generation.release'), 'release\n');
+  const built = await buildPromise;
+
+  assert.notEqual(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.match(`${built.stdout}\n${built.stderr}`, /branch or HEAD changed while the world model was being built/i);
+  assert.equal(run('git', ['rev-parse', 'story-a'], root).trim(), before);
+  assert.equal(run('git', ['rev-parse', 'story-b'], root).trim(), before);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false);
+});
+
+test('source change during governed state publication retains history without installing it as current', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-state-source-race-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'work');
+  run('git', ['init', '-q', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-q', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'State Source Race Tester'], root);
+  run('git', ['config', 'user.email', 'state-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Stable source A\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], root);
+  const sourceA = (await worldModelSourceSnapshot(root, definition)).sha256;
+  const headBefore = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const hook = path.join(root, '.git/hooks/pre-push');
+  await writeFile(hook, `#!/usr/bin/env node
+const fs = require('node:fs');
+const input = fs.readFileSync(0, 'utf8');
+if (input.includes('refs/heads/state')) fs.writeFileSync(${JSON.stringify(path.join(root, 'README.md'))}, '# Source B changed during state publication\\n');
+`);
+  await chmod(hook, 0o755);
+
+  const built = flow(['wm', 'light', '--phase', 'intake'], root, { allowFailure: true });
+  assert.notEqual(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.match(`${built.stdout}\n${built.stderr}`, /Repository source changed while the world model was being built/i);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), headBefore,
+    'the application branch does not receive a stale model commit');
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), false,
+    'the historical state publication is not installed into the changed application worktree');
+  const governedManifest = JSON.parse(run(
+    'git', ['show', 'refs/heads/state:singularity/world-model/manifest.json'], remote
+  ));
+  assert.equal(governedManifest.source_tree_sha256, sourceA,
+    'the state branch retains the completed snapshot under its original source identity');
+});
+
+test('application publication pushes the proven world-model commit, never a later HEAD', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-exact-application-push-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'work');
+  run('git', ['init', '-q', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-q', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Exact Push Tester'], root);
+  run('git', ['config', 'user.email', 'exact-push@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Exact application publication\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], root);
+  run('git', ['switch', '-qc', 'feature/world-model'], root);
+  const hook = path.join(root, '.git/hooks/pre-push');
+  await writeFile(hook, `#!/usr/bin/env node
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const input = fs.readFileSync(0, 'utf8');
+if (input.includes('refs/heads/feature/world-model')) {
+  fs.writeFileSync(${JSON.stringify(path.join(root, 'late-change.txt'))}, 'created after world-model commit\\n');
+  cp.spawnSync('git', ['add', 'late-change.txt'], { cwd: ${JSON.stringify(root)} });
+  const committed = cp.spawnSync('git', ['commit', '-qm', 'late concurrent commit'], { cwd: ${JSON.stringify(root)} });
+  if (committed.status !== 0) process.exit(committed.status ?? 1);
+}
+`);
+  await chmod(hook, 0o755);
+
+  const built = flow(['wm', 'light', '--phase', 'intake'], root);
+  assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  const localHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  const remoteHead = run('git', ['rev-parse', 'refs/heads/feature/world-model'], remote).trim();
+  assert.notEqual(remoteHead, localHead, 'the hook-created later HEAD is not swept into publication');
+  assert.equal(run('git', ['log', '-1', '--format=%s', remoteHead], root).trim().startsWith('[world-model]'), true);
+  assert.equal(run('git', ['log', '-1', '--format=%s', localHead], root).trim(), 'late concurrent commit');
+});
+
+test('a source race after the application commit retains a consistent local recovery boundary', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-post-commit-source-race-'));
+  const barrier = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-post-commit-barrier-'));
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Post Commit Race Tester'], root);
+  run('git', ['config', 'user.email', 'post-commit-race@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization.publish = 'local';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Source before application commit\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+
+  const buildPromise = resultAsync(process.execPath, [
+    bin, 'wm', 'light', '--phase', 'intake', '--local'
+  ], root, {
+    ...process.env,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_DIR: barrier,
+    SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES: 'after-application-commit'
+  });
+  const ready = path.join(barrier, 'after-application-commit.ready');
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(ready)) {
+    if (Date.now() >= deadline) throw new Error('post-commit source barrier was not reached');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const retainedCommit = run('git', ['rev-parse', 'HEAD'], root).trim();
+  assert.match(run('git', ['log', '-1', '--format=%s'], root), /^\[world-model\]/);
+  await writeFile(path.join(root, 'README.md'), '# Source changed after application commit\n');
+  await writeFile(path.join(barrier, 'after-application-commit.release'), 'release\n');
+  const built = await buildPromise;
+  assert.notEqual(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.match(`${built.stdout}\n${built.stderr}`, new RegExp(`commit ${retainedCommit.slice(0, 12)} was retained locally and was not pushed`));
+  assert.equal(run('git', ['rev-parse', 'HEAD'], root).trim(), retainedCommit);
+  assert.equal(existsSync(path.join(root, 'singularity/world-model/manifest.json')), true);
+  const dirty = run('git', ['status', '--porcelain=v1'], root);
+  assert.match(dirty, /README\.md/);
+  assert.doesNotMatch(dirty, /singularity\/world-model/,
+    'the installed projection remains byte-identical to the durable retained commit');
+});
+
 test('a later Story warms a same-source narrow model without another provider invocation', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-cross-story-reuse-'));
   run('git', ['init', '-b', 'main'], root);
@@ -680,6 +993,72 @@ test('a later Story warms a same-source narrow model without another provider in
   assert.equal(existsSync(providerMarker), false, 'a later phase must reuse the warmed repository catalog');
 });
 
+test('state history reuses an earlier exact source snapshot after A to B to A without rebuilding', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-history-reuse-'));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'History Reuse Tester'], root);
+  run('git', ['config', 'user.email', 'history-reuse@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Source A\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'source A'], root);
+
+  flow(['wm', 'light', '--phase', 'design'], root);
+  const sourceAHead = run('git', ['rev-parse', 'HEAD'], root).trim();
+  run('git', ['branch', 'source-a', sourceAHead], root);
+  const stateA = run('git', ['rev-parse', 'refs/heads/state'], root).trim();
+  const manifestA = JSON.parse(run('git', [
+    'show', 'refs/heads/state:singularity/world-model/manifest.json'
+  ], root));
+
+  await writeFile(path.join(root, 'README.md'), '# Source B\n');
+  run('git', ['add', 'README.md'], root);
+  run('git', ['commit', '-m', 'source B'], root);
+  flow(['wm', 'light', '--phase', 'design'], root);
+  const stateB = run('git', ['rev-parse', 'refs/heads/state'], root).trim();
+  assert.notEqual(stateB, stateA);
+
+  run('git', ['switch', 'source-a'], root);
+  const available = JSON.parse(flow([
+    'wm', 'availability', '--phase', 'design', '--depth', 'light', '--json'
+  ], root).stdout);
+  assert.equal(available.ready, true);
+  assert.equal(available.source, 'state-branch');
+  assert.equal(available.selected.historical, true);
+  assert.equal(available.selected.commit, stateA);
+  assert.equal(available.selected.manifest.source_tree_sha256, manifestA.source_tree_sha256);
+
+  const reused = JSON.parse(flow([
+    'wm', 'ensure', '--phase', 'design', '--depth', 'light', '--json'
+  ], root).stdout);
+  assert.match(reused.mode, /^reuse/);
+  assert.equal(run('git', ['rev-parse', 'refs/heads/state'], root).trim(), stateB);
+
+  // Even an accidental later projection that removes the tip directory must not erase an exact
+  // immutable snapshot from state history or force another build.
+  const stateWorktreeBase = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-without-model-'));
+  const stateWorktree = path.join(stateWorktreeBase, 'state');
+  run('git', ['worktree', 'add', stateWorktree, 'state'], root);
+  run('git', ['rm', '-qr', 'singularity/world-model'], stateWorktree);
+  run('git', ['commit', '-qm', 'remove current model projection'], stateWorktree);
+  run('git', ['worktree', 'remove', stateWorktree], root);
+  const stateWithoutModel = run('git', ['rev-parse', 'refs/heads/state'], root).trim();
+  assert.notEqual(stateWithoutModel, stateB);
+
+  const recoveredAfterRemoval = JSON.parse(flow([
+    'wm', 'availability', '--phase', 'design', '--depth', 'light', '--json'
+  ], root).stdout);
+  assert.equal(recoveredAfterRemoval.ready, true);
+  assert.equal(recoveredAfterRemoval.selected.historical, true);
+  assert.equal(recoveredAfterRemoval.selected.commit, stateA);
+  assert.equal(recoveredAfterRemoval.selected.tipCommit, stateWithoutModel);
+});
+
 test('wm availability is read-only when required tiers are absent', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-availability-'));
   run('git', ['init', '-b', 'main'], root);
@@ -697,6 +1076,7 @@ test('wm availability is read-only when required tiers are absent', async () => 
   const availability = JSON.parse(checked.stdout);
   assert.equal(availability.ready, false);
   assert.equal(availability.status, 'missing');
+  assert.ok(availability.candidates.every((candidate) => candidate.present === false));
   assert.match(availability.action.command, /wm ensure --phase design/);
   const status = JSON.parse(flow(['wm', 'status', '--phase', 'design', '--json'], root).stdout);
   assert.equal(status.ready, false);
@@ -741,6 +1121,7 @@ test('availability applies staleness policy independently from grounding mode', 
   const warned = availability();
   assert.equal(warned.ready, true);
   assert.equal(warned.status, 'stale');
+  assert.ok(warned.candidates.some((candidate) => candidate.present === true));
   assert.equal(warned.staleness.warns, true);
 
   await setStaleness('fail');
@@ -802,6 +1183,85 @@ test('governed materialization publishes to the orphan state branch when ledger 
     run('git', ['ls-tree', '-r', '--name-only', stateBranch], root),
     /singularity\/world-model\/views\/obsolete\.md/
   );
+});
+
+test('wm check validates a current-source state-only model at a custom output directory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-check-state-only-'));
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'State Check Tester'], root);
+  run('git', ['config', 'user.email', 'state-check@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  const outputDir = 'singularity/custom-world-model';
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.outputDir = outputDir;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# State-only check source\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+
+  const built = flow(['wm', 'light', '--phase', 'intake'], root);
+  assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
+  assert.equal(existsSync(path.join(root, outputDir, 'manifest.json')), true);
+  run('git', ['rm', '-q', '-r', '--', outputDir], root);
+  run('git', ['commit', '-qm', 'remove application projection'], root);
+  assert.equal(existsSync(path.join(root, outputDir, 'manifest.json')), false);
+  assert.match(run('git', ['ls-tree', '-r', '--name-only', 'state'], root),
+    /singularity\/custom-world-model\/manifest\.json/);
+
+  const checked = flow(['wm', 'check'], root);
+  assert.equal(checked.status, 0, `${checked.stdout}\n${checked.stderr}`);
+  assert.match(checked.stdout, /^fresh: sha256:/m);
+  assert.equal(existsSync(path.join(root, outputDir, 'manifest.json')), false,
+    'read-only check does not install the governed state projection into the application branch');
+});
+
+test('a local-ahead state branch blocks a new provider build without orphaning its unique commit', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-local-ahead-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'work');
+  const providerLog = path.join(base, 'provider.jsonl');
+  run('git', ['init', '-q', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-q', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Local Ahead Tester'], root);
+  run('git', ['config', 'user.email', 'local-ahead@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await configureMockProvider(root, path.join(root, 'mock-worldmodel-builder.mjs'));
+  await writeFile(path.join(root, 'mock-worldmodel-builder.mjs'), mockBuilderSource);
+  await writeFile(path.join(root, 'README.md'), '# Stable application source\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], root);
+
+  const seeded = flow(['wm', 'light', '--phase', 'intake'], root);
+  assert.equal(seeded.status, 0, `${seeded.stdout}\n${seeded.stderr}`);
+  run('git', ['switch', 'state'], root);
+  await writeFile(path.join(root, 'state-only.txt'), 'unique unpublished state evidence\n');
+  run('git', ['add', 'state-only.txt'], root);
+  run('git', ['commit', '-qm', 'retain unique unpublished state'], root);
+  const localStateBefore = run('git', ['rev-parse', 'state'], root).trim();
+  const remoteStateBefore = run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim();
+  run('git', ['switch', 'main'], root);
+
+  const attempted = result(process.execPath, [
+    bin, 'wm', 'build', '--phase', 'design', '--no-parallel', '--local'
+  ], root, { ...process.env, SFLOW_PARALLEL_TEST_LOG: providerLog });
+  assert.notEqual(attempted.status, 0, `${attempted.stdout}\n${attempted.stderr}`);
+  assert.match(`${attempted.stdout}\n${attempted.stderr}`, /unpublished world-model history/i);
+  assert.equal(existsSync(providerLog), false, 'state authority is refused before a provider starts');
+  assert.equal(run('git', ['rev-parse', 'state'], root).trim(), localStateBefore);
+  assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/state'], root).trim(), remoteStateBefore);
+  assert.equal(run('git', ['show', 'state:state-only.txt'], root), 'unique unpublished state evidence\n');
 });
 
 test('progressive governed generation preserves earlier views across independent clones', async () => {
@@ -1101,6 +1561,12 @@ test('governed world-model publication failure fails build and ensure before loc
   assert.match(`${unconfirmed.stdout}\n${unconfirmed.stderr}`, new RegExp(`--confirm ${retained.id}`));
 
   await unlink(hook);
+  // Simulate an administrator removing the governed state ref after this client cached it. The
+  // explicit recovery keeps that tracked commit as history, but must recreate the absent remote
+  // under an absence lease rather than incorrectly leasing the cached SHA as though it still
+  // existed on the server.
+  run('git', ['update-ref', '-d', 'refs/heads/state'], remote);
+  assert.notEqual(result('git', ['rev-parse', '--verify', 'refs/heads/state'], remote).status, 0);
   const recovered = JSON.parse(flow([
     'wm', 'recovery', 'publish', retained.id, '--confirm', retained.id, '--json'
   ], work).stdout);
@@ -1108,8 +1574,49 @@ test('governed world-model publication failure fails build and ensure before loc
   assert.ok(recovered.state.commit);
   assert.notEqual(await readFile(manifestPath, 'utf8'), installedBeforeFailure,
     'the exact retained generation is installed only after governed publication succeeds');
+  assert.equal(run('git', ['merge-base', '--is-ancestor', remoteBeforeFailure, 'refs/heads/state'], remote).trim(), '',
+    'explicit restoration preserves the cached state history while recreating the absent remote ref');
   const afterRecovery = JSON.parse(flow(['wm', 'recovery', 'inspect', retained.id, '--json'], work).stdout);
   assert.equal(afterRecovery.status, 'published');
+});
+
+test('branch-worktree publication recovery survives disposal of that worktree', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-branch-recovery-'));
+  const remote = path.join(base, 'origin.git');
+  const root = path.join(base, 'work');
+  const linked = path.join(base, 'story-worktree');
+  run('git', ['init', '-q', '--bare', '-b', 'main', remote], base);
+  run('git', ['init', '-q', '-b', 'main', root], base);
+  run('git', ['config', 'user.name', 'Branch Recovery Tester'], root);
+  run('git', ['config', 'user.email', 'branch-recovery@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  definition.ledger.enabled = false;
+  definition.worldModel.materialization.publish = 'governed';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  await writeFile(path.join(root, 'README.md'), '# Branch recovery test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-q', '-u', 'origin', 'main'], root);
+  run('git', ['branch', 'story-model'], root);
+  run('git', ['worktree', 'add', '-q', linked, 'story-model'], root);
+  run('git', ['config', 'user.name', 'Branch Recovery Tester'], linked);
+  run('git', ['config', 'user.email', 'branch-recovery@example.com'], linked);
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook, '#!/bin/sh\necho state publication rejected >&2\nexit 1\n');
+  await chmod(hook, 0o755);
+
+  const failed = flow(['wm', 'light', '--phase', 'intake'], linked, { allowFailure: true });
+  assert.notEqual(failed.status, 0);
+  assert.match(`${failed.stdout}\n${failed.stderr}`, /validated snapshot was retained/i);
+  run('git', ['worktree', 'remove', '--force', linked], root);
+
+  const listed = JSON.parse(flow(['wm', 'recovery', 'list', '--json'], root).stdout);
+  assert.ok(listed.recoveries.some((entry) => entry.status === 'pending'),
+    'recovery remains discoverable through the repository common Git directory');
 });
 
 test('storyless wm build expands --views all before concurrent discovery and synthesis', async () => {
@@ -1265,6 +1772,58 @@ test('wm build checkpoints completed discovery and resumes only pending views af
   assert.deepEqual(manifest.generation.resumed_views, ['architecture']);
   assert.deepEqual(manifest.generation.pending_views_at_start, ['security']);
   await assert.rejects(() => lstat(path.join(root, 'singularity/world-model/.checkpoints')), { code: 'ENOENT' });
+});
+
+test('branch-targeted builds retain resumable checkpoints after their temporary worktree is removed', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-branch-resume-'));
+  const activityLog = path.join(os.tmpdir(), `sflow-worldmodel-branch-resume-${process.pid}-${Date.now()}.jsonl`);
+  run('git', ['init', '-q', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Branch Resume Tester'], root);
+  run('git', ['config', 'user.email', 'branch-resume@example.com'], root);
+  await initializeDefinition(root);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.git.publish = 'off';
+  await writeFile(definitionPath, YAML.stringify(definition));
+  const builder = path.join(root, 'mock-worldmodel-builder.mjs');
+  await writeFile(builder, mockBuilderSource);
+  await configureMockProvider(root, builder);
+  await writeFile(path.join(root, 'README.md'), '# Branch-target checkpoint test\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-qm', 'initialize'], root);
+  run('git', ['branch', 'story-model'], root);
+  const mainBefore = run('git', ['rev-parse', 'main'], root).trim();
+  const args = [
+    bin, 'wm', 'build', '--branch', 'story-model', '--phase', 'design', '--parallel', '--workers', '2'
+  ];
+
+  const first = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog,
+    SFLOW_MOCK_FAIL_SYNTHESIS: '1',
+    SFLOW_MOCK_SKIP_PACKET_VIEW: 'security'
+  });
+  assert.notEqual(first.status, 0);
+  assert.match(first.stderr, /checkpoint retained in the repository: 1 completed, 1 pending/);
+  assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
+  const checkpointRoot = path.join(root, '.git/singularity-flow/world-model-checkpoints');
+  assert.ok((await readdir(checkpointRoot, { withFileTypes: true })).some((entry) => entry.isDirectory()),
+    'the checkpoint survives removal of the target branch worktree');
+
+  const second = result(process.execPath, args, root, {
+    ...process.env,
+    SFLOW_PARALLEL_TEST_LOG: activityLog
+  });
+  assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
+  assert.match(second.stderr, /World-model resume: 1 completed view packet reused; 1 pending/);
+  assert.equal(run('git', ['branch', '--show-current'], root).trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'main'], root).trim(), mainBefore);
+  assert.notEqual(run('git', ['rev-parse', 'story-model'], root).trim(), mainBefore);
+  assert.equal(result('git', ['cat-file', '-e', 'main:singularity/world-model/manifest.json'], root).status, 128);
+  assert.equal((await readdir(checkpointRoot)).length, 0, 'successful resume consumes its durable checkpoint');
+  const events = (await readFile(activityLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(events.filter((event) => event.event === 'start' && event.view === 'architecture').length, 1);
+  assert.equal(events.filter((event) => event.event === 'start' && event.view === 'security').length, 2);
 });
 
 test('wm build reuses completed discovery when bundled routing upgrades from retired pins to provider auto', async () => {
@@ -1671,6 +2230,7 @@ test('enforced workflows block generation until the governed prompt is composed'
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
+  run('git', ['push', 'origin', 'refs/heads/state:refs/heads/state'], root);
 
   flow(['start', 'GROUND-1', '--from-branch', 'main', '--title', 'Grounded work'], root);
   const workflowPath = path.join(root, 'singularity/work-items/GROUND-1/workflow.json');

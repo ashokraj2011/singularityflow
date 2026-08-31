@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  add, assertNotDefaultBranch, branch, changedFiles, fetchRemote, gitDir, hasRemote, head, pushBranch,
-  refExists, validBranch
+  assertNotDefaultBranch, branch, changedFiles, commitIsolated, fetchRemote, gitDir, hasRemote, head,
+  pushCommitToBranch, refExists, validBranch
 } from './git.mjs';
 import {
   ensureSecureRepositoryDirectory, SingularityFlowError, optionBoolean, optionNumber, optionString,
@@ -136,12 +136,15 @@ function availabilityBuildReason(availability) {
   if (availability?.missing?.length || availability?.taskGuide?.status === 'missing') {
     return 'required-view-missing';
   }
-  if (isMinimalModel(availability?.selected?.manifest)) return 'legacy-record-insufficient';
+  if (isMinimalModel(availability?.selected?.manifest, availability?.selections)) return 'legacy-record-insufficient';
   return 'policy-forced';
 }
 
 function worldModelRecoveryRoot(root) {
-  return path.join(gitDir(root), 'singularity-flow', 'world-model-recovery');
+  // A `wm build --branch` command runs inside a disposable linked worktree. Its private Git
+  // directory is removed with that worktree, so recovery bytes stored there disappear precisely
+  // when the user needs them. The common Git directory is durable across every checkout.
+  return path.join(commonGitDirectory(root), 'singularity-flow', 'world-model-recovery');
 }
 
 function worldModelRecoveryRecordPath(root, id) {
@@ -848,7 +851,7 @@ async function prompt(root, config, options) {
   return rendered;
 }
 
-async function installWorldModel(staging, target) {
+async function beginWorldModelInstallation(staging, target) {
   const parent = path.dirname(target);
   await mkdir(parent, { recursive: true });
   const incoming = `${target}.incoming-${process.pid}-${Date.now()}`;
@@ -859,12 +862,30 @@ async function installWorldModel(staging, target) {
   try {
     if (existsSync(target)) { await rename(target, backup); backedUp = true; }
     await rename(incoming, target);
-    if (backedUp) await rm(backup, { recursive: true, force: true });
   } catch (error) {
     await rm(incoming, { recursive: true, force: true });
     if (backedUp && !existsSync(target) && existsSync(backup)) await rename(backup, target);
     throw error;
   }
+  let settled = false;
+  return {
+    async finalize() {
+      if (settled) return;
+      settled = true;
+      if (backedUp) await rm(backup, { recursive: true, force: true });
+    },
+    async rollback() {
+      if (settled) return;
+      settled = true;
+      await rm(target, { recursive: true, force: true });
+      if (backedUp && existsSync(backup)) await rename(backup, target);
+    }
+  };
+}
+
+async function installWorldModel(staging, target) {
+  const installation = await beginWorldModelInstallation(staging, target);
+  await installation.finalize();
 }
 
 async function secureWorldModelTarget(root, outputDir) {
@@ -879,13 +900,30 @@ async function secureWorldModelTarget(root, outputDir) {
 }
 
 async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
-  const located = await resolveWorldModelSource(root, config);
+  const located = await resolveWorldModelSource(root, config, { sourceTreeSha256 });
   if (located.diverged) {
     throw new SingularityFlowError(
       `Local and remote state branch '${located.branch}' have diverged; synchronize the governed state branch before extending its world model.`,
       {
         code: 'world_model.state_diverged',
         details: { branch: located.branch, ref: located.ref }
+      }
+    );
+  }
+  if (['unpublished-local-state', 'offline-unverified'].includes(located.authority)) {
+    throw new SingularityFlowError(
+      located.authority === 'unpublished-local-state'
+        ? `The local ${located.branch} state branch contains unpublished world-model history. Publish or reconcile it before starting another build.`
+        : `The ${located.branch} state-branch authority could not be verified. Restore remote access before starting another build.`,
+      {
+        code: 'world_model.state_authority_unverified',
+        details: {
+          authority: located.authority,
+          refresh: located.refresh,
+          branch: located.branch,
+          ref: located.ref,
+          commit: located.commit
+        }
       }
     );
   }
@@ -904,27 +942,108 @@ async function compatibleWorldModelDirectory(root, config, sourceTreeSha256) {
   }
 }
 
-async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', { local = false, quiet = false } = {}) {
+async function publishWorldModel(root, config, workflow, sourceHash, phase = 'repository', {
+  local = false,
+  quiet = false,
+  installFrom = null,
+  installTarget = null,
+  expectedSourceTreeSha256 = sourceHash,
+  expectedRepositoryIdentity = null
+} = {}) {
   const publishing = !local && (config.definition?.git?.publish ?? 'required') !== 'off';
   if (publishing) assertNotDefaultBranch(root, config, 'World-model publication');
-  add(root, [config.outputDir]);
-  const staged = run('git', ['diff', '--cached', '--quiet', '--', config.outputDir], { cwd: root, allowFailure: true }).status !== 0;
-  let commit = worldModelCommit(root, config.outputDir);
-  if (staged) {
-    run('git', ['commit', '--only', '-m', `[world-model][source:${sourceHash.replace(/^sha256:/, '').slice(0, 12)}] ${phase}`, '--', config.outputDir], {
-      cwd: root, ...(quiet ? {} : { stdio: 'inherit' })
-    });
-    commit = head(root);
+  let installation = null;
+  let commit = null;
+  let changed = false;
+  let applicationCommitDurable = false;
+  try {
+    await assertWorldModelPublicationSource(
+      root, config, expectedSourceTreeSha256, expectedRepositoryIdentity
+    );
+    if (installFrom && installTarget) {
+      installation = await beginWorldModelInstallation(installFrom, installTarget);
+      // Installation is an atomic directory swap, but repository source may change immediately on
+      // either side of it. Refuse and restore the previous projection before constructing a commit.
+      await assertWorldModelPublicationSource(
+        root, config, expectedSourceTreeSha256, expectedRepositoryIdentity
+      );
+    }
+    changed = Boolean(run('git', [
+      'status', '--porcelain=v1', '--untracked-files=all', '-z', '--', config.outputDir
+    ], { cwd: root }).stdout);
+    if (changed) {
+      const expectedHead = expectedRepositoryIdentity?.commit ?? head(root);
+      commit = await commitIsolated(
+        root,
+        `[world-model][source:${sourceHash.replace(/^sha256:/, '').slice(0, 12)}] ${phase}`,
+        [config.outputDir],
+        {
+          expectedHead,
+          expectedRef: expectedRepositoryIdentity?.ref,
+          // commitIsolated snapshots this guard on both sides of staging and advances the branch
+          // with compare-and-swap. A source edit or concurrent commit therefore cannot be silently
+          // inherited by the world-model commit.
+          stabilityGuard: async () => (
+            await assertWorldModelPublicationSource(
+              root, config, expectedSourceTreeSha256, expectedRepositoryIdentity
+            )
+          ).sha256
+        }
+      );
+      applicationCommitDurable = true;
+      await worldModelTestBarrier('after-application-commit');
+    } else commit = head(root);
+    // The ref may now be durable, but an editor can still have changed source after staging. Never
+    // push that application projection as current unless the exact source identity still holds.
+    await assertWorldModelPublicationSource(
+      root,
+      config,
+      expectedSourceTreeSha256,
+      changed && commit && expectedRepositoryIdentity
+        ? { ...expectedRepositoryIdentity, commit }
+        : expectedRepositoryIdentity
+    );
+  } catch (error) {
+    if (!applicationCommitDurable && error?.publicationRefAdvanced === true) {
+      applicationCommitDurable = true;
+      commit = error.publicationCommit ?? commit;
+    }
+    if (installation) {
+      // commitIsolated's successful compare-and-swap is the durable boundary. Before it, restore
+      // the prior projection. After it, the branch and worktree must continue to describe the same
+      // retained exact commit; recovery may publish it later after the source race is reviewed.
+      if (applicationCommitDurable) await installation.finalize();
+      else await installation.rollback();
+    }
+    if (applicationCommitDurable && commit) {
+      error.details = {
+        ...(error.details ?? {}),
+        applicationCommit: commit,
+        applicationCommitRetained: true,
+        applicationCommitPushed: false
+      };
+      error.message = `${error.message} Application world-model commit ${commit.slice(0, 12)} was retained locally and was not pushed.`;
+    }
+    throw error;
   }
   // --local (or git.publish: off): commit to the current branch but do not push. The commit rides
   // the first work-item branch forked from this branch and is pushed with it, never on origin/main.
-  if (!publishing) return { commit, pushed: false, changed: staged };
+  if (!publishing) {
+    if (installation) await installation.finalize();
+    return { commit, pushed: false, changed };
+  }
   const remote = config.definition?.git?.remote ?? 'origin';
-  const result = pushBranch(root, remote, branch(root));
+  // Publish the exact commit proven above. HEAD can advance after the source guard; pushing HEAD
+  // would attach unrelated later bytes to this model's source receipt.
+  const targetBranch = expectedRepositoryIdentity?.branch ?? branch(root);
+  const result = pushCommitToBranch(root, remote, commit, targetBranch);
   if (result.status !== 0) {
+    // The exact application commit is durable and can be retried. Keep its installed projection;
+    // rolling back only the worktree would make the retained commit look locally modified.
+    if (installation) await installation.finalize();
     if (workflow?.workItem?.id) {
       await writeJson(pendingPublicationPath(root, config.definition, workflow.workItem.id), {
-        schemaVersion: currentSchemaVersion('pending-publication'), workId: workflow.workItem.id, branch: branch(root), remote,
+        schemaVersion: currentSchemaVersion('pending-publication'), workId: workflow.workItem.id, branch: targetBranch, remote,
         commit, createdAt: new Date().toISOString(), error: (result.stderr || result.stdout).trim(), kind: 'world-model'
       });
       throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run singularity-flow sync after fixing remote access.`, {
@@ -932,13 +1051,14 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
         details: { commit, remote, recoveryCommand: 'singularity-flow sync' }
       });
     }
-    const recoveryCommand = `git push ${remote} HEAD:refs/heads/${branch(root)}`;
+    const recoveryCommand = `git push ${remote} ${commit}:refs/heads/${targetBranch}`;
     throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run '${recoveryCommand}' after fixing remote access.`, {
       code: 'world_model.application_publication_pending',
       details: { commit, remote, recoveryCommand }
     });
   }
-  return { commit, pushed: true, changed: staged };
+  if (installation) await installation.finalize();
+  return { commit, pushed: true, changed };
 }
 
 async function publicationRecoveryError(root, validatedDirectory, error, { phase, sourceHash }) {
@@ -990,11 +1110,219 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
         recoveryPath,
         preservationError,
         fallbackAllowed: false,
-        recoveryCommand: error?.details?.recoveryCommand ?? null
+        recoveryCommand: error?.details?.recoveryCommand ?? null,
+        applicationCommit: error?.details?.applicationCommit ?? null,
+        applicationCommitRetained: error?.details?.applicationCommitRetained === true,
+        applicationCommitPushed: error?.details?.applicationCommitPushed === true
       },
       cause: error
     }
   );
+}
+
+/**
+ * A generated snapshot is authoritative only for the exact source bytes it inspected. A model
+ * provider can run for minutes, so checking this just once before generation leaves a window in
+ * which an editor, build, or second process can change the repository and let stale output become
+ * the newest governed model. Recompute at the last safe boundary, before either state publication
+ * or working-tree installation can mutate Git.
+ */
+function worldModelRepositoryIdentity(root) {
+  const symbolic = run('git', ['symbolic-ref', '-q', 'HEAD'], { cwd: root, allowFailure: true });
+  const ref = symbolic.status === 0 ? symbolic.stdout.trim() : null;
+  if (!ref?.startsWith('refs/heads/')) {
+    throw new SingularityFlowError(
+      'World-model generation requires a checked-out branch; detached HEAD cannot identify a safe publication target.',
+      { code: 'world_model.source_changed_before_build', details: { currentRef: ref } }
+    );
+  }
+  return {
+    commit: head(root),
+    ref,
+    branch: ref.slice('refs/heads/'.length)
+  };
+}
+
+function sameWorldModelRepositoryIdentity(left, right) {
+  return left?.commit === right?.commit
+    && left?.ref === right?.ref
+    && left?.branch === right?.branch;
+}
+
+export async function assertWorldModelPublicationSource(
+  root,
+  config,
+  expectedSourceTreeSha256,
+  expectedRepositoryIdentity = null
+) {
+  const beforeIdentity = worldModelRepositoryIdentity(root);
+  const current = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const afterIdentity = worldModelRepositoryIdentity(root);
+  const identityStable = sameWorldModelRepositoryIdentity(beforeIdentity, afterIdentity);
+  const identityMatches = !expectedRepositoryIdentity
+    || sameWorldModelRepositoryIdentity(afterIdentity, expectedRepositoryIdentity);
+  if (current.sha256 === expectedSourceTreeSha256 && identityStable && identityMatches) {
+    return { ...current, repositoryIdentity: afterIdentity };
+  }
+  const sourceChanged = current.sha256 !== expectedSourceTreeSha256;
+  const identityReason = !identityStable
+    ? `Repository branch or HEAD changed while publication source was being verified (${beforeIdentity.ref}@${beforeIdentity.commit} -> ${afterIdentity.ref}@${afterIdentity.commit}). `
+    : !identityMatches
+      ? `Repository branch or HEAD changed while the world model was being built (${expectedRepositoryIdentity.ref}@${expectedRepositoryIdentity.commit} -> ${afterIdentity.ref}@${afterIdentity.commit}). `
+      : '';
+  const sourceReason = sourceChanged
+    ? `Repository source changed while the world model was being built (${expectedSourceTreeSha256} -> ${current.sha256}). `
+    : '';
+  throw new SingularityFlowError(
+    `${identityReason}${sourceReason}`
+      + 'The generated snapshot will be retained for its original source and branch, but it will not replace the shared world model.',
+    {
+      code: 'world_model.source_changed_during_build',
+      details: {
+        expectedSourceTreeSha256,
+        currentSourceTreeSha256: current.sha256,
+        expectedSourceCommit: expectedRepositoryIdentity?.commit ?? null,
+        currentSourceCommit: afterIdentity.commit,
+        expectedSourceRef: expectedRepositoryIdentity?.ref ?? null,
+        currentSourceRef: afterIdentity.ref,
+        expectedSourceBranch: expectedRepositoryIdentity?.branch ?? null,
+        currentSourceBranch: afterIdentity.branch,
+        identityStable,
+        fallbackAllowed: false
+      }
+    }
+  );
+}
+
+/** Capture one source identity and its Git base without allowing a concurrent HEAD transition. */
+export async function captureWorldModelBuildSource(root, config, expectedSourceTreeSha256 = null) {
+  const beforeIdentity = worldModelRepositoryIdentity(root);
+  const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const afterIdentity = worldModelRepositoryIdentity(root);
+  if (!sameWorldModelRepositoryIdentity(beforeIdentity, afterIdentity)) {
+    throw new SingularityFlowError(
+      `Repository branch or HEAD changed while the world-model source was being captured `
+        + `(${beforeIdentity.ref}@${beforeIdentity.commit} -> ${afterIdentity.ref}@${afterIdentity.commit}). `
+        + 'Retry the build against one stable branch and revision.',
+      {
+        code: 'world_model.source_changed_before_build',
+        details: {
+          beforeCommit: beforeIdentity.commit,
+          afterCommit: afterIdentity.commit,
+          beforeRef: beforeIdentity.ref,
+          afterRef: afterIdentity.ref,
+          expectedSourceTreeSha256
+        }
+      }
+    );
+  }
+  if (expectedSourceTreeSha256 && sourceState.sha256 !== expectedSourceTreeSha256) {
+    throw new SingularityFlowError(
+      `Repository source changed after the world-model materialization lease was acquired (${expectedSourceTreeSha256} -> ${sourceState.sha256}). No provider or fallback was invoked.`,
+      {
+        code: 'world_model.source_changed_before_build',
+        details: {
+          expectedSourceTreeSha256,
+          currentSourceTreeSha256: sourceState.sha256,
+          sourceCommit: afterIdentity.commit,
+          sourceRef: afterIdentity.ref,
+          sourceBranch: afterIdentity.branch
+        }
+      }
+    );
+  }
+  return {
+    sourceCommit: afterIdentity.commit,
+    sourceState,
+    repositoryIdentity: afterIdentity
+  };
+}
+
+/** Prove the provider's isolated worktree contains exactly the bytes captured for its receipt. */
+export async function assertWorldModelAnalysisSource(analysisRoot, config, expectedSourceTreeSha256) {
+  const analysisState = await worldModelSourceSnapshot(analysisRoot, config.definition ?? config);
+  if (analysisState.sha256 === expectedSourceTreeSha256) return analysisState;
+  throw new SingularityFlowError(
+    `World-model analysis snapshot does not match the captured repository source (${expectedSourceTreeSha256} -> ${analysisState.sha256}). No model provider was invoked.`,
+    {
+      code: 'world_model.analysis_source_mismatch',
+      details: {
+        expectedSourceTreeSha256,
+        analysisSourceTreeSha256: analysisState.sha256
+      }
+    }
+  );
+}
+
+/** Deterministic subprocess race barrier, enabled only by the test runtime. */
+async function worldModelTestBarrier(stage) {
+  const directory = process.env.NODE_ENV === 'test'
+    ? process.env.SFLOW_WORLD_MODEL_TEST_BARRIER_DIR
+    : null;
+  if (!directory) return;
+  const selected = String(process.env.SFLOW_WORLD_MODEL_TEST_BARRIER_STAGES ?? '')
+    .split(',').map((value) => value.trim()).filter(Boolean);
+  if (selected.length && !selected.includes(stage)) return;
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, `${stage}.ready`), 'ready\n');
+  const release = path.join(directory, `${stage}.release`);
+  const deadline = Date.now() + 10_000;
+  while (!existsSync(release)) {
+    if (Date.now() >= deadline) {
+      throw new SingularityFlowError(`World-model test barrier '${stage}' timed out.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/** Overlay the captured dirty/untracked source onto a detached checkout and prove its identity. */
+async function prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState) {
+  run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
+  for (const entry of sourceState.files.filter((item) => item.mode === '120000' && item.status !== 'deleted')) {
+    const link = await secureRepositoryPath(analysisRoot, entry.path, {
+      label: 'World-model analysis symbolic link',
+      mustExist: true,
+      allowFinalSymlink: true
+    });
+    if (!link.entry?.isSymbolicLink()) continue;
+    const target = await readlink(link.absolute);
+    const resolvedTarget = path.resolve(path.dirname(link.absolute), target);
+    try {
+      await secureRepositoryPath(analysisRoot, resolvedTarget, {
+        label: `World-model symbolic-link target for ${entry.path}`
+      });
+    } catch (error) {
+      throw new SingularityFlowError(
+        `World-model analysis refuses symbolic link '${entry.path}' because its target leaves the `
+          + 'repository. Replace it with a repository-internal link before generating the model.',
+        { code: 'WORLD_MODEL_SYMLINK_ESCAPE', details: { path: entry.path }, cause: error }
+      );
+    }
+  }
+  for (const relative of changedFiles(root)) {
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'World-model analysis source',
+      allowFinalSymlink: true
+    });
+    const destination = path.join(analysisRoot, relative);
+    if (secured.exists) {
+      if (secured.entry?.isSymbolicLink()) {
+        throw new SingularityFlowError(
+          `World-model analysis cannot include a changed symbolic link at ${relative}. Commit a `
+            + 'repository-internal link and rebuild from the committed revision.',
+          { code: 'WORLD_MODEL_CHANGED_SYMLINK', details: { path: relative } }
+        );
+      }
+      await mkdir(path.dirname(destination), { recursive: true });
+      await cp(secured.absolute, destination, { recursive: true, force: true });
+    } else await rm(destination, { recursive: true, force: true });
+  }
+  await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
+  await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), {
+    recursive: true,
+    force: true
+  });
+  return assertWorldModelAnalysisSource(analysisRoot, config, sourceState.sha256);
 }
 
 async function recoveryDirectory(root, id) {
@@ -1108,7 +1436,10 @@ async function publishWorldModelRecovery(root, id, options) {
   }
   const inspected = await inspectWorldModelRecovery(root, safeId);
   const config = await load(root);
-  const currentSource = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const {
+    sourceState: currentSource,
+    repositoryIdentity
+  } = await captureWorldModelBuildSource(root, config);
   if (currentSource.sha256 !== inspected.sourceHash) {
     throw new SingularityFlowError(
       `World-model recovery '${safeId}' was validated for ${inspected.sourceHash}, but the current source tree is ${currentSource.sha256}. Restore the recorded source revision before publishing it.`,
@@ -1136,13 +1467,19 @@ async function publishWorldModelRecovery(root, id, options) {
       root, config, inspected.sourceHash, inspected.phase,
       { directory, plan: recoveryPlan }
     );
-    await installWorldModel(
-      governed?.directory ?? directory,
-      await secureWorldModelTarget(root, config.outputDir)
+    await assertWorldModelPublicationSource(
+      root, config, inspected.sourceHash, repositoryIdentity
     );
     const publication = await publishWorldModel(
       root, config, config.workflow, inspected.sourceHash, inspected.phase,
-      { local: false, quiet: optionBoolean(options, 'json') }
+      {
+        local: false,
+        quiet: optionBoolean(options, 'json'),
+        installFrom: governed?.directory ?? directory,
+        installTarget: await secureWorldModelTarget(root, config.outputDir),
+        expectedSourceTreeSha256: inspected.sourceHash,
+        expectedRepositoryIdentity: repositoryIdentity
+      }
     );
     const result = {
       schemaVersion: 1, // schema-transient: recovery publication result
@@ -1228,7 +1565,7 @@ async function worldModelRecoveryCommand(root, positionals, options) {
  * the state branch. Concurrent contributors are reconciled without invoking the provider again.
  */
 async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
-  directory = path.join(root, config.outputDir), plan = null
+  directory = path.join(root, config.outputDir), plan = null, replaceRequested = false
 } = {}) {
   const ledger = config.definition?.ledger ?? null;
   const materialization = config.materialization ?? materializationPolicy(config.definition ?? config);
@@ -1299,11 +1636,41 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
           ...config,
           remote: stateConfig.remote,
           stateBranch: stateConfig.branch
-        }, { stateBranch: stateConfig.branch, refreshRemote: true });
+        }, {
+          stateBranch: stateConfig.branch,
+          refreshRemote: true,
+          // A newer state tip may describe source B while this immutable publication fragment is
+          // for A. Premerge against A's validated history, never whichever source happens to be at
+          // the mutable tip, so A's earlier views survive an A -> B -> A publication sequence.
+          sourceTreeSha256: sourceHash
+        });
         const trackedRef = `refs/remotes/${stateConfig.remote}/${stateConfig.branch}`;
         const tracked = run('git', ['rev-parse', '--verify', trackedRef], { cwd: root, allowFailure: true });
-        expectedRemoteSha = tracked.status === 0 ? tracked.stdout.trim() : null;
-        publicationBase = expectedRemoteSha;
+        const trackedSha = tracked.status === 0 ? tracked.stdout.trim() : null;
+        if (['unpublished-local-state', 'offline-unverified'].includes(winner.authority)
+          && winner.refresh !== 'remote-absent') {
+          throw new SingularityFlowError(
+            winner.authority === 'unpublished-local-state'
+              ? `The local ${stateConfig.branch} state branch advanced without a governed remote publication. Reconcile it before publishing another world model.`
+              : `The ${stateConfig.branch} state-branch authority could not be verified after generation. Restore remote access before publishing the model.`,
+            {
+              code: 'world_model.state_authority_unverified',
+              details: {
+                authority: winner.authority,
+                refresh: winner.refresh,
+                branch: stateConfig.branch,
+                ref: winner.ref,
+                commit: winner.commit
+              }
+            }
+          );
+        }
+        // A reachable remote can prove that the branch is absent even while an intentionally
+        // retained tracking ref supplies the exact historical base. Recreate from that immutable
+        // base under an absence lease; expecting its old SHA remotely would make restoration
+        // impossible, while discarding it would lose the model history being restored.
+        expectedRemoteSha = winner.refresh === 'remote-absent' ? null : trackedSha;
+        publicationBase = trackedSha;
         if (winner.source === 'state-branch') {
           if (!plan) {
             throw new SingularityFlowError('Concurrent-safe world-model publication requires the immutable grounding plan.');
@@ -1317,7 +1684,8 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
             targetDirectory: merged,
             plan,
             sourceTreeSha256: sourceHash,
-            materialization: null
+            materialization: null,
+            replaceRequested
           });
           await validateWorldModelDirectory(merged, {
             requiredSelections: plan.selections,
@@ -1551,7 +1919,13 @@ async function prepareDiscoveryCheckpoint(root, config, options, views, metadata
   };
   const key = sha256(JSON.stringify(identity));
   const outputDirectory = await secureWorldModelTarget(root, config.outputDir);
-  const checkpointRoot = path.join(outputDirectory, '.checkpoints');
+  const linkedWorktree = canonicalExistingPath(gitDir(root)) !== commonGitDirectory(root);
+  // Ordinary builds retain the historical repository-local location. Branch-targeted builds use
+  // a disposable linked worktree, so their resumable provider packets must live in common Git
+  // storage keyed by the already branch/source/options-bound identity above.
+  const checkpointRoot = linkedWorktree
+    ? path.join(commonGitDirectory(root), 'singularity-flow', 'world-model-checkpoints')
+    : path.join(outputDirectory, '.checkpoints');
   const directory = path.join(checkpointRoot, key);
   const packetDirectory = path.join(directory, 'packets');
   const stateFile = path.join(directory, 'state.json');
@@ -2050,22 +2424,30 @@ async function buildLight(root, config, options) {
     throw new SingularityFlowError('Light world-model mode does not start discovery workers. Remove --parallel and --workers.');
   }
   const local = optionBoolean(options, 'local');
+  const replaceRequested = options.replaceRequestedSelections !== false;
   if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
     assertNotDefaultBranch(root, config, 'World-model publication');
   }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-world-model-light-'));
   const staging = path.join(temporary, 'output');
+  const analysisRoot = path.join(temporary, 'repository');
+  let analysisWorktreeCreated = false;
   await mkdir(staging, { recursive: true });
   try {
     const generatedAt = new Date().toISOString();
-    const sourceCommit = head(root);
-    const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+    const { sourceCommit, sourceState, repositoryIdentity } = await captureWorldModelBuildSource(
+      root, config, options.expectedSourceTreeSha256 ?? null
+    );
     const existingWorldModelDirectory = options.existingWorldModelDirectory
       ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
     const plan = options.repositoryCatalog === true
       ? repositoryCatalogGroundingPlan(config, optionString(options, 'phase'))
       : groundingPlan(config, options);
     const views = plan.views.map((item) => item.view);
+    await writeWorktreeOwner(temporary, root, 'light-analysis');
+    await prepareWorldModelAnalysisSnapshot(root, analysisRoot, config, sourceCommit, sourceState);
+    analysisWorktreeCreated = true;
+    await worldModelTestBarrier('light-analysis-ready');
     const metadata = {
       generated_at: generatedAt,
       generated_date: new Intl.DateTimeFormat('en-GB', {
@@ -2074,18 +2456,19 @@ async function buildLight(root, config, options) {
       builder_version: '2.1-light',
       builder_prompt_sha256: sha256('singularity-flow deterministic light world model v1'),
       repository_commit: sourceCommit,
-      repository_branch: branch(root),
+      repository_branch: repositoryIdentity.branch,
       working_tree_clean: changedFiles(root).length === 0,
       generated_for_phase: optionString(options, 'phase') ?? null
     };
     await generateLightWorldModel({
-      root,
+      root: analysisRoot,
       staging,
       metadata,
       sourceState,
       views,
       task: optionString(options, 'task')
     });
+    await worldModelTestBarrier('after-light-generation');
     const rawManifest = JSON.parse(await readFile(path.join(staging, 'manifest.json'), 'utf8'));
     await writeV3Manifest(staging, rawManifest, {
       materialization: {
@@ -2111,7 +2494,8 @@ async function buildLight(root, config, options) {
       targetDirectory: merged,
       plan,
       sourceTreeSha256: sourceState.sha256,
-      materialization: null
+      materialization: null,
+      replaceRequested
     });
     await validateWorldModelDirectory(merged, {
       expectedCommit: sourceCommit,
@@ -2123,14 +2507,27 @@ async function buildLight(root, config, options) {
     let governed;
     let publication;
     try {
+      await assertWorldModelPublicationSource(
+        root, config, sourceState.sha256, repositoryIdentity
+      );
       governed = !local
         ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository-light', {
-            directory: merged, plan
+            directory: merged, plan, replaceRequested
           })
         : null;
-      await installWorldModel(governed?.directory ?? merged, target);
+      // State publication may block on network and merge retries. Recheck after that boundary so
+      // its historical A snapshot is retained without projecting it onto a repository now at B.
+      await assertWorldModelPublicationSource(
+        root, config, sourceState.sha256, repositoryIdentity
+      );
       publication = await publishWorldModel(
-        root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', { local }
+        root, config, config.workflow, sourceState.sha256, phase ?? 'repository-light', {
+          local,
+          installFrom: governed?.directory ?? merged,
+          installTarget: target,
+          expectedSourceTreeSha256: sourceState.sha256,
+          expectedRepositoryIdentity: repositoryIdentity
+        }
       );
     } catch (error) {
       throw await publicationRecoveryError(root, merged, error, {
@@ -2151,6 +2548,9 @@ async function buildLight(root, config, options) {
           : `  not published to the state branch: ${governed.reason}.`);
     }
   } finally {
+    if (analysisWorktreeCreated || existsSync(analysisRoot)) {
+      run('git', ['worktree', 'remove', '--force', analysisRoot], { cwd: root, allowFailure: true });
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }
@@ -2163,6 +2563,7 @@ async function build(root, config, options) {
   }
   if (depth === 'light') return buildLight(root, config, { ...options, depth: 'light' });
   const local = optionBoolean(options, 'local');
+  const replaceRequested = options.replaceRequestedSelections !== false;
   if (!local && (config.definition?.git?.publish ?? 'required') !== 'off') {
     assertNotDefaultBranch(root, config, 'World-model publication');
   }
@@ -2184,8 +2585,9 @@ async function build(root, config, options) {
   const generatedAt = new Date().toISOString();
   const generatedDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(generatedAt));
   const promptSha256 = existsSync(source) ? createHash('sha256').update(await readFile(source)).digest('hex') : 'unknown';
-  const sourceCommit = head(root);
-  const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
+  const { sourceCommit, sourceState, repositoryIdentity } = await captureWorldModelBuildSource(
+    root, config, options.expectedSourceTreeSha256 ?? null
+  );
   const existingWorldModelDirectory = options.existingWorldModelDirectory
     ?? await compatibleWorldModelDirectory(root, config, sourceState.sha256);
   const plan = groundingPlan(config, options, phase);
@@ -2195,7 +2597,7 @@ async function build(root, config, options) {
     builder_version: '2.0',
     builder_prompt_sha256: promptSha256,
     repository_commit: sourceCommit,
-    repository_branch: branch(root),
+    repository_branch: repositoryIdentity.branch,
     working_tree_clean: changedFiles(root).length === 0,
     analysis_depth: optionString(options, 'depth', 'standard')
   };
@@ -2214,6 +2616,7 @@ async function build(root, config, options) {
     selectedViews: plan.views.map((entry) => entry.view).sort()
   });
   await writeWorktreeOwner(temporary, root, 'analysis');
+  await worldModelTestBarrier('after-source-capture');
   run('git', ['worktree', 'add', '--detach', analysisRoot, sourceCommit], { cwd: root, stdio: 'inherit' });
   log.info('worldmodel.worktree.created', null, { analysisRoot, sourceCommit });
   // Mark this process (and every Copilot child it spawns, which inherit the environment) as the
@@ -2272,6 +2675,14 @@ async function build(root, config, options) {
     }
     await rm(path.join(analysisRoot, config.outputDir), { recursive: true, force: true });
     await rm(path.join(analysisRoot, config.definition?.workItemRoot ?? 'singularity/work-items'), { recursive: true, force: true });
+    // The worktree started from the captured commit and then received the captured dirty/untracked
+    // overlay. Hash that isolated result before any discovery/synthesis provider can observe it.
+    await assertWorldModelAnalysisSource(analysisRoot, config, sourceState.sha256);
+    // Equal source bytes are not enough: another Story branch may point at the same commit. Keep
+    // the provider invocation and its eventual publication bound to the branch/ref captured above.
+    await assertWorldModelPublicationSource(
+      root, config, sourceState.sha256, repositoryIdentity
+    );
     views = plan.views.map((item) => item.view);
     const renderOptions = {
       ...options,
@@ -2621,7 +3032,8 @@ source evidence. Do not search or reread the application repository during synth
       targetDirectory: merged,
       plan,
       sourceTreeSha256: sourceState.sha256,
-      materialization: null
+      materialization: null,
+      replaceRequested
     });
     await validateWorldModelDirectory(merged, {
       expectedCommit: sourceCommit, expectedTask: optionString(options, 'task'), requiredSelections: plan.selections, requireEvidence: true
@@ -2629,13 +3041,24 @@ source evidence. Do not search or reread the application repository during synth
     let governed;
     let publication;
     try {
+      await assertWorldModelPublicationSource(
+        root, config, sourceState.sha256, repositoryIdentity
+      );
       governed = !local
         ? await publishWorldModelToStateBranch(root, config, sourceState.sha256, phase ?? 'repository', {
-            directory: merged, plan
+            directory: merged, plan, replaceRequested
           })
         : null;
-      await installWorldModel(governed?.directory ?? merged, target);
-      publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', { local });
+      await assertWorldModelPublicationSource(
+        root, config, sourceState.sha256, repositoryIdentity
+      );
+      publication = await publishWorldModel(root, config, config.workflow, sourceState.sha256, phase ?? 'repository', {
+        local,
+        installFrom: governed?.directory ?? merged,
+        installTarget: target,
+        expectedSourceTreeSha256: sourceState.sha256,
+        expectedRepositoryIdentity: repositoryIdentity
+      });
     } catch (error) {
       throw await publicationRecoveryError(root, merged, error, {
         phase: phase ?? 'repository', sourceHash: sourceState.sha256
@@ -2803,10 +3226,11 @@ async function withTargetBranch(root, options, operation) {
   }
 }
 
-async function manifest(root, config) {
-  const file = path.join(root, config.outputDir, 'manifest.json');
+async function manifest(root, config, directory = path.join(root, config.outputDir)) {
+  const file = path.join(directory, 'manifest.json');
   if (!existsSync(file)) throw new SingularityFlowError('No world model exists. Run: singularity-flow wm ensure --phase <phase>');
-  return JSON.parse(await readFile(file, 'utf8'));
+  const bytes = await readFile(file, 'utf8');
+  return JSON.parse(bytes);
 }
 
 async function context(root, config, phase, options) {
@@ -2992,10 +3416,14 @@ async function ensure(root, config, options, requestedPhase = null) {
   // `materialization.depth`, pinned on the Story, selects the builder. Light also selects the
   // compact plan; phase keeps the phase's exact view/tier contract. Global --no-model retains that
   // contract but swaps only the builder to deterministic light.
-  const deterministic = policy.depth === 'light' || !modelEnabled;
+  const deterministic = optionString(options, 'depth') === 'light'
+    || policy.depth === 'light'
+    || !modelEnabled;
   const plan = groundingPlan(config, policy.depth === 'light' ? { ...options, depth: 'light' } : options, requestedPhase);
   let catalogRefresh = null;
-  const result = await materializeSelections(root, config, plan, async ({ policy, availability }) => {
+  const result = await materializeSelections(root, config, plan, async ({
+    policy, availability, expectedSourceTreeSha256
+  }) => {
       const warmCatalog = lifecycleCatalogWarmAllowed(plan, options)
         && (deterministic || Boolean(availability.extensionBase));
       const buildOptions = {
@@ -3005,7 +3433,11 @@ async function ensure(root, config, options, requestedPhase = null) {
         evidence: plan.includeEvidence,
         local: policy.publish === 'local',
         existingWorldModelDirectory: availability.extensionBase?.directory ?? null,
-        rebuildReason: availabilityBuildReason(availability)
+        rebuildReason: availabilityBuildReason(availability),
+        expectedSourceTreeSha256,
+        // Ensure completes or upgrades missing selections; it is not an explicit refresh of
+        // already-ready same-source tiers. Direct wm build/light commands omit this guard.
+        replaceRequestedSelections: false
       };
       if (plan.views.length === 1) buildOptions.view = plan.views[0].view;
       else if (plan.views.length > 1) buildOptions.views = plan.views.map((entry) => entry.view).join(',');
@@ -3033,7 +3465,7 @@ async function ensure(root, config, options, requestedPhase = null) {
     // The fall-forward. Same plan, same views, same publication policy — only the builder changes,
     // from a model-driven synthesis to the deterministic inventory. It is the fallback `wm.build`
     // has always declared and nothing has ever run.
-    deterministic ? null : async ({ policy, availability }) => {
+    deterministic ? null : async ({ policy, availability, expectedSourceTreeSha256 }) => {
       const warmCatalog = lifecycleCatalogWarmAllowed(plan, options);
       if (warmCatalog) {
         catalogRefresh = {
@@ -3050,7 +3482,9 @@ async function ensure(root, config, options, requestedPhase = null) {
         task: plan.taskGuide.required ? plan.taskGuide.task : undefined,
         local: policy.publish === 'local',
         existingWorldModelDirectory: availability.extensionBase?.directory ?? null,
+        expectedSourceTreeSha256,
         repositoryCatalog: warmCatalog,
+        replaceRequestedSelections: false,
         // buildLight refuses these: they belong to the model-driven path it is standing in for.
         parallel: undefined, workers: undefined, runner: undefined, depth: undefined
       });
@@ -3062,14 +3496,19 @@ async function ensure(root, config, options, requestedPhase = null) {
       // Naming a depth is an explicit request to materialize/upgrade that depth. Automatic phase
       // ensures do not name one and therefore reuse a same-source light fallback instead of
       // repeatedly spending on the failed route.
-      upgradeMinimal: !deterministic && options.depth !== undefined
+      // Plain ensure is reuse-only. An explicit semantic depth upgrades light; an explicit light
+      // depth refreshes only a stale source and still reuses an already-exact deterministic model.
+      upgradeMinimal: !deterministic && options.depth !== undefined,
+      refreshStaleMinimal: deterministic && options.depth !== undefined,
+      preserveExisting: options.automaticLifecycle === true
     });
   const output = {
     plan,
     mode: result.mode,
     availability: result.availability,
     catalogRefresh,
-    degraded: result.degraded ?? (!modelEnabled && policy.depth === 'phase' && isMinimalModel(result.availability.selected?.manifest)
+    degraded: result.degraded ?? (!modelEnabled && policy.depth === 'phase'
+      && isMinimalModel(result.availability.selected?.manifest, plan.selections)
       ? {
           code: 'MODEL_DISABLED_LIGHT_FALLBACK',
           reason: 'Model mode is disabled; deterministic light inventory satisfied the pinned phase selections without semantic analysis.'
@@ -3084,9 +3523,11 @@ async function ensure(root, config, options, requestedPhase = null) {
   else if (result.degraded) {
     // Never silently. Work continues, and the reader is told exactly what they are working on.
     console.log(`${style.mark('warn')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''} on the LIGHT model: ${plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ')}`);
-    console.log(`  The full build failed: ${result.degraded.reason}`);
-    console.log('  Semantic analysis was not performed. Rerunning this command retries the full build:');
-    console.log(`    singularity-flow wm ensure${plan.phase ? ` --phase ${plan.phase}` : ''}`);
+    console.log(result.mode.startsWith('reuse')
+      ? '  The existing shared light model was reused; no provider was invoked and no model bytes were replaced.'
+      : `  The full build failed: ${result.degraded.reason}`);
+    console.log('  Semantic analysis was not performed. The model remains reusable until you explicitly request replacement:');
+    console.log(`    singularity-flow wm build${plan.phase ? ` --phase ${plan.phase}` : ''} --depth ${plan.depth}`);
   } else {
     const selections = plan.selections.map((item) => item.kind === 'core' ? `core/${item.tier}` : `${item.view}/${item.tier}`).join(', ');
     console.log(`${style.mark('pass')} world-model grounding ready${plan.phase ? ` for ${plan.phase}` : ''}: ${selections}`);
@@ -3286,7 +3727,8 @@ async function compose(root, options) {
     : null;
   const { text, injection } = await injectAgentPrompt(root, definition, agent, signals, {
     promptOverride: promptStudy,
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow),
+    modelDirectory: worldModelEnabled ? required.directory : null
   });
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
@@ -3724,19 +4166,46 @@ export async function worldModelCommand(root, positionals, options) {
       return context(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
     }
     if (command === 'budget') return budget(targetRoot, config, positionals[2] ?? optionString(options, 'phase'), options);
-    const model = await manifest(targetRoot, config);
-    const phase = optionString(options, 'phase') ?? model.generated_for_phase ?? null;
+    const currentSource = await worldModelSourceSnapshot(targetRoot, config.definition ?? config);
+    let located = await resolveWorldModelSource(targetRoot, config, {
+      sourceTreeSha256: currentSource.sha256
+    });
+    let modelDirectory = located.source === 'state-branch'
+      && existsSync(path.join(located.directory, 'manifest.json'))
+      ? located.directory
+      : path.join(targetRoot, config.outputDir);
+    let model = await manifest(targetRoot, config, modelDirectory);
+    let phase = optionString(options, 'phase') ?? model.generated_for_phase ?? null;
     // A generic check validates the contract the snapshot was built for. Reinterpreting a
     // deterministic light snapshot as the phase's configured standard depth falsely demanded full
     // tiers that the recorded build deliberately did not create.
-    const checkOptions = optionString(options, 'depth') || !model.analysis_depth
+    let checkOptions = optionString(options, 'depth') || !model.analysis_depth
       ? options
       : { ...options, depth: model.analysis_depth };
-    const plan = groundingPlan(config, checkOptions, phase);
-    await validateWorldModelDirectory(path.join(targetRoot, config.outputDir), {
+    let plan = groundingPlan(config, checkOptions, phase);
+    if (located.source === 'state-branch') {
+      // Search exact-source history again with the snapshot's own validation contract. A newer
+      // incomplete projection must not shadow an older complete governed model during `wm check`.
+      located = await resolveWorldModelSource(targetRoot, config, {
+        sourceTreeSha256: currentSource.sha256,
+        requiredSelections: plan.selections,
+        requireEvidence: plan.includeEvidence
+      });
+      if (located.source === 'state-branch'
+        && existsSync(path.join(located.directory, 'manifest.json'))) {
+        modelDirectory = located.directory;
+        model = JSON.parse(await readFile(path.join(modelDirectory, 'manifest.json'), 'utf8'));
+        phase = optionString(options, 'phase') ?? model.generated_for_phase ?? null;
+        checkOptions = optionString(options, 'depth') || !model.analysis_depth
+          ? options
+          : { ...options, depth: model.analysis_depth };
+        plan = groundingPlan(config, checkOptions, phase);
+      }
+    }
+    await validateWorldModelDirectory(modelDirectory, {
       requiredSelections: plan.selections, requireEvidence: plan.includeEvidence
     });
-    const state = await worldModelFreshness(targetRoot, config, model);
+    const state = await worldModelFreshness(targetRoot, config.definition ?? config, model);
     console.log(state.fresh ? `fresh: ${state.current}` : `stale: ${state.built} != ${state.current}`);
     if (!state.fresh) throw new SingularityFlowError('World model is stale.', { exitCode: 2 });
   });

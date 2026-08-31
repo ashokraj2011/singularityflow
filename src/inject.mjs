@@ -113,9 +113,9 @@ async function walkModel(directory, prefix = '') {
   return files;
 }
 
-export async function selectModelFiles(root, definition, includes) {
+export async function selectModelFiles(root, definition, includes, { modelDirectory = null } = {}) {
   const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const available = await walkModel(path.join(root, outputDir));
+  const available = await walkModel(modelDirectory ?? path.join(root, outputDir));
   return { outputDir, selected: available.filter((file) => matchesAnyGlob(file, includes)) };
 }
 
@@ -126,21 +126,22 @@ function utf8Prefix(buffer, maxBytes) {
   return buffer.subarray(0, end).toString('utf8');
 }
 
-export async function renderInjection(root, definition, signals = {}) {
+export async function renderInjection(root, definition, signals = {}, { modelDirectory = null } = {}) {
   const resolution = resolveInjection(definition, signals);
   if (resolution.mode === 'off' || !resolution.includes.length) return { ...resolution, sections: [], text: '' };
   const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-  const manifestFile = path.join(root, outputDir, 'manifest.json');
+  const modelRoot = modelDirectory ?? path.join(root, outputDir);
+  const manifestFile = path.join(modelRoot, 'manifest.json');
   const manifest = await exists(manifestFile) ? await readJson(manifestFile) : null;
   const includes = resolution.evidence && manifest?.evidence?.path
     ? [...new Set([...resolution.includes, manifest.evidence.path])]
     : resolution.includes;
-  const { selected } = await selectModelFiles(root, definition, includes);
+  const { selected } = await selectModelFiles(root, definition, includes, { modelDirectory: modelRoot });
   const sections = [];
   let budget = resolution.maxBytes;
   for (const relative of selected) {
     if (budget <= 0) break;
-    const absolute = path.join(root, outputDir, relative);
+    const absolute = path.join(modelRoot, relative);
     const info = await snapshot(absolute);
     const raw = await readFile(absolute);
     const prefix = utf8Prefix(raw, budget);
@@ -158,7 +159,7 @@ export async function renderInjection(root, definition, signals = {}) {
 }
 
 export async function injectAgentPrompt(root, definition, agentId, signals = {}, {
-  promptOverride = null, disableWorldModelInjection = false
+  promptOverride = null, disableWorldModelInjection = false, modelDirectory = null
 } = {}) {
   const agent = definition.agents?.[agentId];
   if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
@@ -173,7 +174,9 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
       }
     };
   }
-  const rendered = await renderInjection(root, definition, { ...signals, agent: agentId });
+  const rendered = await renderInjection(
+    root, definition, { ...signals, agent: agentId }, { modelDirectory }
+  );
   if (rendered.mode === 'off' || !rendered.sections.length) return {
     text: base.replaceAll(rendered.placeholder, ''),
     injection: { ...rendered, applied: false, promptOverride }

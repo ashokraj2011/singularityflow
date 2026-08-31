@@ -8,6 +8,8 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { materializeInitiative } from '../src/initiative-repositories.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
+import { worldModelSourceSnapshot } from '../src/grounding.mjs';
+import { writeV3Manifest } from '../src/world-model-materialization.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -433,14 +435,45 @@ test('publishing a phase blocks an impact map naming an unknown repository under
   const definition = YAML.parse(await readFile(definitionFile, 'utf8'));
   definition.worldModel.grounding = 'enforce';
   await writeFile(definitionFile, YAML.stringify(definition));
-
-  // A committed world model declaring exactly one view.
-  const modelDir = path.join(root, 'singularity/world-model');
-  await mkdir(modelDir, { recursive: true });
-  await writeFile(path.join(modelDir, 'manifest.json'), JSON.stringify({ views: { architecture: { path: 'views/architecture.md' } } }));
-
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize lead'], { cwd: root });
+
+  // A valid committed world model declaring exactly one view. The impact assertion must reach the
+  // repository-map rule rather than being short-circuited by malformed grounding fixture data.
+  const modelDir = path.join(root, 'singularity/world-model');
+  await mkdir(path.join(modelDir, 'core'), { recursive: true });
+  await mkdir(path.join(modelDir, 'views'), { recursive: true });
+  await mkdir(path.join(modelDir, 'evidence'), { recursive: true });
+  await writeFile(path.join(modelDir, 'core/summary.brief.md'), '# Repository brief\n');
+  await writeFile(path.join(modelDir, 'core/summary.md'), '# Repository model\n');
+  await writeFile(path.join(modelDir, 'core/model.json'), '{}\n');
+  await writeFile(path.join(modelDir, 'views/architecture.md'), '# Architecture\n');
+  await writeFile(path.join(modelDir, 'path-index.json'), '{"entries":[{"glob":"src/**","views":["architecture"]}]}\n');
+  await writeFile(path.join(modelDir, 'evidence/evidence.jsonl'), '{"id":"E-ARCH"}\n');
+  const modelSource = await worldModelSourceSnapshot(root, definition);
+  await writeV3Manifest(modelDir, {
+    schema_version: '3.0',
+    generated_at: '2026-08-31T00:00:00.000Z', generated_date: '31 August 2026',
+    builder_version: 'test', builder_prompt_sha256: 'a'.repeat(64), analysis_depth: 'standard',
+    repository_commit: git(['rev-parse', 'HEAD'], root), repository_branch: 'main', working_tree_clean: true,
+    source_tree_sha256: modelSource.sha256,
+    core: {
+      tiers: {
+        brief: { status: 'ready', path: 'core/summary.brief.md' },
+        full: { status: 'ready', path: 'core/summary.md' }
+      },
+      model: { path: 'core/model.json' }
+    },
+    views: { architecture: { tiers: {
+      brief: { status: 'missing', path: 'views/architecture.brief.md' },
+      full: { status: 'ready', path: 'views/architecture.md' }
+    } } },
+    domains: [], task_guides: [], path_index: { path: 'path-index.json' },
+    evidence: { path: 'evidence/evidence.jsonl' }, materializations: []
+  });
+
+  run('git', ['add', 'singularity/world-model'], { cwd: root });
+  run('git', ['commit', '-m', 'Publish world model fixture'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
   const created = await createInitiative(root, { id: 'INIT-IMPACT', profile: 'initiative-lite' });
   created.initiative.currentPhase = 'plan';

@@ -631,6 +631,8 @@ export interface RepositorySnapshot {
       status: string;
       ready: boolean;
       source: string | null;
+      /** True when an exact immutable snapshot was recovered from older state-branch history. */
+      historical?: boolean;
       staleness?: {
         policy: 'ignore' | 'warn' | 'fail';
         fresh: boolean;
@@ -641,7 +643,7 @@ export interface RepositorySnapshot {
         status: string;
         message: string | null;
       };
-      command: string;
+      command: string | null;
     } | null;
     views: Array<{ id: string; references: string[] }>;
     workflows?: Array<{

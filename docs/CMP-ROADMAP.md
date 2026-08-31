@@ -4,8 +4,10 @@
 
 **Design source:** CMP v1 — Governed Comprehension and Explanation Completeness
 
-**Validated code baseline:** `main@1cc36d6e`; the observe-only foundation described below is the
-current implementation tranche on top of that baseline
+**Original design baseline:** `main@1cc36d6e`
+
+**Last implementation audit:** `main@3b5d79e6` on 2026-08-31; the observe-only foundation
+described below is the only implemented CMP tranche
 
 **Current delivery boundary:** observe-only foundation; no publication gate, approval authority, or
 new publisher
@@ -92,6 +94,80 @@ inspection boundary while preserving every existing lifecycle behavior.
 Until cross-platform determinism, packaged npm/VSIX loading, oversized/escaped-input refusal, and
 explicit zero-model/zero-AST tripwires pass, treat this as an in-progress implementation tranche,
 not a shipped product claim.
+
+## Verified implementation status
+
+The 2026-08-31 audit compared the complete 2,952-line CMP v1 specification with the executable
+runtime, command registry, schema registry, gateway, packaged skills, VS Code extension, and tests.
+Its conclusion is intentionally unambiguous:
+
+> **CMP v1 is not complete. The current release contains a credible read-only diagnostic pilot,
+> not governed comprehension authority or explanation-completeness enforcement.**
+
+The pilot may calculate a `complete` diagnostic result from a self-consistent caller-supplied
+bundle, but that result always remains `authoritative: false`, `lifecycleGate: false`, and
+`authority: unverified-observation`. No lifecycle consumer may treat the diagnostic `verdict` alone
+as permission to submit, approve, publish, or merge.
+
+| Corrected phase | Verified status | Present now | Missing before the phase can exit |
+|---|---|---|---|
+| P0 — contracts and reads | **Partial** | Conservative resource regions, closed cause/relationship/disposition vocabularies, bounded diagnostic validation, `regions`, and `check` | Assurance/availability/refusal registries, authority ADRs, cross-platform corpus, isolated npm/VSIX proof, and explicit zero-model/zero-AST/zero-lifecycle tripwires |
+| P1 — pilot and storage decision | **Not started** | No durable state; only caller-supplied diagnostic input | Measurements, content-free metrics, storage/retention/privacy decision, record-mode preview, migration prototype, and reviewed rollout decision |
+| P2 — governed cause recording | **Contract fragments only** | Cause, binding, disposition, and transformation-receipt validators over untrusted diagnostic input | Trusted authority lookup, durable versioned records, migrations, proposal/confirmation/supersession, recovery, and incorporation into the existing review transaction |
+| P3 — intent graph and replay | **Not implemented** | A future operation vocabulary and roadmap only | Typed graph/index, bounded bidirectional queries, CMP gateway planner, exact expansion, deterministic replay, and reverse-convergence provenance |
+| P4 — walkthroughs | **Not implemented** | None | Typed claims, deterministic validators, model-draft boundary, dual hashes, evidence validation, staleness, and revalidation receipts |
+| P5 — enforcement | **Blocked by prerequisites** | None; ordinary publication is deliberately unchanged | Universal lifecycle Candidate, existing-review-subject binding, existing approval/publication integration, projected receipt, recovery, and opt-in creation-pinned enforcement |
+| P6 — VS Code, learning, brownfield | **Not implemented** | Help content and generic `/sf-inspect comprehension` routing only | Leased snapshot slice, Comprehension Center, navigation, replay/walkthrough/staleness views, lessons, touched-area policy, backfill, accessibility, and large-repository hardening |
+
+### Explain-change and intent-trace boundary
+
+The registered `intent.trace` phrase family (`why does this code exist`, `trace the intent`, and
+`which decision produced this`) is not proof that CMP explanation exists. It has no CMP graph,
+bounded CMP read planner, or exact cause-to-code/code-to-cause projection behind it. The future
+public surface remains namespaced:
+
+```text
+singularity-flow comprehension explain clause <CLAUSE-ID>
+singularity-flow comprehension explain file <PATH>
+singularity-flow comprehension explain symbol <SYMBOL-ID>
+singularity-flow comprehension explain change <REGION-ID>
+singularity-flow comprehension explain refusal <REFUSAL-ID>
+singularity-flow comprehension explain generation <NUMBER>
+singularity-flow comprehension explain test <TEST-ID>
+```
+
+Until P3 lands, `/sf-regression-investigate`, `/sf-logs`, and `/sf-review` remain adjacent tools for
+regression analysis, command history, and diff review; none of them is a substitute for governed
+code-to-intent explanation.
+
+### Audit evidence
+
+Evidence on `main@3b5d79e6`:
+
+- 19/19 focused CMP contract and command tests passed;
+- 60/60 combined CMP, command, help, and packaged-skill tests passed;
+- 3/3 focused VS Code Help Center and `@sflow` tests passed;
+- VS Code type checking passed;
+- the product check passed 1,047 checks across 135 skills, two agents, and one extension, with only
+  pre-existing vocabulary advisories;
+- npm dry-run packaging included the CMP command, contracts, roadmap, help topic, and inspect skill.
+
+This evidence proves the observe-only pilot and its packaging boundary. It does not satisfy the CMP
+v1 release criteria, any enforcement acceptance criterion, or a native VS Code Comprehension Center.
+
+### Tracked implementation gaps
+
+| Backlog ID | Required work | Dependency/exit evidence |
+|---|---|---|
+| `CMP-P0-001` | Finish the read-only foundation and correct the misleading `--phase` recovery text | Cross-platform deterministic corpus; isolated npm/VSIX loading; explicit no-model/no-AST/no-write/no-lifecycle tripwires |
+| `CMP-P1-001` | Decide storage, retention, privacy, metrics, and creation-pinned `off`/`record` rollout | Approved ADRs, migration prototype, measured budgets, and independent pilot review |
+| `CMP-P2-001` | Add governed cause proposals, confirmations, terminal dispositions, and narrow transformation authority | Durable schemas/migrations plus authority, staleness, recovery, ref-race, and adversarial-laundering tests |
+| `CMP-P3-001` | Implement the intent-indexed graph and `comprehension explain` reads | Bidirectional query parity, bounded exact handles, cache rebuild, gateway no-extra-tool, and unavailable-structure tests |
+| `CMP-P3-002` | Implement deterministic comprehension replay without colliding with SGOS Process replay | Fresh-export hash stability, ordering, refusal/repair, reverse-convergence, recovery, and transcript-exclusion tests |
+| `CMP-P4-001` | Implement typed walkthroughs, validators, exact expansion, and selective/conservative staleness | Counterfeit-model, prompt-injection, malformed/overflow, Candidate/evidence/structure drift, and zero-model tests |
+| `CMP-P5-001` | Integrate CMP into the single existing Candidate/review/approval/publication transaction | `SGOS-P0-001`, every-workflow lifecycle matrix, remote rejection/push recovery, crash/retry, and fresh-export receipt verification |
+| `CMP-P6-001` | Add the leased VS Code Comprehension Center and learning experience | Slice lease/disposal, stale-response, multi-root, keyboard/screen-reader, offline/office-proxy, and large-tree tests |
+| `CMP-P6-002` | Add touched-area brownfield policy and labelled historical backfill | No-full-backfill compatibility, rename/move/touch fixtures, and no-fabricated-history tests |
 
 ## Validated reuse map
 
@@ -439,7 +515,7 @@ Deliverables:
 
 - typed graph nodes/edges that reference existing authority rather than embedding claims;
 - Candidate/policy/adapter-keyed incremental query index;
-- `comprehension explain` for clause, file, change, refusal, generation, and available symbol IDs;
+- `comprehension explain` for clause, file, symbol, change, refusal, generation, and test IDs;
 - `comprehension replay` as chronological and focused projections over existing lifecycle/SGOS facts;
 - explicit reverse-converged and post-hoc provenance labels.
 
@@ -573,7 +649,7 @@ Future read surfaces remain under the namespace:
 
 ```text
 singularity-flow comprehension region <REGION-ID>
-singularity-flow comprehension explain <clause|file|change|refusal|generation|symbol> <ID>
+singularity-flow comprehension explain <clause|file|symbol|change|refusal|generation|test> <ID>
 singularity-flow comprehension replay <WORK-ID> [--focus TYPE:ID]
 singularity-flow comprehension walkthrough show <ID>
 singularity-flow comprehension packet <CANDIDATE-ID>

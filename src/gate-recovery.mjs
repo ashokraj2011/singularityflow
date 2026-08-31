@@ -38,7 +38,20 @@ function storyOwner(workflow, message) {
   const explicit = phaseFromMessage(workflow, message);
   if (explicit) return explicit;
   if (/\bconformance\b/i.test(message)) return firstPhase(workflow, ['conformance', 'release']);
-  if (/\b(?:AC coverage|acceptance coverage|planned test|observed test result|acceptance command)\b/i.test(message)) {
+  // A planned-test binding is authored before implementation. Routing it to implementation makes
+  // a completed Story reopen at the wrong lifecycle boundary and cannot repair the missing claim
+  // record. Prefer the workflow's planning owner, including feature profiles that call that phase
+  // `implementation-spec`; implementation is only a compatibility fallback for shorter profiles.
+  if (/\b(?:has no planned test|missing planned test(?: evidence)?)\b/i.test(message)) {
+    return firstPhase(workflow, ['planning', 'implementation-spec', 'implementation', 'verification', 'test', 'testing']);
+  }
+  if (/\b(?:has no observed test result|missing observed test(?: result| evidence)?)\b/i.test(message)) {
+    return firstPhase(workflow, ['verification', 'test', 'testing', 'implementation', 'conformance']);
+  }
+  if (/\b(?:allowlisted acceptance command failed|acceptance command .*failed)\b/i.test(message)) {
+    return firstPhase(workflow, ['verification', 'test', 'testing', 'implementation', 'conformance']);
+  }
+  if (/\b(?:AC coverage|acceptance coverage)\b/i.test(message)) {
     return firstPhase(workflow, ['implementation', 'verification', 'test', 'testing', 'conformance']);
   }
   if (/\b(?:specification index|clause coverage|specification acceptance)\b/i.test(message)) {
@@ -57,6 +70,9 @@ function storyCode(message) {
   if (/protected process path changed/i.test(message)) return 'gate.protected-path.changed';
   if (/workflow\.yml differs|immutable work-item configuration snapshot/i.test(message)) return 'gate.configuration.snapshot-drift';
   if (/template snapshot changed/i.test(message)) return 'gate.template.snapshot-drift';
+  if (/\b(?:has no planned test|missing planned test(?: evidence)?)\b/i.test(message)) return 'gate.acceptance.planned-test-missing';
+  if (/\b(?:has no observed test result|missing observed test(?: result| evidence)?)\b/i.test(message)) return 'gate.acceptance.observed-test-missing';
+  if (/\b(?:allowlisted acceptance command failed|acceptance command .*failed)\b/i.test(message)) return 'gate.acceptance.command-failed';
   if (/AC coverage:/i.test(message)) return 'gate.acceptance-criteria.unbound';
   if (/conformance report is stale/i.test(message)) return 'gate.conformance.stale';
   if (/conformance report has no row/i.test(message)) return 'gate.conformance.missing-row';

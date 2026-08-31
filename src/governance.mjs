@@ -19,6 +19,7 @@ import {
   configuredAcceptanceCommandSetSha256,
   evaluateSpecAcceptance,
   evaluateSpecCoverage,
+  isSpecificationDefinitionPhase,
   loadActiveSpecRecords,
   specificationSourceTreeHash
 } from './specifications.mjs';
@@ -341,7 +342,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     const fail = (message) => (specPolicy.mode === 'enforce' ? errors : warnings).push(message);
     for (const phaseId of workflow.phaseOrder) {
       const phase = workflow.phases[phaseId];
-      if (!(phase.generation > 0) || !['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) continue;
+      if (!(phase.generation > 0) || !isSpecificationDefinitionPhase(phase)) continue;
       const index = records.indexes.find((candidate) => candidate.phase === phaseId && candidate.generation === phase.generation);
       if (!index) {
         fail(`${phaseId} generation ${phase.generation} has no deterministic specification index`);

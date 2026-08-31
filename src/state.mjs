@@ -95,7 +95,11 @@ import { buildDesignSourceSet, classifyDesignSourceCandidates, approvedDesignSou
 import { verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
 import { assertVisualCoverage } from './visual-coverage.mjs';
-import { buildSpecIndex, loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
+import {
+  buildSpecIndex, deriveObservedClaimMap, derivePlannedClaimMap, evaluateSpecAcceptance,
+  isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
+  predecessorSpecClauses
+} from './specifications.mjs';
 import {
   hydrateImpactPlan, impactImplementationGate, initializeStoryImpact, invalidateImpactReceipt
 } from './impact.mjs';
@@ -1026,6 +1030,245 @@ async function readArtifactText(root, relative) {
   return info.exists ? readRepositoryArtifactText(root, relative) : '';
 }
 
+function specificationPolicy(config, workflow) {
+  return normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
+}
+
+function specificationClauseIds(records) {
+  return [...new Set((records.indexes ?? []).flatMap((index) =>
+    (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
+}
+
+function claimMapRelativePath(config, workflow, phase, kind) {
+  return posix(path.join(
+    workDirRelative(config, workflow.workItem.id), 'context', 'claims',
+    `${phase.id}-gen${phase.generation}-${kind}.json`
+  ));
+}
+
+function claimMapSha256(record) {
+  return createHash('sha256').update(canonicalJson(record)).digest('hex');
+}
+
+function bindPhaseClaimMap(phase, kind, relative, sha256) {
+  phase.claimMaps ??= {};
+  phase.claimMaps[kind] = {
+    generation: phase.generation,
+    path: relative,
+    sha256
+  };
+}
+
+function assertClaimIdentity(record, workflow, phase, kind) {
+  if (record.kind !== kind
+      || record.workId !== workflow.workItem.id
+      || record.phase !== phase.id
+      || Number(record.generation) !== Number(phase.generation)) {
+    throw new SingularityFlowError(
+      `${kind} specification claim map does not bind ${workflow.workItem.id}/${phase.id} generation ${phase.generation}.`,
+      { code: 'SPECIFICATION_CLAIM_MAP_IDENTITY_INVALID' }
+    );
+  }
+}
+
+async function existingClaimMap(root, relative, workflow, phase, kind, clauseIds, policy) {
+  if (!(await exists(path.join(root, relative)))) return null;
+  const raw = await readJson(path.join(root, relative));
+  const record = readRecord('specification-claim-map', raw).record;
+  assertClaimIdentity(record, workflow, phase, kind);
+  // Schema migration proves readability; normalization proves the semantic path and clause limits.
+  normalizeClaimMap(record, { kind, clauseIds, policy });
+  return { raw, record, sha256: claimMapSha256(raw) };
+}
+
+function plannedTestGaps(records, policy) {
+  return evaluateSpecAcceptance(records, { ...policy, acceptance: 'presence' }).missingPlannedTests;
+}
+
+function placeholderTestReason(reason) {
+  const value = String(reason ?? '').trim();
+  return !value
+    || /\b(?:todo|tbd|fixme|placeholder|to be determined|to be defined)\b/i.test(value)
+    || /^<[^>]+>$/.test(value)
+    || /^(?:specific|concrete)\s+reason$/i.test(value);
+}
+
+/**
+ * Materialize the reviewed planning contract before the lifecycle can enter a code phase.
+ * The exact table is deterministic; prose and later test files are never guessed into a claim.
+ */
+async function refreshPlannedSpecificationClaims(root, config, workflow, phase) {
+  const policy = specificationPolicy(config, workflow);
+  const upcoming = nextPhase(workflow, phase);
+  if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(upcoming)) return null;
+
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const records = await loadActiveSpecRecords(itemDirectory, workflow);
+  const clauseIds = specificationClauseIds(records);
+  if (!clauseIds.length) return null;
+  const relative = claimMapRelativePath(config, workflow, phase, 'planned');
+  const artifactPath = requiredRepoPath(config, workflow, phase);
+  const artifact = await repositoryArtifactSnapshot(root, artifactPath);
+  const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
+  const derived = derivePlannedClaimMap(authored, { clauseIds, policy });
+  const placeholderReasons = Object.entries(derived.claimMap.claims)
+    .filter(([, claim]) => claim.testDisposition === 'not-applicable' && placeholderTestReason(claim.testReason))
+    .map(([id]) => id)
+    .sort();
+  if (placeholderReasons.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} cannot publish because not-applicable test reasons are placeholders for: ${placeholderReasons.join(', ')}. `
+      + `Replace TODO/TBD/template text with the concrete reviewed reason in ${artifactPath}.`,
+      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: placeholderReasons } }
+    );
+  }
+  const gaps = [...new Set([...derived.missingClauseIds, ...derived.missingTestClauseIds])].sort();
+  if (gaps.length && policy.mode === 'enforce') {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} cannot publish because its planned-test contract is incomplete:\n- `
+      + gaps.map((id) => `clause ${id} has no exact planned test or reviewed not-applicable reason`).join('\n- ')
+      + `\nComplete the 'Clause | Expected paths | Planned tests' table in ${artifactPath} and publish again.`,
+      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: gaps } }
+    );
+  }
+  if (gaps.length) {
+    console.warn(`Warning: phase ${phase.id} planned-test contract is incomplete for ${gaps.join(', ')}.`);
+  }
+
+  // A manually seeded claim file is never authority over the reviewed artifact. Derive the
+  // complete expected projection first, then permit a retained retry file only when its canonical
+  // JSON is byte-for-byte the same projection. Preserve its original timestamp so a failed
+  // publication can be retried without manufacturing a false difference from the clock.
+  const existing = await existingClaimMap(root, relative, workflow, phase, 'planned', clauseIds, policy);
+  const record = {
+    ...derived.claimMap,
+    ...(existing ? { recordedAt: existing.record.recordedAt } : {}),
+    workId: workflow.workItem.id,
+    phase: phase.id,
+    generation: phase.generation,
+    source: { path: artifactPath, sha256: artifact.sha256, bytes: artifact.size }
+  };
+  if (existing && canonicalJson(existing.raw) !== canonicalJson(record)) {
+    throw new SingularityFlowError(
+      `Existing planned claim map ${relative} does not match the reviewed Markdown in ${artifactPath}. `
+      + 'Remove the uncommitted seeded claim map and publish again so Singularity Flow can derive it.',
+      { code: 'SPEC_PLANNED_CLAIM_MAP_SOURCE_MISMATCH', details: { phase: phase.id, path: relative, source: artifactPath } }
+    );
+  }
+  if (!existing) {
+    await writeJson(path.join(root, relative), record);
+  }
+  const digest = existing?.sha256 ?? claimMapSha256(record);
+
+  const effective = { ...records, planned: [record] };
+  const effectiveGaps = plannedTestGaps(effective, policy);
+  if (effectiveGaps.length && policy.mode === 'enforce') {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} cannot advance toward implementation:\n- `
+      + effectiveGaps.map((id) => `clause ${id} has no planned test`).join('\n- '),
+      { code: 'SPEC_PLANNED_TEST_BINDING_REQUIRED', details: { phase: phase.id, clauses: effectiveGaps } }
+    );
+  }
+  bindPhaseClaimMap(phase, 'planned', relative, digest);
+  return record;
+}
+
+function planningOwnerForCode(workflow, codePhase) {
+  const index = workflow.phaseOrder.indexOf(codePhase.id);
+  if (index <= 0) return null;
+  return workflow.phases[workflow.phaseOrder[index - 1]] ?? null;
+}
+
+/** Refuse at implementation entry/publish, rather than surprising the Story at its terminal gate. */
+async function assertPlannedSpecificationClaims(root, config, workflow, codePhase) {
+  const policy = specificationPolicy(config, workflow);
+  if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(codePhase)) return;
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const clauseIds = specificationClauseIds(records);
+  if (!clauseIds.length) return;
+  const gaps = plannedTestGaps(records, policy);
+  const owner = planningOwnerForCode(workflow, codePhase);
+  if (!records.planned.length || gaps.length) {
+    const ownerId = owner?.id ?? 'the planning phase';
+    const message = !records.planned.length
+      ? `No reviewed planned-test claim map exists before phase '${codePhase.id}'.`
+      : `Planned-test evidence is missing for ${gaps.join(', ')}.`;
+    if (policy.mode !== 'enforce') {
+      console.warn(`Warning: ${message}`);
+      return;
+    }
+    throw new SingularityFlowError(
+      `${message} Return to '${ownerId}', complete its exact clause/path/test table, publish, and approve it before starting implementation.`,
+      {
+        code: 'SPEC_PLANNED_CLAIM_MAP_REQUIRED',
+        details: {
+          phase: codePhase.id,
+          ownerPhase: owner?.id ?? null,
+          clauses: gaps,
+          recoveryCommand: owner
+            ? `singularity-flow recover ${workflow.workItem.id} --phase ${owner.id}`
+            : `singularity-flow recover ${workflow.workItem.id} --phase ${codePhase.id}`
+        }
+      }
+    );
+  }
+  if (owner?.claimMaps?.planned) {
+    const pointer = owner.claimMaps.planned;
+    if (Number(pointer.generation) !== Number(owner.generation)) {
+      throw new SingularityFlowError(`Phase '${owner.id}' planned-test claim binding is stale.`, { code: 'SPEC_PLANNED_CLAIM_MAP_STALE' });
+    }
+    const raw = await readJson(path.join(root, pointer.path));
+    if (claimMapSha256(raw) !== pointer.sha256) {
+      throw new SingularityFlowError(`Phase '${owner.id}' planned-test claim map changed after publication.`, { code: 'SPEC_PLANNED_CLAIM_MAP_STALE' });
+    }
+  }
+}
+
+async function refreshObservedSpecificationClaims(root, config, workflow, phase, deliveryReceipt) {
+  const policy = specificationPolicy(config, workflow);
+  if (policy.mode === 'off' || policy.acceptance === 'off') return null;
+  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const clauseIds = specificationClauseIds(records);
+  if (!clauseIds.length || !records.planned.length) return null;
+  const planned = {
+    claims: Object.assign({}, ...records.planned.map((entry) => entry.claims ?? {}))
+  };
+  const derived = deriveObservedClaimMap(planned, deliveryReceipt, {
+    clauseIds,
+    policy,
+    generationCommit: phase.generationCommit
+  });
+  const relative = claimMapRelativePath(config, workflow, phase, 'observed');
+  const existing = await existingClaimMap(root, relative, workflow, phase, 'observed', clauseIds, policy);
+  let record;
+  let digest;
+  if (existing) {
+    if (canonicalJson(existing.record.claims) !== canonicalJson(derived.claims)) {
+      throw new SingularityFlowError(
+        `Observed specification claim map for ${phase.id} generation ${phase.generation} conflicts with the finalized delivery evidence.`,
+        { code: 'SPEC_OBSERVED_CLAIM_MAP_CONFLICT' }
+      );
+    }
+    ({ record, sha256: digest } = existing);
+  } else {
+    record = {
+      ...derived,
+      workId: workflow.workItem.id,
+      phase: phase.id,
+      generation: phase.generation,
+      source: {
+        path: phase.deliveryEvidence.receiptPath,
+        sha256: phase.deliveryEvidence.receiptSha256,
+        changeSetDigest: deliveryReceipt.changeSet?.digest ?? null
+      }
+    };
+    await writeJson(path.join(root, relative), record);
+    digest = claimMapSha256(record);
+  }
+  bindPhaseClaimMap(phase, 'observed', relative, digest);
+  return record;
+}
+
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
   const result = await preparePhaseInputs(root, config, workflow, requested);
@@ -1042,6 +1285,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
   }
+  await assertPlannedSpecificationClaims(root, config, workflow, phase);
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory, itemRelative });
@@ -1081,6 +1325,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const itemRelative = workDirRelative(config, workflow.workItem.id);
   if (!dryRun) {
+    if (phaseRequiresCodeDelivery(phase)) {
+      await assertPlannedSpecificationClaims(root, config, workflow, phase);
+    }
     await ensureWorkIntervalBaseline(root, config, workflow, {
       phaseId: phase.id,
       itemDirectory,
@@ -1764,6 +2011,9 @@ export async function publishGeneration(root, config, workflow, {
   // A code-generation phase must deliver code and acceptance-mapped tests. This is deliberately
   // before prompt/input preparation and telemetry capture: an artifact-only attempt is a refused
   // preflight, not a half-started generation that has to be repaired in durable state.
+  if (phaseRequiresCodeDelivery(phase)) {
+    await assertPlannedSpecificationClaims(root, config, workflow, phase);
+  }
   let deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
   // Execute the exact structured test command before consuming the generation intent. Submission
   // still reruns it against the committed generation, but command inference, test discovery, and
@@ -2158,6 +2408,7 @@ export async function publishGeneration(root, config, workflow, {
   }
 
   await refreshPhaseSpecificationIndex(root, config, workflow, phase);
+  await refreshPlannedSpecificationClaims(root, config, workflow, phase);
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
   const errors = await validatePhase(root, config, workflow, phase);
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
@@ -2881,6 +3132,7 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     };
     await writeJson(path.join(root, phase.deliveryEvidence.receiptPath), readyReceipt);
     phase.deliveryEvidence.receiptSha256 = createHash('sha256').update(canonicalJson(readyReceipt)).digest('hex');
+    await refreshObservedSpecificationClaims(root, config, workflow, phase, readyReceipt);
   }
   if (phaseUsesWorkInterval(phase)) {
     const itemDirectory = workDir(root, config, workflow.workItem.id);
@@ -2917,6 +3169,11 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
       decision: final.decision,
       baseline: final.baseline
     };
+  }
+  const automaticUpcoming = nextPhase(workflow, phase);
+  if (phaseRequiresCodeDelivery(automaticUpcoming)
+      && (phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy')) {
+    await assertPlannedSpecificationClaims(root, config, workflow, automaticUpcoming);
   }
   phase.submittedAt = nowIso();
   const waiver = phase.approvalPolicy.mode === 'policy'
@@ -3234,8 +3491,13 @@ export async function approvePhase(root, config, workflow, {
   if (decision.selfApproval && phase.approvalPolicy.allowSelfApproval === false) {
     throw new SingularityFlowError(`Capability and workflow policy prohibit self-approval for phase '${phase.id}'. Ask another authorized Git identity to approve this generation.`);
   }
+  const prospectiveApprovals = [...phase.approvals, decision];
+  const reached = approvalRequirementsMet(phase.approvalPolicy, prospectiveApprovals);
+  const upcomingForApproval = reached ? nextPhase(workflow, phase) : null;
+  if (phaseRequiresCodeDelivery(upcomingForApproval)) {
+    await assertPlannedSpecificationClaims(root, config, workflow, upcomingForApproval);
+  }
   phase.approvals.push(decision);
-  const reached = approvalRequirementsMet(phase.approvalPolicy, phase.approvals);
   if (reached) {
     phase.status = 'approved'; phase.approvedAt = decision.at; phase.approvedBy = key;
     closeWorkInterval(workflow, {
@@ -3307,8 +3569,10 @@ async function registerApprovedSnapshot(root, config, workflow, phase) {
 
 async function refreshPhaseSpecificationIndex(root, config, workflow, phase) {
   const specPolicy = workflow.resolution?.spec ?? config.spec ?? { mode: 'off' };
-  if (specPolicy.mode === 'off'
-      || !['requirements', 'implementation-spec', 'conformance-report'].includes(phase.requiredArtifact?.kind)) return null;
+  // Only definition-bearing artifacts may enlarge the Story's authoritative clause universe.
+  // Conformance/release reports cite that universe; indexing their citations as new clauses made
+  // a terminal report invent requirements that no planning phase could possibly have covered.
+  if (specPolicy.mode === 'off' || !isSpecificationDefinitionPhase(phase)) return null;
   const itemDirectory = workDir(root, config, workflow.workItem.id);
   const priorSpecRecords = await loadActiveSpecRecords(itemDirectory, workflow);
   const specIndexPath = posix(path.join(
@@ -3762,6 +4026,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     selfApproval,
     ...(actionContext ? { actionContext } : {})
   };
+  const recordedDecisionSha256 = createHash('sha256').update(canonicalJson(recorded)).digest('hex');
   decisions.push(recorded);
   proposal.decisions = decisions;
 
@@ -3775,7 +4040,15 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       phase: 'specification', detail: `${proposal.id}: ${recorded.reason ?? 'rejected by specification authority'}`
     });
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
-    return { proposal, reached: true, applied: false, affectedPhases: [], preservedEvidence: [] };
+    return {
+      proposal,
+      eventDecision: recorded,
+      decisionSha256: recordedDecisionSha256,
+      reached: true,
+      applied: false,
+      affectedPhases: [],
+      preservedEvidence: []
+    };
   }
 
   const approvals = decisions.filter((entry) => entry.decision === 'approved');
@@ -3785,7 +4058,15 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     proposal.approvals = { reached: approvals.length, required: minimum };
     Object.assign(summary, { approvals: proposal.approvals });
     await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
-    return { proposal, reached: false, applied: false, affectedPhases: [], preservedEvidence: [] };
+    return {
+      proposal,
+      eventDecision: recorded,
+      decisionSha256: recordedDecisionSha256,
+      reached: false,
+      applied: false,
+      affectedPhases: [],
+      preservedEvidence: []
+    };
   }
 
   const specificationPath = requiredRepoPath(config, workflow, specification);
@@ -3828,6 +4109,23 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   specification.approvedBy = key;
   specification.generatedAt = at;
   specification.generatedBy = structuredClone(proposal.proposedBy ?? session.actor);
+  specification.generatedAgent = null;
+  specification.authorship = [
+    ...(specification.authorship ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
+    {
+      schemaVersion: currentSchemaVersion('artifact-authorship'),
+      producer: 'human',
+      channel: 'manual-in-place',
+      actor: structuredClone(proposal.proposedBy ?? session.actor),
+      governedAgentContext: null,
+      kernelModel: { invoked: false, status: 'exact', invocationIds: [] },
+      externalAiUse: { value: 'none', status: 'self-reported' },
+      changeOrigins: ['human'],
+      source: { kind: 'intent-amendment', id: proposal.id, proposalSha256: proposal.proposalSha256 },
+      generation: specification.generation,
+      publishedAt: at
+    }
+  ];
   const amendmentApproval = {
     ...recorded,
     decision: 'approved',
@@ -3840,6 +4138,25 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   specification.approvals.push(amendmentApproval);
   await updateArtifactMetadata(root, config, workflow, specification);
   await registerApprovedSnapshot(root, config, workflow, specification);
+  await refreshPhaseSpecificationIndex(root, config, workflow, specification);
+  const amendmentTelemetry = await recordPhaseTelemetry(root, workflow, specification, [], {
+    source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [],
+    startedAt: at, completedAt: at
+  }, {
+    itemDirectory: workDir(root, config, workflow.workItem.id),
+    itemRelative: workDirRelative(config, workflow.workItem.id)
+  });
+  specification.telemetry = [
+    ...(specification.telemetry ?? []).filter((entry) => Number(entry.generation) !== Number(specification.generation)),
+    {
+      generation: amendmentTelemetry.generation,
+      path: amendmentTelemetry.path,
+      sha256: amendmentTelemetry.sha256,
+      status: amendmentTelemetry.status,
+      models: amendmentTelemetry.models,
+      providerCost: amendmentTelemetry.providerCost
+    }
+  ];
 
   // An approved intent amendment creates a new specification generation without travelling
   // through the ordinary publish -> submit path. It must nevertheless mint the same downstream
@@ -3877,6 +4194,29 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       integritySha256: brief.integritySha256
     }));
   }
+  specification.sourceCommit = head(root);
+  const amendmentPublication = {
+    generation: specification.generation,
+    publishedAt: at,
+    changeSetDigest: null,
+    resultDigest: await generationResultDigest(root, config, workflow, specification),
+    resultDigestVersion: 2,
+    origin: {
+      kind: 'intent-amendment',
+      id: proposal.id,
+      proposalSha256: proposal.proposalSha256,
+      // Bind the exceptional generation to the exact authority decision that created it. The
+      // ordinary publish path gets this identity from its review packet; an amendment has no such
+      // packet, so inheriting the previous phase approval here would misattribute the generation.
+      decisionSha256: createHash('sha256').update(canonicalJson(amendmentApproval)).digest('hex')
+    },
+    record: null
+  };
+  specification.generationPublications = [
+    ...(specification.generationPublications ?? []).filter((entry) =>
+      Number(entry.generation) !== Number(specification.generation)),
+    amendmentPublication
+  ].sort((left, right) => Number(left.generation) - Number(right.generation));
   await writeDecision(root, config, workflow, specification, amendmentApproval);
 
   const specificationIndex = workflow.phaseOrder.indexOf(specification.id);
@@ -3964,6 +4304,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   await persistIntentAmendmentRecord(root, config, workflow, summary, proposal);
   return {
     proposal,
+    approval: amendmentApproval,
+    eventDecision: amendmentApproval,
+    decisionSha256: amendmentPublication.origin.decisionSha256,
     reached: true,
     applied: true,
     affectedPhases,
@@ -4547,6 +4890,7 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
   eventFromResult = null,
+  afterEventFinalize = null,
   worktreeGuard = null,
   transactionId = null,
   rollbackWorkflow = null,
@@ -4694,6 +5038,14 @@ export async function commitAndPublish(root, config, workflow, event, message, e
               };
             }
           }
+        }
+        // Some governed transitions legitimately mint a generation without using the ordinary
+        // publish command (currently an authority-approved intent amendment). Their durable
+        // generation receipt must bind the *finalized* lifecycle event, including the generation
+        // derived from the transition result, so this hook runs after eventFromResult and before
+        // the workflow projection is saved in the same transaction.
+        if (afterEventFinalize) {
+          await afterEventFinalize(publicationEvent, transactionContext, transitionResult);
         }
         // Design-source selection is lifecycle authority, not an incidental file
         // write. Build and bind it only after the publication unit has acquired

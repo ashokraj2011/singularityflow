@@ -42,6 +42,24 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function specificationClaimMapV1ToV2(source) {
+  if (source.kind !== 'planned' || !plainObject(source.claims)) {
+    return { ...source, schemaVersion: 2 };
+  }
+  return {
+    ...source,
+    schemaVersion: 2,
+    claims: Object.fromEntries(Object.entries(source.claims).map(([id, claim]) => {
+      const tests = Array.isArray(claim?.tests) ? claim.tests : [];
+      return [id, {
+        ...clone(claim),
+        testDisposition: tests.length ? 'applicable' : 'unspecified',
+        testReason: null
+      }];
+    }))
+  };
+}
+
 function activeWorkspaceV1ToV2(source) {
   const repositoryPath = source.repositoryPath ?? null;
   return {
@@ -1171,7 +1189,11 @@ const families = [
   }),
   family({ id: 'planning-session', currentVersion: 1, paths: [/^\$git\/planning\/[^/]+\/manifest\.json$/] }),
   family({ id: 'specification-index', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-indexes\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'specification-claim-map', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true }),
+  family({
+    id: 'specification-claim-map', currentVersion: 2,
+    steps: [migration(1, 2, specificationClaimMapV1ToV2)],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/claims\/[^/]+\.json$/], immutable: true
+  }),
   family({ id: 'specification-acceptance', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/acceptance\/[^/]+\.json$/], immutable: true }),
   family({
     id: 'story-submission-packet', currentVersion: 2,

@@ -16,12 +16,13 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -175,18 +176,65 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.match(tasks, /E2E:REQ-001/);
   assert.match(tasks, /not evidence/, 'the derived task map does not declare itself advisory');
 
-  await write(root, `singularity/work-items/${WORK}/artifacts/planning/plan.md`, [
+  const planningPath = `singularity/work-items/${WORK}/artifacts/planning/plan.md`;
+  const planningDocument = [
     '# Implementation plan — Retry a failed payment', '',
     '## Approach', '', 'Append a new attempt row rather than mutating the failed one.', '',
     '## Affected surfaces', '',
     '| Surface | Change | Serves |', '|---|---|---|',
     '| `src/payments/retry.ts` | new retry handler | E2E:REQ-001 |',
     '| `src/payments/attempts.ts` | append-only attempts | E2E:REQ-002 |', '',
-    '## Verification', '',
-    '| Clause | Proof |', '|---|---|', '| E2E:REQ-001 | retry creates an attempt |', ''
-  ].join('\n'));
+    '## Test strategy', '',
+    '| Clause | Expected paths | Planned tests |', '|---|---|---|',
+    '| `E2E:REQ-001` | `src/payments/retry.ts` | `tests/payments-retry.test.mjs` |',
+    '| `E2E:REQ-002` | `src/payments/attempts.ts` | `tests/payments-attempts.test.mjs` |', ''
+  ].join('\n');
+
+  // A not-applicable marker is not a reviewed decision. Publication must reject it even though a
+  // non-empty `testReason` used to make acceptance arithmetic treat it as complete.
+  await write(root, planningPath, planningDocument
+    .replace('`tests/payments-retry.test.mjs`', 'not-applicable: fixme decide how this is tested'));
+  sflow(root, ['artifact', 'scan', '--phase', 'planning']);
+  const placeholderReason = sflow(root, [
+    'phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place'
+  ], { allowFailure: true });
+  assert.notEqual(placeholderReason.status, 0, 'a placeholder not-applicable reason published');
+  assert.match(placeholderReason.output, /not-applicable test reasons are placeholders.*E2E:REQ-001/i);
+  assert.equal((await workflowOf(root)).phases.planning.generation, 0,
+    'placeholder refusal left a partially published planning generation');
+
+  await write(root, planningPath, planningDocument);
+  sflow(root, ['artifact', 'scan', '--phase', 'planning']);
+  const seededClaimPath = `singularity/work-items/${WORK}/context/claims/planning-gen1-planned.json`;
+  await write(root, seededClaimPath, `${JSON.stringify({
+    schemaVersion: currentSchemaVersion('specification-claim-map'),
+    kind: 'planned', recordedAt: '2026-08-31T00:00:00.000Z',
+    workId: WORK, phase: 'planning', generation: 1,
+    claims: {
+      'E2E:REQ-001': {
+        expectedPaths: ['src/payments/retry.ts'], tests: ['tests/seeded-bypass.test.mjs'],
+        testDisposition: 'applicable', testReason: null, deviation: null
+      },
+      'E2E:REQ-002': {
+        expectedPaths: ['src/payments/attempts.ts'], tests: ['tests/seeded-bypass.test.mjs'],
+        testDisposition: 'applicable', testReason: null, deviation: null
+      }
+    }
+  }, null, 2)}\n`);
+  const seededClaim = sflow(root, [
+    'phase', 'publish', 'planning', '--authored', 'human', '--channel', 'manual-in-place'
+  ], { allowFailure: true });
+  assert.notEqual(seededClaim.status, 0, 'a pre-seeded planned claim map overrode the reviewed plan');
+  assert.match(seededClaim.output, /does not match the reviewed Markdown/i);
+  assert.equal((await workflowOf(root)).phases.planning.generation, 0,
+    'seeded-claim refusal left a partially published planning generation');
+  await rm(path.join(root, seededClaimPath));
+
   await completePhase(root, 'planning');
-  assert.equal((await workflowOf(root)).phases.planning.status, 'approved');
+  const afterPlanning = await workflowOf(root);
+  assert.equal(afterPlanning.phases.planning.status, 'approved');
+  assert.match(afterPlanning.phases.planning.claimMaps?.planned?.sha256 ?? '', /^[0-9a-f]{64}$/,
+    'planning did not publish its exact planned-test claim map');
 
   // ---- implementation: source and artifact, one requirement deliberately unclaimed --------------
   sflow(root, ['prepare', 'implementation']);
@@ -262,6 +310,14 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   // ---- implementation, generation two ------------------------------------------------------------
   sflow(root, ['prepare', 'implementation']);
   await write(root, 'src/payments/attempts.ts', 'export const attempts = [];\nexport function append(attempt) { return [...attempts, attempt]; }\n');
+  await write(root, 'tests/payments-attempts.test.mjs', [
+    "import assert from 'node:assert/strict';",
+    "import test from 'node:test';",
+    '',
+    '/** @ac:E2E:AC-002 */',
+    "test('append preserves the original array', () => assert.deepEqual([1], [1]));",
+    ''
+  ].join('\n'));
   await write(root, `singularity/work-items/${WORK}/artifacts/implementation/implementation-summary.md`, [
     '# Implementation summary', '',
     'Second generation. Attempts are now append-only, so the original failed attempt and its provider',
@@ -321,6 +377,20 @@ test('a Story runs specification through release from a fresh clone', async (t) 
     'a summary-free amended specification did not retain the configured whole-artifact fallback');
   const amendmentApproval = amended.phases.specification.approvals
     .find((entry) => entry.intentAmendmentId === 'AMD-001' && !entry.invalidatedAt);
+  const amendmentProjection = amended.publicationProjections
+    .find((entry) => entry.event?.type === 'intent-amendment-approved')?.event;
+  const amendmentPublication = amended.phases.specification.generationPublications
+    .find((entry) => entry.generation === 2);
+  assert.deepEqual(amendmentProjection.actor, amendmentApproval.actor,
+    'the synthetic generation inherited an unrelated prior reviewer identity');
+  assert.equal(amendmentProjection.agent, amendmentApproval.agent);
+  assert.equal(amendmentProjection.authorityGroup, amendmentApproval.authorityGroup);
+  assert.equal(amendmentProjection.payload.reviewPacketSha256, null,
+    'the amendment generation inherited a prior phase review packet');
+  assert.match(amendmentProjection.payload.decisionSha256, /^[0-9a-f]{64}$/);
+  assert.equal(amendmentPublication.origin.decisionSha256,
+    amendmentProjection.payload.decisionSha256,
+    'the publication receipt did not bind the exact amendment decision');
   assert.equal(amendmentApproval.agentBriefs.length, 4,
     'the amendment authority decision did not bind its deterministic projections');
   assert.ok(amendmentApproval.agentBriefs.every((entry) =>
@@ -415,4 +485,9 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal(complete.intentAmendments[0].status, 'revalidated');
   assert.deepEqual(complete.intentAmendments[0].revalidatedPhases,
     ['planning', 'implementation', 'convergence', 'verification', 'release']);
+  assert.equal(complete.phases.release.specIndex, undefined,
+    'a release/conformance report became a specification authority');
+  const terminalGate = sflow(root, ['gate', '--terminal']);
+  assert.match(terminalGate.output, /Governance gate passed/i,
+    'the full lifecycle completed but failed only when the terminal gate finally ran');
 });

@@ -110,7 +110,7 @@
   "model-invocation-audit": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "promptTransport": "attachment", "promptEncoding": "utf-8" }, { "schemaVersion": 3, "promptTransport": "attachment", "promptEncoding": "utf-8", "generationNonce": null, "attestation": null }, { "schemaVersion": 4, "promptTransport": "attachment", "promptEncoding": "utf-8", "generationNonce": null, "attestation": null, "promptProtocolVersion": null }, { "schemaVersion": 5, "promptTransport": "attachment", "promptEncoding": "utf-8", "generationNonce": null, "attestation": null, "promptProtocolVersion": null, "requestedModel": null, "modelSelection": null, "toolObservation": null }],
   "planning-session": [{ "schemaVersion": 1 }],
   "specification-index": [{ "schemaVersion": 1 }],
-  "specification-claim-map": [{ "schemaVersion": 1 }],
+  "specification-claim-map": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "kind": "planned", "claims": {} }],
   "specification-acceptance": [{ "schemaVersion": 1 }],
   "story-submission-packet": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "witnessReview": { "enrollment": null, "enrollmentClassification": "legacy", "enrollmentReason": "story-submission-packet-v1", "clauseMappings": [], "testcaseObservations": [] } }],
   "return-locator": [{ "schemaVersion": 1 }],

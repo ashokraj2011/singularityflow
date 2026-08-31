@@ -39,3 +39,18 @@ test('previous-release durable corpus remains completely readable', async () => 
     assert.equal(readRecord(family.id, oldest).record.schemaVersion, family.currentVersion);
   }
 });
+
+test('legacy planned claim maps migrate without inventing a test waiver', () => {
+  const migrated = readRecord('specification-claim-map', {
+    schemaVersion: 1,
+    kind: 'planned',
+    claims: {
+      'APP:REQ-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'], deviation: null },
+      'APP:CON-001': { expectedPaths: [], tests: [], deviation: null }
+    }
+  }).record;
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.claims['APP:REQ-001'].testDisposition, 'applicable');
+  assert.equal(migrated.claims['APP:CON-001'].testDisposition, 'unspecified');
+  assert.equal(migrated.claims['APP:CON-001'].testReason, null);
+});

@@ -202,7 +202,7 @@ import {
   publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
 } from './capability-publication-recovery.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
-import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
+import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
 import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
@@ -3220,6 +3220,13 @@ async function specCommand(positionals, options) {
   const policy = workflow.resolution?.spec ?? config.spec;
 
   if (subcommand === 'index') {
+    if (!isSpecificationDefinitionPhase(phase)) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' artifact kind '${phase.requiredArtifact?.kind ?? 'unknown'}' is reference-only and cannot define specification clauses. `
+        + 'Index the upstream requirements or implementation specification instead.',
+        { code: 'SPECIFICATION_REFERENCE_ARTIFACT_NOT_INDEXABLE' }
+      );
+    }
     const artifact = supplied
       ? posix(path.relative(root, path.resolve(root, supplied)))
       : posix(path.join(itemRelative, phase.requiredArtifact?.path ?? ''));

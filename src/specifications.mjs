@@ -15,6 +15,8 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 
 const CLAUSE_TYPES = new Set(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
+export const SPECIFICATION_DEFINITION_KINDS = Object.freeze(['requirements', 'implementation-spec']);
+const SPECIFICATION_DEFINITION_KIND_SET = new Set(SPECIFICATION_DEFINITION_KINDS);
 // Work IDs may be mixed case. Clause identity is nevertheless canonical and
 // case-insensitive: every parsed namespace is normalized to upper case. This
 // keeps starter templates valid for IDs such as `work-1` without creating two
@@ -42,6 +44,23 @@ function canonicalize(value) {
 
 export function canonicalJson(value) {
   return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
+}
+
+/**
+ * Only producer artifacts that define requirements may contribute clauses to
+ * the authoritative specification universe. Reports and convergence/release
+ * documents can cite clauses, but their citations must never become new
+ * requirements merely because they contain an anchor.
+ */
+export function isSpecificationDefinitionPhase(phase) {
+  const kind = typeof phase === 'string'
+    ? phase
+    : phase?.requiredArtifact?.kind ?? phase?.artifact?.kind ?? null;
+  // Historical workflow snapshots did not persist the artifact kind on every phase. They remain
+  // readable as definition producers; current snapshots always carry the kind and therefore
+  // exclude reports/convergence artifacts explicitly. Treating an absent legacy field as a
+  // reference-only report would silently erase already-approved clauses from grounding.
+  return kind == null || SPECIFICATION_DEFINITION_KIND_SET.has(kind);
 }
 
 export function normalizeSpecPolicy(value = {}) {
@@ -106,12 +125,12 @@ function lineNumber(text, offset) {
  * same regions as clause extraction. "Consistently with" is only true if it is the same function —
  * a second copy of this list would agree today and drift on the first change to either.
  */
-export function ignoredRanges(markdown) {
+export function ignoredRanges(markdown, { includeInlineCode = true } = {}) {
   const ranges = [];
   const patterns = [
     /```[\s\S]*?```/g,
     /~~~[\s\S]*?~~~/g,
-    /`[^`\n]*`/g,
+    ...(includeInlineCode ? [/`[^`\n]*`/g] : []),
     // The kernel's paired blocks, whose *contents* sit between two comments rather than inside one,
     // so the generic rule below cannot reach them.
     /<!--\s*singularity-flow:inputs:start\s*-->[\s\S]*?<!--\s*singularity-flow:inputs:end\s*-->/g,
@@ -267,6 +286,160 @@ function normalizePaths(value, label, limits) {
   return [...new Set(paths)].sort();
 }
 
+function exactStructuredPath(value, label) {
+  const candidate = String(value);
+  const normalized = posix(candidate);
+  if (
+    candidate !== candidate.trim()
+    || candidate.includes('\\')
+    || normalized !== candidate
+    || !candidate
+    || candidate === '.'
+    || candidate.startsWith('./')
+    || candidate.endsWith('/')
+    || candidate.includes('//')
+    || path.posix.isAbsolute(candidate)
+    || candidate === '..'
+    || candidate.startsWith('../')
+    || candidate.includes('/../')
+    || candidate.includes('/./')
+    || /^[A-Za-z]:/.test(candidate)
+    || /^[a-z][a-z0-9+.-]*:/i.test(candidate)
+    || /[\0-\x1f\x7f]/.test(candidate)
+    || /[*?\[\]{}<>$]/.test(candidate)
+    || candidate.includes('...')
+    || /(?:^|\/)(?:TODO|TBD|PLACEHOLDER)(?:\.|\/|$)/i.test(candidate)
+  ) {
+    throw new SingularityFlowError(`${label} must be an exact repository-relative path without traversal, globs, placeholders, or platform-specific syntax.`);
+  }
+  return candidate;
+}
+
+function markdownCells(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return null;
+  return trimmed.slice(1, -1).split('|').map((cell) => cell.trim());
+}
+
+function tableDivider(cells, width) {
+  return Array.isArray(cells)
+    && cells.length === width
+    && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableHeader(cells) {
+  return cells?.map((cell) => cell.toLowerCase().replace(/\s+/g, ' '));
+}
+
+function parseClauseCell(cell, known, label) {
+  let value = String(cell ?? '').trim();
+  if (value.startsWith('`') && value.endsWith('`') && value.indexOf('`', 1) === value.length - 1) {
+    value = value.slice(1, -1).trim();
+  }
+  if (value.startsWith('[') && value.endsWith(']')) value = value.slice(1, -1).trim();
+  const match = value.match(new RegExp(`^(${NAMESPACE}:(?:REQ|BEH|IFC|AC|CON)-\\d{3})$`, 'i'));
+  if (!match) throw new SingularityFlowError(`${label} must contain exactly one namespace-qualified clause ID.`);
+  const id = match[1].toUpperCase();
+  if (!known.has(id)) throw new SingularityFlowError(`${label} references unknown clause ${id}.`);
+  return id;
+}
+
+function parseBacktickedPathCell(cell, label) {
+  const source = String(cell ?? '').trim();
+  if (!source || /^(?:-|—)$/.test(source)) return [];
+  const paths = [];
+  const remainder = source.replace(/`([^`\n]+)`/g, (_whole, value) => {
+    paths.push(exactStructuredPath(value, label));
+    return '';
+  });
+  const separators = remainder
+    .replace(/<br\s*\/?\s*>/gi, '')
+    .replace(/[\s,;]+/g, '');
+  if (!paths.length || separators) {
+    throw new SingularityFlowError(`${label} must list each exact repository-relative path in backticks.`);
+  }
+  return [...new Set(paths)].sort();
+}
+
+function parseNotApplicable(cell, label) {
+  const match = String(cell ?? '').trim().match(/^not-applicable\s*:\s*(.+)$/i);
+  if (!match) return null;
+  const reason = match[1].trim();
+  if (!reason || /^(?:todo|tbd|placeholder)$/i.test(reason)) {
+    throw new SingularityFlowError(`${label} not-applicable requires a concrete reason.`);
+  }
+  return reason;
+}
+
+function plannedClaimSource(markdown) {
+  const authored = authoredArtifactText(markdown);
+  const ranges = ignoredRanges(authored, { includeInlineCode: false });
+  if (!ranges.length) return authored;
+  let cursor = 0;
+  let visible = '';
+  for (const [start, end] of ranges.sort((left, right) => left[0] - right[0])) {
+    if (start < cursor) continue;
+    visible += authored.slice(cursor, start);
+    visible += authored.slice(start, end).replace(/[^\n]/g, ' ');
+    cursor = end;
+  }
+  return visible + authored.slice(cursor);
+}
+
+/**
+ * Derive a planned claim map only from the reviewed structured Markdown
+ * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
+ * deliberately ignored/refused rather than interpreted.
+ */
+export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {} } = {}) {
+  if (typeof markdown !== 'string') throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
+  const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
+  const claims = {};
+  const lines = plannedClaimSource(markdown).split(/\r?\n/);
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const cells = markdownCells(lines[index]);
+    const headers = tableHeader(cells);
+    if (!headers || headers.join('|') !== 'clause|expected paths|planned tests') continue;
+    if (!tableDivider(markdownCells(lines[index + 1]), 3)) {
+      throw new SingularityFlowError(`Planned claim table at line ${index + 1} must be followed by a Markdown divider row.`);
+    }
+    index += 2;
+    for (; index < lines.length; index += 1) {
+      const row = markdownCells(lines[index]);
+      if (!row) {
+        index -= 1;
+        break;
+      }
+      if (row.length !== 3) throw new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly three columns.`);
+      const id = parseClauseCell(row[0], known, `Planned claim table row ${index + 1}`);
+      if (claims[id]) throw new SingularityFlowError(`Planned claim table defines clause ${id} more than once.`);
+      const expectedPaths = parseBacktickedPathCell(row[1], `${id}.expectedPaths`);
+      const notApplicableReason = parseNotApplicable(row[2], `${id}.plannedTests`);
+      const tests = notApplicableReason == null
+        ? parseBacktickedPathCell(row[2], `${id}.tests`)
+        : [];
+      claims[id] = {
+        expectedPaths,
+        tests,
+        testDisposition: notApplicableReason == null
+          ? (tests.length ? 'applicable' : 'unspecified')
+          : 'not-applicable',
+        testReason: notApplicableReason,
+        deviation: null
+      };
+    }
+  }
+  const claimMap = normalizeClaimMap({ claims }, { kind: 'planned', clauseIds: [...known], policy });
+  return {
+    claimMap,
+    missingClauseIds: [...known].filter((id) => !claims[id]).sort(),
+    missingTestClauseIds: [...known].filter((id) => {
+      const claim = claims[id];
+      return !claim || (!claim.tests.length && claim.testDisposition !== 'not-applicable');
+    }).sort()
+  };
+}
+
 export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   if (!['planned', 'observed'].includes(kind)) throw new SingularityFlowError('Claim map kind must be planned or observed.');
@@ -281,9 +454,23 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
     if (known.size && !known.has(id)) throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}.`);
     if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new SingularityFlowError(`${kind} claim ${id} must be an object.`);
     if (kind === 'planned') {
+      const tests = normalizePaths(claim.tests, `${id}.tests`, normalized.limits);
+      const testDisposition = claim.testDisposition ?? (tests.length ? 'applicable' : 'unspecified');
+      if (!['applicable', 'not-applicable', 'unspecified'].includes(testDisposition)) {
+        throw new SingularityFlowError(`${id}.testDisposition must be applicable, not-applicable, or unspecified.`);
+      }
+      const testReason = claim.testReason == null ? null : String(claim.testReason).trim();
+      if (testDisposition === 'not-applicable' && (tests.length || !testReason)) {
+        throw new SingularityFlowError(`${id} not-applicable test disposition requires no tests and a concrete testReason.`);
+      }
+      if (testDisposition !== 'not-applicable' && testReason) {
+        throw new SingularityFlowError(`${id}.testReason is only allowed when testDisposition is not-applicable.`);
+      }
       claims[id] = {
         expectedPaths: normalizePaths(claim.expectedPaths, `${id}.expectedPaths`, normalized.limits),
-        tests: normalizePaths(claim.tests, `${id}.tests`, normalized.limits),
+        tests,
+        testDisposition,
+        testReason,
         deviation: claim.deviation == null ? null : String(claim.deviation)
       };
     } else {
@@ -291,7 +478,8 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
       if (!VERDICTS.has(verdict)) throw new SingularityFlowError(`${id}.verdict must be ${[...VERDICTS].join(', ')}.`);
       const observedPaths = normalizePaths(claim.observedPaths, `${id}.observedPaths`, normalized.limits);
       const testResults = normalizePaths(claim.testResults, `${id}.testResults`, normalized.limits);
-      if (['matched', 'partial', 'deviated'].includes(verdict) && !observedPaths.length) {
+      const acceptanceTestEvidence = /:AC-\d{3}$/.test(id) && testResults.length > 0;
+      if (['matched', 'partial', 'deviated'].includes(verdict) && !observedPaths.length && !acceptanceTestEvidence) {
         throw new SingularityFlowError(`${id}.observedPaths must identify source evidence when verdict is ${verdict}.`);
       }
       const rawCommits = claim.commits ?? [];
@@ -311,6 +499,78 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {} } =
   const bytes = Buffer.byteLength(canonicalJson(result));
   if (bytes > normalized.limits.maxClaimBytes) throw new SingularityFlowError(`${kind} claim map exceeds ${normalized.limits.maxClaimBytes} bytes.`);
   return result;
+}
+
+function evidencePaths(delivery, names, label, limits) {
+  const candidates = [];
+  const sources = [delivery, delivery?.changeSet].filter(Boolean);
+  for (const source of sources) {
+    for (const name of names) {
+      if (source[name] != null) candidates.push(...normalizePaths(source[name], `${label}.${name}`, limits));
+    }
+  }
+  return [...new Set(candidates.map((candidate) => exactStructuredPath(candidate, label)))].sort();
+}
+
+/**
+ * Project exact code-delivery evidence onto an already reviewed planned claim
+ * map. The projection never attributes a changed path by directory proximity
+ * or a test by name similarity. Completely unevidenced clauses remain absent.
+ */
+export function deriveObservedClaimMap(plannedMap, delivery = {}, {
+  clauseIds = [], policy = {}, generationCommit = null
+} = {}) {
+  const normalizedPolicy = normalizeSpecPolicy(policy);
+  const rawPlanned = plannedMap?.claims ?? plannedMap ?? {};
+  const knownIds = clauseIds.length
+    ? clauseIds.map((id) => String(id).toUpperCase())
+    : Object.keys(rawPlanned).map((id) => id.toUpperCase());
+  const planned = normalizeClaimMap({ claims: rawPlanned }, {
+    kind: 'planned', clauseIds: knownIds, policy: normalizedPolicy
+  });
+  const changedPaths = new Set(evidencePaths(delivery,
+    ['sourcePaths', 'deletedSourcePaths'], 'delivery source evidence', normalizedPolicy.limits));
+  const testPaths = new Set(evidencePaths(delivery,
+    ['testPaths', 'executableTestPaths', 'supportingTestPaths'], 'delivery test evidence', normalizedPolicy.limits));
+  const bindings = new Map();
+  for (const binding of delivery?.traceability?.bindings ?? []) {
+    const id = String(binding?.clauseId ?? '').toUpperCase();
+    if (!knownIds.includes(id) || typeof binding?.testSource !== 'string') continue;
+    const testSource = exactStructuredPath(binding.testSource, `${id}.traceability.testSource`);
+    if (!testPaths.has(testSource)) continue;
+    const ids = bindings.get(testSource) ?? new Set();
+    ids.add(id);
+    bindings.set(testSource, ids);
+  }
+  const commits = generationCommit == null ? [] : [generationCommit];
+  const claims = {};
+  for (const id of knownIds) {
+    const plan = planned.claims[id];
+    if (!plan || plan.testDisposition === 'not-applicable') continue;
+    const observedPaths = plan.expectedPaths.filter((candidate) => changedPaths.has(candidate));
+    const testResults = plan.tests.filter((candidate) => {
+      if (!testPaths.has(candidate)) return false;
+      const boundIds = bindings.get(candidate);
+      return !boundIds?.size || boundIds.has(id);
+    });
+    if (!observedPaths.length && !testResults.length) continue;
+    const sourceComplete = plan.expectedPaths.length > 0
+      && observedPaths.length === plan.expectedPaths.length;
+    const testsComplete = plan.tests.length === 0 || testResults.length === plan.tests.length;
+    const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
+    claims[id] = {
+      observedPaths,
+      testResults,
+      commits,
+      verdict: observedPaths.length
+        ? (sourceComplete && testsComplete ? 'matched' : 'partial')
+        : acceptanceTestOnly
+          ? (plan.expectedPaths.length === 0 && testsComplete ? 'matched' : 'partial')
+          : 'missing',
+      deviation: null
+    };
+  }
+  return normalizeClaimMap({ claims }, { kind: 'observed', clauseIds: knownIds, policy: normalizedPolicy });
 }
 
 export async function readStructuredFile(root, relative) {
@@ -369,7 +629,8 @@ export function selectActiveSpecRecords(records, workflow) {
     );
   };
   return {
-    indexes: (records.indexes ?? []).filter(active).sort(recordOrder),
+    indexes: (records.indexes ?? []).filter((record) =>
+      active(record) && isSpecificationDefinitionPhase(workflow?.phases?.[record.phase])).sort(recordOrder),
     planned: (records.planned ?? []).filter(active).sort(recordOrder),
     observed: (records.observed ?? []).filter(active).sort(recordOrder),
     acceptance: (records.acceptance ?? []).filter(active).sort(recordOrder)
@@ -401,24 +662,48 @@ function pathExcluded(candidate, excludes) {
   return excludes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix.replace(/\/$/, '')}/`));
 }
 
+function exactPlannedTestEvidence(id, plannedClaims, observedClaims) {
+  const plannedTests = plannedClaims[id]?.tests ?? [];
+  const observedTests = new Set(observedClaims[id]?.testResults ?? []);
+  return plannedTests.length > 0 && plannedTests.every((candidate) => observedTests.has(candidate));
+}
+
+function acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims) {
+  return /:AC-\d{3}$/.test(id)
+    && exactPlannedTestEvidence(id, plannedClaims, observedClaims);
+}
+
 export function evaluateSpecCoverage({ indexes = [], planned = [], observed = [] }, changedPaths = [], policy = {}, { root = null } = {}) {
   const normalized = normalizeSpecPolicy(policy);
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = Object.assign({}, ...planned.map((map) => map.claims ?? {}));
   const observedClaims = Object.assign({}, ...observed.map((map) => map.claims ?? {}));
   const activePaths = [...new Set(changedPaths.map(posix))].filter((candidate) => !pathExcluded(candidate, normalized.excludes)).sort();
-  const claimedPaths = new Set(Object.values(observedClaims).flatMap((claim) => claim.observedPaths ?? []));
-  const unimplemented = [...clauses.keys()].filter((id) => !observedClaims[id] || ['missing', 'partial'].includes(observedClaims[id].verdict)).sort();
+  const claimedPaths = new Set(Object.entries(observedClaims).flatMap(([id, claim]) => [
+    ...(claim.observedPaths ?? []),
+    ...(claim.testResults ?? []).filter((candidate) => (plannedClaims[id]?.tests ?? []).includes(candidate))
+  ]));
+  const unimplemented = [...clauses.keys()].filter((id) => {
+    const claim = observedClaims[id];
+    if (!claim) return true;
+    if (acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) return false;
+    return ['missing', 'partial'].includes(claim.verdict);
+  }).sort();
   const unclaimedChangedPaths = activePaths.filter((candidate) => !claimedPaths.has(candidate));
   const withdrawnButClaimed = Object.keys(observedClaims).filter((id) => !clauses.has(id)).sort();
   const invalidEvidence = [];
   for (const [id, claim] of Object.entries(observedClaims)) {
-    if (['matched', 'partial', 'deviated'].includes(claim.verdict) && !(claim.observedPaths ?? []).length) {
+    if (['matched', 'partial', 'deviated'].includes(claim.verdict)
+        && !(claim.observedPaths ?? []).length
+        && !acceptanceTestOnlyEvidence(id, plannedClaims, observedClaims)) {
       invalidEvidence.push(`${id} has verdict ${claim.verdict} without source-path evidence`);
     }
     if (root) {
       for (const candidate of claim.observedPaths ?? []) {
         if (!existsSync(path.join(root, candidate))) invalidEvidence.push(`${id} references missing source evidence ${candidate}`);
+      }
+      for (const candidate of claim.testResults ?? []) {
+        if (!existsSync(path.join(root, candidate))) invalidEvidence.push(`${id} references missing test evidence ${candidate}`);
       }
       for (const commit of claim.commits ?? []) {
         const resolved = run('git', ['cat-file', '-e', `${commit}^{commit}`], { cwd: root, allowFailure: true });
@@ -454,10 +739,18 @@ export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = 
   const latestRun = candidates.at(-1) ?? null;
   const missingPlannedTests = normalized.acceptance === 'off'
     ? []
-    : [...clauses.keys()].filter((id) => !(plannedClaims[id]?.tests ?? []).length).sort();
+    : [...clauses.keys()].filter((id) => {
+      const claim = plannedClaims[id];
+      return !(claim?.tests ?? []).length
+        && !(claim?.testDisposition === 'not-applicable' && claim?.testReason);
+    }).sort();
   const missingObservedTests = normalized.acceptance !== 'verify'
     ? []
-    : [...clauses.keys()].filter((id) => !(observedClaims[id]?.testResults ?? []).length).sort();
+    : [...clauses.keys()].filter((id) => {
+      const plan = plannedClaims[id];
+      return !exactPlannedTestEvidence(id, plannedClaims, observedClaims)
+        && !(plan?.testDisposition === 'not-applicable' && plan?.testReason);
+    }).sort();
   const failedCommands = normalized.acceptance !== 'verify' || !latestRun
     ? []
     : (latestRun.commands ?? []).filter((entry) => entry.status !== 'passed').map((entry) => entry.id);

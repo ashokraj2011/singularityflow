@@ -74,12 +74,34 @@ function commitIdentity(root, commit) {
 }
 
 function verifiedProjection(workflow, record, eventSha256) {
+  const expectedEventType = record.origin?.kind === 'intent-amendment'
+    ? 'intent-amendment-approved'
+    : 'artifact-generated';
   const projection = (workflow.publicationProjections ?? []).find((entry) =>
     entry.event?.eventId === record.eventId
-      && entry.event?.type === 'artifact-generated'
+      && entry.event?.type === expectedEventType
       && entry.event?.phaseId === record.phase
       && Number(entry.event?.generation) === Number(record.generation));
   if (!projection || sha256Record(projection.event) !== eventSha256) return null;
+  if (record.origin?.kind === 'intent-amendment') {
+    const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === record.origin.id);
+    const approval = (workflow.phases?.[record.phase]?.approvals ?? []).find((entry) =>
+      entry.intentAmendmentId === record.origin.id
+        && Number(entry.generation) === Number(record.generation)
+        && !entry.invalidatedAt);
+    if (!summary || summary.status !== 'approved'
+        || summary.proposalSha256 !== record.origin.proposalSha256
+        || !approval
+        || record.origin.decisionSha256 !== recordSha256(approval)
+        || projection.event.payload?.decisionSha256 !== record.origin.decisionSha256
+        || projection.event.payload?.proposalId !== record.origin.id
+        || projection.event.payload?.proposalSha256 !== record.origin.proposalSha256
+        || projection.event.payload?.decision !== 'approve'
+        || projection.event.payload?.reviewPacketSha256 !== null
+        || canonicalJson(projection.event.actor) !== canonicalJson(approval.actor)
+        || projection.event.agent !== approval.agent
+        || projection.event.authorityGroup !== approval.authorityGroup) return null;
+  }
   return projection.event;
 }
 
@@ -155,6 +177,7 @@ function verifyCommittedEvidence(root, commit, {
       if (record.generationIntentId !== (start?.generationIntentId ?? null)
           || record.resultDigest !== publication.resultDigest
           || record.changeSet?.digest !== publication.changeSetDigest
+          || canonicalJson(record.origin ?? null) !== canonicalJson(publication.origin ?? null)
           || (start && (record.baseline?.commit !== start.baseline?.commit
             || record.baseline?.tree !== start.baseline?.tree))
           || publication.record?.path !== recordPath
@@ -222,6 +245,7 @@ export async function persistGenerationPublicationRecord(root, workflow, phase, 
       path: phase.deliveryEvidence?.changeSetPath ?? null,
       digest: publication.changeSetDigest ?? null
     },
+    ...(publication.origin ? { origin: structuredClone(publication.origin) } : {}),
     resultDigest: publication.resultDigest ?? null,
     baseline: {
       commit: phase.generationIntent?.baseline?.commit ?? expectedHead,

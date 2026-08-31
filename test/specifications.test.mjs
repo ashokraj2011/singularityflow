@@ -8,9 +8,12 @@ import path from 'node:path';
 import {
   buildSpecIndex,
   changedRepositoryPaths,
+  deriveObservedClaimMap,
+  derivePlannedClaimMap,
   evaluateSpecAcceptance,
   evaluateSpecCoverage,
   extractClauses,
+  isSpecificationDefinitionPhase,
   normalizeClaimMap,
   renderClauseContext,
   runSpecAcceptance, selectActiveSpecRecords, specificationSourceTreeHash,
@@ -119,7 +122,7 @@ test('claim maps, coverage, and clause-scoped context preserve traceability', ()
 test('live governance ignores historical specification generations', () => {
   const workflow = {
     workItem: { id: 'WORK-1' },
-    phases: { requirements: { generation: 2 } }
+    phases: { requirements: { generation: 2, requiredArtifact: { kind: 'requirements' } } }
   };
   const current = { workId: 'WORK-1', phase: 'requirements', generation: 2, clauses: [{ id: 'APP:REQ-002' }] };
   const selected = selectActiveSpecRecords({
@@ -130,6 +133,221 @@ test('live governance ignores historical specification generations', () => {
     ]
   }, workflow);
   assert.deepEqual(selected.indexes, [current]);
+});
+
+test('reference-only phase indexes are preserved but excluded from active specification arithmetic', () => {
+  const workflow = {
+    workItem: { id: 'WORK-1' },
+    phases: {
+      specification: { generation: 1, requiredArtifact: { kind: 'requirements' } },
+      implementation: { generation: 1, requiredArtifact: { kind: 'implementation-spec' } },
+      release: { generation: 1, requiredArtifact: { kind: 'conformance-report' } }
+    }
+  };
+  const specification = { workId: 'WORK-1', phase: 'specification', generation: 1, clauses: [{ id: 'APP:REQ-001' }] };
+  const implementation = { workId: 'WORK-1', phase: 'implementation', generation: 1, clauses: [{ id: 'APP:AC-001' }] };
+  const legacyRelease = { workId: 'WORK-1', phase: 'release', generation: 1, clauses: [{ id: 'APP:CON-044' }] };
+  const selected = selectActiveSpecRecords({ indexes: [legacyRelease, specification, implementation] }, workflow);
+  assert.deepEqual(selected.indexes, [implementation, specification].sort((a, b) => a.phase.localeCompare(b.phase)));
+  assert.equal(isSpecificationDefinitionPhase(workflow.phases.specification), true);
+  assert.equal(isSpecificationDefinitionPhase(workflow.phases.implementation), true);
+  assert.equal(isSpecificationDefinitionPhase(workflow.phases.release), false);
+  assert.equal(selected.indexes.includes(legacyRelease), false);
+});
+
+test('planned claims are derived only from an exact structured Markdown table', () => {
+  const source = `# Plan
+
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| [APP:REQ-001] | \`src/app.mjs\` | \`test/app.test.mjs\` |
+| APP:AC-001 | \`src/app.mjs\`, \`src/validation.mjs\` | not-applicable: verified by a compile-time invariant |
+`;
+  const { claimMap, missingClauseIds, missingTestClauseIds } = derivePlannedClaimMap(source, {
+    clauseIds: ['APP:REQ-001', 'APP:AC-001'], policy: { mode: 'enforce' }
+  });
+  assert.deepEqual(missingClauseIds, []);
+  assert.deepEqual(missingTestClauseIds, []);
+  assert.deepEqual(claimMap.claims['APP:REQ-001'].tests, ['test/app.test.mjs']);
+  assert.equal(claimMap.claims['APP:REQ-001'].testDisposition, 'applicable');
+  assert.deepEqual(claimMap.claims['APP:AC-001'].expectedPaths, ['src/app.mjs', 'src/validation.mjs']);
+  assert.equal(claimMap.claims['APP:AC-001'].testDisposition, 'not-applicable');
+  assert.match(claimMap.claims['APP:AC-001'].testReason, /compile-time invariant/);
+  assert.equal(evaluateSpecAcceptance({
+    indexes: [{ clauses: extractClauses(markdown) }], planned: [claimMap]
+  }, { acceptance: 'presence' }).complete, true);
+});
+
+test('planned claim derivation ignores fenced, commented, and kernel-managed tables', () => {
+  const hidden = `| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| APP:REQ-999 | src/not-backticked.mjs | \`test/*.mjs\` |`;
+  const source = `# Plan
+
+\`\`\`markdown
+${hidden}
+\`\`\`
+
+<!--
+${hidden}
+-->
+
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| APP:REQ-001 | \`src/app.mjs\` | \`test/app.test.mjs\` |
+
+<!-- singularity-flow:inputs:start -->
+${hidden}
+<!-- singularity-flow:inputs:end -->
+`;
+  const result = derivePlannedClaimMap(source, { clauseIds: ['APP:REQ-001'] });
+  assert.deepEqual(Object.keys(result.claimMap.claims), ['APP:REQ-001']);
+  assert.deepEqual(result.missingTestClauseIds, []);
+});
+
+test('planned claim derivation reports rows that did not bind a test obligation', () => {
+  const result = derivePlannedClaimMap(`
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| APP:REQ-001 | \`src/app.mjs\` | - |
+`, { clauseIds: ['APP:REQ-001', 'APP:AC-001'] });
+  assert.deepEqual(result.missingClauseIds, ['APP:AC-001']);
+  assert.deepEqual(result.missingTestClauseIds, ['APP:AC-001', 'APP:REQ-001']);
+});
+
+test('planned claim parsing rejects duplicates, unknown clauses, and non-exact paths', () => {
+  const table = (row) => `| Clause | Expected paths | Planned tests |\n| --- | --- | --- |\n${row}\n`;
+  assert.throws(() => derivePlannedClaimMap(table('| APP:REQ-999 | `src/app.mjs` | `test/app.test.mjs` |'), {
+    clauseIds: ['APP:REQ-001']
+  }), /unknown clause APP:REQ-999/);
+  assert.throws(() => derivePlannedClaimMap(table('| APP:REQ-001 | src/app.mjs | `test/app.test.mjs` |'), {
+    clauseIds: ['APP:REQ-001']
+  }), /must list each exact/);
+  assert.throws(() => derivePlannedClaimMap(table('| APP:REQ-001 | `src/*.mjs` | `test/app.test.mjs` |'), {
+    clauseIds: ['APP:REQ-001']
+  }), /without traversal, globs, placeholders/);
+  assert.throws(() => derivePlannedClaimMap(table('| APP:REQ-001 | `../src/app.mjs` | `test/app.test.mjs` |'), {
+    clauseIds: ['APP:REQ-001']
+  }), /without traversal, globs, placeholders/);
+  assert.throws(() => derivePlannedClaimMap(`${table('| APP:REQ-001 | `src/app.mjs` | `test/app.test.mjs` |')}\n${table('| APP:REQ-001 | `src/app.mjs` | `test/app.test.mjs` |')}`, {
+    clauseIds: ['APP:REQ-001']
+  }), /more than once/);
+});
+
+test('observed claims use exact changed and tested paths without proximity inference', () => {
+  const { claimMap: planned } = derivePlannedClaimMap(`
+| Clause | Expected paths | Planned tests |
+| --- | --- | --- |
+| APP:REQ-001 | \`src/app.mjs\` | \`test/app.test.mjs\` |
+| APP:AC-001 | \`src/other.mjs\` | \`test/other.test.mjs\` |
+`, { clauseIds: ['APP:REQ-001', 'APP:AC-001'] });
+  const observed = deriveObservedClaimMap(planned, {
+    changeSet: {
+      sourcePaths: ['src/app.mjs', 'src/unplanned-neighbor.mjs'],
+      executableTestPaths: ['test/app.test.mjs']
+    },
+    traceability: { bindings: [{ clauseId: 'APP:REQ-001', testSource: 'test/app.test.mjs' }] }
+  }, {
+    clauseIds: ['APP:REQ-001', 'APP:AC-001'],
+    generationCommit: 'a'.repeat(40)
+  });
+  assert.deepEqual(Object.keys(observed.claims), ['APP:REQ-001']);
+  assert.deepEqual(observed.claims['APP:REQ-001'], {
+    observedPaths: ['src/app.mjs'],
+    testResults: ['test/app.test.mjs'],
+    commits: ['a'.repeat(40)],
+    verdict: 'matched',
+    deviation: null
+  });
+});
+
+test('acceptance clauses may carry exact test-only evidence without a fabricated source path', () => {
+  const planned = normalizeClaimMap({ claims: {
+    'APP:AC-001': { expectedPaths: [], tests: ['test/app.test.mjs'] },
+    'APP:REQ-001': { expectedPaths: [], tests: ['test/app.test.mjs'] }
+  } }, { kind: 'planned', clauseIds: ['APP:AC-001', 'APP:REQ-001'] });
+  const observed = deriveObservedClaimMap(planned, {
+    changeSet: { executableTestPaths: ['test/app.test.mjs'] },
+    traceability: { bindings: [{ clauseId: 'APP:AC-001', testSource: 'test/app.test.mjs' }] }
+  }, { clauseIds: ['APP:AC-001', 'APP:REQ-001'] });
+  assert.equal(observed.claims['APP:AC-001'].verdict, 'matched');
+  assert.deepEqual(observed.claims['APP:AC-001'].observedPaths, []);
+  assert.equal(observed.claims['APP:REQ-001'], undefined,
+    'a binding for one AC must not be inferred as evidence for another clause');
+  assert.throws(() => normalizeClaimMap({ claims: {
+    'APP:REQ-001': { observedPaths: [], testResults: ['test/app.test.mjs'], verdict: 'matched' }
+  } }, { kind: 'observed', clauseIds: ['APP:REQ-001'] }), /must identify source evidence/);
+});
+
+test('terminal coverage accepts complete AC test-only evidence and claims its exact test path', () => {
+  const index = { clauses: extractClauses('[APP:AC-001]\nThe rendered primary background is blue.') };
+  const planned = normalizeClaimMap({ claims: {
+    'APP:AC-001': {
+      expectedPaths: ['src/app.component.css'],
+      tests: ['test/primary-background.spec.ts']
+    }
+  } }, { kind: 'planned', clauseIds: ['APP:AC-001'] });
+  const observed = normalizeClaimMap({ claims: {
+    'APP:AC-001': {
+      observedPaths: [],
+      testResults: ['test/primary-background.spec.ts'],
+      verdict: 'partial'
+    }
+  } }, { kind: 'observed', clauseIds: ['APP:AC-001'] });
+  const coverage = evaluateSpecCoverage(
+    { indexes: [index], planned: [planned], observed: [observed] },
+    ['test/primary-background.spec.ts'],
+    { coverage: 'enforce' }
+  );
+  assert.equal(coverage.complete, true);
+  assert.deepEqual(coverage.unimplemented, []);
+  assert.deepEqual(coverage.unclaimedChangedPaths, []);
+  assert.deepEqual(coverage.invalidEvidence, []);
+});
+
+test('test evidence never substitutes for non-AC source evidence', () => {
+  const index = { clauses: extractClauses('[APP:REQ-001]\nThe application stores the selected background.') };
+  const planned = normalizeClaimMap({ claims: {
+    'APP:REQ-001': { expectedPaths: ['src/app.mjs'], tests: ['test/app.test.mjs'] }
+  } }, { kind: 'planned', clauseIds: ['APP:REQ-001'] });
+  const observed = normalizeClaimMap({ claims: {
+    'APP:REQ-001': {
+      observedPaths: [], testResults: ['test/app.test.mjs'], verdict: 'missing'
+    }
+  } }, { kind: 'observed', clauseIds: ['APP:REQ-001'] });
+  const coverage = evaluateSpecCoverage(
+    { indexes: [index], planned: [planned], observed: [observed] },
+    ['test/app.test.mjs'],
+    { coverage: 'enforce' }
+  );
+  assert.equal(coverage.complete, false);
+  assert.deepEqual(coverage.unimplemented, ['APP:REQ-001']);
+  assert.deepEqual(coverage.unclaimedChangedPaths, [],
+    'the exact planned test is owned even though it cannot prove the requirement alone');
+});
+
+test('partial or unplanned AC test evidence remains terminally incomplete', () => {
+  const index = { clauses: extractClauses('[APP:AC-001]\nBoth browser variants render blue.') };
+  const planned = normalizeClaimMap({ claims: {
+    'APP:AC-001': {
+      expectedPaths: [],
+      tests: ['test/chrome.spec.ts', 'test/firefox.spec.ts']
+    }
+  } }, { kind: 'planned', clauseIds: ['APP:AC-001'] });
+  const observed = normalizeClaimMap({ claims: {
+    'APP:AC-001': {
+      observedPaths: [], testResults: ['test/chrome.spec.ts', 'test/unplanned.spec.ts'], verdict: 'partial'
+    }
+  } }, { kind: 'observed', clauseIds: ['APP:AC-001'] });
+  const coverage = evaluateSpecCoverage(
+    { indexes: [index], planned: [planned], observed: [observed] },
+    ['test/chrome.spec.ts', 'test/unplanned.spec.ts'],
+    { coverage: 'enforce' }
+  );
+  assert.equal(coverage.complete, false);
+  assert.deepEqual(coverage.unimplemented, ['APP:AC-001']);
+  assert.deepEqual(coverage.unclaimedChangedPaths, ['test/unplanned.spec.ts']);
+  assert.match(coverage.invalidEvidence.join(' '), /without source-path evidence/);
 });
 
 test('acceptance policy distinguishes planned evidence from verified execution', async () => {

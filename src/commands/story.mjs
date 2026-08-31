@@ -33,6 +33,7 @@ import { assertClean, branch, changedFiles, changes, checkout, commit, identity,
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
+import { persistGenerationPublicationRecord } from '../generation-publication-store.mjs';
 import { sameRepositoryRemote } from '../initiative-repositories.mjs';
 import { getIssue, getIssueProperty, listMyIssues } from '../jira.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -1005,6 +1006,40 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
   return { proposal, summary, publication };
 }
 
+/**
+ * Finalize amendment lifecycle identity from the decision that was just recorded under the
+ * publication lock. This must run for approvals below threshold and rejections too: neither is a
+ * synthetic generation, but both are governed decisions and must not inherit an older phase
+ * approval's actor or review packet from commitAndPublish's pre-transition seed.
+ */
+export function intentAmendmentDecisionEvent(result, {
+  proposalId, proposalSha256, decision, generation
+} = {}) {
+  const authority = result?.eventDecision;
+  if (!authority || !result?.decisionSha256) {
+    throw new SingularityFlowError('Intent-amendment transition did not return its exact authority decision.', {
+      code: 'INTENT_AMENDMENT_DECISION_EVIDENCE_MISSING'
+    });
+  }
+  return {
+    actor: authority.actor,
+    agent: authority.agent,
+    authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance,
+    phaseId: 'specification',
+    generation,
+    payload: {
+      proposalId,
+      proposalSha256,
+      decision,
+      ...(result.applied ? { syntheticGeneration: true } : {}),
+      decisionSha256: result.decisionSha256,
+      // Amendment authority is decision-bound and has no ordinary phase-review packet.
+      reviewPacketSha256: null
+    }
+  };
+}
+
 async function decideProposedIntentAmendment(root, config, workflow, proposalId, options) {
   const summary = (workflow.intentAmendments ?? []).find((entry) => entry.id === proposalId);
   if (!summary) throw new SingularityFlowError(`Unknown intent amendment '${proposalId}'.`);
@@ -1044,6 +1079,22 @@ async function decideProposedIntentAmendment(root, config, workflow, proposalId,
           reason: optionString(options, 'reason'),
           channel: 'terminal',
           actionContext: activeActionContext()
+        });
+        return transition;
+      },
+      eventFromResult: (result) => intentAmendmentDecisionEvent(result, {
+        proposalId,
+        proposalSha256: proposal.proposalSha256,
+        decision,
+        generation: workflow.phases.specification.generation
+      }),
+      afterEventFinalize: async (publicationEvent, transactionContext, result) => {
+        if (!result?.applied) return;
+        await persistGenerationPublicationRecord(root, workflow, workflow.phases.specification, {
+          publicationEvent,
+          transactionId: transactionContext.transactionId,
+          expectedHead: transactionContext.expectedHead,
+          workDirectory: posix(path.relative(root, workDir(root, config, workflow.workItem.id)))
         });
       }
     }

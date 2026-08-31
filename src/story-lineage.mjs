@@ -35,6 +35,44 @@ export function reviewArtifactSetSha256(artifacts = []) {
   return hash(reviewArtifactIdentity(artifacts));
 }
 
+function ownedClaimMapPath(root, config, workId, candidate) {
+  if (typeof candidate !== 'string'
+    || !candidate
+    || candidate.includes('\\')
+    || path.posix.isAbsolute(candidate)
+    || candidate.split('/').includes('..')
+    || !candidate.endsWith('.json')) return false;
+  const claimRoot = path.relative(
+    root,
+    path.join(workDir(root, config, workId), 'context', 'claims')
+  ).split(path.sep).join('/');
+  if (!claimRoot || claimRoot === '..' || claimRoot.startsWith('../')) return false;
+  const prefix = `${claimRoot}/`;
+  return candidate.startsWith(prefix) && !candidate.slice(prefix.length).includes('/');
+}
+
+function currentClaimMapBindings(root, config, workflow, phase) {
+  const bindings = [];
+  for (const kind of ['planned', 'observed']) {
+    const configured = phase.claimMaps?.[kind];
+    const entries = Array.isArray(configured) ? configured : configured == null ? [] : [configured];
+    for (const entry of entries) {
+      if (Number(entry?.generation) !== Number(phase.generation)) continue;
+      const relativePath = String(entry?.path ?? '');
+      const sha256 = String(entry?.sha256 ?? '');
+      if (!ownedClaimMapPath(root, config, workflow.workItem.id, relativePath)
+        || !/^[0-9a-f]{64}$/.test(sha256)) {
+        throw new SingularityFlowError(
+          `Phase ${phase.id} has an invalid ${kind} claim-map identity for generation ${phase.generation}.`,
+          { code: 'STORY_REVIEW_EVIDENCE_STALE' }
+        );
+      }
+      bindings.push({ kind, generation: phase.generation, path: relativePath, sha256 });
+    }
+  }
+  return bindings.sort((left, right) => left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path));
+}
+
 async function witnessReviewSnapshot(root, config, workflow, phase) {
   const status = storyWelEnrollmentStatus(root, config, workflow.workItem.id);
   const testcaseObservations = [];
@@ -321,6 +359,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       sha256: entry.receiptSha256,
       status: entry.status
     })),
+    claimMaps: currentClaimMapBindings(root, config, workflow, phase),
     checksSha256: hash(phase.checks ?? []),
     artifactSetSha256: reviewArtifactSetSha256(artifacts)
   };
@@ -437,6 +476,11 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       }
     }
     if (!artifactBindingsValid) continue;
+    const claimMaps = packet.submissionEvidence?.claimMaps;
+    if (claimMaps != null && !Array.isArray(claimMaps)) {
+      failures.push(`${evidenceCommit.slice(0, 12)} has malformed claim-map bindings`);
+      continue;
+    }
     const bindings = [
       ...(packet.submissionEvidence?.codeDelivery?.path ? [{
         kind: 'code-delivery', path: packet.submissionEvidence.codeDelivery.path,
@@ -444,10 +488,24 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       }] : []),
       ...(packet.submissionEvidence?.testExecutions ?? []).map((entry) => ({
         kind: 'test-execution', path: entry.path, sha256: entry.sha256
+      })),
+      ...(claimMaps ?? []).map((entry) => ({
+        kind: 'specification-claim-map', claimKind: entry.kind,
+        generation: entry.generation, path: entry.path, sha256: entry.sha256
       }))
     ];
     let valid = true;
     for (const binding of bindings) {
+      if (binding.kind === 'specification-claim-map'
+        && (!['planned', 'observed'].includes(binding.claimKind)
+          || Number(binding.generation) !== Number(packet.generation)
+          || packet.workId !== workflow.workItem.id
+          || !ownedClaimMapPath(root, config, packet.workId, binding.path)
+          || !/^[0-9a-f]{64}$/.test(String(binding.sha256 ?? '')))) {
+        failures.push(`${evidenceCommit.slice(0, 12)} has an invalid claim-map identity`);
+        valid = false;
+        break;
+      }
       const evidence = run('git', ['show', `${evidenceCommit}:${binding.path}`], { cwd: root, allowFailure: true });
       if (evidence.status !== 0) { failures.push(`${evidenceCommit.slice(0, 12)} lacks ${binding.path}`); valid = false; break; }
       try {
@@ -459,7 +517,16 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
           break;
         }
         // Apply migrations only after the externally bound stored projection is authenticated.
-        readRecord(binding.kind, storedRecord);
+        const replayed = readRecord(binding.kind, storedRecord).record;
+        if (binding.kind === 'specification-claim-map'
+          && (replayed.kind !== binding.claimKind
+            || Number(replayed.generation) !== Number(binding.generation)
+            || replayed.workId !== packet.workId
+            || replayed.phase !== packet.phase)) {
+          failures.push(`${evidenceCommit.slice(0, 12)} has a mismatched ${binding.path}`);
+          valid = false;
+          break;
+        }
       } catch (error) {
         failures.push(`${evidenceCommit.slice(0, 12)} has unreadable ${binding.path}: ${error.message}`);
         valid = false;

@@ -68,6 +68,45 @@ test('a completed Story maps terminal gate defects to governed reopen or configu
   assert.ok(actions.every((entry) => entry.stableState === 'unchanged'));
 });
 
+test('acceptance evidence failures have stable codes and route to their lifecycle owner', () => {
+  const specDriven = story(
+    ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release'],
+    { complete: true }
+  );
+  // Release policy normally cannot reject directly to planning, so this also proves that the
+  // classifier prepares the hash-bound final-gate recovery route rather than misrouting to code.
+  specDriven.phases.release.approvalPolicy.rejectTo = ['implementation', 'verification', 'release'];
+  const findings = classifyStoryGateFailures(specDriven, [
+    'clause REC-1:AC-001 has no planned test',
+    'clause REC-1:AC-002 has no observed test result',
+    'allowlisted acceptance command failed: browser-tests'
+  ]);
+
+  assert.deepEqual(findings.map((entry) => entry.code), [
+    'gate.acceptance.planned-test-missing',
+    'gate.acceptance.observed-test-missing',
+    'gate.acceptance.command-failed'
+  ]);
+  assert.deepEqual(findings.map((entry) => entry.phase), ['planning', 'verification', 'verification']);
+  assert.match(findings[0].recovery.command, /reopen REC-1 --to planning/);
+  assert.match(findings[0].recovery.command, /--gate-recovery/);
+  assert.match(findings[1].recovery.command, /reopen REC-1 --to verification/);
+  assert.match(findings[2].recovery.command, /reopen REC-1 --to verification/);
+  assert.ok(findings.every((entry) => entry.category === 'verification'));
+});
+
+test('feature workflows assign missing planned tests to implementation-spec before implementation', () => {
+  const workflow = story(['requirements', 'design', 'implementation-spec', 'implementation', 'verification']);
+  const [finding] = classifyStoryGateFailures(workflow, [
+    'clause REC-1:REQ-001 has no planned test'
+  ]);
+
+  assert.equal(finding.code, 'gate.acceptance.planned-test-missing');
+  assert.equal(finding.phase, 'implementation-spec');
+  assert.equal(finding.recovery.ownerPhase, 'implementation-spec');
+  assert.match(finding.recovery.command, /recover REC-1 --phase implementation-spec/);
+});
+
 test('a completed Story previews a hash-bound gate recovery when ordinary rejectTo omits the owner', () => {
   const workflow = story(['specification', 'implementation', 'convergence', 'release'], { complete: true });
   workflow.phases.release.approvalPolicy.rejectTo = ['implementation', 'release'];

@@ -487,26 +487,27 @@ export async function inferRepositoryTestCommands(root) {
   const regular = async (relative) => (await secureRepositoryPath(root, relative, {
     label: 'Repository test manifest', type: 'file'
   })).exists;
-  if (await regular('mvnw')) return [{ id: 'maven-tests', argv: ['./mvnw', '-q', 'test'], modelPolicy: 'never' }];
-  if (await regular('pom.xml')) return [{ id: 'maven-tests', argv: ['mvn', '-q', 'test'], modelPolicy: 'never' }];
-  if (await regular('gradlew')) return [{ id: 'gradle-tests', argv: ['./gradlew', 'test'], modelPolicy: 'never' }];
-  if (await regular('build.gradle') || await regular('build.gradle.kts')) {
-    return [{ id: 'gradle-tests', argv: ['gradle', 'test'], modelPolicy: 'never' }];
+  const inferred = async (system, manifest) => {
+    const command = await inferModuleTestCommand(root, { root: '.', system, manifest });
+    const legacyRootIds = {
+      maven: 'maven-tests', gradle: 'gradle-tests', go: 'go-tests', rust: 'cargo-tests',
+      python: 'python-tests', node: 'node-tests'
+    };
+    return command ? [{ ...command, id: legacyRootIds[system] ?? command.id }] : [];
+  };
+  if (await regular('mvnw') || await regular('pom.xml')) return inferred('maven', 'pom.xml');
+  if (await regular('gradlew') || await regular('build.gradle') || await regular('build.gradle.kts')) {
+    return inferred('gradle', await regular('build.gradle.kts') ? 'build.gradle.kts' : 'build.gradle');
   }
-  if (await regular('go.mod')) return [{ id: 'go-tests', argv: ['go', 'test', './...'], modelPolicy: 'never' }];
-  if (await regular('Cargo.toml')) return [{ id: 'cargo-tests', argv: ['cargo', 'test'], modelPolicy: 'never' }];
+  if (await regular('go.mod')) return inferred('go', 'go.mod');
+  if (await regular('Cargo.toml')) return inferred('rust', 'Cargo.toml');
   if (await regular('pyproject.toml') || await regular('pytest.ini')) {
-    return [{ id: 'python-tests', argv: ['python3', '-m', 'pytest'], modelPolicy: 'never' }];
+    return inferred('python', await regular('pyproject.toml') ? 'pyproject.toml' : 'pytest.ini');
   }
   if (await regular('package.json')) {
     const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
     const script = String(manifest.scripts?.test ?? '').trim();
-    if (script && !/no test specified/i.test(script)) {
-      if (await regular('pnpm-lock.yaml')) return [{ id: 'node-tests', argv: ['pnpm', 'test'], modelPolicy: 'never' }];
-      if (await regular('yarn.lock')) return [{ id: 'node-tests', argv: ['yarn', 'test'], modelPolicy: 'never' }];
-      if (await regular('bun.lockb') || await regular('bun.lock')) return [{ id: 'node-tests', argv: ['bun', 'test'], modelPolicy: 'never' }];
-      return [{ id: 'node-tests', argv: ['npm', 'test'], modelPolicy: 'never' }];
-    }
+    if (script && !/no test specified/i.test(script)) return inferred('node', 'package.json');
   }
   return [];
 }

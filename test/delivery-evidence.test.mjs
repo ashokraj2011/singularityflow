@@ -50,13 +50,21 @@ test('repository-native Maven and Node tests are inferred without a model', asyn
   const maven = await mkdtemp(path.join(os.tmpdir(), 'sflow-maven-quality-'));
   await writeFile(path.join(maven, 'pom.xml'), '<project/>\n');
   assert.deepEqual(await inferRepositoryTestCommands(maven), [
-    { id: 'maven-tests', argv: ['mvn', '-q', 'test'], modelPolicy: 'never' }
+    {
+      id: 'maven-tests', kind: 'test', argv: ['mvn', 'test'], workingDirectory: '.',
+      affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'junit-xml', path: 'target/surefire-reports', minimumDiscovered: 1 }
+    }
   ]);
 
   const node = await mkdtemp(path.join(os.tmpdir(), 'sflow-node-quality-'));
   await writeFile(path.join(node, 'package.json'), JSON.stringify({ scripts: { test: 'node --test' } }));
   assert.deepEqual(await inferRepositoryTestCommands(node), [
-    { id: 'node-tests', argv: ['npm', 'test'], modelPolicy: 'never' }
+    {
+      id: 'node-tests', kind: 'test', argv: ['npm', 'test'], workingDirectory: '.',
+      affectedRoots: ['.'], modelPolicy: 'never',
+      result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 }
+    }
   ]);
 });
 

@@ -338,6 +338,61 @@ test('Node TAP adapter preserves exact npm test scripts and validates their fina
   assert.deepEqual((await parseTestResult(root, command)).tests, {
     discovered: 2, passed: 2, failed: 0, skipped: 0
   });
+
+  await writeFile(path.join(root, command.result.path), [
+    '\u001b[36mℹ tests 2\u001b[39m', 'ℹ pass 2', 'ℹ fail 0', 'ℹ cancelled 0',
+    'ℹ skipped 0', 'ℹ todo 0', ''
+  ].join('\n'));
+  assert.deepEqual((await parseTestResult(root, command)).tests, {
+    discovered: 2, passed: 2, failed: 0, skipped: 0
+  }, 'modern Node spec-reporter summaries remain structured evidence');
+});
+
+test('composed npm test scripts preserve the exact top-level command when Node TAP is nested', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-composed-node-'));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({
+    scripts: {
+      test: 'npm run test:server && npm run test:background',
+      'test:server': 'DATA_MODE=demo node --import tsx --test server/**/*.test.ts',
+      'test:background': 'npm run build:web && playwright test',
+      'build:web': 'ng build'
+    }
+  }));
+  await writeFile(path.join(root, 'package-lock.json'), '{}\n');
+  const command = await inferModuleTestCommand(root, {
+    root: '.', system: 'node', manifest: 'package.json'
+  });
+  assert.deepEqual(command.argv, ['npm', 'test']);
+  assert.equal(command.result.adapter, 'node-tap');
+  assert.equal(command.result.path, '.sflow/results/node-tests.tap');
+  assert.deepEqual(command.affectedRoots, ['.']);
+});
+
+test('Node package-script graph traversal is cycle-safe and bounded', async () => {
+  const cycle = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-node-cycle-'));
+  await writeFile(path.join(cycle, 'package.json'), JSON.stringify({
+    scripts: { test: 'npm run a', a: 'npm run b', b: 'npm run a && node --test' }
+  }));
+  assert.deepEqual((await inferModuleTestCommand(cycle, {
+    root: '.', system: 'node', manifest: 'package.json'
+  })).argv, ['npm', 'test']);
+
+  const deep = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-node-deep-'));
+  const scripts = {};
+  for (let index = 0; index < 35; index += 1) scripts[index ? `s${index}` : 'test'] = `npm run s${index + 1}`;
+  scripts.s35 = 'node --test';
+  await writeFile(path.join(deep, 'package.json'), JSON.stringify({ scripts }));
+  await assert.rejects(() => inferModuleTestCommand(deep, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED' && /exceeds depth/.test(error.message));
+
+  const oversized = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-node-oversized-'));
+  await writeFile(path.join(oversized, 'package.json'), JSON.stringify({
+    scripts: { test: `node --test ${'x'.repeat(256 * 1024)}` }
+  }));
+  await assert.rejects(() => inferModuleTestCommand(oversized, {
+    root: '.', system: 'node', manifest: 'package.json'
+  }), (error) => error.code === 'CODE_TEST_RESULT_REQUIRED' && /exceeds 256 scripts or 262144 bytes/.test(error.message));
 });
 
 test('structured result containment rejects a symlinked parent directory', async () => {

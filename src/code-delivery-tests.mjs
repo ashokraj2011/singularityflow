@@ -147,6 +147,55 @@ async function nodePackageManager(root, moduleRoot, manifest) {
   return 'npm';
 }
 
+function packageScriptReferences(script) {
+  const references = [];
+  const pattern = /(?:^|&&|\|\||;)\s*(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?([A-Za-z0-9:_-]+)(?=\s|$|&&|\|\||;)/g;
+  for (const match of String(script ?? '').matchAll(pattern)) references.push(match[1]);
+  return [...new Set(references)];
+}
+
+const MAX_NODE_SCRIPT_GRAPH_NODES = 256;
+const MAX_NODE_SCRIPT_GRAPH_DEPTH = 32;
+const MAX_NODE_SCRIPT_GRAPH_BYTES = 256 * 1024;
+
+function containsNodeTestRunner(script) {
+  return /\bnode\b[^\n]*(?:^|\s)--test(?:\s|=|$)/i.test(String(script ?? ''));
+}
+
+/** Inspect only bounded, explicit package-manager edges; never interpret arbitrary shell text. */
+export function nodeTestReachableFromPackageScripts(scripts, entry = 'test') {
+  const visiting = new Set();
+  const visited = new Set();
+  let nodes = 0;
+  let bytes = 0;
+  const visit = (name, depth = 0) => {
+    if (depth > MAX_NODE_SCRIPT_GRAPH_DEPTH) {
+      throw new SingularityFlowError(
+        `Node test script graph exceeds depth ${MAX_NODE_SCRIPT_GRAPH_DEPTH}.`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
+    if (visited.has(name) || visiting.has(name)) return false;
+    const script = scripts?.[name];
+    if (typeof script !== 'string') return false;
+    nodes += 1;
+    bytes += Buffer.byteLength(script);
+    if (nodes > MAX_NODE_SCRIPT_GRAPH_NODES || bytes > MAX_NODE_SCRIPT_GRAPH_BYTES) {
+      throw new SingularityFlowError(
+        `Node test script graph exceeds ${MAX_NODE_SCRIPT_GRAPH_NODES} scripts or ${MAX_NODE_SCRIPT_GRAPH_BYTES} bytes.`,
+        { code: 'CODE_TEST_RESULT_REQUIRED' }
+      );
+    }
+    visiting.add(name);
+    let found = containsNodeTestRunner(script);
+    for (const reference of packageScriptReferences(script)) found = visit(reference, depth + 1) || found;
+    visiting.delete(name);
+    visited.add(name);
+    return found;
+  };
+  return visit(entry);
+}
+
 export async function inferModuleTestCommand(root, module, { platform = process.platform } = {}) {
   const cwd = module.root === '.' ? '' : module.root;
   const at = (name) => exists(path.join(root, cwd, name));
@@ -191,11 +240,10 @@ export async function inferModuleTestCommand(root, module, { platform = process.
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'vitest-json', path: `${resultBase}.json`, minimumDiscovered: 1 }
       };
-      // Preserve the repository's exact Node test script. Reconstructing it as bare `node --test`
-      // drops loaders, environment bindings, explicit TypeScript paths, and repository-owned
-      // discovery rules. Node's final TAP summary is deterministic structured evidence, so capture
-      // that output without replacing the command being proved.
-      if (/\bnode\b[^\n]*--test\b/i.test(script)) return {
+      // Preserve the exact top-level repository test command. Following only explicit package
+      // script references lets a composite `npm test` expose nested `node --test` evidence while
+      // its exit status still covers every later stage (for example Playwright).
+      if (nodeTestReachableFromPackageScripts(manifest.scripts ?? {})) return {
         id: `${module.root}-node-tests`, kind: 'test',
         argv: testCommand,
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
@@ -614,24 +662,33 @@ function countsFromJson(adapter, parsed) {
 }
 
 function nodeTapCounts(value) {
-  const summary = Object.create(null);
+  const summaries = [];
+  let summary = Object.create(null);
   for (const line of String(value).split(/\r?\n/)) {
-    const match = line.match(/^# (tests|pass|fail|cancelled|skipped|todo) ([0-9]+)\s*$/);
-    if (match) summary[match[1]] = Number(match[2]);
+    const plain = line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').trim();
+    const match = plain.match(/^(?:#|ℹ)\s+(tests|pass|fail|cancelled|skipped|todo)\s+([0-9]+)\s*$/u);
+    if (!match) continue;
+    if (match[1] === 'tests' && Number.isInteger(summary.tests)) {
+      summaries.push(summary);
+      summary = Object.create(null);
+    }
+    summary[match[1]] = Number(match[2]);
   }
-  if (!Number.isInteger(summary.tests) || !Number.isInteger(summary.pass) || !Number.isInteger(summary.fail)) {
-    throw new SingularityFlowError('Structured Node TAP result is missing its final tests, pass, or fail summary.', {
+  if (Object.keys(summary).length) summaries.push(summary);
+  if (!summaries.length || summaries.some((entry) =>
+    !Number.isInteger(entry.tests) || !Number.isInteger(entry.pass) || !Number.isInteger(entry.fail))) {
+    throw new SingularityFlowError('Structured Node test result is missing its final tests, pass, or fail summary.', {
       code: 'CODE_TEST_RESULT_REQUIRED'
     });
   }
-  const counts = {
-    discovered: summary.tests,
-    passed: summary.pass,
-    failed: summary.fail + (summary.cancelled ?? 0),
-    skipped: (summary.skipped ?? 0) + (summary.todo ?? 0)
-  };
+  const counts = summaries.reduce((total, entry) => ({
+    discovered: total.discovered + entry.tests,
+    passed: total.passed + entry.pass,
+    failed: total.failed + entry.fail + (entry.cancelled ?? 0),
+    skipped: total.skipped + (entry.skipped ?? 0) + (entry.todo ?? 0)
+  }), { discovered: 0, passed: 0, failed: 0, skipped: 0 });
   if (counts.passed + counts.failed + counts.skipped > counts.discovered) {
-    throw new SingularityFlowError('Structured Node TAP outcome counts exceed discovered tests.', {
+    throw new SingularityFlowError('Structured Node test outcome counts exceed discovered tests.', {
       code: 'CODE_TEST_RESULT_REQUIRED'
     });
   }

@@ -1,19 +1,40 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-plan.schema.json",
-  "title": "Singularity Flow Auto Plan v1",
+  "title": "Singularity Flow Auto Plan v2",
   "type": "object",
-  "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "requirement", "proposal", "story", "execution", "scope", "repositories", "executionHost", "bindings", "safety", "createdAt", "expiresAt"],
+  "required": ["schemaVersion", "kind", "mode", "confirmation", "planId", "planSha256", "requirement", "proposal", "story", "execution", "scope", "repositories", "executionHost", "bindings", "safety", "createdAt", "expiresAt"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "auto-plan" },
     "mode": { "const": "auto" },
+    "confirmation": {
+      "type": "object",
+      "required": ["protocol"],
+      "properties": { "protocol": { "const": "packet-v1" } },
+      "additionalProperties": false
+    },
     "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
     "planSha256": { "$ref": "#/$defs/hash" },
     "requirement": { "type": "object", "required": ["text", "sha256"] },
     "proposal": { "type": "object", "required": ["title", "assumptions", "unresolvedDecisions", "predictedPaths", "acceptanceCriteria"] },
     "story": { "type": "object", "required": ["workId", "workType", "branch", "phaseRail"] },
-    "execution": { "type": "object", "required": ["pace", "until", "ceilings", "eligibility"] },
+    "execution": {
+      "type": "object",
+      "required": ["pace", "until", "ceilings", "eligibility"],
+      "properties": {
+        "profile": {
+          "type": "object",
+          "required": ["requested", "resolved", "selectionReason"],
+          "properties": {
+            "requested": { "enum": ["story", "sgos", "auto-select"] },
+            "resolved": { "enum": ["story", "sgos"] },
+            "selectionReason": { "enum": ["explicit", "core-fallback", "sgos-available"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
     "humanBoundaries": { "type": "object" },
     "scope": { "type": "object" },
     "capability": { "type": ["object", "null"] },

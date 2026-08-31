@@ -1,7 +1,8 @@
 import { SingularityFlowError } from '../util.mjs';
 
 export const AUTO_ELIGIBILITY = Object.freeze(['disabled', 'plan-only', 'bounded']);
-export const AUTO_PACES = Object.freeze(['continuous', 'phase', 'interval']);
+export const AUTO_PACES = Object.freeze(['step', 'continuous', 'phase', 'interval']);
+export const AUTO_PROFILE_SELECTIONS = Object.freeze(['story', 'sgos', 'auto-select']);
 export const AUTO_STOP_KINDS = Object.freeze([
   'first-human-boundary', 'published', 'submitted', 'phase-complete', 'story-complete'
 ]);
@@ -60,7 +61,7 @@ export function parseAutoPace(value, label = 'Auto pace') {
   if (AUTO_PACES.includes(pace)) return { mode: pace, intervalMs: null, source: pace };
   const match = /^interval:(\d+)(m|h)$/.exec(pace);
   if (!match) {
-    throw new SingularityFlowError(`${label} must be continuous, phase, or interval:<duration> such as interval:30m.`, {
+    throw new SingularityFlowError(`${label} must be step, continuous, phase, or interval:<duration> such as interval:30m.`, {
       code: 'AUTO_PLAN_INVALID'
     });
   }
@@ -70,6 +71,56 @@ export function parseAutoPace(value, label = 'Auto pace') {
     throw new SingularityFlowError(`${label} interval must be between 1 minute and 7 days.`, { code: 'AUTO_PLAN_INVALID' });
   }
   return { mode: 'interval', intervalMs, source: pace };
+}
+
+function normalizeAutoProfile(value = null) {
+  if (value == null) value = {};
+  object(value, 'auto.profile');
+  keys(value, ['default', 'allowed'], 'auto.profile');
+  const allowed = unique(value.allowed, ['story'], 'auto.profile.allowed');
+  for (const profile of allowed) {
+    if (!['story', 'sgos'].includes(profile)) {
+      throw new SingularityFlowError(`auto.profile.allowed contains unsupported profile '${profile}'.`, {
+        code: 'AUTO_PLAN_INVALID'
+      });
+    }
+  }
+  const selected = value.default ?? 'story';
+  if (!AUTO_PROFILE_SELECTIONS.includes(selected) || selected === 'auto-select' && !allowed.includes('story')) {
+    throw new SingularityFlowError('auto.profile.default must be story, sgos, or auto-select and resolve to an allowed profile.', {
+      code: 'AUTO_PLAN_INVALID'
+    });
+  }
+  if (selected !== 'auto-select' && !allowed.includes(selected)) {
+    throw new SingularityFlowError(`auto.profile.default '${selected}' is not listed in auto.profile.allowed.`, {
+      code: 'AUTO_PLAN_INVALID'
+    });
+  }
+  return { default: selected, allowed };
+}
+
+/** Resolve the currently implemented core profile without making SGOS a dependency of Story Auto. */
+export function selectAutoProfile(policy, requested = null) {
+  const profile = policy?.profile ?? normalizeAutoProfile();
+  const selection = String(requested ?? profile.default ?? 'story').trim();
+  if (!AUTO_PROFILE_SELECTIONS.includes(selection)) {
+    throw new SingularityFlowError(`Auto profile '${selection}' must be story, sgos, or auto-select.`, {
+      code: 'AUTO_PROFILE_INVALID'
+    });
+  }
+  const resolved = selection === 'auto-select' ? 'story' : selection;
+  if (!profile.allowed.includes(resolved)) {
+    throw new SingularityFlowError(`Auto profile '${resolved}' is not allowed by repository policy.`, {
+      code: 'AUTO_PROFILE_FORBIDDEN', details: { allowed: profile.allowed }
+    });
+  }
+  if (resolved === 'sgos') {
+    throw new SingularityFlowError(
+      'The SGOS Auto profile adapter is not installed in this release. Use --profile story; ordinary Story Auto remains available.',
+      { code: 'AUTO_PROFILE_UNAVAILABLE', details: { fallback: 'story' } }
+    );
+  }
+  return { requested: selection, resolved: 'story', selectionReason: selection === 'auto-select' ? 'core-fallback' : 'explicit' };
 }
 
 export function parseAutoStopSelector(value, phaseIds = [], label = 'Auto stop selector') {
@@ -195,7 +246,7 @@ export function normalizeAutoPolicy(value = null) {
   if (value == null) value = {};
   object(value, 'auto');
   keys(value, [
-    'enabled', 'defaultPace', 'defaultUntil', 'workIdAllocator', 'planTtlMinutes',
+    'enabled', 'profile', 'defaultPace', 'defaultUntil', 'workIdAllocator', 'planTtlMinutes',
     'concurrency', 'execution', 'ceilings', 'reporting'
   ], 'auto');
   if (value.enabled != null && typeof value.enabled !== 'boolean') {
@@ -238,6 +289,7 @@ export function normalizeAutoPolicy(value = null) {
   }
   return {
     enabled: value.enabled === true,
+    profile: normalizeAutoProfile(value.profile),
     defaultPace: pace.source,
     defaultUntil: stop.source,
     workIdAllocator,

@@ -1,4 +1,4 @@
-import { didYouMean, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
+import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension']);
@@ -205,7 +205,10 @@ const CONTEXT_READ_SUBCOMMANDS = Object.freeze(['xray', 'doctor']);
 const CONTEXT_MUTATION_SUBCOMMANDS = Object.freeze(['compile', 'expand']);
 const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTEXT_MUTATION_SUBCOMMANDS]);
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
-const AUTO_SUBCOMMANDS = Object.freeze(['plan', 'show-plan', 'start', 'status', 'report', 'pause', 'resume', 'halt', 'discard', 'flight-step']);
+const AUTO_SUBCOMMANDS = Object.freeze([
+  'plan', 'show-plan', 'start', 'list', 'status', 'report',
+  'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step'
+]);
 const ADHOC_SUBCOMMANDS = Object.freeze([
   'start', 'status', 'diff', 'effects', 'evidence', 'pause', 'resume', 'land', 'intent',
   'claim', 'deviate', 'revert', 'landing', 'publish', 'promote', 'close', 'run', 'split', 'discard'
@@ -556,9 +559,15 @@ function resolveReturnOperation(definition, options) {
 function resolveAutoOperation(definition, positionals) {
   const token = positionals[1] ?? 'status';
   // A token outside the closed subcommand vocabulary is the documented shorthand requirement.
+  // A near spelling of a control verb is a typo, not a requirement that may consume a model call.
+  const nearest = nearestNames(token, AUTO_SUBCOMMANDS, { limit: 1 })[0] ?? null;
+  if (!AUTO_SUBCOMMANDS.includes(token) && nearest
+      && Math.abs(String(token).length - nearest.length) <= 2) {
+    return unknownSubcommand('auto', token, AUTO_SUBCOMMANDS);
+  }
   const subcommand = AUTO_SUBCOMMANDS.includes(token) ? token : 'plan';
   if (subcommand === 'plan' || subcommand === 'flight-step') return required(`auto.${subcommand}`);
-  if (['show-plan', 'status', 'report'].includes(subcommand)) return never(`auto.${subcommand}`, definition, 'read');
+  if (['show-plan', 'list', 'status', 'report'].includes(subcommand)) return never(`auto.${subcommand}`, definition, 'read');
   return never(`auto.${subcommand}`, definition, 'mutation');
 }
 
@@ -964,7 +973,7 @@ export function operationCatalog() {
     required('auto.plan'),
     required('auto.flight-step'),
     ...AUTO_SUBCOMMANDS.filter((name) => !['plan', 'flight-step'].includes(name)).map((name) => never(
-      `auto.${name}`, autoDefinition, ['show-plan', 'status', 'report'].includes(name) ? 'read' : 'mutation'
+      `auto.${name}`, autoDefinition, ['show-plan', 'list', 'status', 'report'].includes(name) ? 'read' : 'mutation'
     )),
     never('return.plan', returnDefinition, 'read'),
     never('return.apply', returnDefinition, 'mutation'),

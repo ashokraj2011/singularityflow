@@ -414,6 +414,43 @@ function validateSgosContractSchema(schema, schemaFile) {
   validateLocalSchemaReferences(schema, schemaFile);
 }
 
+function validateAutoAuthorizationSchema(schema, schemaFile) {
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
+    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
+  }
+  if (schema.type !== 'object' || schema.additionalProperties !== false) {
+    fail(`${schemaFile}: mutable authorization must be a closed object schema`);
+  }
+  for (const required of schema.required ?? []) {
+    if (!Object.hasOwn(schema.properties ?? {}, required)) {
+      fail(`${schemaFile}: requires undeclared property '${required}'`);
+    }
+  }
+  const confirmationFields = [
+    'confirmationProtocol', 'confirmedSha256', 'packetSha256', 'validationSha256'
+  ];
+  if (schema.properties?.confirmationProtocol?.const !== 'packet-v1'
+      || !confirmationFields.every((field) => schema.required?.includes(field))) {
+    fail(`${schemaFile}: packet-v1 must require the complete confirmation digest set`);
+  }
+  const activeClaimRule = (schema.allOf ?? []).find((entry) => (
+    entry.if?.properties?.claimedAt?.type === 'string'
+      && entry.if?.properties?.consumedAt?.type === 'null'
+  ));
+  for (const field of ['flightId', 'claimExpiresAt', 'claimId', 'claimOwner']) {
+    if (!activeClaimRule?.then?.required?.includes(field)) {
+      fail(`${schemaFile}: active claims must require '${field}'`);
+    }
+  }
+  const consumedRule = (schema.allOf ?? []).find(
+    (entry) => entry.if?.properties?.consumedAt?.type === 'string'
+  );
+  if (consumedRule?.then?.properties?.claimExpiresAt?.type !== 'null') {
+    fail(`${schemaFile}: consumed claims must close their lease`);
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+}
+
 for (const schemaFile of [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
@@ -445,7 +482,10 @@ for (const schemaFile of [
   'schemas/model-invocation-event.schema.json',
   'schemas/generation-authorship.schema.json',
   'schemas/auto-plan.schema.json',
+  'schemas/auto-plan-validation.schema.json',
+  'schemas/auto-plan-packet.schema.json',
   'schemas/auto-plan-ratification.schema.json',
+  'schemas/auto-authorization.schema.json',
   'schemas/auto-flight-state.schema.json',
   'schemas/auto-origin.schema.json',
   'schemas/auto-step-result.schema.json',
@@ -455,6 +495,9 @@ for (const schemaFile of [
 ]) {
   const schema = JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
+  if (schemaFile === 'schemas/auto-authorization.schema.json') {
+    validateAutoAuthorizationSchema(schema, schemaFile);
+  }
   checked.push(schemaFile);
 }
 

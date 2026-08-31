@@ -1,17 +1,24 @@
 /** Machine-local Auto flight state. All mutations are serialized by a repository-wide subject lock. */
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { subjectLockPath, withSubjectLock } from '../subject-lock.mjs';
-import { nowIso, run, SingularityFlowError, writeAtomic } from '../util.mjs';
+import { nowIso, run, SingularityFlowError } from '../util.mjs';
+import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
+import {
+  listAutoPrivateRecords, readAutoPrivateRecord, writeAutoPrivateRecord
+} from './auto-private-store.mjs';
 
 const FLIGHT_ID = /^AFL-[A-F0-9]{26}$/;
+const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const CHECKPOINT = /^sha256:[a-f0-9]{64}$/;
 export const AUTO_FLIGHT_STATUSES = Object.freeze([
-  'running', 'paused', 'waiting-human', 'halted', 'completed', 'discarded'
+  'running', 'paused', 'waiting-human', 'manual-takeover',
+  'recovery-required', 'halted', 'completed', 'discarded'
 ]);
 
 function localRoot(root) { return path.join(gitCommonDir(root), 'singularity-flow', 'auto-flights'); }
@@ -96,22 +103,27 @@ export async function createAutoFlightState(root, value) {
       nextAction: value.nextAction ?? 'Review the Story and resume with the exact checkpoint hash.',
       createdAt, updatedAt: createdAt, recordSha256: null
     });
-    await writeAtomic(stateFile(root, id), canonicalJson(state), { mode: 0o600 });
+    await writeAutoPrivateRecord(root, stateFile(root, id), 'flight-state', canonicalJson(state));
     return state;
   });
 }
 
 export async function readAutoFlightState(root, value) {
   const id = validateFlightId(value);
-  let raw;
-  try { raw = await readFile(stateFile(root, id), 'utf8'); }
-  catch (error) {
+  const raw = await readAutoPrivateRecord(
+    root, stateFile(root, id), 'flight-state', { optional: true }
+  );
+  if (raw == null) {
     throw new SingularityFlowError(`Auto flight '${id}' is not available in this repository.`, {
-      code: 'AUTO_FLIGHT_NOT_FOUND', cause: error
+      code: 'AUTO_FLIGHT_NOT_FOUND'
     });
   }
   const state = readRecord('auto-flight-state', raw).record;
-  if (state.flightId !== id || state.recordSha256 !== stateHash(state) || state.checkpointSha256 !== checkpointHash(state)) {
+  if (state.kind !== 'auto-flight-state' || state.mode !== 'auto'
+      || state.flightId !== id || !PLAN_ID.test(String(state.planId ?? ''))
+      || !CHECKPOINT.test(String(state.planSha256 ?? ''))
+      || state.recordSha256 !== stateHash(state)
+      || state.checkpointSha256 !== checkpointHash(state)) {
     throw new SingularityFlowError(`Auto flight '${id}' failed its integrity check.`, { code: 'AUTO_FLIGHT_CORRUPT' });
   }
   return state;
@@ -135,7 +147,7 @@ export async function mutateAutoFlightState(root, value, mutate, { expectedCheck
     next.checkpointSequence = current.checkpointSequence + 1;
     next.updatedAt = nowIso();
     const sealed = seal(next);
-    await writeAtomic(stateFile(root, id), canonicalJson(sealed), { mode: 0o600 });
+    await writeAutoPrivateRecord(root, stateFile(root, id), 'flight-state', canonicalJson(sealed));
     return sealed;
   });
 }
@@ -156,69 +168,177 @@ async function requestStopMutation(root, id, mutate, timeoutMs = 2_000) {
   }
 }
 
-export async function pauseAutoFlight(root, id) {
-  const paused = await requestStopMutation(root, id, (state) => {
-    if (['completed', 'discarded'].includes(state.status)) throw new SingularityFlowError(`Auto flight '${id}' is ${state.status}.`, { code: 'AUTO_FLIGHT_TERMINAL' });
-    state.status = 'paused'; state.stopReason = 'human-paused';
-    state.stopRequested = { kind: 'pause', requestedAt: nowIso() };
-    state.nextAction = 'Resume with the exact checkpoint hash when ready.';
+function terminalControlState(state, id, action) {
+  if (!['halted', 'completed', 'discarded'].includes(state.status)) return;
+  throw new SingularityFlowError(`Auto flight '${id}' is ${state.status} and cannot ${action}.`, {
+    code: 'AUTO_FLIGHT_TERMINAL'
   });
-  await waitForExecutionQuiescence(root, id);
-  return readAutoFlightState(root, paused.flightId);
+}
+
+async function requestQuiescentTransition(root, id, {
+  kind, finalStatus, finalReason, finalNextAction,
+  quiescenceTimeoutMs = 15_000
+}) {
+  const requestId = randomUUID();
+  const requestedAt = nowIso();
+  await requestStopMutation(root, id, (state) => {
+    terminalControlState(state, id, kind === 'takeover' ? 'enter manual takeover' : kind);
+    if (state.status === 'recovery-required') {
+      throw new SingularityFlowError(
+        `Auto flight '${id}' requires recovery before another control transition.`,
+        { code: 'AUTO_RECOVERY_REQUIRED', details: { stopRequested: state.stopRequested ?? null } }
+      );
+    }
+    // Preserve the established interrupt ordering: make the requested resting state and stop token
+    // durable before waiting on the complete-step lease. The executor can therefore observe and
+    // account an interrupt while this command waits. Failure to prove quiescence below replaces
+    // this provisional resting state with recovery-required before the command returns an error.
+    state.status = finalStatus;
+    state.stopReason = finalReason;
+    state.stopRequested = { kind, requestId, requestedAt };
+    state.nextAction = finalNextAction;
+  });
+  try {
+    await waitForExecutionQuiescence(root, id, quiescenceTimeoutMs);
+  } catch (error) {
+    if (error?.code !== 'AUTO_STOP_TIMEOUT') throw error;
+    const recovery = await requestStopMutation(root, id, (state) => {
+      if (state.stopRequested?.requestId !== requestId) return state;
+      state.status = 'recovery-required';
+      state.stopReason = `${kind}-quiescence-unproven`;
+      state.nextAction = 'Inspect and stop the active execution owner, then run governed Auto recovery.';
+      state.lastError = {
+        code: error.code,
+        message: error.message
+      };
+    });
+    error.details = {
+      ...(error.details ?? {}),
+      flightId: id,
+      status: recovery.status,
+      checkpointSha256: recovery.checkpointSha256,
+      stopRequested: recovery.stopRequested ?? null
+    };
+    throw error;
+  }
+  return requestStopMutation(root, id, (state) => {
+    if (state.stopRequested?.requestId !== requestId || state.status !== finalStatus) {
+      throw new SingularityFlowError(`Auto flight '${id}' changed while '${kind}' was proving quiescence.`, {
+        code: 'AUTO_CHECKPOINT_STALE', details: { status: state.status }
+      });
+    }
+    state.stopRequested = { ...state.stopRequested, quiescedAt: nowIso() };
+  });
+}
+
+export async function pauseAutoFlight(root, id, options = {}) {
+  return requestQuiescentTransition(root, id, {
+    kind: 'pause', finalStatus: 'paused', finalReason: 'human-paused',
+    finalNextAction: 'Resume with the exact checkpoint hash when ready.',
+    quiescenceTimeoutMs: options.quiescenceTimeoutMs
+  });
 }
 
 export async function resumeAutoFlight(root, id, confirmation) {
   if (!CHECKPOINT.test(String(confirmation ?? ''))) {
     throw new SingularityFlowError('Auto resume requires --confirm <CHECKPOINT-SHA256>.', { code: 'AUTO_CHECKPOINT_REQUIRED' });
   }
-  return mutateAutoFlightState(root, id, (state, current) => {
-    if (confirmation !== current.checkpointSha256) throw new SingularityFlowError(`Checkpoint mismatch for '${id}'.`, {
+  let current = await readAutoFlightState(root, id);
+  if (confirmation !== current.checkpointSha256) throw new SingularityFlowError(`Checkpoint mismatch for '${id}'.`, {
+    code: 'AUTO_CHECKPOINT_STALE', details: { expected: current.checkpointSha256 }
+  });
+  if (!['paused', 'waiting-human', 'manual-takeover'].includes(current.status)) {
+    const code = current.status === 'recovery-required' ? 'AUTO_RECOVERY_REQUIRED' : 'AUTO_FLIGHT_TERMINAL';
+    throw new SingularityFlowError(`Auto flight '${id}' is ${current.status} and cannot resume.`, {
+      code, details: { stopRequested: current.stopRequested ?? null }
+    });
+  }
+  if (current.stopRequested && !current.stopRequested.quiescedAt) {
+    throw new SingularityFlowError(`Auto flight '${id}' is still stopping and cannot resume yet.`, {
+      code: 'AUTO_STOP_IN_PROGRESS', details: { stopRequested: current.stopRequested }
+    });
+  }
+  await waitForExecutionQuiescence(root, id);
+  current = await readAutoFlightState(root, id);
+  if (confirmation !== current.checkpointSha256) {
+    throw new SingularityFlowError(`Checkpoint mismatch for '${id}'.`, {
       code: 'AUTO_CHECKPOINT_STALE', details: { expected: current.checkpointSha256 }
     });
-    if (['halted', 'completed', 'discarded'].includes(state.status)) {
-      throw new SingularityFlowError(`Auto flight '${id}' is ${state.status} and cannot resume.`, { code: 'AUTO_FLIGHT_TERMINAL' });
+  }
+  if (!['paused', 'waiting-human', 'manual-takeover'].includes(current.status)
+      || (current.stopRequested && !current.stopRequested.quiescedAt)) {
+    throw new SingularityFlowError(`Auto flight '${id}' changed before resume.`, {
+      code: 'AUTO_CHECKPOINT_STALE', details: { status: current.status }
+    });
+  }
+  await verifyAutoFlightContinuation(root, current);
+  return mutateAutoFlightState(root, id, (state) => {
+    if (!['paused', 'waiting-human', 'manual-takeover'].includes(state.status)) {
+      throw new SingularityFlowError(`Auto flight '${id}' changed before resume.`, {
+        code: 'AUTO_CHECKPOINT_STALE', details: { status: state.status }
+      });
     }
     state.status = 'running'; state.stopReason = 'human-resumed'; state.stopRequested = null;
     state.nextAction = 'Run the next bounded Auto step; the next model attempt remains single-shot.';
+  }, { expectedCheckpoint: current.checkpointSha256 });
+}
+
+export async function haltAutoFlight(root, id, reason = 'human-halted', options = {}) {
+  return requestQuiescentTransition(root, id, {
+    kind: 'halt', finalStatus: 'halted', finalReason: reason,
+    finalNextAction: 'Create a replacement Plan to continue autonomous work.',
+    quiescenceTimeoutMs: options.quiescenceTimeoutMs
   });
 }
 
-export async function haltAutoFlight(root, id, reason = 'human-halted') {
-  const halted = await requestStopMutation(root, id, (state) => {
-    if (['completed', 'discarded'].includes(state.status)) throw new SingularityFlowError(`Auto flight '${id}' is ${state.status}.`, { code: 'AUTO_FLIGHT_TERMINAL' });
-    state.status = 'halted'; state.stopReason = reason; state.nextAction = 'Create a replacement Plan to continue autonomous work.';
-    state.stopRequested = { kind: 'halt', requestedAt: nowIso() };
+export async function takeoverAutoFlight(root, id, options = {}) {
+  return requestQuiescentTransition(root, id, {
+    kind: 'takeover', finalStatus: 'manual-takeover', finalReason: 'human-manual-takeover',
+    finalNextAction: 'Continue manually in the preserved managed Story worktree, or resume with the exact checkpoint hash.',
+    quiescenceTimeoutMs: options.quiescenceTimeoutMs
   });
-  await waitForExecutionQuiescence(root, id);
-  return readAutoFlightState(root, halted.flightId);
 }
 
 export async function discardAutoFlight(root, id, confirmation) {
   if (confirmation !== id) throw new SingularityFlowError(`Discard requires --confirm ${id}.`, { code: 'AUTO_CONFIRMATION_REQUIRED' });
-  const current = await readAutoFlightState(root, id);
-  if (current.status === 'running') throw new SingularityFlowError('Pause or halt a running flight before discarding it.', { code: 'AUTO_FLIGHT_RUNNING' });
-  const managedRoot = path.join(gitCommonDir(root), 'singularity-flow', 'auto-worktrees', id);
-  const managedWorktree = path.resolve(current.worktree);
-  if (managedWorktree !== managedRoot && !managedWorktree.startsWith(`${managedRoot}${path.sep}`)) {
-    throw new SingularityFlowError(`Auto flight '${id}' worktree is outside its managed root.`, { code: 'AUTO_FLIGHT_CORRUPT' });
-  }
-  const removed = run('git', ['worktree', 'remove', '--force', '--', managedWorktree], { cwd: root, allowFailure: true });
-  if (removed.status !== 0 && !/not a working tree|does not exist/i.test(removed.stderr || removed.stdout)) {
-    throw new SingularityFlowError(`Auto worktree cleanup failed: ${(removed.stderr || removed.stdout).trim()}`, {
-      code: 'AUTO_DISCARD_FAILED'
-    });
-  }
-  const remote = run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${current.story.branch}`], {
-    cwd: root, allowFailure: true
-  }).status === 0;
-  if (!remote) run('git', ['branch', '-D', '--', current.story.branch], { cwd: root, allowFailure: true });
-  return mutateAutoFlightState(root, id, (state) => {
-    state.status = 'discarded'; state.stopReason = 'human-discarded';
-    state.stopRequested = { kind: 'discard', requestedAt: nowIso() };
-    state.nextAction = remote
-      ? 'The published Story branch remains on the remote; the managed worktree was removed.'
-      : 'The unpublished managed worktree and local Story branch were removed.';
-  }, { expectedCheckpoint: current.checkpointSha256 });
+  const initial = await readAutoFlightState(root, id);
+  if (initial.status === 'running') throw new SingularityFlowError('Pause or halt a running flight before discarding it.', { code: 'AUTO_FLIGHT_RUNNING' });
+  if (initial.status === 'recovery-required') throw new SingularityFlowError(
+    'Auto execution quiescence is unproven; recover the flight before discarding its worktree.',
+    { code: 'AUTO_RECOVERY_REQUIRED' }
+  );
+  await waitForExecutionQuiescence(root, id);
+  return withSubjectLock(root, { kind: 'auto-flight-step', id }, async () => {
+    const current = await readAutoFlightState(root, id);
+    if (current.status === 'running' || current.status === 'recovery-required'
+        || (current.stopRequested && !current.stopRequested.quiescedAt)) {
+      throw new SingularityFlowError(`Auto flight '${id}' is not safely quiesced for discard.`, {
+        code: current.status === 'recovery-required' ? 'AUTO_RECOVERY_REQUIRED' : 'AUTO_STOP_IN_PROGRESS'
+      });
+    }
+    const managedRoot = path.join(gitCommonDir(root), 'singularity-flow', 'auto-worktrees', id);
+    const managedWorktree = path.resolve(current.worktree);
+    if (managedWorktree !== managedRoot && !managedWorktree.startsWith(`${managedRoot}${path.sep}`)) {
+      throw new SingularityFlowError(`Auto flight '${id}' worktree is outside its managed root.`, { code: 'AUTO_FLIGHT_CORRUPT' });
+    }
+    const removed = run('git', ['worktree', 'remove', '--force', '--', managedWorktree], { cwd: root, allowFailure: true });
+    if (removed.status !== 0 && !/not a working tree|does not exist/i.test(removed.stderr || removed.stdout)) {
+      throw new SingularityFlowError(`Auto worktree cleanup failed: ${(removed.stderr || removed.stdout).trim()}`, {
+        code: 'AUTO_DISCARD_FAILED'
+      });
+    }
+    const remote = run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${current.story.branch}`], {
+      cwd: root, allowFailure: true
+    }).status === 0;
+    if (!remote) run('git', ['branch', '-D', '--', current.story.branch], { cwd: root, allowFailure: true });
+    return mutateAutoFlightState(root, id, (state) => {
+      state.status = 'discarded'; state.stopReason = 'human-discarded';
+      state.stopRequested = { kind: 'discard', requestedAt: nowIso(), quiescedAt: nowIso() };
+      state.nextAction = remote
+        ? 'The published Story branch remains on the remote; the managed worktree was removed.'
+        : 'The unpublished managed worktree and local Story branch were removed.';
+    }, { expectedCheckpoint: current.checkpointSha256 });
+  });
 }
 
 /** Atomically consumes the one allowed authoring attempt before a model process can start. */
@@ -255,13 +375,16 @@ export function buildAutoFlightReport(state) {
     commits: structuredClone(state.commits ?? {}),
     evidence: structuredClone(state.evidence ?? {}),
     lastSuccessfulStoryRevision: state.lastSuccessfulStoryRevision ?? null,
-    retainedUnpublishedPaths: state.status === 'halted' || state.status === 'paused'
+    retainedUnpublishedPaths: [
+      'halted', 'paused', 'manual-takeover', 'recovery-required'
+    ].includes(state.status)
       ? structuredClone(state.observedPaths ?? []) : [],
     authorityTarget: state.status === 'waiting-human'
       ? structuredClone(state.execution?.until ?? null) : null,
     quality: structuredClone(state.quality ?? []),
     approvals: structuredClone(state.approvals ?? []),
-    humanIntervention: state.stopReason?.startsWith('human-') || state.status === 'waiting-human'
+    humanIntervention: state.stopReason?.startsWith('human-')
+      || ['waiting-human', 'manual-takeover', 'recovery-required'].includes(state.status)
       ? { required: true, reason: state.stopReason, requested: state.stopRequested ?? null }
       : { required: false, reason: null, requested: null },
     lastError: structuredClone(state.lastError ?? null),
@@ -289,16 +412,22 @@ export function buildAutoFlightReport(state) {
 
 export async function persistAutoFlightReport(root, state) {
   const report = buildAutoFlightReport(state);
-  await writeAtomic(reportFile(root, state.flightId), canonicalJson(report), { mode: 0o600 });
+  await writeAutoPrivateRecord(
+    root, reportFile(root, state.flightId), 'flight-report', canonicalJson(report), { immutable: true }
+  );
   return report;
 }
 
 export async function readAutoFlightReport(root, value) {
   const id = validateFlightId(value);
-  const report = readRecord('auto-flight-report', await readFile(reportFile(root, id), 'utf8')).record;
+  const raw = await readAutoPrivateRecord(root, reportFile(root, id), 'flight-report');
+  const report = readRecord('auto-flight-report', raw).record;
   const copy = structuredClone(report);
   delete copy.reportSha256;
-  if (report.flightId !== id || report.reportSha256 !== `sha256:${recordSha256(copy)}`) {
+  if (report.kind !== 'auto-flight-report' || report.mode !== 'auto'
+      || report.flightId !== id || !PLAN_ID.test(String(report.planId ?? ''))
+      || !CHECKPOINT.test(String(report.planSha256 ?? ''))
+      || report.reportSha256 !== `sha256:${recordSha256(copy)}`) {
     throw new SingularityFlowError(`Auto flight report '${id}' failed its integrity check.`, {
       code: 'AUTO_FLIGHT_CORRUPT'
     });
@@ -323,7 +452,7 @@ export function renderAutoFlightReport(state, report = buildAutoFlightReport(sta
 }
 
 export async function listAutoFlights(root) {
-  const names = await readdir(localRoot(root)).catch(() => []);
+  const names = (await listAutoPrivateRecords(root, localRoot(root))).map((entry) => entry.name);
   const states = [];
   const corrupt = [];
   for (const name of names.filter((entry) => FLIGHT_ID.test(entry))) {

@@ -8,7 +8,7 @@
  */
 import { constants as fsConstants } from 'node:fs';
 import {
-  link, lstat, mkdir, open, readFile, realpath, readdir, rm
+  link, lstat, mkdir, open, realpath, readdir, rename, rm
 } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -85,21 +85,70 @@ export async function safePrivateSidecarDirectory(root, directory, { create = fa
 
 export async function readPrivateSidecar(root, target, {
   maximumBytes,
-  optional = false
+  optional = false,
+  identityRetries = 3
 } = {}) {
-  await safePrivateSidecarDirectory(root, path.dirname(target));
+  try { await safePrivateSidecarDirectory(root, path.dirname(target)); }
+  catch (error) {
+    if (optional && error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  let entry;
+  try {
+    entry = await lstat(target);
+    if (entry.isSymbolicLink() || !entry.isFile()) {
+      fail(`Private SGOS sidecar '${target}' is not a real regular file.`);
+    }
+  } catch (error) {
+    if (optional && error?.code === 'ENOENT') return null;
+    throw error;
+  }
   let handle;
   try {
-    handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    handle = await open(target,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     const info = await handle.stat();
     if (!info.isFile()) fail(`Private SGOS sidecar '${target}' is not a regular file.`);
+    if (entry.dev !== info.dev || entry.ino !== info.ino) {
+      await handle.close();
+      handle = null;
+      if (identityRetries > 0) {
+        return readPrivateSidecar(root, target, {
+          maximumBytes, optional, identityRetries: identityRetries - 1
+        });
+      }
+      fail(`Private SGOS sidecar '${target}' changed identity while it was opened.`);
+    }
     if (Number.isSafeInteger(maximumBytes) && info.size > maximumBytes) {
       throw new SingularityFlowError('Private SGOS sidecar exceeds its installed byte ceiling.', {
         code: 'SGOS_RECORD_SIZE_LIMIT', details: { actualBytes: info.size, maximumBytes }
       });
     }
     await safePrivateSidecarDirectory(root, path.dirname(target));
-    return await handle.readFile();
+    // Mutable sidecars publish with atomic rename, so the directory entry may legitimately point
+    // at the next version after this handle is open. The pre-open lstat/handle identity comparison
+    // proves this handle did not follow a raced link; read that immutable inode to completion.
+    let bytes;
+    if (Number.isSafeInteger(maximumBytes)) {
+      const bounded = Buffer.alloc(maximumBytes + 1);
+      let offset = 0;
+      while (offset < bounded.length) {
+        const { bytesRead } = await handle.read(
+          bounded, offset, bounded.length - offset, offset
+        );
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      bytes = bounded.subarray(0, offset);
+    } else {
+      bytes = await handle.readFile();
+    }
+    if (Number.isSafeInteger(maximumBytes) && bytes.length > maximumBytes) {
+      throw new SingularityFlowError('Private SGOS sidecar exceeds its installed byte ceiling.', {
+        code: 'SGOS_RECORD_SIZE_LIMIT', details: { actualBytes: bytes.length, maximumBytes }
+      });
+    }
+    return bytes;
   } catch (error) {
     if (optional && error?.code === 'ENOENT') return null;
     if (['ELOOP', 'EMLINK'].includes(error?.code)) {
@@ -108,6 +157,46 @@ export async function readPrivateSidecar(root, target, {
     throw error;
   } finally {
     await handle?.close().catch(() => {});
+  }
+}
+
+/**
+ * Atomically replace one mutable private sidecar without following repository-controlled links.
+ *
+ * Mutable operational records still use the same hardened ancestor walk and bounded, fsynced
+ * staging protocol as immutable evidence. An existing link or non-file is refused before rename;
+ * a link introduced after that check is replaced as a directory entry, never followed.
+ */
+export async function writeMutablePrivateSidecar(root, target, bytes, { maximumBytes } = {}) {
+  const content = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || content.length > maximumBytes) {
+    throw new SingularityFlowError('Private SGOS sidecar exceeds its installed byte ceiling.', {
+      code: 'SGOS_RECORD_SIZE_LIMIT',
+      details: { actualBytes: content.length, maximumBytes: maximumBytes ?? null }
+    });
+  }
+  const directory = await safePrivateSidecarDirectory(root, path.dirname(target), { create: true });
+  const existing = await readPrivateSidecar(root, target, { maximumBytes, optional: true });
+  const temporary = path.join(directory, `.pending-${process.pid}-${randomUUID()}`);
+  let handle;
+  try {
+    handle = await open(temporary,
+      fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY
+      | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+    await handle.writeFile(content);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await safePrivateSidecarDirectory(root, directory);
+    await rename(temporary, target);
+    await syncDirectory(directory);
+    await safePrivateSidecarDirectory(root, directory);
+    const published = await readPrivateSidecar(root, target, { maximumBytes });
+    if (!published.equals(content)) fail('Private SGOS mutable sidecar publication changed bytes.');
+    return Object.freeze({ created: existing == null });
+  } finally {
+    await handle?.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
   }
 }
 

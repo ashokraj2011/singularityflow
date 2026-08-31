@@ -1,0 +1,33 @@
+{
+  "auto-plan-ratification": {
+    "schemaVersion": 1,
+    "kind": "auto-plan-ratification",
+    "mode": "auto",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local",
+    "ratifiedAt": "2026-01-02T03:04:05.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z",
+    "authorizationSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "pinnedAt": "2026-01-02T03:05:05.000Z",
+    "recordSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "auto-authorization": {
+    "schemaVersion": 1,
+    "kind": "auto-plan-ratification",
+    "mode": "auto",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local",
+    "ratifiedAt": "2026-01-02T03:04:05.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z",
+    "claimedAt": null,
+    "consumedAt": null,
+    "flightId": null,
+    "authorizationSha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "recordSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  }
+}

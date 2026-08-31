@@ -25,6 +25,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Auto Plan ${slot(s.planId)} is ready for exact review.`,
     preserves: true
   },
+  'auto.flight-list-ready': {
+    headline: (s) => `${slot(s.count, '0')} Auto flight(s) are recorded in this repository.`,
+    preserves: true
+  },
   'auto.flight-reported': {
     headline: (s) => `Auto flight ${slot(s.flightId)} is ${slot(s.status)}.`,
     preserves: false

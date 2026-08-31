@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import YAML from 'yaml';
 
 import { createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-plan.mjs';
+import { buildAutoPlanPacket } from '../src/auto/auto-plan-packet.mjs';
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
 import { executeAutoFlightStep, mutateAutoExecutorState } from '../src/auto/auto-executor.mjs';
 import {
@@ -17,9 +18,12 @@ import {
 import { loadDefinition } from '../src/config.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+
+function confirmation(plan) { return buildAutoPlanPacket(plan).packetSha256; }
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
@@ -198,7 +202,7 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   const plan = await createAutoPlan(root, 'Change the exported application value.', proposal, {
     workId: 'AUT-START-1', workType: 'feature', fromBranch: 'main'
   });
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
   assert.equal(started.flight.status, 'waiting-human');
   assert.equal(started.flight.stopReason, 'first-human-boundary');
@@ -220,6 +224,9 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   ), 'utf8'));
   assert.equal(ratification.identityAssurance, 'configured-local');
   assert.equal(ratification.actor.name, 'Auto Tester');
+  assert.equal(ratification.confirmationProtocol, 'packet-v1');
+  assert.equal(ratification.confirmedSha256, confirmation(plan));
+  assert.equal(ratification.packetSha256, confirmation(plan));
   assert.equal(ratification.authorizationSha256.startsWith('sha256:'), true);
   const localAuthorization = JSON.parse(await readFile(path.join(
     root, '.git/singularity-flow/auto-authorizations', `${plan.planId}.json`
@@ -227,7 +234,77 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   assert.equal(localAuthorization.authorizationSha256, ratification.authorizationSha256);
   assert.notEqual(localAuthorization.recordSha256, ratification.recordSha256);
   assert.equal((await readAutoFlightState(root, started.flight.flightId)).recordSha256, started.flight.recordSha256);
-  await assert.rejects(() => startAutoFlight(root, plan.planId, plan.planSha256), (error) => error.code === 'AUTO_AUTHORIZATION_CONSUMED');
+  await assert.rejects(() => startAutoFlight(root, plan.planId, confirmation(plan)), (error) => error.code === 'AUTO_AUTHORIZATION_CONSUMED');
+});
+
+test('resume trusts the governed accepted Plan rather than reapplying mutable start-time remote checks', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Keep a started flight valid when main advances.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-ACTIVE-BINDING', workType: 'feature', fromBranch: 'main' });
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  await writeFile(path.join(root, 'main-advanced.txt'), 'advanced after Story start\n');
+  run('git', ['add', 'main-advanced.txt'], root);
+  run('git', ['commit', '-m', 'advance main after Auto start'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const resumed = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
+  assert.equal(resumed.status, 'running');
+});
+
+test('resume refuses a managed worktree whose configured repository authority changed', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Keep the accepted repository authority exact.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-REMOTE-BINDING', workType: 'feature', fromBranch: 'main' });
+  const { flight, story } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const other = `${root}-other.git`;
+  run('git', ['init', '--bare', '-b', 'main', other], root);
+  run('git', ['remote', 'set-url', 'origin', other], story.worktree);
+  await assert.rejects(
+    () => resumeAutoFlight(root, flight.flightId, flight.checkpointSha256),
+    (error) => error.code === 'AUTO_FLIGHT_BINDING_MISMATCH'
+  );
+  await rm(other, { recursive: true, force: true });
+});
+
+test('resume refuses a tampered governed accepted Plan before model execution', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Bind resume to the accepted governed Plan.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-TAMPERED-BINDING', workType: 'feature', fromBranch: 'main' });
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const acceptedPath = path.join(
+    flight.worktree, 'singularity/work-items/AUT-TAMPERED-BINDING/context/auto/accepted-plan.json'
+  );
+  const accepted = JSON.parse(await readFile(acceptedPath, 'utf8'));
+  accepted.proposal.title = 'Tampered after ratification';
+  await writeFile(acceptedPath, JSON.stringify(accepted));
+  await assert.rejects(
+    () => resumeAutoFlight(root, flight.flightId, flight.checkpointSha256),
+    (error) => error.code === 'AUTO_FLIGHT_BINDING_MISMATCH'
+  );
+  assert.equal((await readAutoFlightState(root, flight.flightId)).status, 'waiting-human');
+});
+
+test('resume refuses a self-consistent ratification whose authorization identity was altered', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Bind resume to the exact ratifying identity.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-TAMPERED-RATIFICATION', workType: 'feature', fromBranch: 'main' });
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const ratificationPath = path.join(
+    flight.worktree,
+    'singularity/work-items/AUT-TAMPERED-RATIFICATION/context/auto/ratification.json'
+  );
+  const ratification = JSON.parse(await readFile(ratificationPath, 'utf8'));
+  ratification.actor.name = 'Altered Reviewer';
+  delete ratification.recordSha256;
+  ratification.recordSha256 = recordSha256(ratification);
+  await writeFile(ratificationPath, JSON.stringify(ratification));
+  await assert.rejects(
+    () => resumeAutoFlight(root, flight.flightId, flight.checkpointSha256),
+    (error) => error.code === 'AUTO_FLIGHT_BINDING_MISMATCH'
+  );
 });
 
 test('a dead authorization claimant is recovered without waiting for lease expiry', async () => {
@@ -240,12 +317,12 @@ test('a dead authorization claimant is recovered without waiting for lease expir
   const child = spawnSync(process.execPath, ['--input-type=module', '--eval', [
     `import { ratifyAutoPlan, claimAutoAuthorization } from ${JSON.stringify(moduleUrl)};`,
     `const root = ${JSON.stringify(root)};`,
-    `const { plan, authorization } = await ratifyAutoPlan(root, ${JSON.stringify(plan.planId)}, ${JSON.stringify(plan.planSha256)});`,
+    `const { plan, authorization } = await ratifyAutoPlan(root, ${JSON.stringify(plan.planId)}, ${JSON.stringify(confirmation(plan))});`,
     `await claimAutoAuthorization(root, plan, authorization, ${JSON.stringify(abandonedFlightId)});`
   ].join('\n')], { cwd: root, encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
 
-  const recovered = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const recovered = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.notEqual(recovered.flight.flightId, abandonedFlightId,
     'an effect-free dead claim must be released rather than reconstructed');
   assert.ok(await readAutoFlightState(root, recovered.flight.flightId));
@@ -268,7 +345,7 @@ test('a dead start after Story creation reconstructs the exact Auto flight', asy
     `import { startChangeFlightPlan } from ${JSON.stringify(changeUrl)};`,
     `import { gitCommonDir } from ${JSON.stringify(gitUrl)};`,
     `const root = ${JSON.stringify(root)};`,
-    `const { plan, authorization } = await ratifyAutoPlan(root, ${JSON.stringify(plan.planId)}, ${JSON.stringify(plan.planSha256)});`,
+    `const { plan, authorization } = await ratifyAutoPlan(root, ${JSON.stringify(plan.planId)}, ${JSON.stringify(confirmation(plan))});`,
     `const flightId = ${JSON.stringify(abandonedFlightId)};`,
     `const claimed = await claimAutoAuthorization(root, plan, authorization, flightId);`,
     `const repository = plan.repositories[0];`,
@@ -281,7 +358,7 @@ test('a dead start after Story creation reconstructs the exact Auto flight', asy
   ].join('\n')], { cwd: root, encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
 
-  const recovered = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const recovered = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.equal(recovered.flight.flightId, abandonedFlightId);
   assert.equal(recovered.story.idempotent, true);
   const workflow = JSON.parse(await readFile(path.join(
@@ -300,7 +377,7 @@ test('workspace concurrency is atomic and corrupt flight state fails closed', as
     workId: 'AUT-CORRUPT-BLOCK', workType: 'feature', fromBranch: 'main'
   });
   await assert.rejects(
-    () => startAutoFlight(root, blockedPlan.planId, blockedPlan.planSha256),
+    () => startAutoFlight(root, blockedPlan.planId, confirmation(blockedPlan)),
     (error) => error.code === 'AUTO_FLIGHT_CORRUPT'
   );
   await rm(corruptDirectory, { recursive: true, force: true });
@@ -312,8 +389,8 @@ test('workspace concurrency is atomic and corrupt flight state fails closed', as
     workId: 'AUT-CONCURRENT-2', workType: 'feature', fromBranch: 'main'
   });
   const results = await Promise.allSettled([
-    startAutoFlight(root, first.planId, first.planSha256),
-    startAutoFlight(root, second.planId, second.planSha256)
+    startAutoFlight(root, first.planId, confirmation(first)),
+    startAutoFlight(root, second.planId, confirmation(second))
   ]);
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
@@ -324,7 +401,7 @@ test('discard removes only an unpublished managed worktree and local Story branc
   const plan = await createAutoPlan(root, 'Discard unpublished isolated work safely.', proposal, {
     workId: 'AUT-DISCARD-1', workType: 'feature', fromBranch: 'main'
   });
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const discarded = await discardAutoFlight(root, started.flight.flightId, started.flight.flightId);
   assert.equal(discarded.status, 'discarded');
   await assert.rejects(() => access(started.story.worktree), (error) => error.code === 'ENOENT');
@@ -338,7 +415,7 @@ test('checkpoint resume is exact and authoring attempt counters are consumed bef
   const plan = await createAutoPlan(root, 'Change the exported application value.', {
     ...proposal, unresolvedDecisions: ['A human must choose the public contract.']
   }, { workId: 'AUT-CHECK-1', workType: 'feature', fromBranch: 'main' });
-  const { flight } = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
   await assert.rejects(() => resumeAutoFlight(root, flight.flightId, `sha256:${'0'.repeat(64)}`), (error) => error.code === 'AUTO_CHECKPOINT_STALE');
   const running = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
   assert.equal(running.status, 'running');
@@ -358,7 +435,7 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
     predictedPaths: ['app.mjs', 'test/app.test.mjs'],
     suggestedUntil: 'phase-complete:implement'
   }, { workId: 'AUT-EXEC-1', workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.equal(started.flight.status, 'running');
   const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
   if (final.status === 'halted') assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
@@ -391,6 +468,40 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   assert.equal(report.lastSuccessfulStoryRevision, final.commits.submission);
 });
 
+test('step pacing checkpoints authored and published boundaries without repeating the model attempt', async () => {
+  const root = await executableRepository();
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.workTypes['quick-fix'].auto.allowedPaces = ['phase', 'step'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'allow inspected step pacing'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const plan = await createAutoPlan(root, 'Change the value with an inspection after each operation.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, { workId: 'AUT-STEP-1', workType: 'quick-fix', fromBranch: 'main', pace: 'step' });
+  let { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+
+  flight = await runFlightStep(root, flight);
+  assert.equal(flight.status, 'paused');
+  assert.equal(flight.position, 'authored');
+  assert.equal(flight.stopReason, 'step-boundary-reached');
+  assert.equal(flight.counters.modelInvocations, 1);
+
+  flight = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
+  flight = await runFlightStep(root, flight);
+  assert.equal(flight.status, 'paused');
+  assert.equal(flight.position, 'published');
+  assert.equal(flight.counters.modelInvocations, 1);
+
+  flight = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
+  flight = await runFlightStep(root, flight);
+  assert.equal(flight.status, 'completed');
+  assert.equal(flight.position, 'submitted');
+  assert.equal(flight.counters.modelInvocations, 1);
+});
+
 test('Auto treats approved configuration projected into a config-free Story as input, not model output', async () => {
   const root = await configurationFreeExecutableRepository();
   assert.equal(run('git', ['cat-file', '-e', 'HEAD:singularity/workflow.yml'], root, {
@@ -404,7 +515,7 @@ test('Auto treats approved configuration projected into a config-free Story as i
   }, { workId: 'AUT-CONFIG-FREE', workType: 'quick-fix', fromBranch: 'main' });
   assert.match(plan.bindings.workflowSha256, /^[0-9a-f]{64}$/,
     'the plan binds the approved configuration overlay even though main is code-only');
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
   if (final.status === 'halted') assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
   assert.deepEqual(final.observedPaths, ['app.mjs', 'test/app.test.mjs']);
@@ -420,7 +531,7 @@ for (const boundary of ['published', 'submitted']) {
       ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
       suggestedUntil: `${boundary}:implement`
     }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-    const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+    const started = await startAutoFlight(root, plan.planId, confirmation(plan));
     const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
     assert.equal(final.status, 'completed');
     assert.equal(final.stopReason, 'requested-boundary-reached');
@@ -438,7 +549,7 @@ for (const request of ['pause', 'halt']) {
       ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
       suggestedUntil: 'phase-complete:implement'
     }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-    const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+    const started = await startAutoFlight(root, plan.planId, confirmation(plan));
     const execution = runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
     let active;
     for (let attempt = 0; attempt < 250; attempt += 1) {
@@ -476,7 +587,7 @@ test('a stop observed while its flight-state lock is still held remains recovera
     ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
     suggestedUntil: 'phase-complete:implement'
   }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const execution = runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
   let active;
   for (let attempt = 0; attempt < 250; attempt += 1) {
@@ -512,7 +623,7 @@ for (const request of ['pause', 'halt']) {
         ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
         suggestedUntil: 'phase-complete:implement'
       }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-      const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+      const started = await startAutoFlight(root, plan.planId, confirmation(plan));
       const entered = deferred();
       const release = deferred();
       let modelCalls = 0;
@@ -606,7 +717,7 @@ test('executor state CAS converts 128 portable pause/halt lock races into a dura
   const plan = await createAutoPlan(root, 'Exercise the Auto state lock.', proposal, {
     workId: 'AUT-LOCK-STRESS', workType: 'feature', fromBranch: 'main'
   });
-  const started = await startAutoFlight(root, plan.planId, plan.planSha256);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const id = started.flight.flightId;
 
   for (let index = 0; index < 128; index += 1) {

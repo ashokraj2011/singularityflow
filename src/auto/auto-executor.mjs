@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 
 import { verifyClarificationRecord } from '../clarifications.mjs';
-import { loadDefinition } from '../config.mjs';
 import { head } from '../git.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -15,7 +14,7 @@ import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
-import { readAutoPlan, revalidateAutoPlan } from './auto-plan.mjs';
+import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 import {
   authorizeAutoAuthoringAttempt, mutateAutoFlightState, persistAutoFlightReport, readAutoFlightState
@@ -241,6 +240,16 @@ async function finishAtBoundary(root, flightId, state, phaseId, boundary) {
   }, { expectedCheckpoint: completed.checkpointSha256, expectedStatuses: ['completed'] });
 }
 
+async function pauseAtStepBoundary(root, flightId, state, phaseId, boundary) {
+  if (state.execution?.pace?.mode !== 'step') return null;
+  return mutateAutoExecutorState(root, flightId, (draft) => {
+    draft.status = 'paused';
+    draft.stopReason = 'step-boundary-reached';
+    draft.stopRequested = null;
+    draft.nextAction = `Review '${boundary}' for phase '${phaseId}', then resume with the exact checkpoint hash.`;
+  }, { expectedCheckpoint: state.checkpointSha256 });
+}
+
 function protectedPathEvaluation(definition, workflow, changeSet) {
   const protectedPaths = [...new Set([
     'singularity/workflow.yml', 'singularity/capabilities.yml',
@@ -278,13 +287,15 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   if (state.status !== 'running') throw new SingularityFlowError(`Auto flight '${flightId}' is ${state.status}.`, {
     code: 'AUTO_FLIGHT_NOT_RUNNING', details: { nextAction: state.nextAction }
   });
-  const plan = await readAutoPlan(root, state.planId);
-  try { await revalidateAutoPlan(root, plan); }
+  let continuation;
+  try { continuation = await verifyAutoFlightContinuation(root, state); }
   catch (error) {
-    return stopActive('halted', 'plan-drift', 'Create and ratify a replacement Plan before continuing.', {
+    return stopActive('halted', 'continuation-binding-mismatch',
+      'Inspect the governed Story binding and create a continuation or replacement Plan before continuing.', {
       lastError: { code: error.code ?? 'AUTO_PLAN_STALE', message: error.message }
     });
   }
+  const { plan } = continuation;
 
   const elapsedMinutes = (Date.now() - Date.parse(state.createdAt)) / 60_000;
   if (elapsedMinutes >= state.execution.ceilings.maximumElapsedMinutes) {
@@ -308,12 +319,9 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   }
 
   const worktree = state.worktree;
-  let definition;
-  let workflow;
+  let { definition, workflow } = continuation;
   let phase;
   try {
-    definition = await loadDefinition(worktree);
-    workflow = await loadStoryAggregate(worktree, definition, state.story.workId);
     phase = workflow.phases[workflow.currentPhase];
     if (!phase || phase.id !== state.story.phase) throw new SingularityFlowError('Story phase changed outside the Auto flight.', { code: 'AUTO_FLIGHT_STALE' });
     if (workflow.executionOrigin?.flightId !== flightId || workflow.executionOrigin?.planSha256 !== state.planSha256) {
@@ -495,6 +503,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.stopReason = 'authoring-complete';
         draft.nextAction = 'Publish the exact authored generation through the normal lifecycle operation.';
       }, { expectedCheckpoint: authoringCheckpoint });
+      const stepBoundary = await pauseAtStepBoundary(root, flightId, state, phase.id, 'authored');
+      if (stepBoundary) return stepBoundary;
     } catch (error) {
       const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
       if (humanStop) return humanStop;
@@ -541,6 +551,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }, { expectedCheckpoint: state.checkpointSha256 });
       const boundary = await finishAtBoundary(root, flightId, state, phase.id, 'published');
       if (boundary) return boundary;
+      const stepBoundary = await pauseAtStepBoundary(root, flightId, state, phase.id, 'published');
+      if (stepBoundary) return stepBoundary;
     } catch (error) {
       const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
       if (humanStop) return humanStop;

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-plan-validation.schema.json",
+  "title": "Singularity Flow Auto Plan validation v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "planSha256", "status", "checks", "warnings", "requiredQuestions", "requiredHumanStops", "insertedControls", "validationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-plan-validation" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "status": { "enum": ["valid", "needs-human", "invalid", "unavailable"] },
+    "checks": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "requiredQuestions": { "type": "array", "items": { "type": "string" } },
+    "requiredHumanStops": { "type": "array", "items": { "type": "object" } },
+    "insertedControls": { "type": "array", "items": { "type": "string" } },
+    "validationSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

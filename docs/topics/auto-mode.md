@@ -10,9 +10,9 @@ related:
   - story-lifecycle
   - impact-framework
   - checkpoints-pause-continue
-version: 2
+version: 3
 ---
-Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan and—only after that hash is confirmed—creates an ordinary governed Story in a managed isolated worktree. It is repository policy, not a way around lifecycle policy.
+Auto mode turns a plain-language requirement into a reviewable, exact-hash Plan and derived ratification packet and—only after the packet hash is confirmed—creates an ordinary governed Story in a managed isolated worktree. It is repository policy, not a way around lifecycle policy.
 
 ## Purpose and prerequisites
 
@@ -22,9 +22,9 @@ The thin pilot requires one repository, a published base branch, a configured al
 
 ## Use it from each surface
 
-**Shell:** Run `singularity-flow auto plan "<requirement>" --work-type <type> --from-branch <branch>`, review the complete card, then copy its exact `auto start --confirm` command.
+**Shell:** Run `singularity-flow auto "<requirement>" --work-type <type> --from-branch <branch>` or the explicit `auto plan` form, review the complete card, then copy its exact `auto start --confirm` command. The shorthand only builds a Plan; invoking it never confirms or starts work. Use `auto list` to find recorded flights. `auto takeover <FLIGHT-ID>` requests stop, proves quiescence, and preserves the exact managed worktree for manual control; an unproven stop becomes `recovery-required` rather than a false pause.
 
-**Copilot:** Run `/sf-auto plan <requirement>`, review the complete card, then run `/sf-auto start <PLAN-ID>`. The skill requires you to type the complete Plan hash and never extracts or pre-fills it. `/sf-start` remains the guided manual Story route.
+**Copilot:** Run `/sf-auto plan <requirement>`, review the complete card, then run `/sf-auto start <PLAN-ID>`. The skill requires you to type the complete ratification-packet hash and never extracts or pre-fills it. `/sf-start` remains the guided manual Story route.
 
 **VS Code:** Open the integrated terminal in the governed repository and use the same explicit commands. Auto results use the shared command-result envelope, so result cards and errors remain structured. A dedicated Auto Plan/flight panel is a later V1 increment.
 
@@ -33,7 +33,7 @@ The thin pilot requires one repository, a published base branch, a configured al
 1. Enable root Auto policy and set one work type to `plan-only` or `bounded`.
 2. Run `auto plan`. Plan synthesis may invoke the configured model with tools disabled; its response is an untrusted proposal.
 3. Review the full Plan card: requirement, Work ID and branch, complete Story rail, exact bases, predicted scope, host, model assurance, tools, network policy, ceilings, human stops, expiry, and full SHA-256. Planning creates no Story or branch.
-4. For a bounded Plan, run `auto start <PLAN-ID> --confirm <PLAN-SHA256>`. Start revalidates the Plan and consumes the identity-bound authorization once.
+4. For a bounded Plan, run `auto start <PLAN-ID> --confirm <PACKET-SHA256>` or `auto start --plan <PLAN-ID> --confirm <PACKET-SHA256>`. Start rebuilds and verifies the packet, revalidates the Plan, and consumes the identity-bound authorization once. A pre-packet Plan cannot authorize execution; create and review a new Plan after upgrading.
 5. If the first phase has no clarification boundary, Auto composes the normal governed prompt, consumes one authoring attempt before the host starts, recomputes actual scope, and calls the ordinary publication and submission operations.
 6. Inspect `auto status <FLIGHT-ID>` or `auto report <FLIGHT-ID>`. The flight stops at approval or the requested first-phase boundary. Resume requires the exact current checkpoint hash.
 
@@ -45,7 +45,7 @@ Plans, authorizations, flight checkpoints, and reports are private mode-0600 rec
 
 Auto never approves or rejects, answers clarification, waives policy, changes sequence, expands scope, merges, deploys, or retries a failed authoring attempt. The authoring host receives only the closed file read/search/edit/create tool set—never a terminal or generic command tool—while tests and lifecycle mutations stay in registered kernel operations. Each phase gets at most one autonomous authoring attempt. Protected-path contact, actual scope expansion, unavailable required token assurance, a stale base or policy, host failure, gate failure, or publication failure halts and retains the managed worktree. The deterministic report distinguishes predicted and observed scope and marks token/cost assurance as exact or unavailable.
 
-The pilot deliberately stops short of multi-repository flights, Goal coordination, interval/background resume, interactive CLI shorthand, and a dedicated VS Code panel. `/sf-auto` is a guarded Copilot guide over the same explicit `auto plan` and `auto start --confirm` commands; it adds no autonomous authority.
+The pilot deliberately stops short of multi-repository flights, Goal coordination, interval/background resume, and a dedicated VS Code panel. The CLI shorthand is only a more natural spelling of `auto plan`; it adds no confirmation or autonomous authority. `/sf-auto` is a guarded Copilot guide over the same planning and exact `auto start --confirm` operations.
 
 ## Troubleshooting
 

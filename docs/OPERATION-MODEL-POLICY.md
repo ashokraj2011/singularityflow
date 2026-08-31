@@ -43,6 +43,7 @@ Every public operation is classified before its implementation module is importe
 | auto.discard | mutation | never | — | — |
 | auto.flight-step | mutation | required | — | copilot-cli |
 | auto.halt | mutation | never | — | — |
+| auto.list | read | never | — | — |
 | auto.pause | mutation | never | — | — |
 | auto.plan | mutation | required | — | copilot-cli |
 | auto.report | read | never | — | — |
@@ -50,6 +51,8 @@ Every public operation is classified before its implementation module is importe
 | auto.show-plan | read | never | — | — |
 | auto.start | mutation | never | — | — |
 | auto.status | read | never | — | — |
+| auto.stop | mutation | never | — | — |
+| auto.takeover | mutation | never | — | — |
 | bootstrap | mutation | never | — | — |
 | cancel | mutation | never | — | — |
 | candidate.diff-argv | read | never | — | — |

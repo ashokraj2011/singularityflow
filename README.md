@@ -2496,6 +2496,7 @@ commands are:
 /sf-about
 /sf-start ENG-142 --title "Add invoice export"
 /sf-auto plan "Add bounded retry telemetry"
+/sf-auto list
 /sf-agent
 /sf-phase
 /sf-progress
@@ -2512,6 +2513,9 @@ commands are:
 /sf-reject
 /sf-resume ENG-142
 ```
+
+AUT v2 implementation status and remaining release gates are tracked in
+[`docs/AUT-V2-IMPLEMENTATION-ROADMAP.md`](docs/AUT-V2-IMPLEMENTATION-ROADMAP.md).
 
 An authorized phase return now carries a reversible forward checkpoint. If the rework is later
 abandoned, preview it with `singularity-flow story rework roll-forward --work-id ENG-142 --json`,

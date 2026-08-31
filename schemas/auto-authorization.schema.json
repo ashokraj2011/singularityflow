@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-authorization.schema.json",
+  "title": "Singularity Flow mutable Auto authorization v2",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "mode",
+    "planId",
+    "planSha256",
+    "confirmationProtocol",
+    "confirmedSha256",
+    "packetSha256",
+    "validationSha256",
+    "actor",
+    "identityAssurance",
+    "ratifiedAt",
+    "expiresAt",
+    "claimedAt",
+    "consumedAt",
+    "flightId",
+    "authorizationSha256",
+    "recordSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "const": "auto-plan-ratification" },
+    "mode": { "const": "auto" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "confirmationProtocol": { "const": "packet-v1" },
+    "confirmedSha256": { "$ref": "#/$defs/hash" },
+    "packetSha256": { "$ref": "#/$defs/hash" },
+    "validationSha256": { "$ref": "#/$defs/hash" },
+    "actor": { "$ref": "#/$defs/actor" },
+    "identityAssurance": { "enum": ["configured-local", "github-authenticated", "signed"] },
+    "ratifiedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "claimedAt": { "type": ["string", "null"], "format": "date-time" },
+    "claimExpiresAt": { "type": ["string", "null"], "format": "date-time" },
+    "claimId": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "claimOwner": {
+      "oneOf": [
+        { "$ref": "#/$defs/claimOwner" },
+        { "type": "null" }
+      ]
+    },
+    "consumedAt": { "type": ["string", "null"], "format": "date-time" },
+    "flightId": {
+      "type": ["string", "null"],
+      "pattern": "^AFL-[A-F0-9]{26}$"
+    },
+    "authorizationSha256": { "$ref": "#/$defs/hash" },
+    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "allOf": [
+    {
+      "$comment": "For packet-v1, the runtime additionally requires confirmedSha256 to equal packetSha256; JSON Schema draft 2020-12 has no portable cross-property equality keyword."
+    },
+    {
+      "if": {
+        "required": ["claimedAt", "consumedAt"],
+        "properties": {
+          "claimedAt": { "type": "string" },
+          "consumedAt": { "type": "null" }
+        }
+      },
+      "then": {
+        "required": ["flightId", "claimExpiresAt", "claimId", "claimOwner"],
+        "properties": {
+          "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+          "claimExpiresAt": { "type": "string", "format": "date-time" },
+          "claimId": { "type": "string" },
+          "claimOwner": { "$ref": "#/$defs/claimOwner" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["consumedAt"],
+        "properties": { "consumedAt": { "type": "string" } }
+      },
+      "then": {
+        "required": ["claimedAt", "flightId", "claimExpiresAt"],
+        "properties": {
+          "claimedAt": { "type": "string", "format": "date-time" },
+          "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+          "claimExpiresAt": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["claimedAt"],
+        "properties": { "claimedAt": { "type": "null" } }
+      },
+      "then": {
+        "properties": {
+          "consumedAt": { "type": "null" },
+          "flightId": { "type": "null" },
+          "claimExpiresAt": { "type": "null" },
+          "claimId": { "type": "null" },
+          "claimOwner": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "actor": {
+      "type": "object",
+      "required": ["name", "email", "login"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "email": { "type": ["string", "null"] },
+        "login": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "claimOwner": {
+      "type": "object",
+      "required": ["host", "pid"],
+      "properties": {
+        "host": { "type": "string", "minLength": 1 },
+        "pid": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

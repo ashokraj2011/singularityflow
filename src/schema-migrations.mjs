@@ -5,6 +5,7 @@
  * version that was actually stored and the steps used to reach the current version. Migration
  * functions in this module deliberately have no access to I/O, clocks, Git, or model runners.
  */
+import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 function plainObject(value) {
@@ -40,6 +41,43 @@ function migration(from, to, migrate) {
 
 function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
+}
+
+function autoFlightCheckpointSha256(source) {
+  return `sha256:${recordSha256({
+    flightId: source.flightId,
+    planSha256: source.planSha256,
+    status: source.status,
+    workId: source.story?.workId,
+    phase: source.story?.phase,
+    position: source.position,
+    counters: source.counters,
+    checkpointSequence: source.checkpointSequence,
+    stopReason: source.stopReason,
+    stopRequested: source.stopRequested ?? null
+  })}`;
+}
+
+function autoFlightRecordSha256(source) {
+  const record = clone(source);
+  delete record.recordSha256;
+  return recordSha256(record);
+}
+
+function autoFlightStateV1ToV2(source) {
+  // A migration must not turn altered legacy bytes into a newly valid v2 record. Verify both
+  // independent v1 seals before changing the schema stamp, then reseal the current representation.
+  if (source.checkpointSha256 !== autoFlightCheckpointSha256(source)
+      || source.recordSha256 !== autoFlightRecordSha256(source)) {
+    throw new SingularityFlowError(
+      'Auto flight state v1 failed its integrity check and cannot be migrated.',
+      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'auto-flight-state', storedVersion: 1 } }
+    );
+  }
+  const migrated = { ...clone(source), schemaVersion: 2 };
+  migrated.checkpointSha256 = autoFlightCheckpointSha256(migrated);
+  migrated.recordSha256 = autoFlightRecordSha256(migrated);
+  return migrated;
 }
 
 function specificationClaimMapV1ToV2(source) {
@@ -1357,24 +1395,32 @@ const families = [
   }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({
-    id: 'auto-plan', currentVersion: 1,
+    // v1 authorized execution from the Plan digest instead of the independently rendered packet.
+    // That missing human-decision evidence cannot be invented by a migration, so v1 is archival.
+    id: 'auto-plan', currentVersion: 2, minimumReadableVersion: 2,
     paths: [
       /^\$git\/auto-plans\/APL-[A-F0-9]{26}\.json$/,
       /^singularity\/work-items\/[^/]+\/context\/auto\/accepted-plan\.json$/
     ],
     immutable: true
   }),
+  family({ id: 'auto-plan-validation', currentVersion: 1, immutable: true }),
+  family({ id: 'auto-plan-packet', currentVersion: 1, immutable: true }),
   family({
-    id: 'auto-plan-ratification', currentVersion: 1,
+    // v1 ratifications record Plan-digest confirmation and cannot prove packet-v1 review.
+    id: 'auto-plan-ratification', currentVersion: 2, minimumReadableVersion: 2,
     paths: [/^singularity\/work-items\/[^/]+\/context\/auto\/ratification\.json$/],
     immutable: true
   }),
   family({
-    id: 'auto-authorization', currentVersion: 1,
+    // v1 authorizations have no packet/validation digest set. They remain archival alongside v1 Plans.
+    id: 'auto-authorization', currentVersion: 2, minimumReadableVersion: 2,
     paths: [/^\$git\/auto-authorizations\/APL-[A-F0-9]{26}\.json$/]
   }),
   family({
-    id: 'auto-flight-state', currentVersion: 1,
+    // v2 adds takeover/recovery statuses. Every v1 status keeps the same meaning on read.
+    id: 'auto-flight-state', currentVersion: 2,
+    steps: [migration(1, 2, autoFlightStateV1ToV2)],
     paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/state\.json$/]
   }),
   family({ id: 'auto-origin', currentVersion: 1 }),

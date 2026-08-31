@@ -609,7 +609,8 @@ test('auto skill keeps planning storyless and requires exact human ratification'
   assert.match(content, /singularity-flow auto plan/);
   assert.match(content, /singularity-flow auto show-plan/);
   assert.match(content, /singularity-flow auto start/);
-  assert.match(content, /complete Plan SHA-256/);
+  assert.match(content, /complete ratification-packet SHA-256/);
+  assert.match(content, /--confirm <PACKET-SHA256>/);
   assert.match(content, /complete checkpoint SHA-256/);
   assert.match(content, /type the exact flight ID as confirmation/);
   assert.match(content, /Never invoke `auto flight-step` directly/);

@@ -38,9 +38,14 @@ workItemRoot: singularity/work-items
 idPattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
 
 # Auto is deliberately opt-in twice: once here and once on each work type allowed to use it.
-# Enabling planning never authorizes execution; start still requires the exact Plan SHA-256.
+# Enabling planning never authorizes execution; start still requires the exact ratification-packet SHA-256.
 auto:
   enabled: false
+  # Story Auto is the dependency-free core. `auto-select` currently resolves to Story, and an
+  # explicit SGOS selection fails locally without making ordinary Story work unavailable.
+  profile:
+    default: story
+    allowed: [story]
   defaultPace: phase
   defaultUntil: first-human-boundary
   workIdAllocator: ulid

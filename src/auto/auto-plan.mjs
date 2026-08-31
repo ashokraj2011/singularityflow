@@ -7,7 +7,6 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -21,16 +20,22 @@ import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
-import { exists, nowIso, run, SingularityFlowError, writeAtomic } from '../util.mjs';
+import { exists, nowIso, run, SingularityFlowError } from '../util.mjs';
 import {
-  AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector
+  AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector,
+  selectAutoProfile
 } from './auto-policy.mjs';
+import { buildAutoPlanPacket } from './auto-plan-packet.mjs';
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, remoteFingerprint
+} from '../git-remote-diagnostics.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import {
   configurationReadRoot, configurationReadSnapshot
 } from '../configuration-read-scope.mjs';
+import { readAutoPrivateRecord, writeAutoPrivateRecord } from './auto-private-store.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -204,8 +209,11 @@ function workIdFor(requirement, config, explicit = null) {
 }
 
 function remoteHead(root, remote, branchName) {
-  const result = runRemoteGit(['ls-remote', '--heads', '--', remote, `refs/heads/${branchName}`], {
-    cwd: root, operation: 'remote-probe'
+  const transport = frozenRemoteTransport(assertCredentialFreeRemote(remote));
+  const result = runRemoteGit([
+    'ls-remote', '--heads', '--', transport.remote, `refs/heads/${branchName}`
+  ], {
+    cwd: root, operation: 'remote-probe', env: transport.env
   });
   if (result.status !== 0) return null;
   return result.stdout.trim().split(/\s+/)[0] || null;
@@ -270,6 +278,43 @@ function sameActor(left, right) {
   return left?.name === right?.name && left?.email === right?.email && left?.login === right?.login;
 }
 
+/**
+ * Read the mutable, machine-local authorization receipt without ever treating unreadable bytes as
+ * an absent receipt. Ratification recovery makes decisions from `claimedAt` and `consumedAt`, so
+ * the family, identity, and complete self-hash must be verified before either field is inspected.
+ */
+async function readVerifiedAutoAuthorization(root, planIdValue, {
+  optional = false, expectedPlanSha256 = null, expectedPacketSha256 = null
+} = {}) {
+  const planId = validatePlanId(planIdValue);
+  const raw = await readAutoPrivateRecord(
+    root, authorizationFile(root, planId), 'authorization', { optional }
+  );
+  if (raw == null) return null;
+  const stored = readRecord('auto-authorization', raw).record;
+  if (stored.kind !== 'auto-plan-ratification'
+      || stored.mode !== 'auto'
+      || stored.planId !== planId
+      || !PLAN_HASH.test(String(stored.planSha256 ?? ''))
+      || stored.confirmationProtocol !== 'packet-v1'
+      || !PLAN_HASH.test(String(stored.confirmedSha256 ?? ''))
+      || !PLAN_HASH.test(String(stored.packetSha256 ?? ''))
+      || !PLAN_HASH.test(String(stored.validationSha256 ?? ''))
+      || stored.confirmedSha256 !== stored.packetSha256
+      || (expectedPlanSha256 && stored.planSha256 !== expectedPlanSha256)
+      || (expectedPacketSha256 && (
+        stored.confirmedSha256 !== expectedPacketSha256
+        || stored.packetSha256 !== expectedPacketSha256
+      ))
+      || stored.recordSha256 !== sealAuthorization(stored).recordSha256) {
+    throw new SingularityFlowError(
+      `Auto authorization for '${planId}' failed its integrity check.`,
+      { code: 'AUTO_AUTHORIZATION_CORRUPT' }
+    );
+  }
+  return stored;
+}
+
 export function autoPlanHash(plan) {
   const copy = structuredClone(plan);
   delete copy.planSha256;
@@ -297,6 +342,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   }
   const resolution = resolveWorkType(definition, workType);
   const policy = effectiveAutoPolicy(definition.auto, resolution.auto, capability?.policy?.auto);
+  const profile = selectAutoProfile(policy, options.profile);
   const pace = parseAutoPace(options.pace ?? definition.auto.defaultPace);
   if (!resolution.auto.allowedPaces.includes(pace.mode)) {
     throw new SingularityFlowError(`Work type '${workType}' does not allow Auto pace '${pace.mode}'.`, { code: 'AUTO_PACE_FORBIDDEN' });
@@ -310,6 +356,20 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     throw new SingularityFlowError(`Auto Work ID '${workId}' does not match ${definition.idPattern}.`, { code: 'AUTO_PLAN_INVALID' });
   }
   const remote = definition.git?.remote ?? 'origin';
+  const rootRemoteIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (!rootRemoteIdentity.configured || rootRemoteIdentity.ambiguous || !rootRemoteIdentity.url) {
+    throw new SingularityFlowError(
+      `Auto Plan requires one unambiguous credential-free URL for Git remote '${remote}'.`,
+      {
+        code: 'AUTO_REPOSITORY_IDENTITY_UNAVAILABLE',
+        details: {
+          remote, configured: rootRemoteIdentity.configured,
+          ambiguous: rootRemoteIdentity.ambiguous,
+          nextAction: 'Configure one credential-free remote URL and use a Git credential helper.'
+        }
+      }
+    );
+  }
   const catalog = options.baseCatalog ?? await storyBaseCatalog(root, {
     remote,
     defaultBranch: definition.defaultBaseBranch,
@@ -326,9 +386,23 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   if (missing.length) throw new SingularityFlowError(`Base branch '${baseBranch}' is not published by: ${missing.join(', ')}.`, {
     code: 'AUTO_BASE_INVALID'
   });
+  const repositoryAuthorities = Object.fromEntries(catalog.repositories.map((repository) => {
+    const repositoryRoot = repository.path ?? root;
+    const configured = repository.url
+      ? assertCredentialFreeRemote(repository.url)
+      : configuredRemoteIdentity(repositoryRoot, remote, { direction: 'fetch' }).url;
+    if (!configured) throw new SingularityFlowError(
+      `Auto Plan cannot resolve a credential-free remote identity for repository '${repository.id}'.`,
+      { code: 'AUTO_REPOSITORY_IDENTITY_UNAVAILABLE' }
+    );
+    // `assertCredentialFreeRemote` has already rejected persisted credentials. Preserve the exact
+    // transport identity here: sanitizing `ssh://git@host/repo` would remove the SSH login and can
+    // make a reviewed Plan address a different or unusable transport.
+    return [repository.id, { url: configured, fingerprint: remoteFingerprint(configured) }];
+  }));
   const baseHeads = Object.fromEntries(catalog.repositories.map((repository) => [
     repository.id,
-    remoteHead(repository.path ?? root, repository.url || remote, baseBranch)
+    remoteHead(repository.path ?? root, repositoryAuthorities[repository.id].url, baseBranch)
   ]));
   if (Object.values(baseHeads).some((value) => !value)) {
     throw new SingularityFlowError(`Auto Plan could not resolve every '${baseBranch}' head.`, { code: 'AUTO_BASE_INVALID' });
@@ -358,7 +432,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const selectorWithinPilot = until.kind === 'first-human-boundary'
     || (until.phase === firstPhase && ['published', 'submitted', 'phase-complete'].includes(until.kind))
     || (until.kind === 'story-complete' && resolution.phases.length === 1);
-  const pilotWindow = ['continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
+  const pilotWindow = ['step', 'continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
   const tokenAssuranceStartable = policy.ceilings.tokenBudget.assurance !== 'exact-required';
   const destinationCollision = branchExists(root, workId, remote);
   const startable = policy.eligibility === 'bounded'
@@ -375,6 +449,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     schemaVersion: currentSchemaVersion('auto-plan'),
     kind: 'auto-plan',
     mode: 'auto',
+    confirmation: { protocol: 'packet-v1' },
     requirement: { text: requirement, sha256: sha256(requirement) },
     proposal: {
       title: cleanTitle(proposal.title, requirement), assumptions: proposal.assumptions,
@@ -383,7 +458,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     },
     story: { workId, workType, branch: workId, phaseRail: resolution.phases.map((phase) => phase.id) },
     execution: {
-      pace, until, ceilings: policy.ceilings, concurrency: policy.concurrency,
+      profile, pace, until, ceilings: policy.ceilings, concurrency: policy.concurrency,
       eligibility: policy.eligibility
     },
     humanBoundaries: {
@@ -393,7 +468,9 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     scope: { protectedPaths, status: protectedPaths.length ? 'protected-predicted' : flightPlan.status },
     capability: capability ? { id: capability.id, mapSha256: capability.map.sha256, path: capability.path } : null,
     repositories: catalog.repositories.map((repository) => ({
-      id: repository.id, remote, remoteUrl: repository.url ?? null,
+      id: repository.id, remote,
+      remoteUrl: repositoryAuthorities[repository.id].url,
+      remoteFingerprint: repositoryAuthorities[repository.id].fingerprint,
       baseBranch, baseCommit: baseHeads[repository.id]
     })),
     executionHost,
@@ -403,7 +480,8 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
       cost: 'unavailable'
     },
     bindings: {
-      repository: run('git', ['config', '--get', 'remote.origin.url'], { cwd: root, allowFailure: true }).stdout.trim() || path.resolve(root),
+      repository: rootRemoteIdentity.url,
+      repositoryFingerprint: rootRemoteIdentity.fingerprint,
       head: head(root), branch: branch(root),
       workflowSha256: committedFileSha(root, 'singularity/workflow.yml'),
       autoPolicySha256: autoPolicySha256(definition),
@@ -420,7 +498,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
         ...(driver.status !== 'available'
           ? driver.checks.filter((entry) => entry.status === 'fail').map((entry) => `execution driver ${entry.id}: ${entry.detail}`)
           : []),
-        ...(!pilotWindow ? ['the thin pilot authorizes only continuous/phase pace through the first phase or human boundary'] : []),
+        ...(!pilotWindow ? ['Story Auto authorizes only step/phase/continuous pace through the first phase or human boundary in this release'] : []),
         ...(!tokenAssuranceStartable ? ['exact-required token assurance cannot be proven before invocation by this execution host'] : []),
         ...(destinationCollision ? [`destination branch '${workId}' already exists`] : [])
       ]
@@ -431,7 +509,9 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const planId = `APL-${sha256(core).slice(0, 26).toUpperCase()}`;
   const plan = { ...core, planId };
   plan.planSha256 = autoPlanHash(plan);
-  await writeAtomic(planFile(root, planId), canonicalJson(plan), { mode: 0o600 });
+  await writeAutoPrivateRecord(root, planFile(root, planId), 'plan', canonicalJson(plan), {
+    immutable: true
+  });
   return plan;
 }
 
@@ -449,16 +529,46 @@ export async function createAutoPlan(root, requirementValue, proposalValue, opti
 
 export async function readAutoPlan(root, planIdValue) {
   const planId = validatePlanId(planIdValue);
-  let raw;
-  try { raw = await readFile(planFile(root, planId), 'utf8'); }
-  catch (error) {
+  const raw = await readAutoPrivateRecord(root, planFile(root, planId), 'plan', { optional: true });
+  if (raw == null) {
     throw new SingularityFlowError(`Auto Plan '${planId}' is not available in this repository.`, {
-      code: 'AUTO_PLAN_NOT_FOUND', cause: error
+      code: 'AUTO_PLAN_NOT_FOUND'
     });
   }
-  const plan = readRecord('auto-plan', raw).record;
-  if (plan.planId !== planId || plan.planSha256 !== autoPlanHash(plan)) {
+  let loaded;
+  try {
+    loaded = readRecord('auto-plan', raw);
+  } catch (error) {
+    if (error?.code !== 'SCHEMA_VERSION_ARCHIVED') throw error;
+    throw new SingularityFlowError(
+      `Auto Plan '${planId}' uses retired schema version 1 and cannot authorize execution.`,
+      {
+        code: 'AUTO_PLAN_LEGACY_UNSUPPORTED',
+        details: {
+          storedVersion: 1,
+          nextAction: 'Create and review a new Auto Plan; legacy Plan-SHA confirmation is retired.'
+        },
+        cause: error
+      }
+    );
+  }
+  const plan = loaded.record;
+  if (plan.kind !== 'auto-plan' || plan.mode !== 'auto'
+      || plan.confirmation?.protocol !== 'packet-v1'
+      || plan.planId !== planId || plan.planSha256 !== autoPlanHash(plan)) {
     throw new SingularityFlowError(`Auto Plan '${planId}' failed its integrity check.`, { code: 'AUTO_PLAN_CORRUPT' });
+  }
+  // Recheck every persisted transport before rendering or executing the Plan. This protects
+  // upgraded repositories as well as records copied from another machine.
+  try {
+    if (plan.bindings?.repository) assertCredentialFreeRemote(plan.bindings.repository);
+    for (const repository of plan.repositories ?? []) {
+      if (repository.remoteUrl) assertCredentialFreeRemote(repository.remoteUrl);
+    }
+  } catch (error) {
+    throw new SingularityFlowError(`Auto Plan '${planId}' contains an unsafe repository authority.`, {
+      code: 'AUTO_PLAN_REMOTE_UNSAFE', cause: error
+    });
   }
   return plan;
 }
@@ -480,8 +590,28 @@ async function revalidateAutoPlanInScope(root, plan) {
     const capability = await resolveLifecycleCapability(root, { capabilityId: plan.capability.id, required: true });
     if (capability.map.sha256 !== plan.capability.mapSha256) changed.push('capability map changed');
   }
+  const configuredRoot = configuredRemoteIdentity(root, plan.repositories[0]?.remote ?? 'origin', {
+    direction: 'fetch'
+  });
+  if (!configuredRoot.url || configuredRoot.ambiguous
+      || (plan.bindings.repositoryFingerprint
+        && configuredRoot.fingerprint !== plan.bindings.repositoryFingerprint)) {
+    changed.push('root repository remote identity changed');
+  }
   for (const repository of plan.repositories) {
-    const published = remoteHead(root, repository.remoteUrl || repository.remote, repository.baseBranch);
+    let remoteUrl;
+    try {
+      remoteUrl = repository.remoteUrl
+        ? assertCredentialFreeRemote(repository.remoteUrl)
+        : configuredRoot.url;
+    }
+    catch { remoteUrl = null; }
+    if (!remoteUrl || (repository.remoteFingerprint
+        && remoteFingerprint(remoteUrl) !== repository.remoteFingerprint)) {
+      changed.push(`${repository.id} remote identity changed`);
+      continue;
+    }
+    const published = remoteHead(root, remoteUrl, repository.baseBranch);
     if (published !== repository.baseCommit) changed.push(`${repository.id} published base changed`);
   }
   const flightPlan = await readChangeFlightPlan(root, plan.bindings.flightPlanId);
@@ -503,18 +633,27 @@ export async function revalidateAutoPlan(root, plan) {
 
 export async function ratifyAutoPlan(root, planIdValue, confirmation) {
   const plan = await readAutoPlan(root, planIdValue);
-  if (!PLAN_HASH.test(String(confirmation ?? '')) || confirmation !== plan.planSha256) {
-    throw new SingularityFlowError(`Starting Auto requires --confirm ${plan.planSha256}.`, {
-      code: 'AUTO_PLAN_CONFIRMATION_REQUIRED', details: { planId: plan.planId, expected: plan.planSha256 }
+  const packet = buildAutoPlanPacket(plan);
+  const packetSha256 = packet.packetSha256;
+  const suppliedConfirmation = String(confirmation ?? '');
+  if (!PLAN_HASH.test(suppliedConfirmation) || suppliedConfirmation !== packetSha256) {
+    throw new SingularityFlowError(`Starting Auto requires --confirm ${packetSha256}.`, {
+      code: 'AUTO_PLAN_CONFIRMATION_REQUIRED',
+      details: {
+        planId: plan.planId,
+        expected: packetSha256
+      }
     });
   }
   if (!plan.safety.startable) throw new SingularityFlowError(`Auto Plan '${plan.planId}' is not startable: ${plan.safety.reasons.join('; ')}.`, {
     code: 'AUTO_PLAN_NOT_STARTABLE', details: { reasons: plan.safety.reasons }
   });
   await revalidateAutoPlan(root, plan);
-  let existing = null;
-  try { existing = readRecord('auto-authorization', await readFile(authorizationFile(root, plan.planId), 'utf8')).record; }
-  catch { /* first ratification */ }
+  let existing = await readVerifiedAutoAuthorization(root, plan.planId, {
+    optional: true,
+    expectedPlanSha256: plan.planSha256,
+    expectedPacketSha256: packetSha256
+  });
   if (existing?.consumedAt) {
     throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization was already consumed.`, {
       code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId ?? null }
@@ -528,7 +667,9 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
     const effects = await claimedEffects(root, plan, existing);
     if (effects.flight) {
       const consumed = sealAuthorization({ ...existing, consumedAt: nowIso(), claimExpiresAt: null });
-      await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(consumed), { mode: 0o600 });
+      await writeAutoPrivateRecord(
+        root, authorizationFile(root, plan.planId), 'authorization', canonicalJson(consumed)
+      );
       throw new SingularityFlowError(`Auto Plan '${plan.planId}' already created flight '${existing.flightId}'.`, {
         code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId, recovered: true }
       });
@@ -537,7 +678,9 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
     existing = sealAuthorization({
       ...existing, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
     });
-    await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(existing), { mode: 0o600 });
+    await writeAutoPrivateRecord(
+      root, authorizationFile(root, plan.planId), 'authorization', canonicalJson(existing)
+    );
   }
   const actor = identity(root, { offline: true });
   if (existing?.planSha256 === plan.planSha256) {
@@ -550,11 +693,17 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
   const authorization = sealAuthorization({
     schemaVersion: currentSchemaVersion('auto-authorization'), kind: 'auto-plan-ratification', mode: 'auto',
     planId: plan.planId, planSha256: plan.planSha256,
+    confirmationProtocol: 'packet-v1',
+    confirmedSha256: suppliedConfirmation,
+    packetSha256,
+    validationSha256: packet.validationSha256,
     actor: { name: actor.name, email: actor.email, login: actor.login },
     identityAssurance: 'configured-local', ratifiedAt: nowIso(), expiresAt: plan.expiresAt,
     claimedAt: null, consumedAt: null, flightId: null
   });
-  await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(authorization), { mode: 0o600 });
+  await writeAutoPrivateRecord(
+    root, authorizationFile(root, plan.planId), 'authorization', canonicalJson(authorization)
+  );
   return { plan, authorization };
 }
 
@@ -562,20 +711,30 @@ function sealAuthorization(value) {
   const record = structuredClone(value);
   delete record.recordSha256;
   delete record.authorizationSha256;
-  record.authorizationSha256 = `sha256:${recordSha256({
+  const authority = {
     schemaVersion: record.schemaVersion, kind: record.kind, mode: record.mode,
     planId: record.planId, planSha256: record.planSha256,
     actor: record.actor, identityAssurance: record.identityAssurance,
     ratifiedAt: record.ratifiedAt, expiresAt: record.expiresAt
-  })}`;
+  };
+  for (const field of [
+    'confirmationProtocol', 'confirmedSha256', 'packetSha256', 'validationSha256'
+  ]) {
+    if (record[field] != null) authority[field] = record[field];
+  }
+  record.authorizationSha256 = `sha256:${recordSha256(authority)}`;
   record.recordSha256 = recordSha256(record);
   return record;
 }
 
 export async function claimAutoAuthorization(root, plan, authorization, flightId) {
   return withSubjectLock(root, { kind: 'auto-plan', id: plan.planId }, async () => {
-    const stored = readRecord('auto-authorization', await readFile(authorizationFile(root, plan.planId), 'utf8')).record;
-    if (stored.planSha256 !== plan.planSha256 || stored.recordSha256 !== sealAuthorization(stored).recordSha256) {
+    const packetSha256 = buildAutoPlanPacket(plan).packetSha256;
+    const stored = await readVerifiedAutoAuthorization(root, plan.planId, {
+      expectedPlanSha256: plan.planSha256,
+      expectedPacketSha256: packetSha256
+    });
+    if (stored.planSha256 !== plan.planSha256) {
       throw new SingularityFlowError(`Auto authorization for '${plan.planId}' failed its integrity check.`, { code: 'AUTO_AUTHORIZATION_CORRUPT' });
     }
     if (stored.consumedAt) throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization was already consumed.`, {
@@ -587,7 +746,9 @@ export async function claimAutoAuthorization(root, plan, authorization, flightId
           ...stored,
           claimExpiresAt: new Date(Date.now() + AUTO_CLAIM_LEASE_MS).toISOString()
         });
-        await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(renewed), { mode: 0o600 });
+        await writeAutoPrivateRecord(
+          root, authorizationFile(root, plan.planId), 'authorization', canonicalJson(renewed)
+        );
         return renewed;
       }
       throw new SingularityFlowError(`Auto Plan '${plan.planId}' authorization is already claimed.`, {
@@ -606,7 +767,9 @@ export async function claimAutoAuthorization(root, plan, authorization, flightId
       claimOwner: { host: os.hostname(), pid: process.pid },
       flightId
     });
-    await writeAtomic(authorizationFile(root, plan.planId), canonicalJson(claimed), { mode: 0o600 });
+    await writeAutoPrivateRecord(
+      root, authorizationFile(root, plan.planId), 'authorization', canonicalJson(claimed)
+    );
     return claimed;
   });
 }
@@ -614,7 +777,12 @@ export async function claimAutoAuthorization(root, plan, authorization, flightId
 export async function finishAutoAuthorization(root, planIdValue, flightId, { success }) {
   const planId = validatePlanId(planIdValue);
   return withSubjectLock(root, { kind: 'auto-plan', id: planId }, async () => {
-    const stored = readRecord('auto-authorization', await readFile(authorizationFile(root, planId), 'utf8')).record;
+    const plan = await readAutoPlan(root, planId);
+    const packetSha256 = buildAutoPlanPacket(plan).packetSha256;
+    const stored = await readVerifiedAutoAuthorization(root, planId, {
+      expectedPlanSha256: plan.planSha256,
+      expectedPacketSha256: packetSha256
+    });
     if (stored.flightId !== flightId || !stored.claimedAt || stored.consumedAt) {
       throw new SingularityFlowError(`Auto authorization for '${planId}' is not claimed by '${flightId}'.`, { code: 'AUTO_AUTHORIZATION_STALE' });
     }
@@ -623,7 +791,9 @@ export async function finishAutoAuthorization(root, planIdValue, flightId, { suc
       : sealAuthorization({
           ...stored, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
         });
-    await writeAtomic(authorizationFile(root, planId), canonicalJson(next), { mode: 0o600 });
+    await writeAutoPrivateRecord(
+      root, authorizationFile(root, planId), 'authorization', canonicalJson(next)
+    );
     return next;
   });
 }

@@ -279,12 +279,13 @@ export async function storyBaseCatalog(root, {
     };
   }
 
-  const remoteResult = run('git', ['remote', 'get-url', remote], {
-    cwd: root, allowFailure: true
-  });
+  // `git remote get-url` applies ambient url.*.insteadOf rules and therefore reports a transport,
+  // not the reviewed repository identity. Inventory the exact local-config value and let the
+  // frozen transport wrapper prevent later rewrites from redirecting it.
+  const remoteIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
   const repository = {
     id: path.basename(root),
-    url: remoteResult.status === 0 ? remoteResult.stdout.trim() : '',
+    url: remoteIdentity.url ?? '',
     path: root,
     defaultBranch
   };
@@ -296,7 +297,9 @@ export async function storyBaseCatalog(root, {
       unreachable: [{
         repository: repository.id,
         url: '',
-        detail: `Remote '${remote}' is not configured.`
+        detail: remoteIdentity.ambiguous
+          ? `Remote '${remote}' has multiple configured fetch URLs.`
+          : `Remote '${remote}' is not configured.`
       }],
       choices: []
     };

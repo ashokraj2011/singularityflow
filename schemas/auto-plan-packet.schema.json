@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-plan-packet.schema.json",
+  "title": "Singularity Flow Auto Plan ratification packet v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "validationSha256", "requirement", "story", "workflow", "scope", "execution", "humanStops", "evidence", "budgets", "packetSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-plan-packet" },
+    "mode": { "const": "auto" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "validationSha256": { "$ref": "#/$defs/hash" },
+    "requirement": { "type": "object" },
+    "story": { "type": "object" },
+    "workflow": { "type": "object" },
+    "scope": { "type": "object" },
+    "execution": { "type": "object" },
+    "humanStops": { "type": "array" },
+    "evidence": { "type": "array" },
+    "budgets": { "type": "object" },
+    "packetSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

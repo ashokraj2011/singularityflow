@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { startChangeFlightPlan } from '../change-flight-plan.mjs';
-import { gitCommonDir } from '../git.mjs';
+import { gitCommonDir, head } from '../git.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { autoExecutionOrigin } from './auto-origin.mjs';
 import {
@@ -19,7 +19,9 @@ function flightId(plan) {
 
 async function startAutoFlightLocked(root, planId, confirmation) {
   const { plan, authorization } = await ratifyAutoPlan(root, planId, confirmation);
-  const active = (await listAutoFlights(root)).filter((state) => ['running', 'paused', 'waiting-human'].includes(state.status));
+  const active = (await listAutoFlights(root)).filter((state) => [
+    'running', 'paused', 'waiting-human', 'manual-takeover', 'recovery-required'
+  ].includes(state.status));
   if (active.length >= plan.execution.concurrency.maximumPerWorkspace) {
     throw new SingularityFlowError('Auto workspace concurrency is already at its configured maximum.', {
       code: 'AUTO_FLIGHT_BUSY', details: { active: active.map((state) => state.flightId) }
@@ -60,12 +62,17 @@ async function startAutoFlightLocked(root, planId, confirmation) {
     const state = await createAutoFlightState(root, {
       flightId: id, planId: plan.planId, planSha256: plan.planSha256,
       status: waiting ? 'waiting-human' : 'running',
-      story: { workId: plan.story.workId, branch: started.branch, phase: firstPhase },
+      story: {
+        workId: plan.story.workId, branch: started.branch, phase: firstPhase,
+        revision: head(started.worktree)
+      },
       capabilityId: plan.capability?.id ?? null,
       worktree: started.worktree,
       scopePrediction: plan.proposal.predictedPaths,
       configuration: {
         workflowSha256: plan.bindings.workflowSha256,
+        storyConfigSha256: started.workflow?.resolution?.configSha256 ?? null,
+        configurationSource: structuredClone(started.workflow?.resolution?.configurationSource ?? null),
         executionHostDescriptorSha256: plan.executionHost?.driver?.descriptorSha256 ?? null
       },
       repositories: plan.repositories,

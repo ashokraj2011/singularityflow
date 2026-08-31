@@ -197,6 +197,20 @@ test('a citation is what the artifact says it is bound by, not every mention', (
   assert.deepEqual(citedArticleIds(`${trailing}\n## Assumptions\n\nART-999 is only discussed here.\n`), ['ART-002', 'ART-003']);
   assert.deepEqual(citedArticleIds('# S\n\nART-004 mentioned in prose with no section.\n'), []);
   assert.deepEqual(citedArticleIds(''), []);
+
+  // Story-qualified requirement and acceptance anchors are specification clauses. The suffixes
+  // used to be mistaken for constitution article IDs because a colon is a word boundary.
+  const noConstitution = [
+    '# Plan',
+    '',
+    '## Constitution articles',
+    '',
+    'No constitution article IDs were provided. The plan is governed by approved specification',
+    'clauses [WRK-BLUE:REQ-001], [WRK-BLUE:REQ-002], and [WRK-BLUE:AC-001].'
+  ].join('\n');
+  assert.deepEqual(citedArticleIds(noConstitution), []);
+  assert.deepEqual(citedArticleIds(`${noConstitution}\n\n- [ART-002]\n`), ['ART-002']);
+  assert.deepEqual(citedArticleIds(`${noConstitution}\n\n- ORG-ART-003\n`), []);
 });
 
 test('an exception records everything that makes it a decision', () => {

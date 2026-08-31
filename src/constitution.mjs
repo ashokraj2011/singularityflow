@@ -470,7 +470,18 @@ export function constitutionPin({ constitution, index, configurationCommit = nul
  */
 export function citedArticleIds(markdown) {
   const section = /^#{1,6}[ \t]*Constitution articles[ \t]*$([\s\S]*?)(?=^#{1,6}[ \t]|(?![\s\S]))/mi.exec(String(markdown ?? ''));
-  return section ? [...new Set(section[1].match(/\b[A-Z][A-Z0-9]*-\d{3,}\b/g) ?? [])].sort() : [];
+  if (!section) return [];
+
+  /**
+   * A specification clause anchor such as `[WRK-123:REQ-001]` is not a constitution citation.
+   * The old word-boundary expression started matching after the colon and silently reduced that
+   * qualified anchor to `REQ-001`. This was especially noisy for Stories with no constitution:
+   * a sentence explaining that the plan was governed by specification clauses then warned that
+   * those same clauses were unpinned constitution articles. Constitution IDs may still be wrapped
+   * in Markdown brackets (`[ART-001]`); only a colon-qualified suffix is excluded here.
+   */
+  const standalone = section[1].matchAll(/(?<![A-Z0-9:-])([A-Z][A-Z0-9]*-\d{3,})(?![A-Z0-9-])/g);
+  return [...new Set([...standalone].map((match) => match[1]))].sort();
 }
 
 /**

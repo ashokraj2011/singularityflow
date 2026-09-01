@@ -1,9 +1,9 @@
 # AUT v2 implementation roadmap
 
-Status: P0 and P1 implemented in the current worktree for the Story profile; integrated release
-validation is pending. This document records the implementation boundary and evidence map for
-`SingularityFlow_AUT_v2_Developer_Auto_Mode_Spec.md`. It is not a claim that the unrun full release
-suite has passed or that the optional SGOS profile is available.
+Status: P0 and P1 are implemented and release-validated for the Story profile. The tested
+implementation is commit `32a2ce555342d8d91bd13806dea1947ceafade7d`. This document records the
+implementation boundary and evidence map for `SingularityFlow_AUT_v2_Developer_Auto_Mode_Spec.md`.
+The optional SGOS profile remains outside this release boundary.
 
 ## Architecture decisions
 
@@ -115,7 +115,7 @@ suite has passed or that the optional SGOS profile is available.
 
 | Scope | Primary implementation | Focused evidence |
 | --- | --- | --- |
-| P0 Candidate authority | `src/auto/auto-candidate.mjs`, `src/state.mjs`, `src/delivery-evidence.mjs`, `src/story-lineage.mjs` | `test/auto-candidate.test.mjs` |
+| P0 Candidate authority | `src/auto/auto-candidate.mjs`, `src/state.mjs`, `src/delivery-evidence.mjs`, `src/story-lineage.mjs` | `test/auto-candidate.test.mjs`, `test/auto-candidate-crash-recovery.test.mjs` |
 | P0 governed checkpoints | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-flight-store.mjs`, `src/auto/auto-private-store.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-private-store.test.mjs` |
 | P0 sequential continuation | `src/auto/auto-continuation.mjs`, `src/auto/auto-phase-contract.mjs`, `src/auto/auto-executor.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-mode.test.mjs` |
 | P0 tool-time scope | `src/model-runner.mjs`, `src/model-providers/copilot-cli.mjs` | `test/model-runner.test.mjs`, `test/model-provider-copilot.test.mjs` |
@@ -131,17 +131,21 @@ Add the SGOS adapter only after the Story profile release gates pass. The adapte
 Processes, independent-task parallelism, Devices, leases, joins, and long-running recovery. It must
 not change or gate ordinary Story Auto behavior.
 
-## Release evidence required
+## Release evidence
 
-Final integrated validation evidence is **pending**. The root implementation run must replace this
-statement with the exact commit and pass counts after the relevant suites complete. The focused test
-files above are traceability targets, not a claim that an unrun suite passed.
+The source tree committed as `32a2ce555342d8d91bd13806dea1947ceafade7d` passed the integrated release
+validation below on 2026-09-01. This evidence update changes documentation and the generated help
+catalog only; it does not alter the tested runtime.
 
-- Full Story lifecycle, publication recovery, model boundary, prompt audit, schema migration,
-  packaged CLI, and VS Code suites pass on the exact commit.
-- Candidate mutation and crash-boundary suites prove no duplicate model call, commit, push, or
-  consequential effect.
-- A fresh disposable repository completes the thin Story journey with one model attempt and no
-  hidden repair.
-- Counterfeit-model, credential-leak, symlink/oversize private-store, and individual-scoring
-  tripwires pass.
+- `npm test`: 3,781 passed, 0 failed, 0 cancelled, 0 skipped.
+- Focused Auto suite: 140 passed, 0 failed, including Candidate mutation, crash recovery, exact
+  repair lineage, Human Requests, entry modes, reports, and token economics.
+- VS Code validation: typecheck and build passed; 42 focused UI tests and the extension-host Auto
+  command-wiring test passed.
+- `npm run check`: 1,095 checks passed. Existing vocabulary advisories remained non-blocking.
+- `npm run operation-catalog:check`: generated operation-policy catalog was current.
+- `npm pack --dry-run --json`: package dry-run passed with 918 entries.
+- Full-suite coverage includes Story lifecycle, publication recovery, model boundaries, prompt
+  audit, schema migrations, packaged CLI, fresh-repository journeys, and VS Code surfaces.
+- Security and integrity coverage includes duplicate-effect prevention, counterfeit-model,
+  credential-leak, symlink/oversize private-store, and individual-scoring tripwires.

@@ -6,11 +6,30 @@ import {
 } from '../contracts.mjs';
 import { EVIDENCE_KINDS, FACT_TYPES, assertVocabularyValue } from '../vocabularies.mjs';
 import {
+  CALL_REFERENCE_EDGE_ID, CALL_REFERENCE_EDGE_IMPLEMENTATION_SHA256, CALL_REFERENCE_EDGE_VERSION,
+  CLAUSE_CODE_BINDING_ID, CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256, CLAUSE_CODE_BINDING_VERSION,
+  CHANGE_REGION_ID, CHANGE_REGION_IMPLEMENTATION_SHA256, CHANGE_REGION_VERSION,
+  CLOSED_STRUCTURE_LANGUAGES,
+  CONFIGURATION_OBJECT_ID, CONFIGURATION_OBJECT_IMPLEMENTATION_SHA256, CONFIGURATION_OBJECT_VERSION,
   IMPORT_DEPENDENCY_ID, IMPORT_DEPENDENCY_IMPLEMENTATION_SHA256, IMPORT_DEPENDENCY_VERSION,
+  HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_IMPLEMENTATION_SHA256,
+  HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_VERSION,
+  INTERFACE_CONTRACT_ID, INTERFACE_CONTRACT_IMPLEMENTATION_SHA256, INTERFACE_CONTRACT_VERSION,
   LANGUAGE_DETECTION_ID, LANGUAGE_DETECTION_IMPLEMENTATION_SHA256, LANGUAGE_DETECTION_VERSION,
+  LEGACY_MIGRATION_RESOLUTION_ID, LEGACY_MIGRATION_RESOLUTION_IMPLEMENTATION_SHA256,
+  LEGACY_MIGRATION_RESOLUTION_VERSION,
+  OWNERSHIP_MAINTAINER_RECORD_ID, OWNERSHIP_MAINTAINER_RECORD_IMPLEMENTATION_SHA256,
+  OWNERSHIP_MAINTAINER_RECORD_VERSION,
   REPOSITORY_FILES_ID, REPOSITORY_FILES_IMPLEMENTATION_SHA256, REPOSITORY_FILES_VERSION,
   REQUIRED_FACT_COVERAGE_ID, REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256, REQUIRED_FACT_COVERAGE_VERSION,
-  SYMBOL_SKELETON_ID, SYMBOL_SKELETON_IMPLEMENTATION_SHA256, SYMBOL_SKELETON_VERSION
+  RUNTIME_OBSERVATION_IMPORT_ID, RUNTIME_OBSERVATION_IMPORT_IMPLEMENTATION_SHA256,
+  RUNTIME_OBSERVATION_IMPORT_VERSION,
+  RULE_DEFINITION_ID, RULE_DEFINITION_IMPLEMENTATION_SHA256, RULE_DEFINITION_VERSION,
+  SIGNATURE_AND_EXPORT_ID, SIGNATURE_AND_EXPORT_IMPLEMENTATION_SHA256, SIGNATURE_AND_EXPORT_VERSION,
+  SYMBOL_SKELETON_ID, SYMBOL_SKELETON_IMPLEMENTATION_SHA256, SYMBOL_SKELETON_VERSION,
+  TEST_IDENTITY_ID, TEST_IDENTITY_IMPLEMENTATION_SHA256, TEST_IDENTITY_VERSION,
+  TEST_IDENTITY_LANGUAGES,
+  POLYGLOT_STRUCTURAL_LANGUAGES
 } from '../extract/adapters/index.mjs';
 import {
   extractorConformanceDeclaration, extractorConformanceReceiptSha256
@@ -56,13 +75,81 @@ function manifest({ id, version, implementationSha256, languages, evidenceKinds,
 
 const BUILTINS = [
   manifest({
+    id: CALL_REFERENCE_EDGE_ID,
+    version: CALL_REFERENCE_EDGE_VERSION,
+    implementationSha256: CALL_REFERENCE_EDGE_IMPLEMENTATION_SHA256,
+    languages: [...CLOSED_STRUCTURE_LANGUAGES],
+    evidenceKinds: ['call-edge', 'file', 'reference-edge'],
+    factTypes: ['dependency-analysis', 'dependency-edge'],
+    algorithm: 'single-pass-bounded-same-file-lexical-edge-candidates-v2'
+  }),
+  manifest({
+    id: CLAUSE_CODE_BINDING_ID,
+    version: CLAUSE_CODE_BINDING_VERSION,
+    implementationSha256: CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256,
+    languages: CLOSED_STRUCTURE_LANGUAGES,
+    evidenceKinds: ['clause-binding'],
+    factTypes: ['clause-binding'],
+    algorithm: 'explicit-source-comment-clause-tags-v1'
+  }),
+  manifest({
+    id: CHANGE_REGION_ID,
+    version: CHANGE_REGION_VERSION,
+    implementationSha256: CHANGE_REGION_IMPLEMENTATION_SHA256,
+    languages: [...CLOSED_STRUCTURE_LANGUAGES],
+    evidenceKinds: [
+      'configuration-object', 'interface-implementation', 'signature', 'symbol',
+      'test-symbol-binding'
+    ],
+    factTypes: ['changed-symbol', 'contract-change', 'structural-impact', 'test-impact'],
+    algorithm: 'constant-process-exact-first-parent-zero-context-change-regions-v2'
+  }),
+  manifest({
+    id: CONFIGURATION_OBJECT_ID,
+    version: CONFIGURATION_OBJECT_VERSION,
+    implementationSha256: CONFIGURATION_OBJECT_IMPLEMENTATION_SHA256,
+    languages: ['json', 'properties', 'toml', 'yaml'],
+    evidenceKinds: ['configuration-object', 'file'],
+    factTypes: ['configuration-object'],
+    algorithm: 'strict-configuration-key-inventory-v1'
+  }),
+  manifest({
+    id: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID,
+    version: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_VERSION,
+    implementationSha256: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_IMPLEMENTATION_SHA256,
+    languages: ['json'],
+    evidenceKinds: ['human-confirmed-record'],
+    factTypes: ['business-glossary', 'business-meaning'],
+    algorithm: 'sealed-bounded-human-confirmed-business-knowledge-import-v1'
+  }),
+  manifest({
     id: IMPORT_DEPENDENCY_ID,
     version: IMPORT_DEPENDENCY_VERSION,
     implementationSha256: IMPORT_DEPENDENCY_IMPLEMENTATION_SHA256,
-    languages: ['javascript', 'typescript'],
+    languages: [...POLYGLOT_STRUCTURAL_LANGUAGES, 'javascript', 'typescript'].sort(),
     evidenceKinds: ['dependency-edge', 'import'],
     factTypes: ['dependency-analysis', 'dependency-edge', 'import-dependency'],
     algorithm: 'code-and-literal-aware-imports-and-exact-local-resolution-v2'
+  }),
+  manifest({
+    id: INTERFACE_CONTRACT_ID,
+    version: INTERFACE_CONTRACT_VERSION,
+    implementationSha256: INTERFACE_CONTRACT_IMPLEMENTATION_SHA256,
+    languages: CLOSED_STRUCTURE_LANGUAGES,
+    evidenceKinds: ['configuration-object', 'interface-implementation', 'signature'],
+    factTypes: [
+      'consumer-dependency', 'implementation', 'interface', 'protocol-field', 'schema-contract'
+    ],
+    algorithm: 'explicit-interface-implementation-field-and-schema-syntax-v2'
+  }),
+  manifest({
+    id: OWNERSHIP_MAINTAINER_RECORD_ID,
+    version: OWNERSHIP_MAINTAINER_RECORD_VERSION,
+    implementationSha256: OWNERSHIP_MAINTAINER_RECORD_IMPLEMENTATION_SHA256,
+    languages: ['codeowners'],
+    evidenceKinds: ['configuration-object'],
+    factTypes: ['maintainer-record', 'ownership-concentration'],
+    algorithm: 'exact-codeowners-record-and-frequency-v1'
   }),
   manifest({
     id: LANGUAGE_DETECTION_ID,
@@ -74,6 +161,42 @@ const BUILTINS = [
     evidenceKinds: ['file'],
     factTypes: ['language-detected'],
     algorithm: 'closed-extension-map-v1'
+  }),
+  manifest({
+    id: LEGACY_MIGRATION_RESOLUTION_ID,
+    version: LEGACY_MIGRATION_RESOLUTION_VERSION,
+    implementationSha256: LEGACY_MIGRATION_RESOLUTION_IMPLEMENTATION_SHA256,
+    languages: [],
+    evidenceKinds: [],
+    factTypes: FACT_TYPES,
+    algorithm: 'claim-digest-only-typed-unavailable-resolution-v1'
+  }),
+  manifest({
+    id: RUNTIME_OBSERVATION_IMPORT_ID,
+    version: RUNTIME_OBSERVATION_IMPORT_VERSION,
+    implementationSha256: RUNTIME_OBSERVATION_IMPORT_IMPLEMENTATION_SHA256,
+    languages: ['json'],
+    evidenceKinds: ['runtime-observation'],
+    factTypes: ['runtime-frequency'],
+    algorithm: 'sealed-bounded-runtime-frequency-record-import-v1'
+  }),
+  manifest({
+    id: RULE_DEFINITION_ID,
+    version: RULE_DEFINITION_VERSION,
+    implementationSha256: RULE_DEFINITION_IMPLEMENTATION_SHA256,
+    languages: ['json', 'yaml'],
+    evidenceKinds: ['condition-expression', 'file', 'rule-object'],
+    factTypes: ['condition-expression', 'rule-definition'],
+    algorithm: 'explicit-named-rule-container-objects-v1'
+  }),
+  manifest({
+    id: SIGNATURE_AND_EXPORT_ID,
+    version: SIGNATURE_AND_EXPORT_VERSION,
+    implementationSha256: SIGNATURE_AND_EXPORT_IMPLEMENTATION_SHA256,
+    languages: CLOSED_STRUCTURE_LANGUAGES,
+    evidenceKinds: ['export', 'signature'],
+    factTypes: ['export', 'signature'],
+    algorithm: 'body-free-single-line-signature-and-export-v1'
   }),
   manifest({
     id: REPOSITORY_FILES_ID,
@@ -102,10 +225,19 @@ const BUILTINS = [
     id: SYMBOL_SKELETON_ID,
     version: SYMBOL_SKELETON_VERSION,
     implementationSha256: SYMBOL_SKELETON_IMPLEMENTATION_SHA256,
-    languages: ['javascript', 'typescript'],
+    languages: [...POLYGLOT_STRUCTURAL_LANGUAGES, 'javascript', 'typescript'].sort(),
     evidenceKinds: ['symbol'],
     factTypes: ['symbol-exists', 'symbol-index'],
     algorithm: 'code-only-exported-top-level-declarations-v2'
+  }),
+  manifest({
+    id: TEST_IDENTITY_ID,
+    version: TEST_IDENTITY_VERSION,
+    implementationSha256: TEST_IDENTITY_IMPLEMENTATION_SHA256,
+    languages: TEST_IDENTITY_LANGUAGES,
+    evidenceKinds: ['test-identity'],
+    factTypes: ['test-identity'],
+    algorithm: 'framework-declared-test-identities-v1'
   })
 ].map(validateExtractorManifest);
 
@@ -232,9 +364,38 @@ export function resolveExtractorManifest(registryValue, reference) {
 }
 
 export const BUILTIN_EXTRACTOR_REGISTRY = deepFreeze(createExtractorRegistry(BUILTINS));
+
+/** Require the exact reviewed extractor registry shipped by this build. */
+export function assertInstalledExtractorRegistry(value) {
+  const registry = validateExtractorRegistry(value);
+  if (registry.registrySha256 !== BUILTIN_EXTRACTOR_REGISTRY.registrySha256
+      || canonicalJson(registry) !== canonicalJson(BUILTIN_EXTRACTOR_REGISTRY)) {
+    contractFailure(
+      'World-model Extractor Registry is not the exact reviewed registry installed by this build.',
+      'WMB_EXTRACTOR_REGISTRY_NOT_INSTALLED',
+      {
+        expectedRegistrySha256: BUILTIN_EXTRACTOR_REGISTRY.registrySha256,
+        receivedRegistrySha256: registry.registrySha256
+      }
+    );
+  }
+  return registry;
+}
+
 export const DEFAULT_EXTRACTOR_REFERENCES = Object.freeze([
   `${REPOSITORY_FILES_ID}@${REPOSITORY_FILES_VERSION}`,
   `${LANGUAGE_DETECTION_ID}@${LANGUAGE_DETECTION_VERSION}`,
   `${SYMBOL_SKELETON_ID}@${SYMBOL_SKELETON_VERSION}`,
-  `${IMPORT_DEPENDENCY_ID}@${IMPORT_DEPENDENCY_VERSION}`
+  `${SIGNATURE_AND_EXPORT_ID}@${SIGNATURE_AND_EXPORT_VERSION}`,
+  `${IMPORT_DEPENDENCY_ID}@${IMPORT_DEPENDENCY_VERSION}`,
+  `${CALL_REFERENCE_EDGE_ID}@${CALL_REFERENCE_EDGE_VERSION}`,
+  `${INTERFACE_CONTRACT_ID}@${INTERFACE_CONTRACT_VERSION}`,
+  `${CONFIGURATION_OBJECT_ID}@${CONFIGURATION_OBJECT_VERSION}`,
+  `${RULE_DEFINITION_ID}@${RULE_DEFINITION_VERSION}`,
+  `${TEST_IDENTITY_ID}@${TEST_IDENTITY_VERSION}`,
+  `${CLAUSE_CODE_BINDING_ID}@${CLAUSE_CODE_BINDING_VERSION}`,
+  `${CHANGE_REGION_ID}@${CHANGE_REGION_VERSION}`,
+  `${OWNERSHIP_MAINTAINER_RECORD_ID}@${OWNERSHIP_MAINTAINER_RECORD_VERSION}`,
+  `${RUNTIME_OBSERVATION_IMPORT_ID}@${RUNTIME_OBSERVATION_IMPORT_VERSION}`,
+  `${HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID}@${HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_VERSION}`
 ]);

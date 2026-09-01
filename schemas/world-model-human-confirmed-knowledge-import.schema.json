@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-human-confirmed-knowledge-import.schema.json",
+  "title": "WMB v4 bounded human-confirmed knowledge import",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "records"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-human-confirmed-knowledge-import" },
+    "records": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/record" }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$" },
+    "record": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "id", "factType", "term", "statement", "confirmation", "recordSha256"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "kind": { "const": "world-model-human-confirmed-knowledge" },
+        "id": { "$ref": "#/$defs/id" },
+        "factType": { "enum": ["business-glossary", "business-meaning"] },
+        "term": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:/()+&-]{0,79}$" },
+        "statement": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9 .,_:/()'&+%=-]{0,279}$" },
+        "confirmation": {
+          "type": "object",
+          "required": ["status", "authorityId", "identitySha256", "confirmedAt", "receiptSha256"],
+          "properties": {
+            "status": { "const": "confirmed" },
+            "authorityId": { "$ref": "#/$defs/id" },
+            "identitySha256": { "$ref": "#/$defs/hash" },
+            "confirmedAt": { "$ref": "#/$defs/timestamp" },
+            "receiptSha256": { "$ref": "#/$defs/hash" }
+          },
+          "additionalProperties": false
+        },
+        "recordSha256": { "$ref": "#/$defs/hash" }
+      },
+      "additionalProperties": false
+    },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$" }
+  },
+  "additionalProperties": false
+}

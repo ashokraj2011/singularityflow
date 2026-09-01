@@ -23,6 +23,6 @@
     "outputBudgetSha256": { "$ref": "#/$defs/hash" }, "consistency": { "const": "exact" },
     "cachePolicy": { "enum": ["reuse-valid", "rebuild"] }, "requestSha256": { "$ref": "#/$defs/hash" }
   },
-  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "view": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "view": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+$" } },
   "additionalProperties": false
 }

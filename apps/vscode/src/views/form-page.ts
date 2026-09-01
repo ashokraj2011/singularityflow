@@ -99,7 +99,9 @@ function control(schemaId: string, field: FormField, problem: string | null): st
         <input type="number" ${common} value="${escape(value)}">${note}</div>`;
     case 'multiline':
       return `<div class="sf-field">${label}
-        <textarea ${common}>${escape(value)}</textarea>${note}</div>`;
+        <textarea ${common}>${escape(value)}</textarea>${field.type === 'world-model-views'
+        ? '<p class="sf-hint">One registered view ID per line (maximum 32).</p>'
+        : ''}${note}</div>`;
     case 'choice':
       return `<div class="sf-field">${label}
         <select ${common}>${!field.required ? '<option value=""></option>' : ''}${

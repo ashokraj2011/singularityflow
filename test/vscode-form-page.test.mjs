@@ -84,6 +84,12 @@ test('a real schema renders every field it declares', () => {
   assert.match(html, /<select /);
 });
 
+test('world-model views explain their bounded newline format', () => {
+  const html = formHtml(formModel('world-model-build-v1'));
+  assert.match(html, /name="views"/);
+  assert.match(html, /One registered view ID per line \(maximum 32\)/);
+});
+
 test('every registered schema renders without an unmapped control', () => {
   /**
    * The end-to-end version of the model's completeness check: a type with no case here falls to the

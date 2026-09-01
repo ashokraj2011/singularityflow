@@ -782,7 +782,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
-    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel', 'singularityFlow.configureAstIntelligence', 'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
+    'singularityFlow.openConfigurationCenter', 'singularityFlow.configureWorldModel',
+    'singularityFlow.buildWorldModel', 'singularityFlow.configureAstIntelligence',
+    'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
@@ -3892,38 +3894,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'check-ledger-deployment') await vscode.commands.executeCommand('singularityFlow.checkLedgerDeployment');
     else if (message.action === 'open-impact-file') await openArtifact(client.repository, { kind: 'artifact', id: 'config:impact', label: 'impact.yml', path: 'singularity/impact.yml' });
     else if (message.action === 'build-world-model') {
-      // Generation is expensive and may let a provider inspect the repository or publish to the
-      // governed state branch. A button labelled Build/Rebuild is explicit interest, but it is not
-      // informed authorization for an unscoped semantic build. Re-read deterministic availability,
-      // then prepare the reviewed skill in native Copilot. Partial-query mode means nothing is sent
-      // or executed until the contributor submits it and accepts the skill's exact preflight.
-      try {
-        const availability = await client.run<{
-          ready?: boolean;
-          sourceTreeSha256?: string;
-          staleness?: { fresh?: boolean; status?: string };
-          action?: { command?: string; reason?: string } | null;
-          candidates?: Array<{ present?: boolean }>;
-        }>(['wm', 'availability', '--json']);
-        if (availability.ready === true && availability.staleness?.fresh !== false) {
-          void vscode.window.showInformationMessage(
-            'The exact shared world model is already ready. It was reused; no provider was invoked and no files were changed.'
-          );
-          return null;
-        }
-        const command = availability.action?.command ?? 'singularity-flow wm status --json';
-        const existing = (availability.candidates ?? []).some((candidate) => candidate.present === true);
-        const intent = existing
-          ? 'Review an explicit refresh or same-source extension without replacing anything yet.'
-          : 'Review creation of the first shared repository world model without running it yet.';
-        await vscode.commands.executeCommand('workbench.action.chat.open', {
-          query: `/sf-worldmodel ${intent} Proposed engine command: ${command} `,
-          isPartialQuery: true
-        });
-        void vscode.window.showInformationMessage(
-          `World-model ${existing ? 'refresh' : 'build'} is prepared for review in Copilot. Nothing has run.`
-        );
-      } catch (error) { return (error as Error).message; }
+      await vscode.commands.executeCommand('singularityFlow.buildWorldModel');
       return null;
     }
     else if (message.action === 'diagnose-monorepo') {
@@ -4481,6 +4452,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
+    'singularityFlow.buildWorldModel': async () => {
+      const active = activeRepositoryContext();
+      if (!active) {
+        void vscode.window.showWarningMessage(
+          'Choose a governed workspace repository before building its World Model.'
+        );
+        return;
+      }
+      try {
+        const { showGovernedWorldModelBuild } = await import('./world-model-build.ts');
+        const modelMode = vscode.workspace.getConfiguration('singularityFlow')
+          .get<string>('modelMode', 'auto');
+        const outcome = await showGovernedWorldModelBuild(active, {
+          modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled'
+        });
+        if (outcome.status === 'cancelled') return;
+        if (outcome.status === 'refused') {
+          const reason = outcome.result?.why?.[0];
+          const code = reason?.code ?? 'world-model build refused';
+          const engineCode = reason?.slots?.code;
+          void vscode.window.showWarningMessage(
+            `World Model build was not run: ${code}${engineCode ? ` (${String(engineCode)})` : ''}. Review the current repository state and try again.`
+          );
+          return;
+        }
+        const manifest = outcome.result?.data?.manifestSha256;
+        const views = Array.isArray(outcome.result?.data?.views)
+          ? outcome.result.data.views.length : 0;
+        await refreshAfterSurfaceMutation();
+        void vscode.window.showInformationMessage(
+          `World Model published${manifest ? ` as ${String(manifest).slice(0, 19)}` : ''} with ${views} view${views === 1 ? '' : 's'}.`
+        );
+      } catch (error) {
+        output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
+        showRefusal(error, { headline: 'Could not build the World Model' });
+      }
+    },
     'singularityFlow.configureAstIntelligence': async () => {
       const { AstIntelligencePanel } = await import('./views/ast-intelligence.ts');
       return AstIntelligencePanel.show(context, client, store);

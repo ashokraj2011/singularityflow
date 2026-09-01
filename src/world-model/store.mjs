@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
-import { canonicalJson } from './canonicalize.mjs';
+import { canonicalJson, sha256 } from './canonicalize.mjs';
 import { createConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import { assembleWmbV4PromptSync } from './compose/pinned-core.mjs';
 import {
@@ -17,17 +17,22 @@ import { validateWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
 import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
 import { validateFactLedger, validateViewFactLedger } from './extract/index.mjs';
-import { validateExtractorRegistry } from './registry/extractors.mjs';
-import { resolveViewContract, validateViewRegistry } from './registry/views.mjs';
+import { assertInstalledExtractorRegistry } from './registry/extractors.mjs';
+import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
 import { createWorldModelViewOutputBudget } from './plan.mjs';
 import { validateScopeManifest } from './scope/manifest.mjs';
-import { createExactSourceSnapshot, validateSourceSnapshot } from './source/snapshot.mjs';
+import {
+  createExactSourceSnapshot, validateSourceSnapshot, verifyExactSourceSnapshot
+} from './source/snapshot.mjs';
 import { materializeWorldModelView } from './materialize/view.mjs';
 import { parseWorldModelViewKernelStamp } from './materialize/stamp.mjs';
 import { validateCompositionCandidate } from './validate/candidate.mjs';
 
 function conservativeStalenessReceipts(manifest, records, freshness) {
   if (freshness.fresh || !freshness.current) return Object.freeze([]);
+  const change = freshness.changes?.[0] ?? {
+    kind: 'source-change', previousSha256: freshness.built, currentSha256: freshness.current
+  };
   const ledgers = new Map(
     records.viewFactLedgers.map((ledger) => [ledger.viewId, ledger])
   );
@@ -36,13 +41,63 @@ function conservativeStalenessReceipts(manifest, records, freshness) {
     .map((entry) => createConservativeWorldModelStalenessReceipt({
       previousViewSha256: entry.viewSha256,
       cause: {
-        kind: 'source-change',
-        previousSha256: freshness.built,
-        currentSha256: freshness.current
+        kind: change.kind,
+        previousSha256: change.previousSha256,
+        currentSha256: change.currentSha256
       },
       affectedFactIds: (ledgers.get(entry.viewId)?.facts ?? []).map((fact) => fact.id),
       viewId: entry.viewId
     })));
+}
+
+function reusableIdentityFromPublished(records, scopeManifest) {
+  const request = records.buildRequest;
+  const plan = records.buildPlan;
+  const planViews = new Map(plan.views.map((entry) => [entry.viewId, entry]));
+  const requestedViews = request.requestedViews.map((entry) => {
+    const planned = planViews.get(entry.viewId);
+    return {
+      viewId: entry.viewId,
+      viewVersion: planned?.viewVersion ?? null,
+      viewSpecSha256: planned?.viewSpecSha256 ?? null,
+      required: entry.required
+    };
+  }).sort((left, right) => left.viewId.localeCompare(right.viewId));
+  return Object.freeze({
+    scopeManifestSha256: scopeManifest.scopeSha256,
+    policySnapshotSha256: request.policySnapshotSha256,
+    requestedViews: Object.freeze(requestedViews),
+    viewRegistrySha256: request.viewRegistrySha256,
+    extractorRegistrySha256: request.extractorRegistrySha256,
+    composerProfileSha256: request.composerProfileSha256,
+    outputBudgetSha256: request.outputBudgetSha256
+  });
+}
+
+const REUSABLE_IDENTITY_FIELDS = Object.freeze([
+  ['scopeManifestSha256', 'scope-manifest-changed', 'scope-change'],
+  ['policySnapshotSha256', 'policy-snapshot-changed', 'scope-change'],
+  ['requestedViews', 'view-selection-changed', 'view-contract-change'],
+  ['viewRegistrySha256', 'view-registry-changed', 'view-contract-change'],
+  ['extractorRegistrySha256', 'extractor-registry-changed', 'fact-ledger-change'],
+  ['composerProfileSha256', 'consumer-profile-changed', 'consumer-profile-change'],
+  ['outputBudgetSha256', 'output-budget-changed', 'budget-change']
+]);
+
+function reusableIdentityChanges(built, current) {
+  if (!current) return [];
+  const changes = [];
+  for (const [field, reason, kind] of REUSABLE_IDENTITY_FIELDS) {
+    if (canonicalJson(built[field]) === canonicalJson(current[field])) continue;
+    changes.push(Object.freeze({
+      field,
+      reason,
+      kind,
+      previousSha256: field === 'requestedViews' ? sha256(built[field]) : built[field],
+      currentSha256: field === 'requestedViews' ? sha256(current[field]) : current[field]
+    }));
+  }
+  return changes;
 }
 
 function safeOutputDirectory(value) {
@@ -588,15 +643,20 @@ function publishedViewStamp(markdown, viewId) {
 /** Read and independently verify one complete state/application WMB v4 projection. */
 export function readPublishedWorldModelV4(root, {
   ref,
-  outputDir = 'singularity/world-model'
+  outputDir = 'singularity/world-model',
+  expectedReusableIdentity = null
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
   const manifest = readWorldModelV4Manifest(readAt(root, ref, manifestPath));
   const sourceSnapshot = validateSourceSnapshot(jsonAt(root, ref, path.posix.join(target, 'source/source-snapshot.json')));
   const scopeManifest = validateScopeManifest(jsonAt(root, ref, path.posix.join(target, 'scope/scope-manifest.json')));
-  const viewRegistry = validateViewRegistry(jsonAt(root, ref, path.posix.join(target, 'registries/views.json')));
-  const extractorRegistry = validateExtractorRegistry(jsonAt(root, ref, path.posix.join(target, 'registries/extractors.json')));
+  const viewRegistry = assertInstalledViewRegistry(
+    jsonAt(root, ref, path.posix.join(target, 'registries/views.json'))
+  );
+  const extractorRegistry = assertInstalledExtractorRegistry(
+    jsonAt(root, ref, path.posix.join(target, 'registries/extractors.json'))
+  );
   const evidenceCatalog = validateEvidenceCatalog(
     jsonAt(root, ref, path.posix.join(target, 'catalogs/evidence.json')),
     { sourceSnapshot, scopeManifest }
@@ -659,13 +719,15 @@ export function readPublishedWorldModelV4(root, {
       );
     }
   }
-  let freshness;
+  let sourceFreshness;
   try {
-    const current = createExactSourceSnapshot(root, {
-      subjectId: sourceSnapshot.subject.id,
-      scopeManifest
-    });
-    freshness = {
+    const current = sourceSnapshot.authority
+      ? verifyExactSourceSnapshot(root, sourceSnapshot, { scopeManifest })
+      : createExactSourceSnapshot(root, {
+          subjectId: sourceSnapshot.subject.id,
+          scopeManifest
+        });
+    sourceFreshness = {
       fresh: current.sourceManifestSha256 === sourceSnapshot.sourceManifestSha256,
       built: sourceSnapshot.sourceManifestSha256,
       current: current.sourceManifestSha256,
@@ -673,7 +735,7 @@ export function readPublishedWorldModelV4(root, {
         ? null : 'source-snapshot-changed'
     };
   } catch (error) {
-    freshness = {
+    sourceFreshness = {
       fresh: false,
       built: sourceSnapshot.sourceManifestSha256,
       current: null,
@@ -681,6 +743,32 @@ export function readPublishedWorldModelV4(root, {
       detail: error.message
     };
   }
+  const builtReusableIdentity = reusableIdentityFromPublished(records, scopeManifest);
+  const identityChanges = reusableIdentityChanges(
+    builtReusableIdentity, expectedReusableIdentity
+  );
+  const sourceChanges = sourceFreshness.fresh ? [] : [Object.freeze({
+    field: 'sourceManifestSha256',
+    reason: sourceFreshness.reason,
+    kind: 'source-change',
+    previousSha256: sourceFreshness.built,
+    currentSha256: sourceFreshness.current
+  })];
+  const changes = Object.freeze([...sourceChanges, ...identityChanges]);
+  const primary = changes[0] ?? null;
+  const freshness = Object.freeze({
+    fresh: changes.length === 0,
+    built: primary?.previousSha256 ?? sourceSnapshot.sourceManifestSha256,
+    current: primary?.currentSha256 ?? sourceSnapshot.sourceManifestSha256,
+    reason: primary?.reason ?? null,
+    ...(sourceFreshness.detail ? { detail: sourceFreshness.detail } : {}),
+    source: Object.freeze(sourceFreshness),
+    reusableIdentity: Object.freeze({
+      built: builtReusableIdentity,
+      current: expectedReusableIdentity ? structuredClone(expectedReusableIdentity) : null
+    }),
+    changes
+  });
   const stalenessReceipts = conservativeStalenessReceipts(manifest, records, freshness);
   return Object.freeze({
     ref,
@@ -707,7 +795,8 @@ export function resolvePublishedWorldModelV4(root, {
   outputDir = 'singularity/world-model',
   stateBranch = 'state',
   remote = 'origin',
-  required = true
+  required = true,
+  expectedReusableIdentity = null
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
@@ -718,7 +807,9 @@ export function resolvePublishedWorldModelV4(root, {
     if (classification.classification !== 'registered-v4-manifest') {
       throw worldModelMigrationRequired(raw);
     }
-    return readPublishedWorldModelV4(root, { ref, outputDir: target });
+    return readPublishedWorldModelV4(root, {
+      ref, outputDir: target, expectedReusableIdentity
+    });
   }
   if (!required) return null;
   throw new SingularityFlowError(

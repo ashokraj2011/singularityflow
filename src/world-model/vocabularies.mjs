@@ -57,6 +57,7 @@ export const FACT_TYPES = Object.freeze([
   'import-dependency',
   'dependency-edge',
   'dependency-analysis',
+  'configuration-object',
   'changed-symbol',
   'contract-change',
   'test-impact',
@@ -76,6 +77,8 @@ export const FACT_TYPES = Object.freeze([
   'rule-definition',
   'condition-expression',
   'clause-binding',
+  'test-identity',
+  'maintainer-record',
   'business-glossary',
   'business-meaning'
 ]);

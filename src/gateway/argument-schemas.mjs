@@ -105,6 +105,23 @@ const TYPES = Object.freeze({
     return value;
   },
 
+  /** A bounded set of registered WMB view references, never a comma-parsed command fragment. */
+  'world-model-views'(schemaId, field, value) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 32) {
+      reject(schemaId, field, 'must contain between 1 and 32 world-model view IDs', value);
+    }
+    const result = [];
+    for (const entry of value) {
+      if (typeof entry !== 'string') reject(schemaId, field, 'must contain only strings', value);
+      assertPlain(schemaId, field, entry);
+      if (!/^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+(?:@[1-9][0-9]*)?$/.test(entry)) {
+        reject(schemaId, field, `contains invalid registered view reference '${entry}'`, value);
+      }
+      if (!result.includes(entry)) result.push(entry);
+    }
+    return Object.freeze(result.sort());
+  },
+
   /**
    * A Git ref, commit, or tag — which is to say, something that will reach `git` as argv.
    *
@@ -230,6 +247,15 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
       'manifest', 'view', 'fact', 'evidence', 'derivation', 'refusal'
     ] }),
     id: optional('string', { maxLength: 500 })
+  }),
+  schema('world-model-build-v1', {
+    views: required('world-model-views'),
+    depth: optional('enum', { values: ['quick', 'standard', 'deep'] }),
+    consumer: optional('enum', { values: [
+      'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
+    ] }),
+    composer: optional('enum', { values: ['deterministic', 'auto', 'model'] }),
+    cachePolicy: optional('enum', { values: ['reuse-valid', 'rebuild'] })
   }),
   schema('work-start-intake-v1', {
     source: optional('enum', { values: [

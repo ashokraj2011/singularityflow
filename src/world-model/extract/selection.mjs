@@ -46,8 +46,8 @@ function computeViewSelection(source, view) {
   const requiredUnavailable = eligible.filter((fact) => fact.status === 'unavailable'
     && view.factPolicy.requiredUnavailableSubjects.includes(fact.factType));
   for (const factType of view.factPolicy.requiredUnavailableSubjects) {
-    if (!requiredUnavailable.some((fact) => fact.factType === factType)) {
-      contractFailure(`View '${view.id}@${view.version}' is missing required unavailable Fact '${factType}'.`, 'WMB_REQUIRED_UNAVAILABLE_FACT_MISSING');
+    if (!eligible.some((fact) => fact.factType === factType)) {
+      contractFailure(`View '${view.id}@${view.version}' has neither registered coverage nor an unavailable Fact for '${factType}'.`, 'WMB_REQUIRED_UNAVAILABLE_FACT_MISSING');
     }
   }
   const contradictions = eligible.filter((fact) => fact.status === 'contradicted');

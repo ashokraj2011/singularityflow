@@ -5,14 +5,21 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
+import {
+  assembleWmbV4Prompt, WMB_V4_REQUEST_BOUNDARY
+} from '../src/world-model/compose/pinned-core.mjs';
 import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
+import {
+  createFactLedger, factIdentityFromRecord
+} from '../src/world-model/extract/fact-ledger.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
+import { selectViewFacts } from '../src/world-model/extract/selection.mjs';
 import {
   createWorldModelConsumerProfile, createWorldModelOutputBudget,
   createWorldModelViewOutputBudget
 } from '../src/world-model/plan.mjs';
 import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mjs';
+import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { validateCompositionCandidate } from '../src/world-model/validate/candidate.mjs';
 
@@ -43,6 +50,7 @@ async function fixture(t) {
     root, scopeManifest, requestedViews: ['dev.impact@4']
   });
   return {
+    root,
     contract: resolveBuiltInViewContract('dev.impact@4'),
     scopeManifest,
     evidenceCatalog: registration.evidenceCatalog,
@@ -138,6 +146,72 @@ test('the assurance template rejects counterfeit prose even when it borrows a va
   }
 });
 
+test('material contradictions render and validate only in the registered contradiction section', async (t) => {
+  const base = await fixture(t);
+  const registration = runDeterministicRegistration({
+    root: base.root,
+    scopeManifest: base.scopeManifest,
+    requestedViews: ['arch.contracts@4']
+  });
+  const contract = resolveBuiltInViewContract('arch.contracts@4');
+  const eligibleTypes = new Set([
+    ...contract.factPolicy.requiredFactTypes,
+    ...contract.factPolicy.optionalFactTypes,
+    ...contract.factPolicy.requiredUnavailableSubjects
+  ]);
+  const available = registration.factLedger.facts.filter(
+    (fact) => fact.status === 'available' && eligibleTypes.has(fact.factType)
+  );
+  const subject = available[0];
+  const conflicting = available.find((fact) => fact.id !== subject.id);
+  assert.ok(subject && conflicting);
+  const contradictionDraft = {
+    ...factIdentityFromRecord(subject),
+    claim: `${subject.subject.id} has conflicting registered structural observations.`,
+    status: 'contradicted',
+    conflictsWith: [conflicting.id]
+  };
+  const factLedger = createFactLedger({
+    sourceSnapshot: registration.sourceSnapshot,
+    scopeManifest: registration.scopeManifest,
+    extractorRegistry: BUILTIN_EXTRACTOR_REGISTRY,
+    evidenceCatalog: registration.evidenceCatalog,
+    derivationIds: new Set(registration.derivationCatalog.derivations.map((entry) => entry.id)),
+    factDrafts: [
+      ...registration.factLedger.facts.map(factIdentityFromRecord), contradictionDraft
+    ]
+  });
+  const viewFactLedger = selectViewFacts({ factLedger, viewContract: contract });
+  const contradictionId = viewFactLedger.materialContradictionFactIds[0];
+  assert.ok(contradictionId);
+  const candidate = renderDeterministicCandidate(contract, viewFactLedger);
+  const contradictionSection = candidate.sections.find(
+    (section) => section.sectionId === 'contract-contradictions'
+  );
+  assert.match(contradictionSection.markdown, new RegExp(contradictionId));
+  assert.equal(validate(candidate, {
+    contract, viewFactLedger, scopeManifest: base.scopeManifest,
+    evidenceCatalog: registration.evidenceCatalog
+  }).receipt.status, 'passed');
+
+  const misplaced = structuredClone(candidate);
+  const contradictionLine = misplaced.sections
+    .find((section) => section.sectionId === 'contract-contradictions')
+    .markdown.split('\n').find((line) => line.includes(contradictionId));
+  misplaced.sections.find((section) => section.sectionId === 'contract-contradictions')
+    .markdown = misplaced.sections.find((section) => section.sectionId === 'contract-contradictions')
+      .markdown.split('\n').filter((line) => !line.includes(contradictionId)).join('\n');
+  misplaced.sections.find((section) => section.sectionId === 'public-contracts')
+    .markdown += `\n${contradictionLine}`;
+  assert.throws(
+    () => validate(misplaced, {
+      contract, viewFactLedger, scopeManifest: base.scopeManifest,
+      evidenceCatalog: registration.evidenceCatalog
+    }),
+    (error) => error.code === 'WMB_CONTRADICTION_SUPPRESSED'
+  );
+});
+
 test('each prompt contains only its view budget and referenced evidence descriptors', async (t) => {
   const context = await fixture(t);
   const architecture = resolveBuiltInViewContract('arch.contracts@4');
@@ -154,6 +228,21 @@ test('each prompt contains only its view budget and referenced evidence descript
 
   assert.deepEqual(Object.keys(viewBudget.viewBudgets), ['dev.impact']);
   assert.doesNotMatch(assembled.prompt, /arch\.contracts/);
+  const boundary = assembled.prompt.indexOf(WMB_V4_REQUEST_BOUNDARY);
+  for (const heading of [
+    '## Fact Reference Grammar', '## Composition Candidate Schema',
+    '## Registered View Contract'
+  ]) {
+    assert.ok(assembled.prompt.indexOf(heading) >= 0);
+    assert.ok(assembled.prompt.indexOf(heading) < boundary, `${heading} must be stable above REQUEST INPUTS`);
+  }
+  for (const heading of [
+    '## Consumer Profile', '## Output Budget', '## Scope Manifest',
+    '## View Fact Ledger', '## Evidence Catalog'
+  ]) assert.ok(assembled.prompt.indexOf(heading) > boundary, `${heading} must remain in the volatile tail`);
+  assert.match(assembled.prompt, /world-model-composition-candidate/);
+  assert.match(assembled.prompt, /Every factual unit ends with exactly one trailing reference group/);
+  assert.doesNotMatch(assembled.prompt, /\{\{[a-z_]+\}\}/);
   const selectedEvidenceIds = new Set(
     context.viewFactLedger.facts.flatMap((fact) => fact.evidenceIds)
   );

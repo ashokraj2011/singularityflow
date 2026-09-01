@@ -443,6 +443,7 @@ Every public operation is classified before its implementation module is importe
 | wm.regenerate.deterministic | mutation | never | — | — |
 | wm.show | read | never | — | — |
 | wm.show-prompt | read | never | — | — |
+| wm.snapshot | mutation | never | — | — |
 | wm.status | read | never | — | — |
 | wm.validate | read | never | — | — |
 | wm.validate-view | read | never | — | — |

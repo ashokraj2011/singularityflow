@@ -15,6 +15,12 @@ import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import {
+  ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
+  MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
+  UNAVAILABLE_REASON_CODES, VIEW_STATUSES
+} from '../src/world-model/vocabularies.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -471,7 +477,181 @@ function validateAutoAuthorizationSchema(schema, schemaFile) {
   validateLocalSchemaReferences(schema, schemaFile);
 }
 
-for (const schemaFile of [
+function schemaNode(schema, segments, schemaFile) {
+  let current = schema;
+  for (const segment of segments) {
+    current = current?.[segment];
+    if (current == null) {
+      fail(`${schemaFile}: missing governed schema node ${segments.join('.')}`);
+      return null;
+    }
+  }
+  return current;
+}
+
+function requireExactSchemaValues(schema, segments, expected, schemaFile) {
+  const node = schemaNode(schema, segments, schemaFile);
+  if (!node) return;
+  const received = node.enum ?? (Object.hasOwn(node, 'const') ? [node.const] : null);
+  if (!Array.isArray(received) || JSON.stringify(received) !== JSON.stringify(expected)) {
+    fail(`${schemaFile}: ${segments.join('.')} must match the closed runtime vocabulary (${expected.join(', ')})`);
+  }
+}
+
+function compileWorldModelSchemaGraph(schema, schemaFile) {
+  const validTypes = new Set(['null', 'boolean', 'object', 'array', 'number', 'string', 'integer']);
+  const visit = (node, location = '$') => {
+    if (typeof node === 'boolean') return;
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      fail(`${schemaFile}: ${location} is not a schema object`);
+      return;
+    }
+    const types = Array.isArray(node.type) ? node.type : node.type == null ? [] : [node.type];
+    if (types.some((type) => !validTypes.has(type))) {
+      fail(`${schemaFile}: ${location}.type contains an unknown JSON Schema type`);
+    }
+    if (new Set(types).size !== types.length) {
+      fail(`${schemaFile}: ${location}.type contains duplicate JSON Schema types`);
+    }
+    if (typeof node.pattern === 'string') {
+      try { new RegExp(node.pattern, 'u'); }
+      catch (error) { fail(`${schemaFile}: ${location}.pattern does not compile (${error.message})`); }
+    }
+    if (node.enum != null) {
+      if (!Array.isArray(node.enum) || !node.enum.length) {
+        fail(`${schemaFile}: ${location}.enum must be a non-empty array`);
+      } else if (new Set(node.enum.map((entry) => JSON.stringify(entry))).size !== node.enum.length) {
+        fail(`${schemaFile}: ${location}.enum contains duplicate values`);
+      }
+    }
+    if (node.required != null && (!Array.isArray(node.required)
+        || node.required.some((entry) => typeof entry !== 'string')
+        || new Set(node.required).size !== node.required.length)) {
+      fail(`${schemaFile}: ${location}.required must contain unique property names`);
+    }
+    if (node.properties != null
+        && (!node.properties || typeof node.properties !== 'object'
+          || Array.isArray(node.properties))) {
+      fail(`${schemaFile}: ${location}.properties must be an object`);
+    }
+    for (const required of node.required ?? []) {
+      if (!Object.hasOwn(node.properties ?? {}, required)) {
+        fail(`${schemaFile}: ${location} requires undeclared property '${required}'`);
+      }
+    }
+    for (const [minimum, maximum] of [
+      ['minimum', 'maximum'], ['minLength', 'maxLength'], ['minItems', 'maxItems'],
+      ['minProperties', 'maxProperties']
+    ]) {
+      if (node[minimum] != null && node[maximum] != null
+          && node[minimum] > node[maximum]) {
+        fail(`${schemaFile}: ${location}.${minimum} exceeds ${location}.${maximum}`);
+      }
+    }
+    for (const [key, child] of Object.entries(node.properties ?? {})) {
+      visit(child, `${location}.properties.${key}`);
+    }
+    for (const [key, child] of Object.entries(node.$defs ?? {})) {
+      visit(child, `${location}.$defs.${key}`);
+    }
+    if (node.items && typeof node.items === 'object' && !Array.isArray(node.items)) {
+      visit(node.items, `${location}.items`);
+    }
+    if (node.additionalProperties && typeof node.additionalProperties === 'object') {
+      visit(node.additionalProperties, `${location}.additionalProperties`);
+    }
+    for (const keyword of ['allOf', 'anyOf', 'oneOf']) {
+      if (node[keyword] != null && !Array.isArray(node[keyword])) {
+        fail(`${schemaFile}: ${location}.${keyword} must be an array`);
+      }
+      for (const [index, child] of (node[keyword] ?? []).entries()) {
+        visit(child, `${location}.${keyword}[${index}]`);
+      }
+    }
+    for (const keyword of ['not', 'if', 'then', 'else', 'propertyNames']) {
+      if (node[keyword] && typeof node[keyword] === 'object') {
+        visit(node[keyword], `${location}.${keyword}`);
+      }
+    }
+  };
+  visit(schema);
+}
+
+/** WMB schemas are compiled/consumed elsewhere; this bounded check validates their meta-contract. */
+function validateWorldModelContractSchema(schema, schemaFile) {
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
+    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
+  }
+  if (schema.type !== 'object' || schema.additionalProperties !== false) {
+    fail(`${schemaFile}: WMB durable record must be a closed top-level object schema`);
+  }
+  const properties = schema.properties ?? {};
+  for (const required of schema.required ?? []) {
+    if (!Object.hasOwn(properties, required)) {
+      fail(`${schemaFile}: requires undeclared property '${required}'`);
+    }
+  }
+  const kind = properties.kind?.const;
+  if (typeof kind !== 'string' || !kind.startsWith('world-model-')) {
+    fail(`${schemaFile}: must bind one world-model record kind`);
+  } else {
+    let registeredVersion = null;
+    try { registeredVersion = currentSchemaVersion(kind); }
+    catch (error) { fail(`${schemaFile}: kind '${kind}' has no migration-registry family (${error.message})`); }
+    if (registeredVersion != null && properties.schemaVersion?.const !== registeredVersion) {
+      fail(`${schemaFile}: schemaVersion must equal migration-registry version ${registeredVersion}`);
+    }
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+  compileWorldModelSchemaGraph(schema, schemaFile);
+
+  const closedBindings = {
+    'world-model-derivation.schema.json': [
+      [['properties', 'status'], DERIVATION_STATUSES]
+    ],
+    'world-model-evidence-catalog.schema.json': [
+      [['properties', 'items', 'items', 'properties', 'kind'], EVIDENCE_KINDS]
+    ],
+    'world-model-extractor-manifest.schema.json': [
+      [['$defs', 'evidenceKind'], EVIDENCE_KINDS],
+      [['$defs', 'factType'], FACT_TYPES]
+    ],
+    'world-model-fact-ledger.schema.json': [
+      [['$defs', 'factType'], FACT_TYPES],
+      [['$defs', 'fact', 'properties', 'status'], FACT_STATUSES],
+      [['$defs', 'fact', 'properties', 'assurance'], ASSURANCE_LEVELS],
+      [['$defs', 'fact', 'properties', 'subject', 'properties', 'kind'], SUBJECT_KINDS],
+      [['$defs', 'fact', 'properties', 'reason', 'properties', 'code'], UNAVAILABLE_REASON_CODES]
+    ],
+    'world-model-query-index.schema.json': [
+      [['$defs', 'factType'], FACT_TYPES],
+      [['$defs', 'evidenceKind'], EVIDENCE_KINDS],
+      [['properties', 'facts', 'items', 'properties', 'status'], FACT_STATUSES],
+      [['properties', 'facts', 'items', 'properties', 'assurance'], ASSURANCE_LEVELS],
+      [['properties', 'facts', 'items', 'properties', 'subjectKind'], SUBJECT_KINDS]
+    ],
+    'world-model-scope-manifest.schema.json': [
+      [['properties', 'allowedSubjects', 'items'], SCOPE_SUBJECT_KINDS]
+    ],
+    'world-model-view-contract.schema.json': [
+      [['$defs', 'factType'], FACT_TYPES],
+      [['properties', 'factPolicy', 'properties', 'allowedStatus'], FACT_STATUSES.filter((entry) => entry !== 'stale')],
+      [['properties', 'factPolicy', 'properties', 'allowedAssurance'], ASSURANCE_LEVELS],
+      [['properties', 'sections', 'items', 'properties', 'sectionKind'], SECTION_KINDS],
+      [['properties', 'model', 'properties', 'mode'], MODEL_MODES],
+      [['properties', 'validity', 'properties', 'status'], VIEW_STATUSES]
+    ]
+  };
+  const name = path.posix.basename(schemaFile);
+  for (const [segments, expected] of closedBindings[name] ?? []) {
+    // Array-valued View Contract properties place the closed vocabulary under `items`.
+    const node = schemaNode(schema, segments, schemaFile);
+    const effective = node?.items?.enum ? [...segments, 'items'] : segments;
+    requireExactSchemaValues(schema, effective, expected, schemaFile);
+  }
+}
+
+const baselineSchemaFiles = [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
   'schemas/workflow-definition.schema.json',
@@ -522,11 +702,18 @@ for (const schemaFile of [
   'schemas/auto-flight-report.schema.json',
   'schemas/artifact-validation.schema.json',
   'schemas/sgos-contract.schema.json'
-]) {
+];
+const worldModelSchemaFiles = (await readdir(path.join(root, 'schemas')))
+  .filter((name) => /^world-model-.+\.schema\.json$/.test(name))
+  .sort().map((name) => `schemas/${name}`);
+for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchemaFiles])]) {
   const schema = JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
   if (schemaFile === 'schemas/auto-authorization.schema.json') {
     validateAutoAuthorizationSchema(schema, schemaFile);
+  }
+  if (schemaFile.startsWith('schemas/world-model-')) {
+    validateWorldModelContractSchema(schema, schemaFile);
   }
   checked.push(schemaFile);
 }

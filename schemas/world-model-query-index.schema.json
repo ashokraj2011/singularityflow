@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-query-index.schema.json",
+  "title": "WMB v4 rebuildable query index",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "manifestSha256", "sourceManifestSha256", "views", "facts", "evidence", "indexSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-query-index" },
+    "manifestSha256": { "$ref": "#/$defs/hash" },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+    "views": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "status", "viewSha256"],
+        "properties": {
+          "id": { "$ref": "#/$defs/viewId" },
+          "version": { "type": "integer", "minimum": 1 },
+          "status": { "enum": ["available", "unavailable"] },
+          "viewSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "factType", "status", "assurance", "subjectKind", "subjectId", "evidenceIds", "derivationId", "factSha256"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" },
+          "factType": { "$ref": "#/$defs/factType" },
+          "status": { "enum": ["available", "partial", "unavailable", "contradicted", "stale"] },
+          "assurance": { "enum": ["source-exact", "structurally-derived", "deterministically-derived", "human-confirmed", "runtime-observed", "heuristic", "model-advisory", "not-applicable"] },
+          "subjectKind": { "enum": ["repository", "file", "directory", "symbol", "contract", "dependency-edge", "test", "rule", "configuration", "analysis", "runtime-observation", "human-record"] },
+          "subjectId": { "type": "string", "minLength": 1 },
+          "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^EV-[a-f0-9]{16,64}$" } },
+          "derivationId": { "type": "string", "pattern": "^DRV-[a-f0-9]{16,64}$" },
+          "factSha256": { "$ref": "#/$defs/hash" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "path", "symbol", "target", "subjectSha256", "evidenceSha256"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^EV-[a-f0-9]{16,64}$" },
+          "kind": { "$ref": "#/$defs/evidenceKind" },
+          "path": { "type": "string", "minLength": 1 },
+          "symbol": { "type": ["string", "null"] },
+          "target": { "type": ["string", "null"] },
+          "subjectSha256": { "$ref": "#/$defs/hash" },
+          "evidenceSha256": { "$ref": "#/$defs/hash" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "indexSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "viewId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+$" },
+    "factType": { "enum": ["file-exists", "language-detected", "symbol-exists", "symbol-index", "signature", "export", "import-dependency", "dependency-edge", "dependency-analysis", "configuration-object", "changed-symbol", "contract-change", "test-impact", "structural-impact", "runtime-frequency", "interface", "implementation", "consumer-dependency", "schema-contract", "protocol-field", "runtime-guarantee", "change-frequency", "dependency-degree", "complexity-metric", "incident-mapping", "ownership-concentration", "rule-definition", "condition-expression", "clause-binding", "test-identity", "maintainer-record", "business-glossary", "business-meaning"] },
+    "evidenceKind": { "enum": ["file", "directory", "symbol", "signature", "export", "import", "dependency-edge", "call-edge", "reference-edge", "interface-implementation", "configuration-object", "rule-object", "condition-expression", "test-identity", "test-symbol-binding", "clause-binding", "decision-record", "runtime-observation", "human-confirmed-record", "unavailability-observation"] }
+  },
+  "additionalProperties": false
+}

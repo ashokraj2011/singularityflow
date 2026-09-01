@@ -43,6 +43,7 @@ export const RESULT_MESSAGES = Object.freeze({
   'gateway.refused': M('Not ready'),
   'gateway.not-ready': M('Not ready to submit'),
   'gateway.returned': M('Where you left this'),
+  'gateway.completed': M('Completed exactly as confirmed'),
   'gateway.resolved': M('Ready to go'),
   'gateway.candidates': M('More than one thing matches'),
   'gateway.clarification': M('One more thing needed'),
@@ -66,10 +67,15 @@ export const RESULT_MESSAGES = Object.freeze({
 
   // ---- Kernel
   'gateway.planner-unavailable': M('This build cannot answer that yet', 'The operation is declared but has no implementation here.'),
+  'gateway.plan-invalid': M('That Plan cannot be prepared from the current governed state', 'Nothing was carried out.'),
   'gateway.denied-by-policy': M('Policy does not allow this'),
   'gateway.not-a-read': M('That is not a read'),
+  'gateway.not-a-mutation': M('That Plan is not an executable mutation'),
   'gateway.read-only': M('This session cannot change anything', 'The gateway is read-only.'),
   'gateway.not-implemented': M('Not implemented yet'),
+  'gateway.executor-unavailable': M('This build cannot carry out that Plan'),
+  'gateway.confirmation-required': M('Confirm the exact reviewed Plan first'),
+  'gateway.confirmation-invalid': M('That confirmation is invalid or already used'),
   'gateway.legal-now': M('Available now'),
   'gateway.nothing-was-carried-out': M('Nothing was carried out', 'Your work is untouched.'),
   'gateway.handle-unknown': M('That action is no longer available', 'It was offered in a different session. Ask again from here.'),

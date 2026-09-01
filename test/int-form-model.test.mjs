@@ -44,6 +44,13 @@ test('every registered schema renders, or names the field it cannot', () => {
   assert.deepEqual(gaps, [], `types with no input:\n  ${gaps.join('\n  ')}`);
 });
 
+test('world-model views render as a bounded line list', () => {
+  const model = formModel('world-model-build-v1');
+  const views = model.fields.find((field) => field.name === 'views');
+  assert.equal(views.control, 'multiline');
+  assert.equal(views.renderable, true);
+});
+
 test('an unknown schema is null rather than an empty form', () => {
   // An empty form submits nothing and looks like a form with no fields, which is a state some
   // schemas legitimately have.

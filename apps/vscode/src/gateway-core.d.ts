@@ -19,6 +19,8 @@ declare module '*/gateway/host.mjs' {
     subject?: unknown;
     policyLayers?: readonly unknown[];
     planners: Map<string, unknown>;
+    planBuilders?: Map<string, unknown>;
+    mutationExecutors?: Map<string, unknown>;
     plannerContext?: Record<string, unknown> | (() => Record<string, unknown>);
     readOnly?: boolean;
     now?: () => number;
@@ -33,6 +35,12 @@ interface GatewayKernel {
     context?: { subject?: unknown }): Promise<SflowResult> | SflowResult;
   read(request: { resolutionId: string }): Promise<SflowResult>;
   next(request?: { scope?: string; subject?: unknown }): SflowResult;
+  confirmPlan(request: {
+    planId: string; requestSha256: string; planSha256: string;
+  }): { readonly receiptId: string; readonly value: string; readonly expiresAt: number; readonly planHash: string };
+  run(request: { planId: string }, confirmation?: {
+    confirmationReceiptId?: string | null; confirmationValue?: string | null;
+  }): Promise<SflowResult>;
 }
 
 /**
@@ -127,6 +135,28 @@ declare module '*/gateway/planners/world-model.mjs' {
   export const worldModelInspect: unknown;
   export const worldModelNext: unknown;
   export const worldModelExplain: unknown;
+}
+
+declare module '*/gateway/planners/world-model-run.mjs' {
+  export function worldModelGatewayCapabilities(options?: { defaults?: Record<string, unknown> }): {
+    readonly planBuilders: Map<string, unknown>;
+    readonly mutationExecutors: Map<string, unknown>;
+  };
+}
+
+declare module '*/gateway/policy.mjs' {
+  export const DEFAULT_GATEWAY_POLICY: Readonly<Record<string, unknown>>;
+}
+
+declare module '*/state-stores.mjs' {
+  export function loadConfig(root: string): Promise<any>;
+}
+
+declare module '*/world-model/commands.mjs' {
+  export function configuredWorldModelV4ViewIds(
+    config: any, options?: Record<string, unknown>, phase?: string | null
+  ): string[];
+  export function worldModelV4GatewayDefaults(root: string, config: any): Readonly<Record<string, any>>;
 }
 
 declare module '*/workspace-bootstrap.mjs' {

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-publication-recovery.schema.json",
+  "title": "WMB v4 pending atomic publication recovery",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "id", "createdAt", "requestSha256", "planSha256",
+    "manifestSha256", "projectionSha256", "ledger", "publicationOptions", "publication",
+    "recoverySha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-publication-recovery" },
+    "id": { "type": "string", "pattern": "^wmb4-[a-f0-9]{32}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "requestSha256": { "$ref": "#/$defs/hash" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "manifestSha256": { "$ref": "#/$defs/hash" },
+    "projectionSha256": { "$ref": "#/$defs/hash" },
+    "ledger": {
+      "type": "object",
+      "required": [
+        "enabled", "branch", "remote", "behind", "enforcement", "signing", "trustTier",
+        "maxRetries", "pinTransport", "publication", "retentionDays"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "branch": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "remote": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "behind": { "enum": ["warn", "block"] },
+        "enforcement": { "enum": ["shadow", "required"] },
+        "signing": { "enum": ["off", "commit"] },
+        "trustTier": { "enum": ["T0", "T1", "T2", "T3"] },
+        "maxRetries": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "pinTransport": { "enum": ["refs", "branches", "none"] },
+        "publication": { "enum": ["off", "warn", "required"] },
+        "retentionDays": { "type": "integer", "minimum": 0, "maximum": 36500 }
+      },
+      "additionalProperties": false
+    },
+    "publicationOptions": {
+      "type": "object",
+      "required": ["message", "remoteEndpointSha256", "refreshRemote", "guardedRemoteRefs"],
+      "properties": {
+        "message": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "expectedRemoteSha": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }
+          ]
+        },
+        "baseRef": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+        "remoteEndpointSha256": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/hash" }
+          ]
+        },
+        "refreshRemote": { "type": "boolean" },
+        "guardedRemoteRefs": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "maxLength": 512,
+            "pattern": "^(?!.*\\.\\.)refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]*$"
+          },
+          "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "publication": {
+      "type": "object",
+      "required": ["outputDir", "manifestPath", "manifest", "files", "replaceRoots"],
+      "properties": {
+        "outputDir": { "type": "string" },
+        "manifestPath": { "type": "string" },
+        "manifest": { "type": "object" },
+        "files": { "type": "object", "additionalProperties": { "type": "string" } },
+        "replaceRoots": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "recoverySha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

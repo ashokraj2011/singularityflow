@@ -2,11 +2,11 @@ import { implementationSha256, result, unavailableDraft } from './common.mjs';
 import { compareText } from '../../canonicalize.mjs';
 
 export const REQUIRED_FACT_COVERAGE_ID = 'required-fact-coverage';
-export const REQUIRED_FACT_COVERAGE_VERSION = '1.0.0';
+export const REQUIRED_FACT_COVERAGE_VERSION = '1.0.1';
 export const REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256 = implementationSha256(
   REQUIRED_FACT_COVERAGE_ID,
   REQUIRED_FACT_COVERAGE_VERSION,
-  'register-typed-unavailable-for-unsatisfied-view-fact-requirements-v1'
+  'register-typed-unavailable-only-when-view-fact-coverage-is-absent-v2'
 );
 
 export function extractRequiredFactCoverage({ viewContracts = [], existingFacts = [] } = {}) {
@@ -18,9 +18,10 @@ export function extractRequiredFactCoverage({ viewContracts = [], existingFacts 
       ...view.factPolicy.requiredUnavailableSubjects
     ])].sort();
     for (const factType of required) {
-      const explicitlyUnavailable = view.factPolicy.requiredUnavailableSubjects.includes(factType);
-      if (!explicitlyUnavailable && present.has(factType)) continue;
-      if (explicitlyUnavailable && existingFacts.some((fact) => fact.factType === factType && fact.status === 'unavailable')) continue;
+      // requiredUnavailableSubjects means "make an unavailable limitation visible when coverage is
+      // absent", not "invent an unavailable limitation even when a registered producer supplied
+      // the fact". One real or already-unavailable fact satisfies the type-level coverage contract.
+      if (present.has(factType)) continue;
       facts.push(unavailableDraft({
         factType,
         subject: { kind: 'analysis', id: `${view.id}@${view.version}:${factType}` },

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-view-retry-receipt.schema.json",
+  "title": "WMB v4 failed-view retry receipt",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "viewId", "viewVersion", "attempt", "policy", "binding",
+    "lineage", "previousRefusal", "outcome", "receiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-view-retry-receipt" },
+    "viewId": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9-]*)+$" },
+    "viewVersion": { "type": "integer", "minimum": 1 },
+    "attempt": { "type": "integer", "minimum": 2, "maximum": 3 },
+    "policy": { "type": "object" },
+    "binding": { "type": "object" },
+    "lineage": {
+      "type": "object",
+      "required": ["rootRefusalSha256", "previousRefusalSha256", "previousRetryReceiptSha256"],
+      "properties": {
+        "rootRefusalSha256": { "$ref": "#/$defs/hash" },
+        "previousRefusalSha256": { "$ref": "#/$defs/hash" },
+        "previousRetryReceiptSha256": { "$ref": "#/$defs/nullableHash" }
+      },
+      "additionalProperties": false
+    },
+    "previousRefusal": { "type": "object" },
+    "outcome": {
+      "type": "object",
+      "required": ["status", "executionSha256", "execution", "refusal"],
+      "properties": {
+        "status": { "enum": ["completed", "refused"] },
+        "executionSha256": { "$ref": "#/$defs/nullableHash" },
+        "execution": { "type": ["object", "null"] },
+        "refusal": { "type": ["object", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableHash": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }
+  },
+  "additionalProperties": false
+}

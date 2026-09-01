@@ -1,4 +1,4 @@
-import { compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
   VIEW_ID_PATTERN, assertBoolean, assertCanonicalOrder, assertExactKeys, assertInteger,
@@ -11,7 +11,7 @@ import {
 } from '../vocabularies.mjs';
 
 const SECTION_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const OUTPUT_SCHEMA_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const COMPOSITION_OUTPUT_SCHEMA = 'world-model-composition-candidate-v1';
 
 function section(id, title, sectionKind = 'factual') {
   return { id, title, required: true, sectionKind };
@@ -189,7 +189,9 @@ export function validateViewContract(value) {
   if (value.facts.canonicalBlock !== 'kernel-materialized') contractFailure("View Contract facts.canonicalBlock must be 'kernel-materialized'.");
   assertExactKeys(value.model, { required: ['mode', 'outputSchema'], label: 'View Contract model' });
   assertVocabularyValue('View Contract model mode', value.model.mode, MODEL_MODES);
-  assertString(value.model.outputSchema, 'View Contract outputSchema', { pattern: OUTPUT_SCHEMA_PATTERN });
+  if (value.model.outputSchema !== COMPOSITION_OUTPUT_SCHEMA) {
+    contractFailure(`View Contract outputSchema must be '${COMPOSITION_OUTPUT_SCHEMA}'.`);
+  }
   assertExactKeys(value.budgets, { required: ['maximumInputTokens', 'maximumOutputTokens'], label: 'View Contract budgets' });
   assertInteger(value.budgets.maximumInputTokens, 'View Contract maximumInputTokens', { minimum: 1 });
   assertInteger(value.budgets.maximumOutputTokens, 'View Contract maximumOutputTokens', { minimum: 1 });
@@ -246,6 +248,29 @@ export function resolveViewContract(registryValue, reference, { requireActive = 
 
 export const BUILTIN_VIEW_REGISTRY = deepFreeze(createViewRegistry(BUILTINS));
 export const BUILTIN_VIEW_REFERENCES = Object.freeze(BUILTIN_VIEW_REGISTRY.contracts.map((item) => `${item.id}@${item.version}`));
+
+/**
+ * A self-hash proves only that a registry is internally consistent. Governed WMB v4 execution
+ * additionally requires the exact reviewed registry shipped by this build; otherwise a caller
+ * could coherently reseal a same-version contract and silently change selection or composition
+ * policy. Keep generic validation available for authoring/diagnostics, but use this assertion at
+ * every governed planning, execution, and publication boundary.
+ */
+export function assertInstalledViewRegistry(value) {
+  const registry = validateViewRegistry(value);
+  if (registry.registrySha256 !== BUILTIN_VIEW_REGISTRY.registrySha256
+      || canonicalJson(registry) !== canonicalJson(BUILTIN_VIEW_REGISTRY)) {
+    contractFailure(
+      'World-model View Registry is not the exact reviewed registry installed by this build.',
+      'WMB_VIEW_REGISTRY_NOT_INSTALLED',
+      {
+        expectedRegistrySha256: BUILTIN_VIEW_REGISTRY.registrySha256,
+        receivedRegistrySha256: registry.registrySha256
+      }
+    );
+  }
+  return registry;
+}
 
 export function resolveBuiltInViewContract(reference, options) {
   return resolveViewContract(BUILTIN_VIEW_REGISTRY, reference, options);

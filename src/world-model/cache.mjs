@@ -38,6 +38,10 @@ const COMPOSITION_CANDIDATE_FAMILY = 'world-model-composition-candidate';
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const STALENESS_CAUSE_KINDS = new Set([
+  'source-change', 'scope-change', 'view-contract-change', 'fact-ledger-change',
+  'consumer-profile-change', 'budget-change', 'validator-change', 'execution-profile-change'
+]);
 
 const MAXIMUM_CACHE_RECORD_BYTES = 128 * 1024;
 const MAXIMUM_CACHE_KEY_BYTES = 128 * 1024;
@@ -689,8 +693,8 @@ export function createConservativeWorldModelStalenessReceipt({
   viewId
 } = {}) {
   hashHex(previousViewSha256, 'World-model staleness previousViewSha256');
-  if (!plainObject(cause) || typeof cause.kind !== 'string' || !cause.kind.trim()) {
-    fail('World-model staleness cause requires a kind.', 'WMB_STALENESS_RECEIPT_INVALID');
+  if (!plainObject(cause) || !STALENESS_CAUSE_KINDS.has(cause.kind)) {
+    fail('World-model staleness cause requires a registered kind.', 'WMB_STALENESS_RECEIPT_INVALID');
   }
   hashHex(cause.previousSha256, 'World-model staleness cause previousSha256');
   hashHex(cause.currentSha256, 'World-model staleness cause currentSha256');

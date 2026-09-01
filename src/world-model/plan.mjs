@@ -4,9 +4,13 @@ import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { sealRecord, sha256 } from './canonicalize.mjs';
 import { createScopeManifest } from './scope/manifest.mjs';
-import { BUILTIN_EXTRACTOR_REGISTRY, DEFAULT_EXTRACTOR_REFERENCES } from './registry/extractors.mjs';
-import { BUILTIN_VIEW_REGISTRY, resolveViewContract } from './registry/views.mjs';
-import { createExactSourceSnapshot } from './source/snapshot.mjs';
+import {
+  assertInstalledExtractorRegistry, BUILTIN_EXTRACTOR_REGISTRY, DEFAULT_EXTRACTOR_REFERENCES
+} from './registry/extractors.mjs';
+import {
+  assertInstalledViewRegistry, BUILTIN_VIEW_REGISTRY, resolveViewContract
+} from './registry/views.mjs';
+import { createExactSourceSnapshot, verifyExactSourceSnapshot } from './source/snapshot.mjs';
 
 const CONSUMERS = new Set([
   'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
@@ -251,6 +255,72 @@ export function createWorldModelBuildPlan({
   return schemaRecord('world-model-build-plan', sealRecord(base, 'planSha256'));
 }
 
+/**
+ * Resolve the policy-controlled portion of a WMB v4 build identity without reading source bytes.
+ *
+ * Store/status consumers use this to compare a published projection with the currently approved
+ * configuration. Keeping this in the planner prevents status and build from interpreting scope,
+ * view, consumer, and budget policy differently.
+ */
+export function resolveWorldModelV4ReusableIdentity({
+  views,
+  required = true,
+  consumer = 'developer',
+  depth = 'standard',
+  capabilityId,
+  allowedPaths = ['**'],
+  sharedPaths = [],
+  excludedPaths = [
+    '.git/**', '.sflow/**', '.singularity-flow/**', 'singularity/**', '.github/agents/**'
+  ],
+  allowedSubjects,
+  maximumTraversalDepth = 8,
+  policySnapshotSha256 = sha256({ id: 'sflow-wmb-v4-policy', version: 1 }),
+  totalMaximumOutputTokens = null,
+  viewRegistry = BUILTIN_VIEW_REGISTRY,
+  extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY
+} = {}) {
+  viewRegistry = assertInstalledViewRegistry(viewRegistry);
+  extractorRegistry = assertInstalledExtractorRegistry(extractorRegistry);
+  const scopeManifest = createScopeManifest({
+    capabilityId,
+    allowedPaths,
+    sharedPaths,
+    excludedPaths,
+    ...(allowedSubjects ? { allowedSubjects } : {}),
+    maximumTraversalDepth,
+    // The scope is not reusable after its approved policy source changes, even when its literal
+    // path arrays happen to remain the same.
+    policySourceSha256: policySnapshotSha256
+  });
+  const requestedViews = normalizedViews(viewRegistry, views, { required });
+  const consumerProfile = createWorldModelConsumerProfile({ consumer, depth });
+  const outputBudget = createWorldModelOutputBudget(
+    requestedViews.map((entry) => entry.contract), { totalMaximumOutputTokens }
+  );
+  return Object.freeze({
+    scopeManifest,
+    requestedViews,
+    consumerProfile,
+    outputBudget,
+    identity: Object.freeze({
+      scopeManifestSha256: scopeManifest.scopeSha256,
+      policySnapshotSha256,
+      requestedViews: Object.freeze(requestedViews.map(({ contract, required: viewRequired }) =>
+        Object.freeze({
+          viewId: contract.id,
+          viewVersion: contract.version,
+          viewSpecSha256: contract.contractSha256,
+          required: viewRequired
+        }))),
+      viewRegistrySha256: viewRegistry.registrySha256,
+      extractorRegistrySha256: extractorRegistry.registrySha256,
+      composerProfileSha256: consumerProfile.profileSha256,
+      outputBudgetSha256: outputBudget.budgetSha256
+    })
+  });
+}
+
 /** Resolve a mutation-free WMB v4 plan from exact Git source and explicit policy. */
 export function planWorldModelV4(root, {
   views,
@@ -270,22 +340,33 @@ export function planWorldModelV4(root, {
   totalMaximumOutputTokens = null,
   viewRegistry = BUILTIN_VIEW_REGISTRY,
   extractorRegistry = BUILTIN_EXTRACTOR_REGISTRY,
-  extractorReferences = DEFAULT_EXTRACTOR_REFERENCES
+  extractorReferences = DEFAULT_EXTRACTOR_REFERENCES,
+  candidateSnapshot = null
 } = {}) {
-  const scopeManifest = createScopeManifest({
+  const reusable = resolveWorldModelV4ReusableIdentity({
+    views,
+    required,
+    consumer,
+    depth,
     capabilityId,
     allowedPaths,
     sharedPaths,
     excludedPaths,
     ...(allowedSubjects ? { allowedSubjects } : {}),
-    maximumTraversalDepth
+    maximumTraversalDepth,
+    policySnapshotSha256,
+    totalMaximumOutputTokens,
+    viewRegistry,
+    extractorRegistry
   });
-  const sourceSnapshot = createExactSourceSnapshot(root, { scopeManifest });
-  const requestedViews = normalizedViews(viewRegistry, views, { required });
-  const consumerProfile = createWorldModelConsumerProfile({ consumer, depth });
-  const outputBudget = createWorldModelOutputBudget(
-    requestedViews.map((entry) => entry.contract), { totalMaximumOutputTokens }
-  );
+  const {
+    scopeManifest, requestedViews, consumerProfile, outputBudget
+  } = reusable;
+  // Dirty bytes are never selected implicitly. A caller must first capture a content-addressed
+  // Candidate Snapshot and supply that exact record/ref through the public command boundary.
+  const sourceSnapshot = candidateSnapshot
+    ? verifyExactSourceSnapshot(root, candidateSnapshot, { scopeManifest })
+    : createExactSourceSnapshot(root, { scopeManifest });
   const request = createWorldModelBuildRequest({
     sourceSnapshot,
     scopeManifest,

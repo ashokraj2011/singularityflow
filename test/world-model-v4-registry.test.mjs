@@ -5,17 +5,18 @@ import {
   canonicalJson, collisionSafeIds, sealRecord, sha256
 } from '../src/world-model/canonicalize.mjs';
 import {
-  BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorManifest, validateExtractorManifest,
-  validateExtractorRegistry
+  assertInstalledExtractorRegistry, BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorManifest,
+  validateExtractorManifest, validateExtractorRegistry
 } from '../src/world-model/registry/extractors.mjs';
 import {
   BUILTIN_EXTRACTOR_CONFORMANCE_IDS, extractorConformanceDeclaration,
   extractorConformanceReceiptSha256, verifyBuiltInExtractorConformance
 } from '../src/world-model/registry/extractor-conformance.mjs';
 import {
-  BUILTIN_VIEW_REFERENCES, BUILTIN_VIEW_REGISTRY, resolveBuiltInViewContract,
-  resolveViewContract, validateViewRegistry
+  assertInstalledViewRegistry, BUILTIN_VIEW_REFERENCES, BUILTIN_VIEW_REGISTRY,
+  resolveBuiltInViewContract, resolveViewContract, validateViewRegistry
 } from '../src/world-model/registry/views.mjs';
+import { planWorldModelV4 } from '../src/world-model/plan.mjs';
 
 test('v4 View Registry is closed, dotted, exact-versioned, body-free, and self-hashed', () => {
   assert.deepEqual(BUILTIN_VIEW_REFERENCES, [
@@ -65,6 +66,49 @@ test('Extractor Registry is closed and binds deterministic no-network/no-model i
   const tampered = structuredClone(BUILTIN_EXTRACTOR_REGISTRY);
   tampered.manifests[0].permissions.model = 'optional';
   assert.throws(() => validateExtractorRegistry(tampered));
+});
+
+test('governed registry authority rejects coherently resealed same-version substitutes', () => {
+  const viewRegistry = structuredClone(BUILTIN_VIEW_REGISTRY);
+  const viewContract = viewRegistry.contracts.find((entry) => entry.id === 'dev.impact');
+  viewContract.title = 'Coherently resealed but unreviewed impact view';
+  delete viewContract.contractSha256;
+  Object.assign(viewContract, sealRecord(viewContract, 'contractSha256'));
+  delete viewRegistry.registrySha256;
+  const resealedViews = sealRecord(viewRegistry, 'registrySha256');
+  assert.equal(validateViewRegistry(resealedViews).registrySha256, resealedViews.registrySha256);
+  assert.throws(
+    () => assertInstalledViewRegistry(resealedViews),
+    (error) => error.code === 'WMB_VIEW_REGISTRY_NOT_INSTALLED'
+  );
+  assert.throws(
+    () => planWorldModelV4('/repository-is-not-opened', {
+      views: ['dev.impact'], viewRegistry: resealedViews
+    }),
+    (error) => error.code === 'WMB_VIEW_REGISTRY_NOT_INSTALLED'
+  );
+
+  const extractorRegistry = structuredClone(BUILTIN_EXTRACTOR_REGISTRY);
+  const extractor = extractorRegistry.manifests.find((entry) => entry.languages.length > 1);
+  extractor.languages = extractor.languages.slice(1);
+  delete extractor.manifestSha256;
+  Object.assign(extractor, sealRecord(extractor, 'manifestSha256'));
+  delete extractorRegistry.registrySha256;
+  const resealedExtractors = sealRecord(extractorRegistry, 'registrySha256');
+  assert.equal(
+    validateExtractorRegistry(resealedExtractors).registrySha256,
+    resealedExtractors.registrySha256
+  );
+  assert.throws(
+    () => assertInstalledExtractorRegistry(resealedExtractors),
+    (error) => error.code === 'WMB_EXTRACTOR_REGISTRY_NOT_INSTALLED'
+  );
+  assert.throws(
+    () => planWorldModelV4('/repository-is-not-opened', {
+      views: ['dev.impact'], extractorRegistry: resealedExtractors
+    }),
+    (error) => error.code === 'WMB_EXTRACTOR_REGISTRY_NOT_INSTALLED'
+  );
 });
 
 test('every registered extractor has an executable reviewed fixture receipt', () => {

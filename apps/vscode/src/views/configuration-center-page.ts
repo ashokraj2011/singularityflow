@@ -242,7 +242,7 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   </section>` : '<p class="empty">No workflow-to-view assignments are declared.</p>';
 
   return `<div class="wm-explorer">
-    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div></div>
+    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><button class="secondary" data-action="build-world-model">Build / refresh</button></div>
     <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
     <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? 'legacy')}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
     <div class="wm-filter-bar" role="group" aria-label="World model exact records">
@@ -250,6 +250,10 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
       ${expansionButton('facts', 'Facts')}
       ${expansionButton('evidence', 'Evidence')}
       ${expansionButton('derivations', 'Derivations')}
+      ${expansionButton('unavailable', 'Unavailable analysis')}
+      ${expansionButton('contradictions', 'Contradictions')}
+      ${expansionButton('staleness', 'Staleness receipts')}
+      ${expansionButton('economics', 'Cache & economics')}
       <small class="muted">Exact, content-addressed state records open only when requested; large records are bounded.</small>
     </div>
     <h2>${icon('book')}View catalog</h2>

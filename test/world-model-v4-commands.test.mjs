@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,6 +18,8 @@ import {
   configuredWorldModelV4MaximumWorkers, configuredWorldModelV4ViewIds,
   WORLD_MODEL_V4_COMMANDS
 } from '../src/world-model/commands.mjs';
+import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 
 const executable = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -36,6 +38,14 @@ async function quiet(operation) {
     console.error = original.error;
     console.warn = original.warn;
   }
+}
+
+async function captureStandardOutput(operation) {
+  const original = console.log;
+  const output = [];
+  console.log = (...values) => output.push(values.join(' '));
+  try { return { result: await operation(), output }; }
+  finally { console.log = original; }
 }
 
 test('registered-v4 honors disabled configuration parallelism while allowing an explicit worker override', () => {
@@ -155,6 +165,83 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   return root;
 }
 
+test('production monorepo scope admits canonical trusted inputs but excludes Story state', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.sourceRoots = ['payments.mjs', 'world-model-inputs'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+
+  await mkdir(path.join(root, 'world-model-inputs'), { recursive: true });
+  const runtimeRecord = sealRecord({
+    schemaVersion: 1,
+    kind: 'world-model-runtime-observation',
+    id: 'payment-frequency',
+    metric: 'frequency',
+    subjectId: 'calculate-payment',
+    count: 7,
+    windowStart: '2026-01-01T00:00:00.000Z',
+    windowEnd: '2026-01-02T00:00:00.000Z',
+    producerId: 'approved-runtime-exporter',
+    producerVersion: '1.0.0',
+    receiptSha256: sha256('runtime receipt')
+  }, 'recordSha256');
+  await writeFile(path.join(root, 'world-model-inputs', 'runtime-observations.json'), JSON.stringify({
+    schemaVersion: 1,
+    kind: 'world-model-runtime-observation-import',
+    records: [runtimeRecord]
+  }));
+  const knowledgeRecord = sealRecord({
+    schemaVersion: 1,
+    kind: 'world-model-human-confirmed-knowledge',
+    id: 'payment-term',
+    factType: 'business-glossary',
+    term: 'Payment',
+    statement: 'A governed amount processed by the payment calculation.',
+    confirmation: {
+      status: 'confirmed',
+      authorityId: 'product-approvers',
+      identitySha256: sha256('reviewer identity'),
+      confirmedAt: '2026-01-01T00:00:00.000Z',
+      receiptSha256: sha256('approval receipt')
+    }
+  }, 'recordSha256');
+  await writeFile(path.join(root, 'world-model-inputs', 'human-confirmed-knowledge.json'), JSON.stringify({
+    schemaVersion: 1,
+    kind: 'world-model-human-confirmed-knowledge-import',
+    records: [knowledgeRecord]
+  }));
+  await mkdir(path.join(root, 'singularity', 'work-items', 'WRK-DECOY'), { recursive: true });
+  await writeFile(
+    path.join(root, 'singularity', 'work-items', 'WRK-DECOY', 'runtime-observations.json'),
+    JSON.stringify({ unsafe: 'Story-local state must never enter the repository model.' })
+  );
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'add approved repository model inputs']);
+
+  const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
+    format: 'registered-v4', views: 'dev.impact', json: true
+  }));
+  const plannedPaths = planned.sourceSnapshot.files.map((file) => file.path);
+  assert.ok(plannedPaths.includes('world-model-inputs/runtime-observations.json'));
+  assert.ok(plannedPaths.includes('world-model-inputs/human-confirmed-knowledge.json'));
+  assert.equal(plannedPaths.some((relative) => relative.startsWith('singularity/work-items/')), false);
+  assert.ok(planned.scopeManifest.excludedPaths.includes('singularity/**'));
+
+  const registration = runDeterministicRegistration({
+    root,
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest,
+    requestedViews: ['dev.impact@4']
+  });
+  assert.ok(registration.factLedger.facts.some((fact) => (
+    fact.factType === 'runtime-frequency' && fact.assurance === 'runtime-observed'
+  )));
+  assert.ok(registration.factLedger.facts.some((fact) => (
+    fact.factType === 'business-glossary' && fact.assurance === 'human-confirmed'
+  )));
+});
+
 test('registered-v4 CLI plans, publishes, verifies, and reuses state without invoking a model', async (t) => {
   const root = await registeredRepository(t);
   const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
@@ -162,6 +249,8 @@ test('registered-v4 CLI plans, publishes, verifies, and reuses state without inv
   }));
   assert.deepEqual(planned.plan.views.map((entry) => entry.viewId), ['dev.impact']);
   assert.equal(planned.plan.estimatedWork.maximumCompositionCalls, 1);
+  assert.equal(planned.scopeManifest.policySourceSha256,
+    planned.request.policySnapshotSha256);
 
   const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
     views: 'dev.impact', json: true
@@ -194,6 +283,50 @@ test('registered-v4 CLI plans, publishes, verifies, and reuses state without inv
     { viewId: 'dev.impact', status: 'verified' }
   ]);
   assert.equal(cache[0].executionProfileSha256, null);
+});
+
+test('registered-v4 CLI captures and explicitly builds one immutable dirty Candidate Snapshot', async (t) => {
+  const root = await registeredRepository(t);
+  await writeFile(path.join(root, 'payments.mjs'), [
+    'export function calculatePayment(total) {',
+    '  return Number(total) + 7;',
+    '}',
+    ''
+  ].join('\n'));
+
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(root, ['wm', 'plan'], {
+      format: 'registered-v4', views: 'dev.impact', json: true
+    })),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_REQUIRED'
+  );
+  const captured = await quiet(() => worldModelCommand(root, ['wm', 'snapshot'], {
+    format: 'registered-v4', json: true
+  }));
+  assert.equal(captured.status, 'captured');
+  assert.match(captured.reference, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(captured.sourceSnapshot.authority.kind, 'candidate-snapshot');
+  assert.match(captured.next, /--candidate-snapshot sha256:[a-f0-9]{64} --local$/);
+
+  const planned = await quiet(() => worldModelCommand(root, ['wm', 'plan'], {
+    format: 'registered-v4', views: 'dev.impact',
+    'candidate-snapshot': captured.reference, json: true
+  }));
+  assert.equal(planned.sourceSnapshot.sourceManifestSha256, captured.reference);
+  assert.equal(planned.sourceSnapshot.authority.baseRevision.commit, git(root, ['rev-parse', 'HEAD']));
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(root, ['wm', 'build'], {
+      format: 'registered-v4', views: 'dev.impact',
+      'candidate-snapshot': captured.reference, json: true
+    })),
+    (error) => error.code === 'WMB_CANDIDATE_SNAPSHOT_LOCAL_ONLY'
+  );
+  const local = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', local: true,
+    'candidate-snapshot': captured.reference, json: true
+  }));
+  assert.equal(local.status, 'completed');
+  assert.equal(local.publication, null);
 });
 
 test('the public CLI loads approved registered-v4 policy before enforcing --no-model', async (t) => {
@@ -247,6 +380,54 @@ test('registered-v4 fail staleness policy blocks reuse without replacing state',
       && error.details?.implicitRebuild === false
   );
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
+});
+
+test('registered-v4 approved identity changes stale the store and --stale rebuilds the current policy', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], { views: 'dev.impact' }));
+
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  let workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.maximumTraversalDepth = 7;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'change approved WMB scope policy']);
+
+  let status = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(status.fresh, false);
+  assert.equal(status.freshness.reason, 'scope-manifest-changed');
+  assert.ok(status.freshness.changes.some((entry) => entry.reason === 'policy-snapshot-changed'));
+
+  let rebuilt = await quiet(() => worldModelCommand(root, ['wm', 'regenerate'], {
+    stale: true, json: true
+  }));
+  assert.equal(rebuilt.status, 'completed');
+  status = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(status.fresh, true);
+  assert.equal(status.freshness.reason, null);
+
+  workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.worldModel.v4.consumer = 'architect';
+  workflow.worldModel.v4.totalMaximumOutputTokens = 3000;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'change approved WMB reusable identity']);
+
+  status = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(status.fresh, false);
+  assert.ok(status.freshness.changes.some((entry) => entry.reason === 'view-selection-changed'));
+  assert.ok(status.freshness.changes.some((entry) => entry.reason === 'consumer-profile-changed'));
+  assert.ok(status.freshness.changes.some((entry) => entry.reason === 'output-budget-changed'));
+
+  rebuilt = await quiet(() => worldModelCommand(root, ['wm', 'regenerate'], {
+    stale: true, json: true
+  }));
+  assert.equal(rebuilt.status, 'completed');
+  assert.deepEqual(rebuilt.views.map((entry) => entry.viewId), ['biz.rules', 'dev.impact']);
+  status = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(status.fresh, true);
+  assert.deepEqual(status.views.map((entry) => entry.viewId), ['biz.rules', 'dev.impact']);
 });
 
 test('phase composition reads exact state-backed registered views and never rebuilds them', async (t) => {
@@ -315,19 +496,36 @@ test('v3 migration publishes the target projection and receipt in one state comm
   git(root, ['add', 'legacy-impact.md']);
   git(root, ['commit', '-q', '-m', 'add legacy world-model view']);
 
-  const migrated = await quiet(() => worldModelCommand(root, ['wm', 'migrate', 'legacy-impact.md'], {
-    view: 'dev.impact', json: true
-  }));
+  const captured = await captureStandardOutput(() => worldModelCommand(
+    root, ['wm', 'migrate', 'legacy-impact.md'], { view: 'dev.impact', json: true }
+  ));
+  const migrated = captured.result;
+  assert.equal(captured.output.length, 1, 'JSON migration writes exactly one stdout document');
+  assert.equal(JSON.parse(captured.output[0]).receipt.receiptSha256,
+    migrated.receipt.receiptSha256);
   const commit = migrated.publication.commit;
   assert.match(commit, /^[0-9a-f]{40}$/);
   const receiptPath = `singularity/world-model/migrations/${migrated.receipt.sourceViewSha256.replace(/^sha256:/, '')}.json`;
   const manifest = JSON.parse(git(root, ['show', `${commit}:singularity/world-model/manifest.json`]));
   const receipt = JSON.parse(git(root, ['show', `${commit}:${receiptPath}`]));
+  const factLedger = JSON.parse(git(root, [
+    'show', `${commit}:singularity/world-model/catalogs/facts.json`
+  ]));
+  const migratedUnavailable = factLedger.facts.find((fact) => (
+    fact.status === 'unavailable'
+      && fact.reason?.attemptedProducer === 'legacy-migration-resolution'
+  ));
+  assert.ok(migratedUnavailable, 'unresolved legacy claim becomes a registered unavailable Fact');
+  const migratedView = git(root, [
+    'show', `${commit}:singularity/world-model/views/dev.impact.md`
+  ]);
+  assert.match(migratedView, new RegExp(`\\[F:${migratedUnavailable.id}\\]`));
   assert.equal(manifest.format, 'wmb-v4');
   assert.equal(manifest.views.find((entry) => entry.viewId === 'dev.impact')?.viewSha256,
     migrated.receipt.targetViewSha256);
   assert.equal(receipt.receiptSha256, migrated.receipt.receiptSha256);
   assert.equal(receipt.targetViewSha256, migrated.receipt.targetViewSha256);
+  assert.equal(receipt.factLedgerSha256, factLedger.ledgerSha256);
   assert.equal(
     git(root, ['log', '--format=%H', 'state', '--', 'singularity/world-model/manifest.json']).split('\n').filter(Boolean)[0],
     commit

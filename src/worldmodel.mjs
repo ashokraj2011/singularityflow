@@ -75,6 +75,10 @@ import {
   configuredWorldModelV4ViewIds, handleWorldModelV4Command, isWorldModelV4,
   resolveWorldModelV4Grounding, WORLD_MODEL_V4_COMMANDS
 } from './world-model/commands.mjs';
+import {
+  inspectWorldModelPublicationRecovery, listWorldModelPublicationRecoveries,
+  resumeWorldModelPublication
+} from './world-model/recovery.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -1535,9 +1539,30 @@ async function publishWorldModelRecovery(root, id, options) {
 async function worldModelRecoveryCommand(root, positionals, options) {
   const action = positionals[0] ?? 'list';
   let result;
-  if (action === 'list') result = await listWorldModelRecoveries(root);
-  else if (action === 'inspect') result = await inspectWorldModelRecovery(root, positionals[1]);
-  else if (action === 'publish') result = await publishWorldModelRecovery(root, positionals[1], options);
+  const id = positionals[1];
+  const v4 = String(id ?? '').startsWith('wmb4-');
+  if (action === 'list') {
+    const [legacy, registered] = await Promise.all([
+      listWorldModelRecoveries(root), listWorldModelPublicationRecoveries(root)
+    ]);
+    result = {
+      schemaVersion: 1, // schema-transient: combined bounded recovery inventory
+      recoveries: [
+        ...registered.recoveries.map((entry) => ({
+          ...entry, format: 'registered-v4', phase: 'repository', sourceHash: entry.requestSha256
+        })),
+        ...legacy.recoveries.map((entry) => ({ ...entry, format: 'legacy-v3' }))
+      ],
+      truncated: legacy.truncated || registered.truncated,
+      total: legacy.total + registered.total
+    };
+  } else if (action === 'inspect' && v4) {
+    const inspected = await inspectWorldModelPublicationRecovery(root, id);
+    result = { ...inspected, format: 'registered-v4', phase: 'repository', sourceHash: inspected.requestSha256 };
+  } else if (action === 'inspect') result = await inspectWorldModelRecovery(root, id);
+  else if (action === 'publish' && v4) {
+    result = await resumeWorldModelPublication(root, id, { confirm: optionString(options, 'confirm') });
+  } else if (action === 'publish') result = await publishWorldModelRecovery(root, id, options);
   else throw new SingularityFlowError('Usage: singularity-flow wm recovery list|inspect <ID>|publish <ID> --confirm <ID>');
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else if (action === 'list') {
@@ -1549,6 +1574,9 @@ async function worldModelRecoveryCommand(root, positionals, options) {
     console.log(`World-model recovery ${result.id}: ${result.status}`);
     console.log(`Phase: ${result.phase} · source ${result.sourceHash}`);
     console.log(`Manifest: ${result.manifestSha256}`);
+  } else if (result.providerInvoked === false && result.planSha256) {
+    console.log(`Published retained WMB v4 projection ${result.recovery} without invoking a model provider.`);
+    console.log(`State: ${result.publication.commit?.slice(0, 12) ?? 'current'} · Plan: ${result.planSha256}`);
   } else {
     console.log(`Published retained world model ${result.recovery} without invoking a model provider.`);
     console.log(`State: ${result.state.commit?.slice(0, 12) ?? 'not required'} · application: ${result.application.commit?.slice(0, 12) ?? 'unchanged'}`);
@@ -4145,7 +4173,7 @@ async function showPrompt(root, options) {
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   const v4OnlyCommands = new Set([
-    'plan', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
+    'plan', 'snapshot', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
     'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate'
   ]);
   const versionedCommands = new Set([
@@ -4200,7 +4228,7 @@ export async function worldModelCommand(root, positionals, options) {
   ]);
   if (!legacyCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
     throw new SingularityFlowError(
-      'Usage: singularity-flow wm init|plan|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
+      'Usage: singularity-flow wm init|plan|snapshot|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
     );
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);

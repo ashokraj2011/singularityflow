@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { publishToStateBranch } from '../src/ledger.mjs';
+import { withOperationContext } from '../src/operation-context.mjs';
 import { run } from '../src/util.mjs';
 import {
   inspectWorldModelViewCache, verifyWorldModelStalenessReceipt,
@@ -23,7 +25,13 @@ import {
   publishWorldModelTransaction, stageWorldModelMigrationPublication
 } from '../src/world-model/publish/transaction.mjs';
 import { buildWorldModelV4 } from '../src/world-model/runtime.mjs';
-import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
+import {
+  buildAndPublishWorldModelV4, retryFailedWorldModelV4View
+} from '../src/world-model/service.mjs';
+import { validateWorldModelViewRetryReceipt } from '../src/world-model/retry.mjs';
+import {
+  listWorldModelPublicationRecoveries, resumeWorldModelPublication
+} from '../src/world-model/recovery.mjs';
 import {
   resolvePublishedWorldModelV4, worldModelV4StoreSummary
 } from '../src/world-model/store.mjs';
@@ -80,6 +88,261 @@ function buildOptions(overrides = {}) {
     ...overrides
   };
 }
+
+test('a failed state publication retains and resumes the exact validated projection without rebuilding', async (t) => {
+  const { root } = await repository(t);
+  let attemptedFiles = null;
+  let attemptedOptions = null;
+  let recoveryId = null;
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, buildOptions({
+      publicationOptions: {
+        publisher: async (_root, _ledger, files, _message, options) => {
+          attemptedFiles = files;
+          attemptedOptions = options;
+          throw Object.assign(new Error('injected remote rejection'), { code: 'TEST_PUSH_REJECTED' });
+        }
+      }
+    })),
+    (error) => {
+      recoveryId = error.details?.recoveryId;
+      return error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+        && /^wmb4-[a-f0-9]{32}$/.test(recoveryId)
+        && error.details.causeCode === 'TEST_PUSH_REJECTED';
+    }
+  );
+  assert.ok(attemptedFiles?.['singularity/world-model/manifest.json']);
+  const cachedBefore = await inspectWorldModelViewCache(root);
+  const pending = await listWorldModelPublicationRecoveries(root);
+  assert.deepEqual(pending.recoveries.map((entry) => entry.id), [recoveryId]);
+  assert.equal(pending.recoveries[0].publicationOptions.expectedRemoteSha, null);
+  assert.equal(pending.recoveries[0].publicationOptions.refreshRemote, false);
+  assert.equal(pending.recoveries[0].ledger.pinTransport, 'refs');
+  assert.equal(pending.recoveries[0].ledger.publication, 'warn');
+  await assert.rejects(
+    resumeWorldModelPublication(root, recoveryId, { confirm: 'wmb4-deadbeefdeadbeefdeadbeefdeadbeef' }),
+    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_CONFIRMATION_REQUIRED'
+  );
+  let resumedFiles = null;
+  const resumed = await resumeWorldModelPublication(root, recoveryId, {
+    confirm: recoveryId,
+    publicationOptions: {
+      publisher: async (_root, _ledger, files, _message, options) => {
+        resumedFiles = files;
+        assert.deepEqual(options, attemptedOptions, 'resume uses the retained exact CAS authority');
+        return {
+          branch: 'state', commit: 'f'.repeat(40), changed: true,
+          published: Object.keys(files), removed: []
+        };
+      }
+    }
+  });
+  assert.equal(resumed.providerInvoked, false);
+  assert.equal(resumed.cacheChanged, false);
+  assert.deepEqual(resumedFiles, attemptedFiles, 'resume publishes the retained exact bytes');
+  const cachedAfter = await inspectWorldModelViewCache(root);
+  assert.deepEqual(
+    cachedAfter.entries.map((entry) => entry.record.recordSha256),
+    cachedBefore.entries.map((entry) => entry.record.recordSha256),
+    'publication recovery does not rewrite or recompose cached views'
+  );
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 0);
+});
+
+test('publication recovery cannot be redirected to a different Git endpoint', async (t) => {
+  const { root } = await repository(t);
+  let recoveryId = null;
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, buildOptions({
+      publicationOptions: {
+        publisher: async () => {
+          throw Object.assign(new Error('retain before push'), { code: 'TEST_BEFORE_PUSH' });
+        }
+      }
+    })),
+    (error) => {
+      recoveryId = error.details?.recoveryId;
+      return error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED';
+    }
+  );
+  const [pending] = (await listWorldModelPublicationRecoveries(root)).recoveries;
+  assert.match(pending.publicationOptions.remoteEndpointSha256, /^sha256:[a-f0-9]{64}$/);
+
+  const alternate = path.join(path.dirname(root), 'redirected.git');
+  run('git', ['init', '--bare', alternate]);
+  git(root, 'remote', 'set-url', '--push', 'origin', alternate);
+  let publisherCalls = 0;
+  await assert.rejects(
+    resumeWorldModelPublication(root, recoveryId, {
+      confirm: recoveryId,
+      publicationOptions: {
+        publisher: async () => {
+          publisherCalls += 1;
+          throw new Error('must not publish to a redirected endpoint');
+        }
+      }
+    }),
+    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+      && error.details.causeCode === 'WMB_PUBLICATION_RECOVERY_ENDPOINT_CHANGED'
+  );
+  assert.equal(publisherCalls, 0);
+  assert.equal(run('git', ['--git-dir', alternate, 'branch', '--list', 'state'])
+    .stdout.trim(), '');
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1);
+});
+
+test('publication recovery refuses an unrelated remote advance before invoking its publisher', async (t) => {
+  const { root } = await repository(t);
+  let recoveryId = null;
+  let attemptedFiles = null;
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, buildOptions({
+      publicationOptions: {
+        publisher: async (_root, _ledger, files) => {
+          attemptedFiles = files;
+          throw Object.assign(new Error('injected failure before push'), { code: 'TEST_BEFORE_PUSH' });
+        }
+      }
+    })),
+    (error) => {
+      recoveryId = error.details?.recoveryId;
+      return error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED';
+    }
+  );
+  await publishToStateBranch(root, LEDGER, attemptedFiles,
+    '[test] impostor publication with the same projection bytes', {
+      replaceRoots: ['singularity/world-model']
+    });
+
+  let publisherCalls = 0;
+  await assert.rejects(
+    resumeWorldModelPublication(root, recoveryId, {
+      confirm: recoveryId,
+      publicationOptions: {
+        publisher: async () => {
+          publisherCalls += 1;
+          throw new Error('must not run');
+        }
+      }
+    }),
+    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+      && error.details.causeCode === 'WMB_PUBLICATION_RECOVERY_REMOTE_ADVANCED'
+  );
+  assert.equal(publisherCalls, 0);
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1,
+    'unrelated authority cannot consume the exact immutable marker');
+});
+
+test('a crash after the exact state push reconciles the landed candidate without another write', async (t) => {
+  const { root } = await repository(t);
+  let recoveryId = null;
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, buildOptions({
+      publicationOptions: {
+        publisher: async (...args) => {
+          await publishToStateBranch(...args);
+          throw Object.assign(new Error('injected crash after push'), {
+            code: 'TEST_POST_PUSH_GUARD_CRASH'
+          });
+        }
+      }
+    })),
+    (error) => {
+      recoveryId = error.details?.recoveryId;
+      return error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+        && error.details.causeCode === 'TEST_POST_PUSH_GUARD_CRASH';
+    }
+  );
+  const remoteBefore = git(root, 'ls-remote', '--heads', 'origin', 'refs/heads/state')
+    .stdout.trim().split(/\s+/)[0];
+  let replayCalls = 0;
+  const recovered = await resumeWorldModelPublication(root, recoveryId, {
+    confirm: recoveryId,
+    publicationOptions: {
+      publisher: async () => {
+        replayCalls += 1;
+        throw new Error('the exact candidate must be reconciled, not replayed');
+      }
+    }
+  });
+  const remoteAfter = git(root, 'ls-remote', '--heads', 'origin', 'refs/heads/state')
+    .stdout.trim().split(/\s+/)[0];
+  assert.equal(recovered.reconciled, true);
+  assert.equal(recovered.publication.commit, remoteBefore);
+  assert.equal(remoteAfter, remoteBefore);
+  assert.equal(replayCalls, 0);
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 0);
+});
+
+test('a landed candidate with a failed post-push source guard remains retained', async (t) => {
+  const { root } = await repository(t);
+  const guardedSource = git(root, 'rev-parse', 'refs/heads/main').stdout.trim();
+  let recoveryId = null;
+  await assert.rejects(
+    buildAndPublishWorldModelV4(root, buildOptions({
+      publicationOptions: {
+        guardedRemoteRefs: { 'refs/heads/main': guardedSource },
+        publisher: async (...args) => {
+          await publishToStateBranch(...args);
+          await writeFile(path.join(root, 'src', 'post-push-change.mjs'), 'export const moved = true;\n');
+          git(root, 'add', 'src/post-push-change.mjs');
+          git(root, 'commit', '-m', 'move guarded source after state push');
+          git(root, 'push', 'origin', 'main');
+          throw Object.assign(new Error('injected post-push guard failure'), {
+            code: 'TEST_POST_PUSH_GUARD_FAILURE'
+          });
+        }
+      }
+    })),
+    (error) => {
+      recoveryId = error.details?.recoveryId;
+      return error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+        && error.details.causeCode === 'TEST_POST_PUSH_GUARD_FAILURE';
+    }
+  );
+
+  await assert.rejects(
+    resumeWorldModelPublication(root, recoveryId, { confirm: recoveryId }),
+    (error) => error.code === 'WMB_PUBLICATION_RECOVERY_REQUIRED'
+      && error.details.causeCode === 'WMB_PUBLICATION_RECOVERY_SOURCE_AUTHORITY_CHANGED'
+  );
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 1,
+    'a failed source guard cannot be erased merely because the state projection landed');
+});
+
+test('a cleanup failure retains the marker and the next recovery reconciles exactly once', async (t) => {
+  const { root } = await repository(t);
+  let markerPath = null;
+  let markerBackup = null;
+  const built = await buildAndPublishWorldModelV4(root, buildOptions({
+    publicationOptions: {
+      publisher: async (...args) => {
+        const published = await publishToStateBranch(...args);
+        const [pending] = (await listWorldModelPublicationRecoveries(root)).recoveries;
+        const common = git(root, 'rev-parse', '--git-common-dir').stdout.trim();
+        const gitRoot = path.isAbsolute(common) ? common : path.resolve(root, common);
+        markerPath = path.join(
+          gitRoot, 'singularity-flow', 'world-model-v4-recovery', `${pending.id}.json`
+        );
+        markerBackup = `${markerPath}.retained-test`;
+        await rename(markerPath, markerBackup);
+        await mkdir(markerPath);
+        return published;
+      }
+    }
+  }));
+  assert.equal(built.status, 'completed');
+  assert.equal(built.publicationRecovery.retained, true);
+  await rm(markerPath, { recursive: true, force: true });
+  await rename(markerBackup, markerPath);
+
+  const recovered = await resumeWorldModelPublication(root, built.publicationRecovery.id, {
+    confirm: built.publicationRecovery.id
+  });
+  assert.equal(recovered.reconciled, true);
+  assert.equal(recovered.publication.commit, built.publication.commit);
+  assert.equal((await listWorldModelPublicationRecoveries(root)).total, 0);
+});
 
 test('deterministic views publish atomically, reuse exact cache, and survive selective regeneration', async (t) => {
   const { root } = await repository(t);
@@ -415,16 +678,28 @@ test('publication reproduces the deterministic Fact graph before invoking its st
 
 test('migration receipt and target projection cross the state writer as one validated transaction', async (t) => {
   const { root } = await repository(t);
-  const built = await buildAndPublishWorldModelV4(root, buildOptions({ publish: false }));
-  const target = built.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
-  const mappedFact = built.runtime.registration.factLedger.facts.find((entry) => (
+  const base = await buildAndPublishWorldModelV4(root, buildOptions({ publish: false }));
+  const mappedFact = base.runtime.registration.factLedger.facts.find((entry) => (
     typeof entry.claim === 'string'
   ));
   assert.ok(mappedFact);
+  const legacyView = readLegacyWorldModelView(
+    `# Legacy impact\n\n- ${mappedFact.claim}\n- An unregistered historical claim.\n`
+  );
+  const built = await buildAndPublishWorldModelV4(root, buildOptions({
+    publish: false,
+    legacyMigration: { legacyView, targetViewId: 'dev.impact' }
+  }));
+  const target = built.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
+  const migrationFact = built.runtime.registration.factLedger.facts.find((entry) => (
+    entry.status === 'unavailable'
+      && entry.reason?.attemptedProducer === 'legacy-migration-resolution'
+  ));
+  assert.ok(migrationFact);
+  assert.match(target.markdown, new RegExp(`\\[F:${migrationFact.id}\\]`));
+  assert.doesNotMatch(target.markdown, /An unregistered historical claim/);
   const migration = createWorldModelMigrationReceipt({
-    legacyView: readLegacyWorldModelView(
-      `# Legacy impact\n\n- ${mappedFact.claim}\n- An unregistered historical claim.\n`
-    ),
+    legacyView,
     targetViewSha256: target.viewSha256,
     sourceSnapshot: built.runtime.planned.sourceSnapshot,
     scopeManifest: built.runtime.planned.scopeManifest,
@@ -608,4 +883,240 @@ test('aggregate output budget is admitted before independent view fan-out', asyn
     (error) => error.code === 'WMB_OUTPUT_BUDGET_EXCEEDED'
       && error.details.minimumRequiredTokens === 2_800
   );
+});
+
+test('failed-view retry reuses exact facts and execution identity while replacing only that view', async (t) => {
+  const { root } = await repository(t);
+  const first = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['dev.impact', 'arch.contracts'], publish: false
+  }));
+  const cacheBefore = await inspectWorldModelViewCache(root);
+  const failedCache = cacheBefore.entries.find((entry) => entry.components.viewId === 'dev.impact');
+  const siblingCache = cacheBefore.entries.find((entry) => entry.components.viewId === 'arch.contracts');
+  const forgedCandidate = {
+    ...structuredClone(failedCache.candidate),
+    usedFactIds: [...failedCache.candidate.usedFactIds, `FACT-${'e'.repeat(16)}`].sort()
+  };
+  const forgedReceiptCore = {
+    ...structuredClone(failedCache.validationReceipt),
+    candidateSha256: sha256(forgedCandidate)
+  };
+  delete forgedReceiptCore.receiptSha256;
+  await writeWorldModelViewCache(root, failedCache.components, {
+    view: first.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact').markdown,
+    candidate: forgedCandidate,
+    validationReceipt: sealRecord(forgedReceiptCore, 'receiptSha256'),
+    createdAt: '2026-09-01T03:00:00.000Z',
+    replaceExisting: true,
+    expectedRecordSha256: failedCache.record.recordSha256
+  });
+
+  const refused = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['dev.impact', 'arch.contracts'], publish: false,
+    generatedAt: '2026-09-01T03:01:00.000Z'
+  }));
+  assert.equal(refused.status, 'refused');
+  const previousRefusal = refused.refusals.find((entry) => entry.view === 'dev.impact');
+  assert.equal(previousRefusal.nextAction.operation, 'world-model.retry-failed-view');
+  assert.equal(previousRefusal.retry.attempt, 1);
+  const siblingBefore = refused.runtime.executions.find(
+    (entry) => entry.viewId === 'arch.contracts'
+  );
+  const plannedBefore = canonicalJson(refused.runtime.planned);
+  const registrationBefore = canonicalJson(refused.runtime.registration);
+
+  const retried = await retryFailedWorldModelV4View(root, refused, {
+    viewId: 'dev.impact', generatedAt: '2026-09-01T03:02:00.000Z'
+  });
+  assert.equal(retried.status, 'completed');
+  assert.equal(retried.attempt, 2);
+  assert.equal(retried.runtime.status, 'ready-to-publish');
+  assert.equal(retried.runtime.refusals.length, 0);
+  assert.equal(
+    retried.runtime.executions.find((entry) => entry.viewId === 'arch.contracts'),
+    siblingBefore,
+    'a selective retry must retain the sibling execution object exactly'
+  );
+  assert.equal(retried.runtime.planned, refused.runtime.planned);
+  assert.equal(retried.runtime.registration, refused.runtime.registration);
+  assert.equal(canonicalJson(retried.runtime.planned), plannedBefore);
+  assert.equal(canonicalJson(retried.runtime.registration), registrationBefore);
+  assert.deepEqual(retried.receipt.previousRefusal, previousRefusal);
+  assert.equal(retried.receipt.binding.sourceManifestSha256,
+    refused.runtime.planned.sourceSnapshot.sourceManifestSha256);
+  assert.equal(retried.receipt.binding.scopeManifestSha256,
+    refused.runtime.planned.scopeManifest.scopeSha256);
+  assert.equal(retried.receipt.binding.viewContractSha256,
+    refused.runtime.planned.requestedViews.find(
+      (entry) => entry.contract.id === 'dev.impact'
+    ).contract.contractSha256);
+  assert.equal(retried.receipt.binding.viewFactLedgerSha256,
+    refused.runtime.registration.viewFactLedgers.find(
+      (entry) => entry.viewId === 'dev.impact'
+    ).ledgerSha256);
+  assert.equal(retried.receipt.outcome.executionSha256,
+    retried.runtime.executions.find((entry) => entry.viewId === 'dev.impact')
+      .execution.executionSha256);
+  assert.equal(validateWorldModelViewRetryReceipt(retried.receipt).receiptSha256,
+    retried.receipt.receiptSha256);
+  assert.deepEqual(
+    JSON.parse(await readFile(retried.receiptPersistence.path, 'utf8')),
+    retried.receipt
+  );
+  const cacheAfter = await inspectWorldModelViewCache(root);
+  assert.equal(
+    cacheAfter.entries.find((entry) => entry.components.viewId === 'arch.contracts')
+      .record.recordSha256,
+    siblingCache.record.recordSha256
+  );
+  await assert.rejects(
+    retryFailedWorldModelV4View(root, refused, { viewId: 'dev.impact' }),
+    (error) => error.code === 'WMB_RETRY_ALREADY_TERMINAL'
+      && error.details.receiptSha256 === retried.receipt.receiptSha256
+  );
+});
+
+test('failed-view retry rejects changed execution identity before provider work', async (t) => {
+  const { root } = await repository(t);
+  const first = await buildAndPublishWorldModelV4(root, buildOptions({ publish: false }));
+  const [entry] = (await inspectWorldModelViewCache(root)).entries;
+  const forgedCandidate = {
+    ...structuredClone(entry.candidate),
+    usedFactIds: [...entry.candidate.usedFactIds, `FACT-${'d'.repeat(16)}`].sort()
+  };
+  const receiptCore = {
+    ...structuredClone(entry.validationReceipt), candidateSha256: sha256(forgedCandidate)
+  };
+  delete receiptCore.receiptSha256;
+  await writeWorldModelViewCache(root, entry.components, {
+    view: first.runtime.availableViews[0].markdown,
+    candidate: forgedCandidate,
+    validationReceipt: sealRecord(receiptCore, 'receiptSha256'),
+    createdAt: '2026-09-01T03:10:00.000Z',
+    replaceExisting: true,
+    expectedRecordSha256: entry.record.recordSha256
+  });
+  const refused = await buildAndPublishWorldModelV4(root, buildOptions({
+    publish: false, generatedAt: '2026-09-01T03:11:00.000Z'
+  }));
+  await assert.rejects(
+    retryFailedWorldModelV4View(root, refused, {
+      viewId: 'dev.impact', composer: 'model', provider: null
+    }),
+    (error) => error.code === 'WMB_RETRY_BINDING_MISMATCH'
+  );
+  assert.equal(refused.runtime.retryReceipts.length, 0);
+  await writeFile(path.join(root, 'src', 'service.mjs'), [
+    "import { tax } from './tax.mjs';",
+    'export function total(value) { return value + tax(value) + 1; }',
+    ''
+  ].join('\n'));
+  git(root, 'add', 'src/service.mjs');
+  git(root, 'commit', '-m', 'move exact retry source');
+  await assert.rejects(
+    retryFailedWorldModelV4View(root, refused, { viewId: 'dev.impact' }),
+    (error) => error.code === 'WMB_SOURCE_SNAPSHOT_STALE'
+  );
+});
+
+test('failed-view retry policy preserves refusal lineage and exhausts its installed bound', async (t) => {
+  const { root } = await repository(t);
+  const initial = await buildWorldModelV4(root, {
+    ...buildOptions({ cachePolicy: 'rebuild' }), composer: 'model', provider: null
+  });
+  assert.equal(initial.status, 'refused');
+  assert.equal(initial.refusals[0].code, 'WMB_EXECUTION_UNIT_UNAVAILABLE');
+  assert.equal(initial.refusals[0].retry.attempt, 1);
+
+  const second = await retryFailedWorldModelV4View(root, initial, {
+    viewId: 'dev.impact', generatedAt: '2026-09-01T03:20:00.000Z'
+  });
+  assert.equal(second.status, 'refused');
+  assert.equal(second.receipt.attempt, 2);
+  assert.equal(second.receipt.outcome.refusal.retry.attempt, 2);
+  assert.equal(second.receipt.lineage.rootRefusalSha256,
+    initial.refusals[0].refusalSha256);
+  assert.deepEqual(second.receipt.previousRefusal, initial.refusals[0]);
+
+  const third = await retryFailedWorldModelV4View(root, second, {
+    viewId: 'dev.impact', generatedAt: '2026-09-01T03:21:00.000Z'
+  });
+  assert.equal(third.status, 'refused');
+  assert.equal(third.receipt.attempt, 3);
+  assert.equal(third.receipt.lineage.previousRetryReceiptSha256,
+    second.receipt.receiptSha256);
+  assert.equal(third.receipt.outcome.refusal.retry.parentRefusalSha256,
+    second.receipt.outcome.refusal.refusalSha256);
+  assert.equal(third.receipt.outcome.refusal.retry.rootRefusalSha256,
+    initial.refusals[0].refusalSha256);
+  assert.equal(third.runtime.registration, initial.registration);
+
+  await assert.rejects(
+    retryFailedWorldModelV4View(root, third, { viewId: 'dev.impact' }),
+    (error) => error.code === 'WMB_RETRY_ATTEMPTS_EXHAUSTED'
+      && error.details.attempts === 3
+      && error.details.maximumAttempts === 3
+  );
+});
+
+test('the governed model composer validates, materializes, and accounts for one successful candidate', async (t) => {
+  const { root } = await repository(t);
+  const deterministic = await buildWorldModelV4(root, buildOptions({
+    cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:30:00.000Z'
+  }));
+  assert.equal(deterministic.status, 'ready-to-publish');
+  const candidate = JSON.stringify(deterministic.availableViews[0].candidate);
+  const fixture = path.join(root, 'fake-wmb-composer-acp.mjs');
+  await writeFile(fixture, `
+import readline from 'node:readline';
+const candidate = ${JSON.stringify(candidate)};
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+for await (const line of lines) {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      protocolVersion: message.params.protocolVersion, agentCapabilities: {}
+    }});
+  } else if (message.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      sessionId: 'wmb-composer-session', configOptions: []
+    }});
+  } else if (message.method === 'session/prompt') {
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: 'wmb-composer-session', update: {
+        sessionUpdate: 'agent_message_chunk', messageId: 'candidate',
+        content: { type: 'text', text: candidate }
+      }
+    }});
+    send({ jsonrpc: '2.0', id: message.id, result: {
+      stopReason: 'end_turn', usage: { inputTokens: 101, outputTokens: 47, totalTokens: 148 }
+    }});
+  }
+}
+`);
+
+  const composed = await withOperationContext({
+    operation: { id: 'world-model.build', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root, command: 'wm build'
+  }, () => buildWorldModelV4(root, buildOptions({
+    composer: 'model', provider: 'copilot-cli', model: 'fixture-model',
+    providerConfig: {
+      type: 'copilot-cli', executable: process.execPath,
+      arguments: [fixture], promptTransport: 'acp-stdio'
+    },
+    cachePolicy: 'rebuild', generatedAt: '2026-09-01T03:31:00.000Z'
+  })));
+
+  assert.equal(composed.status, 'ready-to-publish');
+  assert.equal(composed.availableViews.length, 1);
+  const [view] = composed.availableViews;
+  assert.equal(view.route, 'model');
+  assert.deepEqual(view.candidate, deterministic.availableViews[0].candidate);
+  assert.equal(view.execution.status, 'completed');
+  assert.match(view.execution.executionUnitManifestSha256, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(view.usageObservation.providerInputTokens, 101);
+  assert.equal(view.usageObservation.providerOutputTokens, 47);
+  assert.equal(view.usageObservation.assurance.providerTokens, 'provider-reported');
+  assert.match(view.markdown, /execution-unit: governed-model-composer@1:/);
 });

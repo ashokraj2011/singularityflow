@@ -55,9 +55,20 @@ export function worldModelMigrationRequired(raw) {
   return error;
 }
 
+const BARE_EVIDENCE_CANDIDATE = /(?<![A-Za-z0-9_.-])(?<path>(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+)#(?<symbol>[A-Za-z_$][A-Za-z0-9_.$:-]*)/g;
+const QUOTED_EVIDENCE_CANDIDATE = /`(?<path>[^`\r\n#]+)#(?<symbol>[A-Za-z_$][A-Za-z0-9_.$:-]*)`/g;
+
 function evidenceCandidates(line) {
-  return [...new Set([...line.matchAll(/(?<![A-Za-z0-9_.-])(?<path>[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+)#(?<symbol>[A-Za-z_$][A-Za-z0-9_.$:-]*)/g)]
-    .map((match) => `${match.groups.path}#${match.groups.symbol}`))].sort();
+  return [...new Set([
+    ...line.matchAll(BARE_EVIDENCE_CANDIDATE),
+    ...line.matchAll(QUOTED_EVIDENCE_CANDIDATE)
+  ].map((match) => `${match.groups.path.trim()}#${match.groups.symbol}`))].sort();
+}
+
+function withoutEvidenceCandidates(line) {
+  return line
+    .replace(QUOTED_EVIDENCE_CANDIDATE, ' ')
+    .replace(BARE_EVIDENCE_CANDIDATE, ' ');
 }
 
 function claimText(line) {
@@ -74,14 +85,15 @@ function markdownClaims(text) {
     const trimmed = rawLine.trim();
     if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('<!--') || trimmed.startsWith('-->')
         || trimmed === '---' || trimmed.startsWith('```') || /^[-a-z-]+:\s/.test(trimmed)) continue;
-    const textValue = claimText(trimmed);
+    const candidates = evidenceCandidates(trimmed);
+    const textValue = claimText(withoutEvidenceCandidates(trimmed));
     if (!textValue || textValue.length < 4) continue;
     const confidence = /\bconfidence\s*[:=]\s*(exact|partial|unavailable)\b/i.exec(trimmed)?.[1]?.toLowerCase() ?? null;
     claims.push({
       index: claims.length,
       text: textValue,
       claimSha256: sha256({ text: textValue }),
-      evidenceCandidates: evidenceCandidates(trimmed),
+      evidenceCandidates: candidates,
       legacyConfidence: confidence
     });
   }

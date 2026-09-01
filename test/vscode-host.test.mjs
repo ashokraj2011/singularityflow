@@ -1270,6 +1270,10 @@ test('Configuration Center prepares world-model generation for review and never 
   const { root, registered } = await activated();
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
+  const beforeStateRefs = run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)',
+    'refs/heads/state', 'refs/remotes/origin/state'
+  ], { cwd: root }).stdout;
 
   await registered.commands.get('singularityFlow.configureWorldModel')();
   const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
@@ -1277,14 +1281,27 @@ test('Configuration Center prepares world-model generation for review and never 
   assert.match(panel.webview.html, /data-action="build-world-model"/);
   await panel.post({ type: 'action', action: 'build-world-model' });
 
-  const handoff = registered.executedCommands.find((entry) =>
-    entry.id === 'workbench.action.chat.open' && entry.args[0]?.query?.startsWith('/sf-worldmodel '));
-  assert.ok(handoff, 'the guarded /sf-worldmodel review was prepared in Copilot');
-  assert.equal(handoff.args[0].isPartialQuery, true, 'the prepared request is not submitted automatically');
-  assert.match(handoff.args[0].query, /Proposed engine command: singularity-flow wm ensure/);
-  assert.match(registered.infos.at(-1), /Nothing has run/);
+  assert.equal(registered.executedCommands.some((entry) => (
+    entry.id === 'workbench.action.chat.open'
+  )), false, 'the native build review no longer hands authority to a Copilot prefill');
+  assert.deepEqual(registered.quickPicks.slice(-3).map((entry) => entry.options.title), [
+    'World Model · exact governed build', 'World Model depth', 'World Model composer'
+  ]);
+  const reviewIndex = registered.warnings.findIndex((message) => (
+    message === 'Run this exact World Model build and atomically publish it to the governed state branch?'
+  ));
+  assert.notEqual(reviewIndex, -1, 'the native exact Plan reached its guarded modal review');
+  assert.deepEqual(registered.warningActions[reviewIndex], ['Build & publish exact Plan']);
+  assert.equal(registered.infos.some((message) => /World Model published/.test(message)), false,
+    'dismissing review does not report a completed publication');
+  assert.equal(registered.terminals.length, 0, 'native review does not open or run a terminal command');
   assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
   assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus);
+  assert.equal(run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname)',
+    'refs/heads/state', 'refs/remotes/origin/state'
+  ], { cwd: root }).stdout, beforeStateRefs,
+  'cancelling exact review creates or advances no local/tracking state authority');
 });
 
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {

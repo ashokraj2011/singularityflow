@@ -9,10 +9,15 @@ import { assertSelfHash } from '../contracts.mjs';
 import { runDeterministicRegistration } from '../extract/index.mjs';
 import { validateViewFactLedger } from '../extract/selection.mjs';
 import { materializeWorldModelView } from '../materialize/view.mjs';
-import { validateWorldModelMigrationReceipt } from '../migration/v3-to-v4.mjs';
+import {
+  augmentRegistrationForMigrationReceipt, validateWorldModelMigrationReceipt
+} from '../migration/v3-to-v4.mjs';
 import { parseWorldModelViewKernelStamp } from '../materialize/stamp.mjs';
 import { createWorldModelViewOutputBudget } from '../plan.mjs';
-import { resolveViewContract, validateViewRegistry } from '../registry/views.mjs';
+import { assertInstalledExtractorRegistry } from '../registry/extractors.mjs';
+import {
+  assertInstalledViewRegistry, resolveViewContract
+} from '../registry/views.mjs';
 import {
   validateWorldModelContextManifest, validateWorldModelUsageObservation
 } from '../store.mjs';
@@ -294,7 +299,8 @@ export function validateStagedWorldModelPublication(publication) {
     ...records,
     policySnapshotSha256: manifest.policySnapshotSha256
   });
-  const viewRegistry = validateViewRegistry(records.viewRegistry);
+  const viewRegistry = assertInstalledViewRegistry(records.viewRegistry);
+  assertInstalledExtractorRegistry(records.extractorRegistry);
   const migrationPaths = migrationProjectionPaths(files, outputDir);
   const expectedPaths = exactProjectionPaths(manifest, viewRegistry, migrationPaths);
   assertExactProjectionPaths(files, outputDir, expectedPaths);
@@ -405,15 +411,17 @@ function validateStagedRegistrationAgainstSource(root, publication) {
   const { files, outputDir } = publication;
   const sourceSnapshot = canonicalRecord(files, outputDir, 'source/source-snapshot.json');
   const scopeManifest = canonicalRecord(files, outputDir, 'scope/scope-manifest.json');
-  const viewRegistry = validateViewRegistry(canonicalRecord(
+  const viewRegistry = assertInstalledViewRegistry(canonicalRecord(
     files, outputDir, 'registries/views.json'
   ));
-  const extractorRegistry = canonicalRecord(files, outputDir, 'registries/extractors.json');
+  const extractorRegistry = assertInstalledExtractorRegistry(canonicalRecord(
+    files, outputDir, 'registries/extractors.json'
+  ));
   const buildPlan = canonicalRecord(files, outputDir, 'plans/build-plan.json');
   const activeContracts = viewRegistry.contracts.filter(
     (contract) => contract.validity.status === 'active'
   );
-  const reproduced = runDeterministicRegistration({
+  let reproduced = runDeterministicRegistration({
     root,
     sourceSnapshot,
     scopeManifest,
@@ -422,6 +430,38 @@ function validateStagedRegistrationAgainstSource(root, publication) {
     requestedViews: activeContracts,
     viewRegistry
   });
+  const manifest = readWorldModelV4Manifest(canonicalRecord(
+    files, outputDir, 'manifest.json'
+  ));
+  for (const relative of migrationProjectionPaths(files, outputDir)) {
+    const receipt = validateWorldModelMigrationReceipt(
+      canonicalRecord(files, outputDir, relative),
+      {
+        sourceSnapshot,
+        scopeManifest,
+        evidenceCatalog: reproduced.evidenceCatalog,
+        availableViews: manifest.views
+      }
+    );
+    const target = manifest.views.find((entry) => (
+      entry.status === 'available' && entry.viewSha256 === receipt.targetViewSha256
+    ));
+    if (!target) {
+      throw new SingularityFlowError(
+        'World-model migration receipt target is absent from the exact staged manifest.',
+        { code: 'WMB_PUBLICATION_FACTS_UNVERIFIED', details: { path: relative } }
+      );
+    }
+    reproduced = augmentRegistrationForMigrationReceipt({
+      receipt,
+      registration: reproduced,
+      targetViewContract: resolveViewContract(
+        viewRegistry, `${target.viewId}@${target.viewVersion}`
+      ),
+      viewRegistry,
+      extractorRegistry
+    }).registration;
+  }
   const comparisons = [
     ['Evidence Catalog', 'catalogs/evidence.json', reproduced.evidenceCatalog],
     ['Derivation Catalog', 'catalogs/derivations.json', reproduced.derivationCatalog],

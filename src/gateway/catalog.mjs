@@ -56,10 +56,15 @@ export const RESOLUTION_CODES = Object.freeze([
  */
 export const KERNEL_CODES = Object.freeze([
   'gateway.planner-unavailable',
+  'gateway.plan-invalid',
   'gateway.denied-by-policy',
   'gateway.not-a-read',
+  'gateway.not-a-mutation',
   'gateway.read-only',
   'gateway.not-implemented',
+  'gateway.executor-unavailable',
+  'gateway.confirmation-required',
+  'gateway.confirmation-invalid',
   'gateway.legal-now',
   'gateway.nothing-was-carried-out',
   'gateway.handle-unknown',

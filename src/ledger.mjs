@@ -14,6 +14,9 @@ import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport
+} from './git-remote-diagnostics.mjs';
 
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
 export const LEDGER_INTENT_DIRECTORY = 'context/ledger-intents';
@@ -99,6 +102,154 @@ function ledgerHead(root, config, { env = process.env } = {}) {
 }
 
 /**
+ * Resolve the exact configured and effective push endpoint behind a state-branch remote name.
+ *
+ * Both identities matter. The local configuration is the repository authority a reviewer sees,
+ * while `git remote get-url --push` includes machine-level URL rewriting and is the endpoint Git
+ * will actually contact. Binding only the remote name allows either layer to redirect a confirmed
+ * publication without changing HEAD or the working tree.
+ */
+export function stateBranchPublicationTargetIdentity(root, rawConfig) {
+  const config = normalizeLedgerConfig(rawConfig);
+  const configured = configuredRemoteIdentity(root, config.remote, { direction: 'push' });
+  if (configured.ambiguous) {
+    throw new SingularityFlowError(
+      `State publication remote '${config.remote}' has more than one configured push endpoint.`,
+      { code: 'state_branch.remote_ambiguous', details: { remote: config.remote } }
+    );
+  }
+  const effective = configuredRemoteAuthority(root, config.remote, { direction: 'push' });
+  if (configured.configured && (!configured.url || !effective.url)) {
+    throw new SingularityFlowError(
+      `State publication remote '${config.remote}' does not resolve to one exact push endpoint.`,
+      { code: 'state_branch.remote_unavailable', details: { remote: config.remote } }
+    );
+  }
+  return Object.freeze({
+    remote: config.remote,
+    branch: config.branch,
+    targetRef: `refs/heads/${config.branch}`,
+    configured: configured.configured,
+    configuredUrl: configured.url,
+    configuredUrlSha256: configured.fingerprint ? `sha256:${configured.fingerprint}` : null,
+    effectiveUrl: effective.url,
+    effectiveUrlSha256: effective.fingerprint ? `sha256:${effective.fingerprint}` : null
+  });
+}
+
+/**
+ * Capture the exact state authority an immutable projection will publish against.
+ *
+ * Publication normally derives this inside its temporary worktree. A recovery marker must retain
+ * it before that worktree exists, otherwise a retry could silently adopt a newer state branch and
+ * replace a sibling projection the reviewed publication never observed.
+ */
+export function captureStateBranchPublicationAuthority(root, rawConfig, {
+  env = process.env, refreshRemote = true
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env });
+  const trackedRemote = remoteRef(config);
+  const remoteConfigured = hasRemoteInEnvironment(root, config.remote, env);
+  const remoteExists = refExistsInEnvironment(root, trackedRemote, env);
+  const base = ledgerHead(root, config, { env });
+  const baseRef = base
+    ? git(root, ['rev-parse', '--verify', `${base}^{commit}`], { env }).stdout.trim()
+    : undefined;
+  const expectedRemoteSha = remoteConfigured
+    ? remoteExists
+      ? git(root, ['rev-parse', '--verify', `${trackedRemote}^{commit}`], { env }).stdout.trim()
+      : null
+    : undefined;
+  return Object.freeze({
+    ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
+    ...(baseRef ? { baseRef } : {}),
+    refreshRemote: false
+  });
+}
+
+/**
+ * Materialize an already reviewed remote state tip for execution without changing its authority.
+ *
+ * Planning observes with `ls-remote`, which is read-only and therefore cannot refresh the local
+ * remote-tracking ref. Execution calls this only after exact host confirmation. The fetch is
+ * accepted solely when the branch still advertises the reviewed SHA; an absent, moved, malformed,
+ * or unreachable branch fails before the publication worktree or recovery marker is created.
+ */
+export function materializeStateBranchPublicationAuthority(root, rawConfig, {
+  expectedRemoteSha = undefined, env = process.env, transportRemote = undefined
+} = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  const configured = hasRemoteInEnvironment(root, config.remote, env);
+  if (!configured) {
+    if (expectedRemoteSha !== undefined) {
+      throw new SingularityFlowError('The reviewed state publication remote is no longer configured.', {
+        code: 'state_branch.publication_observation_unavailable',
+        details: { branch: config.branch, expectedRemoteSha }
+      });
+    }
+    return Object.freeze({ expectedRemoteSha: undefined, baseRef: refExistsInEnvironment(root, localRef(config), env)
+      ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
+      : undefined });
+  }
+
+  const before = observeRemoteBranch(root, config, { env, transportRemote });
+  if (before.status !== 'observed') {
+    throw new SingularityFlowError(
+      `Unable to verify the ${config.branch} branch before materializing the reviewed publication: ${before.detail}`,
+      {
+        code: 'state_branch.publication_observation_unavailable',
+        details: { branch: config.branch, expectedRemoteSha }
+      }
+    );
+  }
+  if (before.commit !== expectedRemoteSha) {
+    throw new SingularityFlowError(
+      `Concurrent publication changed the ${config.branch} branch after it was reviewed.`,
+      {
+        code: 'state_branch.concurrent_publication',
+        details: { branch: config.branch, expectedRemoteSha, observedRemoteSha: before.commit }
+      }
+    );
+  }
+
+  if (expectedRemoteSha !== null) {
+    const fetched = ensureRemoteBranchFetched(root, config, { env, transportRemote });
+    const local = fetched === LEDGER_REMOTE_VIEW.REFRESHED
+      ? git(root, ['rev-parse', '--verify', `${remoteRef(config)}^{commit}`], {
+          allowFailure: true, env
+        }).stdout.trim()
+      : null;
+    if (local !== expectedRemoteSha) {
+      throw new SingularityFlowError('The reviewed state publication base could not be materialized exactly.', {
+        code: 'state_branch.publication_base_unavailable',
+        details: { branch: config.branch, expectedRemoteSha, observedRemoteSha: local }
+      });
+    }
+    const after = observeRemoteBranch(root, config, { env, transportRemote });
+    if (after.status !== 'observed' || after.commit !== expectedRemoteSha) {
+      throw new SingularityFlowError(
+        `Concurrent publication changed the ${config.branch} branch while its reviewed base was materialized.`,
+        {
+          code: after.status === 'observed'
+            ? 'state_branch.concurrent_publication'
+            : 'state_branch.publication_observation_unavailable',
+          details: {
+            branch: config.branch, expectedRemoteSha,
+            observedRemoteSha: after.status === 'observed' ? after.commit : null
+          }
+        }
+      );
+    }
+  }
+
+  const localBase = expectedRemoteSha ?? (refExistsInEnvironment(root, localRef(config), env)
+    ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
+    : undefined);
+  return Object.freeze({ expectedRemoteSha, baseRef: localBase });
+}
+
+/**
  * How a read came by its view of the remote, in the words the rest of the product already uses.
  *
  * `resolveWorldModelSource` in `grounding.mjs` settled this vocabulary and a second one here would
@@ -125,10 +276,18 @@ export const LEDGER_REMOTE_VIEW = Object.freeze({
  * to return nothing, which is why `ledgerStatus` could guard the call and still report its result
  * as though the remote had been consulted.
  */
-function ensureRemoteBranchFetched(root, config, { offline = false, env = process.env } = {}) {
+function ensureRemoteBranchFetched(root, config, {
+  offline = false, env = process.env, transportRemote = undefined
+} = {}) {
   if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
   if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
-  const fetched = git(root, ['fetch', '--no-tags', config.remote, `+refs/heads/${config.branch}:${remoteRef(config)}`], { allowFailure: true, env });
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { env });
+  const fetched = git(root, [
+    'fetch', '--no-tags', frozen?.remote ?? config.remote,
+    `+refs/heads/${config.branch}:${remoteRef(config)}`
+  ], { allowFailure: true, env: frozen?.env ?? env });
   if (fetched.status === 0) return LEDGER_REMOTE_VIEW.REFRESHED;
   return fetched.timedOut ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
 }
@@ -200,22 +359,32 @@ function normalizedGuardedRemoteRefs(worktree, guardedRemoteRefs = {}, { env = p
   });
 }
 
-function pushLedger(worktree, config, expectedRemoteSha = undefined, { env = process.env } = {}) {
+function pushLedger(worktree, config, expectedRemoteSha = undefined, {
+  env = process.env, transportRemote = undefined
+} = {}) {
   const lease = expectedRemoteSha !== undefined
     ? `--force-with-lease=refs/heads/${config.branch}:${expectedRemoteSha ?? ''}`
     : '--force-with-lease';
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { push: true, env });
   return git(worktree, [
     'push', lease,
-    config.remote,
+    frozen?.remote ?? config.remote,
     `HEAD:refs/heads/${config.branch}`
-  ], { allowFailure: true, env });
+  ], { allowFailure: true, env: frozen?.env ?? env });
 }
 
-function observeGuardedRemoteRefs(worktree, config, guards, { env = process.env } = {}) {
+function observeGuardedRemoteRefs(worktree, config, guards, {
+  env = process.env, transportRemote = undefined
+} = {}) {
   if (!guards.length) return { status: 'observed', refs: new Map() };
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { env });
   const observed = git(worktree, [
-    'ls-remote', '--heads', '--', config.remote, ...guards.map(({ ref }) => ref)
-  ], { allowFailure: true, env });
+    'ls-remote', '--heads', '--', frozen?.remote ?? config.remote, ...guards.map(({ ref }) => ref)
+  ], { allowFailure: true, env: frozen?.env ?? env });
   if (observed.status !== 0) {
     return {
       status: 'unavailable', refs: new Map(),
@@ -233,9 +402,11 @@ function observeGuardedRemoteRefs(worktree, config, guards, { env = process.env 
   return { status: 'observed', refs: advertised };
 }
 
-function assertGuardedRemoteRefsCurrent(worktree, config, guards, phase, { env = process.env } = {}) {
+function assertGuardedRemoteRefsCurrent(worktree, config, guards, phase, {
+  env = process.env, transportRemote = undefined
+} = {}) {
   if (!guards.length) return;
-  const observed = observeGuardedRemoteRefs(worktree, config, guards, { env });
+  const observed = observeGuardedRemoteRefs(worktree, config, guards, { env, transportRemote });
   if (observed.status !== 'observed') {
     throw new SingularityFlowError(
       `Unable to verify the state projection source authority ${phase}: ${observed.detail || 'remote observation failed'}`,
@@ -262,10 +433,15 @@ function assertGuardedRemoteRefsCurrent(worktree, config, guards, phase, { env =
   );
 }
 
-function observeRemoteBranch(worktree, config, { env = process.env } = {}) {
+function observeRemoteBranch(worktree, config, {
+  env = process.env, transportRemote = undefined
+} = {}) {
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { env });
   const observed = git(worktree, [
-    'ls-remote', '--heads', config.remote, `refs/heads/${config.branch}`
-  ], { allowFailure: true, env });
+    'ls-remote', '--heads', frozen?.remote ?? config.remote, `refs/heads/${config.branch}`
+  ], { allowFailure: true, env: frozen?.env ?? env });
   if (observed.status !== 0) return { status: 'unavailable', detail: (observed.stderr || observed.stdout).trim() };
   const line = observed.stdout.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
   return { status: 'observed', commit: line ? line.split(/\s+/)[0] : null };
@@ -287,11 +463,12 @@ function initialHead() {
 }
 
 export async function initializeLedger(root, rawConfig = {}, {
-  publish = true, refreshRemote = true, env = process.env, repairPins = true
+  publish = true, refreshRemote = true, env = process.env, repairPins = true,
+  transportRemote = undefined
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const refspecInstalled = installPinRefspec(root, config, { env });
-  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env });
+  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env, transportRemote });
   const existing = ledgerHead(root, config, { env });
   if (existing) {
     let pinRepair = null;
@@ -320,9 +497,9 @@ export async function initializeLedger(root, rawConfig = {}, {
     if (publish && hasRemoteInEnvironment(root, config.remote, env)) {
       // This is an orphan-root create, so bind it explicitly to an absent remote ref. A concurrent
       // initializer is joined after one recovery fetch; no force update can replace its state root.
-      const pushed = pushLedger(worktree, config, null, { env });
+      const pushed = pushLedger(worktree, config, null, { env, transportRemote });
       if (pushed.status !== 0) {
-        ensureRemoteBranchFetched(root, config, { env });
+        ensureRemoteBranchFetched(root, config, { env, transportRemote });
         const concurrent = refExistsInEnvironment(root, remoteRef(config), env) ? remoteRef(config) : null;
         if (concurrent) {
           const concurrentCommit = git(root, ['rev-parse', `${concurrent}^{commit}`], { env }).stdout.trim();
@@ -811,7 +988,7 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
 export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
-  env = process.env
+  env = process.env, transportRemote = undefined
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -838,11 +1015,13 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
 
-  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env });
+  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env, transportRemote });
   let ref = ledgerHead(root, config, { env });
   let initializedCommit = null;
   if (!ref) {
-    const initialized = await initializeLedger(root, config, { env, repairPins: false });
+    const initialized = await initializeLedger(root, config, {
+      env, repairPins: false, transportRemote
+    });
     if (suppliedExpectedRemoteSha === null && !initialized.created) {
       const error = new SingularityFlowError(
         `Concurrent publication created the ${config.branch} branch after it was confirmed absent.`,
@@ -855,7 +1034,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       throw error;
     }
     initializedCommit = initialized.created ? initialized.commit : null;
-    ensureRemoteBranchFetched(root, config, { env });
+    ensureRemoteBranchFetched(root, config, { env, transportRemote });
     ref = ledgerHead(root, config, { env });
   }
   const expectedRemoteSha = suppliedExpectedRemoteSha !== undefined
@@ -895,7 +1074,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only'], { env }).stdout.trim()) {
       if (hasRemoteInEnvironment(root, config.remote, env) && suppliedExpectedRemoteSha !== undefined) {
-        const observed = observeRemoteBranch(worktree, config, { env });
+        const observed = observeRemoteBranch(worktree, config, { env, transportRemote });
         if (observed.status !== 'observed') {
           throw new SingularityFlowError(
             `Unable to verify the ${config.branch} branch before completing a no-op publication: ${observed.detail}`,
@@ -913,7 +1092,9 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       }
       if (hasRemoteInEnvironment(root, config.remote, env)) {
         assertGuardedRemoteRefsCurrent(
-          worktree, config, sourceGuards, 'when the unchanged state projection was verified', { env }
+          worktree, config, sourceGuards, 'when the unchanged state projection was verified', {
+            env, transportRemote
+          }
         );
       }
       return {
@@ -930,7 +1111,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       ...commitArgs(config, message)], { env });
     const commit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
     if (hasRemoteInEnvironment(root, config.remote, env)) {
-      const pushed = pushLedger(worktree, config, expectedRemoteSha, { env });
+      const pushed = pushLedger(worktree, config, expectedRemoteSha, { env, transportRemote });
       if (pushed.status !== 0) {
         const detail = (pushed.stderr || pushed.stdout).trim();
         const concurrent = isStateBranchConcurrencyFailure(detail);
@@ -951,7 +1132,9 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       // `git push --atomic <old-source>:<source>` does not guard an unchanged source ref: Git elides
       // the no-op update before receive-pack, so a concurrent source push can land while the state
       // update is accepted. Re-observe after the exact state CAS and fail closed if that happened.
-      assertGuardedRemoteRefsCurrent(worktree, config, sourceGuards, 'during state publication', { env });
+      assertGuardedRemoteRefsCurrent(
+        worktree, config, sourceGuards, 'during state publication', { env, transportRemote }
+      );
       // The local branch follows what was just published. Readers name the branch plainly —
       // `git rev-parse state:singularity/world-model` — so a push that left the local ref behind
       // means the machine that did the publishing is the one that cannot see it. Allowed to fail:

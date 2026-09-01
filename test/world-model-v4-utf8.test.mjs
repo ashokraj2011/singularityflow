@@ -36,7 +36,9 @@ test('malformed UTF-8 becomes typed unavailable analysis instead of replacement-
   const unavailable = registration.factLedger.facts.filter((fact) => (
     fact.status === 'unavailable' && fact.subject.id === 'src/invalid.mjs'
   ));
-  assert.deepEqual(unavailable.map((fact) => fact.reason.code), ['INVALID_UTF8', 'INVALID_UTF8']);
+  assert.deepEqual(unavailable.map((fact) => fact.reason.code), [
+    'INVALID_UTF8', 'INVALID_UTF8', 'INVALID_UTF8', 'INVALID_UTF8', 'INVALID_UTF8'
+  ]);
   assert.ok(registration.factLedger.facts.every((fact) => (
     fact.status === 'unavailable' || !String(fact.claim).includes('\ufffd')
   )));

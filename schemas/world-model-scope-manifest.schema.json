@@ -5,7 +5,7 @@
   "properties": {
     "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-scope-manifest" }, "capabilityId": { "type": "string", "minLength": 1 },
     "allowedPaths": { "$ref": "#/$defs/paths" }, "sharedPaths": { "$ref": "#/$defs/paths" }, "excludedPaths": { "$ref": "#/$defs/paths" },
-    "allowedSubjects": { "type": "array", "uniqueItems": true, "items": { "enum": ["symbol", "file", "contract", "dependency-edge", "test", "configuration", "rule", "runtime-observation"] } },
+    "allowedSubjects": { "type": "array", "uniqueItems": true, "items": { "enum": ["repository", "file", "directory", "symbol", "contract", "dependency-edge", "test", "rule", "configuration", "analysis", "runtime-observation", "human-record"] } },
     "maximumTraversalDepth": { "type": "integer", "minimum": 0, "maximum": 128 }, "policySourceSha256": { "$ref": "#/$defs/hash" }, "scopeSha256": { "$ref": "#/$defs/hash" }
   }, "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } }, "additionalProperties": false
 }

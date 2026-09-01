@@ -491,7 +491,8 @@ test('the world model shows its current state, not only its policy', () => {
   const html = centerHtml(built, 'world-model');
   assert.match(html, /data-open-path="singularity\/world-model\/views\/business\.md"/);
   assert.match(html, /no references/);
-  assert.doesNotMatch(html, /data-action="build-world-model"/);
+  assert.match(html, /data-action="build-world-model">Build \/ refresh/,
+    'an already-built model keeps an explicit, reviewed refresh path');
 });
 
 test('registered-v4 Explorer opens exact state references and keeps full catalogs on demand', () => {
@@ -508,7 +509,13 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
         views: 1, facts: 12, evidence: 9, derivations: 4,
         unavailable: 2, contradictions: 1, cacheHits: 1
       },
-      expansion: [{ kind: 'facts', id: 'all', sha256: digest, path: 'catalogs/facts.json', ref: factsRef }],
+      expansion: [
+        { kind: 'facts', id: 'all', sha256: digest, path: 'catalogs/facts.json', ref: factsRef },
+        ...['unavailable', 'contradictions', 'staleness', 'economics'].map((kind) => ({
+          kind, id: 'all', sha256: digest,
+          ref: `sfref:world-model:${kind}:all:${'a'.repeat(64)}`
+        }))
+      ],
       views: [{
         id: 'dev.impact', viewId: 'dev.impact', viewVersion: 4, status: 'available',
         required: true, path: 'views/dev.impact.md', viewSha256: digest, cache: 'hit',
@@ -527,6 +534,10 @@ test('registered-v4 Explorer opens exact state references and keeps full catalog
   assert.match(html, /evidence \/ derivations/);
   assert.match(html, /unavailable \/ contradicted/);
   assert.match(html, /view cache reuse/);
+  assert.match(html, /Unavailable analysis/);
+  assert.match(html, /Contradictions/);
+  assert.match(html, /Staleness receipts/);
+  assert.match(html, /Cache &amp; economics/);
   assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'open-world-model-ref'/);
   assert.match(extensionSource, /message\.type === 'open-world-model-ref'/);
   assert.match(extensionSource, /show registered world model/);

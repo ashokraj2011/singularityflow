@@ -75,6 +75,21 @@ test('coercion narrows the representation and never decides the meaning', () => 
     { repositoryId: 'r', path: 'p', lineStart: 'abc' }), /lineStart/);
 });
 
+test('world-model views use newline input and repeated CLI flags without comma guessing', () => {
+  const submitted = coerceForm('world-model-build-v1', {
+    views: 'dev.impact\narch.contracts@4\n', depth: 'standard', composer: undefined
+  });
+  assert.deepEqual(submitted, {
+    views: ['dev.impact', 'arch.contracts@4'], depth: 'standard'
+  });
+  const rendered = terminalEquivalent('sflow do', submitted);
+  assert.equal(rendered,
+    'sflow do --views dev.impact --views arch.contracts@4 --depth standard');
+  const { options } = parseArgs(argv(rendered).slice(2));
+  assert.deepEqual(argumentsFromFlags('world-model-build-v1', options), submitted);
+  assert.doesNotThrow(() => validateArguments('world-model-build-v1', submitted));
+});
+
 test('local validation and the operation agree on every registered schema', () => {
   /**
    * `[UXH:REQ-071]`: the form validates for feedback, the operation validates for real, and the two

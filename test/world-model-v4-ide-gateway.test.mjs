@@ -92,6 +92,10 @@ test('the IDE projection is bounded and exposes references instead of complete c
   assert.equal(slice.summary.unavailable, 1);
   assert.equal(slice.summary.contradictions, 1);
   assert.ok(slice.expansion.every((entry) => entry.ref.startsWith('sfref:world-model:')));
+  assert.deepEqual(
+    slice.expansion.map((entry) => entry.kind),
+    ['manifest', 'facts', 'evidence', 'derivations', 'unavailable', 'contradictions', 'staleness', 'economics']
+  );
   assert.equal(Object.hasOwn(slice, 'factLedger'), false);
   assert.equal(Object.hasOwn(slice, 'evidenceCatalog'), false);
   assert.ok(serializedWorldModelIdeBytes(slice) < 16 * 1_024);
@@ -99,6 +103,37 @@ test('the IDE projection is bounded and exposes references instead of complete c
     () => projectWorldModelIdeSlice(store(), { maximumPreviewBytes: MAX_WORLD_MODEL_PREVIEW_BYTES + 1 }),
     /IDE bound/
   );
+});
+
+test('the IDE exposes separate exact drill-downs for gaps, staleness, and cache economics', () => {
+  const registered = {
+    ...store(),
+    views: [{
+      ...store().views[0],
+      usageObservation: {
+        promptBytes: 400, outputBytes: 200, providerInputTokens: 100,
+        providerCachedTokens: 60, providerOutputTokens: 50,
+        cost: { amount: 0.25, assurance: 'provider-reported' },
+        assurance: { providerTokens: 'provider-reported' }
+      }
+    }],
+    stalenessReceipts: [{ receiptSha256: digest('f'), cause: { kind: 'source-change' } }]
+  };
+  const slice = projectWorldModelIdeSlice(registered);
+  const read = (kind) => {
+    const reference = slice.expansion.find((entry) => entry.kind === kind);
+    assert.ok(reference);
+    const page = readWorldModelIdeExpansion(process.cwd(), registered, reference.ref);
+    assert.equal(page.complete, true);
+    return JSON.parse(Buffer.from(page.content, 'base64').toString('utf8'));
+  };
+  assert.deepEqual(read('unavailable').facts.map((fact) => fact.id), ['FACT-1111111111111111']);
+  assert.deepEqual(read('contradictions').facts.map((fact) => fact.id), ['FACT-2222222222222222']);
+  assert.equal(read('staleness').receipts.length, 1);
+  const economics = read('economics');
+  assert.equal(economics.totals.cacheHits, 1);
+  assert.equal(economics.totals.providerCachedTokens, 60);
+  assert.equal(economics.totals.providerCostUsd, 0.25);
 });
 
 test('WMB v4 reads reuse the five gateway tools and remain bounded, deterministic reads', () => {

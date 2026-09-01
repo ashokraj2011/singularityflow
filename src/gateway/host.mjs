@@ -102,6 +102,8 @@ export function createHostGateway({
    * seventh to start up.
    */
   planners,
+  planBuilders = new Map(),
+  mutationExecutors = new Map(),
   /** Surface selection that every planner reads instead of re-deriving independently. */
   plannerContext = {},
   readOnly = true,
@@ -163,6 +165,8 @@ export function createHostGateway({
     plannerContext: context,
     handles: createHandleAuthority({ now }),
     readOnly,
+    planBuilders,
+    mutationExecutors,
     now
   });
   const scopedKernel = Object.freeze({

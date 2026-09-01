@@ -1,5 +1,7 @@
 export {
+  captureCandidateSourceSnapshot,
   createExactSourceSnapshot,
+  loadCandidateSourceSnapshot,
   readExactSourceFile,
   sourceFileMap,
   validateSourceSnapshot,

@@ -12,11 +12,25 @@ import {
   createExactSourceSnapshot, validateSourceSnapshot, verifyExactSourceSnapshot
 } from '../source/snapshot.mjs';
 import {
+  CALL_REFERENCE_EDGE_ID, CALL_REFERENCE_EDGE_IMPLEMENTATION_SHA256, extractCallReferenceEdges,
+  CLAUSE_CODE_BINDING_ID, CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256, extractClauseCodeBindings,
+  CHANGE_REGION_ID, CHANGE_REGION_IMPLEMENTATION_SHA256, extractChangeRegions,
+  CONFIGURATION_OBJECT_ID, CONFIGURATION_OBJECT_IMPLEMENTATION_SHA256, extractConfigurationObjects,
   IMPORT_DEPENDENCY_ID, IMPORT_DEPENDENCY_IMPLEMENTATION_SHA256, extractImportDependencies,
+  HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID, HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_IMPLEMENTATION_SHA256,
+  extractHumanConfirmedKnowledge,
+  INTERFACE_CONTRACT_ID, INTERFACE_CONTRACT_IMPLEMENTATION_SHA256, extractInterfaceContracts,
   LANGUAGE_DETECTION_ID, LANGUAGE_DETECTION_IMPLEMENTATION_SHA256, extractLanguages,
+  OWNERSHIP_MAINTAINER_RECORD_ID, OWNERSHIP_MAINTAINER_RECORD_IMPLEMENTATION_SHA256,
+  extractOwnershipMaintainerRecords,
   REPOSITORY_FILES_ID, REPOSITORY_FILES_IMPLEMENTATION_SHA256, extractRepositoryFiles,
   REQUIRED_FACT_COVERAGE_ID, REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256, extractRequiredFactCoverage,
-  SYMBOL_SKELETON_ID, SYMBOL_SKELETON_IMPLEMENTATION_SHA256, extractSymbolSkeleton
+  RUNTIME_OBSERVATION_IMPORT_ID, RUNTIME_OBSERVATION_IMPORT_IMPLEMENTATION_SHA256,
+  extractRuntimeObservations,
+  RULE_DEFINITION_ID, RULE_DEFINITION_IMPLEMENTATION_SHA256, extractRuleDefinitions,
+  SIGNATURE_AND_EXPORT_ID, SIGNATURE_AND_EXPORT_IMPLEMENTATION_SHA256, extractSignaturesAndExports,
+  SYMBOL_SKELETON_ID, SYMBOL_SKELETON_IMPLEMENTATION_SHA256, extractSymbolSkeleton,
+  TEST_IDENTITY_ID, TEST_IDENTITY_IMPLEMENTATION_SHA256, extractTestIdentities
 } from './adapters/index.mjs';
 import {
   allocateDerivationIdentities, createDerivationCatalog, validateDerivationCatalog
@@ -36,6 +50,10 @@ const ADAPTERS = Object.freeze({
     implementationSha256: LANGUAGE_DETECTION_IMPLEMENTATION_SHA256,
     run: extractLanguages
   },
+  [SIGNATURE_AND_EXPORT_ID]: {
+    implementationSha256: SIGNATURE_AND_EXPORT_IMPLEMENTATION_SHA256,
+    run: extractSignaturesAndExports
+  },
   [SYMBOL_SKELETON_ID]: {
     implementationSha256: SYMBOL_SKELETON_IMPLEMENTATION_SHA256,
     run: extractSymbolSkeleton
@@ -43,6 +61,46 @@ const ADAPTERS = Object.freeze({
   [IMPORT_DEPENDENCY_ID]: {
     implementationSha256: IMPORT_DEPENDENCY_IMPLEMENTATION_SHA256,
     run: extractImportDependencies
+  },
+  [CALL_REFERENCE_EDGE_ID]: {
+    implementationSha256: CALL_REFERENCE_EDGE_IMPLEMENTATION_SHA256,
+    run: extractCallReferenceEdges
+  },
+  [INTERFACE_CONTRACT_ID]: {
+    implementationSha256: INTERFACE_CONTRACT_IMPLEMENTATION_SHA256,
+    run: extractInterfaceContracts
+  },
+  [CONFIGURATION_OBJECT_ID]: {
+    implementationSha256: CONFIGURATION_OBJECT_IMPLEMENTATION_SHA256,
+    run: extractConfigurationObjects
+  },
+  [RULE_DEFINITION_ID]: {
+    implementationSha256: RULE_DEFINITION_IMPLEMENTATION_SHA256,
+    run: extractRuleDefinitions
+  },
+  [TEST_IDENTITY_ID]: {
+    implementationSha256: TEST_IDENTITY_IMPLEMENTATION_SHA256,
+    run: extractTestIdentities
+  },
+  [CLAUSE_CODE_BINDING_ID]: {
+    implementationSha256: CLAUSE_CODE_BINDING_IMPLEMENTATION_SHA256,
+    run: extractClauseCodeBindings
+  },
+  [CHANGE_REGION_ID]: {
+    implementationSha256: CHANGE_REGION_IMPLEMENTATION_SHA256,
+    run: extractChangeRegions
+  },
+  [OWNERSHIP_MAINTAINER_RECORD_ID]: {
+    implementationSha256: OWNERSHIP_MAINTAINER_RECORD_IMPLEMENTATION_SHA256,
+    run: extractOwnershipMaintainerRecords
+  },
+  [RUNTIME_OBSERVATION_IMPORT_ID]: {
+    implementationSha256: RUNTIME_OBSERVATION_IMPORT_IMPLEMENTATION_SHA256,
+    run: extractRuntimeObservations
+  },
+  [HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_ID]: {
+    implementationSha256: HUMAN_CONFIRMED_KNOWLEDGE_IMPORT_IMPLEMENTATION_SHA256,
+    run: extractHumanConfirmedKnowledge
   },
   [REQUIRED_FACT_COVERAGE_ID]: {
     implementationSha256: REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256,
@@ -53,10 +111,17 @@ const ADAPTERS = Object.freeze({
 export const EMPTY_EXTRACTOR_CONFIGURATION_SHA256 = sha256({ kind: 'world-model-extractor-configuration', version: 1 });
 export const BUILTIN_GRAMMAR_SHA256 = sha256({
   kind: 'world-model-lexical-grammar-set',
-  version: 2,
+  version: 4,
   algorithms: [
+    'single-pass-bounded-same-file-declaration-call-and-reference-candidates-v2',
+    'constant-process-exact-first-parent-zero-context-change-regions-v2',
+    'sealed-bounded-human-confirmed-business-knowledge-import-v1',
+    'sealed-bounded-runtime-frequency-record-import-v1',
     'repository-facts.extractImports-code-and-literal-aware-v2',
-    'repository-facts.extractSymbols-code-only-v2'
+    'repository-facts.extractSymbols-code-only-v2',
+    'reviewed-polyglot-import-grammar-v3',
+    'reviewed-polyglot-symbol-grammar-v3',
+    'reviewed-closed-structural-metadata-grammar-v1'
   ]
 });
 
@@ -100,7 +165,10 @@ function executeAdapters({ root, sourceSnapshot, scopeManifest, extractorRegistr
     const rightCoverage = right.startsWith(`${REQUIRED_FACT_COVERAGE_ID}@`);
     return leftCoverage === rightCoverage ? compareText(left, right) : leftCoverage ? 1 : -1;
   });
-  const context = { root, sourceSnapshot, scopeManifest };
+  // One registration pass may project the same exact blob through several closed extractors.
+  // Retain only its decoded text for this in-memory pass so each Git blob is verified once, never
+  // once per extractor. The cache is discarded before any durable record is returned.
+  const context = { root, sourceSnapshot, scopeManifest, sourceTextCache: new Map() };
   const results = [];
   for (const reference of references) {
     const manifest = resolveExtractorManifest(extractorRegistry, reference);

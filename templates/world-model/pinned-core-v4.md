@@ -48,4 +48,16 @@ availability result.
 15. Output one valid `world-model-composition-candidate` JSON object and no
     surrounding prose.
 
+## Fact Reference Grammar
+
+{{fact_reference_grammar}}
+
+## Composition Candidate Schema
+
+{{composition_candidate_schema}}
+
+## Registered View Contract
+
+{{registered_view_contract}}
+
 <!-- ===== REQUEST INPUTS: volatile tail ===== -->

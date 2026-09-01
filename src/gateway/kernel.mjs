@@ -11,7 +11,9 @@
  * construction rather than by nobody having called it yet — a mutation path that exists and is
  * simply unused is one flag away from being live, and the flag is usually set by someone debugging.
  */
-import { createHandleAuthority, subjectFromBinding } from './handles.mjs';
+import {
+  createHandleAuthority, issueConfirmationReceipt, redeemConfirmationReceipt, subjectFromBinding
+} from './handles.mjs';
 import { validateArguments } from './argument-schemas.mjs';
 import { DEFAULT_GATEWAY_POLICY, operationPermission, resolveGatewayPolicy } from './policy.mjs';
 import { gatewayRegistry } from './operations.mjs';
@@ -33,7 +35,7 @@ import { SingularityFlowError } from '../util.mjs';
  */
 export const KERNEL_MESSAGES = Object.freeze([
   'gateway.read', 'gateway.next', 'gateway.explained', 'gateway.refused', 'gateway.home',
-  'gateway.developer-next',
+  'gateway.developer-next', 'gateway.completed',
   /**
    * A read that answers "am I ready?" with "no" `[UXH:REQ-062]`.
    *
@@ -80,10 +82,10 @@ function handleCode(error) {
  * capability is simply absent here. `unavailable` says that, and the card has its own sentence for
  * it pointing at the terminal.
  */
-function refuse(operationId, code, source, slots = {}, restState = 'blocked') {
+function refuse(operationId, code, source, slots = {}, restState = 'blocked', classification = 'read') {
   return sflowResult({
     kind: 'refusal',
-    operation: { id: operationId, classification: 'read' },
+    operation: { id: operationId, classification },
     outcome: { status: 'refused', messageId: 'gateway.refused', slots },
     effects: noEffects(),
     why: [{ code, source, slots }],
@@ -112,9 +114,13 @@ export function createGatewayKernel({
   plannerContext = {},
   handles = createHandleAuthority(),
   readOnly = true,
+  /** Exact mutation planning and execution remain opt-in capabilities of the host build. */
+  planBuilders = new Map(),
+  mutationExecutors = new Map(),
   now = () => Date.now()
 } = {}) {
   const policy = resolveGatewayPolicy(policyLayers, { registry });
+  const confirmationReceipts = new Map();
 
   /**
    * The world *now*, not the world this kernel was built in. `[INT:REQ-036]`
@@ -209,6 +215,63 @@ export function createGatewayKernel({
     return validateSflowResult(sealPlannerNavigation(produced, issuedAgainst));
   }
 
+  function issueResolvedPlan(result, issuedAgainst) {
+    if (result.kind !== 'plan') return result;
+    const operation = registry.operations.find((entry) => entry.id === result.operation.id);
+    const builder = operation && planBuilders.get(operation.gateway.planner);
+    if (!operation || typeof builder !== 'function') return result;
+    if (operation.classification === 'authorization') {
+      throw new SingularityFlowError('An authorization cannot be issued as an executable Plan.', {
+        code: 'PLAN_FORBIDDEN'
+      });
+    }
+    const permission = operationPermission(policy, operation.id, { registry });
+    if (!permission.reachable || !permission.executable
+        || !['host-confirm', 'exact-confirm'].includes(permission.confirmation)) return result;
+    const args = validateArguments(operation.gateway.argumentSchema, result.data?.arguments ?? {});
+    const context = typeof plannerContext === 'function'
+      ? plannerContext({ operation, arguments: args, subject: result.subject })
+      : plannerContext;
+    let descriptor;
+    try {
+      descriptor = builder({
+        operation, arguments: args, subject: result.subject, registry, policy, root,
+        context: context ?? {}
+      });
+    } catch (error) {
+      return refuse(operation.id, 'gateway.plan-invalid', 'deterministic', {
+        code: String(error?.code ?? 'PLAN_INVALID').slice(0, 128)
+      }, 'blocked', operation.classification);
+    }
+    const { reference, planHash } = handles.issuePlan({
+      operationId: operation.id,
+      classification: operation.classification,
+      arguments: args,
+      binding: issuedAgainst,
+      confirmation: permission.confirmation,
+      effects: descriptor.effects,
+      externalTargets: descriptor.externalTargets,
+      idempotencyKey: descriptor.idempotencyKey,
+      review: descriptor.review
+    });
+    return sflowResult({
+      ...result,
+      next: result.next.map((action, index) => index === 0
+        ? { ...action, handle: reference.id, executable: false }
+        : action),
+      data: {
+        ...result.data,
+        plan: {
+          handle: reference.id,
+          planHash,
+          confirmation: permission.confirmation,
+          effects: descriptor.effects,
+          review: descriptor.review
+        }
+      }
+    });
+  }
+
   return Object.freeze({
     registry,
     policy,
@@ -217,14 +280,16 @@ export function createGatewayKernel({
 
     /** `sflow_resolve`: the only entry point that takes words. */
     resolve(request = {}, { subject = null } = {}) {
-      return resolveIntent(request, {
+      const issuedAgainst = currentBinding();
+      const result = resolveIntent(request, {
         registry,
         policy,
         handles,
         legalActions: currentLegalActions(subject),
-        binding: currentBinding(),
+        binding: issuedAgainst,
         subject
       });
+      return issueResolvedPlan(result, issuedAgainst);
     },
 
     /** `sflow_read`: a resolved read handle, revalidated against the world, and nothing else. */
@@ -327,17 +392,117 @@ export function createGatewayKernel({
     },
 
     /**
-     * `sflow_run`: refused while the gateway is read-only.
-     *
-     * P1's boundary, enforced here rather than by the absence of callers. The refusal is a real
-     * result with a real reason, so a host that reaches this discovers a documented state instead of
-     * an exception it will decide to catch.
+     * Exchange a host-reviewed exact WMB digest pair for a one-time, out-of-band run receipt.
+     * This method is not a model-facing tool. The receipt value never enters tool arguments/results.
      */
-    async run({ planId } = {}) {
+    confirmPlan({ planId, requestSha256, planSha256 } = {}) {
+      if (readOnly) {
+        throw new SingularityFlowError('This gateway session is read-only.', { code: 'GATEWAY_READ_ONLY' });
+      }
+      const plan = handles.verify({ id: planId }, { kind: 'plan', binding: currentBinding() });
+      if (plan.classification === 'authorization') {
+        throw new SingularityFlowError('Authorization decisions require their human ceremony.', {
+          code: 'PLAN_FORBIDDEN'
+        });
+      }
+      if (plan.confirmation !== 'exact-confirm'
+          || requestSha256 !== plan.review?.requestSha256
+          || planSha256 !== plan.review?.planSha256) {
+        throw new SingularityFlowError('Confirmation does not match the exact reviewed WMB request and Plan digests.', {
+          code: 'PLAN_CONFIRMATION_MISMATCH'
+        });
+      }
+      const binding = currentBinding();
+      const issued = issueConfirmationReceipt({
+        planHash: plan.signature,
+        actorId: binding.actorId,
+        hostSessionId: binding.hostSessionId,
+        audience: 'gateway.run',
+        now
+      });
+      confirmationReceipts.set(issued.record.id, issued.record);
+      return Object.freeze({
+        receiptId: issued.record.id,
+        value: issued.value,
+        expiresAt: issued.record.expiresAt,
+        planHash: plan.signature
+      });
+    },
+
+    /** `sflow_run`: handle-only to the model; confirmation arrives on the host-only second channel. */
+    async run({ planId } = {}, { confirmationReceiptId = null, confirmationValue = null } = {}) {
       if (readOnly) {
         return refuse('gateway.run', 'gateway.read-only', 'policy', { planId: planId ? 'supplied' : 'absent' });
       }
-      return refuse('gateway.run', 'gateway.not-implemented', 'unavailable', { phase: 'P2' });
+      if (!planBuilders.size && !mutationExecutors.size) {
+        return refuse('gateway.run', 'gateway.not-implemented', 'unavailable', { phase: 'P2' });
+      }
+      let plan;
+      try { plan = handles.verify({ id: planId }, { kind: 'plan', binding: currentBinding() }); }
+      catch (error) { return refuse('gateway.run', handleCode(error), 'deterministic'); }
+      const operation = registry.operations.find((entry) => entry.id === plan.operationId);
+      const permission = operation && operationPermission(policy, operation.id, { registry });
+      if (!operation || !permission?.reachable) {
+        return refuse('gateway.run', 'gateway.denied-by-policy', 'policy');
+      }
+      if (operation.classification !== 'mutation' || plan.classification !== 'mutation') {
+        return refuse('gateway.run', 'gateway.not-a-mutation', 'registry');
+      }
+      if (!permission.executable || permission.confirmation !== plan.confirmation) {
+        return refuse('gateway.run', 'gateway.denied-by-policy', 'policy');
+      }
+      const executor = mutationExecutors.get(operation.gateway.planner);
+      if (typeof executor !== 'function') {
+        return refuse('gateway.run', 'gateway.executor-unavailable', 'unavailable', {
+          planner: operation.gateway.planner
+        }, 'unavailable');
+      }
+      const receipt = confirmationReceipts.get(confirmationReceiptId);
+      if (!receipt || !confirmationValue) {
+        return refuse('gateway.run', 'gateway.confirmation-required', 'deterministic');
+      }
+      const binding = currentBinding();
+      try {
+        const redeemed = redeemConfirmationReceipt(receipt, confirmationValue, {
+          planHash: plan.signature,
+          actorId: binding.actorId,
+          hostSessionId: binding.hostSessionId,
+          audience: 'gateway.run',
+          now
+        });
+        confirmationReceipts.set(receipt.id, redeemed);
+      } catch {
+        return refuse('gateway.run', 'gateway.confirmation-invalid', 'deterministic');
+      }
+      // Consume only after the exact receipt redeems; a missing/invalid confirmation never burns the
+      // reviewed Plan. From this point the act is single-use even when publication enters recovery.
+      handles.verify({ id: planId }, { kind: 'plan', binding, consume: true });
+      const produced = validateSflowResult(await executor({
+        operation,
+        arguments: plan.arguments,
+        plan,
+        subject: subjectFromBinding(plan.binding),
+        registry,
+        policy,
+        root,
+        context: typeof plannerContext === 'function'
+          ? plannerContext({ operation, arguments: plan.arguments, subject: subjectFromBinding(plan.binding) })
+          : plannerContext
+      }));
+      if (produced.operation.id !== operation.id
+          || produced.operation.classification !== operation.classification) {
+        throw new SingularityFlowError('Mutation executor returned a result for a different operation.', {
+          code: 'SFLOW_RESULT_INVALID'
+        });
+      }
+      for (const [effect, occurred] of Object.entries(produced.effects)) {
+        if (occurred && !plan.effects[effect]) {
+          throw new SingularityFlowError(`Mutation exceeded its reviewed '${effect}' effect preview.`, {
+            code: 'PLAN_EFFECTS_EXCEEDED'
+          });
+        }
+      }
+      return produced;
     }
   });
 }

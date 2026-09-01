@@ -9,7 +9,9 @@ import { inspectWorldModelViewCache } from './cache.mjs';
 import { canonicalJson, sha256 } from './canonicalize.mjs';
 import { createWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from './migration/v3-reader.mjs';
-import { createWorldModelViewOutputBudget, planWorldModelV4 } from './plan.mjs';
+import {
+  createWorldModelViewOutputBudget, planWorldModelV4, resolveWorldModelV4ReusableIdentity
+} from './plan.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from './registry/extractors.mjs';
 import {
   BUILTIN_VIEW_REGISTRY, resolveBuiltInViewContract
@@ -27,6 +29,10 @@ import {
 import {
   publishWorldModelTransaction, stageWorldModelMigrationPublication
 } from './publish/transaction.mjs';
+import { createScopeManifest } from './scope/manifest.mjs';
+import {
+  captureCandidateSourceSnapshot, loadCandidateSourceSnapshot
+} from './source/snapshot.mjs';
 
 const DEFAULT_EXCLUDED_ROOTS = Object.freeze([
   '.git/**', '.sflow/**', '.singularity-flow/**', 'singularity/**', '.github/agents/**'
@@ -109,6 +115,11 @@ function scopeOptions(root, config) {
     ...DEFAULT_EXCLUDED_ROOTS,
     ...(policy.excludedRoots ?? [])
   ])].sort();
+  const policySnapshotSha256 = sha256({
+    format: 'registered-v4',
+    worldModel: policy,
+    capabilityId: activeCapability
+  });
   return {
     capabilityId: activeCapability,
     allowedPaths: policy.sourceRoots?.length ? policy.sourceRoots : ['**'],
@@ -116,11 +127,8 @@ function scopeOptions(root, config) {
     excludedPaths: excluded,
     ...(policy.allowedSubjects?.length ? { allowedSubjects: policy.allowedSubjects } : {}),
     maximumTraversalDepth: policy.maximumTraversalDepth ?? 8,
-    policySnapshotSha256: sha256({
-      format: 'registered-v4',
-      worldModel: policy,
-      capabilityId: activeCapability
-    })
+    policySnapshotSha256,
+    policySourceSha256: policySnapshotSha256
   };
 }
 
@@ -161,12 +169,59 @@ function commonBuildOptions(root, config, options, { views = null, cachePolicy =
   };
 }
 
-function storeOptions(config) {
+/**
+ * Approved WMB v4 defaults for a transport-neutral exact gateway Plan.
+ *
+ * The CLI and native editor surface must not each reinterpret workflow.yml. This deliberately
+ * returns only engine inputs: the gateway still validates the user's bounded arguments, resolves
+ * an exact source/scope Plan, and requires a separate host confirmation before any provider or
+ * publication work can begin.
+ */
+export function worldModelV4GatewayDefaults(root, config) {
+  return Object.freeze({
+    ...commonBuildOptions(root, config, {}, {
+      views: configuredWorldModelV4ViewIds(config)
+    }),
+    outputDir: config.outputDir,
+    ledgerConfig: ledgerConfig(config),
+    sharedCacheDirectory: process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE ?? null,
+    allowUnavailableOptionalViews: true
+  });
+}
+
+function candidateSnapshotsAllowed(config) {
+  return (config.definition?.worldModel?.v4?.candidateSnapshots ?? 'allow') === 'allow';
+}
+
+async function resolvedBuildOptions(root, config, options, overrides = {}) {
+  const result = commonBuildOptions(root, config, options, overrides);
+  const reference = optionString(options, 'candidate-snapshot');
+  if (!reference) return result;
+  if (!candidateSnapshotsAllowed(config)) {
+    throw new SingularityFlowError(
+      'Approved WMB v4 policy denies Candidate Snapshot use; commit the source or change worldModel.v4.candidateSnapshots through configuration review.',
+      { code: 'WMB_SOURCE_SNAPSHOT_REQUIRED' }
+    );
+  }
+  const scopeManifest = createScopeManifest(scopeOptions(root, config));
+  return {
+    ...result,
+    candidateSnapshot: await loadCandidateSourceSnapshot(root, reference, { scopeManifest })
+  };
+}
+
+function storeOptions(root, config) {
   const ledger = ledgerConfig(config);
+  const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
+    commonBuildOptions(root, config, {}, {
+      views: configuredWorldModelV4ViewIds(config)
+    })
+  ).identity;
   return {
     outputDir: config.outputDir,
     stateBranch: ledger.branch,
-    remote: ledger.remote
+    remote: ledger.remote,
+    expectedReusableIdentity
   };
 }
 
@@ -176,8 +231,8 @@ export function isWorldModelV4(config, options = {}) {
   return config.definition?.worldModel?.format === 'registered-v4';
 }
 
-export function planWorldModelV4Command(root, config, options) {
-  const planned = planWorldModelV4(root, commonBuildOptions(root, config, options));
+export async function planWorldModelV4Command(root, config, options) {
+  const planned = planWorldModelV4(root, await resolvedBuildOptions(root, config, options));
   const result = {
     request: planned.request,
     plan: planned.plan,
@@ -189,7 +244,8 @@ export function planWorldModelV4Command(root, config, options) {
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
     console.log(`WMB v4 plan ${planned.plan.planSha256}`);
-    console.log(`  Source: ${planned.sourceSnapshot.subject.id}@${planned.sourceSnapshot.revision.commit}`);
+    console.log(`  Source: ${planned.sourceSnapshot.subject.id}@${planned.sourceSnapshot.revision.commit}`
+      + (planned.sourceSnapshot.authority ? ' · immutable Candidate Snapshot' : ''));
     console.log(`  Scope: ${planned.scopeManifest.capabilityId} · ${planned.sourceSnapshot.files.length} exact file(s)`);
     console.log(`  Views: ${planned.plan.views.map((entry) => `${entry.viewId}@${entry.viewVersion}`).join(', ')}`);
     console.log(`  Extractors: ${planned.plan.extractors.length} deterministic · model calls: at most ${planned.plan.estimatedWork.maximumCompositionCalls}`);
@@ -197,19 +253,27 @@ export function planWorldModelV4Command(root, config, options) {
   return result;
 }
 
-export async function buildWorldModelV4Command(root, config, options, { views = null, rebuild = false } = {}) {
+export async function buildWorldModelV4Command(root, config, options, {
+  views = null, rebuild = false, silent = false, preserveIndependentViews = true,
+  legacyMigration = null
+} = {}) {
   const result = await buildAndPublishWorldModelV4(root, {
-    ...commonBuildOptions(root, config, options, {
+    ...await resolvedBuildOptions(root, config, options, {
       views,
       cachePolicy: rebuild ? 'rebuild' : null
     }),
+    sharedCacheDirectory: optionString(options, 'shared-cache')
+      ?? process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE
+      ?? null,
     outputDir: config.outputDir,
     ledgerConfig: ledgerConfig(config),
     publish: !optionBoolean(options, 'local'),
     publicationOptions: {},
-    allowUnavailableOptionalViews: true
+    allowUnavailableOptionalViews: true,
+    preserveIndependentViews,
+    ...(legacyMigration ? { legacyMigration } : {})
   });
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify({
+  if (!silent && optionBoolean(options, 'json')) console.log(JSON.stringify({
     schemaVersion: result.schemaVersion,
     resultType: result.resultType,
     requestSha256: result.requestSha256,
@@ -221,7 +285,7 @@ export async function buildWorldModelV4Command(root, config, options, { views = 
     next: result.next,
     publication: result.publication
   }, null, 2));
-  else if (result.status === 'completed') {
+  else if (!silent && result.status === 'completed') {
     const hits = result.views.filter((entry) => entry.cache === 'hit').length;
     console.log(`WMB v4 complete: ${result.views.length} view(s), ${hits} exact cache hit(s).`);
     console.log(`  Manifest: ${result.manifestSha256}`);
@@ -233,8 +297,37 @@ export async function buildWorldModelV4Command(root, config, options, { views = 
   return assertWorldModelV4BuildCompleted(result);
 }
 
+async function captureCandidateSnapshotCommand(root, config, options) {
+  if (!candidateSnapshotsAllowed(config)) {
+    throw new SingularityFlowError(
+      'Approved WMB v4 policy denies Candidate Snapshot capture.',
+      { code: 'WMB_SOURCE_SNAPSHOT_REQUIRED' }
+    );
+  }
+  const scopeManifest = createScopeManifest(scopeOptions(root, config));
+  const sourceSnapshot = await captureCandidateSourceSnapshot(root, {
+    subjectId: scopeManifest.capabilityId,
+    scopeManifest
+  });
+  const result = Object.freeze({
+    status: 'captured',
+    reference: sourceSnapshot.sourceManifestSha256,
+    sourceSnapshot,
+    baseRevision: sourceSnapshot.authority.baseRevision,
+    files: sourceSnapshot.files.length,
+    next: `singularity-flow wm build --candidate-snapshot ${sourceSnapshot.sourceManifestSha256} --local`
+  });
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else {
+    console.log(`WMB v4 Candidate Snapshot captured: ${result.reference}`);
+    console.log(`  Base: ${result.baseRevision.commit} · ${result.files} exact in-scope file(s)`);
+    console.log(`  Build: ${result.next}`);
+  }
+  return result;
+}
+
 function currentStore(root, config) {
-  return resolvePublishedWorldModelV4(root, storeOptions(config));
+  return resolvePublishedWorldModelV4(root, storeOptions(root, config));
 }
 
 function selectedStoreView(store, viewId) {
@@ -274,7 +367,7 @@ export function resolveWorldModelV4Grounding(root, config, {
   store: suppliedStore = null
 } = {}) {
   const store = suppliedStore
-    ?? resolvePublishedWorldModelV4(root, { ...storeOptions(config), required });
+    ?? resolvePublishedWorldModelV4(root, { ...storeOptions(root, config), required });
   if (!store) return null;
   const viewIds = configuredWorldModelV4ViewIds(config, options, phase);
   const views = viewIds.map((viewId) => selectedStoreView(store, viewId));
@@ -531,7 +624,10 @@ async function migrationCommand(root, config, options, legacyPath, viewId) {
   // published by one state-branch CAS, so a push failure cannot expose a migrated view without the
   // receipt that explains which legacy claims were (and were not) registered.
   const built = await buildWorldModelV4Command(
-    root, config, { ...options, local: true }, { views: [viewId], rebuild: true }
+    root, config, { ...options, local: true }, {
+      views: [viewId], rebuild: true, silent: true,
+      legacyMigration: { legacyView: legacy, targetViewId: viewId }
+    }
   );
   const target = built.runtime.availableViews.find((entry) => entry.viewId === viewId);
   const migration = createWorldModelMigrationReceipt({
@@ -557,6 +653,7 @@ async function migrationCommand(root, config, options, legacyPath, viewId) {
 
 export async function handleWorldModelV4Command(root, config, command, positionals, options) {
   if (command === 'plan') return planWorldModelV4Command(root, config, options);
+  if (command === 'snapshot') return captureCandidateSnapshotCommand(root, config, options);
   if (command === 'build') return buildWorldModelV4Command(root, config, options);
   if (command === 'status' || command === 'availability') return statusWorldModelV4Command(root, config, options);
   if (command === 'ensure') {
@@ -624,18 +721,22 @@ export async function handleWorldModelV4Command(root, config, command, positiona
         else console.log('WMB v4 is fresh; no stale view requires regeneration.');
         return result;
       }
-      ids = store.manifest.views.map((entry) => entry.viewId);
+      ids = configuredWorldModelV4ViewIds(config);
     } else ids = [requiredValue(
       positionals[2], 'singularity-flow wm regenerate <view-id> [--json]'
     )];
-    return buildWorldModelV4Command(root, config, options, { views: ids, rebuild: true });
+    return buildWorldModelV4Command(root, config, options, {
+      views: ids,
+      rebuild: true,
+      preserveIndependentViews: !optionBoolean(options, 'stale')
+    });
   }
   if (command === 'context') return contextCommand(root, config, options, positionals[2] ?? optionString(options, 'phase'));
   if (command === 'doctor') {
     let store = null;
     let state = 'not-built';
     let detail = null;
-    try { store = resolvePublishedWorldModelV4(root, { ...storeOptions(config), required: false }); state = store ? 'valid' : state; }
+    try { store = resolvePublishedWorldModelV4(root, { ...storeOptions(root, config), required: false }); state = store ? 'valid' : state; }
     catch (error) { state = 'invalid'; detail = { code: error.code ?? null, message: error.message }; }
     const result = {
       status: state === 'invalid' ? 'fail' : 'pass',
@@ -661,7 +762,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
 }
 
 export const WORLD_MODEL_V4_COMMANDS = Object.freeze(new Set([
-  'plan', 'build', 'status', 'availability', 'ensure', 'manifest', 'show', 'facts', 'evidence',
+  'plan', 'snapshot', 'build', 'status', 'availability', 'ensure', 'manifest', 'show', 'facts', 'evidence',
   'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'regenerate',
   'views', 'view-contract', 'extractors', 'doctor', 'context', 'migrate'
 ]));

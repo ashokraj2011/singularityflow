@@ -329,6 +329,11 @@
         "icon": "$(globe)"
       },
       {
+        "command": "singularityFlow.buildWorldModel",
+        "title": "Singularity Flow: Build or Refresh World Model",
+        "icon": "$(run-all)"
+      },
+      {
         "command": "singularityFlow.configureAstIntelligence",
         "title": "Singularity Flow: AST Intelligence Settings",
         "icon": "$(symbol-structure)"

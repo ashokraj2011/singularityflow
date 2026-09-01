@@ -753,7 +753,7 @@ export function validateDefinition(definition) {
         throw new SingularityFlowError('worldModel.v4 must be an object.');
       }
       for (const key of Object.keys(v4)) if (![
-        'composer', 'consumer', 'cachePolicy', 'totalMaximumOutputTokens'
+        'composer', 'consumer', 'cachePolicy', 'candidateSnapshots', 'totalMaximumOutputTokens'
       ].includes(key)) throw new SingularityFlowError(`worldModel.v4 contains unknown field '${key}'.`);
       if (v4.composer != null && ![
         'deterministic', 'model-optional', 'model-required'
@@ -767,6 +767,9 @@ export function validateDefinition(definition) {
       }
       if (v4.cachePolicy != null && !['reuse-valid', 'rebuild'].includes(v4.cachePolicy)) {
         throw new SingularityFlowError('worldModel.v4.cachePolicy must be reuse-valid or rebuild.');
+      }
+      if (v4.candidateSnapshots != null && !['allow', 'deny'].includes(v4.candidateSnapshots)) {
+        throw new SingularityFlowError('worldModel.v4.candidateSnapshots must be allow or deny.');
       }
       if (v4.totalMaximumOutputTokens != null
           && (!Number.isInteger(v4.totalMaximumOutputTokens)

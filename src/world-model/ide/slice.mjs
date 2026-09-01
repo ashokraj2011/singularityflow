@@ -12,7 +12,8 @@ export const DEFAULT_WORLD_MODEL_EXPANSION_BYTES = 32_768;
 export const MAX_WORLD_MODEL_EXPANSION_BYTES = 65_536;
 
 const EXPANSION_KINDS = new Set([
-  'manifest', 'view', 'facts', 'evidence', 'derivations', 'source'
+  'manifest', 'view', 'facts', 'evidence', 'derivations', 'unavailable',
+  'contradictions', 'staleness', 'economics', 'source'
 ]);
 
 function failExpansion(message, code, details = {}) {
@@ -142,7 +143,73 @@ function trustedExpansionRecord(store, parsed) {
       contentType: 'application/json'
     };
   }
+  if (['unavailable', 'contradictions', 'staleness', 'economics'].includes(parsed.kind)
+      && parsed.id === 'all') {
+    return worldModelIdeDrilldown(store, parsed.kind);
+  }
   return null;
+}
+
+function sumKnown(values) {
+  const known = values.filter((value) => Number.isFinite(value));
+  return known.length ? known.reduce((sum, value) => sum + value, 0) : null;
+}
+
+/** Create a bounded, derived exact-record drill-down without copying it into the base IDE slice. */
+function worldModelIdeDrilldown(store, kind) {
+  let value;
+  if (kind === 'unavailable' || kind === 'contradictions') {
+    const status = kind === 'unavailable' ? 'unavailable' : 'contradicted';
+    value = {
+      schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION, // schema-transient: derived IDE read envelope
+      kind: `world-model-${kind}-analysis`,
+      manifestSha256: store.manifest.manifestSha256,
+      facts: store.factLedger.facts.filter((fact) => fact.status === status)
+    };
+  } else if (kind === 'staleness') {
+    value = {
+      schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION, // schema-transient: derived IDE read envelope
+      kind: 'world-model-staleness-analysis',
+      manifestSha256: store.manifest.manifestSha256,
+      freshness: structuredClone(store.freshness),
+      receipts: structuredClone(store.stalenessReceipts ?? [])
+    };
+  } else {
+    const views = store.manifest.views.map((entry) => {
+      const loaded = store.views.find((view) => view.viewId === entry.viewId);
+      const usage = loaded?.usageObservation ?? null;
+      return {
+        viewId: entry.viewId,
+        status: entry.status,
+        cache: entry.cache,
+        promptBytes: usage?.promptBytes ?? null,
+        outputBytes: usage?.outputBytes ?? null,
+        providerInputTokens: usage?.providerInputTokens ?? null,
+        providerCachedTokens: usage?.providerCachedTokens ?? null,
+        providerOutputTokens: usage?.providerOutputTokens ?? null,
+        providerCostUsd: usage?.cost?.amount ?? null,
+        tokenAssurance: usage?.assurance?.providerTokens ?? 'unavailable',
+        costAssurance: usage?.cost?.assurance ?? 'unavailable'
+      };
+    });
+    value = {
+      schemaVersion: WORLD_MODEL_IDE_SLICE_VERSION, // schema-transient: derived IDE read envelope
+      kind: 'world-model-cache-economics-analysis',
+      manifestSha256: store.manifest.manifestSha256,
+      totals: {
+        views: views.length,
+        cacheHits: views.filter((view) => view.cache === 'hit').length,
+        promptBytes: sumKnown(views.map((view) => view.promptBytes)),
+        outputBytes: sumKnown(views.map((view) => view.outputBytes)),
+        providerInputTokens: sumKnown(views.map((view) => view.providerInputTokens)),
+        providerCachedTokens: sumKnown(views.map((view) => view.providerCachedTokens)),
+        providerOutputTokens: sumKnown(views.map((view) => view.providerOutputTokens)),
+        providerCostUsd: sumKnown(views.map((view) => view.providerCostUsd))
+      },
+      views
+    };
+  }
+  return { digest: sha256(value), value, contentType: 'application/json' };
 }
 
 /**
@@ -381,7 +448,11 @@ export function projectWorldModelIdeSlice(store, {
       expansion('manifest', 'manifest', store.manifest.manifestSha256, 'manifest.json'),
       expansion('facts', 'all', store.factLedger.ledgerSha256, 'catalogs/facts.json'),
       expansion('evidence', 'all', store.evidenceCatalog.catalogSha256, 'catalogs/evidence.json'),
-      expansion('derivations', 'all', store.derivationCatalog.catalogSha256, 'catalogs/derivations.json')
+      expansion('derivations', 'all', store.derivationCatalog.catalogSha256, 'catalogs/derivations.json'),
+      expansion('unavailable', 'all', worldModelIdeDrilldown(store, 'unavailable').digest),
+      expansion('contradictions', 'all', worldModelIdeDrilldown(store, 'contradictions').digest),
+      expansion('staleness', 'all', worldModelIdeDrilldown(store, 'staleness').digest),
+      expansion('economics', 'all', worldModelIdeDrilldown(store, 'economics').digest)
     ])
   };
   return Object.freeze({ ...payload, revision: sha256(payload) });

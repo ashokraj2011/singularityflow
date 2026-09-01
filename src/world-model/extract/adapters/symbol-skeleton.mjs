@@ -3,16 +3,19 @@ import { compareText } from '../../canonicalize.mjs';
 
 import {
   JAVASCRIPT_LIKE, SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft,
-  implementationSha256, result, unavailableDraft
+  implementationSha256, languageForPath, result, unavailableDraft
 } from './common.mjs';
+import {
+  POLYGLOT_STRUCTURAL_LANGUAGES, extractPolyglotSymbols
+} from './polyglot-lexical.mjs';
 import path from 'node:path';
 
 export const SYMBOL_SKELETON_ID = 'symbol-skeleton';
-export const SYMBOL_SKELETON_VERSION = '1.1.0';
+export const SYMBOL_SKELETON_VERSION = '1.2.0';
 export const SYMBOL_SKELETON_IMPLEMENTATION_SHA256 = implementationSha256(
   SYMBOL_SKELETON_ID,
   SYMBOL_SKELETON_VERSION,
-  'repository-facts.extractSymbols-code-only-exported-top-level-declarations-body-free-v2'
+  'reviewed-js-and-polyglot-code-only-declaration-skeleton-body-free-v3'
 );
 
 export function extractSymbolSkeleton(context) {
@@ -20,7 +23,8 @@ export function extractSymbolSkeleton(context) {
   const facts = [];
   for (const file of adapterFiles(context).filter((entry) => SOURCE_LIKE.has(path.posix.extname(entry.path).toLowerCase()))) {
     const extension = path.posix.extname(file.path).toLowerCase();
-    if (!JAVASCRIPT_LIKE.has(extension)) {
+    const language = languageForPath(file.path);
+    if (!JAVASCRIPT_LIKE.has(extension) && !POLYGLOT_STRUCTURAL_LANGUAGES.includes(language)) {
       facts.push(unavailableDraft({
         factType: 'symbol-index',
         subject: { kind: 'file', id: file.path },
@@ -46,7 +50,11 @@ export function extractSymbolSkeleton(context) {
     }
     let symbols;
     try {
-      symbols = extractSymbols(source, file.path);
+      symbols = JAVASCRIPT_LIKE.has(extension)
+        ? extractSymbols(source, file.path).map((symbol) => ({
+          ...symbol, line: Number(symbol.at.slice(symbol.at.lastIndexOf(':') + 1)), exported: true
+        }))
+        : extractPolyglotSymbols(source, language);
     } catch (error) {
       facts.push(unavailableDraft({
         factType: 'symbol-index',
@@ -57,8 +65,8 @@ export function extractSymbolSkeleton(context) {
       }));
       continue;
     }
-    for (const symbol of symbols.sort((left, right) => compareText(left.at, right.at) || compareText(left.name, right.name))) {
-      const startLine = Number(symbol.at.slice(symbol.at.lastIndexOf(':') + 1));
+    for (const symbol of symbols.sort((left, right) => left.line - right.line || compareText(left.name, right.name))) {
+      const startLine = symbol.line;
       const subject = { kind: 'symbol', id: `${file.path}#${symbol.name}` };
       const evidence = evidenceDescriptor(file, {
         kind: 'symbol',
@@ -69,7 +77,7 @@ export function extractSymbolSkeleton(context) {
       facts.push(factDraft({
         factType: 'symbol-exists',
         subject,
-        claim: `${symbol.kind} ${symbol.name} is exported from ${file.path} at line ${startLine}.`,
+        claim: `${symbol.kind} ${symbol.name} is ${symbol.exported ? 'exported' : 'declared'} in ${file.path} at line ${startLine}.`,
         assurance: 'structurally-derived',
         evidence: [evidence]
       }));

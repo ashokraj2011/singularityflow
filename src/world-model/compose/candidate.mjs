@@ -73,11 +73,22 @@ export function renderDeterministicCandidate(contract, viewLedger) {
     ...facts.filter((fact) => !required.has(fact.id))
   ].slice(0, contract.facts.maximumSelectedFacts);
   const bySection = new Map(contract.sections.map((section) => [section.id, []]));
+  const contradictionSection = contract.sections.find(
+    (section) => section.sectionKind === 'contradiction'
+  );
+  const unavailableSection = contract.sections.find(
+    (section) => section.sectionKind === 'unavailable'
+  );
+  const ordinarySections = contract.sections.filter(
+    (section) => !['contradiction', 'unavailable'].includes(section.sectionKind)
+  );
   for (let index = 0; index < selected.length; index += 1) {
     const fact = selected[index];
-    const unavailable = contract.sections.find((section) => section.sectionKind === 'unavailable');
-    const section = fact.status === 'unavailable' && unavailable
-      ? unavailable : contract.sections[index % contract.sections.length];
+    const section = fact.status === 'contradicted' && contradictionSection
+      ? contradictionSection
+      : fact.status === 'unavailable' && unavailableSection
+        ? unavailableSection
+        : ordinarySections[index % ordinarySections.length] ?? contract.sections[0];
     bySection.get(section.id).push(factualUnit([fact], { list: true }));
   }
   for (const section of contract.sections) {

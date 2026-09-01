@@ -1,19 +1,42 @@
 import path from 'node:path';
+import { types as utilTypes } from 'node:util';
 
 import { gitCommonDir } from '../git.mjs';
 import { invokeModel } from '../model-runner.mjs';
 import { writeImmutablePrivateSidecar } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readWorldModelViewCache, writeWorldModelViewCache } from './cache.mjs';
 import { canonicalJson, sealRecord, sha256 } from './canonicalize.mjs';
 import { assembleWmbV4Prompt } from './compose/pinned-core.mjs';
 import { renderDeterministicCandidate } from './compose/candidate.mjs';
+import { assertSelfHash } from './contracts.mjs';
+import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
+import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
+import { validateFactLedger } from './extract/fact-ledger.mjs';
 import { runDeterministicRegistration } from './extract/index.mjs';
+import { validateViewFactLedger } from './extract/selection.mjs';
 import { materializeWorldModelView, usageObservation } from './materialize/view.mjs';
+import { augmentRegistrationForLegacyMigration } from './migration/v3-to-v4.mjs';
 import { parseWorldModelViewKernelStamp } from './materialize/stamp.mjs';
 import { createWorldModelViewOutputBudget, planWorldModelV4 } from './plan.mjs';
+import { assertInstalledExtractorRegistry } from './registry/extractors.mjs';
+import { assertInstalledViewRegistry, validateViewContract } from './registry/views.mjs';
 import { worldModelRefusal } from './refusal.mjs';
+import {
+  WMB_V4_FAILED_VIEW_RETRY_POLICY, assertWorldModelViewRetryBinding,
+  assertWorldModelViewRetryLineage,
+  createWorldModelViewRetryBinding, createWorldModelViewRetryMetadata,
+  createWorldModelViewRetryReceipt, isWorldModelViewRetryableCode,
+  readWorldModelViewRetryReceiptForRefusal, storeWorldModelViewRetryReceipt,
+  validateWorldModelViewRetryRefusal
+} from './retry.mjs';
+import {
+  hydrateLocalWorldModelViewCacheFromShared,
+  publishWorldModelViewToSharedCache
+} from './shared-cache.mjs';
+import { verifyExactSourceSnapshot } from './source/snapshot.mjs';
 import {
   validateCompositionCandidate, WMB_V4_CANDIDATE_SCHEMA_SHA256,
   WMB_V4_VALIDATOR_SHA256
@@ -193,6 +216,31 @@ function failureRecord(error) {
   };
 }
 
+function typedViewFailureCode(error) {
+  return error?.code?.startsWith('WMB_')
+    ? error.code : 'WMB_VIEW_VALIDATION_FAILED';
+}
+
+function attachRetryBinding(error, retryBinding) {
+  if (!retryBinding) return error;
+  if (error && typeof error === 'object' && Object.isExtensible(error)) {
+    Object.defineProperty(error, 'worldModelRetryBinding', {
+      value: retryBinding, enumerable: false, configurable: false, writable: false
+    });
+    return error;
+  }
+  const wrapped = new SingularityFlowError(String(error?.message ?? error), {
+    code: typedViewFailureCode(error),
+    details: error?.details && typeof error.details === 'object'
+      ? structuredClone(error.details) : null,
+    cause: error
+  });
+  Object.defineProperty(wrapped, 'worldModelRetryBinding', {
+    value: retryBinding, enumerable: false, configurable: false, writable: false
+  });
+  return wrapped;
+}
+
 function cachedViewStamp(markdown) {
   const stamp = parseWorldModelViewKernelStamp(markdown);
   if (!stamp) {
@@ -286,7 +334,8 @@ function revalidateCachedArtifact(cached, {
 }
 
 function cachedExecutionResult({
-  cached, verified, context, requested, contract, viewFactLedger, route, options, assembled
+  cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
+  cacheLevel = 'l1', cacheDiagnostics = []
 }) {
   const observation = usageObservation({
     viewId: contract.id,
@@ -315,6 +364,8 @@ function cachedExecutionResult({
     viewFactLedger,
     route,
     cache: 'hit',
+    cacheLevel,
+    cacheDiagnostics: Object.freeze([...cacheDiagnostics]),
     markdown: verified.markdown,
     viewSha256: verified.viewSha256,
     validationReceipt: verified.validationReceipt,
@@ -326,7 +377,59 @@ function cachedExecutionResult({
   });
 }
 
+function sharedCacheDiagnostic(viewId, operation, status, details = {}) {
+  return Object.freeze({
+    viewId,
+    level: 'l2',
+    operation,
+    status,
+    ...details
+  });
+}
+
+async function tryHydrateSharedCache(root, directory, cacheKey, viewId) {
+  if (!directory) return Object.freeze({ cached: null, diagnostics: Object.freeze([]) });
+  try {
+    const cached = await hydrateLocalWorldModelViewCacheFromShared(root, directory, cacheKey);
+    return Object.freeze({
+      cached: cached.hit ? cached : null,
+      diagnostics: Object.freeze([sharedCacheDiagnostic(
+        viewId, 'hydrate', cached.hit ? 'hit' : cached.status,
+        cached.hit ? { cacheKeySha256: cached.cacheKeySha256 }
+          : { reason: cached.reason ?? null }
+      )])
+    });
+  } catch (error) {
+    return Object.freeze({
+      cached: null,
+      diagnostics: Object.freeze([sharedCacheDiagnostic(viewId, 'hydrate', 'unavailable', {
+        code: error?.code ?? 'WMB_SHARED_CACHE_UNAVAILABLE',
+        reason: error?.message ?? String(error)
+      })])
+    });
+  }
+}
+
+async function tryWarmSharedCache(root, directory, cacheKey, viewId) {
+  if (!directory) return Object.freeze([]);
+  try {
+    const published = await publishWorldModelViewToSharedCache(directory, root, cacheKey);
+    return Object.freeze([sharedCacheDiagnostic(viewId, 'publish',
+      published.written ? 'written' : 'reused', {
+        bundleSha256: published.bundleSha256
+      })]);
+  } catch (error) {
+    return Object.freeze([sharedCacheDiagnostic(viewId, 'publish', 'unavailable', {
+      code: error?.code ?? 'WMB_SHARED_CACHE_UNAVAILABLE',
+      reason: error?.message ?? String(error)
+    })]);
+  }
+}
+
 async function executeOneView(root, context, requested, options) {
+  let retryBinding = null;
+  try {
+  const cacheDiagnostics = [];
   const contract = requested.contract;
   const viewFactLedger = context.registration.viewFactLedgers.find((ledger) => (
     ledger.viewId === contract.id && ledger.viewVersion === contract.version
@@ -365,6 +468,27 @@ async function executeOneView(root, context, requested, options) {
     outputBudgetSha256: viewOutputBudget.budgetSha256,
     executionProfileSha256: profileSha256
   };
+  retryBinding = createWorldModelViewRetryBinding({
+    requestSha256: context.planned.request.requestSha256,
+    sourceManifestSha256: context.planned.sourceSnapshot.sourceManifestSha256,
+    scopeManifestSha256: context.planned.scopeManifest.scopeSha256,
+    viewContract: contract,
+    viewFactLedger,
+    contextManifestSha256: assembled.contextManifest.manifestSha256,
+    cacheKey,
+    route,
+    provider: options.provider,
+    model: options.model,
+    providerConfig: options.providerConfig,
+    executionProfileSha256: profileSha256,
+    executionUnitManifestSha256: executionUnitManifestSha256({
+      route, provider: options.provider, model: options.model
+    }),
+    timeoutMs: options.timeoutMs ?? 10 * 60 * 1000
+  });
+  if (options.expectedRetryBinding) {
+    assertWorldModelViewRetryBinding(options.expectedRetryBinding, retryBinding);
+  }
 
   const forceRebuild = options.rebuildViewIds.has(contract.id);
   const cacheOnly = options.cacheOnlyViewIds.has(contract.id);
@@ -376,6 +500,17 @@ async function executeOneView(root, context, requested, options) {
   if (!forceRebuild
       && (context.planned.request.cachePolicy === 'reuse-valid' || cacheOnly)) {
     let cached = await readWorldModelViewCache(root, cacheKey);
+    let cacheLevel = 'l1';
+    if (!cached.hit) {
+      const shared = await tryHydrateSharedCache(
+        root, options.sharedCacheDirectory, cacheKey, contract.id
+      );
+      cacheDiagnostics.push(...shared.diagnostics);
+      if (shared.cached) {
+        cached = shared.cached;
+        cacheLevel = 'l2';
+      }
+    }
     if (cached.hit) {
       const verified = revalidateCachedArtifact(cached, {
         contract,
@@ -388,8 +523,12 @@ async function executeOneView(root, context, requested, options) {
         contextManifest: assembled.contextManifest,
         route
       });
+      if (cacheLevel === 'l1') cacheDiagnostics.push(...await tryWarmSharedCache(
+        root, options.sharedCacheDirectory, cacheKey, contract.id
+      ));
       return cachedExecutionResult({
-        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled
+        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
+        cacheLevel, cacheDiagnostics
       });
     }
     const preserved = options.preservedViews.get(contract.id);
@@ -412,8 +551,12 @@ async function executeOneView(root, context, requested, options) {
         validationReceipt: verified.validationReceipt,
         createdAt: verified.generatedAt
       });
+      cacheDiagnostics.push(...await tryWarmSharedCache(
+        root, options.sharedCacheDirectory, cacheKey, contract.id
+      ));
       return cachedExecutionResult({
-        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled
+        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
+        cacheLevel: 'l1', cacheDiagnostics
       });
     }
     if (cacheOnly) {
@@ -485,10 +628,17 @@ async function executeOneView(root, context, requested, options) {
       contextManifest: assembled.contextManifest,
       route
     });
+    cacheDiagnostics.push(...await tryWarmSharedCache(
+      root, options.sharedCacheDirectory, cacheKey, contract.id
+    ));
     return cachedExecutionResult({
-      cached, verified, context, requested, contract, viewFactLedger, route, options, assembled
+      cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
+      cacheLevel: 'l1', cacheDiagnostics
     });
   }
+  cacheDiagnostics.push(...await tryWarmSharedCache(
+    root, options.sharedCacheDirectory, cacheKey, contract.id
+  ));
   // Ordinary fills retain the first complete exact-key writer. Explicit regeneration uses a
   // lock/hash-CAS replacement above, so paid output is either installed or rejected as stale.
   const selectedMarkdown = cached.viewBytes.toString('utf8');
@@ -520,6 +670,8 @@ async function executeOneView(root, context, requested, options) {
     viewFactLedger,
     route,
     cache: 'miss',
+    cacheLevel: 'none',
+    cacheDiagnostics: Object.freeze([...cacheDiagnostics]),
     markdown: selectedMarkdown,
     viewSha256: cached.record.viewSha256,
     validationReceipt: selectedReceipt,
@@ -528,6 +680,9 @@ async function executeOneView(root, context, requested, options) {
     usageObservation: observation,
     execution
   });
+  } catch (error) {
+    throw attachRetryBinding(error, retryBinding);
+  }
 }
 
 async function boundedMap(values, maximumWorkers, worker) {
@@ -544,6 +699,32 @@ async function boundedMap(values, maximumWorkers, worker) {
   return results;
 }
 
+function refusalForFailedExecution(entry, registration, validViewIds, previousRefusal = null) {
+  const code = typedViewFailureCode(entry.error);
+  const binding = entry.retryBinding ?? entry.error?.worldModelRetryBinding ?? null;
+  const retry = binding && isWorldModelViewRetryableCode(code)
+    ? createWorldModelViewRetryMetadata({
+        binding, previousRefusal, policy: WMB_V4_FAILED_VIEW_RETRY_POLICY
+      })
+    : null;
+  return worldModelRefusal({
+    code,
+    view: entry.viewId,
+    preserved: {
+      evidenceCatalogSha256: registration.evidenceCatalog.catalogSha256,
+      factLedgerSha256: registration.factLedger.ledgerSha256,
+      validViewIds
+    },
+    failures: [failureRecord(entry.error)],
+    nextAction: {
+      operation: retry ? 'world-model.retry-failed-view' : 'world-model.regenerate-view',
+      view: entry.viewId,
+      reuseFacts: Boolean(retry)
+    },
+    ...(retry ? { retry } : {})
+  });
+}
+
 /**
  * Execute the WMB v4 trust boundary through independent validated views.
  *
@@ -558,15 +739,25 @@ export async function buildWorldModelV4(root, {
   model = null,
   maximumWorkers = 4,
   generatedAt = new Date().toISOString(),
+  sharedCacheDirectory = null,
   rebuildViewIds = null,
   cacheOnlyViewIds = [],
   preservedViews = [],
+  expectedBuildIdentity = null,
+  legacyMigration = null,
   ...planOptions
 } = {}) {
   if (!Number.isSafeInteger(maximumWorkers) || maximumWorkers < 1 || maximumWorkers > 32) {
     throw new SingularityFlowError('WMB v4 maximumWorkers must be an integer from 1 through 32.', {
       code: 'WMB_BUILD_REQUEST_INVALID'
     });
+  }
+  if (sharedCacheDirectory !== null
+      && (typeof sharedCacheDirectory !== 'string' || !path.isAbsolute(sharedCacheDirectory))) {
+    throw new SingularityFlowError(
+      'WMB v4 sharedCacheDirectory must be an explicit absolute path when configured.',
+      { code: 'WMB_SHARED_CACHE_CONFIGURATION_INVALID' }
+    );
   }
   if ((rebuildViewIds !== null && !Array.isArray(rebuildViewIds))
       || !Array.isArray(cacheOnlyViewIds) || !Array.isArray(preservedViews)) {
@@ -576,6 +767,22 @@ export async function buildWorldModelV4(root, {
     );
   }
   const planned = planWorldModelV4(root, { views, ...planOptions });
+  if (expectedBuildIdentity
+      && (planned.request.requestSha256 !== expectedBuildIdentity.requestSha256
+        || planned.plan.planSha256 !== expectedBuildIdentity.planSha256)) {
+    throw new SingularityFlowError(
+      'The WMB v4 request or Plan changed after exact confirmation.',
+      {
+        code: 'WMB_GATEWAY_PLAN_DRIFTED',
+        details: {
+          expectedRequestSha256: expectedBuildIdentity.requestSha256 ?? null,
+          currentRequestSha256: planned.request.requestSha256,
+          expectedPlanSha256: expectedBuildIdentity.planSha256 ?? null,
+          currentPlanSha256: planned.plan.planSha256
+        }
+      }
+    );
+  }
   const selectedRebuildIds = Array.isArray(rebuildViewIds)
     ? rebuildViewIds
     : (planned.request.cachePolicy === 'rebuild'
@@ -599,7 +806,7 @@ export async function buildWorldModelV4(root, {
       );
     }
   }
-  const registration = runDeterministicRegistration({
+  let registration = runDeterministicRegistration({
     root,
     sourceSnapshot: planned.sourceSnapshot,
     scopeManifest: planned.scopeManifest,
@@ -611,6 +818,32 @@ export async function buildWorldModelV4(root, {
     requestedViews: planned.viewRegistry.contracts.filter((contract) => contract.validity.status === 'active'),
     viewRegistry: planned.viewRegistry
   });
+  let migrationResolution = null;
+  if (legacyMigration !== null) {
+    if (!legacyMigration || typeof legacyMigration !== 'object' || Array.isArray(legacyMigration)
+        || typeof legacyMigration.targetViewId !== 'string' || !legacyMigration.legacyView) {
+      throw new SingularityFlowError('WMB v4 legacy migration request is malformed.', {
+        code: 'WMB_MIGRATION_SOURCE_INVALID'
+      });
+    }
+    const requestedTarget = planned.requestedViews.find((entry) => (
+      entry.contract.id === legacyMigration.targetViewId
+    ));
+    if (!requestedTarget) {
+      throw new SingularityFlowError(
+        `Migration target view '${legacyMigration.targetViewId}' is not part of the exact build Plan.`,
+        { code: 'WMB_VIEW_UNKNOWN' }
+      );
+    }
+    migrationResolution = augmentRegistrationForLegacyMigration({
+      legacyView: legacyMigration.legacyView,
+      registration,
+      targetViewContract: requestedTarget.contract,
+      viewRegistry: planned.viewRegistry,
+      extractorRegistry: planned.extractorRegistry
+    });
+    registration = migrationResolution.registration;
+  }
   const preservedObjects = await preserveRegisteredFacts(root, registration);
   const options = {
     composer,
@@ -619,6 +852,7 @@ export async function buildWorldModelV4(root, {
     model,
     maximumWorkers,
     generatedAt,
+    sharedCacheDirectory,
     rebuildViewIds: rebuildIds,
     cacheOnlyViewIds: cacheOnlyIds,
     preservedViews: new Map(preservedViews.map((entry) => [entry.viewId, entry]))
@@ -635,32 +869,21 @@ export async function buildWorldModelV4(root, {
           required: requested.required,
           contract: requested.contract,
           status: 'unavailable',
-          error
+          error,
+          retryBinding: error?.worldModelRetryBinding ?? null
         });
       }
     }
   );
   const available = executions.filter((entry) => entry.markdown);
   const validIds = available.map((entry) => entry.viewId).sort();
-  const refusals = executions.filter((entry) => entry.error).map((entry) => worldModelRefusal({
-    code: entry.error?.code?.startsWith('WMB_')
-      ? entry.error.code : 'WMB_VIEW_VALIDATION_FAILED',
-    view: entry.viewId,
-    preserved: {
-      evidenceCatalogSha256: registration.evidenceCatalog.catalogSha256,
-      factLedgerSha256: registration.factLedger.ledgerSha256,
-      validViewIds: validIds
-    },
-    failures: [failureRecord(entry.error)],
-    nextAction: {
-      operation: 'world-model.regenerate-view',
-      view: entry.viewId,
-      reuseFacts: true
-    }
-  }));
+  const refusals = executions.filter((entry) => entry.error).map((entry) => (
+    refusalForFailedExecution(entry, registration, validIds)
+  ));
   const requiredFailures = executions.filter((entry) => (
     (entry.required || cacheOnlyIds.has(entry.viewId)) && !entry.markdown
   ));
+  const cacheDiagnostics = executions.flatMap((entry) => entry.cacheDiagnostics ?? []);
   return Object.freeze({
     schemaVersion: 1, // schema-transient: API result envelope, never persisted
     resultType: 'world-model-v4-build-runtime-result',
@@ -671,6 +894,335 @@ export async function buildWorldModelV4(root, {
     executions: Object.freeze(executions),
     availableViews: Object.freeze(available),
     refusals: Object.freeze(refusals),
-    requiredFailures: Object.freeze(requiredFailures.map((entry) => entry.viewId))
+    requiredFailures: Object.freeze(requiredFailures.map((entry) => entry.viewId)),
+    cacheDiagnostics: Object.freeze(cacheDiagnostics),
+    retryReceipts: Object.freeze([]),
+    migrationResolution
   });
 }
+
+function retryRuntime(value) {
+  const runtime = value?.resultType === 'world-model-build-result' ? value.runtime
+    : value?.resultType === 'world-model-v4-view-retry-result' ? value.runtime
+      : value?.runtime?.resultType === 'world-model-v4-build-runtime-result' ? value.runtime
+        : value;
+  if (!runtime || runtime.resultType !== 'world-model-v4-build-runtime-result'
+      || !runtime.planned || !runtime.registration
+      || !Array.isArray(runtime.executions) || !Array.isArray(runtime.refusals)) {
+    throw new SingularityFlowError(
+      'World-model failed-view retry requires a prior WMB v4 runtime result.',
+      { code: 'WMB_RETRY_RUNTIME_INVALID' }
+    );
+  }
+  return runtime;
+}
+
+function normalizedRetryOptions(options) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+      || utilTypes.isProxy(options)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(options))) {
+    throw new SingularityFlowError('World-model retry options must be a plain object.', {
+      code: 'WMB_RETRY_REQUEST_INVALID'
+    });
+  }
+  const allowed = new Set([
+    'view', 'viewId', 'refusal', 'previousRefusal', 'previousRetryReceipt',
+    'composer', 'provider', 'providerConfig', 'model', 'generatedAt', 'timeoutMs'
+  ]);
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const unexpected = Reflect.ownKeys(options).filter((key) => (
+    typeof key !== 'string' || !allowed.has(key)
+  )).map(String).sort();
+  if (unexpected.length) {
+    throw new SingularityFlowError(
+      `World-model failed-view retry received unsupported option(s): ${unexpected.join(', ')}.`,
+      { code: 'WMB_RETRY_REQUEST_INVALID', details: { unexpected } }
+    );
+  }
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!Object.hasOwn(descriptor, 'value')
+        || typeof descriptor.get === 'function' || typeof descriptor.set === 'function') {
+      throw new SingularityFlowError(
+        `World-model retry option '${key}' cannot be an accessor.`,
+        { code: 'WMB_RETRY_REQUEST_INVALID' }
+      );
+    }
+  }
+  return Object.freeze(Object.fromEntries(
+    Object.entries(descriptors).map(([key, descriptor]) => [key, descriptor.value])
+  ));
+}
+
+async function validateRetryRuntimeAuthority(root, runtime, requested, binding) {
+  const { planned, registration } = runtime;
+  assertSelfHash(planned.request, 'requestSha256', 'World-model retry Build Request');
+  assertSelfHash(planned.plan, 'planSha256', 'World-model retry Build Plan');
+  assertSelfHash(planned.consumerProfile, 'profileSha256', 'World-model retry Consumer Profile');
+  assertSelfHash(planned.outputBudget, 'budgetSha256', 'World-model retry Output Budget');
+  assertInstalledViewRegistry(planned.viewRegistry);
+  assertInstalledExtractorRegistry(planned.extractorRegistry);
+  validateViewContract(requested.contract);
+  await Promise.resolve(verifyExactSourceSnapshot(root, planned.sourceSnapshot, {
+    scopeManifest: planned.scopeManifest
+  }));
+  const evidence = validateEvidenceCatalog(registration.evidenceCatalog, {
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest
+  });
+  const derivationIds = new Set(
+    registration.derivationCatalog.derivations.map((entry) => entry.id)
+  );
+  const facts = validateFactLedger(registration.factLedger, {
+    sourceSnapshot: planned.sourceSnapshot,
+    scopeManifest: planned.scopeManifest,
+    extractorRegistry: planned.extractorRegistry,
+    evidenceCatalog: evidence,
+    derivationIds
+  });
+  validateDerivationCatalog(registration.derivationCatalog, {
+    evidenceCatalog: evidence,
+    factLedger: facts,
+    extractorRegistry: planned.extractorRegistry
+  });
+  const viewFactLedger = registration.viewFactLedgers.find((entry) => (
+    entry.viewId === requested.contract.id && entry.viewVersion === requested.contract.version
+  ));
+  if (!viewFactLedger) {
+    throw new SingularityFlowError(
+      `World-model retry has no preserved view Fact Ledger for '${requested.contract.id}@${requested.contract.version}'.`,
+      { code: 'WMB_RETRY_BINDING_MISMATCH' }
+    );
+  }
+  validateViewFactLedger(viewFactLedger, {
+    factLedger: facts,
+    viewContract: requested.contract
+  });
+  const registeredContract = planned.viewRegistry.contracts.find((entry) => (
+    entry.id === requested.contract.id && entry.version === requested.contract.version
+  ));
+  if (!registeredContract
+      || registeredContract.contractSha256 !== requested.contract.contractSha256
+      || planned.request.requestSha256 !== binding.requestSha256
+      || planned.sourceSnapshot.sourceManifestSha256 !== binding.sourceManifestSha256
+      || planned.scopeManifest.scopeSha256 !== binding.scopeManifestSha256
+      || requested.contract.id !== binding.viewId
+      || requested.contract.version !== binding.viewVersion
+      || requested.contract.contractSha256 !== binding.viewContractSha256
+      || viewFactLedger.ledgerSha256 !== binding.viewFactLedgerSha256
+      || registration.factLedger.ledgerSha256 !== facts.ledgerSha256) {
+    throw new SingularityFlowError(
+      'World-model retry runtime does not match the refusal source, scope, contract, and facts.',
+      {
+        code: 'WMB_RETRY_BINDING_MISMATCH',
+        details: { viewId: binding.viewId, bindingSha256: binding.bindingSha256 }
+      }
+    );
+  }
+  return viewFactLedger;
+}
+
+function preservedFactAuthority(registration) {
+  return canonicalJson({
+    evidenceCatalog: registration.evidenceCatalog,
+    derivationCatalog: registration.derivationCatalog,
+    factLedger: registration.factLedger,
+    viewFactLedgers: registration.viewFactLedgers
+  });
+}
+
+/**
+ * Re-run one and only one failed WMB v4 view over the prior immutable planning/registration
+ * context. This API never plans, extracts, registers, or publishes. Its successful result is a
+ * new ready-to-publish runtime plus a machine-local immutable lineage receipt.
+ */
+export async function retryFailedWorldModelV4View(root, previousResult, options = {}) {
+  options = normalizedRetryOptions(options);
+  const runtime = retryRuntime(previousResult);
+  const selectedViewId = String(options.viewId ?? options.view ?? '').replace(/@\d+$/, '');
+  if (!selectedViewId) {
+    throw new SingularityFlowError('World-model failed-view retry requires a view ID.', {
+      code: 'WMB_RETRY_REQUEST_INVALID'
+    });
+  }
+  const target = runtime.executions.find((entry) => entry.viewId === selectedViewId);
+  if (!target) {
+    throw new SingularityFlowError(
+      `World-model view '${selectedViewId}' was not part of the prior build.`,
+      { code: 'WMB_RETRY_VIEW_UNKNOWN', details: { viewId: selectedViewId } }
+    );
+  }
+  if (!target.error || target.markdown) {
+    throw new SingularityFlowError(
+      `World-model view '${selectedViewId}' is not a failed view.`,
+      { code: 'WMB_RETRY_VIEW_NOT_FAILED', details: { viewId: selectedViewId } }
+    );
+  }
+  const runtimeRefusal = runtime.refusals.find((entry) => entry.view === selectedViewId);
+  const suppliedRefusal = options.previousRefusal ?? options.refusal ?? runtimeRefusal;
+  const previousRefusal = validateWorldModelViewRetryRefusal(suppliedRefusal);
+  if (!runtimeRefusal || runtimeRefusal.refusalSha256 !== previousRefusal.refusalSha256) {
+    throw new SingularityFlowError(
+      'World-model retry refusal is not the exact current failed-view refusal.',
+      { code: 'WMB_RETRY_LINEAGE_INVALID', details: { viewId: selectedViewId } }
+    );
+  }
+  const retrySubject = {
+    kind: 'world-model-view-retry', id: previousRefusal.refusalSha256
+  };
+  try {
+    return await withSubjectLock(root, retrySubject, async () => {
+  const terminalReceipt = await readWorldModelViewRetryReceiptForRefusal(
+    root, previousRefusal.refusalSha256
+  );
+  if (terminalReceipt) {
+    throw new SingularityFlowError(
+      `World-model refusal '${previousRefusal.refusalSha256}' already has a terminal retry receipt.`,
+      {
+        code: 'WMB_RETRY_ALREADY_TERMINAL',
+        details: {
+          viewId: selectedViewId,
+          receiptSha256: terminalReceipt.receiptSha256,
+          status: terminalReceipt.outcome.status
+        }
+      }
+    );
+  }
+  const inferredPriorReceipt = (runtime.retryReceipts ?? []).find((receipt) => (
+    receipt.outcome?.status === 'refused'
+      && receipt.outcome.refusal?.refusalSha256 === previousRefusal.refusalSha256
+  )) ?? null;
+  const priorReceipt = options.previousRetryReceipt ?? inferredPriorReceipt;
+  const lineage = assertWorldModelViewRetryLineage(previousRefusal, priorReceipt);
+  const binding = previousRefusal.retry.binding;
+  if (previousRefusal.view !== selectedViewId
+      || target.retryBinding == null) {
+    throw new SingularityFlowError(
+      'World-model failed execution does not retain its exact retry binding.',
+      { code: 'WMB_RETRY_BINDING_MISMATCH', details: { viewId: selectedViewId } }
+    );
+  }
+  assertWorldModelViewRetryBinding(binding, target.retryBinding);
+  const requested = runtime.planned.requestedViews.find((entry) => (
+    entry.contract.id === selectedViewId
+  ));
+  if (!requested) {
+    throw new SingularityFlowError(
+      'World-model retry view is absent from the exact prior Build Plan.',
+      { code: 'WMB_RETRY_BINDING_MISMATCH', details: { viewId: selectedViewId } }
+    );
+  }
+  await validateRetryRuntimeAuthority(root, runtime, requested, binding);
+  const factsBefore = preservedFactAuthority(runtime.registration);
+  const executionOptions = {
+    composer: options.composer ?? (binding.execution.route === 'model' ? 'model' : 'deterministic'),
+    provider: Object.hasOwn(options, 'provider') ? options.provider : binding.execution.provider,
+    providerConfig: options.providerConfig ?? null,
+    model: Object.hasOwn(options, 'model') ? options.model : binding.execution.requestedModel,
+    generatedAt: options.generatedAt ?? new Date().toISOString(),
+    timeoutMs: options.timeoutMs ?? binding.execution.timeoutMs,
+    rebuildViewIds: new Set([selectedViewId]),
+    cacheOnlyViewIds: new Set(),
+    preservedViews: new Map(),
+    expectedRetryBinding: binding
+  };
+  let retried;
+  try {
+    retried = await executeOneView(
+      root, { planned: runtime.planned, registration: runtime.registration },
+      requested, executionOptions
+    );
+  } catch (error) {
+    // Binding/policy failures happen before cache/provider effects and do not consume an attempt.
+    if (String(error?.code ?? '').startsWith('WMB_RETRY_')
+        || error?.worldModelRetryBinding == null) throw error;
+    assertWorldModelViewRetryBinding(binding, error.worldModelRetryBinding);
+    retried = Object.freeze({
+      viewId: requested.contract.id,
+      required: requested.required,
+      contract: requested.contract,
+      status: 'unavailable',
+      error,
+      retryBinding: error.worldModelRetryBinding
+    });
+  }
+  if (preservedFactAuthority(runtime.registration) !== factsBefore) {
+    throw new SingularityFlowError(
+      'World-model selective retry mutated preserved registered facts.',
+      { code: 'WMB_RETRY_FACT_MUTATION_DETECTED', details: { viewId: selectedViewId } }
+    );
+  }
+  const executions = runtime.executions.map((entry) => (
+    entry.viewId === selectedViewId ? retried : entry
+  ));
+  const availableViews = executions.filter((entry) => entry.markdown);
+  const validViewIds = availableViews.map((entry) => entry.viewId).sort();
+  const nextRefusal = retried.error
+    ? refusalForFailedExecution(
+        retried, runtime.registration, validViewIds, previousRefusal
+      )
+    : null;
+  const refusals = executions.filter((entry) => entry.error).map((entry) => {
+    if (entry.viewId === selectedViewId) return nextRefusal;
+    const retained = runtime.refusals.find((value) => value.view === entry.viewId);
+    if (!retained) {
+      throw new SingularityFlowError(
+        `World-model retry cannot retain missing sibling refusal '${entry.viewId}'.`,
+        { code: 'WMB_RETRY_RUNTIME_INVALID' }
+      );
+    }
+    return retained;
+  });
+  const requiredFailures = executions.filter((entry) => entry.required && !entry.markdown)
+    .map((entry) => entry.viewId);
+  const receipt = createWorldModelViewRetryReceipt({
+    previousRefusal,
+    previousRetryReceipt: lineage.previousRetryReceipt,
+    ...(retried.error ? { refusal: nextRefusal } : { execution: retried.execution })
+  });
+  const persistence = await storeWorldModelViewRetryReceipt(root, receipt);
+  const mergedRuntime = Object.freeze({
+    schemaVersion: runtime.schemaVersion,
+    resultType: runtime.resultType,
+    status: requiredFailures.length ? 'refused' : 'ready-to-publish',
+    planned: runtime.planned,
+    registration: runtime.registration,
+    preservedObjects: runtime.preservedObjects,
+    executions: Object.freeze(executions),
+    availableViews: Object.freeze(availableViews),
+    refusals: Object.freeze(refusals),
+    requiredFailures: Object.freeze(requiredFailures),
+    cacheDiagnostics: Object.freeze(executions.flatMap((entry) => (
+      entry.cacheDiagnostics ?? []
+    ))),
+    retryReceipts: Object.freeze([...(runtime.retryReceipts ?? []), receipt])
+  });
+  return Object.freeze({
+    schemaVersion: 1,
+    resultType: 'world-model-v4-view-retry-result',
+    status: retried.error ? 'refused' : 'completed',
+    viewId: selectedViewId,
+    attempt: receipt.attempt,
+    receipt,
+    receiptPersistence: Object.freeze({
+      path: persistence.path,
+      lineagePath: persistence.lineagePath,
+      written: persistence.written,
+      lineageWritten: persistence.lineageWritten
+    }),
+    runtime: mergedRuntime
+  });
+    });
+  } catch (error) {
+    if (error?.code !== 'SUBJECT_LOCK_BUSY') throw error;
+    throw new SingularityFlowError(
+      `World-model view '${selectedViewId}' already has a retry in progress.`,
+      {
+        code: 'WMB_RETRY_IN_PROGRESS',
+        details: { viewId: selectedViewId, refusalSha256: previousRefusal.refusalSha256 },
+        cause: error
+      }
+    );
+  }
+}
+
+export const retryFailedWorldModelView = retryFailedWorldModelV4View;

@@ -3,15 +3,18 @@ import path from 'node:path';
 import { extractImports } from '../../../repository-facts.mjs';
 import {
   JAVASCRIPT_LIKE, SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft,
-  implementationSha256, result, unavailableDraft
+  implementationSha256, languageForPath, result, unavailableDraft
 } from './common.mjs';
+import {
+  POLYGLOT_STRUCTURAL_LANGUAGES, extractPolyglotImports, resolvePolyglotLocal
+} from './polyglot-lexical.mjs';
 
 export const IMPORT_DEPENDENCY_ID = 'import-dependency';
-export const IMPORT_DEPENDENCY_VERSION = '1.1.0';
+export const IMPORT_DEPENDENCY_VERSION = '1.2.0';
 export const IMPORT_DEPENDENCY_IMPLEMENTATION_SHA256 = implementationSha256(
   IMPORT_DEPENDENCY_ID,
   IMPORT_DEPENDENCY_VERSION,
-  'repository-facts.extractImports-code-and-literal-aware-with-exact-local-path-resolution-body-free-v2'
+  'reviewed-js-and-polyglot-code-aware-imports-with-bounded-local-resolution-body-free-v3'
 );
 
 function resolveLocal(from, target, known) {
@@ -31,7 +34,8 @@ export function extractImportDependencies(context) {
   const facts = [];
   for (const file of files.filter((entry) => SOURCE_LIKE.has(path.posix.extname(entry.path).toLowerCase()))) {
     const extension = path.posix.extname(file.path).toLowerCase();
-    if (!JAVASCRIPT_LIKE.has(extension)) {
+    const language = languageForPath(file.path);
+    if (!JAVASCRIPT_LIKE.has(extension) && !POLYGLOT_STRUCTURAL_LANGUAGES.includes(language)) {
       facts.push(unavailableDraft({
         factType: 'dependency-analysis',
         subject: { kind: 'file', id: file.path },
@@ -57,7 +61,9 @@ export function extractImportDependencies(context) {
     }
     let imports;
     try {
-      imports = extractImports(source).sort();
+      imports = JAVASCRIPT_LIKE.has(extension)
+        ? extractImports(source).sort().map((target) => ({ target, line: null }))
+        : extractPolyglotImports(source, language);
     } catch (error) {
       facts.push(unavailableDraft({
         factType: 'dependency-analysis',
@@ -68,10 +74,16 @@ export function extractImportDependencies(context) {
       }));
       continue;
     }
-    for (const target of imports) {
-      const resolvedPath = resolveLocal(file.path, target, known);
+    for (const declaration of imports) {
+      const { target } = declaration;
+      const resolvedPath = JAVASCRIPT_LIKE.has(extension)
+        ? resolveLocal(file.path, target, known)
+        : resolvePolyglotLocal(file.path, target, language, known);
       const subject = { kind: 'dependency-edge', id: `${file.path}->${resolvedPath ?? target}` };
-      const locator = { target: resolvedPath ?? target };
+      const locator = {
+        target: resolvedPath ?? target,
+        ...(declaration.line ? { range: { startLine: declaration.line, endLine: declaration.line } } : {})
+      };
       const evidence = evidenceDescriptor(file, { kind: resolvedPath ? 'dependency-edge' : 'import', locator, subject });
       observations.push(evidence);
       facts.push(factDraft({

@@ -28,11 +28,14 @@ export function implementationSha256(id, version, algorithm) {
 }
 
 export function adapterFiles(context) {
+  if (Array.isArray(context.adapterFileCache)) return context.adapterFileCache;
   validateSourceSnapshot(context.sourceSnapshot);
   validateScopeManifest(context.scopeManifest);
-  return scopedSnapshotFiles(context.sourceSnapshot, context.scopeManifest)
+  const files = scopedSnapshotFiles(context.sourceSnapshot, context.scopeManifest)
     .filter((file) => file.type === 'regular')
     .sort((left, right) => compareText(left.path, right.path));
+  context.adapterFileCache = Object.freeze(files);
+  return context.adapterFileCache;
 }
 
 export function languageForPath(relative) {
@@ -40,10 +43,18 @@ export function languageForPath(relative) {
 }
 
 export function exactText(context, file) {
+  const cached = context.sourceTextCache?.get(file.path);
+  if (cached === null) {
+    contractFailure(`Pinned source '${file.path}' is not valid UTF-8.`, 'WMB_EXTRACTION_UNAVAILABLE', { path: file.path });
+  }
+  if (typeof cached === 'string') return cached;
   const bytes = readExactSourceFile(context.root, context.sourceSnapshot, file.path);
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    context.sourceTextCache?.set(file.path, text);
+    return text;
   } catch {
+    context.sourceTextCache?.set(file.path, null);
     contractFailure(`Pinned source '${file.path}' is not valid UTF-8.`, 'WMB_EXTRACTION_UNAVAILABLE', { path: file.path });
   }
 }

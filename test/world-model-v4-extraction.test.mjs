@@ -69,13 +69,13 @@ test('exact source and normalized scope produce repeatable, body-free registered
   assert.equal(first.factLedger.ledgerSha256, second.factLedger.ledgerSha256);
 
   const serialized = JSON.stringify(first);
-  assert.doesNotMatch(serialized, /SECRET_BODY_TOKEN|hidden_body|vendorSecret|ignored = true/);
+  assert.doesNotMatch(serialized, /SECRET_BODY_TOKEN|vendorSecret|ignored = true/);
   assert.ok(first.evidenceCatalog.items.every((item) => item.locator.path.startsWith('src/')));
   assert.ok(first.evidenceCatalog.items.every((item) => !item.locator.path.startsWith('src/excluded/')));
   assert.ok(first.factLedger.facts.some((fact) => fact.factType === 'symbol-exists'));
   assert.ok(first.factLedger.facts.some((fact) => fact.factType === 'dependency-edge'));
-  assert.ok(first.factLedger.facts.some((fact) => fact.factType === 'symbol-index'
-    && fact.status === 'unavailable' && fact.reason.code === 'UNSUPPORTED_LANGUAGE'));
+  assert.ok(first.factLedger.facts.some((fact) => fact.factType === 'symbol-exists'
+    && fact.subject.id === 'src/legacy.py#hidden_body'));
 
   const evidenceIds = new Set(first.evidenceCatalog.items.map((item) => item.id));
   const derivationIds = new Set(first.derivationCatalog.derivations.map((item) => item.id));

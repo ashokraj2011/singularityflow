@@ -281,8 +281,21 @@ export function validateCompositionCandidate(rawCandidate, {
     if (!referenced.includes(id)) fail('WMB_REQUIRED_UNAVAILABLE_FACT_MISSING', `Required unavailable fact '${id}' is not narrated.`, { id });
   }
   const tldrReferences = candidateFactReferences({ tldrMarkdown: candidate.tldrMarkdown, sections: [] });
+  const contradictionSectionIds = new Set(contract.sections
+    .filter((section) => section.sectionKind === 'contradiction')
+    .map((section) => section.id));
+  const relevantFallbackSection = contract.sections.find(
+    (section) => !['contradiction', 'unavailable'].includes(section.sectionKind)
+  )?.id;
   for (const id of viewFactLedger.materialContradictionFactIds ?? []) {
-    if (!tldrReferences.includes(id) || !candidate.sections.some((section) => candidateFactReferences({ sections: [section] }).includes(id))) {
+    const relevantSections = contradictionSectionIds.size
+      ? contradictionSectionIds
+      : new Set(relevantFallbackSection ? [relevantFallbackSection] : []);
+    const appearsInRelevantSection = candidate.sections.some((section) => (
+      relevantSections.has(section.sectionId)
+        && candidateFactReferences({ sections: [section] }).includes(id)
+    ));
+    if (!tldrReferences.includes(id) || !appearsInRelevantSection) {
       fail('WMB_CONTRADICTION_SUPPRESSED', `Material contradiction '${id}' must appear in the TL;DR and a registered section.`, { id });
     }
   }

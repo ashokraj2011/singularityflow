@@ -134,7 +134,10 @@ const WMB_V4_READ_OPERATIONS = new Set([
   'view-contract', 'extractors', 'doctor', 'context'
 ]);
 const WMB_V4_EXECUTION_OPERATIONS = new Set(['build', 'regenerate', 'migrate']);
-const WMB_V4_OPERATIONS = new Set([...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS]);
+const WMB_V4_MODEL_FREE_MUTATIONS = new Set(['snapshot']);
+const WMB_V4_OPERATIONS = new Set([
+  ...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS, ...WMB_V4_MODEL_FREE_MUTATIONS
+]);
 const WMB_V4_MODEL_COMPOSERS = new Set(['model', 'model-required']);
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
 const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
@@ -726,6 +729,9 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
       ? required(id)
       : never(`${id}.deterministic`, definition, 'mutation');
   }
+  if (WMB_V4_MODEL_FREE_MUTATIONS.has(subcommand)) {
+    return never(id, definition, 'mutation');
+  }
   if (WMB_V4_READ_OPERATIONS.has(subcommand)) return never(id, definition, 'read');
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
@@ -926,6 +932,9 @@ export function operationCatalog() {
     .concat([optional('wm.ensure', 'wm.light', wmDefinition)])
     .concat([never('wm.ensure.registered-v4', wmDefinition, 'read')])
     .concat(v4ExclusiveReads.map((name) => never(`wm.${name}`, wmDefinition, 'read')))
+    .concat([...WMB_V4_MODEL_FREE_MUTATIONS].map((name) => never(
+      `wm.${name}`, wmDefinition, 'mutation'
+    )))
     .concat([...WMB_V4_EXECUTION_OPERATIONS].flatMap((name) => [
       ...(name === 'build' ? [] : [required(`wm.${name}`)]),
       never(`wm.${name}.deterministic`, wmDefinition, 'mutation')

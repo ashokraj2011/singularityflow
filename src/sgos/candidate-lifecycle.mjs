@@ -1,8 +1,9 @@
 /**
  * Immutable Git-backed SGOS Candidate lifecycle.
  *
- * Candidate data is retained by a hidden Git ref. Verification runs in an isolated detached
- * worktree, and publication advances the selected local branch with compare-and-swap. Nothing in
+ * Candidate data is retained by a hidden Git ref. Lifecycle verification uses hook/filter-free Git
+ * object and temporary-index proofs, and publication advances the selected local branch with
+ * compare-and-swap. Nothing in
  * this module gives a candidate authority merely because it is self-hashed: publication requires
  * a passed verification receipt and an exact publication-plan confirmation.
  */
@@ -13,11 +14,16 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  branch, exactRemoteBranchObservation, gitCommonDir, head, hasRemote, pushCommitToBranch
+  branch, exactRemoteBranchObservation, gitCommonDir, governedCommitIdentity, head, hasRemote,
+  publicationPushOutcome, pushCommitToBranch
 } from '../git.mjs';
 import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
+import {
+  sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt
+} from '../publication-machine-integrity.mjs';
 import { canonicalJson } from '../records.mjs';
+import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {
@@ -26,7 +32,7 @@ import {
 import { compareSgosCodePoints } from './order.mjs';
 import {
   listPrivateSidecar, readPrivateSidecar, safePrivateSidecarDirectory,
-  writeImmutablePrivateSidecar
+  writeImmutablePrivateSidecar, writeMutablePrivateSidecar
 } from './private-sidecar.mjs';
 
 const CANDIDATE_ID = /^CAN-[A-Za-z0-9._:-]{6,127}$/;
@@ -44,6 +50,9 @@ const MAX_COMMAND_OUTPUT_BYTES = 8 * 1024 * 1024;
 const CANDIDATE_RECORD_FORMAT = 'sflow.sgos.candidate-private';
 const CANDIDATE_RECORD_VERSION = 1;
 const CANDIDATE_VERIFIER_POLICY_FORMAT = 'sflow.sgos.candidate-verifier-policy/v1';
+const LIFECYCLE_VERIFIER_PROFILE_FORMAT = 'sflow.sgos.lifecycle-candidate-verifier/v1';
+const CANDIDATE_TRANSPORT_RECEIPT_FORMAT = 'sflow.sgos.candidate-transport-receipt/v1';
+const CANDIDATE_TRANSPORT_RECEIPT_PURPOSE = 'candidate-publication-transport';
 export const SGOS_CANDIDATE_VERIFIER_POLICY_PATH =
   'singularity/sgos/candidate-verifier-policy.json';
 
@@ -88,6 +97,15 @@ function publicationDirectory(root, candidateId) {
 
 function publicationPlanDirectory(root, candidateId) {
   return path.join(candidateDirectory(root, candidateId), 'publication-plans');
+}
+
+function publicationTransportReceiptPath(root, candidateId, packetSha256) {
+  if (!HASH.test(String(packetSha256 ?? ''))) {
+    fail('Candidate publication packet SHA-256 is invalid.',
+      'SGOS_CANDIDATE_PUBLICATION_CONFIRMATION_REQUIRED');
+  }
+  return path.join(publicationDirectory(root, candidateId),
+    `transport-${packetSha256.slice('sha256:'.length)}.json`);
 }
 
 function gitResult(root, args, { env = process.env, input = null, maximumBytes = 32 * 1024 * 1024 } = {}) {
@@ -144,8 +162,8 @@ function parseNameStatus(buffer) {
   return changes;
 }
 
-function treeEntry(root, tree, relative) {
-  const raw = gitResult(root, ['ls-tree', '-z', tree, '--', relative]).toString('utf8');
+function treeEntry(root, tree, relative, { env = process.env } = {}) {
+  const raw = gitResult(root, ['ls-tree', '-z', tree, '--', relative], { env }).toString('utf8');
   if (!raw) return null;
   const tab = raw.indexOf('\t');
   const header = raw.slice(0, tab).split(' ');
@@ -158,14 +176,16 @@ function treeEntry(root, tree, relative) {
     fail(`Candidate path '${relative}' has unsupported Git type or mode.`,
       'SGOS_CANDIDATE_RESOURCE_UNSUPPORTED', { path: relative, mode, objectType });
   }
-  const bytes = gitResult(root, ['cat-file', 'blob', object], { maximumBytes: MAX_CANDIDATE_BYTES });
+  const bytes = gitResult(root, ['cat-file', 'blob', object], {
+    env, maximumBytes: MAX_CANDIDATE_BYTES
+  });
   return { mode, object, bytes };
 }
 
-function candidateResources(root, baseline, tree) {
+function candidateResources(root, baseline, tree, { env = process.env } = {}) {
   const changes = parseNameStatus(gitResult(root, [
     'diff', '--name-status', '-z', '--find-renames', '--find-copies', baseline, tree, '--'
-  ]));
+  ], { env }));
   if (changes.length > MAX_CANDIDATE_FILES) {
     fail('Candidate exceeds the installed file-count ceiling.', 'SGOS_CANDIDATE_LIMIT', {
       files: changes.length, maximumFiles: MAX_CANDIDATE_FILES
@@ -174,7 +194,7 @@ function candidateResources(root, baseline, tree) {
   let totalBytes = 0;
   const resources = changes.map((change) => {
     if (change.kind === 'D') {
-      const prior = treeEntry(root, baseline, change.path);
+      const prior = treeEntry(root, baseline, change.path, { env });
       if (!prior) {
         fail(`Deleted Candidate path '${change.path}' is absent from its bound baseline.`,
           'SGOS_CANDIDATE_GIT_INVALID');
@@ -185,7 +205,7 @@ function candidateResources(root, baseline, tree) {
         operation: 'deleted', renameFrom: null, renameTo: null, deletion: true
       };
     }
-    const entry = treeEntry(root, tree, change.path);
+    const entry = treeEntry(root, tree, change.path, { env });
     if (!entry) fail(`Candidate path '${change.path}' disappeared from its retained tree.`, 'SGOS_CANDIDATE_GIT_INVALID');
     totalBytes += entry.bytes.length;
     if (totalBytes > MAX_CANDIDATE_BYTES) {
@@ -241,6 +261,103 @@ async function worktreeTree(root) {
   }
 }
 
+/**
+ * Build the exact prospective tree an existing lifecycle transaction will commit.
+ *
+ * Unlike the interactive Candidate command, an ordinary Story transaction owns a bounded set of
+ * paths and must leave an operator's unrelated staged or working-tree bytes alone. Reading HEAD
+ * into a private index and adding only those roots reproduces `commitIsolated` without borrowing
+ * or changing the contributor's real index.
+ */
+async function scopedWorktreeTree(root, baselineCommit, paths) {
+  if (!GIT_OBJECT.test(String(baselineCommit ?? ''))) {
+    fail('Lifecycle Candidate baseline is invalid.', 'SGOS_CANDIDATE_BASELINE_INVALID');
+  }
+  const requested = [...new Set((paths ?? []).filter(
+    (entry) => typeof entry === 'string' && entry
+  ))];
+  const scope = [];
+  for (const candidate of requested) {
+    let present = false;
+    try {
+      await lstat(path.join(root, candidate));
+      present = true;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (!present) {
+      const tracked = tryGitResult(root, ['ls-files', '-z', '--', candidate]);
+      present = !tracked.error && tracked.status === 0 && Buffer.from(tracked.stdout ?? '').length > 0;
+    }
+    if (present) scope.push(candidate);
+  }
+  if (!scope.length) {
+    fail('Lifecycle Candidate requires at least one governed path.', 'SGOS_CANDIDATE_SCOPE_INVALID');
+  }
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-scope-'));
+  const env = temporaryIndexEnvironment(path.join(temporary, 'index'));
+  try {
+    gitResult(root, ['read-tree', baselineCommit], { env });
+    gitResult(root, ['add', '-A', '--', ...scope], { env });
+    const tree = gitText(root, ['write-tree'], { env });
+    if (!GIT_OBJECT.test(tree)) {
+      fail('Git did not produce a scoped Candidate tree.', 'SGOS_CANDIDATE_GIT_INVALID');
+    }
+    return tree;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+const lifecycleVerifierCore = Object.freeze({
+  format: LIFECYCLE_VERIFIER_PROFILE_FORMAT,
+  profileId: 'universal-lifecycle-publication',
+  authority: 'installed-kernel',
+  subjectKinds: Object.freeze(['story', 'initiative', 'adhoc', 'goal']),
+  checks: Object.freeze([
+    'lifecycle-event-normalized', 'publication-scope-admitted',
+    'lifecycle-state-validated', 'lifecycle-before-commit-validated',
+    'retained-ref-exact', 'candidate-commit-tree-exact', 'temporary-index-tree-exact',
+    'candidate-resource-digests-exact', 'repository-hooks-not-invoked',
+    'working-tree-filters-not-invoked'
+  ])
+});
+
+/** Closed installed authority used by ordinary Story publication; existing repositories need no new config. */
+export const SGOS_LIFECYCLE_VERIFIER_PROFILE = freezeDeep({
+  ...lifecycleVerifierCore,
+  profileSha256: sha256(lifecycleVerifierCore)
+});
+
+export function sgosLifecycleCandidateIdentity(event) {
+  const eventId = String(event?.eventId ?? '').trim();
+  const subject = event?.subject;
+  if (!eventId || !['story', 'initiative', 'adhoc', 'goal'].includes(subject?.kind)
+      || !String(subject?.id ?? '').trim()) {
+    fail('Lifecycle Candidate identity requires an exact governed lifecycle event.',
+      'SGOS_CANDIDATE_EVENT_INVALID');
+  }
+  const payload = structuredClone(event.payload ?? {});
+  delete payload.sgosCandidate;
+  const normalized = {
+    ...structuredClone(event),
+    subject: { ...subject, id: String(subject.id).trim() },
+    payload,
+    sourceCommit: null,
+    idempotencyKey: null,
+    idempotencyHash: null
+  };
+  const normalizedEventSha256 = digestBytes(Buffer.from(canonicalJson(normalized)));
+  return Object.freeze({
+    candidateId: `CAN-${normalizedEventSha256.slice('sha256:'.length, 'sha256:'.length + 26).toUpperCase()}`,
+    normalizedEventSha256
+  });
+}
+
+export function sgosLifecycleCandidateId(event) {
+  return sgosLifecycleCandidateIdentity(event).candidateId;
+}
+
 function seal(kind, hashField, value) {
   // Candidate sidecars are private content-addressed Git-common records, not migration-registry
   // families. Keep that boundary explicit so a literal schemaVersion cannot masquerade as a
@@ -270,8 +387,66 @@ async function writeImmutable(root, target, record, hashField) {
   return record;
 }
 
+function candidateTransportAuthority(plan, remoteFingerprint) {
+  return {
+    format: CANDIDATE_TRANSPORT_RECEIPT_FORMAT,
+    candidateId: plan.candidateId,
+    packetSha256: plan.packetSha256,
+    candidateSha256: plan.candidateSha256,
+    candidateCommit: plan.candidateCommit,
+    candidateTree: plan.candidateTree,
+    targetBranch: plan.targetBranch,
+    remote: plan.remote,
+    remoteFingerprint,
+    expectedRemoteSha: plan.preconditions.remoteTargetCommit
+  };
+}
+
+async function readCandidateTransportReceipt(root, plan, remoteFingerprint) {
+  const target = publicationTransportReceiptPath(root, plan.candidateId, plan.packetSha256);
+  const bytes = await readPrivateSidecar(root, target, {
+    maximumBytes: MAX_CANDIDATE_RECORD_BYTES, optional: true
+  });
+  if (!bytes) return null;
+  let receipt;
+  try { receipt = JSON.parse(bytes.toString('utf8')); }
+  catch {
+    fail('Candidate publication transport receipt is invalid.',
+      'SGOS_CANDIDATE_TRANSPORT_RECEIPT_INVALID');
+  }
+  const expected = candidateTransportAuthority(plan, remoteFingerprint);
+  const exact = Object.entries(expected).every(([key, value]) => receipt?.[key] === value);
+  if (!exact || !['transport-indeterminate', 'published', 'rejected'].includes(receipt?.pushOutcome)
+      || !await verifyMachineLocalPublicationReceipt(
+        root, CANDIDATE_TRANSPORT_RECEIPT_PURPOSE, receipt
+      )) {
+    fail('Candidate publication transport receipt failed its machine-local authority binding.',
+      'SGOS_CANDIDATE_TRANSPORT_RECEIPT_INVALID');
+  }
+  return freezeDeep(receipt);
+}
+
+async function writeCandidateTransportReceipt(root, plan, remoteFingerprint, pushOutcome, at) {
+  const record = await sealMachineLocalPublicationReceipt(
+    root, CANDIDATE_TRANSPORT_RECEIPT_PURPOSE, {
+      ...candidateTransportAuthority(plan, remoteFingerprint),
+      pushOutcome,
+      updatedAt: at
+    }
+  );
+  await writeMutablePrivateSidecar(
+    root,
+    publicationTransportReceiptPath(root, plan.candidateId, plan.packetSha256),
+    canonicalJson(record),
+    { maximumBytes: MAX_CANDIDATE_RECORD_BYTES }
+  );
+  return record;
+}
+
 export async function freezeSgosCandidate(root, {
-  subjectId = path.basename(root), createdBy, createdAt = nowIso()
+  subjectId = path.basename(root), createdBy, createdAt = nowIso(), candidateId = null,
+  expectedBaseline = null, baselineCommit: suppliedBaselineCommit = null, paths = null,
+  exactCandidateCommit = null, expectedCandidateTree = null
 } = {}) {
   if (!createdBy?.id || !createdBy?.kind) {
     fail('Candidate freeze requires a typed creator.', 'SGOS_CANDIDATE_CREATOR_REQUIRED');
@@ -279,11 +454,53 @@ export async function freezeSgosCandidate(root, {
   // Establish the private authority path before creating the retained Git object/ref. A poisoned
   // sidecar parent must fail before any partial Candidate authority can be left behind.
   await safePrivateSidecarDirectory(root, candidateRoot(root), { create: true });
-  const baselineCommit = head(root);
+  const observedHead = head(root);
+  const baselineCommit = suppliedBaselineCommit ?? exactCandidateCommit ?? observedHead;
+  if (!GIT_OBJECT.test(String(baselineCommit ?? ''))) {
+    fail('Candidate baseline commit is invalid.', 'SGOS_CANDIDATE_BASELINE_INVALID');
+  }
+  if (exactCandidateCommit != null) {
+    const resolved = gitText(root, ['rev-parse', '--verify', `${exactCandidateCommit}^{commit}`]);
+    if (resolved !== exactCandidateCommit) {
+      fail('Exact lifecycle Candidate commit does not resolve to the supplied full object ID.',
+        'SGOS_CANDIDATE_BASELINE_INVALID');
+    }
+    const baselineResolved = gitText(root, ['rev-parse', '--verify', `${baselineCommit}^{commit}`]);
+    if (baselineResolved !== baselineCommit) {
+      fail('Exact lifecycle Candidate baseline does not resolve to the supplied full object ID.',
+        'SGOS_CANDIDATE_BASELINE_INVALID');
+    }
+    if (baselineCommit !== exactCandidateCommit) {
+      const parents = gitText(root, ['rev-list', '--parents', '-n', '1', exactCandidateCommit])
+        .split(/\s+/).slice(1);
+      if (!parents.includes(baselineCommit)) {
+        fail('Exact lifecycle Candidate does not have the supplied baseline as a direct parent.',
+          'SGOS_CANDIDATE_BASELINE_INVALID');
+      }
+    }
+  }
+  if (expectedBaseline != null && observedHead !== expectedBaseline) {
+    fail('Lifecycle Candidate baseline changed before freeze.', 'SGOS_CANDIDATE_BASELINE_CHANGED', {
+      expectedBaseline, observedBaseline: observedHead
+    });
+  }
   const baselineTree = gitText(root, ['rev-parse', `${baselineCommit}^{tree}`]);
-  const candidateTree = await worktreeTree(root);
-  const { resources, totalBytes } = candidateResources(root, baselineCommit, candidateTree);
+  const candidateTree = exactCandidateCommit != null
+    ? gitText(root, ['rev-parse', `${exactCandidateCommit}^{tree}`]) : paths == null
+    ? await worktreeTree(root)
+    : paths.length === 0 ? baselineTree
+      : await scopedWorktreeTree(root, baselineCommit, paths);
+  if (expectedCandidateTree != null && candidateTree !== expectedCandidateTree) {
+    fail('Lifecycle Candidate bytes changed after exact publication admission.',
+      'SGOS_CANDIDATE_SCOPE_DRIFT', { expectedCandidateTree, observedCandidateTree: candidateTree });
+  }
+  const { resources, totalBytes } = exactCandidateCommit != null
+    ? (baselineCommit === exactCandidateCommit
+      ? { resources: [], totalBytes: 0 }
+      : candidateResources(root, baselineCommit, candidateTree))
+    : candidateResources(root, baselineCommit, candidateTree);
   const snapshot = createCandidateSnapshot({
+    ...(candidateId ? { candidateId } : {}),
     subject: { kind: 'repository-tree', id: subjectId },
     baseline: { revision: baselineCommit, snapshotSha256: digestBytes(Buffer.from(baselineTree)) },
     resources,
@@ -292,9 +509,9 @@ export async function freezeSgosCandidate(root, {
   });
   const env = temporaryIndexEnvironment(path.join(os.tmpdir(), `unused-sflow-${process.pid}`));
   const message = `SGOS Candidate ${snapshot.candidateId}\n\nCandidate-SHA256: ${snapshot.candidateSha256}\n`;
-  const candidateCommit = gitText(root, ['commit-tree', candidateTree, '-p', baselineCommit], {
-    env, input: Buffer.from(message)
-  });
+  const candidateCommit = exactCandidateCommit ?? gitText(
+    root, ['commit-tree', candidateTree, '-p', baselineCommit], { env, input: Buffer.from(message) }
+  );
   if (!GIT_OBJECT.test(candidateCommit)) fail('Git did not retain the candidate commit.', 'SGOS_CANDIDATE_GIT_INVALID');
   const retainedRef = `refs/singularity-flow/candidates/${snapshot.candidateId}`;
   // Candidate refs are immutable retention roots. A blind update would let a concurrent freeze
@@ -317,6 +534,389 @@ export async function freezeSgosCandidate(root, {
   await writeImmutable(root, candidateRecordPath(root, snapshot.candidateId), record,
     'retainedCandidateSha256');
   return record;
+}
+
+/**
+ * Verify an ordinary lifecycle Candidate using only installed, hook-free Git object checks.
+ *
+ * This profile intentionally executes no Candidate-owned command. Story publication has already
+ * run its lifecycle validators; this boundary proves that the immutable retained commit, tree and
+ * resource manifest reconstruct exactly. It deliberately never checks out files: checkout can run
+ * repository/global post-checkout hooks and smudge filters, invalidating a zero-command receipt.
+ */
+export async function verifySgosLifecycleCandidate(root, candidateId, {
+  signal = null, verifiedAt = nowIso(), lifecycleAdmission = null
+} = {}) {
+  const retained = await readSgosRetainedCandidate(root, candidateId);
+  const admissionKeys = [
+    'normalizedEventSha256', 'subject', 'eventType', 'scopeAdmission',
+    'stateValidation', 'beforeCommitValidation'
+  ];
+  const admissionValid = lifecycleAdmission && typeof lifecycleAdmission === 'object'
+    && !Array.isArray(lifecycleAdmission)
+    && Object.keys(lifecycleAdmission).length === admissionKeys.length
+    && admissionKeys.every((key) => Object.hasOwn(lifecycleAdmission, key))
+    && HASH.test(String(lifecycleAdmission.normalizedEventSha256 ?? ''))
+    && lifecycleAdmission.candidateId === undefined
+    && candidateId === `CAN-${lifecycleAdmission.normalizedEventSha256
+      .slice('sha256:'.length, 'sha256:'.length + 26).toUpperCase()}`
+    && ['story', 'initiative', 'adhoc', 'goal'].includes(lifecycleAdmission.subject?.kind)
+    && String(lifecycleAdmission.subject?.id ?? '').trim()
+    && typeof lifecycleAdmission.eventType === 'string' && lifecycleAdmission.eventType
+    && lifecycleAdmission.scopeAdmission === 'passed'
+    && ['passed', 'not-required'].includes(lifecycleAdmission.stateValidation)
+    && ['passed', 'not-required'].includes(lifecycleAdmission.beforeCommitValidation);
+  if (!admissionValid) {
+    fail('Lifecycle Candidate requires one exact passed installed-kernel admission packet.',
+      'SGOS_CANDIDATE_LIFECYCLE_ADMISSION_REQUIRED', { candidateId });
+  }
+  await safePrivateSidecarDirectory(root, verificationDirectory(root, candidateId), { create: true });
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-lifecycle-candidate-index-'));
+  const env = {
+    ...temporaryIndexEnvironment(path.join(temporary, 'index')),
+    // Do not let repository-local replace refs make another commit appear to be the Candidate.
+    GIT_NO_REPLACE_OBJECTS: '1',
+    // A partial/promisor repository may otherwise contact its remote implicitly from cat-file or
+    // read-tree. Missing objects are a closed verification failure, never a hidden network read.
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: os.devNull
+  };
+  try {
+    if (signal?.aborted) fail('Lifecycle Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
+    // `rev-parse`, `read-tree`, `write-tree`, `diff`, `ls-tree`, and `cat-file` operate only on Git
+    // objects/index bytes. None checks out a path, invokes a hook/filter, or contacts a remote.
+    const observedCommit = gitText(root, [
+      'rev-parse', '--verify', `${retained.repository.candidateCommit}^{commit}`
+    ], { env });
+    const observedCommitTree = gitText(root, [
+      'rev-parse', '--verify', `${observedCommit}^{tree}`
+    ], { env });
+    gitResult(root, ['read-tree', observedCommit], { env });
+    const observedIndexTree = gitText(root, ['write-tree'], { env });
+    const reconstructed = candidateResources(
+      root, retained.repository.baselineCommit, retained.repository.candidateTree, { env }
+    );
+    const resourcesMatch = canonicalJson(reconstructed.resources)
+      === canonicalJson(retained.candidate.resources);
+    const totalsMatch = reconstructed.resources.length === retained.totals.files
+      && reconstructed.totalBytes === retained.totals.bytes;
+    if (signal?.aborted) fail('Lifecycle Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
+    const passed = observedCommit === retained.repository.candidateCommit
+      && observedCommitTree === retained.repository.candidateTree
+      && observedIndexTree === retained.repository.candidateTree
+      && resourcesMatch && totalsMatch;
+    const receipt = seal('lifecycle-candidate-verification-receipt',
+      'verificationReceiptSha256', {
+        candidateId,
+        candidateSha256: retained.candidate.candidateSha256,
+        retainedCandidateSha256: retained.retainedCandidateSha256,
+        candidateTree: retained.repository.candidateTree,
+        verificationProfile: SGOS_LIFECYCLE_VERIFIER_PROFILE,
+        lifecycleAdmission: lifecycleAdmission == null ? null : structuredClone(lifecycleAdmission),
+        observations: {
+          isolation: 'hook-free-object-and-temporary-index',
+          networkUsed: false,
+          cloneUsed: false,
+          worktreeCheckoutUsed: false,
+          repositoryHooksExecuted: 0,
+          workingTreeFiltersExecuted: 0,
+          candidateCommandsExecuted: 0,
+          expectedTree: retained.repository.candidateTree,
+          observedCommit,
+          observedCommitTree,
+          observedIndexTree,
+          resourcesMatch,
+          totalsMatch
+        },
+        status: passed ? 'passed' : 'failed',
+        verifiedAt
+      });
+    await writeImmutable(root, path.join(verificationDirectory(root, candidateId),
+      `${receipt.verificationReceiptSha256.slice('sha256:'.length)}.json`), receipt,
+    'verificationReceiptSha256');
+    if (!passed) {
+      fail('Lifecycle Candidate failed isolated exact-tree verification.',
+        'SGOS_CANDIDATE_VERIFICATION_FAILED', {
+          candidateId, verificationReceiptSha256: receipt.verificationReceiptSha256
+        });
+    }
+    return receipt;
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
+export async function freezeAndVerifySgosLifecycleCandidate(root, {
+  event, paths, createdBy, expectedBaseline, expectedCandidateTree = null,
+  signal = null, lifecycleAdmission = null
+} = {}) {
+  const identity = sgosLifecycleCandidateIdentity(event);
+  const candidateId = identity.candidateId;
+  const retained = await freezeSgosCandidate(root, {
+    candidateId,
+    subjectId: `${event.subject.kind}:${event.subject.id}:${identity.normalizedEventSha256}`,
+    createdBy,
+    createdAt: event.createdAt,
+    expectedBaseline,
+    paths,
+    expectedCandidateTree
+  });
+  const verification = await verifySgosLifecycleCandidate(root, candidateId, {
+    signal, verifiedAt: nowIso(), lifecycleAdmission
+  });
+  return freezeDeep({ identity, retained, verification });
+}
+
+/** Admit an unchanged exact commit as a create-only lifecycle branch Candidate. */
+export async function freezeAndVerifySgosExistingLifecycleCommit(root, {
+  event, candidateCommit, baselineCommit = candidateCommit, createdBy, signal = null
+} = {}) {
+  const identity = sgosLifecycleCandidateIdentity(event);
+  const retained = await freezeSgosCandidate(root, {
+    candidateId: identity.candidateId,
+    subjectId: `${event.subject.kind}:${event.subject.id}:${identity.normalizedEventSha256}`,
+    createdBy,
+    createdAt: event.createdAt,
+    baselineCommit,
+    exactCandidateCommit: candidateCommit
+  });
+  const verification = await verifySgosLifecycleCandidate(root, identity.candidateId, {
+    signal,
+    verifiedAt: nowIso(),
+    lifecycleAdmission: {
+      normalizedEventSha256: identity.normalizedEventSha256,
+      subject: { kind: event.subject.kind, id: event.subject.id },
+      eventType: event.type,
+      scopeAdmission: 'passed',
+      stateValidation: 'not-required',
+      beforeCommitValidation: 'not-required'
+    }
+  });
+  return freezeDeep({ identity, retained, verification });
+}
+
+export function sgosLifecycleCandidateBinding(boundary) {
+  if (!boundary?.identity || boundary.verification?.status !== 'passed') {
+    fail('Lifecycle Candidate boundary is not passed.', 'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+  }
+  return freezeDeep({
+    candidateId: boundary.retained.candidate.candidateId,
+    normalizedEventSha256: boundary.identity.normalizedEventSha256,
+    candidateSha256: boundary.retained.candidate.candidateSha256,
+    retainedCandidateSha256: boundary.retained.retainedCandidateSha256,
+    candidateTree: boundary.retained.repository.candidateTree,
+    candidateCommit: boundary.retained.repository.candidateCommit,
+    verificationReceiptSha256: boundary.verification.verificationReceiptSha256,
+    verificationProfileSha256: boundary.verification.verificationProfile.profileSha256
+  });
+}
+
+export async function verifySgosLifecycleCandidateBinding(root, binding, {
+  publishedCommit = null
+} = {}) {
+  const bindingValid = binding && typeof binding === 'object' && !Array.isArray(binding)
+    && CANDIDATE_ID.test(String(binding.candidateId ?? ''))
+    && HASH.test(String(binding.normalizedEventSha256 ?? ''))
+    && HASH.test(String(binding.candidateSha256 ?? ''))
+    && HASH.test(String(binding.retainedCandidateSha256 ?? ''))
+    && GIT_OBJECT.test(String(binding.candidateTree ?? ''))
+    && GIT_OBJECT.test(String(binding.candidateCommit ?? ''))
+    && HASH.test(String(binding.verificationReceiptSha256 ?? ''))
+    && HASH.test(String(binding.verificationProfileSha256 ?? ''));
+  if (!bindingValid) {
+    fail('Lifecycle Candidate binding shape is invalid.',
+      'SGOS_CANDIDATE_BINDING_INVALID');
+  }
+  const retained = await readSgosRetainedCandidate(root, binding?.candidateId);
+  const expected = {
+    candidateId: retained.candidate.candidateId,
+    candidateSha256: retained.candidate.candidateSha256,
+    retainedCandidateSha256: retained.retainedCandidateSha256,
+    candidateTree: retained.repository.candidateTree,
+    candidateCommit: retained.repository.candidateCommit
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    if (binding?.[field] !== value) {
+      fail(`Lifecycle Candidate binding has a different ${field}.`,
+        'SGOS_CANDIDATE_BINDING_INVALID', { field });
+    }
+  }
+  if (publishedCommit != null && publishedCommit !== retained.repository.candidateCommit) {
+    // Ordinary lifecycle commits add transaction/Candidate trailers after the tree is frozen, so
+    // their commit object intentionally differs from the retention commit. Prove the published
+    // commit carries the same tree and exact Candidate trailer identity. Exact create-only sibling
+    // publication still takes the simpler equality path above.
+    const identity = governedCommitIdentity(root, publishedCommit);
+    if (!identity || identity.tree !== binding.candidateTree
+        || identity.candidate?.invalid === true
+        || identity.candidate?.candidateId !== binding.candidateId
+        || identity.candidate?.candidateSha256 !== binding.candidateSha256
+        || identity.candidate?.verificationReceiptSha256 !== binding.verificationReceiptSha256
+        || identity.candidate?.verificationProfileSha256 !== binding.verificationProfileSha256) {
+      fail('Lifecycle branch publication does not bind the exact verified Candidate tree and receipt.',
+        'SGOS_CANDIDATE_BINDING_INVALID');
+    }
+  }
+  const receiptPath = path.join(verificationDirectory(root, binding.candidateId),
+    `${String(binding.verificationReceiptSha256 ?? '').replace(/^sha256:/, '')}.json`);
+  let receipt;
+  try {
+    receipt = JSON.parse((await readPrivateSidecar(root, receiptPath, {
+      maximumBytes: MAX_CANDIDATE_RECORD_BYTES
+    })).toString('utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      fail('Lifecycle Candidate verification receipt is unavailable.',
+        'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+    }
+    throw error;
+  }
+  const receiptCore = Object.fromEntries(Object.entries(receipt).filter(
+    ([key]) => key !== 'verificationReceiptSha256'
+  ));
+  if (receipt.kind !== 'lifecycle-candidate-verification-receipt'
+      || receipt.status !== 'passed'
+      || receipt.verificationReceiptSha256 !== binding.verificationReceiptSha256
+      || sha256(receiptCore) !== receipt.verificationReceiptSha256
+      || receipt.candidateId !== binding.candidateId
+      || receipt.candidateSha256 !== binding.candidateSha256
+      || receipt.candidateTree !== binding.candidateTree
+      || receipt.verificationProfile?.profileSha256 !== binding.verificationProfileSha256
+      || receipt.lifecycleAdmission?.normalizedEventSha256 !== binding.normalizedEventSha256) {
+    fail('Lifecycle Candidate verification binding is corrupt.',
+      'SGOS_CANDIDATE_BINDING_INVALID');
+  }
+  return freezeDeep({ retained, receipt });
+}
+
+/**
+ * Recover the complete immutable Candidate binding carried by one governed commit.
+ *
+ * Commit trailers intentionally contain only the public verification identity. The retained
+ * Candidate supplies its exact tree/commit hashes and the receipt supplies the normalized event
+ * digest. Reconstructing through both records prevents callers such as branch promotion from
+ * treating a self-authored trailer set as verification authority.
+ */
+export async function verifiedSgosLifecycleCandidateForCommit(root, publishedCommit) {
+  const identity = governedCommitIdentity(root, publishedCommit);
+  if (!identity?.candidate || identity.candidate.invalid === true) {
+    fail('Governed commit has no complete lifecycle Candidate binding.',
+      'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+  }
+  const retained = await readSgosRetainedCandidate(root, identity.candidate.candidateId);
+  const receiptPath = path.join(verificationDirectory(root, identity.candidate.candidateId),
+    `${identity.candidate.verificationReceiptSha256.replace(/^sha256:/, '')}.json`);
+  let receipt;
+  try {
+    receipt = JSON.parse((await readPrivateSidecar(root, receiptPath, {
+      maximumBytes: MAX_CANDIDATE_RECORD_BYTES
+    })).toString('utf8'));
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      fail('Lifecycle Candidate verification receipt is unavailable.',
+        'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+    }
+    throw error;
+  }
+  const binding = freezeDeep({
+    candidateId: identity.candidate.candidateId,
+    normalizedEventSha256: receipt?.lifecycleAdmission?.normalizedEventSha256 ?? null,
+    candidateSha256: identity.candidate.candidateSha256,
+    retainedCandidateSha256: retained.retainedCandidateSha256,
+    candidateTree: retained.repository.candidateTree,
+    candidateCommit: retained.repository.candidateCommit,
+    verificationReceiptSha256: identity.candidate.verificationReceiptSha256,
+    verificationProfileSha256: identity.candidate.verificationProfileSha256
+  });
+  const verified = await verifySgosLifecycleCandidateBinding(root, binding, { publishedCommit });
+  return freezeDeep({ binding, retained: verified.retained, receipt: verified.receipt });
+}
+
+/**
+ * Advance and publish one exact lifecycle Candidate.
+ *
+ * Cross-repository Story starts cannot use the checked-out aggregate unit of work in every sibling
+ * repository. This adapter is the same authority boundary for their already-frozen reference
+ * Candidates: verification, local compare-and-swap, and the remote lease are one ordered operation.
+ * `allowLegacyUnverified` exists only so an older durable recovery receipt can finish the exact
+ * commit it recorded; callers must never set it while creating new publication authority.
+ */
+export async function publishVerifiedSgosLifecycleCandidate(root, {
+  binding = null,
+  commit = binding?.candidateCommit ?? null,
+  branch: targetBranch,
+  remote = 'origin',
+  expectedLocalSha = undefined,
+  expectedRemoteSha = undefined,
+  transportRemote = undefined,
+  upstreamRemote = undefined,
+  advanceLocalRef = true,
+  allowLegacyUnverified = false
+} = {}) {
+  if (!GIT_OBJECT.test(String(commit ?? ''))) {
+    fail('Lifecycle Candidate publication requires one exact commit.',
+      'SGOS_CANDIDATE_PUBLICATION_INVALID');
+  }
+  if (!BRANCH.test(String(targetBranch ?? '')) || !REMOTE.test(String(remote ?? ''))) {
+    fail('Lifecycle Candidate publication target is invalid.',
+      'SGOS_CANDIDATE_PUBLICATION_INVALID');
+  }
+  if (binding) {
+    await verifySgosLifecycleCandidateBinding(root, binding, { publishedCommit: commit });
+  } else if (!allowLegacyUnverified) {
+    fail('Lifecycle publication requires a verified Candidate binding.',
+      'SGOS_CANDIDATE_VERIFICATION_REQUIRED');
+  }
+  if (advanceLocalRef !== true && advanceLocalRef !== false) {
+    fail('Lifecycle Candidate local-ref publication mode is invalid.',
+      'SGOS_CANDIDATE_PUBLICATION_INVALID');
+  }
+  if (!advanceLocalRef && expectedLocalSha !== undefined) {
+    fail('A remote-only Candidate publication cannot carry local-ref compare-and-swap authority.',
+      'SGOS_CANDIDATE_PUBLICATION_INVALID');
+  }
+
+  const localRef = `refs/heads/${targetBranch}`;
+  let currentLocal = null;
+  try { currentLocal = gitText(root, ['rev-parse', '--verify', localRef]); } catch { /* absent */ }
+  // A v1 recovery receipt predates local-ref Candidate CAS. It authorizes only its exact retained
+  // commit object and create-only remote lease; do not invent a new local branch as part of legacy
+  // recovery. Every new Candidate publication supplies an explicit local lease.
+  if (advanceLocalRef && (binding || expectedLocalSha !== undefined) && currentLocal !== commit) {
+    const expected = expectedLocalSha === null
+      ? '0'.repeat(String(commit).length)
+      : String(expectedLocalSha ?? '');
+    if (!GIT_OBJECT.test(expected)) {
+      fail('Lifecycle Candidate local compare-and-swap authority is unavailable.',
+        'SGOS_CANDIDATE_PUBLICATION_LOCAL_LEASE_REQUIRED', { targetBranch });
+    }
+    if ((currentLocal ?? '0'.repeat(String(commit).length)) !== expected) {
+      fail('Lifecycle Candidate local branch changed after verification.',
+        'SGOS_CANDIDATE_PUBLICATION_LOCAL_LEASE_LOST', {
+          targetBranch, expectedLocalSha: expectedLocalSha ?? null, currentLocal
+        });
+    }
+    const advanced = tryGitResult(root, ['update-ref', localRef, commit, expected]);
+    if (advanced.error || advanced.status !== 0) {
+      fail('Lifecycle Candidate local branch lost its compare-and-swap race.',
+        'SGOS_CANDIDATE_PUBLICATION_LOCAL_LEASE_LOST', { targetBranch });
+    }
+  }
+
+  const result = pushCommitToBranch(root, remote, commit, targetBranch, {
+    ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {}),
+    ...(transportRemote !== undefined ? { transportRemote } : {}),
+    ...(upstreamRemote !== undefined ? { upstreamRemote } : {})
+  });
+  return Object.freeze({
+    result,
+    commit,
+    branch: targetBranch,
+    candidateVerified: Boolean(binding),
+    legacyUnverified: !binding
+  });
 }
 
 export async function readSgosRetainedCandidate(root, candidateId) {
@@ -767,6 +1367,18 @@ export async function planSgosCandidatePublication(root, candidateId, {
   if (remote !== null && !REMOTE.test(String(remote))) {
     fail('Candidate remote name is invalid.', 'SGOS_CANDIDATE_REMOTE_INVALID');
   }
+  const subjects = await buildRepositorySubjectIndex(root);
+  const governedTarget = subjects.subjects.find((entry) =>
+    entry.canonicalBranch === targetBranch || entry.branches.includes(targetBranch));
+  if (governedTarget) {
+    fail(
+      `Branch '${targetBranch}' is governed by ${governedTarget.kind} '${governedTarget.id}'. `
+      + 'Publish it through the lifecycle transaction so its installed admission packet, exact '
+      + 'Candidate, and recovery receipt remain one authority.',
+      'SGOS_CANDIDATE_LIFECYCLE_ADMISSION_REQUIRED',
+      { subject: { kind: governedTarget.kind, id: governedTarget.id }, targetBranch }
+    );
+  }
   const approvedVerifier = await loadApprovedCandidateVerifierPolicy(root);
   const receipts = await passedVerificationReceipts(root, candidateId);
   const verification = receipts.filter((entry) =>
@@ -857,7 +1469,8 @@ async function readSgosCandidatePublicationPlan(root, candidateId, packetSha256)
 }
 
 export async function publishSgosCandidate(root, candidateId, {
-  confirmationSha256, targetBranch = branch(root), remote = null, publishedAt = nowIso()
+  confirmationSha256, targetBranch = branch(root), remote = null, publishedAt = nowIso(),
+  fault = null
 } = {}) {
   if (!HASH.test(String(confirmationSha256 ?? ''))) {
     fail('Candidate publication requires the exact publication packet SHA-256.',
@@ -927,6 +1540,7 @@ export async function publishSgosCandidate(root, candidateId, {
   let remoteObservation = null;
   let remoteAuthority = null;
   let remotePreflightFailure = null;
+  let transportReceipt = null;
   if (remote != null) {
     if (!hasRemote(root, remote)) {
       if (!branchAdvanced) {
@@ -941,6 +1555,11 @@ export async function publishSgosCandidate(root, candidateId, {
             'SGOS_CANDIDATE_PUBLICATION_STALE');
         }
         remotePreflightFailure = { code: 'remote-authority-changed' };
+      }
+      if (!remotePreflightFailure) {
+        transportReceipt = await readCandidateTransportReceipt(
+          root, plan, remoteAuthority.fingerprint
+        );
       }
       remoteObservation = remotePreflightFailure
         ? null
@@ -970,6 +1589,19 @@ export async function publishSgosCandidate(root, candidateId, {
       }
     }
   }
+  if (!remotePreflightFailure && remoteObservation?.sha === plan.candidateCommit
+      && !branchAdvanced
+      && transportReceipt?.pushOutcome !== 'transport-indeterminate') {
+    fail(
+      'Candidate remote target already equals the Candidate, but this machine has no retained '
+      + 'indeterminate transport attempt that can own that update. Preview a new plan after '
+      + 'reviewing the concurrent remote change; the local ref was not changed.',
+      'SGOS_CANDIDATE_PUBLICATION_STALE', {
+        expected: plan.preconditions.remoteTargetCommit,
+        observed: remoteObservation.sha
+      }
+    );
+  }
   if (!branchAdvanced) {
     gitResult(root, ['update-ref', `refs/heads/${targetBranch}`, plan.candidateCommit, plan.expectedTargetCommit]);
   }
@@ -997,16 +1629,32 @@ export async function publishSgosCandidate(root, candidateId, {
         failure: remotePreflightFailure
       };
     } else if (remoteObservation.sha === plan.candidateCommit) {
+      if (transportReceipt?.pushOutcome === 'transport-indeterminate') {
+        await writeCandidateTransportReceipt(
+          root, plan, remoteAuthority.fingerprint, 'published', publishedAt
+        );
+      }
       remoteResult = {
         remote, priorCommit: plan.preconditions.remoteTargetCommit,
         status: 0, pushed: true, recovered: true, failure: null
       };
     } else {
+      await writeCandidateTransportReceipt(
+        root, plan, remoteAuthority.fingerprint, 'transport-indeterminate', publishedAt
+      );
       const pushed = pushCommitToBranch(root, remote, plan.candidateCommit, targetBranch, {
         expectedRemoteSha: plan.preconditions.remoteTargetCommit,
         transportRemote: remoteAuthority.url,
         upstreamRemote: remote
       });
+      if (fault) await fault('after-remote-push-before-transport-receipt', {
+        plan, result: pushed
+      });
+      const pushOutcome = pushed.status === 0
+        ? 'published' : publicationPushOutcome(pushed);
+      await writeCandidateTransportReceipt(
+        root, plan, remoteAuthority.fingerprint, pushOutcome, publishedAt
+      );
       remoteResult = {
         remote, priorCommit: plan.preconditions.remoteTargetCommit,
         status: pushed.status,

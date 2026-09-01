@@ -3,14 +3,22 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, rm } from 'node:fs/promises';
 import YAML from 'yaml';
-import {
-  forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath, workspaceStatus
-} from './workspace.mjs';
 import { run, SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
 import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
+
+// Workspace creation/materialization owns the remote Git, clone-strategy, and enterprise transport
+// graph. Context-only commands must not load that graph merely to read a local manifest or registry.
+// Keep the compatibility implementation behind a true dynamic boundary until a caller reaches one
+// of the less frequent manifest/status mutation paths below. The promise also coalesces concurrent
+// context reads without creating another module instance.
+let workspaceModulePromise = null;
+function workspaceModule() {
+  workspaceModulePromise ??= import('./workspace.mjs');
+  return workspaceModulePromise;
+}
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
 
@@ -114,6 +122,9 @@ async function verifiedWorkspaceMemberRepository(root, member, { strict }) {
  * conversion path during this POC.
  */
 export async function discardUnsupportedWorkflowWorkspaces(registryFile, selectionFile = null) {
+  const {
+    forgetWorkspace, readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath
+  } = await workspaceModule();
   const entries = await readWorkspaceRegistry(registryFile);
   const removed = [];
   for (const entry of entries) {
@@ -159,6 +170,7 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
 }
 
 export async function resolveWorkspaceReference(registryFile, reference) {
+  const { readWorkspaceRegistry } = await workspaceModule();
   const entries = (await readWorkspaceRegistry(registryFile)).filter((entry) => !entry.archivedAt);
   if (!entries.length) {
     throw new SingularityFlowError('No workspaces are saved. Create or open a workspace in Singularity Flow first.');
@@ -204,6 +216,7 @@ export async function buildWorkspaceContext(registryFile, reference, {
   storyId = null,
   detectStory = true
 } = {}) {
+  const { readWorkspace, workspaceStatus } = await workspaceModule();
   const entry = await resolveWorkspaceReference(registryFile, reference);
   const workspace = await readWorkspace(entry.path);
   const status = await workspaceStatus(workspace.path);
@@ -521,6 +534,7 @@ export async function workspaceMemberContextForRepository(
   // recover and validate the current manifest from the machine registry. Cached capabilities are
   // navigation hints, never configuration authority.
   if (!workspacePath && strict) {
+    const { readWorkspaceRegistry } = await workspaceModule();
     const candidates = (await readWorkspaceRegistry(registryFile))
       .filter((entry) => !entry.archivedAt && entry.id === selected.workspaceId);
     let matches = candidates;
@@ -570,6 +584,7 @@ export async function workspaceMemberContextForRepository(
 
   let workspace;
   try {
+    const { readWorkspace } = await workspaceModule();
     workspace = await readWorkspace(workspacePath);
     workspaceSnapshot = workspace;
   } catch (error) {
@@ -583,6 +598,7 @@ export async function workspaceMemberContextForRepository(
   // Exact canonical member paths are the common case. Resolve all of them before asking Git for any
   // common directories, so selecting the Nth repository does not spawn Git twice for every earlier
   // member.
+  const { workspaceRepositoryPath } = await workspaceModule();
   const members = await Promise.all(Object.entries(workspace.repositories).map(
     async ([repositoryId, repository]) => ({
       repositoryId,

@@ -13,7 +13,10 @@ const CAPABILITY_PUBLICATION_IDENTITY_FIELDS = Object.freeze([
 ]);
 
 function capabilityPublicationIdentity(entry) {
-  return Object.fromEntries(CAPABILITY_PUBLICATION_IDENTITY_FIELDS.map((field) => [
+  const fields = (entry?.schemaVersion ?? 1) >= 2
+    ? [...CAPABILITY_PUBLICATION_IDENTITY_FIELDS, 'baseCommit', 'candidate']
+    : CAPABILITY_PUBLICATION_IDENTITY_FIELDS;
+  return Object.fromEntries(fields.map((field) => [
     field,
     entry?.[field] === undefined ? null : entry[field]
   ]));
@@ -52,6 +55,11 @@ export function verifyCapabilityPublicationRecoveryPlan(record) {
       }
       if (!['not-attempted', 'rejected', 'transport-indeterminate'].includes(entry?.pushOutcome)) {
         failures.push(`remaining capability publication '${entry?.repository ?? 'unknown'}' has an invalid push outcome`);
+      }
+      if ((entry?.schemaVersion ?? 1) >= 2 && (!entry.candidate
+          || entry.commit !== entry.candidate.candidateCommit
+          || entry.baseCommit == null)) {
+        failures.push(`remaining capability publication '${entry?.repository ?? 'unknown'}' has no exact Candidate binding`);
       }
     }
   }
@@ -141,7 +149,7 @@ export async function publishCapabilityRepositoriesDurably(
     try {
       // Use the pre-attempt outcome in memory. The durable in-flight receipt is recovery authority
       // only if this process disappears or the transport itself reports an ambiguous outcome.
-      result = publishCapabilityRepositories([entry]);
+      result = await publishCapabilityRepositories([entry]);
     } catch (error) {
       await retainCapabilityPublicationRecovery(
         root, workId, publication, durablePlan, error, { rootPublished }

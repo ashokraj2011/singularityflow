@@ -1,4 +1,5 @@
 import { normalizeSourceRoots } from './source-scope.mjs';
+import { classifyGitRemoteFailure } from './git-remote-diagnostics.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 export const CLONE_MODES = Object.freeze(['full', 'blobless', 'blobless-sparse']);
@@ -59,10 +60,58 @@ export function classifyPartialCloneResult(result, { configured = null } = {}) {
     .filter(Boolean).map(String).join('\n');
   const rejected = FILTER_UNSUPPORTED.test(output);
   if (Number(result?.status ?? 1) !== 0) {
-    return Object.freeze({ kind: rejected ? 'filter-rejected' : 'transport-failed' });
+    // Boundary failures are transport failures even when a proxy/helper happens to print a phrase
+    // resembling Git's filter-capability warning. Retrying those as a full clone doubles the office
+    // timeout and can continue after a person has already cancelled the operation.
+    const remoteFailure = result?.failure?.classification
+      ? result.failure
+      : classifyGitRemoteFailure(result);
+    const boundaryFailed = result?.timedOut === true || result?.aborted === true
+      || result?.outputOverflow === true || Boolean(result?.signal);
+    const transportClassified = remoteFailure.classification !== 'unknown';
+    return Object.freeze({
+      kind: !boundaryFailed && !transportClassified && rejected
+        ? 'filter-rejected'
+        : 'transport-failed'
+    });
   }
+  if (configured === true && !rejected) return Object.freeze({ kind: 'partial-established' });
   if (configured === false || rejected) {
     return Object.freeze({ kind: 'filter-ignored' });
   }
-  return Object.freeze({ kind: 'partial-established' });
+  // A zero exit is not proof of a partial clone: servers are allowed to ignore filtering. Callers
+  // must inspect the promisor/filter configuration before labelling or publishing the checkout.
+  return Object.freeze({ kind: 'partial-unverified' });
+}
+
+/**
+ * One policy decision for every partial-clone consumer.
+ *
+ * The caller still owns staging cleanup and the actual second clone, but it cannot reinterpret a
+ * proxy error as a server capability refusal or silently retain a full checkout under `refuse`.
+ */
+export function partialCloneFallbackDecision(result, {
+  configured = null, fallback = 'refuse'
+} = {}) {
+  if (!CLONE_FALLBACKS.includes(fallback)) {
+    throw new SingularityFlowError('Partial-clone fallback must be refuse or full.');
+  }
+  const classification = classifyPartialCloneResult(result, { configured });
+  const action = classification.kind === 'partial-established'
+    ? 'retain-partial'
+    : classification.kind === 'transport-failed'
+      ? 'fail-transport'
+      : classification.kind === 'filter-rejected'
+        ? fallback === 'full' ? 'retry-full' : 'refuse-full'
+        : classification.kind === 'filter-ignored'
+          ? fallback === 'full' ? 'retain-full' : 'refuse-full'
+          : 'refuse-unverified';
+  return Object.freeze({
+    kind: classification.kind,
+    action,
+    retry: action === 'retry-full',
+    retain: action === 'retain-partial' || action === 'retain-full',
+    actualMode: action === 'retain-partial' ? 'blobless'
+      : action === 'retain-full' ? 'full' : null
+  });
 }

@@ -12,12 +12,14 @@ import {
 } from './repository-subject-index.mjs';
 import { gitWorkerCount, isGitRefName, mapLimit, SingularityFlowError, run } from './util.mjs';
 import {
-  classifyPartialCloneResult, cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured
+  cloneStrategyArguments, normalizeCloneStrategy, partialCloneConfigured,
+  partialCloneFallbackDecision
 } from './clone-strategy.mjs';
 import {
   assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
-  remoteFingerprint, sanitizeRemote
+  remoteFingerprint, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
 } from './git-execution.mjs';
@@ -631,8 +633,8 @@ export async function workspaceRepositoryDefaults(repository) {
  * confusing thing to debug — so the branches that do exist are consulted first.
  */
 export function remoteDefaultBranch(remote, symrefOutput, { env = process.env } = {}) {
-  const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
-  if (symref?.[1]) return symref[1];
+  const advertised = advertisedDefaultBranch(symrefOutput);
+  if (advertised) return advertised;
 
   const transport = frozenRemoteTransport(remote, { env });
   const heads = runRemoteGit(['ls-remote', '--heads', transport.remote], {
@@ -643,6 +645,23 @@ export function remoteDefaultBranch(remote, symrefOutput, { env = process.env } 
     : [];
   if (branches.length === 1) return branches[0];
   return branches.find((branch) => branch === 'main' || branch === 'master') ?? branches[0] ?? 'main';
+}
+
+/** Resolve only the bytes already advertised; this helper never performs hidden network I/O. */
+export function advertisedDefaultBranch(symrefOutput) {
+  const symref = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(symrefOutput ?? '');
+  if (symref?.[1]) return symref[1];
+
+  // Callers that already requested the head namespace must not pay a second synchronous network
+  // round trip merely because the remote did not advertise a HEAD symref. This also lets async
+  // bootstrap keep every remote operation behind the process-tree supervisor.
+  const advertised = [...String(symrefOutput ?? '')
+    .matchAll(/^\S+\s+refs\/heads\/(\S+)$/gm)].map((match) => match[1]);
+  if (advertised.length) {
+    return advertised.find((branch) => branch === 'main' || branch === 'master')
+      ?? advertised[0];
+  }
+  return null;
 }
 
 /**
@@ -674,7 +693,8 @@ export async function workspaceRemoteDefaults(url, {
     throw new SingularityFlowError(`'${remote}' is not a clone URL. Use https://, git@, ssh:// or an absolute path.`);
   }
 
-  const session = new GitRemoteSession({ env });
+  const gitEnv = enterpriseGitEnvironment(env);
+  const session = new GitRemoteSession({ env: gitEnv });
   const stateRef = stateBranch.startsWith('refs/') ? stateBranch : `refs/heads/${stateBranch}`;
   const observed = await session.observeAsync(remote, { includeHead: true, refs: [stateRef] });
   requireRemoteObservation(observed, 'workspace repository');
@@ -725,10 +745,12 @@ export async function workspaceRemoteCapabilities(url, {
   portfolioPath = 'singularity/portfolio.yml',
   configurationBranch = 'sflow/config',
   env = process.env,
-  remoteSession = new GitRemoteSession({ env })
+  remoteSession = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A repository URL is required.');
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const operationSession = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-map-'));
   try {
     // Partial clones are refused by some servers and by older Git; without the filter this still
@@ -736,7 +758,7 @@ export async function workspaceRemoteCapabilities(url, {
     // Organisation configuration is intentionally independent of application `main`. Workspaces
     // must therefore read the approved configuration branch, never whichever application branch
     // the remote happens to advertise as HEAD.
-    const configured = await remoteSession.observeAsync(remote, {
+    const configured = await operationSession.observeAsync(remote, {
       includeHead: false, refs: [`refs/heads/${configurationBranch}`]
     });
     requireRemoteObservation(configured, 'workspace capability authority');
@@ -751,30 +773,38 @@ export async function workspaceRemoteCapabilities(url, {
     }
     const branch = configurationBranch;
     const authorityCommit = configured.refs.get(`refs/heads/${configurationBranch}`);
-    const transport = frozenRemoteTransport(remote, { env });
+    const transport = frozenRemoteTransport(remote, { env: gitEnv });
     const clone = (extra) => runRemoteGitAsync([
       'clone', '--quiet', '--depth', '1', '--no-checkout', '--branch', branch, ...extra,
       transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     let cloned = await clone(['--filter=blob:none']);
-    const partial = classifyPartialCloneResult(cloned, {
+    let partial = partialCloneFallbackDecision(cloned, {
       configured: cloned.status === 0
         ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
             ...options, env: transport.env
           }))
-        : null
+        : null,
+      // Catalog reads are disposable, bounded to one shallow authority commit, and historically
+      // permit a full transfer when the server explicitly lacks filter support. The shared
+      // decision still prevents auth/proxy/TLS/cancel/timeout failures from taking that fallback.
+      fallback: 'full'
     });
     // Retry only a server's explicit filter-capability refusal. Replaying authentication, proxy,
     // TLS, timeout, or generic network failures as a full clone doubles the office wait and cannot
     // make those failures succeed. A successful clone that ignored the filter is already the full
     // catalog checkout we need, so retain it rather than downloading it again.
-    if (cloned.status !== 0 && partial.kind === 'filter-rejected') {
+    if (partial.action === 'retry-full') {
       await rm(scratch, { recursive: true, force: true });
       await mkdir(scratch, { recursive: true });
       cloned = await clone([]);
+      partial = Object.freeze({ kind: 'full-requested', action: 'retain-full' });
     }
     if (cloned.status !== 0) {
-      throw new SingularityFlowError(`Cannot read '${remote}': ${(cloned.stderr || cloned.stdout).trim().split('\n')[0]}`);
+      throw new SingularityFlowError(
+        `Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git remote access failed.'}`,
+        { code: cloned.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
     }
     // This checkout is disposable. Keep its invocation alias active through every object read: a
     // blobless clone may lazy-fetch the catalog during `git show`, and restoring the literal URL
@@ -860,7 +890,7 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
   receipt = null,
   observeAuthority = null,
   env = process.env,
-  remoteSession = new GitRemoteSession({ env })
+  remoteSession = null
 } = {}) {
   const workspaceCapabilities = [...new Set(manifest.capabilities ?? [])].sort();
   const repositoryCapabilities = Object.values(manifest.repositories ?? {})
@@ -869,6 +899,8 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
   if (!requested.length) {
     return { checked: false, requested: [], known: [], branch: null, path: null };
   }
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const operationSession = remoteSession ?? new GitRemoteSession({ env: gitEnv });
 
   const leadRepository = manifest.repositories?.[manifest.leadRepository];
   const authorityUrl = manifest.capabilityAuthority?.url ?? leadRepository?.url;
@@ -893,7 +925,7 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
     && /^[0-9a-f]{40,64}$/i.test(receiptCommit);
   if (receiptMatches) {
     const observe = observeAuthority ?? (async (remote, branch) => {
-      const observed = await remoteSession.observeAsync(remote, {
+      const observed = await operationSession.observeAsync(remote, {
         includeHead: false, refs: [`refs/heads/${branch}`]
       });
       requireRemoteObservation(observed, 'workspace capability authority');
@@ -907,7 +939,9 @@ export async function validateWorkspaceCapabilityRegistration(manifest, {
 
   let catalog;
   try {
-    catalog = await readCapabilities(authorityUrl, { env, remoteSession });
+    catalog = await readCapabilities(authorityUrl, {
+      env: gitEnv, remoteSession: operationSession
+    });
   } catch (error) {
     throw new SingularityFlowError(
       `Cannot validate workspace capabilities against the approved catalog of ${authorityLabel}. `
@@ -1521,7 +1555,8 @@ async function cloneIntoWorkspace(root, operation, {
   };
   try {
   const strategy = normalizeCloneStrategy(operation.clone, `Repository '${operation.repository}' clone strategy`);
-  const transport = frozenRemoteTransport(operation.url, { env });
+  const gitEnv = enterpriseGitEnvironment(env);
+  const transport = frozenRemoteTransport(operation.url, { env: gitEnv });
   // Check out the configured default branch, but retain remote-tracking refs for governed Epic
   // and Story branches. State transfer depends on seeing branches created from other terminals.
   const cloneOnce = (selected) => runRemoteGitAsync([
@@ -1545,12 +1580,13 @@ async function cloneIntoWorkspace(root, operation, {
   let selected = strategy;
   let fallbackUsed = false;
   let result = await cloneOnce(selected);
-  let partial = selected.mode === 'full' ? null : classifyPartialCloneResult(result, {
+  let partial = selected.mode === 'full' ? null : partialCloneFallbackDecision(result, {
     configured: result.status === 0
       ? partialCloneConfigured(staging, 'origin', (args, options) => run('git', args, {
           ...options, env: transport.env
         }))
-      : null
+      : null,
+    fallback: selected.fallback
   });
   const resetForFullClone = async () => {
     if (!(await verifyOwnership())) {
@@ -1579,7 +1615,7 @@ async function cloneIntoWorkspace(root, operation, {
     // A full retry can fix only an explicit server capability refusal. Repeating an authentication,
     // proxy, TLS, timeout, or generic network failure doubles the office delay and obscures the real
     // diagnosis.
-    if (selected.mode === 'full' || selected.fallback !== 'full' || partial?.kind !== 'filter-rejected') {
+    if (selected.mode === 'full' || partial?.action !== 'retry-full') {
       return { status: result.status, error: await cleanupFailure(cloneFailure(operation, result)) };
     }
     const fallbackFailure = await cloneFullOnce();
@@ -1587,12 +1623,15 @@ async function cloneIntoWorkspace(root, operation, {
     partial = null;
   }
 
-  if (selected.mode !== 'full' && partial?.kind === 'filter-ignored') {
-    if (selected.fallback !== 'full') {
+  if (selected.mode !== 'full'
+      && ['retain-full', 'refuse-full', 'refuse-unverified'].includes(partial?.action)) {
+    if (partial.action !== 'retain-full') {
       return {
         status: 1,
-        error: await cleanupFailure(`Repository '${operation.repository}' did not establish a blobless partial clone. `
-          + `The server may not support filter=blob:none; clone fallback is 'refuse', so a full monorepo was not retained.`)
+        error: await cleanupFailure(`Repository '${operation.repository}' did not establish a blobless partial clone with verified promisor configuration. `
+          + (partial.action === 'refuse-full'
+            ? `The server ignored or rejected filter=blob:none; clone fallback is 'refuse', so a full monorepo was not retained.`
+            : 'Git did not expose a verifiable promisor/filter configuration, so the checkout was not retained.'))
       };
     }
     // Git may accept `--filter` but explicitly retain a complete checkout. Prove its object graph
@@ -1610,8 +1649,8 @@ async function cloneIntoWorkspace(root, operation, {
         if (expanded.status !== 0) {
           return {
             status: expanded.status,
-            error: await cleanupFailure(`Repository '${operation.repository}' downloaded a complete clone but Git could not disable its sparse checkout: `
-              + `${String(expanded.stderr || expanded.stdout).trim() || 'Git refused to expand the working tree'}.`)
+            error: await cleanupFailure(`Repository '${operation.repository}' downloaded a complete clone but Git could not disable its sparse checkout. `
+              + safeGitDiagnosticReference(expanded, 'Git refused to expand the working tree'))
           };
         }
       }
@@ -1632,7 +1671,7 @@ async function cloneIntoWorkspace(root, operation, {
       return {
         status: sparse.status,
         error: await cleanupFailure(`Repository '${operation.repository}' cloned partially but sparse checkout could not select `
-          + `${strategy.sparseCone.join(', ')}: ${String(sparse.stderr || sparse.stdout).trim() || 'Git refused the cone paths'}.`)
+          + `${strategy.sparseCone.join(', ')}. ${safeGitDiagnosticReference(sparse, 'Git refused the cone paths')}`)
       };
     }
   }
@@ -1742,12 +1781,24 @@ export async function createWorkspace(options, {
 } = {}) {
   const preview = previewWorkspace(options);
   const { root, manifest } = preview;
+  // Snapshot one office-safe Git environment for validation and every clone in this creation. Each
+  // later CLI command takes a fresh snapshot, while repositories in this bounded wave share proxy,
+  // CA, credential-helper and executable-isolation semantics without repeated config subprocesses.
+  // A document-only workspace with no capability authority and no materialization pays no Git
+  // configuration subprocess at all.
+  const requiresRemoteGit = clone || (manifest.capabilities?.length ?? 0) > 0
+    || Object.values(manifest.repositories ?? {})
+      .some((repository) => (repository.capabilities?.length ?? 0) > 0);
+  const gitEnv = requiresRemoteGit ? enterpriseGitEnvironment(env) : env;
   const confirmationLabel = manifest.anchor.provider === 'jira' ? 'Jira-key' : 'workspace-ID';
   if (confirmation !== manifest.anchor.key) throw new SingularityFlowError(`Workspace creation requires exact ${confirmationLabel} confirmation '${manifest.anchor.key}'.`);
   // Authority is checked after the exact human confirmation but before even the workspace parent
   // directory is created. An invalid capability selection therefore leaves no shell, manifest, or
   // repair journal behind for a later command to mistake for a resumable workspace.
-  await validateWorkspaceCapabilityRegistration(manifest, { receipt: capabilityValidation, env });
+  await validateWorkspaceCapabilityRegistration(manifest, {
+    receipt: capabilityValidation, env: gitEnv,
+    remoteSession: new GitRemoteSession({ env: gitEnv })
+  });
   const existing = await stat(root).catch(() => null);
   if (existing && !(await stat(path.join(root, WORKSPACE_FILE)).catch(() => null))) {
     throw new SingularityFlowError(`Workspace target already exists and is not managed by Singularity Flow: ${root}`);
@@ -1763,7 +1814,7 @@ export async function createWorkspace(options, {
     }
     if (clone) {
       const repaired = await repairWorkspace(current.path, {
-        workers, cloneOperation, adoptionOperation, env
+        workers, cloneOperation, adoptionOperation, env: gitEnv
       });
       return {
         created: false,
@@ -1815,7 +1866,7 @@ export async function createWorkspace(options, {
                     ...operation,
                     bootstrapId,
                     workspaceId: manifest.id
-                  }, { deferClaim: true, env });
+                  }, { deferClaim: true, env: gitEnv });
         } catch (error) {
           return { status: 1, error: error instanceof Error ? error.message : String(error) };
         }
@@ -2516,6 +2567,7 @@ export async function repairWorkspace(workspacePath, {
   const pending = status.repositories.map((repository, index) => ({
     repository, operation: journal.operations[index]
   })).filter(({ repository }) => repository.state !== 'ready');
+  const gitEnv = pending.length ? enterpriseGitEnvironment(env) : env;
   const unrepairable = pending.find(({ repository }) =>
     !repository.adoption && !['missing', 'empty'].includes(repository.state));
   if (unrepairable) {
@@ -2544,7 +2596,7 @@ export async function repairWorkspace(workspacePath, {
               ...operation,
               bootstrapId: journal.bootstrapId,
               workspaceId: status.workspace.id
-            }, { deferClaim: true, env });
+            }, { deferClaim: true, env: gitEnv });
       } catch (error) {
         return { status: 1, error: error instanceof Error ? error.message : String(error) };
       }

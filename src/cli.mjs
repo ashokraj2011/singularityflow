@@ -148,7 +148,9 @@ import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
 import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.mjs';
 
-import { currentLocalEpicReservation, reserveLocalEpicBranch } from './local-identity.mjs';
+import {
+  currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation
+} from './local-identity.mjs';
 import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, materializeConfigurationSnapshot,
@@ -1198,7 +1200,7 @@ export async function startCommand(positionals, options) {
         configurationSnapshot: approvedConfigurationSnapshot
       })
     : null;
-  capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
+  capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
   const originalBranch = branch(root);
   // Fetch and prove the exact source and destination before the first checkout or session change.
   // Listing branches establishes read access; this dry-run additionally establishes that the
@@ -10825,10 +10827,14 @@ async function epicCommand(positionals, options) {
       await initiativeStartPreflight(root, { profile, idAuthority: 'local' });
       const actor = identity(root);
       const existingReservation = await currentLocalEpicReservation(root, portfolio, { fetch: true });
-      const reservation = existingReservation ?? await reserveLocalEpicBranch(root, portfolio, {
+      let reservation = existingReservation ?? await reserveLocalEpicBranch(root, portfolio, {
           base: optionString(options, 'base', config.defaultBaseBranch),
           actor
         });
+      if (existingReservation && !existingReservation.pushed
+          && portfolio.git?.publish !== 'off') {
+        reservation = await syncLocalEpicReservation(root, portfolio, existingReservation);
+      }
       const firstPhase = portfolio.initiativeProfiles[profile].phases[0];
       const selectedAgent = await activateInitiativeAgent(
         root, config, reservation.id, portfolio.initiativePhases[firstPhase], optionString(options, 'agent') ?? null

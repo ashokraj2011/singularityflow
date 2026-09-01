@@ -7,12 +7,14 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
-  classifyPartialCloneResult, cloneStrategyArguments, normalizeCloneStrategy, REQUIRED_SPARSE_ROOTS
+  classifyPartialCloneResult, cloneStrategyArguments, normalizeCloneStrategy,
+  partialCloneFallbackDecision, REQUIRED_SPARSE_ROOTS
 } from '../src/clone-strategy.mjs';
 import { worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { porcelainV2RecordCount, repositoryPerformanceSnapshot } from '../src/performance-doctor.mjs';
 import { run } from '../src/util.mjs';
 import { createWorkspaceConfiguration } from '../src/workspace.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-monorepo-'));
@@ -57,6 +59,45 @@ test('partial-clone fallback distinguishes capability refusal from office transp
   }, { configured: false }).kind, 'filter-ignored');
   assert.equal(classifyPartialCloneResult({ status: 0 }, { configured: true }).kind,
     'partial-established');
+  assert.equal(classifyPartialCloneResult({ status: 0 }).kind, 'partial-unverified',
+    'a zero exit without promisor/filter verification cannot be labelled partial');
+
+  for (const result of [
+    {
+      status: 128, aborted: true,
+      stderr: 'warning: server does not support filter\nfatal: operation cancelled'
+    },
+    {
+      status: 128, timedOut: true,
+      stderr: 'warning: filtering is not supported\nfatal: unable to access: timed out'
+    },
+    {
+      status: 128,
+      stderr: 'warning: server does not support filter\nfatal: Authentication failed'
+    },
+    {
+      status: 128,
+      stderr: 'warning: filter is ignored\nfatal: SSL certificate problem'
+    }
+  ]) {
+    assert.equal(classifyPartialCloneResult(result).kind, 'transport-failed',
+      'transport/cancellation evidence must take precedence over filter-like helper text');
+    assert.equal(partialCloneFallbackDecision(result, { fallback: 'full' }).action,
+      'fail-transport');
+  }
+
+  assert.deepEqual(partialCloneFallbackDecision({
+    status: 1, stderr: 'fatal: server does not support filter blob:none'
+  }, { fallback: 'full' }), {
+    kind: 'filter-rejected', action: 'retry-full', retry: true, retain: false,
+    actualMode: null
+  });
+  assert.equal(partialCloneFallbackDecision({
+    status: 0, stderr: 'warning: filtering not recognized'
+  }, { configured: false, fallback: 'refuse' }).action, 'refuse-full');
+  assert.equal(partialCloneFallbackDecision({
+    status: 0
+  }, { configured: false, fallback: 'full' }).action, 'retain-full');
 });
 
 function looseObjects(root) {
@@ -161,8 +202,8 @@ test('workspace materialization honors blobless sparse checkout without touching
     { path: 'apps/catalog/kept.txt', materialization: 'sparse-absent' }
   ], 'a read-only fingerprint must use the sparse index without fetching the omitted blob');
 
-  const fallbackTrace = path.join(base, 'fallback-trace.jsonl');
-  const fallback = await createWorkspaceConfiguration({
+  const fallbackTimer = commandTimer('partial-clone-full-fallback', { commandClass: 'mutation' });
+  const fallback = await withCommandTiming(fallbackTimer, () => createWorkspaceConfiguration({
     baseDirectory: path.join(base, 'fallback-workspaces'),
     id: 'explicit-full-fallback',
     name: 'Explicit full fallback',
@@ -177,15 +218,12 @@ test('workspace materialization honors blobless sparse checkout without touching
       }
     }
   }, {
-    confirmation: 'explicit-full-fallback',
-    env: { ...process.env, GIT_TRACE2_EVENT: fallbackTrace }
-  });
+    confirmation: 'explicit-full-fallback'
+  }));
   assert.equal(fallback.materialization[0].fallbackUsed, true);
   assert.equal(fallback.materialization[0].requested.mode, 'blobless');
   assert.equal(fallback.materialization[0].actual.mode, 'full');
-  const fallbackEvents = (await readFile(fallbackTrace, 'utf8')).trim().split('\n')
-    .filter(Boolean).map((line) => JSON.parse(line));
-  assert.equal(fallbackEvents.filter((event) => event.event === 'cmd_name' && event.name === 'clone').length, 1,
+  assert.equal(fallbackTimer.finish().counters['git.remote.command.clone'], 1,
     'a successful clone which ignored filtering is retained instead of downloading the monorepo twice');
   const refusedRoot = path.join(base, 'refused-workspaces');
   await assert.rejects(createWorkspaceConfiguration({

@@ -320,6 +320,9 @@ export const MESSAGES = Object.freeze({
   'goal.synced': {
     headline: (s) => `Published governed Goal ${slot(s.goalId)} at ${slot(s.commit)}.`
   },
+  'goal.precommit-recovered': {
+    headline: (s) => `Restored interrupted governed Goal creation ${slot(s.goalId)} before publication.`
+  },
   'goal.already-synced': {
     headline: (s) => `Governed Goal ${slot(s.goalId)} is already published.`,
     preserves: true

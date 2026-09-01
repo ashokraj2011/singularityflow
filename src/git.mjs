@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 // Synchronous, because `identity()` is synchronous and called from synchronous code throughout.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync
+} from 'node:fs';
 import { SingularityFlowError, invariant, run } from './util.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
 import { classifyGitRemoteFailure, frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { scopedReadSync } from './read-scope.mjs';
-import { scanEntries, secretRefusal } from './secrets.mjs';
+import { scannablePath, scanEntries, secretRefusal } from './secrets.mjs';
 
 function git(args, options = {}) {
   // stdout is the data channel: `--json` callers parse this process's stdout, so a child git's
@@ -192,7 +194,7 @@ function githubAccountCacheFile(root) {
  * `cacheOnly` is the read-model contract: answer from the cache if it is fresh, and otherwise return
  * "not checked" rather than spawning. No read path may put a network round trip in front of a person.
  */
-function cachedGithubAccount(root, { cacheOnly = false } = {}) {
+function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}) {
   const file = githubAccountCacheFile(root);
   try {
     const cached = JSON.parse(readFileSync(file, 'utf8'));
@@ -200,7 +202,9 @@ function cachedGithubAccount(root, { cacheOnly = false } = {}) {
   } catch { /* No cache, unreadable, or unparseable is simply a miss. */ }
   if (cacheOnly) return { status: 1, stdout: '', lookup: GITHUB_LOOKUP.NOT_CHECKED };
 
-  const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], { cwd: root, allowFailure: true });
+  const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], {
+    cwd: root, env, allowFailure: true
+  });
   // Only a success is written. Caching a failure would make one offline moment look like a
   // signed-out account for the next ten minutes.
   if (result.status === 0) {
@@ -249,11 +253,11 @@ export function gitCommitIdentity(root, { env = process.env } = {}) {
   };
 }
 
-export function identity(root, { offline = false } = {}) {
-  if (process.env.NODE_ENV === 'test' && process.env.SINGULARITY_FLOW_TEST_IDENTITY) {
+export function identity(root, { offline = false, env = process.env } = {}) {
+  if (env.NODE_ENV === 'test' && env.SINGULARITY_FLOW_TEST_IDENTITY) {
     return {
-      name: process.env.SINGULARITY_FLOW_TEST_IDENTITY,
-      email: `${process.env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
+      name: env.SINGULARITY_FLOW_TEST_IDENTITY,
+      email: `${env.SINGULARITY_FLOW_TEST_IDENTITY.toLowerCase().replace(/\s+/g, '.')}@example.com`,
       login: null,
       githubLookup: GITHUB_LOOKUP.NOT_CHECKED
     };
@@ -269,17 +273,17 @@ export function identity(root, { offline = false } = {}) {
    * The expense was never these two `git config` reads (~23 ms); it was the `gh` call below, which
    * is cached on disk where the value really is stable.
    */
-  const name = localGitDisplayName(root) ?? '';
-  const email = git(['config', '--get', 'user.email'], { cwd: root, allowFailure: true }).stdout.trim();
+  const name = localGitDisplayName(root, { env }) ?? '';
+  const email = git(['config', '--get', 'user.email'], { cwd: root, env, allowFailure: true }).stdout.trim();
   /**
    * `offline` no longer means "pretend there is no account". It means "do not dial out for one" —
    * a fresh cache still answers, and only a cold one degrades to a declared non-answer.
    */
-  const github = cachedGithubAccount(root, { cacheOnly: offline });
+  const github = cachedGithubAccount(root, { cacheOnly: offline, env });
   let account = {};
   if (github.status === 0) { try { account = JSON.parse(github.stdout); } catch { account = {}; } }
   const resolved = {
-    name: account.name || name || process.env.USER || process.env.USERNAME || 'unknown-user',
+    name: account.name || name || env.USER || env.USERNAME || 'unknown-user',
     email: email || null,
     login: account.login || null,
     githubLookup: github.lookup
@@ -513,7 +517,7 @@ export function add(root, paths) {
 export function assertNoSecrets(root, paths = null, { label = 'This commit' } = {}) {
   const listed = paths?.length
     ? [...new Set(paths.filter(Boolean))]
-    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'], { cwd: root, allowFailure: true })
+    : git(['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT'], { cwd: root, allowFailure: true })
       .stdout.split('\0').filter(Boolean);
   if (!listed.length) return null;
 
@@ -566,6 +570,113 @@ export function commit(root, message, paths = null) {
   return head(root);
 }
 
+function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
+  const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
+  mkdirSync(temporaryRoot, { recursive: true });
+  const scratch = mkdtempSync(path.join(temporaryRoot, 'admission-'));
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+  try {
+    git(['read-tree', expectedHead], { cwd: root, env });
+    // This is the exact operation used later by `commitIsolated`: nested untracked, non-ignored
+    // files are part of the prospective index and therefore part of secret admission too.
+    git(['add', '-A', '--', ...scope], { cwd: root, env });
+    const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
+    const listed = git([
+      'diff', '--cached', '--name-only', '-z', '--diff-filter=ACMRT', expectedHead,
+      '--', ...scope
+    ], { cwd: root, env }).stdout.split('\0').filter(Boolean);
+    const entries = listed.map((item) => {
+      const indexEntry = git(['ls-files', '--stage', '-z', '--', item], {
+        cwd: root, env, allowFailure: true
+      });
+      const staged = indexEntry.status === 0
+        ? indexEntry.stdout.split('\0').filter(Boolean) : [];
+      const mode = staged.length === 1
+        ? staged[0].match(/^(100644|100755|120000|160000)\s/)?.[1] ?? null
+        : null;
+      if (!mode) {
+        throw new SingularityFlowError(
+          `Cannot scan '${item}' for secrets: its prospective Git entry mode is unavailable.`,
+          { code: 'SECRET_SCAN_UNREADABLE' }
+        );
+      }
+      // The installed secret policy deliberately excludes bounded binary/evidence extensions.
+      // Honor that policy only for ordinary blobs. A symlink named `proof.png` still contains a
+      // textual target and must be scanned, while a gitlink or any future entry kind remains
+      // unreadable rather than being mistaken for approved binary evidence.
+      const forceScan = mode === '120000';
+      if (['100644', '100755'].includes(mode) && !scannablePath(item)) {
+        return { path: item };
+      }
+      if (mode === '160000') {
+        throw new SingularityFlowError(
+          `Cannot scan '${item}' for secrets: governed gitlinks are not admitted as binary evidence.`,
+          { code: 'SECRET_SCAN_UNREADABLE' }
+        );
+      }
+      const shown = git(['show', `:${item}`], {
+        cwd: root, env, allowFailure: true, encoding: 'buffer'
+      });
+      if (shown.status !== 0 || !Buffer.isBuffer(shown.stdout)) {
+        throw new SingularityFlowError(
+          `Cannot scan '${item}' for secrets from the prospective publication tree.`,
+          { code: 'SECRET_SCAN_UNREADABLE' }
+        );
+      }
+      const bytes = shown.stdout;
+      const content = bytes.toString('utf8');
+      // Secret matching is a text operation. NUL-bearing or invalid UTF-8 bytes must never be
+      // silently interpreted as clean merely because a path extension was unfamiliar.
+      if (bytes.includes(0) || !Buffer.from(content, 'utf8').equals(bytes)) {
+        throw new SingularityFlowError(
+          `Cannot scan '${item}' for secrets: its prospective blob is binary or not valid UTF-8.`,
+          { code: 'SECRET_SCAN_UNREADABLE' }
+        );
+      }
+      return { path: item, content, forceScan };
+    });
+    const scan = scanEntries(entries);
+    const refusal = secretRefusal(scan);
+    if (refusal) {
+      throw new SingularityFlowError(
+        `Governed publication was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' }
+      );
+    }
+    return tree;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Normalize and admit the exact path scope used by governed Candidate freeze and commit.
+ *
+ * Keeping this in the Git kernel prevents the verifier and publisher from interpreting optional,
+ * deleted, or already-staged paths differently. Callers run it before retaining a Candidate;
+ * `commitIsolated` repeats it at its own boundary to catch races after verification.
+ */
+export function admitGovernedPublication(root, paths, { expectedHead = head(root) } = {}) {
+  const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
+    existsSync(path.join(root, candidate))
+      || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root }).stdout));
+  if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
+  const stagedOverlap = git(
+    ['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root }
+  ).stdout.split('\0').filter(Boolean);
+  if (stagedOverlap.length) {
+    throw new SingularityFlowError(
+      `Governed publication cannot replace already staged governed path(s): ${stagedOverlap.join(', ')}. `
+      + 'Commit or unstage those paths, then retry.'
+    );
+  }
+  const prospectiveTree = prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead);
+  const admitted = [...scope];
+  Object.defineProperty(admitted, 'prospectiveTree', {
+    value: prospectiveTree, enumerable: false, writable: false, configurable: false
+  });
+  return Object.freeze(admitted);
+}
+
 /**
  * Create a governed commit without borrowing the contributor's Git index.
  *
@@ -588,6 +699,7 @@ export async function commitIsolated(root, message, paths, {
   fault = null,
   stabilityGuard = null,
   transaction = null,
+  expectedTree = null,
   onCommitCreated = null,
   onRefAdvanced = null
 } = {}) {
@@ -610,28 +722,13 @@ export async function commitIsolated(root, message, paths, {
   // allowed to harvest knowledge but found none). Git rejects an entirely unknown pathspec even
   // when `git add -A` is otherwise correct. Keep paths that exist now or were tracked at HEAD so
   // deletions are still staged; omit only roots that have never contained governed bytes.
-  const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
-    existsSync(path.join(root, candidate))
-      || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root }).stdout));
-  if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
-
-  const stagedOverlap = git(['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root }).stdout
-    .split('\0').filter(Boolean);
-  if (stagedOverlap.length) {
-    throw new SingularityFlowError(
-      `Governed publication cannot replace already staged governed path(s): ${stagedOverlap.join(', ')}. `
-      + 'Commit or unstage those paths, then retry.'
-    );
-  }
+  const scope = admitGovernedPublication(root, paths, { expectedHead });
 
   // A publisher may perform slow validation before staging while an editor, formatter, or test
   // watcher is still capable of writing the worktree. Capture its content-aware guard immediately
   // before staging and compare it immediately afterwards. A later edit cannot alter the temporary
   // index/tree already built; it remains ordinary uncommitted work for the next generation.
   const stabilityBefore = stabilityGuard ? await stabilityGuard() : null;
-
-  // Before the temporary index is built, so a refusal leaves no scratch directory behind.
-  assertNoSecrets(root, scope, { label: 'Governed publication' });
 
   const temporaryRoot = path.join(gitDir(root), 'singularity-flow', 'temporary-indexes');
   await mkdir(temporaryRoot, { recursive: true });
@@ -679,6 +776,24 @@ export async function commitIsolated(root, message, paths, {
     }
 
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
+    if (tree !== scope.prospectiveTree) {
+      throw new SingularityFlowError(
+        'Governed publication bytes changed after exact secret/scope admission. The commit was not created.',
+        {
+          code: 'PUBLICATION_SNAPSHOT_CHANGED',
+          details: { admittedTree: scope.prospectiveTree, observedTree: tree }
+        }
+      );
+    }
+    if (expectedTree != null && tree !== expectedTree) {
+      throw new SingularityFlowError(
+        'Governed publication bytes changed after Candidate verification. The commit was not created; freeze and verify a new Candidate.',
+        {
+          code: 'PUBLICATION_CANDIDATE_DRIFT',
+          details: { expectedCandidateTree: expectedTree, observedTree: tree }
+        }
+      );
+    }
     const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root }).stdout.trim();
     if (tree === priorTree) throw new SingularityFlowError('No governed changes are ready to commit.');
 
@@ -696,6 +811,12 @@ export async function commitIsolated(root, message, paths, {
         + `\nSingularity-Flow-Event-SHA256: ${boundTransaction.eventSha256 ?? 'none'}`
         + `\nSingularity-Flow-State-SHA256: ${boundTransaction.stateSha256 ?? 'none'}`
         + `\nSingularity-Flow-Publication-Mode: ${boundTransaction.publicationMode ?? 'required'}`
+        + (boundTransaction.candidate
+          ? `\nSingularity-Flow-Candidate-ID: ${boundTransaction.candidate.candidateId}`
+            + `\nSingularity-Flow-Candidate-SHA256: ${boundTransaction.candidate.candidateSha256}`
+            + `\nSingularity-Flow-Candidate-Verification-SHA256: ${boundTransaction.candidate.verificationReceiptSha256}`
+            + `\nSingularity-Flow-Candidate-Profile-SHA256: ${boundTransaction.candidate.verificationProfileSha256}`
+          : '')
       : message;
     sourceCommit = git(
       ['commit-tree', tree, '-p', expectedHead, ...signing, '-m', transactionMessage],
@@ -822,6 +943,28 @@ export function exactRemoteBranchObservation(root, remote, branchName) {
   };
 }
 
+/** Deadline-supervised async form for operator-facing recovery paths. */
+export async function exactRemoteBranchObservationAsync(root, remote, branchName) {
+  validBranch(root, branchName);
+  const expectedRef = `refs/heads/${branchName}`;
+  const frozen = frozenRemoteTransport(remote);
+  const observed = await runRemoteGitAsync([
+    'ls-remote', '--heads', '--', frozen.remote, expectedRef
+  ], { cwd: root, operation: 'remote-probe', env: frozen.env });
+  if (observed.status !== 0) {
+    return { reachable: false, sha: null, malformed: false, result: observed };
+  }
+  const advertised = observed.stdout.split(/\r?\n/)
+    .map((line) => line.match(/^([0-9a-f]{40,64})\s+(refs\/heads\/[^\s]+)$/i))
+    .filter((match) => match?.[2] === expectedRef);
+  return {
+    reachable: true,
+    sha: advertised.length === 1 ? advertised[0][1].toLowerCase() : null,
+    malformed: advertised.length > 1,
+    result: observed
+  };
+}
+
 /** Read one exact remote branch tip; malformed or duplicate advertisements are refused as absent. */
 export function exactRemoteBranchHead(root, remote, branchName) {
   return exactRemoteBranchObservation(root, remote, branchName).sha;
@@ -891,6 +1034,63 @@ export function pushCommitToBranch(root, remote, commitSha, branchName, options 
   return result;
 }
 
+/** Deadline-supervised async equivalent used by interactive recovery surfaces. */
+export async function pushCommitToBranchAsync(root, remote, commitSha, branchName, options = {}) {
+  const expectedRemoteSha = options.expectedRemoteSha;
+  const transportRemote = options.transportRemote ?? remote;
+  const upstreamRemote = options.upstreamRemote ?? remote;
+  validBranch(root, branchName);
+  const commit = git(['rev-parse', '--verify', `${commitSha}^{commit}`], {
+    cwd: root, allowFailure: true
+  });
+  if (commit.status !== 0) {
+    return { ...commit, stderr: `Commit '${commitSha}' is not available locally.` };
+  }
+  const lease = expectedRemoteSha !== undefined
+    ? [`--force-with-lease=refs/heads/${branchName}:${expectedRemoteSha ?? ''}`]
+    : [];
+  const frozen = Object.hasOwn(options, 'transportRemote')
+    ? frozenRemoteTransport(transportRemote, { push: true })
+    : null;
+  let result = await runRemoteGitAsync([
+    'push', '--porcelain', ...lease, frozen?.remote ?? transportRemote,
+    `${commit.stdout.trim()}:refs/heads/${branchName}`
+  ], {
+    cwd: root, operation: 'remote-push',
+    ...(frozen ? { env: frozen.env } : {})
+  });
+  if (result.status === 0 && expectedRemoteSha !== undefined
+      && String(expectedRemoteSha ?? '').toLowerCase() !== commit.stdout.trim().toLowerCase()) {
+    const destination = `refs/heads/${branchName}`;
+    const transition = result.stdout.split(/\r?\n/).map((line) => {
+      const [flag, refspec] = line.split('\t');
+      return refspec?.endsWith(`:${destination}`) ? flag : null;
+    }).find((flag) => flag !== null);
+    const acquired = expectedRemoteSha === null
+      ? transition === '*'
+      : transition === ' ' || transition === '+';
+    if (!acquired) {
+      result = {
+        ...result,
+        status: 1,
+        stderr: expectedRemoteSha === null
+          ? `Remote branch '${branchName}' already exists; the create-only publication did not acquire it.`
+          : `Remote branch '${branchName}' did not move from the explicitly leased commit; this publication did not acquire the update.`
+      };
+    }
+  }
+  if (result.status === 0) {
+    const trackingRef = `refs/remotes/${upstreamRemote}/${branchName}`;
+    if (git(['check-ref-format', trackingRef], { cwd: root, allowFailure: true }).status === 0) {
+      git(['update-ref', trackingRef, commit.stdout.trim()], { cwd: root });
+    }
+    if (refExists(root, `refs/heads/${branchName}`)) {
+      configureUpstream(root, branchName, upstreamRemote);
+    }
+  }
+  return result;
+}
+
 /**
  * Prove that the configured remote will accept creation of a Story ref before the worktree moves.
  *
@@ -938,6 +1138,13 @@ export function governedCommitIdentity(root, sha) {
     const matches = [...message.matchAll(new RegExp(`^${name}:\\s*(.+?)\\s*$`, 'gmi'))];
     return matches.length === 1 ? matches[0][1] : null;
   };
+  const candidateFields = {
+    candidateId: trailer('Singularity-Flow-Candidate-ID'),
+    candidateSha256: trailer('Singularity-Flow-Candidate-SHA256'),
+    verificationReceiptSha256: trailer('Singularity-Flow-Candidate-Verification-SHA256'),
+    verificationProfileSha256: trailer('Singularity-Flow-Candidate-Profile-SHA256')
+  };
+  const candidateValues = Object.values(candidateFields).filter(Boolean);
   return {
     commit,
     tree,
@@ -945,6 +1152,9 @@ export function governedCommitIdentity(root, sha) {
     transactionId: trailer('Singularity-Flow-Transaction'),
     eventSha256: trailer('Singularity-Flow-Event-SHA256'),
     stateSha256: trailer('Singularity-Flow-State-SHA256'),
-    publicationMode: trailer('Singularity-Flow-Publication-Mode')
+    publicationMode: trailer('Singularity-Flow-Publication-Mode'),
+    candidate: candidateValues.length === 0 ? null
+      : candidateValues.length === Object.keys(candidateFields).length ? candidateFields
+        : { invalid: true, ...candidateFields }
   };
 }

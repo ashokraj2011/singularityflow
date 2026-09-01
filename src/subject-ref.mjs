@@ -1,12 +1,12 @@
 import { SingularityFlowError } from './util.mjs';
 
-const KINDS = new Set(['story', 'initiative']);
+const KINDS = new Set(['story', 'initiative', 'adhoc', 'goal']);
 
 export function subjectRef(value, { code = 'WORK_PENDING_SUBJECT_KEY_REQUIRED' } = {}) {
   const kind = String(value?.kind ?? '').trim();
   const id = String(value?.id ?? '').trim();
   if (!KINDS.has(kind) || !id) {
-    throw new SingularityFlowError('A governed subject must include an explicit story/initiative kind and ID.', {
+    throw new SingularityFlowError('A governed subject must include an explicit story/initiative/adhoc/goal kind and ID.', {
       code, details: { kind: kind || null, id: id || null }
     });
   }

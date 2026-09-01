@@ -187,6 +187,11 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
   const secretHeader = 'Authorization: Bearer must-not-enter-refresh';
   const secretKey = path.join(root, 'must-not-enter-refresh-client.key');
   const hostileHooks = path.join(root, 'must-not-enter-refresh-hooks');
+  const executableMarker = path.join(root, 'must-not-execute-git-transport-override');
+  const executableOverride = path.join(root, 'must-not-execute-git-transport-override.mjs');
+  await writeFile(executableOverride,
+    `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(executableMarker)}, 'executed\\n');\nprocess.exit(1);\n`);
+  const executableCommand = `"${process.execPath}" "${executableOverride}"`;
 
   const configure = (file, args) => run('git', ['config', '--file', file, ...args]);
   configure(systemConfig, ['http.proxy', 'http://system-proxy.example.test:8080']);
@@ -222,11 +227,51 @@ test('confirmed refresh preserves allowlisted enterprise Git transport and auth 
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
     GIT_CONFIG_VALUE_0: hostileHooks,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_SSH: executableOverride,
+    GIT_SSH_COMMAND: executableCommand,
+    GIT_SSH_VARIANT: 'ssh',
+    GIT_ASKPASS: executableOverride,
+    GIT_ASKPASS_REQUIRE: 'force',
+    SSH_ASKPASS: executableOverride,
+    SSH_ASKPASS_REQUIRE: 'force',
+    GIT_PROXY_COMMAND: executableCommand,
+    GIT_EDITOR: executableCommand,
+    GIT_SEQUENCE_EDITOR: executableCommand,
+    GIT_PAGER: executableCommand,
+    GIT_EXTERNAL_DIFF: executableCommand,
     GIT_TRACE_CURL: path.join(root, 'must-not-enter-refresh-curl-trace.log'),
     GIT_TRACE2_EVENT: path.join(root, 'must-not-enter-refresh-trace2.jsonl')
   };
-  delete sourceEnv.GIT_CONFIG_NOSYSTEM;
-  const isolated = isolatedCacheGitEnvironment(sourceEnv);
+  let configurationQueries = 0;
+  const isolated = isolatedCacheGitEnvironment(sourceEnv, {
+    runCommand(command, args, options) {
+      configurationQueries += 1;
+      return run(command, args, options);
+    }
+  });
+  const snapshotQueries = configurationQueries;
+  assert.equal(isolatedCacheGitEnvironment(isolated, {
+    runCommand() {
+      throw new Error('an operation-scoped enterprise environment was queried again');
+    }
+  }), isolated, 'one onboarding operation reuses its enterprise configuration snapshot');
+  assert.equal(configurationQueries, snapshotQueries,
+    'reusing a sanitized operation environment does not rerun system/global Git config');
+  for (const key of [
+    'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_SSH_VARIANT',
+    'GIT_ASKPASS', 'GIT_ASKPASS_REQUIRE', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE',
+    'GIT_PROXY_COMMAND', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'GIT_PAGER',
+    'GIT_EXTERNAL_DIFF'
+  ]) assert.equal(isolated[key], undefined, `${key} crossed the executable Git environment boundary`);
+
+  // Exercise the resulting environment against an SSH transport. If either replacement survived,
+  // Git would run the sentinel before it could fail the deliberately unreachable connection.
+  run('git', ['ls-remote', '--', 'ssh://127.0.0.1:1/unreachable.git'], {
+    cwd: root, env: isolated, allowFailure: true, timeoutMs: 5_000
+  });
+  await assert.rejects(readFile(executableMarker), (error) => error?.code === 'ENOENT',
+    'an inherited Git transport executable ran inside the isolated enterprise boundary');
   const values = (key) => {
     const result = run('git', ['config', '--null', '--get-all', key], {
       cwd: root, env: isolated, allowFailure: true
@@ -858,12 +903,10 @@ test('confirmed first-authority refresh keeps initialization on its previewed ex
   'a rewrite target cannot receive first-authority creation');
 });
 
-test('cached apply strips inherited Git repository selectors and command-scoped hook configuration', async (t) => {
+test('refresh preview, cache-miss clone, and confirmed apply share one sanitized enterprise Git environment', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-cache-hostile-env-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { registry } = await registeredRepositoryFixture(root, 'cache-hostile-env');
-  const preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
-  assert.equal(preview.status, 'preview');
 
   const hooks = path.join(root, 'inherited-hooks');
   const hookEvidence = path.join(root, 'inherited-hook-ran');
@@ -894,9 +937,12 @@ test('cached apply strips inherited Git repository selectors and command-scoped 
   t.after(restore);
 
   const timer = commandTimer('configuration-refresh-hostile-process-env');
+  let preview;
   let applied;
   try {
     Object.assign(process.env, hostile);
+    preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+    assert.equal(preview.status, 'preview', JSON.stringify(preview, null, 2));
     applied = await withCommandTiming(timer, () => refreshWorkspaceConfigurations({
       registryFile: registry,
       confirmPlan: preview.planId

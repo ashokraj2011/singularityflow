@@ -92,6 +92,9 @@ export async function beginPublicationJournal(root, {
       ? { pendingMetadata: structuredClone(pendingMetadata) }
       : {}),
     eventSha256: event == null ? null : `sha256:${recordSha256(event)}`,
+    // Schema v2 makes the SGOS Candidate boundary durable before branch advancement. Legacy
+    // transactions migrate with `null` and remain explicitly unverified during exact recovery.
+    candidate: null,
     tree: null,
     stateSha256: null,
     refAdvanced: false,

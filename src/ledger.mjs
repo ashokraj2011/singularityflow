@@ -13,9 +13,10 @@ import {
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { LIFECYCLE_EVENT_TYPES } from './lifecycle-event.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
 import {
-  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport
+  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
+  safeGitDiagnosticReference
 } from './git-remote-diagnostics.mjs';
 
 export const LEDGER_SCHEMA_VERSION = currentSchemaVersion('ledger-entry');
@@ -292,6 +293,25 @@ function ensureRemoteBranchFetched(root, config, {
   return fetched.timedOut ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
 }
 
+/** Async initialization-only counterpart: onboarding must never block the extension event loop. */
+async function ensureRemoteBranchFetchedAsync(root, config, {
+  offline = false, env = process.env, transportRemote = undefined
+} = {}) {
+  if (!hasRemoteInEnvironment(root, config.remote, env)) return LEDGER_REMOTE_VIEW.NO_REMOTE;
+  if (offline) return LEDGER_REMOTE_VIEW.NOT_CHECKED;
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { env });
+  const fetched = await runRemoteGitAsync([
+    'fetch', '--no-tags', frozen?.remote ?? config.remote,
+    `+refs/heads/${config.branch}:${remoteRef(config)}`
+  ], {
+    cwd: root, operation: 'remote-configuration', env: frozen?.env ?? env
+  });
+  if (fetched.status === 0) return LEDGER_REMOTE_VIEW.REFRESHED;
+  return fetched.timedOut ? LEDGER_REMOTE_VIEW.TIMEOUT_CACHED : LEDGER_REMOTE_VIEW.OFFLINE_CACHED;
+}
+
 function installPinRefspec(root, config, { env = process.env } = {}) {
   if (config.pinTransport !== 'refs' || !hasRemoteInEnvironment(root, config.remote, env)) return false;
   const refspec = '+refs/singularity/pins/*:refs/singularity/pins/*';
@@ -373,6 +393,22 @@ function pushLedger(worktree, config, expectedRemoteSha = undefined, {
     frozen?.remote ?? config.remote,
     `HEAD:refs/heads/${config.branch}`
   ], { allowFailure: true, env: frozen?.env ?? env });
+}
+
+async function pushLedgerAsync(worktree, config, expectedRemoteSha = undefined, {
+  env = process.env, transportRemote = undefined
+} = {}) {
+  const lease = expectedRemoteSha !== undefined
+    ? `--force-with-lease=refs/heads/${config.branch}:${expectedRemoteSha ?? ''}`
+    : '--force-with-lease';
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { push: true, env });
+  return runRemoteGitAsync([
+    'push', lease,
+    frozen?.remote ?? config.remote,
+    `HEAD:refs/heads/${config.branch}`
+  ], { cwd: worktree, operation: 'remote-push', env: frozen?.env ?? env });
 }
 
 function observeGuardedRemoteRefs(worktree, config, guards, {
@@ -468,7 +504,7 @@ export async function initializeLedger(root, rawConfig = {}, {
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const refspecInstalled = installPinRefspec(root, config, { env });
-  if (refreshRemote) ensureRemoteBranchFetched(root, config, { env, transportRemote });
+  if (refreshRemote) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
   const existing = ledgerHead(root, config, { env });
   if (existing) {
     let pinRepair = null;
@@ -497,9 +533,9 @@ export async function initializeLedger(root, rawConfig = {}, {
     if (publish && hasRemoteInEnvironment(root, config.remote, env)) {
       // This is an orphan-root create, so bind it explicitly to an absent remote ref. A concurrent
       // initializer is joined after one recovery fetch; no force update can replace its state root.
-      const pushed = pushLedger(worktree, config, null, { env, transportRemote });
+      const pushed = await pushLedgerAsync(worktree, config, null, { env, transportRemote });
       if (pushed.status !== 0) {
-        ensureRemoteBranchFetched(root, config, { env, transportRemote });
+        await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
         const concurrent = refExistsInEnvironment(root, remoteRef(config), env) ? remoteRef(config) : null;
         if (concurrent) {
           const concurrentCommit = git(root, ['rev-parse', `${concurrent}^{commit}`], { env }).stdout.trim();
@@ -513,7 +549,12 @@ export async function initializeLedger(root, rawConfig = {}, {
             refspecInstalled, joinedConcurrentInitialization: true
           };
         }
-        throw new SingularityFlowError(`Ledger root commit ${sha.slice(0, 8)} was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
+        throw new SingularityFlowError(
+          `Ledger root commit ${sha.slice(0, 8)} was retained locally but push failed. `
+          + `${pushed.failure?.advice ?? 'Git remote access failed.'} `
+          + safeGitDiagnosticReference(pushed, 'State branch creation was refused'),
+          { code: pushed.failure?.code ?? 'REMOTE_UNKNOWN' }
+        );
       }
       // The successful CAS is an exact observation of the new remote tip. Keep the normal tracking
       // ref current so the caller can append immediately without fetching the commit it just pushed.
@@ -732,6 +773,56 @@ function publishPin(root, config, intent, publishedCommit) {
   return ref;
 }
 
+async function publishPinAsync(root, config, intent, publishedCommit, {
+  env = process.env, transportRemote = undefined
+} = {}) {
+  const ref = pinRef(config, intent);
+  if (!ref) return null;
+  if (!hasRemoteInEnvironment(root, config.remote, env)) {
+    const current = git(root, ['rev-parse', '--verify', ref], {
+      allowFailure: true, env
+    }).stdout.trim();
+    if (current && current !== publishedCommit) {
+      throw new SingularityFlowError(`Ledger pin ${ref} already points to a different commit.`);
+    }
+    if (!current) git(root, ['update-ref', ref, publishedCommit], { env });
+    return ref;
+  }
+  const frozen = transportRemote === undefined
+    ? null
+    : frozenRemoteTransport(transportRemote, { push: true, env });
+  const remote = frozen?.remote ?? config.remote;
+  const remoteEnv = frozen?.env ?? env;
+  const existing = await runRemoteGitAsync(['ls-remote', '--', remote, ref], {
+    cwd: root, operation: 'remote-probe', env: remoteEnv
+  });
+  const existingSha = existing.status === 0 ? existing.stdout.trim().split(/\s+/)[0] : null;
+  if (existingSha) {
+    if (existingSha !== publishedCommit) {
+      throw new SingularityFlowError(`Ledger pin ${ref} already points to a different commit.`);
+    }
+    return ref;
+  }
+  if (existing.status !== 0) {
+    throw new SingularityFlowError(
+      `Unable to inspect ledger pin ${ref}. ${existing.failure?.advice ?? 'Git remote access failed.'} `
+      + safeGitDiagnosticReference(existing, 'Ledger pin inspection failed'),
+      { code: existing.failure?.code ?? 'REMOTE_UNKNOWN' }
+    );
+  }
+  const pushed = await runRemoteGitAsync([
+    'push', remote, `${publishedCommit}:${ref}`
+  ], { cwd: root, operation: 'remote-push', env: remoteEnv });
+  if (pushed.status !== 0) {
+    throw new SingularityFlowError(
+      `Unable to publish ledger pin ${ref}. ${pushed.failure?.advice ?? 'Git remote access failed.'} `
+      + safeGitDiagnosticReference(pushed, 'Ledger pin publication failed'),
+      { code: pushed.failure?.code ?? 'REMOTE_UNKNOWN' }
+    );
+  }
+  return ref;
+}
+
 function validRemoteName(root, remote, { configured = true } = {}) {
   const name = String(remote ?? '').trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) || (configured && !hasRemote(root, name))) {
@@ -868,19 +959,23 @@ function fetchExpectedPin(root, remote, pinRef, expectedCommit, observed = null)
     : { status: 'concurrent-change', remote, pinRef };
 }
 
-async function appendOnce(root, config, intent, publishedCommit) {
+async function appendOnce(root, config, intent, publishedCommit, {
+  env = process.env, transportRemote = undefined
+} = {}) {
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
-  ensureRemoteBranchFetched(root, config);
-  let ref = ledgerHead(root, config);
+  await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+  let ref = ledgerHead(root, config, { env });
   if (!ref) {
     // The fetch above already proved there is no usable state ref locally. Initialization uses an
     // absent-ref lease and joins a concurrent winner, so repeating the same fetch inside init and
     // once again afterwards adds latency without weakening or strengthening the CAS.
-    await initializeLedger(root, config, { refreshRemote: false });
-    ref = ledgerHead(root, config);
+    await initializeLedger(root, config, {
+      refreshRemote: false, env, transportRemote
+    });
+    ref = ledgerHead(root, config, { env });
   }
-  const expectedRemoteSha = refExists(root, remoteRef(config))
-    ? git(root, ['rev-parse', remoteRef(config)]).stdout.trim()
+  const expectedRemoteSha = refExistsInEnvironment(root, remoteRef(config), env)
+    ? git(root, ['rev-parse', remoteRef(config)], { env }).stdout.trim()
     : null;
   return temporaryWorktree(root, ref, async (worktree) => {
     const duplicate = await eventAlreadyRecorded(worktree, idempotency.hash);
@@ -890,11 +985,13 @@ async function appendOnce(root, config, intent, publishedCommit) {
         eventId: duplicate.eventId,
         entryHash: duplicate.entryHash,
         sequence: duplicate.sequence,
-        ledgerCommit: git(worktree, ['rev-parse', 'HEAD']).stdout.trim()
+        ledgerCommit: git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim()
       };
     }
     const head = await loadHead(worktree);
-    const publishedPin = publishPin(root, config, intent, publishedCommit);
+    const publishedPin = await publishPinAsync(
+      root, config, intent, publishedCommit, { env, transportRemote }
+    );
     const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
     entry.transport.pinRef = publishedPin;
     entry.transport.pinTransport = config.pinTransport;
@@ -926,18 +1023,27 @@ async function appendOnce(root, config, intent, publishedCommit) {
       sequence: nextHead.sequence
     });
     await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
-    git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH]);
-    git(worktree, commitArgs(config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`));
-    const ledgerCommit = git(worktree, ['rev-parse', 'HEAD']).stdout.trim();
-    if (hasRemote(root, config.remote)) {
-      const pushed = pushLedger(worktree, config, expectedRemoteSha);
+    git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
+    git(worktree, commitArgs(config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`), { env });
+    const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    if (hasRemoteInEnvironment(root, config.remote, env)) {
+      const pushed = await pushLedgerAsync(
+        worktree, config, expectedRemoteSha, { env, transportRemote }
+      );
       if (pushed.status !== 0) {
-        const error = new SingularityFlowError(`Concurrent ledger append or push failure: ${(pushed.stderr || pushed.stdout).trim()}`);
+        const error = new SingularityFlowError(
+          `Concurrent ledger append or push failure. ${pushed.failure?.advice ?? 'Git remote access failed.'} `
+          + safeGitDiagnosticReference(pushed, 'Ledger append publication failed'),
+          { code: pushed.failure?.code ?? 'REMOTE_UNKNOWN' }
+        );
         error.concurrent = true;
         throw error;
       }
     } else {
-      git(root, ['update-ref', localRef(config), ledgerCommit, git(root, ['rev-parse', ref]).stdout.trim()]);
+      git(root, [
+        'update-ref', localRef(config), ledgerCommit,
+        git(root, ['rev-parse', ref], { env }).stdout.trim()
+      ], { env });
     }
     return {
       duplicate: false,
@@ -946,15 +1052,17 @@ async function appendOnce(root, config, intent, publishedCommit) {
       sequence: nextHead.sequence,
       ledgerCommit
     };
-  });
+  }, { env });
 }
 
-export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit) {
+export async function appendLedgerIntent(root, rawConfig, intent, publishedCommit, {
+  env = process.env, transportRemote = undefined
+} = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   let lastError;
   for (let attempt = 1; attempt <= config.maxRetries; attempt += 1) {
     try {
-      return await appendOnce(root, config, intent, publishedCommit);
+      return await appendOnce(root, config, intent, publishedCommit, { env, transportRemote });
     } catch (error) {
       lastError = error;
       if (!error.concurrent || attempt === config.maxRetries) break;

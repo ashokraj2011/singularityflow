@@ -700,6 +700,14 @@ function knowledgeRecordV1ToV2(source) {
   };
 }
 
+function pendingPublicationV2ToV3(source) {
+  return { ...clone(source), schemaVersion: 3, candidate: source.candidate ?? null };
+}
+
+function publicationJournalV1ToV2(source) {
+  return { ...clone(source), schemaVersion: 2, candidate: source.candidate ?? null };
+}
+
 function phaseApprovalV1ToV2(source) {
   const legacySnapshot = clone(source);
   delete legacySnapshot.schemaVersion;
@@ -1570,10 +1578,15 @@ const families = [
     paths: [/^singularity\/work-items\/[^/]+\/context\/mcp\/(?:records\/)?[^/]+\.json$/]
   }),
   family({
-    id: 'pending-publication', currentVersion: 2, minimumReadableVersion: 2,
+    id: 'pending-publication', currentVersion: 3, minimumReadableVersion: 2,
+    steps: [migration(2, 3, pendingPublicationV2ToV3)],
     paths: [/^\$git\/pending-publication\/[^/]+\.json$/, /\/publication-pending\.json$/], unversionedAs: 2
   }),
-  family({ id: 'publication-journal', currentVersion: 1, paths: [/^\$git\/publication-journal\/[^/]+\.json$/] }),
+  family({
+    id: 'publication-journal', currentVersion: 2,
+    steps: [migration(1, 2, publicationJournalV1ToV2)],
+    paths: [/^\$git\/publication-journal\/[^/]+\.json$/]
+  }),
   family({ id: 'story-start-journal', currentVersion: 1, paths: [/^\$git\/story-start\/[^/]+\.json$/] }),
   family({ id: 'telemetry-cursor', currentVersion: 1, paths: [/^\$git\/telemetry-cursors\.json$/] }),
   family({ id: 'telemetry-preference', currentVersion: 1 }),

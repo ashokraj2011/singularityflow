@@ -227,7 +227,13 @@ export function scanEntries(entries = []) {
   const skipped = [];
   for (const entry of entries) {
     const filePath = String(entry?.path ?? '');
-    if (!scannablePath(filePath)) { skipped.push(filePath); continue; }
+    // Git admission sets `forceScan` for non-regular entries such as symbolic links. A filename
+    // ending in `.png` may exempt a real PNG blob, but it must never exempt a textual symlink target
+    // carrying a credential.
+    if (entry?.forceScan !== true && !scannablePath(filePath)) {
+      skipped.push(filePath);
+      continue;
+    }
     if (typeof entry?.content !== 'string') {
       // Fail closed: a file that could not be read is not a file that is known to be clean.
       throw new SingularityFlowError(

@@ -11,7 +11,8 @@ import {
   beginPublicationJournal, clearPublicationJournal, publicationJournalPath, readPublicationJournal
 } from '../src/publication-journal.mjs';
 import {
-  localPendingPublicationPath, readPendingPublication, writePendingPublication
+  localPendingPublicationPath, readPendingPublication, sealMachineLocalPublicationReceipt,
+  writePendingPublication
 } from '../src/publication-pending.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from '../src/publication-recovery.mjs';
 import { run } from '../src/util.mjs';
@@ -173,6 +174,24 @@ test('a symlinked worktree-private recovery directory is refused without touchin
   );
   assert.equal(await exists(externalRecord), true);
   assert.equal(await exists(localPendingPublicationPath(root, 'story', 'SYMLINK-1')), false);
+});
+
+test('a symlinked machine-local integrity key is refused without touching its target', async (t) => {
+  const { base, root } = await fixture(t);
+  const runtime = path.join(gitCommonDir(root), 'singularity-flow');
+  const externalKey = path.join(base, 'outside-integrity.key');
+  const original = `${Buffer.alloc(32, 7).toString('base64')}\n`;
+  await mkdir(runtime, { recursive: true });
+  await writeFile(externalKey, original);
+  await symlink(externalKey, path.join(runtime, 'pending-publication-integrity.key'));
+
+  await assert.rejects(
+    () => sealMachineLocalPublicationReceipt(root, 'goal-lifecycle-worktree', {
+      path: '/tmp/sflow-gex-forged', branch: 'GEX-FORGED'
+    }),
+    (error) => error.code === 'PUBLICATION_RECOVERY_STORAGE_UNSAFE'
+  );
+  assert.equal(await readFile(externalKey, 'utf8'), original);
 });
 
 test('legacy rescue bundles migrate, while a same-name divergent bundle blocks restoration', async (t) => {

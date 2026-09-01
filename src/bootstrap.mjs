@@ -30,9 +30,11 @@ import { SingularityFlowError, run, YAML_OUTPUT } from './util.mjs';
 
 import { CAPABILITIES_PATH, CAPABILITY_KINDS, validateCapabilities } from './capabilities.mjs';
 import { initializeLedger } from './ledger.mjs';
-import { remoteDefaultBranch } from './workspace.mjs';
-import { identity } from './git.mjs';
-import { runRemoteGit } from './git-execution.mjs';
+import { advertisedDefaultBranch } from './workspace.mjs';
+import { gitCommitIdentity } from './git.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
+import { frozenRemoteTransport, sanitizeRemote } from './git-remote-diagnostics.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 
 /** The repository identifier a clone URL implies: the last segment, minus `.git`. */
 export function repositoryIdFromUrl(url) {
@@ -49,6 +51,13 @@ export function repositoryIdFromUrl(url) {
     .toLowerCase();
   if (!id) throw new SingularityFlowError(`Cannot derive a repository identifier from '${url}'.`);
   return id;
+}
+
+/** Bounded default-branch discovery: the expensive all-head catalog is a recovery request only. */
+export function bootstrapBranchPatterns({ fallback = false } = {}) {
+  return fallback
+    ? Object.freeze(['refs/heads/*'])
+    : Object.freeze(['HEAD', 'refs/heads/main', 'refs/heads/master']);
 }
 
 /**
@@ -202,10 +211,43 @@ export async function bootstrapRepository(url, {
   // Named rather than left to HEAD. A repository whose HEAD points at a branch that never appeared
   // clones into a detached head on a default-named local branch, and `rev-parse --abbrev-ref HEAD`
   // then answers "HEAD" — which was recorded as the default branch and is not a branch.
-  const branch = remoteDefaultBranch(
-    remote,
-    runRemoteGit(['ls-remote', '--symref', remote, 'HEAD'], { operation: 'remote-probe' }).stdout
-  );
+  const gitEnv = enterpriseGitEnvironment();
+  const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
+  // The normal path is one bounded request: HEAD plus the two conventional recovery refs. Asking
+  // for every branch on every bootstrap made large enterprise repositories pay an unbounded
+  // catalog transfer even when HEAD was healthy. Only a missing/broken HEAD needs the second,
+  // asynchronously supervised all-head inventory.
+  let advertised = await runRemoteGitAsync([
+    'ls-remote', '--symref', '--', transport.remote,
+    ...bootstrapBranchPatterns()
+  ], { operation: 'remote-probe', env: transport.env });
+  if (advertised.status !== 0) {
+    throw new SingularityFlowError(
+      `Cannot clone '${sanitizeRemote(remote)}' because its branches cannot be read. `
+        + (advertised.failure?.advice ?? 'Git remote access failed.'),
+      { code: advertised.failure?.code ?? 'REMOTE_UNKNOWN' }
+    );
+  }
+  let branch = advertisedDefaultBranch(advertised.stdout);
+  if (!branch) {
+    advertised = await runRemoteGitAsync([
+      'ls-remote', '--heads', '--', transport.remote, ...bootstrapBranchPatterns({ fallback: true })
+    ], { operation: 'remote-probe', env: transport.env });
+    if (advertised.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot clone '${sanitizeRemote(remote)}' because its branches cannot be read. `
+          + (advertised.failure?.advice ?? 'Git remote access failed.'),
+        { code: advertised.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+    branch = advertisedDefaultBranch(advertised.stdout);
+  }
+  if (!branch) {
+    throw new SingularityFlowError(
+      `Cannot clone '${sanitizeRemote(remote)}' because it does not advertise an application branch. Create and push the repository's initial branch, then retry.`,
+      { code: 'REMOTE_BRANCH_NOT_FOUND' }
+    );
+  }
 
   // Clone, or adopt a checkout that is already there. Adopting matters because the first attempt at
   // this may have failed after cloning, and asking somebody to delete a directory to retry is a
@@ -220,12 +262,29 @@ export async function bootstrapRepository(url, {
     // piped stdio with nothing on screen, so bootstrap looked hung at exactly the point where it is
     // doing the most obvious work.
     console.log(`Cloning ${remote} into ${root} …`);
-    const result = runRemoteGit(['clone', '--branch', branch, remote, root], {
-      operation: 'remote-configuration'
+    const result = await runRemoteGitAsync([
+      'clone', '--branch', branch, '--', transport.remote, root
+    ], {
+      operation: 'remote-configuration', env: transport.env
     });
     if (result.status !== 0) {
-      throw new SingularityFlowError(`Cannot clone '${remote}': ${(result.stderr || result.stdout).trim().split('\n')[0]}`);
+      throw new SingularityFlowError(
+        `Cannot clone '${sanitizeRemote(remote)}'. ${result.failure?.advice ?? 'Git remote access failed.'}`,
+        { code: result.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
     }
+    // The invocation-only alias freezes ambient url.* rewrites but must never become durable
+    // repository configuration. Restore and verify the exact reviewed credential-free URL before
+    // later commands address the checkout by its ordinary `origin` name.
+    run('git', ['remote', 'set-url', 'origin', remote], { cwd: root, env: transport.env });
+  }
+  const retainedOrigin = run('git', ['config', '--local', '--get', 'remote.origin.url'], {
+    cwd: root, env: gitEnv, allowFailure: true
+  }).stdout.trim();
+  if (retainedOrigin !== remote) {
+    throw new SingularityFlowError(
+      `The bootstrap target does not retain the exact reviewed origin '${sanitizeRemote(remote)}'. Nothing was changed.`
+    );
   }
   // Nothing is written to a code branch. The configuration authority is the orphan `sflow/config`
   // branch, and `start` materializes the approved revision from it into each Story branch — so the
@@ -245,7 +304,7 @@ export async function bootstrapRepository(url, {
     // would be governed. Nothing is committed and nothing is published — inspect it, then delete it
     // or re-run without the flag.
     const { initializeDefinition } = await import('./config.mjs');
-    const actor = identity(root);
+    const actor = gitCommitIdentity(root, { env: gitEnv });
     const wrote = await initializeDefinition(root);
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     await describeRepository(root, repositoryId, remote, branch, actor);
@@ -257,7 +316,8 @@ export async function bootstrapRepository(url, {
     const { ensureConfigurationBranch } = await import('./configuration-branch.mjs');
     configuration = await ensureConfigurationBranch(remote, {
       grounding,
-      capability: { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams }
+      capability: { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams },
+      env: gitEnv
     });
     published.configuration = true;
   }
@@ -269,7 +329,7 @@ export async function bootstrapRepository(url, {
     ledger = await initializeLedger(
       root,
       { enabled: true, branch: stateBranch, remote: 'origin' },
-      { publish: push }
+      { publish: push, env: gitEnv, transportRemote: remote }
     );
     published.state = Boolean(push && ledger);
   }

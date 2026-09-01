@@ -227,7 +227,7 @@ const AUTO_SUBCOMMANDS = Object.freeze([
 ]);
 const ADHOC_SUBCOMMANDS = Object.freeze([
   'start', 'status', 'diff', 'effects', 'evidence', 'pause', 'resume', 'land', 'intent',
-  'claim', 'deviate', 'revert', 'landing', 'publish', 'promote', 'close', 'run', 'split', 'discard'
+  'claim', 'deviate', 'revert', 'landing', 'publish', 'sync', 'promote', 'close', 'run', 'split', 'discard'
 ]);
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);

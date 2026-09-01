@@ -29,6 +29,7 @@ Every public operation is classified before its implementation module is importe
 | adhoc.split | mutation | never | — | — |
 | adhoc.start | mutation | never | — | — |
 | adhoc.status | read | never | — | — |
+| adhoc.sync | mutation | never | — | — |
 | agent | mutation | never | — | — |
 | agents | mutation | never | — | — |
 | approvals | read | never | — | — |

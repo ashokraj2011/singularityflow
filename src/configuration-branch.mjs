@@ -30,6 +30,10 @@ import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
   assertCredentialFreeRemote, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
+import {
+  partialCloneConfigured, partialCloneFallbackDecision
+} from './clone-strategy.mjs';
 import {
   createAndPushTransportIntent, listTransportIntents, retryTransportIntent
 } from './transport-intents.mjs';
@@ -535,17 +539,26 @@ export async function ensureConfigurationBranch(remote, {
 } = {}) {
   const url = String(remote ?? '').trim();
   if (!url) throw new SingularityFlowError('A configuration repository URL is required.');
-  const frozen = frozenRemoteTransport(url, { push: true, env });
-  const session = remoteSession ?? new GitRemoteSession({ env });
-  const configurationHead = observedHead ?? configurationBranchHead(url, { session });
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const transportOptions = { ...transport, env: gitEnv };
+  const frozen = frozenRemoteTransport(url, { push: true, env: gitEnv });
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
+  const configurationObservation = observedHead?.observation ?? await session.observeAsync(url, {
+    refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false
+  });
+  const configurationHead = observedHead ?? configurationBranchHead(url, {
+    session, observation: configurationObservation
+  });
   requireRemoteObservation(configurationHead.observation, 'configuration authority');
-  if (configurationHead.exists) return await inspectApprovedConfiguration(url, capability, { env });
+  if (configurationHead.exists) return await inspectApprovedConfiguration(url, capability, {
+    env: gitEnv
+  });
 
   let canonicalPublisher = null;
   if (publisherRoot) {
     canonicalPublisher = await realpath(path.resolve(publisherRoot));
     const configuredRemote = run('git', ['remote', 'get-url', 'origin'], {
-      cwd: canonicalPublisher, allowFailure: true
+      cwd: canonicalPublisher, env: gitEnv, allowFailure: true
     }).stdout.trim();
     if (assertCredentialFreeRemote(configuredRemote) !== assertCredentialFreeRemote(url)) {
       throw new SingularityFlowError('The configuration publisher origin does not match the reviewed configuration remote.', {
@@ -555,30 +568,32 @@ export async function ensureConfigurationBranch(remote, {
     // A prior attempt may have retained its exact commit in this repository. Join it rather than
     // authoring another commit with a new timestamp and producing two recovery paths.
     const existing = (await listTransportIntents({
-      ...transport, includeSucceeded: true
+      ...transportOptions, includeSucceeded: true
     })).find((intent) => intent.repositoryRoot === canonicalPublisher
       && intent.remoteUrl === assertCredentialFreeRemote(url)
       && intent.targetRef === `refs/heads/${CONFIGURATION_BRANCH}`
       && intent.status !== 'succeeded');
     if (existing) {
-      const resumed = await retryTransportIntent(existing.intentId, transport);
+      const resumed = await retryTransportIntent(existing.intentId, transportOptions);
       if (resumed.status !== 'succeeded') {
         throw new SingularityFlowError(
           `Configuration publication ${resumed.intentId} is ${resumed.status}; its exact local commit remains available for 'singularity-flow push status ${resumed.intentId}'.`,
           { code: 'CONFIGURATION_PUBLICATION_PENDING', details: { intentId: resumed.intentId, status: resumed.status } }
         );
       }
-      return { ...(await inspectApprovedConfiguration(url, capability, { env })), transportIntent: resumed.intentId };
+      return { ...(await inspectApprovedConfiguration(url, capability, { env: gitEnv })), transportIntent: resumed.intentId };
     }
   }
 
   const remoteHead = configurationHead.observation?.includedHead
     ? configurationHead.observation
-    : session.observe(url, { includeHead: true });
+    : await session.observeAsync(url, { includeHead: true });
   requireRemoteObservation(remoteHead, 'configuration repository');
   let defaultBranch = remoteHead.defaultBranch;
   if (!defaultBranch) {
-    const advertised = session.observe(url, { includeHead: true, includeAllHeads: true });
+    const advertised = await session.observeAsync(url, {
+      includeHead: true, includeAllHeads: true
+    });
     requireRemoteObservation(advertised, 'configuration repository');
     defaultBranch = advertised.defaultBranch
       ?? advertised.branches.find((item) => item === 'main' || item === 'master')
@@ -589,13 +604,29 @@ export async function ensureConfigurationBranch(remote, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-bootstrap-'));
   const seed = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-seed-'));
   try {
-    const clone = runRemoteGit([
+    const cloneBranch = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--no-checkout', '--branch', importBranch, frozen.remote, scratch
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--no-checkout', '--branch', importBranch, frozen.remote, scratch
     ], { operation: 'remote-configuration', env: frozen.env });
+    let clone = await cloneBranch(true);
+    const partial = partialCloneFallbackDecision(clone, {
+      configured: clone.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: frozen.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      clone = await cloneBranch(false);
+    }
     if (clone.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read '${url}': ${(clone.stderr || clone.stdout).trim().split('\n')[0]}`);
+        `Cannot read '${sanitizeRemote(url)}'. ${clone.failure?.advice ?? 'Git remote access failed.'}`,
+        { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
     }
     const importedCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: frozen.env
@@ -625,7 +656,13 @@ export async function ensureConfigurationBranch(remote, {
     // fictional root. An existing map imported from the code branch is real configuration and is
     // retained.
     if (!importedCapabilityMap) await rm(path.join(scratch, 'singularity/capabilities.yml'), { force: true });
-    const actor = gitCommitIdentity(scratch, { env: frozen.env });
+    // Remote transport deliberately hides ambient Git configuration so repository/global
+    // rewrites and hooks cannot cross the enterprise boundary. Identity discovery is not a
+    // remote operation, however, and a temporary clone normally has no local user.name/email.
+    // Read the caller's ordinary Git identity here; otherwise a valid globally configured user
+    // is erased by the transport sandbox and every freshly bootstrapped approval group is empty.
+    // The later attainability check remains fail-closed when the caller truly has no email.
+    const actor = gitCommitIdentity(canonicalPublisher ?? scratch, { env });
     await describeRepository(scratch, repositoryIdFromUrl(url), url, defaultBranch, actor);
     if (grounding) await setGroundingMode(scratch, grounding);
     if (capability) await describeCapability(scratch, capability);
@@ -642,13 +679,13 @@ export async function ensureConfigurationBranch(remote, {
     let transportStatus = null;
     if (canonicalPublisher) {
       const imported = run('git', ['fetch', '--no-tags', '--', scratch, commit], {
-        cwd: canonicalPublisher, allowFailure: true
+        cwd: canonicalPublisher, env: gitEnv, allowFailure: true
       });
       if (imported.status !== 0) {
         throw new SingularityFlowError('The reviewed configuration commit could not be retained in the publisher repository.');
       }
       const retentionRef = `refs/singularity/transport/configuration/${commit}`;
-      run('git', ['update-ref', retentionRef, commit], { cwd: canonicalPublisher });
+      run('git', ['update-ref', retentionRef, commit], { cwd: canonicalPublisher, env: gitEnv });
       const published = await createAndPushTransportIntent({
         repositoryRoot: canonicalPublisher,
         remote: 'origin',
@@ -656,14 +693,14 @@ export async function ensureConfigurationBranch(remote, {
         targetRef: `refs/heads/${CONFIGURATION_BRANCH}`,
         expectedRemote: null,
         scope: { operation: 'sflow.configuration.initialize', sourceBranch: importBranch }
-      }, transport);
+      }, transportOptions);
       transportIntent = published.intentId;
       transportStatus = published.status;
       push = published.status === 'succeeded'
         ? { status: 0, stdout: '', stderr: '' }
         : { status: 1, stdout: '', stderr: `transport ${published.intentId} is ${published.status}` };
     } else {
-      push = runRemoteGit(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
+      push = await runRemoteGitAsync(['push', 'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`], {
         cwd: scratch, operation: 'remote-push', env: frozen.env
       });
     }
@@ -678,13 +715,20 @@ export async function ensureConfigurationBranch(remote, {
         );
       }
       session.invalidate(url);
-      if (!remoteHasConfigurationBranch(url, { session, refresh: true })) {
+      const raced = await session.observeAsync(url, {
+        refs: [`refs/heads/${CONFIGURATION_BRANCH}`], includeHead: false, refresh: true
+      });
+      const racedHead = configurationBranchHead(url, { session, observation: raced });
+      if (!racedHead.reachable || !racedHead.exists) {
         throw new SingularityFlowError(
-          `Cannot create '${CONFIGURATION_BRANCH}' on '${url}': ${(push.stderr || push.stdout).trim().split('\n')[0]}`);
+          `Cannot create '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(url)}'. ${push.failure?.advice ?? 'Git rejected the exact branch creation.'}`,
+          { code: push.failure?.code ?? 'REMOTE_UNKNOWN' });
       }
       // Another bootstrap won the create race. It is success only when the winning authority
       // contains the exact capability this caller requested; branch existence alone proves nothing.
-      return await inspectApprovedConfiguration(url, capability, { exactBootstrap: true, env });
+      return await inspectApprovedConfiguration(url, capability, {
+        exactBootstrap: true, env: gitEnv
+      });
     }
     // The caller may deliberately reuse one observation session across bootstrap and its
     // immediately-following reads.  Its pre-push observation necessarily says that this branch
@@ -701,15 +745,32 @@ export async function ensureConfigurationBranch(remote, {
 }
 
 async function cloneConfiguration(remote, target, { env = process.env } = {}) {
-  const frozen = frozenRemoteTransport(remote, { env });
-  const clone = runRemoteGit([
+  const gitEnv = enterpriseGitEnvironment(env);
+  const frozen = frozenRemoteTransport(remote, { env: gitEnv });
+  const cloneBranch = (filtered) => runRemoteGitAsync([
     '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-    '--filter=blob:none', '--branch', CONFIGURATION_BRANCH, frozen.remote, target
+    ...(filtered ? ['--filter=blob:none'] : []),
+    '--branch', CONFIGURATION_BRANCH, frozen.remote, target
   ], { operation: 'remote-configuration', env: frozen.env });
+  let clone = await cloneBranch(true);
+  const partial = partialCloneFallbackDecision(clone, {
+    configured: clone.status === 0
+      ? partialCloneConfigured(target, 'origin', (args, options) => run('git', args, {
+          ...options, env: frozen.env
+        }))
+      : null,
+    fallback: 'full'
+  });
+  if (partial.action === 'retry-full') {
+    await removeTemporaryTree(target);
+    await mkdir(target, { recursive: true });
+    clone = await cloneBranch(false);
+  }
   if (clone.status !== 0) {
     throw new SingularityFlowError(
-      `Cannot read approved configuration from '${remote}' branch '${CONFIGURATION_BRANCH}': `
-      + `${(clone.stderr || clone.stdout).trim().split('\n')[0]}`);
+      `Cannot read approved configuration from '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}'. `
+      + (clone.failure?.advice ?? 'Git remote access failed.'),
+      { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
   }
   return run('git', ['rev-parse', 'HEAD'], { cwd: target, env: frozen.env }).stdout.trim();
 }
@@ -721,15 +782,32 @@ async function copyVerifiedStateConfiguration(remote, destination, branch = STAT
 } = {}) {
   const source = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-config-read-'));
   try {
-    const frozen = frozenRemoteTransport(remote, { env });
-    const clone = runRemoteGit([
+    const gitEnv = enterpriseGitEnvironment(env);
+    const frozen = frozenRemoteTransport(remote, { env: gitEnv });
+    const cloneBranch = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--no-checkout', '--branch', branch, frozen.remote, source
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--no-checkout', '--branch', branch, frozen.remote, source
     ], { operation: 'remote-configuration', env: frozen.env });
+    let clone = await cloneBranch(true);
+    const partial = partialCloneFallbackDecision(clone, {
+      configured: clone.status === 0
+        ? partialCloneConfigured(source, 'origin', (args, options) => run('git', args, {
+            ...options, env: frozen.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(source);
+      await mkdir(source, { recursive: true });
+      clone = await cloneBranch(false);
+    }
     if (clone.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read configuration recovery mirror from '${remote}' branch '${branch}': `
-        + `${(clone.stderr || clone.stdout).trim().split('\n')[0]}`
+        `Cannot read configuration recovery mirror from '${sanitizeRemote(remote)}' branch '${branch}'. `
+        + (clone.failure?.advice ?? 'Git remote access failed.'),
+        { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
     const mirrorCommit = run('git', ['rev-parse', 'HEAD'], { cwd: source, env: frozen.env }).stdout.trim();
@@ -1052,13 +1130,14 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   observedCommit,
   sourceCommit,
   mirror = null,
-  definition: retainedDefinition = null
+  definition: retainedDefinition = null,
+  env = process.env
 }) {
   const definition = retainedDefinition ?? await loadDefinition(scratch);
   const assets = [];
   const treeEntries = mirror?.assets
     ? new Map(Object.entries(mirror.assets))
-    : configurationTreeEntries(scratch, 'HEAD');
+    : configurationTreeEntries(scratch, 'HEAD', null, { env });
   for (const relative of await configurationAssetPaths(scratch)) {
     const file = path.join(scratch, relative);
     const info = await lstat(file);
@@ -1111,7 +1190,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
  * is removed, so validation and later branch materialization cannot perform two network clones or
  * observe two different authority revisions.
  */
-export async function loadStoryConfigurationSnapshot(authority) {
+export async function loadStoryConfigurationSnapshot(authority, { env = process.env } = {}) {
   if (!authority?.remote || !authority?.branch) {
     throw new SingularityFlowError('A Story configuration definition requires a resolved authority.');
   }
@@ -1136,7 +1215,9 @@ export async function loadStoryConfigurationSnapshot(authority) {
     let sourceCommit;
     let mirror = null;
     if (authority.branch === STATE_CONFIGURATION_BRANCH) {
-      mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch);
+      mirror = await copyVerifiedStateConfiguration(authority.remote, scratch, authority.branch, {
+        env
+      });
       observedCommit = mirror.mirrorCommit;
       sourceCommit = mirror.sourceCommit;
       if (authority.sourceCommit && mirror.sourceCommit !== authority.sourceCommit) {
@@ -1146,7 +1227,7 @@ export async function loadStoryConfigurationSnapshot(authority) {
         );
       }
     } else {
-      observedCommit = await cloneConfiguration(authority.remote, scratch);
+      observedCommit = await cloneConfiguration(authority.remote, scratch, { env });
       sourceCommit = observedCommit;
     }
     if (authority.commit && observedCommit !== authority.commit) {
@@ -1162,7 +1243,8 @@ export async function loadStoryConfigurationSnapshot(authority) {
       observedCommit,
       sourceCommit,
       mirror,
-      definition: mirror?.definition ?? null
+      definition: mirror?.definition ?? null,
+      env
     });
   } finally {
     await removeTemporaryTree(scratch);

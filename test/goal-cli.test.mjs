@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,4 +85,48 @@ test('goal CLI uses durable active-workspace state from outside a repository', a
   ], env, base));
   assert.equal(completed.data.goal.status, 'achieved');
   assert.equal(completed.data.activeGoalId, null);
+});
+
+test('goal sync reports a killed pre-commit creation as recovered instead of not found', async () => {
+  const { base, source, env } = await environment();
+  const workspaceBase = path.join(base, 'workspaces');
+  cli([
+    'workspace', 'create', '--local', '--id', 'goal-recovery', '--name', 'Goal recovery',
+    '--base', workspaceBase, '--lead', 'app', '--repository', `app=${source}`,
+    '--confirm', 'goal-recovery'
+  ], env, base);
+  cli(['workspace', 'use', 'goal-recovery'], env, base);
+
+  const workspacePath = path.join(workspaceBase, 'goal-recovery');
+  const workspace = JSON.parse(await readFile(path.join(workspacePath, 'workspace.json'), 'utf8'));
+  const repository = path.join(workspacePath, 'repos', 'app');
+  const id = `GEX-${'0'.repeat(26)}`;
+  const control = path.join(base, 'killed-goal-create.json');
+  await writeFile(control, `${JSON.stringify({
+    context: {
+      workspace,
+      selected: { repositoryId: 'app', storyId: null },
+      leadRepositoryPath: repository,
+      repositoryPath: repository
+    },
+    personal: {
+      id: 'GOL-20260901-001', statement: 'Recover a bounded Goal creation',
+      successCriteria: ['The interrupted creation leaves no unpublished Goal authority'],
+      links: []
+    },
+    id,
+    config: { git: { remote: 'origin', publish: 'required' } },
+    now: '2026-09-01T00:00:00.000Z',
+    faultPoint: 'after-state-write'
+  }, null, 2)}\n`);
+  const killed = spawnSync(process.execPath, [
+    path.join(packageRoot, 'test', 'fixtures', 'governed-goal-crash-child.mjs'), control
+  ], { encoding: 'utf8', timeout: 20_000 });
+  assert.equal(killed.signal, 'SIGKILL', killed.stderr || killed.stdout);
+
+  const recovered = JSON.parse(cli(['goal', 'sync', id, '--json'], env, base));
+  assert.equal(recovered.outcome.messageId, 'goal.precommit-recovered');
+  assert.equal(recovered.subject.id, id);
+  assert.equal(recovered.data.publication.recoveredPrepared, true);
+  assert.equal(recovered.data.publication.commit, null);
 });

@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import {
-  branch, commitIsolated, head, publicationPushOutcome, pushCommitToBranch
+  admitGovernedPublication, branch, commitIsolated, head, publicationPushOutcome,
+  pushCommitToBranch
 } from './git.mjs';
 import {
   appendLedgerIntent,
@@ -21,6 +22,27 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
 import { recordSha256 } from './records.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import {
+  freezeAndVerifySgosLifecycleCandidate, sgosLifecycleCandidateBinding,
+  sgosLifecycleCandidateIdentity
+} from './sgos/candidate-lifecycle.mjs';
+
+function lifecycleCandidateCreator(event) {
+  const actor = event?.actor ?? {};
+  const actorId = actor.email ?? actor.login ?? actor.githubLogin ?? actor.id ?? actor.name ?? null;
+  const id = actorId ?? event?.agent ?? 'singularity-flow-kernel';
+  const actorKinds = new Set(['human', 'service', 'agent', 'system', 'external']);
+  return {
+    // `event.agent` is execution context, not the decision principal. A human approval may name a
+    // governed agent while still being authored by the Git identity in `actor`; never relabel that
+    // person's email as an agent identity.
+    kind: actorId ? (actorKinds.has(actor.kind) ? actor.kind : 'human')
+      : event?.agent ? 'agent' : 'system',
+    id: String(id),
+    ...(actor.name ? { name: String(actor.name) } : {}),
+    ...(actor.email ? { email: String(actor.email) } : {})
+  };
+}
 
 export class GitPublicationUnitOfWork {
   constructor(root) { this.root = root; }
@@ -46,6 +68,10 @@ export class GitPublicationUnitOfWork {
   } = {}) {
   const root = this.root;
   let envelope = assertLifecycleEvent(event, subject);
+  const universalCandidate = ['story', 'initiative', 'adhoc', 'goal'].includes(subject?.kind);
+  // Candidate identity is allocated only after state.write finalizes the event. Some transitions
+  // derive document IDs, approval principals, or generations inside that callback; preallocating
+  // from the draft event would bind the Candidate to bytes different from the governed commit.
   if (!commitSpec?.message) throw new SingularityFlowError('Publication requires commit.message.');
     if (!publication?.branch) throw new SingularityFlowError('Publication requires a target branch.');
     const publicationRemote = publication.remote ?? 'origin';
@@ -178,11 +204,18 @@ export class GitPublicationUnitOfWork {
     let transactionTree = null;
     let transactionStateSha256 = null;
     let transactionEventSha256 = journal.eventSha256;
+    let candidateBinding = null;
     const unwind = async (error) => {
       if (ledgerIntentPath) await rm(path.join(root, ledgerIntentPath), { force: true });
       let restoreFailure = null;
       let restoration = null;
       if (wroteState) {
+        // Secret admission is a non-retention boundary, not merely a no-commit boundary.  Keeping
+        // the rejected working bytes in a machine-local rescue would persist the credential after
+        // correctly refusing its Candidate.  Binary/unreadable prospective blobs receive the same
+        // treatment because the scanner could not prove them free of secrets.
+        const preserveRejectedBytes = !['SECRET_DETECTED', 'SECRET_SCAN_UNREADABLE']
+          .includes(error?.code);
         try {
           await updatePublicationJournal(root, subject, {
             stage: 'restoring',
@@ -190,8 +223,10 @@ export class GitPublicationUnitOfWork {
             originalError: error?.message ?? String(error)
           }, { transactionId: journal.transactionId });
           restoration = state?.rollback
-            ? await state.rollback(recoveryPreimage, { preserveCurrent: true })
-            : await restorePublicationPreimage(root, recoveryPreimage, { subject, preserveCurrent: true });
+            ? await state.rollback(recoveryPreimage, { preserveCurrent: preserveRejectedBytes })
+            : await restorePublicationPreimage(root, recoveryPreimage, {
+              subject, preserveCurrent: preserveRejectedBytes
+            });
         } catch (failure) { restoreFailure = failure; }
       }
       if (restoreFailure) {
@@ -268,15 +303,50 @@ export class GitPublicationUnitOfWork {
         ledgerIntentPath = await persistLedgerIntent(root, ledger.intentDirectory, ledger.intent);
       } catch (error) { await unwind(error); }
     }
+    // This is both the isolated commit scope and the Candidate scope. Define it once so the
+    // reviewed tree and the committed tree cannot disagree about an optional ledger intent path.
+    let staged;
+    try {
+      // Secret, pre-staged-overlap, optional-path, and deletion admission must precede Candidate
+      // retention. `commitIsolated` repeats this exact kernel function to catch later races.
+      staged = admitGovernedPublication(
+        root, [...allowedPaths, ledgerIntentPath].filter(Boolean), { expectedHead: publicationHead }
+      );
+      if (universalCandidate) {
+        const boundary = await freezeAndVerifySgosLifecycleCandidate(root, {
+          event: envelope,
+          paths: staged,
+          createdBy: lifecycleCandidateCreator(envelope),
+          expectedBaseline: publicationHead,
+          expectedCandidateTree: staged.prospectiveTree,
+          lifecycleAdmission: {
+            normalizedEventSha256: sgosLifecycleCandidateIdentity(envelope).normalizedEventSha256,
+            subject: { kind: subject.kind, id: subject.id },
+            eventType: envelope.type,
+            scopeAdmission: 'passed',
+            stateValidation: state?.validate ? 'passed' : 'not-required',
+            beforeCommitValidation: beforeCommit ? 'passed' : 'not-required'
+          }
+        });
+        candidateBinding = sgosLifecycleCandidateBinding(boundary);
+        await updatePublicationJournal(root, subject, {
+          stage: 'candidate-verified', candidate: candidateBinding
+        }, { transactionId: journal.transactionId });
+        if (fault) await fault('after-candidate-verification', {
+          envelope, candidate: candidateBinding
+        });
+      }
+    } catch (error) { await unwind(error); }
     // The commit is bounded by the same set that was staged. `allowedPaths` named a containment the
     // bare commit never delivered: it staged these and then committed the whole index, so anything
     // the person at the keyboard had staged rode into the governed commit and was pushed, pinned and
     // attested to.
-    const staged = [...new Set([...allowedPaths, ledgerIntentPath].filter(Boolean))];
     let sourceCommit;
     try {
       sourceCommit = await commitIsolated(root, commitSpec.message, staged, {
         expectedHead: publicationHead,
+        expectedRef: `refs/heads/${publication.branch}`,
+        expectedTree: candidateBinding?.candidateTree ?? null,
         sign: commitSpec.sign === true,
         signingKey: commitSpec.signingKey ?? null,
         fault,
@@ -285,6 +355,7 @@ export class GitPublicationUnitOfWork {
           id: journal.transactionId,
           eventSha256: transactionEventSha256,
           publicationMode: journal.publicationMode,
+          candidate: candidateBinding,
           stateSha256ForTree: (tree) => `sha256:${recordSha256({
             transactionId: journal.transactionId,
             expectedHead: publicationHead,
@@ -292,6 +363,7 @@ export class GitPublicationUnitOfWork {
             tree,
             eventSha256: transactionEventSha256,
             publicationMode: journal.publicationMode,
+            ...(candidateBinding ? { candidate: candidateBinding } : {}),
             ...(publicationRemoteFingerprint ? { remoteFingerprint: publicationRemoteFingerprint } : {}),
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
@@ -333,6 +405,10 @@ export class GitPublicationUnitOfWork {
           kind: subject.kind,
           id: subject.id,
           record: {
+            // Extension metadata is descriptive only. Apply the transaction authority afterwards
+            // so a current or future callback cannot replace the exact commit, Candidate, event,
+            // lease, or destination that recovery is allowed to publish.
+            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {}),
             schemaVersion: currentSchemaVersion('pending-publication'),
             subject,
             branch: publication.branch,
@@ -348,8 +424,8 @@ export class GitPublicationUnitOfWork {
             eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
+            candidate: candidateBinding,
             error: error.message,
-            ...(pendingRecord?.({ sourceCommit, error: error.message, envelope }) ?? {}),
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
               : {})
@@ -368,6 +444,34 @@ export class GitPublicationUnitOfWork {
     // The envelope this function returns is bound to the commit; the intent's payload deliberately
     // is not, so that it matches the file already committed above.
     envelope = bindLifecycleEvent(envelope, sourceCommit);
+    if (publication.mode === 'off' && retainPendingOnSuccess) {
+      // A local-only publication still has an operational tail outside Git (for example the ad hoc
+      // session receipt and active-session pointer). Retain the exact Candidate-bound commit before
+      // clearing the journal so a failed tail write can be retried without recreating authority.
+      await writePendingPublication(root, {
+        kind: subject.kind,
+        id: subject.id,
+        record: {
+          ...(pendingMetadata ?? {}),
+          schemaVersion: currentSchemaVersion('pending-publication'),
+          subject,
+          branch: publication.branch,
+          remote: publication.remote ?? 'origin',
+          remoteFingerprint: null,
+          commit: sourceCommit,
+          transactionId: journal.transactionId,
+          tree: transactionTree,
+          eventSha256: transactionEventSha256,
+          stateSha256: transactionStateSha256,
+          publicationMode: journal.publicationMode,
+          candidate: candidateBinding,
+          event: envelope,
+          createdAt: nowIso(),
+          localCommitted: true,
+          pushOutcome: 'not-attempted'
+        }
+      });
+    }
     if (publication.mode === 'off') {
       await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
     }
@@ -428,6 +532,7 @@ export class GitPublicationUnitOfWork {
           kind: subject.kind,
           id: subject.id,
           record: {
+            ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {}),
             schemaVersion: currentSchemaVersion('pending-publication'),
             subject,
             branch: publication.branch,
@@ -442,10 +547,10 @@ export class GitPublicationUnitOfWork {
             eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
+            candidate: candidateBinding,
             event: envelope,
             createdAt: nowIso(),
             error,
-            ...(pendingRecord?.({ sourceCommit, error, envelope }) ?? {}),
             pushOutcome,
             ...(publication.expectedRemoteSha !== undefined
               ? { expectedRemoteSha: publication.expectedRemoteSha }
@@ -454,7 +559,7 @@ export class GitPublicationUnitOfWork {
         });
         await clearPublicationJournal(root, subject, { transactionId: journal.transactionId });
         const message = `${subject.kind} commit ${sourceCommit.slice(0, 8)} was retained locally but push failed.${error ? ` Git reported: ${error}` : ''}`;
-        if (publication.mode === 'warn') return { sha: sourceCommit, pushed: false, pending: true, warning: message, replayed, event: envelope, ledger: null };
+        if (publication.mode === 'warn') return { sha: sourceCommit, pushed: false, pending: true, warning: message, replayed, event: envelope, ledger: null, candidate: candidateBinding };
         throw new SingularityFlowError(`${message} Run the appropriate sync command after fixing remote access.`);
       }
       pushed = true;
@@ -491,6 +596,7 @@ export class GitPublicationUnitOfWork {
             eventSha256: transactionEventSha256,
             stateSha256: transactionStateSha256,
             publicationMode: journal.publicationMode,
+            candidate: candidateBinding,
             event: envelope,
             createdAt: nowIso(),
             rootPublished: true,
@@ -543,7 +649,10 @@ export class GitPublicationUnitOfWork {
       }
     }
     if (fault) await fault('after-ledger', { envelope, sourceCommit, publishedCommit, ledgerResult });
-    return { sha: publishedCommit, pushed, replayed, event: envelope, ledger: ledgerResult };
+    return {
+      sha: publishedCommit, pushed, replayed, event: envelope, ledger: ledgerResult,
+      candidate: candidateBinding
+    };
   });
   }
 }

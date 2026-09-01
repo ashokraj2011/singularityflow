@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import YAML from 'yaml';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
-function execute(command, args, cwd, { allowFailure = false } = {}) {
+function execute(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
@@ -16,7 +16,8 @@ function execute(command, args, cwd, { allowFailure = false } = {}) {
       ...process.env,
       NODE_ENV: 'test',
       SINGULARITY_FLOW_TEST_IDENTITY: 'Ad Hoc Tester',
-      SINGULARITY_FLOW_NO_NETWORK: '1'
+      SINGULARITY_FLOW_NO_NETWORK: '1',
+      ...env
     }
   });
   if (!allowFailure && result.status !== 0) {
@@ -31,6 +32,12 @@ function git(root, ...args) {
 
 function sflow(root, ...args) {
   return execute(process.execPath, [cli, ...args], root);
+}
+
+function sflowOnline(root, args, { allowFailure = false } = {}) {
+  return execute(process.execPath, [cli, ...args], root, {
+    allowFailure, env: { SINGULARITY_FLOW_NO_NETWORK: '0' }
+  });
 }
 
 async function repository() {
@@ -114,6 +121,9 @@ test('unstarted work lands through exact intent, dispositions, verification, and
 
   const status = JSON.parse(sflow(root, 'adhoc', 'status', landing.sessionId, '--json').stdout);
   assert.equal(status.session.status, 'landed');
+  assert.equal(status.session.publication.pushed, false);
+  assert.equal(status.session.publication.pending, false);
+  assert.equal(status.session.publication.commit, published.commit);
   assert.equal(status.receipt.authority.commit, published.commit);
 });
 
@@ -137,6 +147,71 @@ test('a changed effect set invalidates the exact landing packet without publishi
   assert.match(refusal.stderr, /Repository effects changed|ADH_PACKET_STALE/);
   assert.equal(git(root, 'log', '-1', '--format=%s').stdout.trim(), 'initialize ad hoc fixture');
   assert.equal(await readFile(path.join(root, 'extra.mjs'), 'utf8'), 'export const extra = true;\n');
+});
+
+test('a rejected ad hoc push is synchronized exactly before its local session is finalized', async (t) => {
+  const root = await repository();
+  const remote = `${root}-origin.git`;
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(remote, { recursive: true, force: true })
+  ]));
+  git(root, 'init', '--bare', remote);
+  git(root, 'remote', 'add', 'origin', remote);
+  git(root, 'push', '-u', 'origin', 'feature/adhoc');
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.git.publish = 'required';
+  await writeFile(workflowPath, YAML.stringify(definition));
+  git(root, 'add', workflowPath);
+  git(root, 'commit', '-m', 'require ad hoc publication');
+  git(root, 'push', 'origin', 'feature/adhoc');
+
+  const hook = path.join(remote, 'hooks', 'pre-receive');
+  await writeFile(hook, '#!/bin/sh\nexit 1\n');
+  await chmod(hook, 0o755);
+  await writeFile(path.join(root, 'app.mjs'), 'export const value = 2;\n');
+
+  const landing = JSON.parse(sflowOnline(root, ['land', '--json']).stdout);
+  sflowOnline(root, [
+    'adhoc', 'intent', 'confirm', landing.sessionId,
+    '--objective', 'Change the exported value',
+    '--success', 'The module exports value 2',
+    '--confirm', landing.changeSetSha256, '--json'
+  ]);
+  sflowOnline(root, [
+    'adhoc', 'claim', '--all', '--clause', 'ADH-INTENT:SC-001', '--json'
+  ]);
+  const preview = JSON.parse(sflowOnline(root, [
+    'adhoc', 'landing', 'preview', landing.sessionId, '--json'
+  ]).stdout);
+  const refused = sflowOnline(root, [
+    'adhoc', 'publish', landing.sessionId, '--confirm', preview.packet.packetSha256, '--json'
+  ], { allowFailure: true });
+  assert.equal(refused.status, 1, refused.stdout);
+
+  const before = JSON.parse(sflowOnline(root, [
+    'adhoc', 'status', landing.sessionId, '--json'
+  ]).stdout);
+  assert.notEqual(before.session.status, 'landed');
+  assert.equal(before.receipt, null);
+
+  await rm(hook, { force: true });
+  const recovered = JSON.parse(sflowOnline(root, [
+    'adhoc', 'sync', landing.sessionId, '--json'
+  ]).stdout);
+  assert.equal(recovered.pushed, true);
+  assert.equal(recovered.pending, false);
+  assert.match(recovered.commit, /^[0-9a-f]{40,64}$/);
+  assert.equal(git(remote, 'rev-parse', 'refs/heads/feature/adhoc').stdout.trim(), recovered.commit);
+
+  const after = JSON.parse(sflowOnline(root, [
+    'adhoc', 'status', landing.sessionId, '--json'
+  ]).stdout);
+  assert.equal(after.session.status, 'landed');
+  assert.equal(after.session.publication.commit, recovered.commit);
+  assert.equal(after.receipt.authority.commit, recovered.commit);
+  assert.equal(after.receipt.authority.newRevision, recovered.commit);
 });
 
 test('protected-path work is preserved and routed to promotion without a landing packet', async (t) => {

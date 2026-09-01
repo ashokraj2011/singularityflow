@@ -25,7 +25,7 @@ import {
 } from './capability-branches.mjs';
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservation, publicationPushOutcome,
-  pushCommitToBranch, gitCommonDir, refExists, refHead, repoRoot, validBranch
+  gitCommonDir, refExists, refHead, repoRoot, validBranch
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
@@ -43,6 +43,11 @@ import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { validatePortfolio } from './initiative-config.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
+import {
+  freezeAndVerifySgosExistingLifecycleCommit, sgosLifecycleCandidateBinding,
+  publishVerifiedSgosLifecycleCandidate
+} from './sgos/candidate-lifecycle.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
 
@@ -639,23 +644,44 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
  * work. Every other capability repository still needs the same remote Story ref so another machine
  * can materialize the complete capability rather than finding only the lead branch.
  */
-export function capabilityPublicationPlan(preflight, lifecycleRoot) {
+export async function capabilityPublicationPlan(preflight, lifecycleRoot) {
   const primary = repoRoot(lifecycleRoot);
-  return (preflight ?? [])
+  const entries = (preflight ?? [])
     .filter((entry) => entry.publishRequired
       && gitCommonDir(repoRoot(entry.root)) !== gitCommonDir(primary))
-    .map((entry) => ({
-        schemaVersion: 1,
+    .map((entry) => ({ entry, root: repoRoot(entry.root) }));
+  return Promise.all(entries.map(async ({ entry, root }) => {
+    const event = lifecycleEvent({
+      type: LIFECYCLE_EVENT.BRANCH_LINKED,
+      subject: { kind: 'story', id: entry.branch, branch: entry.branch },
+      actor: { kind: 'system', id: 'singularity-flow-kernel' },
+      payload: {
+        operation: 'create-capability-sibling-story-branch',
         repository: entry.repository,
-        root: entry.root,
+        baseCommit: entry.baseCommit
+      }
+    });
+    const boundary = await freezeAndVerifySgosExistingLifecycleCommit(root, {
+      event,
+      candidateCommit: entry.baseCommit,
+      createdBy: { kind: 'system', id: 'singularity-flow-kernel' }
+    });
+    const candidate = sgosLifecycleCandidateBinding(boundary);
+    return {
+        schemaVersion: 2,
+        repository: entry.repository,
+        root,
         remote: entry.remote,
         branch: entry.branch,
+        baseCommit: entry.baseCommit,
         commit: entry.baseCommit,
+        candidate,
         destinationRef: entry.destinationRef,
         remoteFingerprint: entry.remoteFingerprint,
         expectedRemoteSha: null,
         pushOutcome: 'not-attempted'
-      }));
+      };
+  }));
 }
 
 export function preflightIncludesRepository(preflight, repositoryRoot) {
@@ -673,7 +699,7 @@ export function preflightPublicationAuthority(preflight, repositoryRoot) {
 }
 
 /** Publish exact preflight-bound sibling commits, returning a resumable remainder on failure. */
-export function publishCapabilityRepositories(entries = []) {
+export async function publishCapabilityRepositories(entries = []) {
   const published = [];
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -733,11 +759,30 @@ export function publishCapabilityRepositories(entries = []) {
     // Story publication is create-only. Bind the final push to an absent destination so a branch
     // created after dry-run can never be mistaken for this operation's publication, even when its
     // commit happens to be an ancestor (or the same commit).
-    const result = pushCommitToBranch(entry.root, entry.remote, entry.commit, entry.branch, {
-      expectedRemoteSha: entry.expectedRemoteSha ?? null,
-      transportRemote: authority.url,
-      upstreamRemote: authority.remote
-    });
+    let publication;
+    try {
+      publication = await publishVerifiedSgosLifecycleCandidate(entry.root, {
+        binding: entry.candidate ?? null,
+        commit: entry.commit,
+        branch: entry.branch,
+        remote: entry.remote,
+        // Legacy recovery receipts predate Candidate binding but still name one exact commit and a
+        // create-only Story ref. An absent local branch therefore has an exact zero-object lease;
+        // `undefined` would make the adapter refuse before it can finish that bounded recovery.
+        expectedLocalSha: (entry.schemaVersion ?? 1) >= 2 ? entry.baseCommit : null,
+        expectedRemoteSha: entry.expectedRemoteSha ?? null,
+        transportRemote: authority.url,
+        upstreamRemote: authority.remote,
+        allowLegacyUnverified: (entry.schemaVersion ?? 1) < 2
+      });
+    } catch (error) {
+      return {
+        published,
+        pending: [entry, ...entries.slice(index + 1)],
+        error: error?.message ?? String(error)
+      };
+    }
+    const { result } = publication;
     if (result.status !== 0) {
       const currentOutcome = publicationPushOutcome(result);
       // A returned definitive rejection supersedes an older ambiguous attempt. Equality was already
@@ -763,7 +808,9 @@ export function publishCapabilityRepositories(entries = []) {
       branch: entry.branch,
       ref: entry.destinationRef,
       commit: entry.commit,
-      pushed: true
+      pushed: true,
+      candidateVerified: publication.candidateVerified,
+      legacyUnverified: publication.legacyUnverified
     });
   }
   return { published, pending: [], error: null };

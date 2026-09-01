@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { safeGitDiagnosticReference } from '../src/git-remote-diagnostics.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -54,4 +55,28 @@ test('the VS Code authority repair uses the same non-interactive office-safe con
   assert.match(runner, /GCM_INTERACTIVE:\s*'Never'/);
   assert.match(runner, /timeout:\s*30_000/);
   assert.match(runner, /timeout:\s*120_000/);
+});
+
+test('interactive onboarding and refresh never use the synchronous remote Git boundary', async () => {
+  for (const relative of [
+    'src/bootstrap.mjs',
+    'src/organisation.mjs',
+    'src/workspace-bootstrap.mjs',
+    'src/workspace-configuration-refresh.mjs'
+  ]) {
+    const source = await readFile(path.join(root, relative), 'utf8');
+    assert.doesNotMatch(source, /\brunRemoteGit\(/,
+      `${relative} can block the UI/CLI event loop and cannot supervise a descendant process tree`);
+  }
+});
+
+test('post-clone Git diagnostics retain correlation without disclosing helper output', () => {
+  const secret = 'Authorization: Bearer office-secret-must-not-leak';
+  const message = safeGitDiagnosticReference({
+    status: 1,
+    stdout: '',
+    stderr: `credential helper failed: ${secret}`
+  }, 'Sparse checkout failed');
+  assert.match(message, /^Sparse checkout failed \(exit 1; diagnostic sha256:[0-9a-f]{16}\)$/);
+  assert.doesNotMatch(message, /office-secret|Authorization|credential helper/);
 });

@@ -20,7 +20,7 @@ const observational = (value, description) => ({
   description
 });
 
-/** The sole owner of first-party Story, Initiative, and ad hoc landing lifecycle members. */
+/** The sole owner of first-party Story, Initiative, ad hoc landing, and governed Goal members. */
 export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
   id: 'lifecycle-event-type',
   version: 4,

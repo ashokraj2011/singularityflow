@@ -6,13 +6,14 @@ import { readPendingPublication, verifyPendingPublicationCommit } from './public
 import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, SingularityFlowError, stateFingerprint } from './util.mjs';
+import { verifySgosLifecycleCandidateBinding } from './sgos/candidate-lifecycle.mjs';
 
 function nestedPublicationReceipt(value) {
   const candidate = value?.publication ?? value;
   return candidate && typeof candidate === 'object' ? candidate : null;
 }
 
-function verifiedCompletedNestedPublication(root, value, subject, observedHead) {
+async function verifiedCompletedNestedPublication(root, value, subject, observedHead) {
   const receipt = nestedPublicationReceipt(value);
   if (receipt?.sha !== observedHead || receipt.event?.sourceCommit !== observedHead) return null;
   const identity = governedCommitIdentity(root, observedHead);
@@ -27,9 +28,20 @@ function verifiedCompletedNestedPublication(root, value, subject, observedHead) 
     eventSha256: identity.eventSha256,
     stateSha256: identity.stateSha256,
     publicationMode: identity.publicationMode,
+    candidate: receipt.candidate ?? null,
     event: receipt.event
   }, { subject, branch: subject.branch, allowPublicationOff: true });
-  return verification.valid ? verification : null;
+  if (!verification.valid) return null;
+  if (receipt.candidate != null) {
+    try {
+      await verifySgosLifecycleCandidateBinding(root, receipt.candidate, {
+        publishedCommit: observedHead
+      });
+    } catch {
+      return null;
+    }
+  }
+  return verification;
 }
 
 function verifiedPendingNestedPublication(root, pending, subject, observedHead) {
@@ -120,7 +132,7 @@ export class DraftUnitOfWork {
           const verifiedPending = verifiedPendingNestedPublication(
             root, nestedPending, subject, observedHead
           );
-          const verifiedCompleted = verifiedCompletedNestedPublication(
+          const verifiedCompleted = await verifiedCompletedNestedPublication(
             root, writeResult, subject, observedHead
           );
           if (verifiedPending || verifiedCompleted) {

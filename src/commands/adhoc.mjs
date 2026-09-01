@@ -3,7 +3,8 @@ import { repoRoot } from '../git.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import {
   adhocOptions, beginAdhocLanding, closeAdhocLocalOnly, compileAdhocLanding,
-  confirmAdhocIntent, dispositionAdhocResource, promoteAdhocSession, publishAdhocLanding
+  confirmAdhocIntent, dispositionAdhocResource, promoteAdhocSession, publishAdhocLanding,
+  syncAdhocLanding
 } from '../adhoc/landing.mjs';
 import {
   adhocStatus, pauseAdhocSession, resumeAdhocSession, startAdhocSession
@@ -177,6 +178,10 @@ export async function run(_argv, { positionals, options, definition: commandDefi
     return emit(await publishAdhocLanding(root, definition, positionals[2] ?? null, {
       confirm: optionString(options, 'confirm')
     }), json);
+  }
+  if (subcommand === 'sync') {
+    const id = await resolveSessionId(root, positionals[2] ?? null);
+    return emit(await syncAdhocLanding(root, id), json);
   }
   if (subcommand === 'promote') return emit(await promoteAdhocSession(root, positionals[2] ?? null), json);
   if (subcommand === 'close') {

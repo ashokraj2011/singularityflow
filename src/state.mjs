@@ -72,11 +72,14 @@ import { buildRepositorySubjectIndex, resolveContext } from './repository-subjec
 import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
   clearPendingPublication,
+  completePendingStoryBranchPromotion,
   hasPendingPublication,
+  isPendingStoryBranchPromotion,
   livePreparedPublicationOwner,
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  verifyPendingPublicationCandidateAuthority,
   verifyPendingPublicationCommit,
   writePendingPublication,
 } from './publication-pending.mjs';
@@ -5404,6 +5407,13 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         { code: 'PUBLICATION_RECOVERY_CHANGED' }
       );
     }
+    if (isPendingStoryBranchPromotion(record)) {
+      return completePendingStoryBranchPromotion(root, current, {
+        subject,
+        targetBranch: workflow.lineage?.canonicalBranch ?? workflow.workItem.branch,
+        remote: config.git?.remote ?? 'origin'
+      });
+    }
     const expectedBranch = workflowPublicationBranch(root, workflow);
     const verification = verifyPendingPublicationCommit(root, record, {
       subject,
@@ -5418,6 +5428,17 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         {
           code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
           details: { subject, markerPath: current.path, failures: verification.failures }
+        }
+      );
+    }
+    const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, record);
+    if (!candidateAuthority.valid) {
+      throw new SingularityFlowError(
+        `Story '${workflow.workItem.id}' pending publication marker does not retain its exact verified Candidate: `
+        + `${candidateAuthority.failures.join('; ')}. The marker was retained and no commit was pushed.`,
+        {
+          code: 'PENDING_PUBLICATION_CANDIDATE_INVALID',
+          details: { subject, markerPath: current.path, failures: candidateAuthority.failures }
         }
       );
     }

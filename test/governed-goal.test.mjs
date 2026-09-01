@@ -1,14 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { access, chmod, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   approveGovernedGoalPlan, compileGovernedGoalPlan, createGovernedGoal,
-  createGovernedGoalId, loadGovernedGoal, runGovernedGoalNext, verifyGovernedGoal
+  createGovernedGoalId, loadGovernedGoal, runGovernedGoalNext, syncGovernedGoal,
+  verifyGovernedGoal
 } from '../src/governed-goals.mjs';
+import {
+  readPendingPublication, verifyPendingPublicationCommit
+} from '../src/publication-pending.mjs';
 
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -55,6 +60,7 @@ async function fixture() {
 
 const policy = { git: { remote: 'origin', publish: 'required' } };
 const fixedNow = () => new Date('2026-08-20T00:00:00.000Z');
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 test('governed Goals publish on their own branch without switching the Story checkout', async () => {
   const { remote, repository, context, personal } = await fixture();
@@ -110,6 +116,30 @@ test('governed Goals publish on their own branch without switching the Story che
   assert.equal(verified.state.assurance, 'verified');
 });
 
+test('governed Goal preparation invokes neither post-checkout hooks nor smudge filters', async () => {
+  const { base, repository, context, personal } = await fixture();
+  const hookSentinel = path.join(base, 'goal-post-checkout-executed');
+  const filterSentinel = path.join(base, 'goal-smudge-filter-executed');
+  const filter = path.join(base, 'goal-malicious-smudge.sh');
+  await writeFile(path.join(repository, '.gitattributes'), '*.payload filter=goal-malicious\n');
+  await writeFile(path.join(repository, 'tracked.payload'), 'base payload\n');
+  git(repository, 'add', '.gitattributes', 'tracked.payload');
+  git(repository, 'commit', '-m', 'malicious checkout fixture');
+  git(repository, 'push', 'origin', 'main');
+  await writeFile(path.join(repository, '.git', 'hooks', 'post-checkout'),
+    `#!/bin/sh\ntouch ${JSON.stringify(hookSentinel)}\n`);
+  await chmod(path.join(repository, '.git', 'hooks', 'post-checkout'), 0o755);
+  await writeFile(filter, `#!/bin/sh\ntouch ${JSON.stringify(filterSentinel)}\ncat\n`);
+  await chmod(filter, 0o755);
+  git(repository, 'config', 'filter.goal-malicious.smudge', filter);
+
+  const id = createGovernedGoalId({ now: fixedNow, random: () => Buffer.alloc(10, 21) });
+  await createGovernedGoal(context, personal, { id, config: policy, now: fixedNow });
+
+  await assert.rejects(access(hookSentinel), (error) => error?.code === 'ENOENT');
+  await assert.rejects(access(filterSentinel), (error) => error?.code === 'ENOENT');
+});
+
 test('a fresh clone reconstructs a governed Goal from the lifecycle branch', async () => {
   const { base, remote, context, personal } = await fixture();
   const id = createGovernedGoalId({ now: fixedNow, random: () => Buffer.alloc(10, 9) });
@@ -126,6 +156,133 @@ test('a fresh clone reconstructs a governed Goal from the lifecycle branch', asy
   assert.equal(loaded.contract.contractSha256, created.contract.contractSha256);
   assert.equal(loaded.revision.commit, created.publication.commit);
   assert.equal(git(fresh, 'branch', '--show-current'), 'main');
+});
+
+test('a governed Goal interruption retains and syncs only its exact Candidate commit', async () => {
+  const { remote, repository, context, personal } = await fixture();
+  const id = createGovernedGoalId({ now: fixedNow, random: () => Buffer.alloc(10, 13) });
+  await assert.rejects(
+    () => createGovernedGoal(context, personal, {
+      id, config: policy, now: fixedNow,
+      fault: async (point) => {
+        if (point === 'after-commit') throw new Error('simulated process interruption after Goal commit');
+      }
+    }),
+    /simulated process interruption/
+  );
+
+  const localCommit = git(repository, 'rev-parse', `refs/heads/${id}`);
+  assert.equal(git(repository, 'ls-remote', '--heads', 'origin', id), '');
+  const pending = await readPendingPublication(repository, { kind: 'goal', id });
+  assert.ok(pending, 'Goal interruption lost its exact pending-publication receipt');
+  assert.equal(pending.record.commit, localCommit);
+  const verification = verifyPendingPublicationCommit(repository, pending.record, {
+    subject: { kind: 'goal', id }, branch: id, remote: 'origin'
+  });
+  assert.equal(verification.valid, true, verification.failures.join('; '));
+  assert.equal(verification.candidateVerified, true);
+  assert.equal(pending.record.candidate.candidateTree, pending.record.tree);
+
+  const recovered = await syncGovernedGoal(context, id, { config: policy });
+  assert.equal(recovered.commit, localCommit);
+  assert.equal(recovered.pushed, true);
+  assert.equal(git(remote, 'rev-parse', `refs/heads/${id}`), localCommit);
+  assert.equal(await readPendingPublication(repository, { kind: 'goal', id }), null);
+});
+
+test('killed Goal writers recover before commit, after ref advance, and after push', async (t) => {
+  const cases = [
+    { point: 'after-state-write', entropy: 14, outcome: 'prepared' },
+    { point: 'after-commit', entropy: 15, outcome: 'pending' },
+    { point: 'after-push', entropy: 16, outcome: 'published' }
+  ];
+  for (const item of cases) await t.test(item.point, async () => {
+    const { base, repository, context, personal } = await fixture();
+    const id = createGovernedGoalId({
+      now: fixedNow, random: () => Buffer.alloc(10, item.entropy)
+    });
+    const control = path.join(base, `${item.point}.json`);
+    await writeFile(control, `${JSON.stringify({
+      context, personal, id, config: policy,
+      now: '2026-08-20T00:00:00.000Z', faultPoint: item.point
+    })}\n`);
+    const child = spawnSync(process.execPath, [
+      path.join(testDirectory, 'fixtures/governed-goal-crash-child.mjs'), control
+    ], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(child.signal, 'SIGKILL', child.stderr || child.stdout);
+    assert.equal(git(repository, 'branch', '--show-current'), 'main');
+    assert.equal(git(repository, 'status', '--porcelain'), '');
+
+    const recovered = await syncGovernedGoal(context, id, { config: policy });
+    const localResult = spawnSync('git', [
+      'rev-parse', '--verify', '--quiet', `refs/heads/${id}`
+    ], { cwd: repository, encoding: 'utf8' });
+    const local = localResult.status === 0 ? localResult.stdout.trim() : null;
+    const advertised = git(repository, 'ls-remote', '--heads', 'origin', id);
+    if (item.outcome === 'prepared') {
+      assert.equal(recovered.recoveredPrepared, true);
+      assert.equal(local, null);
+      assert.equal(advertised, '');
+    } else {
+      assert.match(local, /^[0-9a-f]{40,64}$/);
+      assert.equal(advertised.split(/\s+/)[0], local);
+      if (item.outcome === 'pending') assert.equal(recovered.pushed, true);
+      else assert.equal(recovered.noOp, true);
+    }
+    assert.doesNotMatch(git(repository, 'worktree', 'list', '--porcelain'), new RegExp(id));
+    assert.equal(await readPendingPublication(repository, { kind: 'goal', id }), null);
+  });
+});
+
+test('local-only Goal sync restores a killed pre-commit transaction', async () => {
+  const { base, repository, context, personal } = await fixture();
+  const id = createGovernedGoalId({
+    now: fixedNow, random: () => Buffer.alloc(10, 17)
+  });
+  const localPolicy = { git: { remote: 'origin', publish: 'off' } };
+  const control = path.join(base, 'local-only-after-state-write.json');
+  await writeFile(control, `${JSON.stringify({
+    context, personal, id, config: localPolicy,
+    now: '2026-08-20T00:00:00.000Z', faultPoint: 'after-state-write'
+  })}\n`);
+  const child = spawnSync(process.execPath, [
+    path.join(testDirectory, 'fixtures/governed-goal-crash-child.mjs'), control
+  ], { encoding: 'utf8', timeout: 20_000 });
+  assert.equal(child.signal, 'SIGKILL', child.stderr || child.stdout);
+
+  const recovered = await syncGovernedGoal(context, id, { config: localPolicy });
+  assert.equal(recovered.recoveredPrepared, true);
+  assert.equal(recovered.pushed, false);
+  assert.equal(spawnSync('git', [
+    'rev-parse', '--verify', '--quiet', `refs/heads/${id}`
+  ], { cwd: repository }).status, 1);
+  assert.doesNotMatch(git(repository, 'worktree', 'list', '--porcelain'), new RegExp(id));
+  assert.equal(await readPendingPublication(repository, { kind: 'goal', id }), null);
+});
+
+test('Goal sync never removes a user-created linked worktree', async () => {
+  const { base, repository, context, personal } = await fixture();
+  const id = createGovernedGoalId({ now: fixedNow, random: () => Buffer.alloc(10, 18) });
+  await createGovernedGoal(context, personal, { id, config: policy, now: fixedNow });
+  // Prefix resemblance is not ownership: only an exact authenticated SFlow owner receipt permits
+  // automatic cleanup of a temporary Goal lifecycle worktree.
+  const userWorktree = path.join(base, 'sflow-gex-user-owned');
+  git(repository, 'worktree', 'add', userWorktree, id);
+  const administrative = git(userWorktree, 'rev-parse', '--absolute-git-dir');
+  await writeFile(path.join(administrative, 'singularity-flow-goal-owner.json'), `${JSON.stringify({
+    format: 'sflow-goal-lifecycle-worktree-owner-v1',
+    id,
+    branch: id,
+    path: await realpath(userWorktree),
+    gitDir: await realpath(administrative),
+    nonce: 'a'.repeat(64),
+    createdAt: fixedNow().toISOString()
+  })}\n`);
+
+  const result = await syncGovernedGoal(context, id, { config: policy });
+  assert.equal(result.noOp, true);
+  assert.match(git(repository, 'worktree', 'list', '--porcelain'), new RegExp(id));
+  assert.equal(git(userWorktree, 'status', '--porcelain'), '');
 });
 
 test('editing an approved plan invalidates its exact-hash authority before execution', async () => {

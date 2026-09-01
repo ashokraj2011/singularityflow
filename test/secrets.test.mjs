@@ -130,6 +130,16 @@ test('binary and lockfiles are skipped; test directories are not', () => {
   assert.equal(scannablePath('src/app.js'), true);
 });
 
+test('an explicitly non-regular entry cannot hide a secret behind a binary extension', () => {
+  const scan = scanEntries([{
+    path: 'evidence/screenshot.png',
+    content: `ghp_${'Z'.repeat(36)}`,
+    forceScan: true
+  }]);
+  assert.equal(scan.skipped.length, 0);
+  assert.equal(scan.blocking[0]?.rule, 'github-token');
+});
+
 test('an unreadable file refuses the commit rather than passing quietly', () => {
   // A scanner that treats "could not read" as "nothing found" is worse than no scanner, because
   // people stop looking.

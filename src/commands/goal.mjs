@@ -543,6 +543,26 @@ export async function run(_argv, { positionals, options, operation }) {
 
     if (subcommand === 'sync') {
       const publication = await syncGovernedGoal(context, governedId, { config });
+      // A process can die while creating a Goal, before the first governed commit advances the
+      // new GEX branch. Exact preimage recovery then deliberately removes that never-published
+      // branch. Do not turn successful recovery into a misleading NOT_FOUND error by trying to
+      // load an authority that correctly no longer exists.
+      if (publication.recoveredPrepared === true && !publication.commit) {
+        return emitCommandResult(commandResult({
+          operation: { id: operation.id, classification: operation.classification },
+          subject: { kind: 'goal', id: governedId },
+          outcome: succeeded('goal.precommit-recovered', { goalId: governedId }),
+          effects: effects({ stateChanged: true }),
+          why: provenance(context),
+          next: [],
+          restState: 'informational',
+          data: {
+            workspace: goalWorkspaceSummary(context),
+            authority: GOVERNED_GOAL_AUTHORITY,
+            publication
+          }
+        }), { json });
+      }
       const current = loadGovernedGoal(context, governedId, { config });
       const loaded = { ...current, publication };
       return emitCommandResult(governedResult(operation, context, loaded, {

@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import {
   initiativeBreakdownReview,
+  initiativeRepositoryClonePath,
   initiativeMilestoneReadiness,
   loadInitiativeBreakdown,
   materializeInitiative,
@@ -19,6 +20,7 @@ import {
 import { deriveInitiativeReport } from '../src/initiative-report.mjs';
 import { initiativeImpact } from '../src/initiative-impact.mjs';
 import { run } from '../src/util.mjs';
+import { readPendingPublication } from '../src/publication-pending.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Initiative Owner';
@@ -566,4 +568,69 @@ test('materialization copies the approved artifacts into each Story as governed 
   // The bytes travel, not just the names: this is what the Story is allowed to cite.
   assert.match(await readFile(path.join(contextRoot, 'requirements.md'), 'utf8'), /REQ-001/);
   assert.match(await readFile(path.join(contextRoot, 'story-specification.md'), 'utf8'), /STORY-001/);
+});
+
+test('Candidate failure restores a managed child clone before Story materialization', async () => {
+  const { root } = await planningRepository();
+  const result = await materializeInitiative(root, 'EPIC-CTX', {
+    confirmation: 'EPIC-CTX',
+    fault: (stage) => {
+      if (stage === 'after-candidate-verification') {
+        throw new Error('refuse child Story Candidate');
+      }
+    }
+  });
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0].error, /refuse child Story Candidate/);
+
+  const clone = await initiativeRepositoryClonePath(root, 'EPIC-CTX', 'api');
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: clone }).stdout.trim(), 'main');
+  assert.equal(
+    run('git', ['rev-parse', 'HEAD'], { cwd: clone }).stdout.trim(),
+    run('git', ['rev-parse', 'origin/main'], { cwd: clone }).stdout.trim()
+  );
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: clone }).stdout.trim(), '');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/STORY-001'], {
+    cwd: clone, allowFailure: true
+  }).status, 1);
+  await assert.rejects(
+    readFile(path.join(clone, 'singularity/seeds/STORY-001.yml')),
+    (error) => error?.code === 'ENOENT'
+  );
+  await assert.rejects(
+    readFile(path.join(clone, 'singularity/story-context/STORY-001/requirements.md')),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('Story materialization rerun publishes only its retained Candidate after interruption', async () => {
+  const { root, api } = await planningRepository();
+  const interrupted = await materializeInitiative(root, 'EPIC-CTX', {
+    confirmation: 'EPIC-CTX',
+    fault: (stage) => {
+      if (stage === 'after-commit') throw new Error('interrupt child Story after Candidate commit');
+    }
+  });
+  assert.equal(interrupted.failures.length, 1);
+  assert.match(interrupted.failures[0].error, /interrupt child Story/);
+
+  const clone = await initiativeRepositoryClonePath(root, 'EPIC-CTX', 'api');
+  const retained = run('git', ['rev-parse', 'refs/heads/STORY-001'], { cwd: clone }).stdout.trim();
+  const pending = await readPendingPublication(clone, {
+    kind: 'story', id: 'STORY-001', migrate: false
+  });
+  assert.equal(pending?.record?.commit, retained);
+  assert.ok(pending?.record?.candidate);
+
+  const recovered = await materializeInitiative(root, 'EPIC-CTX', {
+    confirmation: 'EPIC-CTX'
+  });
+  assert.deepEqual(recovered.failures, []);
+  assert.equal(
+    run('git', ['--git-dir', api, 'rev-parse', 'refs/heads/STORY-001'], { cwd: root }).stdout.trim(),
+    retained
+  );
+  assert.equal(await readPendingPublication(clone, {
+    kind: 'story', id: 'STORY-001', migrate: false
+  }), null);
 });

@@ -8,13 +8,16 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import YAML from 'yaml';
 import { run } from '../src/util.mjs';
-import { bootstrapRepository, repositoryIdFromUrl } from '../src/bootstrap.mjs';
+import {
+  bootstrapBranchPatterns, bootstrapRepository, repositoryIdFromUrl
+} from '../src/bootstrap.mjs';
 
 process.env.NODE_ENV = 'test';
 process.env.SINGULARITY_FLOW_TEST_IDENTITY = 'Bootstrap Tester';
@@ -40,6 +43,11 @@ test('a repository identifier comes from the URL, however it is written', () => 
   assert.equal(repositoryIdFromUrl('git@git.example.corp:acme/platform.git'), 'platform');
   assert.equal(repositoryIdFromUrl('/srv/git/platform.git/'), 'platform');
   assert.throws(() => repositoryIdFromUrl(''), /Cannot derive a repository identifier/);
+  assert.deepEqual(bootstrapBranchPatterns(), [
+    'HEAD', 'refs/heads/main', 'refs/heads/master'
+  ], 'normal bootstrap discovery remains bounded to one conventional-ref request');
+  assert.deepEqual(bootstrapBranchPatterns({ fallback: true }), ['refs/heads/*'],
+    'all-head discovery is an explicit recovery request');
 });
 
 test('bootstrapping governs a repository that knew nothing about any of this', async () => {
@@ -248,4 +256,99 @@ test('a URL nothing answers is refused before anything is written', async () => 
     () => bootstrapRepository(path.join(base, 'absent.git'), { capabilityId: 'commerce', base }),
     /Cannot clone/);
   assert.equal(existsSync(path.join(base, 'absent')), false);
+});
+
+test('bootstrap rejects an unborn remote after one bounded fallback inventory', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-unborn-'));
+  const bare = path.join(base, 'unborn.git');
+  await mkdir(bare);
+  run('git', ['init', '-q', '--bare', bare], { cwd: base });
+  await assert.rejects(
+    () => bootstrapRepository(bare, { capabilityId: 'unborn', base }),
+    (error) => error?.code === 'REMOTE_BRANCH_NOT_FOUND'
+  );
+  assert.equal(existsSync(path.join(base, 'unborn')), false);
+});
+
+test('bootstrap does not execute inherited Git transport commands', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-command-env-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const marker = path.join(base, 'transport-command-ran');
+  const command = path.join(base, 'hostile-ssh.mjs');
+  await writeFile(command, [
+    '#!/usr/bin/env node',
+    "import { writeFileSync } from 'node:fs';",
+    `writeFileSync(${JSON.stringify(marker)}, 'executed\\n');`,
+    'process.exit(1);',
+    ''
+  ].join('\n'));
+  await chmod(command, 0o755);
+  const changed = {
+    GIT_SSH: command,
+    GIT_SSH_COMMAND: `"${process.execPath}" "${command}"`,
+    SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS: '1000'
+  };
+  const previous = new Map(Object.keys(changed).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, changed);
+  try {
+    await assert.rejects(
+      () => bootstrapRepository('ssh://127.0.0.1:1/acme/repository.git', {
+        capabilityId: 'safe-transport', base
+      }),
+      /Cannot clone/
+    );
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.equal(existsSync(marker), false,
+    'bootstrap executed an inherited Git transport command');
+});
+
+test('bootstrap remote discovery is asynchronously supervised and bounded', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-deadline-'));
+  const bin = path.join(base, 'bin');
+  await mkdir(bin);
+  const fakeGit = path.join(bin, 'git');
+  await writeFile(fakeGit, [
+    '#!/usr/bin/env node',
+    "process.on('SIGTERM', () => {});",
+    'setInterval(() => {}, 1000);',
+    ''
+  ].join('\n'));
+  await chmod(fakeGit, 0o755);
+
+  const keys = [
+    'PATH', 'SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS',
+    'SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS'
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
+  process.env.SINGULARITY_FLOW_GIT_PREFLIGHT_TIMEOUT_MS = '30';
+  process.env.SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS = '40';
+  let eventLoopAdvanced = false;
+  const tick = setTimeout(() => { eventLoopAdvanced = true; }, 5);
+  const startedAt = performance.now();
+  try {
+    await assert.rejects(
+      bootstrapRepository('https://deadline.invalid/repository.git', {
+        capabilityId: 'deadline', base
+      }),
+      (error) => error?.code === 'REMOTE_NETWORK_TRANSIENT'
+    );
+  } finally {
+    clearTimeout(tick);
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(eventLoopAdvanced, true,
+    'bootstrap blocked the event loop while waiting for remote discovery');
+  assert.ok(elapsedMs < 500, `bootstrap escaped its deadline plus grace (${elapsedMs}ms)`);
 });

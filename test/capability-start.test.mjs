@@ -144,18 +144,26 @@ test('capability sibling Story branches are published for another machine', asyn
   prepareCapabilityRepositories(base, plan, 'S-REMOTE');
 
   const leadRoot = path.join(base, repositories[0].path);
-  const publicationPlan = capabilityPublicationPlan(checked, leadRoot);
+  const publicationPlan = await capabilityPublicationPlan(checked, leadRoot);
   assert.deepEqual(publicationPlan.map((entry) => entry.repository), ['payments-web']);
-  const result = publishCapabilityRepositories(publicationPlan);
+  const result = await publishCapabilityRepositories(publicationPlan);
   assert.equal(result.error, null);
   assert.deepEqual(result.pending, []);
   assert.equal(result.published[0].branch, 'S-REMOTE');
 
   const sibling = path.join(base, repositories[1].path);
-  assert.equal(
-    run('git', ['rev-parse', 'refs/remotes/origin/S-REMOTE'], { cwd: sibling }).stdout.trim(),
-    run('git', ['rev-parse', 'refs/remotes/origin/main'], { cwd: sibling }).stdout.trim()
-  );
+  const siblingStory = run('git', ['rev-parse', 'refs/remotes/origin/S-REMOTE'], {
+    cwd: sibling
+  }).stdout.trim();
+  const selectedBase = run('git', ['rev-parse', 'refs/remotes/origin/main'], {
+    cwd: sibling
+  }).stdout.trim();
+  assert.equal(siblingStory, selectedBase,
+    'the sibling Story branch must retain the selected exact base commit');
+  assert.equal(publicationPlan[0].commit, selectedBase,
+    'the publication plan must not invent a new empty-scope commit');
+  assert.equal(publicationPlan[0].candidate.candidateCommit, selectedBase,
+    'the Candidate must retain and verify the exact commit being published');
   const clone = path.join(base, 'other-machine');
   git(base, 'clone', '--quiet', repositories[1].url, clone);
   assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/S-REMOTE'], {
@@ -257,13 +265,13 @@ test('capability publication keeps the verified remote authority when a pre-push
   const checked = await preflightStoryRepositories(base, plan, 'S-AUTHORITY-RACE');
   prepareCapabilityRepositories(base, plan, 'S-AUTHORITY-RACE');
   const leadRoot = path.join(base, repositories[0].path);
-  const entries = capabilityPublicationPlan(checked, leadRoot);
+  const entries = await capabilityPublicationPlan(checked, leadRoot);
   const sibling = path.join(base, repositories[1].path);
   const hook = path.join(sibling, '.git', 'hooks', 'pre-push');
   await writeFile(hook, `#!/bin/sh\ngit remote set-url origin ${JSON.stringify(alternate)}\n`);
   await chmod(hook, 0o755);
 
-  const result = publishCapabilityRepositories(entries);
+  const result = await publishCapabilityRepositories(entries);
   assert.equal(result.error, null);
   assert.deepEqual(result.pending, []);
   assert.match(git(sibling, 'config', '--get', 'remote.origin.url').stdout, /alternate\.git/);
@@ -290,12 +298,12 @@ test('a post-preflight sibling publication failure returns an exact resumable re
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-RECOVER');
   prepareCapabilityRepositories(base, plan, 'S-RECOVER');
-  const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
+  const entries = await capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
   const rejectHook = path.join(repositories[1].url, 'hooks', 'pre-receive');
   await writeFile(rejectHook, '#!/bin/sh\nexit 1\n');
   await chmod(rejectHook, 0o755);
-  const failed = publishCapabilityRepositories(entries);
+  const failed = await publishCapabilityRepositories(entries);
   assert.equal(failed.pending.length, 1);
   assert.equal(failed.pending[0].repository, 'sibling');
   assert.equal(failed.pending[0].pushOutcome, 'rejected');
@@ -304,11 +312,11 @@ test('a post-preflight sibling publication failure returns an exact resumable re
   await writeFile(rejectHook, '#!/bin/sh\nexit 0\n');
   // A known rejection cannot later claim an identical ref that somebody else published.
   git(sibling, 'push', 'origin', `${failed.pending[0].commit}:refs/heads/S-RECOVER`);
-  const collision = publishCapabilityRepositories(failed.pending);
+  const collision = await publishCapabilityRepositories(failed.pending);
   assert.equal(collision.pending.length, 1);
   assert.equal(collision.pending[0].pushOutcome, 'rejected');
   git(sibling, 'push', 'origin', ':refs/heads/S-RECOVER');
-  const recovered = publishCapabilityRepositories(failed.pending);
+  const recovered = await publishCapabilityRepositories(failed.pending);
   assert.equal(recovered.error, null);
   assert.deepEqual(recovered.pending, []);
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/S-RECOVER'], { cwd: sibling }).stdout.trim(),
@@ -328,7 +336,7 @@ test('an indeterminate sibling push reconciles only its exact remote Story ref',
   const plan = { repositories, resolution };
   const checked = await preflightStoryRepositories(base, plan, 'S-INDETERMINATE');
   prepareCapabilityRepositories(base, plan, 'S-INDETERMINATE');
-  const entries = capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
+  const entries = await capabilityPublicationPlan(checked, path.join(base, repositories[0].path));
   const sibling = path.join(base, repositories[1].path);
   const hook = path.join(repositories[1].url, 'hooks/post-receive');
   // Under the full Git-heavy suite, 50 ms can expire before receive-pack even reaches the hook.
@@ -340,7 +348,7 @@ test('an indeterminate sibling push reconciles only its exact remote Story ref',
   process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = '2000';
   let failed;
   try {
-    failed = publishCapabilityRepositories(entries);
+    failed = await publishCapabilityRepositories(entries);
   } finally {
     if (previousTimeout === undefined) delete process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS;
     else process.env.SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS = previousTimeout;
@@ -352,7 +360,7 @@ test('an indeterminate sibling push reconciles only its exact remote Story ref',
     repositories[1].url, 'refs/heads/S-INDETERMINATE', failed.pending[0].commit
   );
   await writeFile(hook, '#!/bin/sh\nexit 0\n');
-  const recovered = publishCapabilityRepositories(failed.pending);
+  const recovered = await publishCapabilityRepositories(failed.pending);
   assert.equal(recovered.error, null);
   assert.deepEqual(recovered.pending, []);
   assert.equal(recovered.published[0].reconciled, true);

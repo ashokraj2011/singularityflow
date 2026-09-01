@@ -339,14 +339,24 @@ export async function runRemoteGitAsync(args, {
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
   });
+  const classified = result.status === 0 && !result.outputOverflow
+    ? null
+    : classifyGitRemoteFailure(result);
   const failure = result.aborted
     ? {
         code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,
         advice: 'The Git operation was cancelled before it completed. Retry when ready.'
       }
-    : result.status === 0 && !result.outputOverflow
+    : result.outputOverflow
+      ? {
+          ...classified,
+          code: 'REMOTE_OUTPUT_LIMIT',
+          retryable: true,
+          advice: 'Git produced more diagnostic or reference data than the bounded operation permits. Narrow the requested refs or inspect the provider outside SFlow.'
+        }
+    : result.status === 0
     ? null
-    : classifyGitRemoteFailure(result);
+    : classified;
   const observed = { ...result, failure, operation, timeoutMs };
   recordRemoteGitOutcome(observed);
   if ((result.status !== 0 || result.outputOverflow) && !allowFailure) throwRemoteFailure(observed);

@@ -3,11 +3,16 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import {
-  add, branch, checkout, commit, fetchRemote, fileAtRef, hasRemote, pushBranch, refExists, remoteBranches
+  branch, checkout, fetchRemote, fileAtRef, hasRemote, head, refExists, refHead, remoteBranches
 } from './git.mjs';
 import {
   ensureDir, exists, nowIso, posix, run, SingularityFlowError, writeJson
 } from './util.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
+import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import {
+  clearPendingPublication, readPendingPublication, syncPendingLifecyclePublication
+} from './publication-pending.mjs';
 
 function escaped(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -156,7 +161,8 @@ export async function currentLocalEpicReservation(root, portfolio, {
   return {
     id,
     reservationCommit,
-    pushed: refExists(root, `refs/remotes/${remote}/${id}`),
+    pushed: refExists(root, `refs/remotes/${remote}/${id}`)
+      && refHead(root, `refs/remotes/${remote}/${id}`) === reservationCommit,
     recoverable: true,
     reservedAt: record.reservedAt ?? null,
     reservedBy: record.reservedBy ?? null
@@ -203,7 +209,8 @@ export async function reserveLocalEpicBranch(root, portfolio, {
   base = 'main',
   actor,
   remote = portfolio.git?.remote ?? 'origin',
-  maxAttempts = 5
+  maxAttempts = 5,
+  fault = null
 } = {}) {
   if (branch(root) !== base) {
     throw new SingularityFlowError(`Local Epic allocation must start on base branch '${base}', not '${branch(root)}'.`);
@@ -217,36 +224,137 @@ export async function reserveLocalEpicBranch(root, portfolio, {
     checkout(root, id, { base, remote, preferRemoteBase: true });
     const relative = posix(path.join('singularity', 'identity-reservations', `${id}.json`));
     const absolute = path.join(root, relative);
-    await ensureDir(path.dirname(absolute));
-    await writeJson(absolute, {
+    const reservation = {
       schemaVersion: currentSchemaVersion('local-identity-reservation'),
       id,
       kind: 'epic',
       authority: 'local',
       reservedAt: nowIso(),
       reservedBy: actor ?? null
-    });
-    add(root, [relative]);
-    const reservationCommit = commit(root, `[${id}][identity:reserve] Reserve local Epic ID`, [relative]);
-    if (portfolio.git?.publish === 'off') {
-      return { id, reservationCommit, pushed: false, attempt };
+    };
+    const subject = { kind: 'initiative', id, branch: id };
+    const publicationMode = portfolio.git?.publish === 'off' ? 'off' : 'required';
+    const expectedHead = head(root);
+    let publication;
+    try {
+      publication = await publishLifecycleChange(root, {
+        subject,
+        expectedRevision: { head: expectedHead },
+        allowedPaths: [relative],
+        event: lifecycleEvent({
+          type: LIFECYCLE_EVENT.BINDING, subject, actor,
+          payload: { operation: 'reserve-local-epic-identity', authority: 'local' }
+        }),
+        commit: { message: `[${id}][identity:reserve] Reserve local Epic ID` },
+        publication: {
+          mode: publicationMode, branch: id, remote,
+          expectedLocalHead: expectedHead,
+          ...(publicationMode === 'off' ? {} : { expectedRemoteSha: null })
+        },
+        fault,
+        // The UoW must capture the absent-file preimage before reservation bytes exist. Writing
+        // earlier made an admission/Candidate failure restore the already-mutated state as if it
+        // were the stable baseline.
+        state: {
+          write: async () => {
+            await ensureDir(path.dirname(absolute));
+            await writeJson(absolute, reservation);
+          }
+        }
+      });
+    } catch (error) {
+      const discardUncommittedReservation = () => {
+        if (error?.publicationRefAdvanced === true
+            || branch(root) !== id
+            || head(root) !== expectedHead
+            || run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim()) return false;
+        run('git', ['switch', base], { cwd: root });
+        run('git', ['branch', '-D', id], { cwd: root });
+        return true;
+      };
+      if (publicationMode === 'off' || !hasRemote(root, remote)) {
+        discardUncommittedReservation();
+        throw error;
+      }
+      // Never infer create-only ownership from remote equality after a failed push. Only the
+      // machine-sealed `transport-indeterminate` outcome may reconcile exact equality; a
+      // definitive rejection can mean another actor installed the same object ID first.
+      const recoveryReceipt = await readPendingPublication(root, {
+        ...subject, migrate: false
+      });
+      if (!['rejected', 'transport-indeterminate']
+        .includes(recoveryReceipt?.record?.pushOutcome)) {
+        discardUncommittedReservation();
+        throw error;
+      }
+      let syncFailure = null;
+      try {
+        const recovered = await syncPendingLifecyclePublication(root, {
+          ...subject, branch: id, remote
+        });
+        if (recovered.pushed) {
+          return {
+            id, reservationCommit: recovered.pushed,
+            pushed: true, recovered: true, attempt
+          };
+        }
+      } catch (failure) {
+        syncFailure = failure;
+        if (failure?.code !== 'PUBLICATION_PUSH_FAILED') throw failure;
+      }
+      fetchRemote(root, remote);
+      const remoteRef = `refs/remotes/${remote}/${id}`;
+      if (!refExists(root, remoteRef)) {
+        discardUncommittedReservation();
+        throw syncFailure ?? error;
+      }
+      if (refHead(root, remoteRef) === head(root)) throw syncFailure ?? error;
+      // A different contributor won the create-only lease. Remove only this exact local attempt
+      // after its pending receipt is cleared, then allocate the next ID from refreshed authority.
+      await clearPendingPublication(root, subject);
+      run('git', ['switch', base], { cwd: root });
+      run('git', ['branch', '-D', id], { cwd: root });
+      continue;
     }
-    if (!hasRemote(root, remote)) {
-      throw new SingularityFlowError(
-        `Local Epic reservation ${id} was committed but publication is required and remote '${remote}' is unavailable.`
-      );
-    }
-    const pushed = pushBranch(root, remote, id);
-    if (pushed.status === 0) return { id, reservationCommit, pushed: true, attempt };
-
-    fetchRemote(root, remote);
-    if (!refExists(root, `refs/remotes/${remote}/${id}`)) {
-      throw new SingularityFlowError(
-        `Local Epic reservation ${id} was committed but could not be pushed: ${(pushed.stderr || pushed.stdout).trim()}`
-      );
-    }
-    run('git', ['switch', base], { cwd: root });
-    run('git', ['branch', '-D', id], { cwd: root });
+    const reservationCommit = publication.sha;
+    if (publicationMode === 'off') return { id, reservationCommit, pushed: false, attempt };
+    if (publication.pushed) return { id, reservationCommit, pushed: true, attempt };
+    throw new SingularityFlowError(
+      `Local Epic reservation ${id} did not reach its required publication boundary.`
+    );
   }
   throw new SingularityFlowError(`Unable to reserve a unique local Epic ID after ${maxAttempts} concurrent attempts.`);
+}
+
+/** Finish only the exact Candidate-bound local Epic reservation retained by a failed start. */
+export async function syncLocalEpicReservation(root, portfolio, reservation = null, {
+  remote = portfolio.git?.remote ?? 'origin'
+} = {}) {
+  const current = reservation ?? await currentLocalEpicReservation(root, portfolio, {
+    remote, fetch: true
+  });
+  if (!current) {
+    throw new SingularityFlowError('No recoverable local Epic reservation is active.', {
+      code: 'LOCAL_EPIC_RESERVATION_NOT_FOUND'
+    });
+  }
+  const subject = { kind: 'initiative', id: current.id };
+  const pending = await readPendingPublication(root, { ...subject, migrate: false });
+  if (!pending) {
+    if (current.pushed) return { ...current, recovered: false, noOp: true };
+    throw new SingularityFlowError(
+      `Local Epic reservation '${current.id}' has no exact pending-publication receipt. `
+      + 'Automatic push was refused; inspect the reservation commit before continuing.',
+      { code: 'LOCAL_EPIC_RESERVATION_RECEIPT_REQUIRED' }
+    );
+  }
+  const result = await syncPendingLifecyclePublication(root, {
+    ...subject, branch: current.id, remote
+  });
+  return {
+    ...current,
+    reservationCommit: result.pushed ?? current.reservationCommit,
+    pushed: Boolean(result.pushed),
+    recovered: result.recovered === true
+  };
 }

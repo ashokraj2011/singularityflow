@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { gitDir, hasRemote, head, identity } from './git.mjs';
+import { branch, gitDir, hasRemote, head, identity, refExists } from './git.mjs';
 import { findOrCreateIssue } from './jira.mjs';
 import {
   loadInitiative, saveInitiativeDraft, secureInitiativePath
@@ -19,6 +19,11 @@ import { runRemoteGit } from './git-execution.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
+import { publishLifecycleChange } from './publication-unit-of-work.mjs';
+import {
+  readPendingPublication, syncPendingLifecyclePublication
+} from './publication-pending.mjs';
 
 function safeId(value, label) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) throw new SingularityFlowError(`${label} must be a safe identifier.`);
@@ -531,7 +536,7 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
     initiative.resolution.profile !== 'epic-planning'
     || !initiative.phases['epic-planning']
     || !initiative.phases['epic-requirements']
-  ) return [];
+  ) return { records: [], writes: [], changed: false };
   const planning = initiative.phases['epic-planning'];
   const requirements = initiative.phases['epic-requirements'];
   const indexOutput = planning.outputs['story-specification-index'];
@@ -570,6 +575,8 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
   ];
   const contextRoot = path.posix.join('singularity', 'story-context', story.workId);
   const records = [];
+  const writes = [];
+  let changed = false;
   for (const item of sources) {
     const source = item.initiativeRelative
       ? await secureInitiativePath(root, portfolio, initiative.initiative.id, item.output.path, {
@@ -591,8 +598,11 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
     const destination = await secureRepositoryPath(target, relative, {
       label: `Materialized Story context '${item.id}'`
     });
-    await mkdir(path.dirname(destination.absolute), { recursive: true });
-    await writeText(destination.absolute, await readFile(source.absolute, 'utf8'));
+    const contents = await readFile(source.absolute, 'utf8');
+    let currentContents = null;
+    if (destination.exists) currentContents = await readFile(destination.absolute, 'utf8');
+    if (currentContents !== contents) changed = true;
+    writes.push({ absolute: destination.absolute, contents });
     records.push({
       id: item.id,
       path: relative,
@@ -601,10 +611,12 @@ async function materializeStoryContext(root, portfolio, initiative, story, targe
       bytes: current.size
     });
   }
-  return records;
+  return { records, writes, changed };
 }
 
-async function materializeStory(root, portfolio, initiative, story, actor, { capabilityBase = null } = {}) {
+async function materializeStory(root, portfolio, initiative, story, actor, {
+  capabilityBase = null, fault = null
+} = {}) {
   const repository = initiative.resolution.repositories?.[story.repository] ?? portfolio.repositories[story.repository];
   const target = await managedClonePath(root, initiative.initiative.id, story.repository);
   if (!(await exists(path.join(target, '.git')))) {
@@ -620,6 +632,16 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
     cwd: target, operation: 'remote-configuration', allowFailure: false
   });
   const branchName = story.workId ?? story.id;
+  const interrupted = await readPendingPublication(target, {
+    kind: 'story', id: branchName, migrate: false
+  });
+  if (interrupted) {
+    await syncPendingLifecyclePublication(target, {
+      kind: 'story', id: branchName, branch: branchName, remote: 'origin'
+    });
+  }
+  const originalCheckout = { branch: branch(target), head: head(target) };
+  const storyBranchExisted = refExists(target, `refs/heads/${branchName}`);
   const remoteHead = remoteBranchHead(repository.url, branchName, target);
   if (remoteHead) {
     const switched = run('git', ['switch', '-C', branchName, `origin/${branchName}`], { cwd: target, allowFailure: true });
@@ -639,6 +661,8 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
     run('git', ['switch', '-C', branchName, base], { cwd: target });
   }
   if (run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim()) throw new SingularityFlowError(`Managed clone for '${story.repository}' is not clean.`);
+  const storyBaseline = head(target);
+  try {
   const relativeSeed = posix(path.join('singularity', 'seeds', `${branchName}.yml`));
   let seedPath = await secureRepositoryPath(target, relativeSeed, {
     label: `Story '${branchName}' seed`,
@@ -646,11 +670,44 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
   });
   const parentBranch = parentBranchFor(root, repository, initiative, capabilityBase);
   const baseCommit = run('git', ['rev-parse', `origin/${parentBranch}`], { cwd: target, allowFailure: true });
-  const governedContext = await materializeStoryContext(root, portfolio, initiative, story, target);
+  const contextMaterialization = await materializeStoryContext(
+    root, portfolio, initiative, story, target
+  );
+  const governedContext = contextMaterialization.records;
   const seed = storySeed(root, initiative, story, {
     parentBranch,
     baseCommit: baseCommit.status === 0 ? baseCommit.stdout.trim() : null,
     governedContext
+  });
+  const publishSeed = async (message, paths, seedContents) => publishLifecycleChange(target, {
+    subject: { kind: 'story', id: branchName, branch: branchName },
+    expectedRevision: { head: head(target) },
+    allowedPaths: paths,
+    event: lifecycleEvent({
+      type: LIFECYCLE_EVENT.BRANCH_LINKED,
+      subject: { kind: 'story', id: branchName, branch: branchName },
+      actor,
+      payload: {
+        initiativeId: initiative.initiative.id,
+        repository: story.repository,
+        seed: relativeSeed
+      }
+    }),
+    commit: { message },
+    publication: {
+      mode: 'required', remote: 'origin', branch: branchName,
+      expectedLocalHead: head(target),
+      expectedRemoteSha: remoteHead ?? null
+    },
+    state: {
+      write: async () => {
+        for (const item of contextMaterialization.writes) {
+          await writeText(item.absolute, item.contents);
+        }
+        await writeText(seedPath.absolute, seedContents);
+      }
+    },
+    fault
   });
   if (seedPath.exists) {
     const current = YAML.parse(await readFile(seedPath.absolute, 'utf8'));
@@ -663,26 +720,42 @@ async function materializeStory(root, portfolio, initiative, story, actor, { cap
       approvedArtifacts: seed.approvedArtifacts,
       contracts: seed.contracts
     };
-    if (YAML.stringify(current) !== YAML.stringify(refreshed)) {
-      await writeText(seedPath.absolute, YAML.stringify(refreshed));
-      run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
-      run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Refresh initiative linkage`], { cwd: target });
-      const pushed = runRemoteGit(['push', 'origin', `HEAD:${branchName}`], {
-        cwd: target, operation: 'remote-push'
-      });
-      if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' refreshed seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
-      return { status: 'updated', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
+    const refreshedContents = YAML.stringify(refreshed);
+    if (YAML.stringify(current) !== refreshedContents || contextMaterialization.changed) {
+      const publication = await publishSeed(
+        `[${initiative.initiative.id}][story:${branchName}][seed] Refresh initiative linkage`,
+        [relativeSeed, ...governedContext.map((item) => item.path)],
+        refreshedContents
+      );
+      return { status: 'updated', branch: branchName, commit: publication.sha, seed: relativeSeed };
     }
     return { status: 'attached', branch: branchName, commit: remoteHead, seed: relativeSeed };
   }
-  await writeText(seedPath.absolute, YAML.stringify(seed));
-  run('git', ['add', '--', relativeSeed, ...governedContext.map((item) => item.path)], { cwd: target });
-  run('git', ['commit', '-m', `[${initiative.initiative.id}][story:${branchName}][seed] Link initiative`], { cwd: target });
-  const pushed = runRemoteGit(['push', '-u', 'origin', `HEAD:${branchName}`], {
-    cwd: target, operation: 'remote-push'
-  });
-  if (pushed.status !== 0) throw new SingularityFlowError(`Story '${branchName}' seed commit was retained locally but push failed: ${(pushed.stderr || pushed.stdout).trim()}`);
-  return { status: 'created', branch: branchName, commit: run('git', ['rev-parse', 'HEAD'], { cwd: target }).stdout.trim(), seed: relativeSeed };
+  const publication = await publishSeed(
+    `[${initiative.initiative.id}][story:${branchName}][seed] Link initiative`,
+    [relativeSeed, ...governedContext.map((item) => item.path)],
+    YAML.stringify(seed)
+  );
+  return { status: 'created', branch: branchName, commit: publication.sha, seed: relativeSeed };
+  } catch (error) {
+    // A failed Candidate/admission has no branch authority. The UoW restores its captured files;
+    // when the branch still names the exact starting commit and is clean, also restore the managed
+    // checkout and remove only the branch this attempt created. A post-commit/push failure keeps its
+    // Story branch and pending receipt intact for exact recovery.
+    const unchanged = head(target) === storyBaseline
+      && !run('git', ['status', '--porcelain'], { cwd: target }).stdout.trim();
+    if (unchanged && originalCheckout.branch !== branchName) {
+      run('git', ['switch', originalCheckout.branch], { cwd: target });
+      if (!storyBranchExisted) run('git', ['branch', '-D', branchName], { cwd: target });
+      if (head(target) !== originalCheckout.head) {
+        throw new SingularityFlowError(
+          `Managed clone '${story.repository}' did not return to its exact pre-materialization checkout.`,
+          { code: 'INITIATIVE_MATERIALIZATION_ROLLBACK_FAILED', cause: error }
+        );
+      }
+    }
+    throw error;
+  }
 }
 
 async function materializeJira(portfolio, initiative, breakdown, { env, fetchImpl } = {}) {
@@ -740,7 +813,8 @@ export async function materializeInitiative(root, initiativeId, {
    * is governance, not a preference. Null keeps the previous behaviour exactly: each repository
    * branches from its own default.
    */
-  capabilityBase = null
+  capabilityBase = null,
+  fault = null
 } = {}) {
   const review = await initiativeBreakdownReview(root, initiativeId, { probe: !dryRun });
   if (dryRun) return { dryRun: true, review };
@@ -782,7 +856,9 @@ export async function materializeInitiative(root, initiativeId, {
   for (const story of breakdown.stories) {
     let receipt;
     try {
-      receipt = await materializeStory(root, portfolio, initiative, story, actor, { capabilityBase });
+      receipt = await materializeStory(root, portfolio, initiative, story, actor, {
+        capabilityBase, fault
+      });
       initiative.childStories[story.id] = {
         ...story,
         workId: story.workId,

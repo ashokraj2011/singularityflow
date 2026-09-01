@@ -18,6 +18,7 @@ import {
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { gitCommitIdentity } from './git.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -25,7 +26,7 @@ import {
   sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { gitWorkerCount, isGitRefName, mapLimit, SingularityFlowError, run, writeAtomic } from './util.mjs';
-import { runRemoteGit, runRemoteGitAsync } from './git-execution.mjs';
+import { runRemoteGitAsync } from './git-execution.mjs';
 import { VERSION } from './version.mjs';
 import { readWorkspace, readWorkspaceRegistry, workspaceRepositoryPath } from './workspace.mjs';
 
@@ -98,6 +99,13 @@ function equal(left, right) {
 
 function refreshErrorMessage(error) {
   return error?.message == null ? null : redactDiagnosticText(error.message);
+}
+
+function remoteFailureMessage(result, fallback = 'Git remote access failed. Inspect repository access and retry.') {
+  // Provider output can contain proxy URLs, CA paths, credential-helper commands/output, and hook
+  // diagnostics. Configuration refresh records are durable and UI-visible, so expose only the
+  // closed-vocabulary classifier/advice produced by the shared Git boundary.
+  return result?.failure?.advice ?? fallback;
 }
 
 function plainObject(value) {
@@ -573,9 +581,8 @@ async function cloneConfiguration(remote, { env = process.env } = {}) {
   if (cloned.status !== 0) {
     await rm(scratch, { recursive: true, force: true });
     throw new SingularityFlowError(
-      `Cannot clone '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}': ${redactDiagnosticText(
-        (cloned.stderr || cloned.stdout).trim().split('\n')[0]
-      )}`
+      `Cannot clone '${sanitizeRemote(remote)}' branch '${CONFIGURATION_BRANCH}'. `
+        + remoteFailureMessage(cloned)
     );
   }
   return { root: scratch, env: transport.env };
@@ -1150,79 +1157,6 @@ async function claimRefreshPlanRoot(cache, entry, { env = isolatedCacheGitEnviro
   }
 }
 
-const CONFIGURATION_REFRESH_GIT_CONFIG_PATTERN = [
-  // HTTP proxy and organisation trust. URL-scoped variants are valid Git configuration and are
-  // common when a company proxy or private CA applies to only one provider.
-  String.raw`http\.(proxy|proxyauthmethod|sslcainfo|sslcapath|sslbackend|schannelusesslcainfo)`,
-  String.raw`http\..+\.(proxy|proxyauthmethod|sslcainfo|sslcapath|sslbackend|schannelusesslcainfo)`,
-  // Credential helpers may be multi-valued and may also be URL-scoped. `useHttpPath` controls the
-  // helper lookup key. Interactive overrides are intentionally excluded because the Git supervisor
-  // is always non-interactive; no username, password, extra header, client certificate, private
-  // key, URL rewrite, hook, executable, or object setting is admitted.
-  String.raw`credential\.(helper|usehttppath)`,
-  String.raw`credential\..+\.(helper|usehttppath)`
-].map((entry) => `(${entry})`).join('|');
-const CONFIGURATION_REFRESH_GIT_CONFIG_MAX_ENTRIES = 256;
-const CONFIGURATION_REFRESH_GIT_CONFIG_MAX_BYTES = 256 * 1024;
-
-function withoutGitProcessOverrides(source) {
-  const env = { ...source };
-  for (const key of [
-    'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
-    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
-    'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_SHALLOW_FILE',
-    'GIT_REPLACE_REF_BASE', 'GIT_EXEC_PATH', 'GIT_TEMPLATE_DIR',
-    // A managed CA/backend remains supported below; disabling certificate verification does not.
-    'GIT_SSL_NO_VERIFY'
-  ]) delete env[key];
-  // Git also accepts arbitrary command-scoped configuration through environment variables. The
-  // cache is untrusted input, and callers may themselves run inside a Git wrapper, so do not allow
-  // inherited config to restore hooks, object replacements, alternates or another common dir.
-  for (const key of Object.keys(env)) {
-    if (key === 'GIT_CONFIG' || key === 'GIT_CONFIG_COUNT' || key === 'GIT_CONFIG_PARAMETERS'
-      || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(key)
-      // Git's curl/packet tracing can include authentication material. Confirmed refresh never
-      // inherits a diagnostic sink that could persist provider headers outside SFlow redaction.
-      || /^GIT_TRACE(?:2(?:_.*)?|_.*)?$/.test(key)
-      || key === 'GIT_CURL_VERBOSE' || key === 'GIT_REDIRECT_STDERR') delete env[key];
-  }
-  return env;
-}
-
-function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
-  // Read system and global scopes separately so repository-local configuration can never add a
-  // helper, hook, URL rewrite, replacement object, alternate, or executable. System precedes
-  // global, preserving Git's effective ordering and the reset semantics of an empty helper value.
-  const queryEnv = withoutGitProcessOverrides(sourceEnv);
-  const entries = [];
-  for (const scope of ['system', 'global']) {
-    const observed = runCommand('git', [
-      'config', `--${scope}`, '--includes', '--null', '--get-regexp',
-      `^(${CONFIGURATION_REFRESH_GIT_CONFIG_PATTERN})$`
-    ], {
-      cwd: os.tmpdir(), env: queryEnv, allowFailure: true, timeoutMs: 10_000,
-      maxBuffer: CONFIGURATION_REFRESH_GIT_CONFIG_MAX_BYTES
-    });
-    // Exit 1 means that this scope contains no matching keys. A malformed, inaccessible, timed-out,
-    // or over-limit configuration is not copied into the privileged refresh environment; the
-    // ordinary preview still reports the provider failure without exposing configuration bytes.
-    if (observed.status === 1 && !observed.error && observed.timedOut !== true) continue;
-    if (observed.status !== 0) return [];
-    for (const record of String(observed.stdout ?? '').split('\0')) {
-      if (!record) continue;
-      const separator = record.indexOf('\n');
-      if (separator <= 0) continue;
-      const key = record.slice(0, separator);
-      const value = record.slice(separator + 1);
-      if (entries.length >= CONFIGURATION_REFRESH_GIT_CONFIG_MAX_ENTRIES
-        || Buffer.byteLength(key, 'utf8') > 1024
-        || Buffer.byteLength(value, 'utf8') > 32 * 1024) return [];
-      entries.push([key, value]);
-    }
-  }
-  return entries;
-}
-
 /**
  * Isolate confirmed-refresh Git metadata without discarding enterprise transport and auth.
  *
@@ -1232,28 +1166,7 @@ function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
  * files. Exported so the transport boundary can be exercised without contacting a real provider.
  */
 export function isolatedCacheGitEnvironment(sourceEnv = process.env, { runCommand = run } = {}) {
-  const env = withoutGitProcessOverrides(sourceEnv);
-  const enterpriseConfiguration = allowedEnterpriseGitConfiguration(sourceEnv, runCommand);
-  // Do not let the original global/system path be consulted after the reviewed allowlist snapshot.
-  // In particular, a file changed between observation and push cannot introduce a hook or rewrite.
-  delete env.GIT_CONFIG_SYSTEM;
-  delete env.GIT_CONFIG_NOSYSTEM;
-  const isolated = {
-    ...env,
-    GIT_NO_REPLACE_OBJECTS: '1',
-    GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_SYSTEM: os.devNull,
-    GIT_CONFIG_GLOBAL: os.devNull,
-    GIT_ATTR_NOSYSTEM: '1',
-    GIT_CONFIG_COUNT: String(enterpriseConfiguration.length)
-  };
-  enterpriseConfiguration.forEach(([key, value], index) => {
-    isolated[`GIT_CONFIG_KEY_${index}`] = key;
-    isolated[`GIT_CONFIG_VALUE_${index}`] = value;
-  });
-  return {
-    ...isolated
-  };
+  return enterpriseGitEnvironment(sourceEnv, { runCommand });
 }
 
 function stateConfiguration(approved) {
@@ -1308,16 +1221,6 @@ function stateTree(root, ref, policy, { env = process.env } = {}) {
   return output;
 }
 
-function fetchStateRef(root, config, { env = process.env } = {}) {
-  const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
-  const fetched = runRemoteGit([
-    'fetch', '--no-tags', config.remote,
-    `+refs/heads/${config.branch}:${remoteRef}`
-  ], { cwd: root, operation: 'remote-configuration', env });
-  if (fetched.status !== 0) return null;
-  return run('git', ['rev-parse', remoteRef], { cwd: root, env }).stdout.trim();
-}
-
 async function fetchStateRefAsync(root, config, { env = process.env } = {}) {
   const remoteRef = `refs/remotes/${config.remote}/${config.branch}`;
   const fetched = await runRemoteGitAsync([
@@ -1354,15 +1257,12 @@ async function desiredStateProjection(root, { env = process.env } = {}) {
 }
 
 function observeStateProjection(root, desired, sourceCommit, product, {
-  stateCommit: suppliedStateCommit = undefined,
+  stateCommit,
   env = process.env
 } = {}) {
-  // A prepared candidate already fetched and pinned the state authority. Publication can inspect
-  // that exact object again without another network fetch; the force-with-lease publication below
-  // still rejects if the remote moved. Omit this option only for a deliberate race re-observation.
-  const stateCommit = suppliedStateCommit === undefined
-    ? fetchStateRef(root, desired.stateConfig, { env })
-    : suppliedStateCommit;
+  // Remote observation is deliberately not hidden inside this deterministic projection reader.
+  // Callers fetch through `fetchStateRefAsync` first and supply the exact observed commit (including
+  // null for a missing branch), keeping every remote operation behind the process-tree supervisor.
   if (!stateCommit) {
     return {
       status: 'missing', stateCommit: null, changed: true,
@@ -1417,6 +1317,13 @@ function observeStateProjection(root, desired, sourceCommit, product, {
     status: changed ? 'stale' : 'current', stateCommit, changed,
     missingPaths, changedPaths, extraPaths, legacyPaths, manifest
   };
+}
+
+async function observeFreshStateProjection(root, desired, sourceCommit, product, {
+  env = process.env
+} = {}) {
+  const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env });
+  return observeStateProjection(root, desired, sourceCommit, product, { stateCommit, env });
 }
 
 function workspaceMatches(entry, reference) {
@@ -1687,9 +1594,8 @@ async function publishCandidate(candidate) {
             const observed = await remoteHeads(repository.remote, [branch], { env });
             if (observed.get(branch) !== candidateCommit) {
               throw new SingularityFlowError(
-                `Configuration update for '${repository.displayRemote}' was rejected and its review branch could not be retained: ${redactDiagnosticText(
-                  (retained.stderr || retained.stdout).trim()
-                )}`
+                `Configuration update for '${repository.displayRemote}' was rejected and its review branch could not be retained. `
+                  + remoteFailureMessage(retained)
               );
             }
           }
@@ -1704,7 +1610,7 @@ async function publishCandidate(candidate) {
             conflicts: refresh.conflicts,
             configurationChanged: false,
             stateChanged: false,
-            error: redactDiagnosticText((pushed.stderr || pushed.stdout).trim().split('\n')[0])
+            error: remoteFailureMessage(pushed, 'Git rejected the exact configuration update; review repository policy and retry.')
           };
         }
       } else {
@@ -1766,7 +1672,9 @@ async function publishCandidate(candidate) {
     if (error?.code !== 'state_branch.concurrent_publication' && error?.concurrent !== true) throw error;
     let concurrentState = null;
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      concurrentState = observeStateProjection(root, projection, approvedCommit, refresh.product, { env });
+      concurrentState = await observeFreshStateProjection(
+        root, projection, approvedCommit, refresh.product, { env }
+      );
       if (concurrentState.status === 'current') break;
       await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
     }
@@ -1840,11 +1748,14 @@ export async function refreshWorkspaceConfigurations({
 } = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace configuration refresh requires the workspace registry path.');
   const normalizedResolutions = normalizeRefreshResolutions(resolutions);
-  // A confirmed operation may consume a retained checkout. From the first authority re-observation
-  // onward, use one environment that cannot be redirected by inherited repository selectors or
-  // command-scoped Git configuration; a rejected cache safely falls back to a clone under the same
-  // boundary.
-  const gitEnv = confirmPlan ? isolatedCacheGitEnvironment() : process.env;
+  // Preview and apply are two halves of one reviewed operation, so they must observe the authority
+  // through the same transport/authentication environment. In particular, preview must not succeed
+  // through a hostile command-scoped rewrite or fail because it discarded the system/global proxy,
+  // CA, or credential helper that apply will use. The isolated snapshot preserves only the reviewed
+  // enterprise allowlist and neutralizes repository selectors, hooks, replacements, alternates,
+  // trace sinks, and inherited command-scoped configuration for both halves. A rejected cache falls
+  // back to a fresh clone under this exact same boundary.
+  const gitEnv = isolatedCacheGitEnvironment();
   const targets = await registeredRepositories(registryFile, { workspace, repositories });
   const workers = gitWorkerCount(targets.length);
   const cachedPlan = confirmPlan ? await readRefreshPlanCache(registryFile, confirmPlan) : null;

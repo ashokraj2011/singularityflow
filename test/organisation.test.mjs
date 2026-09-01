@@ -674,9 +674,41 @@ exit 1
   assert.equal(waiting.protection.enforced, null);
   assert.equal(waiting.externalAction, null);
   assert.notEqual(waiting.failure.code, 'CAPABILITY_ACTIVATION_REVIEW_REQUIRED');
-  assert.match(waiting.failure.diagnostic, /secret scanning rejected a credential/i);
-  assert.match(waiting.failure.diagnostic, /pre-receive hook declined/i);
+  assert.match(waiting.failure.diagnostic,
+    /^Capability activation was refused \(exit 1; diagnostic sha256:[0-9a-f]{16}\)$/);
+  assert.doesNotMatch(waiting.failure.diagnostic, /secret scanning|credential|pre-receive/i,
+    'provider and hook output must not enter durable or returned diagnostics');
   assert.equal(run('git', ['rev-parse', 'sflow/config'], { cwd: org.platform }).stdout.trim(), configBefore);
+});
+
+test('capability review cannot be redirected by ambient repository selectors', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'review-boundary', name: 'Review boundary', kind: 'collection'
+  });
+  const attacker = path.join(org.base, 'attacker-review-repository');
+  run('git', ['init', '-q', '-b', 'attacker', attacker], { cwd: org.base });
+  await writeFile(path.join(attacker, 'README.md'), 'unrelated repository\n');
+  run('git', ['add', '-A'], { cwd: attacker });
+  run('git', ['-c', 'user.email=attacker@example.test', '-c', 'user.name=Attacker',
+    'commit', '-qm', 'Attacker review'], { cwd: attacker });
+
+  const previous = new Map(['GIT_DIR', 'GIT_WORK_TREE']
+    .map((key) => [key, process.env[key]]));
+  process.env.GIT_DIR = path.join(attacker, '.git');
+  process.env.GIT_WORK_TREE = attacker;
+  let reviewed;
+  try {
+    reviewed = await inspectCapabilityProposal(org.platform, proposed.branch);
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  assert.equal(reviewed.proposalCommit, proposed.commit);
+  assert.equal(reviewed.status, 'pending-review');
 });
 
 test('a transient activation push failure is recoverable without pretending repository review is required', async () => {
@@ -1855,6 +1887,44 @@ test('initialising a workspace creates the orphan state branch, and checks befor
   assert.equal(second.existed, true);
 });
 
+test('workspace initialization selects HEAD and origin only inside the sanitized repository boundary', async () => {
+  const org = await remotes('safe-origin-api');
+  const work = path.join(org.base, 'safe-origin-work');
+  run('git', ['clone', '-q', org['safe-origin-api'], work], { cwd: org.base });
+  run('git', ['config', 'user.email', 'safe-origin@example.test'], { cwd: work });
+  run('git', ['config', 'user.name', 'Safe Origin Tester'], { cwd: work });
+
+  const attacker = path.join(org.base, 'attacker-repository');
+  run('git', ['init', '-q', '-b', 'attacker', attacker], { cwd: org.base });
+  await writeFile(path.join(attacker, 'sentinel.txt'), 'attacker repository\n');
+  run('git', ['add', '-A'], { cwd: attacker });
+  run('git', ['-c', 'user.email=attacker@example.test', '-c', 'user.name=Attacker',
+    'commit', '-qm', 'Attacker head'], { cwd: attacker });
+  run('git', ['remote', 'add', 'origin', '/credentialed/attacker/repository.git'], { cwd: attacker });
+  const attackerHead = run('git', ['rev-parse', 'HEAD'], { cwd: attacker }).stdout.trim();
+
+  const keys = ['GIT_DIR', 'GIT_WORK_TREE'];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.GIT_DIR = path.join(attacker, '.git');
+  process.env.GIT_WORK_TREE = attacker;
+  let result;
+  try {
+    result = await initializeWorkspaceState(work, { push: false });
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  assert.equal(result.root, work);
+  assert.match(result.governanceBranch, /^sflow\/govern\/safe-origin-api-/);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: attacker }).stdout.trim(), attackerHead,
+    'ambient repository selectors redirected an onboarding mutation');
+  assert.equal(run('git', ['remote', 'get-url', 'origin'], { cwd: work }).stdout.trim(),
+    org['safe-origin-api'], 'workspace initialization selected the legitimate origin');
+});
+
 test('workspace initialization resumes the same governance publication before it advances', async () => {
   const org = await remotes('resume-api');
   const work = path.join(org.base, 'resume-work');
@@ -2343,13 +2413,13 @@ test('capability readiness shares one asynchronous remote session across its wor
   assert.ok(start >= 0 && end > start, 'capability readiness implementation is present');
   const implementation = source.slice(start, end);
 
-  const session = implementation.indexOf('const session = new GitRemoteSession();');
+  const session = implementation.indexOf('const session = new GitRemoteSession({ env: gitEnv });');
   const workers = implementation.indexOf('const resolved = await mapLimit(');
   assert.ok(session >= 0 && session < workers,
     'the operation-scoped session must be created before workers fan out');
   assert.match(implementation, /await session\.observeAsync\(/,
     'remote advertisements must not block the event loop inside a worker');
-  assert.equal((implementation.match(/new GitRemoteSession\(\)/g) ?? []).length, 1,
+  assert.equal((implementation.match(/new GitRemoteSession\(\{ env: gitEnv \}\)/g) ?? []).length, 1,
     'identical remotes must share and coalesce through one session');
   assert.doesNotMatch(implementation, /session\.observe\(/,
     'the synchronous remote probe must not return to the readiness critical path');

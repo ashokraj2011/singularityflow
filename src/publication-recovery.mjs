@@ -162,7 +162,10 @@ async function captureDirectory(repositoryRoot, directory, relative = '', files 
     const absolute = path.join(secured.absolute, entry.name);
     const info = await lstat(absolute);
     if (info.isSymbolicLink()) {
-      throw new SingularityFlowError(`Publication recovery refuses symbolic links in governed state: ${posix(child)}`);
+      throw new SingularityFlowError(`Publication recovery refuses symbolic links in governed state: ${posix(child)}`, {
+        code: 'PUBLICATION_PREIMAGE_SYMBOLIC_LINK',
+        details: { path: posix(child), reason: 'symbolic-link' }
+      });
     }
     if (info.isDirectory()) {
       directories.push({ path: normalizedChild(child), mode: info.mode & 0o777 });
@@ -206,8 +209,19 @@ export async function capturePublicationPreimage(root, requestedRoots) {
   const records = [];
   const quota = { files: 0, bytes: 0 };
   for (const relative of roots) {
-    const secured = await secureRepositoryPath(root, relative, { label: 'Publication recovery root' });
+    // Inspect the final directory entry itself.  A publication is not allowed to begin from a
+    // symlink, but recovery needs to distinguish an exact-root symlink created by the interrupted
+    // mutation from a symlinked ancestor (which remains an unsafe escape and must fail closed).
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'Publication recovery root', allowFinalSymlink: true
+    });
     if (!secured.exists) records.push({ path: relative, type: 'absent', mode: null, directories: [], files: [] });
+    else if (secured.entry.isSymbolicLink()) {
+      throw new SingularityFlowError(`Publication recovery refuses symbolic links in governed state: ${relative}`, {
+        code: 'PUBLICATION_PREIMAGE_SYMBOLIC_LINK',
+        details: { path: relative, reason: 'symbolic-link' }
+      });
+    }
     else if (secured.entry.isFile()) {
       records.push({
         path: relative, type: 'file', mode: null, directories: [],
@@ -407,12 +421,20 @@ async function preserveInterruptedBytes(root, subject, snapshot) {
 }
 
 async function restoreRoot(repositoryRoot, record, snapshot) {
-  const secured = await secureRepositoryPath(repositoryRoot, record.path, { label: 'Publication recovery target' });
+  // allowFinalSymlink validates the real parent while deliberately not resolving the final link.
+  // Removing that exact directory entry is safe; a symlinked ancestor is still rejected.
+  const secured = await secureRepositoryPath(repositoryRoot, record.path, {
+    label: 'Publication recovery target', allowFinalSymlink: true
+  });
   if (record.type === 'absent') {
-    if (secured.exists) await rm(secured.absolute, { recursive: true, force: true });
+    if (secured.exists) await rm(secured.absolute, {
+      recursive: !secured.entry.isSymbolicLink(), force: true
+    });
     return;
   }
-  if (secured.exists) await rm(secured.absolute, { recursive: true, force: true });
+  if (secured.exists) await rm(secured.absolute, {
+    recursive: !secured.entry.isSymbolicLink(), force: true
+  });
   if (record.type === 'file') {
     await writeAtomic(secured.absolute, await fileBytes(repositoryRoot, snapshot, record.files[0]), { mode: record.files[0].mode });
     return;
@@ -434,9 +456,20 @@ async function restoreRoot(repositoryRoot, record, snapshot) {
 export async function restorePublicationPreimage(root, snapshot, { subject, preserveCurrent = false } = {}) {
   validatePublicationPreimage(snapshot);
   for (const record of snapshot.roots) for (const file of record.files) await fileBytes(root, snapshot, file);
-  const current = await capturePublicationPreimage(root, snapshot.roots.map((entry) => entry.path));
-  if (current.sha256 === snapshot.sha256) return { restored: false, rescuePath: null, preimageSha256: snapshot.sha256 };
-  const rescuePath = preserveCurrent ? await preserveInterruptedBytes(root, subject, current) : null;
+  let current = null;
+  try {
+    current = await capturePublicationPreimage(root, snapshot.roots.map((entry) => entry.path));
+  } catch (error) {
+    // A mutation may replace a governed file, or place an entry beneath a governed directory,
+    // with a symlink.  Never follow or retain its target (which may itself contain the rejected
+    // secret); restore the durable preimage by unlinking the exact entry.  All other path failures,
+    // especially a symlinked ancestor or repository escape, remain fatal.
+    if (error?.code !== 'PUBLICATION_PREIMAGE_SYMBOLIC_LINK') throw error;
+  }
+  if (current?.sha256 === snapshot.sha256) return { restored: false, rescuePath: null, preimageSha256: snapshot.sha256 };
+  const rescuePath = preserveCurrent && current
+    ? await preserveInterruptedBytes(root, subject, current)
+    : null;
   try {
     for (const record of snapshot.roots) await restoreRoot(root, record, snapshot);
     const restored = await capturePublicationPreimage(root, snapshot.roots.map((entry) => entry.path));

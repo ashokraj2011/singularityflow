@@ -36,6 +36,16 @@ async function repository(t, {
   return root;
 }
 
+async function addRemote(t, root) {
+  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-remote-'));
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  git(root, ['init', '--bare', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', 'origin', 'main']);
+  git(root, ['push', 'origin', 'refs/heads/sflow/config:refs/heads/sflow/config']);
+  return remote;
+}
+
 const actor = Object.freeze({ kind: 'human', id: 'candidate@example.com' });
 
 test('candidate freeze rejects a symlinked private sidecar before retaining a Git ref', async (t) => {
@@ -189,12 +199,7 @@ test('candidate publication recovers an exact local ref advance that happened be
 
 test('candidate retry records remote-pending after local CAS even when the remote became unavailable', async (t) => {
   const root = await repository(t);
-  const remote = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-remote-'));
-  t.after(() => rm(remote, { recursive: true, force: true }));
-  git(root, ['init', '--bare', remote]);
-  git(root, ['remote', 'add', 'origin', remote]);
-  git(root, ['push', 'origin', 'main']);
-  git(root, ['push', 'origin', 'refs/heads/sflow/config:refs/heads/sflow/config']);
+  await addRemote(t, root);
   await writeFile(path.join(root, 'tracked.txt'), 'candidate pending remote\n');
   const retained = await freezeSgosCandidate(root, {
     subjectId: 'candidate-fixture', createdBy: actor, createdAt: '2026-08-30T00:00:00.000Z'
@@ -217,6 +222,88 @@ test('candidate retry records remote-pending after local CAS even when the remot
   assert.equal(recovered.status, 'local-published-remote-pending');
   assert.equal(recovered.remote.failure.code, 'remote-not-configured');
   assert.equal(recovered.publishedCommit, retained.repository.candidateCommit);
+});
+
+test('candidate publication refuses an identical concurrent remote update before local CAS', async (t) => {
+  const root = await repository(t);
+  await addRemote(t, root);
+  await writeFile(path.join(root, 'tracked.txt'), 'concurrent candidate\n');
+  const retained = await freezeSgosCandidate(root, {
+    subjectId: 'candidate-fixture', createdBy: actor,
+    createdAt: '2026-08-30T00:00:00.000Z'
+  });
+  await verifySgosCandidate(root, retained.candidate.candidateId, {
+    verifiedAt: '2026-08-30T00:01:00.000Z'
+  });
+  const plan = await planSgosCandidatePublication(root, retained.candidate.candidateId, {
+    remote: 'origin'
+  });
+  git(root, ['push', 'origin',
+    `${retained.repository.candidateCommit}:refs/heads/main`]);
+
+  await assert.rejects(
+    publishSgosCandidate(root, retained.candidate.candidateId, {
+      confirmationSha256: plan.packetSha256, remote: 'origin',
+      publishedAt: '2026-08-30T00:02:00.000Z'
+    }),
+    (error) => error.code === 'SGOS_CANDIDATE_PUBLICATION_STALE'
+  );
+  assert.equal(git(root, ['rev-parse', 'HEAD']), retained.repository.baselineCommit,
+    'an identical concurrent remote ref was adopted before local Candidate CAS');
+});
+
+test('candidate publication reconciles exact equality only from a sealed indeterminate attempt', async (t) => {
+  const root = await repository(t);
+  const remote = await addRemote(t, root);
+  await writeFile(path.join(root, 'tracked.txt'), 'indeterminate candidate\n');
+  const retained = await freezeSgosCandidate(root, {
+    subjectId: 'candidate-fixture', createdBy: actor,
+    createdAt: '2026-08-30T00:00:00.000Z'
+  });
+  await verifySgosCandidate(root, retained.candidate.candidateId, {
+    verifiedAt: '2026-08-30T00:01:00.000Z'
+  });
+  const plan = await planSgosCandidatePublication(root, retained.candidate.candidateId, {
+    remote: 'origin'
+  });
+  await assert.rejects(
+    publishSgosCandidate(root, retained.candidate.candidateId, {
+      confirmationSha256: plan.packetSha256, remote: 'origin',
+      publishedAt: '2026-08-30T00:02:00.000Z',
+      fault: async (point, detail) => {
+        if (point !== 'after-remote-push-before-transport-receipt') return;
+        assert.equal(detail.result.status, 0);
+        throw new Error('simulated process loss after receive-pack');
+      }
+    }),
+    /simulated process loss/
+  );
+  assert.equal(git(root, ['--git-dir', remote, 'rev-parse', 'refs/heads/main']),
+    retained.repository.candidateCommit);
+
+  // Reproduce loss of the local CAS while preserving the reviewed Candidate worktree. The only
+  // remaining ownership proof is the machine-sealed indeterminate transport receipt.
+  git(root, ['update-ref', 'refs/heads/main', retained.repository.baselineCommit,
+    retained.repository.candidateCommit]);
+  const recovered = await publishSgosCandidate(root, retained.candidate.candidateId, {
+    confirmationSha256: plan.packetSha256, remote: 'origin',
+    publishedAt: '2026-08-30T00:03:00.000Z'
+  });
+  assert.equal(recovered.status, 'published');
+  assert.equal(recovered.remote.recovered, true);
+  assert.equal(git(root, ['rev-parse', 'HEAD']), retained.repository.candidateCommit);
+
+  // Successful reconciliation closes the one-shot indeterminate authority. Rewinding the local
+  // branch again cannot reuse it to claim a later identical remote state.
+  git(root, ['update-ref', 'refs/heads/main', retained.repository.baselineCommit,
+    retained.repository.candidateCommit]);
+  await assert.rejects(
+    publishSgosCandidate(root, retained.candidate.candidateId, {
+      confirmationSha256: plan.packetSha256, remote: 'origin',
+      publishedAt: '2026-08-30T00:04:00.000Z'
+    }),
+    (error) => error.code === 'SGOS_CANDIDATE_PUBLICATION_STALE'
+  );
 });
 
 test('candidate verification cannot pass after its command mutates the reviewed workspace', async (t) => {

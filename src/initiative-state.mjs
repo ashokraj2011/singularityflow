@@ -35,6 +35,7 @@ import {
   localPendingPublicationPath,
   readPendingPublication,
   recoverPreparedPublication,
+  verifyPendingPublicationCandidateAuthority,
   verifyPendingPublicationCommit,
   writePendingPublication,
 } from './publication-pending.mjs';
@@ -1306,6 +1307,17 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
         {
           code: 'PENDING_PUBLICATION_IDENTITY_INVALID',
           details: { subject, markerPath: current.path, failures: verification.failures }
+        }
+      );
+    }
+    const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, currentRecord);
+    if (!candidateAuthority.valid) {
+      throw new SingularityFlowError(
+        `Initiative '${initiative.initiative.id}' pending publication marker does not retain its exact verified Candidate: `
+        + `${candidateAuthority.failures.join('; ')}. The marker was retained and no commit was pushed.`,
+        {
+          code: 'PENDING_PUBLICATION_CANDIDATE_INVALID',
+          details: { subject, markerPath: current.path, failures: candidateAuthority.failures }
         }
       );
     }

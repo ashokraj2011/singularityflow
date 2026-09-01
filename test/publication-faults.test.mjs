@@ -2098,6 +2098,45 @@ test('an exact completed nested publication remains the stable boundary when out
   assert.equal(await readPublicationJournal(root, subject), null);
 });
 
+test('a completed nested publication with a tampered Candidate sidecar cannot release the draft journal', async () => {
+  const root = await repository('sflow-draft-nested-candidate-tamper-');
+  const subject = { kind: 'story', id: 'DRAFT-NESTED-CANDIDATE-TAMPER', branch: 'main' };
+  const target = 'draft-state.json';
+  await writeFile(path.join(root, target), '{"status":"before"}\n');
+  git(['add', target], root);
+  git(['commit', '-m', 'tampered nested baseline'], root);
+
+  await assert.rejects(() => runDraftTransaction(root, {
+    subject,
+    operation: 'completed-nested-candidate-tamper',
+    allowedPaths: [target],
+    write: () => new GitPublicationUnitOfWork(root).execute({
+      subject,
+      event: lifecycleEvent({
+        type: 'artifact-generated', subject, phaseId: 'intake', generation: 1
+      }),
+      commit: { message: '[DRAFT-NESTED-CANDIDATE-TAMPER] nested publication' },
+      publication: { mode: 'off', branch: 'main' },
+      allowedPaths: [target],
+      state: { write: () => writeFile(path.join(root, target), '{"status":"committed"}\n') }
+    }),
+    validate: async (result) => {
+      const sidecar = path.join(
+        root, '.git', 'singularity-flow', 'sgos', 'candidates',
+        result.candidate.candidateId, 'candidate.json'
+      );
+      const record = JSON.parse(await readFile(sidecar, 'utf8'));
+      record.totals.bytes += 1;
+      await writeFile(sidecar, `${JSON.stringify(record, null, 2)}\n`);
+      throw new Error('outer validation exposed Candidate tampering');
+    }
+  }), (error) => error?.code === 'DRAFT_RECOVERY_DIVERGED');
+
+  const journal = await readPublicationJournal(root, subject);
+  assert.ok(journal, 'tampered Candidate sidecar incorrectly released the outer draft journal');
+  assert.equal(journal.record.stage, 'draft-head-diverged');
+});
+
 test('an outer draft cannot erase a nested publication recovery record', async () => {
   const root = await repository('sflow-nested-publication-');
   const subject = { kind: 'story', id: 'NESTED-RECOVERY', branch: 'main' };

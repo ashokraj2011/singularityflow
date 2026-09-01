@@ -7,17 +7,22 @@
  * developer's current Story checkout.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { branch, head, identity } from './git.mjs';
+import { branch, gitCommonDir, head, identity } from './git.mjs';
 import {
-  clearPendingPublication, readPendingPublication, writePendingPublication
+  livePreparedPublicationOwner, readPendingPublication,
+  recoverPreparedPublication, sealMachineLocalPublicationReceipt,
+  syncPendingLifecyclePublication, verifyMachineLocalPublicationReceipt
 } from './publication-pending.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import { LIFECYCLE_EVENT, lifecycleEvent } from './lifecycle-event.mjs';
+import { publishLifecycleChange } from './publication-unit-of-work.mjs';
 
 export const GOVERNED_GOAL_AUTHORITY = 'governed-execution';
 export const GOVERNED_GOAL_ID = /^GEX-[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -37,8 +42,8 @@ export const GOAL_PLAN_SCHEMA_VERSION = currentSchemaVersion('governed-goal-plan
 export const GOAL_RECORD_SCHEMA_VERSION = currentSchemaVersion('governed-goal-record');
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const ZERO_SHA = '0'.repeat(40);
-
+const GOAL_MATERIALIZATION_LIMITS = Object.freeze({ files: 20_000, bytes: 256 * 1024 * 1024 });
+const GOAL_WORKTREE_OWNER_FORMAT = 'sflow-goal-lifecycle-worktree-owner-v1';
 function nowIso(now = () => new Date()) { return now().toISOString(); }
 
 function stable(value) {
@@ -360,7 +365,176 @@ async function writeGoalProjection(worktree, contract, state) {
   await writeFile(path.join(directory, 'goal.md'), goalMarkdown(contract, state), 'utf8');
 }
 
-async function commitDetached(root, baseCommit, id, policy, message, writer) {
+function goalObjectEnvironment() {
+  return {
+    ...process.env,
+    GIT_NO_REPLACE_OBJECTS: '1',
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'Never',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: os.devNull
+  };
+}
+
+/** Materialize only the prior generated Goal subtree from Git objects—never checkout/filter/hook. */
+async function materializeGoalProjection(root, worktree, baseCommit, id) {
+  const relative = governedGoalRelative(id);
+  const env = goalObjectEnvironment();
+  const listed = run('git', [
+    'ls-tree', '-r', '-z', '--format=%(objectmode) %(objectname) %(path)',
+    baseCommit, '--', relative
+  ], { cwd: root, env });
+  const entries = listed.stdout.split('\0').filter(Boolean).map((line) => {
+    const first = line.indexOf(' ');
+    const second = line.indexOf(' ', first + 1);
+    const mode = line.slice(0, first);
+    const object = line.slice(first + 1, second);
+    const file = line.slice(second + 1);
+    if (!/^100(?:644|755)$/.test(mode) || !/^[0-9a-f]{40,64}$/.test(object)
+        || !file.startsWith(`${relative}/`) || file.includes('\\') || path.posix.isAbsolute(file)
+        || file.split('/').some((part) => !part || part === '.' || part === '..')) {
+      throw new SingularityFlowError(
+        `Governed Goal '${id}' contains an unsafe or unsupported retained path '${file || 'unknown'}'.`,
+        { code: 'GOVERNED_GOAL_RECORD_INVALID' }
+      );
+    }
+    return { mode, object, file };
+  });
+  if (entries.length > GOAL_MATERIALIZATION_LIMITS.files) {
+    throw new SingularityFlowError(`Governed Goal '${id}' exceeds its retained file limit.`, {
+      code: 'GOVERNED_GOAL_RECORD_INVALID'
+    });
+  }
+  if (!entries.length) return;
+  const batch = run('git', ['cat-file', '--batch'], {
+    cwd: root,
+    env,
+    encoding: 'buffer',
+    input: `${entries.map((entry) => entry.object).join('\n')}\n`,
+    maxBuffer: GOAL_MATERIALIZATION_LIMITS.bytes + (entries.length * 128)
+  });
+  let cursor = 0;
+  let total = 0;
+  for (const entry of entries) {
+    const newline = batch.stdout.indexOf(0x0a, cursor);
+    if (newline < 0) {
+      throw new SingularityFlowError(`Governed Goal '${id}' retained object stream was truncated.`, {
+        code: 'GOVERNED_GOAL_RECORD_INVALID'
+      });
+    }
+    const [object, type, rawSize] = batch.stdout.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(rawSize);
+    const start = newline + 1;
+    const end = start + size;
+    total += size;
+    if (object !== entry.object || type !== 'blob' || !Number.isSafeInteger(size) || size < 0
+        || total > GOAL_MATERIALIZATION_LIMITS.bytes || end >= batch.stdout.length
+        || batch.stdout[end] !== 0x0a) {
+      throw new SingularityFlowError(`Governed Goal '${id}' retained object failed bounded materialization.`, {
+        code: 'GOVERNED_GOAL_RECORD_INVALID'
+      });
+    }
+    const target = path.join(worktree, entry.file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, batch.stdout.subarray(start, end));
+    await chmod(target, entry.mode === '100755' ? 0o755 : 0o644);
+    cursor = end + 1;
+  }
+  if (cursor !== batch.stdout.length) {
+    throw new SingularityFlowError(`Governed Goal '${id}' retained object stream had trailing bytes.`, {
+      code: 'GOVERNED_GOAL_RECORD_INVALID'
+    });
+  }
+}
+
+function governedGoalLifecycleEvent(operation, { subject, actor, payload }) {
+  const input = { subject, actor, payload };
+  if (operation === 'governed-goal-created') {
+    return lifecycleEvent({ type: LIFECYCLE_EVENT.BINDING, ...input });
+  }
+  if (operation === 'goal-abandoned') {
+    return lifecycleEvent({ type: LIFECYCLE_EVENT.WORK_CANCELLED, ...input });
+  }
+  if (operation === 'criteria-evaluated') {
+    return lifecycleEvent({ type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, ...input });
+  }
+  return lifecycleEvent({ type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, ...input });
+}
+
+function goalLifecycleWorktree(root, id) {
+  const result = git(root, ['worktree', 'list', '--porcelain'], { allowFailure: true });
+  if (result.status !== 0) return null;
+  for (const block of result.stdout.split(/\n\n+/)) {
+    const lines = block.split('\n');
+    if (lines.includes(`branch refs/heads/${id}`)) {
+      return lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length) ?? null;
+    }
+  }
+  return null;
+}
+
+function goalWorktreeOwnerPath(worktree) {
+  const administrative = git(worktree, ['rev-parse', '--absolute-git-dir']).stdout.trim();
+  return path.join(administrative, 'singularity-flow-goal-owner.json');
+}
+
+async function writeGoalWorktreeOwner(root, worktree, id) {
+  const actual = realpathSync(worktree);
+  const common = realpathSync(gitCommonDir(root));
+  const target = goalWorktreeOwnerPath(worktree);
+  const administrative = realpathSync(path.dirname(target));
+  if (!administrative.startsWith(`${common}${path.sep}`)) {
+    throw new SingularityFlowError(`Governed Goal '${id}' worktree administration escaped Git common storage.`, {
+      code: 'GOVERNED_GOAL_WORKTREE_UNSAFE'
+    });
+  }
+  const receipt = await sealMachineLocalPublicationReceipt(root, 'goal-lifecycle-worktree', {
+    format: GOAL_WORKTREE_OWNER_FORMAT,
+    id,
+    branch: id,
+    path: actual,
+    gitDir: administrative,
+    nonce: randomBytes(32).toString('hex'),
+    createdAt: new Date().toISOString()
+  });
+  await writeFile(target, `${JSON.stringify(receipt)}\n`, {
+    encoding: 'utf8', mode: 0o600, flag: 'wx'
+  });
+}
+
+async function managedGoalLifecycleWorktree(root, id, recorded = null) {
+  const found = goalLifecycleWorktree(root, id);
+  if (!found) return null;
+  try {
+    const actual = realpathSync(found);
+    const temporaryRoot = realpathSync(os.tmpdir());
+    if (!actual.startsWith(`${temporaryRoot}${path.sep}`)
+        || !path.basename(actual).startsWith('sflow-gex-')) return null;
+    if (recorded != null && realpathSync(String(recorded)) !== actual) return null;
+    const common = realpathSync(gitCommonDir(root));
+    const ownerPath = goalWorktreeOwnerPath(found);
+    const administrative = realpathSync(path.dirname(ownerPath));
+    const ownerInfo = lstatSync(ownerPath);
+    if (!administrative.startsWith(`${common}${path.sep}`)
+        || !ownerInfo.isFile() || ownerInfo.isSymbolicLink()) return null;
+    const owner = JSON.parse(readFileSync(ownerPath, 'utf8'));
+    if (owner?.format !== GOAL_WORKTREE_OWNER_FORMAT || owner.id !== id
+        || owner.branch !== id || owner.path !== actual || owner.gitDir !== administrative
+        || !/^[0-9a-f]{64}$/.test(owner.nonce ?? '')
+        || !await verifyMachineLocalPublicationReceipt(
+          root, 'goal-lifecycle-worktree', owner
+        )) return null;
+    return found;
+  } catch {
+    return null;
+  }
+}
+
+async function commitDetached(root, baseCommit, id, policy, message, writer, {
+  actor, operation, detail = null, fault = null
+} = {}) {
   if (branch(root) === id) {
     throw new SingularityFlowError(
       `Governed Goal '${id}' is checked out in this repository. Switch to a working branch before mutating it; the Goal writer will update its lifecycle branch without changing your checkout.`,
@@ -376,50 +550,106 @@ async function commitDetached(root, baseCommit, id, policy, message, writer) {
       );
     }
   }
+  const localRef = `refs/heads/${id}`;
+  const remoteRef = `refs/remotes/${policy.remote}/${id}`;
+  const initialLocal = refSha(root, localRef);
+  const expectedRemoteSha = policy.mode === 'off' ? undefined : refSha(root, remoteRef);
+  if (expectedRemoteSha && expectedRemoteSha !== baseCommit) {
+    throw new SingularityFlowError(
+      `Governed Goal '${id}' remote lifecycle branch changed before its Candidate was prepared. Reload and retry.`,
+      { code: 'GOVERNED_GOAL_STALE_REVISION' }
+    );
+  }
+  if (initialLocal && initialLocal !== baseCommit) {
+    if (!isAncestor(root, initialLocal, baseCommit)) {
+      throw new SingularityFlowError(`Governed Goal '${id}' local lifecycle branch diverged before publication.`, {
+        code: 'GOVERNED_GOAL_BRANCH_DIVERGED'
+      });
+    }
+    // This is a fast-forward of the local remote mirror before any new lifecycle bytes exist. The
+    // subsequent governed mutation still has exactly one publisher: the Candidate unit of work.
+    git(root, ['branch', '-f', id, baseCommit]);
+  }
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-gex-'));
   let worktreeAdded = false;
   try {
-    git(root, ['worktree', 'add', '--detach', temporary, baseCommit]);
+    // Goal projection writes its complete lifecycle subtree and does not need repository content
+    // materialized first.  A normal worktree add performs a checkout, which can execute a
+    // repository/global post-checkout hook and arbitrary smudge filters from .gitattributes.
+    // Keep the administrative worktree/branch binding but leave its worktree empty; the Candidate
+    // unit builds the exact commit from the base tree plus the bounded Goal path in a private index.
+    const worktreePrefix = ['-c', `core.hooksPath=${os.devNull}`, 'worktree', 'add', '--no-checkout'];
+    git(root, initialLocal
+      ? [...worktreePrefix, temporary, id]
+      : [...worktreePrefix, '-b', id, temporary, baseCommit]);
     worktreeAdded = true;
-    await writer(temporary);
+    await writeGoalWorktreeOwner(root, temporary, id);
+    // `--no-checkout` deliberately leaves the worktree index unborn. Populate only the index from
+    // the exact base commit so staged-overlap/CAS checks see the real baseline without materializing
+    // any path or invoking a clean/smudge driver.
+    git(temporary, ['read-tree', baseCommit]);
+    await materializeGoalProjection(root, temporary, baseCommit, id);
     const relative = governedGoalRelative(id);
-    git(temporary, ['add', '--', relative]);
-    const changed = git(temporary, ['diff', '--cached', '--quiet'], { allowFailure: true }).status !== 0;
-    if (!changed) return { commit: baseCommit, pushed: policy.mode === 'off' ? false : null, changed: false };
-    git(temporary, ['commit', '-m', message, '--', relative]);
-    const commit = head(temporary);
-    const localRef = `refs/heads/${id}`;
-    const expectedLocal = refSha(root, localRef) ?? ZERO_SHA;
-    const advanced = git(root, ['update-ref', localRef, commit, expectedLocal], { allowFailure: true });
-    if (advanced.status !== 0) {
-      throw new SingularityFlowError(`Governed Goal '${id}' changed while this update was prepared. Reload and retry.`, {
-        code: 'GOVERNED_GOAL_STALE_REVISION'
-      });
-    }
-    if (policy.mode === 'off') return { commit, pushed: false, changed: true };
-    const pushed = git(root, ['push', policy.remote, `${commit}:refs/heads/${id}`], { allowFailure: true });
-    if (pushed.status !== 0) {
-      await writePendingPublication(root, { kind: 'goal', id, record: {
-        schemaVersion: currentSchemaVersion('pending-publication'),
-        subject: { kind: 'goal', id }, branch: id, remote: policy.remote, commit,
-        createdAt: new Date().toISOString(), recoveryStage: 'commit-retained-before-publication',
-        error: (pushed.stderr || pushed.stdout).trim()
-      } });
-      throw new SingularityFlowError(
-        `Governed Goal commit ${commit.slice(0, 8)} was retained on local branch ${id}, but publication to ${policy.remote}/${id} failed: ${(pushed.stderr || pushed.stdout).trim()}. Run 'singularity-flow goal sync ${id}' after remote access is restored.`,
-        { code: 'GOVERNED_GOAL_PUBLICATION_PENDING', details: { id, commit, remote: policy.remote } }
-      );
-    }
-    await clearPendingPublication(root, { kind: 'goal', id });
-    return { commit, pushed: true, changed: true };
+    const subject = { kind: 'goal', id, branch: id };
+    const result = await publishLifecycleChange(temporary, {
+      subject,
+      expectedRevision: { head: baseCommit },
+      allowedPaths: [relative],
+      event: governedGoalLifecycleEvent(operation, {
+        subject,
+        actor,
+        payload: {
+          operation: 'governed-goal-transition',
+          goalEvent: operation,
+          ...(detail ? { detail } : {})
+        }
+      }),
+      commit: { message },
+      publication: {
+        mode: policy.mode,
+        branch: id,
+        remote: policy.remote,
+        expectedLocalHead: baseCommit,
+        ...(expectedRemoteSha !== undefined ? { expectedRemoteSha } : {})
+      },
+      pendingMetadata: {
+        lifecycleWorktree: temporary,
+        goalBranchCreated: initialLocal == null
+      },
+      fault,
+      state: { write: async () => writer(temporary) }
+    });
+    return {
+      commit: result.sha,
+      pushed: result.pushed,
+      changed: true,
+      candidate: result.candidate
+    };
   } finally {
-    if (worktreeAdded) git(root, ['worktree', 'remove', '--force', temporary], { allowFailure: true });
-    await rm(temporary, { recursive: true, force: true });
+    // The path came from mkdtemp in this process, but it becomes a registered Git worktree before
+    // repository-controlled operations run. Require the same authenticated, path/branch/admin-dir
+    // receipt used by crash recovery before removing that registered worktree. If owner sealing or
+    // verification failed, preserve it for inspection instead of deleting by a name prefix alone.
+    if (worktreeAdded) {
+      const managed = await managedGoalLifecycleWorktree(root, id, temporary);
+      if (managed) {
+        const removed = git(root, ['worktree', 'remove', '--force', managed], {
+          allowFailure: true
+        });
+        if (removed.status === 0) await rm(managed, { recursive: true, force: true });
+      }
+    } else {
+      await rm(temporary, { recursive: true, force: true });
+    }
+    if (!initialLocal && refSha(root, localRef) === baseCommit
+        && !await readPendingPublication(root, { kind: 'goal', id, migrate: false })) {
+      git(root, ['branch', '-D', id], { allowFailure: true });
+    }
   }
 }
 
 export async function createGovernedGoal(context, personalGoal, {
-  id = null, config = {}, now = () => new Date()
+  id = null, config = {}, now = () => new Date(), fault = null
 } = {}) {
   const root = context.leadRepositoryPath;
   const goalId = id ? assertGovernedGoalId(id) : createGovernedGoalId({ now });
@@ -444,7 +674,7 @@ export async function createGovernedGoal(context, personalGoal, {
         event: 'governed-goal-created', at: createdAt, actor,
         contractSha256: contract.contractSha256, source: contract.source
       }));
-    });
+    }, { actor, operation: 'governed-goal-created', fault });
   return { contract, state, publication };
 }
 
@@ -529,7 +759,7 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
         contractSha256: contract.contractSha256,
         planSha256: outcome.planSha256 ?? state.currentPlan?.planSha256 ?? null
       }));
-    });
+    }, { actor, operation: outcome.event, detail: outcome.detail ?? null });
   return { contract, state: stateWithHash, plan: outcome.plan ?? loaded.plan, publication, value: outcome.value ?? null };
 }
 
@@ -537,36 +767,122 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
   const goalId = assertGovernedGoalId(id);
   const root = context.leadRepositoryPath;
   const policy = publicationPolicy(config);
-  if (policy.mode === 'off') {
-    return { id: goalId, changed: false, pushed: false, mode: 'off', commit: refSha(root, `refs/heads/${goalId}`) };
+  const subject = { kind: 'goal', id: goalId };
+  // Journals live in the common Git directory and can be discovered from the normal checkout. Only
+  // enter/remove the temporary worktree whose exact path was authenticated in that journal; a user
+  // may legitimately have the Goal branch checked out in some other linked worktree.
+  let pending = await readPendingPublication(root, { ...subject, migrate: false });
+  const recordedWorktree = pending?.record?.lifecycleWorktree ?? null;
+  const lifecycleWorktree = await managedGoalLifecycleWorktree(root, goalId, recordedWorktree);
+  const recoveryRoot = pending?.record?.recoveryStage === 'interrupted-before-branch-ref-advanced'
+    ? (lifecycleWorktree ?? root)
+    : root;
+  if (recoveryRoot !== root) {
+    pending = await readPendingPublication(recoveryRoot, { ...subject, migrate: false });
   }
-  const pending = await readPendingPublication(root, { kind: 'goal', id: goalId, migrate: false });
   const local = refSha(root, `refs/heads/${goalId}`);
-  if (!local) throw new SingularityFlowError(`Governed Goal '${goalId}' has no retained local lifecycle branch.`, { code: 'GOVERNED_GOAL_NOT_FOUND' });
-  if (pending?.record.commit && pending.record.commit !== local) {
-    throw new SingularityFlowError(`Governed Goal '${goalId}' recovery marker does not match its local branch. Inspect it before publishing.`, {
-      code: 'GOVERNED_GOAL_RECOVERY_MISMATCH'
-    });
+  if (policy.mode !== 'off') fetchGoalBranch(root, goalId, policy, { required: false });
+  const remote = policy.mode === 'off'
+    ? null : refSha(root, `refs/remotes/${policy.remote}/${goalId}`);
+  if (!pending) {
+    if (lifecycleWorktree) {
+      // Managed Goal worktrees are intentionally created with --no-checkout, so ordinary status
+      // reports every unrelated base-tree path as deleted. Inspect only the complete bounded Goal
+      // projection; anything outside it was never materialized and is not recoverable Goal state.
+      const relative = governedGoalRelative(goalId);
+      const changed = git(lifecycleWorktree, ['diff', '--quiet', 'HEAD', '--', relative], {
+        allowFailure: true
+      });
+      const untracked = git(lifecycleWorktree, [
+        'ls-files', '--others', '--exclude-standard', '-z', '--', relative
+      ], { allowFailure: true });
+      if (changed.status > 1 || untracked.status !== 0
+          || changed.status === 1 || untracked.stdout) {
+        throw new SingularityFlowError(
+          `Governed Goal '${goalId}' publication is complete, but its managed lifecycle worktree contains changes. `
+          + 'It was preserved for inspection.',
+          { code: 'GOVERNED_GOAL_WORKTREE_RECOVERY_REQUIRED' }
+        );
+      }
+      git(root, ['worktree', 'remove', '--force', lifecycleWorktree], { allowFailure: true });
+    }
+    if (policy.mode === 'off') {
+      return {
+        id: goalId, changed: false, pushed: false, mode: 'off', noOp: true,
+        commit: local
+      };
+    }
+    if (!local && !remote) {
+      throw new SingularityFlowError(`Governed Goal '${goalId}' has no retained lifecycle branch.`, {
+        code: 'GOVERNED_GOAL_NOT_FOUND'
+      });
+    }
+    if (local && remote && local !== remote) {
+      throw new SingularityFlowError(
+        `Governed Goal '${goalId}' has no exact pending-publication receipt for its different local commit. `
+        + 'Automatic push was refused; inspect the lifecycle branch and recovery records.',
+        { code: 'GOVERNED_GOAL_RECOVERY_RECEIPT_REQUIRED' }
+      );
+    }
+    return {
+      id: goalId, changed: false, pushed: Boolean(remote), noOp: true,
+      commit: remote ?? local, remote: policy.remote
+    };
   }
-  fetchGoalBranch(root, goalId, policy, { required: false });
-  const remote = refSha(root, `refs/remotes/${policy.remote}/${goalId}`);
-  if (remote === local) {
-    await clearPendingPublication(root, { kind: 'goal', id: goalId });
-    return { id: goalId, changed: Boolean(pending), pushed: true, commit: local, remote: policy.remote };
+
+  if (pending.record.recoveryStage === 'interrupted-before-branch-ref-advanced') {
+    const active = livePreparedPublicationOwner(pending, recoveryRoot);
+    if (active) {
+      throw new SingularityFlowError(
+        `Governed Goal '${goalId}' still has an active publication command (PID ${active.pid}).`,
+        { code: 'GOVERNED_GOAL_PUBLICATION_ACTIVE' }
+      );
+    }
+    if (!lifecycleWorktree) {
+      throw new SingularityFlowError(
+        `Governed Goal '${goalId}' has no exact managed lifecycle worktree matching its interrupted pre-commit transaction. `
+        + 'The journal was retained; no user-created worktree was removed.',
+        { code: 'GOVERNED_GOAL_PREPARED_RECOVERY_REQUIRED' }
+      );
+    }
+    const recovery = await recoverPreparedPublication(recoveryRoot, pending);
+    if (!recovery) {
+      throw new SingularityFlowError(
+        `Governed Goal '${goalId}' interrupted transaction could not be restored automatically.`,
+        { code: 'GOVERNED_GOAL_PREPARED_RECOVERY_REQUIRED' }
+      );
+    }
+    git(root, ['worktree', 'remove', '--force', lifecycleWorktree], { allowFailure: true });
+    if (pending.record.goalBranchCreated === true
+        && refSha(root, `refs/heads/${goalId}`) === pending.journalRecord?.expectedHead) {
+      git(root, ['branch', '-D', goalId], { allowFailure: true });
+    }
+    return {
+      id: goalId, changed: true, pushed: false, recoveredPrepared: true,
+      restoredPrepared: recovery.restored, rescuePath: recovery.rescuePath,
+      commit: refSha(root, `refs/heads/${goalId}`), remote: policy.remote
+    };
   }
-  if (remote && !isAncestor(root, remote, local)) {
-    throw new SingularityFlowError(`Governed Goal '${goalId}' remote branch diverged; automatic recovery was refused.`, {
-      code: 'GOVERNED_GOAL_BRANCH_DIVERGED'
-    });
+
+  if (pending.record.commit && local !== pending.record.commit) {
+    throw new SingularityFlowError(
+      `Governed Goal '${goalId}' recovery marker does not match its local lifecycle branch.`,
+      { code: 'GOVERNED_GOAL_RECOVERY_MISMATCH' }
+    );
   }
-  const pushed = git(root, ['push', policy.remote, `${local}:refs/heads/${goalId}`], { allowFailure: true });
-  if (pushed.status !== 0) {
-    throw new SingularityFlowError(`Governed Goal '${goalId}' is still pending publication: ${(pushed.stderr || pushed.stdout).trim()}`, {
-      code: 'GOVERNED_GOAL_PUBLICATION_PENDING'
-    });
+  const result = await syncPendingLifecyclePublication(recoveryRoot, {
+    ...subject, branch: goalId, remote: policy.remote
+  });
+  if (lifecycleWorktree) {
+    git(root, ['worktree', 'remove', '--force', lifecycleWorktree], { allowFailure: true });
   }
-  await clearPendingPublication(root, { kind: 'goal', id: goalId });
-  return { id: goalId, changed: true, pushed: true, commit: local, remote: policy.remote };
+  return {
+    id: goalId,
+    changed: result.recovered === true,
+    pushed: Boolean(result.pushed),
+    commit: result.pushed ?? local,
+    remote: policy.remote
+  };
 }
 
 export async function compileGovernedGoalPlan(context, id, { config = {}, assisted = false, now } = {}) {

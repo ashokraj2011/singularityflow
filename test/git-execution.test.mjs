@@ -546,6 +546,19 @@ test('hard async boundaries preserve timeout, cancellation, and output-limit err
     }), (error) => error?.code === 'REMOTE_OUTPUT_LIMIT'
       && error?.details?.outputOverflow === true);
   });
+
+  await t.test('returned output overflow keeps the same code when the caller handles failure', async () => {
+    const result = await runRemoteGitAsync(['fetch', 'origin'], {
+      timeoutMs: 5_000,
+      terminationGraceMs: 40,
+      maxBuffer: 4,
+      spawnCommand: childThat((child) => child.stderr.write('secret-bearing output beyond bound'))
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.outputOverflow, true);
+    assert.equal(result.failure.code, 'REMOTE_OUTPUT_LIMIT');
+    assert.equal(result.failure.retryable, true);
+  });
 });
 
 test('remote timeout terminates a pipe-holding descendant process tree', async () => {

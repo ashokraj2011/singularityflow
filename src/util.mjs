@@ -478,6 +478,7 @@ export function run(command, args = [], {
   shell = false,
   stdio = 'pipe',
   timeoutMs = defaultTimeoutFor(command),
+  killSignal = 'SIGTERM',
   /** The output ceiling. Defaults to `SUBPROCESS_MAX_BUFFER_BYTES`, not Node's 1 MiB. */
   maxBuffer = SUBPROCESS_MAX_BUFFER_BYTES,
   /**
@@ -514,7 +515,7 @@ export function run(command, args = [], {
   }
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
   const result = spawnSync(command, args, {
-    cwd, env, encoding, shell, stdio, timeout: timeoutMs,
+    cwd, env, encoding, shell, stdio, timeout: timeoutMs, killSignal,
     ...(maxBuffer === undefined ? {} : { maxBuffer }),
     /**
      * Always bytes.

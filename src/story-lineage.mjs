@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { assertNotDefaultBranch, branch, changes, defaultBranchName, head, identity } from './git.mjs';
+import {
+  assertNotDefaultBranch, branch, changes, commitIsAncestor, defaultBranchName,
+  exactRemoteBranchObservationAsync, head, identity
+} from './git.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
   commitAndPublish, loadWorkflow, saveStoryDraft, sourceTreeHash, workflowBranchAllowed,
@@ -16,10 +19,18 @@ import { createImpactReceipt } from './impact.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
-import { runRemoteGit } from './git-execution.mjs';
 import {
   validateAutoCandidateBinding, validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
+import {
+  verifiedSgosLifecycleCandidateForCommit
+} from './sgos/candidate-lifecycle.mjs';
+import {
+  completePendingStoryBranchPromotion, isPendingStoryBranchPromotion,
+  readPendingPublication, writePendingPublication
+} from './publication-pending.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -739,9 +750,73 @@ export async function promoteStoryBranch(root, config, workflow, {
   if (selected === 'pr') {
     return { mode: 'pr', branch: current, canonicalBranch: canonical, requiresPullRequest: true };
   }
-  const result = runRemoteGit(['push', config.git?.remote ?? 'origin', `HEAD:${canonical}`], {
-    cwd: root, operation: 'remote-push'
+  const subject = { kind: 'story', id: workflow.workItem.id };
+  const remote = config.git?.remote ?? 'origin';
+  return withSubjectLock(root, subject, async () => {
+    const pending = await readPendingPublication(root, subject);
+    if (pending) {
+      if (!isPendingStoryBranchPromotion(pending.record)) {
+        throw new SingularityFlowError(
+          `Story '${subject.id}' has another pending publication. Synchronize it before branch promotion.`
+        );
+      }
+      return completePendingStoryBranchPromotion(root, pending, {
+        subject, targetBranch: canonical, remote
+      });
+    }
+    const sourceBranch = workflowPublicationBranch(root, workflow);
+    const sourceCommit = head(root);
+    const candidate = await verifiedSgosLifecycleCandidateForCommit(root, sourceCommit);
+    const admission = candidate.receipt.lifecycleAdmission;
+    if (admission?.subject?.kind !== 'story' || admission.subject.id !== subject.id
+        || !['work-completed', 'impact-finalized'].includes(admission.eventType)) {
+      throw new SingularityFlowError(
+        `Story '${subject.id}' direct promotion requires its exact finalized governed Candidate commit. `
+        + 'Finalize the Story again after any later governed change; no remote ref was changed.',
+        { code: 'STORY_PROMOTION_CANDIDATE_INVALID' }
+      );
+    }
+    const authority = configuredRemoteAuthority(root, remote);
+    const observed = await exactRemoteBranchObservationAsync(root, authority.url, canonical);
+    if (!observed.reachable || observed.malformed) {
+      throw new SingularityFlowError(
+        `Direct promotion could not observe one exact remote '${canonical}' tip. `
+        + 'Run workspace doctor --network and retry; no ref was changed.',
+        { code: 'STORY_PROMOTION_REMOTE_UNAVAILABLE' }
+      );
+    }
+    if (observed.sha === sourceCommit) {
+      return {
+        mode: 'direct', branch: sourceBranch, canonicalBranch: canonical,
+        commit: sourceCommit, pushed: false, recovered: true
+      };
+    }
+    if (observed.sha && !commitIsAncestor(root, observed.sha, sourceCommit)) {
+      throw new SingularityFlowError(
+        `Direct promotion cannot fast-forward '${canonical}' from ${observed.sha.slice(0, 12)} `
+        + `to Candidate ${sourceCommit.slice(0, 12)}. Rebase the child branch or use a pull request.`,
+        { code: 'STORY_PROMOTION_NOT_FAST_FORWARD' }
+      );
+    }
+    await writePendingPublication(root, {
+      ...subject,
+      record: {
+        recoveryKind: 'story-branch-promotion',
+        subject,
+        sourceBranch,
+        targetBranch: canonical,
+        remote,
+        remoteFingerprint: authority.fingerprint,
+        commit: sourceCommit,
+        candidate: candidate.binding,
+        expectedRemoteSha: observed.sha,
+        pushOutcome: 'not-attempted',
+        createdAt: nowIso()
+      }
+    });
+    const prepared = await readPendingPublication(root, { ...subject, migrate: false });
+    return completePendingStoryBranchPromotion(root, prepared, {
+      subject, targetBranch: canonical, remote
+    });
   });
-  if (result.status !== 0) throw new SingularityFlowError(`Direct promotion could not fast-forward '${canonical}': ${(result.stderr || result.stdout).trim()}. Rebase the child branch or use a pull request.`);
-  return { mode: 'direct', branch: current, canonicalBranch: canonical, commit: head(root), pushed: true };
 }

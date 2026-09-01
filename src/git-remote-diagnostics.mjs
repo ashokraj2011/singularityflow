@@ -199,6 +199,20 @@ function outputFor(result) {
     .filter(Boolean).map(String).join('\n');
 }
 
+/**
+ * Describe a failed local Git post-clone operation without echoing helper/filter diagnostics.
+ *
+ * Sparse checkout can lazy-fetch and Git may invoke a configured credential helper or content
+ * filter while doing it. Their output is therefore secret-bearing provider input, just like remote
+ * stderr. The digest is enough to correlate a terminal trace without persisting the bytes.
+ */
+export function safeGitDiagnosticReference(result, fallback = 'Git refused the operation') {
+  const raw = outputFor(result);
+  const exit = Number.isInteger(result?.status) ? result.status : 'unknown';
+  const digest = createHash('sha256').update(raw).digest('hex').slice(0, 16);
+  return `${fallback} (exit ${exit}; diagnostic sha256:${digest})`;
+}
+
 function failureEvidence(result) {
   const raw = outputFor(result);
   return {

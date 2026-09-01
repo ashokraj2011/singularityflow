@@ -26,7 +26,7 @@ import {
   deriveRepositoryFacts, renderFactsDigest, withRepositoryFactsBlock
 } from './repository-facts.mjs';
 import { collectInputs, renderInputsBlock } from './inputs.mjs';
-import { assertNoPendingPublication, pendingPublicationPath, saveStoryDraft } from './state-stores.mjs';
+import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { assertPhaseSequence } from './sequence.mjs';
 import { publishToStateBranch } from './ledger.mjs';
 import {
@@ -1049,21 +1049,17 @@ async function publishWorldModel(root, config, workflow, sourceHash, phase = 're
     // The exact application commit is durable and can be retried. Keep its installed projection;
     // rolling back only the worktree would make the retained commit look locally modified.
     if (installation) await installation.finalize();
-    if (workflow?.workItem?.id) {
-      await writeJson(pendingPublicationPath(root, config.definition, workflow.workItem.id), {
-        schemaVersion: currentSchemaVersion('pending-publication'), workId: workflow.workItem.id, branch: targetBranch, remote,
-        commit, createdAt: new Date().toISOString(), error: (result.stderr || result.stdout).trim(), kind: 'world-model'
-      });
-      throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run singularity-flow sync after fixing remote access.`, {
-        code: 'world_model.application_publication_pending',
-        details: { commit, remote, recoveryCommand: 'singularity-flow sync' }
-      });
-    }
-    const recoveryCommand = `git push ${remote} ${commit}:refs/heads/${targetBranch}`;
-    throw new SingularityFlowError(`World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. Run '${recoveryCommand}' after fixing remote access.`, {
+    // Story/Initiative pending-publication is lifecycle authority. A world-model transport failure
+    // must never overwrite that exact marker with an incompatible raw shape or tell `sync` to push
+    // a non-lifecycle commit. The caller retains the validated model in its dedicated recovery
+    // plane and supplies the exact `wm recovery publish` command.
+    throw new SingularityFlowError(
+      `World-model commit ${commit?.slice(0, 8)} was retained locally but push failed. `
+      + 'Use the retained world-model recovery command after fixing remote access.', {
       code: 'world_model.application_publication_pending',
-      details: { commit, remote, recoveryCommand }
-    });
+      details: { commit, remote, targetBranch, recoveryCommand: null }
+    }
+    );
   }
   if (installation) await installation.finalize();
   return { commit, pushed: true, changed };
@@ -1109,6 +1105,7 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
     ? ` The validated snapshot was retained at ${recoveryPath}; no light replacement was attempted.`
     : ' No light replacement was attempted.';
   const publicationMessage = String(error.message ?? error);
+  const recoveryId = recoveryPath ? path.basename(recoveryPath) : null;
   return new SingularityFlowError(
     `World-model generation and validation succeeded, but governed publication or installation failed: ${publicationMessage}${publicationMessage.endsWith('.') ? '' : '.'}${recovery}`,
     {
@@ -1118,7 +1115,10 @@ async function publicationRecoveryError(root, validatedDirectory, error, { phase
         recoveryPath,
         preservationError,
         fallbackAllowed: false,
-        recoveryCommand: error?.details?.recoveryCommand ?? null,
+        recoveryCommand: error?.details?.recoveryCommand
+          ?? (recoveryId
+            ? `singularity-flow wm recovery publish ${recoveryId} --confirm ${recoveryId}`
+            : null),
         applicationCommit: error?.details?.applicationCommit ?? null,
         applicationCommitRetained: error?.details?.applicationCommitRetained === true,
         applicationCommitPushed: error?.details?.applicationCommitPushed === true

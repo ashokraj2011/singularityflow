@@ -18,6 +18,9 @@ import {
 } from './workspace.mjs';
 import { gitWorkerCount, mapLimit, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import {
+  enterpriseGitEnvironment, withoutGitProcessOverrides
+} from './git-enterprise-environment.mjs';
 import { healerReceipt } from './workspace-healers.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
@@ -825,17 +828,22 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   // One operation-scoped observation cache lets duplicate repository URLs and the capability
   // authority reuse a single broad HEAD + heads inventory. The final materialization boundary
   // still performs its separate exact-ref freshness check through the branded validation receipt.
-  const remoteSession = new GitRemoteSession({ env });
+  const gitEnv = runCommand === run
+    ? enterpriseGitEnvironment(env)
+    // An injected deterministic probe is not a real Git installation and cannot answer system /
+    // global config queries. It still receives the executable-free half of the boundary.
+    : withoutGitProcessOverrides(env);
+  const remoteSession = new GitRemoteSession({ env: gitEnv });
   const observations = await mapLimit(
     plan.repositories, gitWorkerCount(plan.repositories.length, { env }), async (repository) => {
     const actualUrl = plan.createInput.repositories[repository.id].url;
     const inferDefault = plan.inferDefaultRepositories.includes(repository.id);
     const probe = runCommand === run
       ? await asynchronousRemoteProbe(actualUrl, {
-          branch: inferDefault ? null : repository.defaultBranch, env, session: remoteSession
+          branch: inferDefault ? null : repository.defaultBranch, env: gitEnv, session: remoteSession
         })
       : probeGitRemote(actualUrl, {
-          branch: inferDefault ? null : repository.defaultBranch, runCommand, env
+          branch: inferDefault ? null : repository.defaultBranch, runCommand, env: gitEnv
         });
     return { repository, actualUrl, inferDefault, probe };
   });
@@ -881,7 +889,9 @@ async function remotePreflight(plan, { env = process.env, runCommand = run } = {
   ])].sort();
   if (requestedCapabilities.length) {
     try {
-      const validation = await validateWorkspaceCapabilityRegistration(manifest, { env, remoteSession });
+      const validation = await validateWorkspaceCapabilityRegistration(manifest, {
+        env: gitEnv, remoteSession
+      });
       liveCapabilityValidation = validation;
       checks.push({
         id: 'configuration:capability-catalog',

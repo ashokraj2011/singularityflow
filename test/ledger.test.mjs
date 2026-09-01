@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { run } from '../src/util.mjs';
 import { normalizeLedgerConfig } from '../src/ledger-config.mjs';
 import {
@@ -287,6 +288,43 @@ test('a failed first ledger push retains the orphan root locally for safe retry'
   assert.match(git(root, ['rev-parse', '--verify', 'refs/heads/state']).stdout.trim(), /^[0-9a-f]{40}$/);
   const mergeBase = run('git', ['merge-base', 'main', 'state'], { cwd: root, allowFailure: true });
   assert.notEqual(mergeBase.status, 0);
+});
+
+test('first ledger publication is deadline-supervised and returns no hook diagnostics', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { root, remote } = await repository();
+  const secret = 'office-hook-secret-must-not-leak';
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook, [
+    '#!/bin/sh',
+    `echo '${secret}' >&2`,
+    "trap '' TERM",
+    'while :; do sleep 1; done',
+    ''
+  ].join('\n'));
+  await chmod(hook, 0o755);
+  const env = {
+    ...process.env,
+    SINGULARITY_FLOW_GIT_PUSH_TIMEOUT_MS: '40',
+    SINGULARITY_FLOW_GIT_TERMINATION_GRACE_MS: '40'
+  };
+  let eventLoopAdvanced = false;
+  const tick = setTimeout(() => { eventLoopAdvanced = true; }, 5);
+  const startedAt = performance.now();
+  let refusal;
+  try {
+    await initializeLedger(root, enabled, { env, transportRemote: remote });
+  } catch (error) {
+    refusal = error;
+  } finally {
+    clearTimeout(tick);
+  }
+  assert.equal(refusal?.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.doesNotMatch(refusal?.message ?? '', new RegExp(secret));
+  assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/);
+  assert.equal(eventLoopAdvanced, true, 'ledger publication blocked the event loop');
+  assert.ok(performance.now() - startedAt < 1_000, 'ledger publication escaped its deadline and grace');
 });
 
 test('durable work-branch intents reconcile from Git without relying on the local outbox', async () => {

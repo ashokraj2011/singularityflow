@@ -15,6 +15,7 @@ import {
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { fetchWorkspace } from '../src/workspace.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 async function remoteFixture(branch = 'trunk') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-bootstrap-guardian-'));
@@ -221,8 +222,7 @@ test('prepare persists a resumable plan before destination mutation and resume l
 
 test('bootstrap preflight observes each unique remote once even when multiple repositories share it', async () => {
   const fixture = await remoteFixture('trunk');
-  const trace = path.join(fixture.root, 'git-trace.jsonl');
-  const env = { ...environment(fixture.root), GIT_TRACE2_EVENT: trace };
+  const env = environment(fixture.root);
   const createInput = input(fixture.root, fixture.remote, 'trunk');
   createInput.id = 'shared-remote';
   createInput.name = 'Shared remote';
@@ -233,16 +233,15 @@ test('bootstrap preflight observes each unique remote once even when multiple re
     path: 'repos/secondary'
   };
 
-  const prepared = await prepareWorkspaceBootstrap({
+  const timer = commandTimer('workspace-bootstrap-preflight', { commandClass: 'read' });
+  const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
     source: { kind: 'manifest', reference: fixture.remote },
     createInput
-  }, { env });
+  }, { env }));
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
 
-  const events = (await readFile(trace, 'utf8')).trim().split('\n')
-    .filter(Boolean).map((line) => JSON.parse(line));
-  const probes = events.filter((event) => event.event === 'cmd_name' && event.name === 'ls-remote');
-  assert.equal(probes.length, 1,
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 1,
     'one broad operation-scoped inventory must satisfy every repository bound to the same remote');
 });
 
@@ -258,25 +257,24 @@ test('capability preflight reuses the lead inventory before its single catalog t
       teams: []
     }
   });
-  const trace = path.join(fixture.root, 'capability-git-trace.jsonl');
-  const env = { ...environment(fixture.root), GIT_TRACE2_EVENT: trace };
+  const env = environment(fixture.root);
   const createInput = input(fixture.root, fixture.remote, 'trunk');
   createInput.id = 'catalog-transfer';
   createInput.name = 'Catalog transfer';
   createInput.capabilities = ['declared-capability'];
   createInput.repositories.application.capabilities = ['declared-capability'];
 
-  const prepared = await prepareWorkspaceBootstrap({
+  const timer = commandTimer('capability-bootstrap-preflight', { commandClass: 'read' });
+  const prepared = await withCommandTiming(timer, () => prepareWorkspaceBootstrap({
     source: { kind: 'manifest', reference: fixture.remote },
     createInput
-  }, { env });
+  }, { env }));
   assert.equal(prepared.preflight.ready, true, JSON.stringify(prepared.preflight.findings));
 
-  const events = (await readFile(trace, 'utf8')).trim().split('\n')
-    .filter(Boolean).map((line) => JSON.parse(line));
-  assert.equal(events.filter((event) => event.event === 'cmd_name' && event.name === 'ls-remote').length, 1,
+  const counters = timer.finish().counters;
+  assert.equal(counters['git.remote.command.ls-remote'], 1,
     'capability authority lookup must reuse the repository inventory');
-  assert.equal(events.filter((event) => event.event === 'cmd_name' && event.name === 'clone').length, 1,
+  assert.equal(counters['git.remote.command.clone'], 1,
     'preflight transfers the approved capability catalog exactly once');
 });
 

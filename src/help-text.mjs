@@ -125,6 +125,7 @@ Usage:
   singularity-flow adhoc claim --all --clause CLAUSE-ID [--session SESSION-ID]
   singularity-flow adhoc landing preview [SESSION-ID] [--test-command ID] [--json]
   singularity-flow adhoc publish <SESSION-ID> --confirm PACKET-SHA256 [--json]
+  singularity-flow adhoc sync <SESSION-ID> [--json]
   singularity-flow adhoc promote [SESSION-ID] [--json]
   singularity-flow adhoc close [SESSION-ID] --local-only [--json]
   singularity-flow inbox [--offline] [--json]

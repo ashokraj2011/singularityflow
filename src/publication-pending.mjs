@@ -1,11 +1,14 @@
 import path from 'node:path';
 import os from 'node:os';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
+import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
-  branch, changes, commitIsAncestor, gitCommonDir, governedCommitIdentity, head, remoteContains
+  branch, changes, commitIsAncestor, exactRemoteBranchObservationAsync, gitCommonDir,
+  governedCommitIdentity, head, publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead,
+  remoteContains
 } from './git.mjs';
+import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import {
   clearPublicationJournal,
   publicationJournalOwnedByCurrentProcess,
@@ -23,29 +26,22 @@ import { subjectLockPath } from './subject-lock.mjs';
 import {
   prepareSharedPublicationStorage, resolveSharedPublicationFile
 } from './publication-storage.mjs';
+import {
+  MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME,
+  machineLocalPublicationIntegrityKey
+} from './publication-machine-integrity.mjs';
+export {
+  sealMachineLocalPublicationReceipt,
+  verifyMachineLocalPublicationReceipt
+} from './publication-machine-integrity.mjs';
+import {
+  sgosLifecycleCandidateIdentity,
+  publishVerifiedSgosLifecycleCandidate,
+  verifySgosLifecycleCandidateBinding
+} from './sgos/candidate-lifecycle.mjs';
 
 const PENDING_PUBLICATION_FAMILY = 'pending-publication';
-const PENDING_INTEGRITY_SCHEME = 'machine-local-hmac-sha256-v1';
-
-function pendingIntegrityKeyPath(root) {
-  return path.join(gitCommonDir(root), 'singularity-flow', 'pending-publication-integrity.key');
-}
-
-async function pendingIntegrityKey(root, { create = false } = {}) {
-  const target = pendingIntegrityKeyPath(root);
-  try {
-    const key = Buffer.from((await readFile(target, 'utf8')).trim(), 'base64');
-    return key.length === 32 ? key : null;
-  } catch (error) {
-    if (error?.code !== 'ENOENT' || !create) return null;
-  }
-  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-  const encoded = randomBytes(32).toString('base64');
-  try { await writeFile(target, `${encoded}\n`, { mode: 0o600, flag: 'wx' }); }
-  catch (error) { if (error?.code !== 'EEXIST') throw error; }
-  const key = Buffer.from((await readFile(target, 'utf8')).trim(), 'base64');
-  return key.length === 32 ? key : null;
-}
+const PENDING_INTEGRITY_SCHEME = MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME;
 
 function pendingIntegrityPayload(record) {
   const { recoveryIntegrity: _integrity, ...payload } = record ?? {};
@@ -53,7 +49,7 @@ function pendingIntegrityPayload(record) {
 }
 
 async function sealPendingPublication(root, record) {
-  const key = await pendingIntegrityKey(root, { create: true });
+  const key = await machineLocalPublicationIntegrityKey(root, { create: true });
   if (!key) throw new SingularityFlowError('Pending-publication integrity key is unavailable.');
   const payload = pendingIntegrityPayload(record);
   return {
@@ -68,7 +64,7 @@ async function sealPendingPublication(root, record) {
 
 export async function verifyPendingPublicationIntegrity(root, record) {
   const integrity = record?.recoveryIntegrity;
-  const key = await pendingIntegrityKey(root);
+  const key = await machineLocalPublicationIntegrityKey(root);
   if (!key || integrity?.scheme !== PENDING_INTEGRITY_SCHEME
     || integrity.keyId !== createHash('sha256').update(key).digest('hex').slice(0, 16)
     || !/^sha256:[0-9a-f]{64}$/.test(integrity.mac ?? '')) return false;
@@ -103,14 +99,63 @@ export function localPendingPublicationPath(root, kind, id) {
 }
 
 async function sharedPendingPublication(root, kind, id, { migrate = true } = {}) {
-  return resolveSharedPublicationFile(root, {
+  const resolved = await resolveSharedPublicationFile(root, {
     directory: 'pending-publication',
     name: `${kind}--${safeId(id)}.json`,
     label: `Pending publication for ${kind} '${id}'`,
-    read: async (target) => readRecord(PENDING_PUBLICATION_FAMILY, await readJson(target)).record,
-    identity: recordSha256,
+    // Keep the stored representation beside the migrated in-memory record. Recovery integrity was
+    // computed over those historical bytes; verifying a v2 MAC after adding v3's `candidate:null`
+    // changes the signed payload and makes every authentic pre-Candidate marker look tampered.
+    read: async (target) => {
+      const stored = await readJson(target);
+      const decoded = readRecord(PENDING_PUBLICATION_FAMILY, stored);
+      return {
+        stored,
+        record: decoded.record,
+        storedVersion: decoded.storedVersion,
+        migratedThrough: decoded.migratedThrough,
+        integrityVerified: await verifyPendingPublicationIntegrity(root, stored)
+      };
+    },
+    // Repository-common and linked-worktree copies must agree on the exact sealed representation,
+    // not merely on the shape a newer reader derives from it.
+    identity: (value) => recordSha256(value.stored),
     migrate
   });
+  if (!resolved) return null;
+
+  let envelope = resolved.value;
+  let schemaMigrated = false;
+  if (migrate && envelope.migratedThrough.length > 0 && envelope.integrityVerified) {
+    // Authenticate the stored v2 payload first, then atomically replace it with a newly sealed v3
+    // record. A crash sees either complete receipt; it never sees migrated bytes with the old MAC.
+    await writeSealedPendingPublication(root, resolved.path, envelope.record);
+    const stored = await readJson(resolved.path);
+    const decoded = readRecord(PENDING_PUBLICATION_FAMILY, stored);
+    envelope = {
+      stored,
+      record: decoded.record,
+      storedVersion: decoded.storedVersion,
+      migratedThrough: decoded.migratedThrough,
+      integrityVerified: await verifyPendingPublicationIntegrity(root, stored)
+    };
+    if (!envelope.integrityVerified || envelope.storedVersion !== currentSchemaVersion(PENDING_PUBLICATION_FAMILY)) {
+      throw new SingularityFlowError(
+        `Pending publication for ${kind} '${id}' could not be resealed after schema migration.`,
+        { code: 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID' }
+      );
+    }
+    schemaMigrated = true;
+  }
+  return {
+    ...resolved,
+    value: envelope.record,
+    storedValue: envelope.stored,
+    storedVersion: envelope.storedVersion,
+    integrityVerified: envelope.integrityVerified,
+    schemaMigrated,
+    migrated: resolved.migrated || schemaMigrated
+  };
 }
 
 /**
@@ -123,7 +168,13 @@ async function sharedPendingPublication(root, kind, id, { migrate = true } = {})
 export function defaultLegacyPendingPublicationPath(root, kind, id, roots = {}) {
   const directory = kind === 'initiative'
     ? (roots.initiativeRoot ?? 'singularity/initiatives')
-    : (roots.workItemRoot ?? 'singularity/work-items');
+    : kind === 'story'
+      ? (roots.workItemRoot ?? 'singularity/work-items')
+      : null;
+  // Ad hoc and Goal receipts were Git-local from their first supported release. Treating every
+  // non-Initiative subject as a legacy Story would let `adhoc sync`/`goal sync` unlink an unrelated
+  // tracked Story marker whose ID happened to match.
+  if (!directory) return null;
   return path.join(root, directory, String(id), 'publication-pending.json');
 }
 
@@ -152,6 +203,7 @@ function recoveryRecord(journal, updates = {}) {
     eventSha256: journal.eventSha256 ?? null,
     stateSha256: journal.stateSha256 ?? null,
     publicationMode: journal.publicationMode ?? null,
+    candidate: journal.candidate ?? null,
     pushOutcome: journal.pushOutcome ?? 'not-attempted',
     ...(journal.expectedRemoteSha !== undefined
       ? { expectedRemoteSha: journal.expectedRemoteSha }
@@ -175,13 +227,39 @@ function verifiedJournalCommit(root, journal) {
   }
   const identity = governedCommitIdentity(root, journal.commit);
   if (!identity) return { valid: false, reason: `recorded commit ${journal.commit} is unavailable` };
+  const candidateFailures = candidateBindingFailures(journal.candidate);
+  if (candidateFailures.length) return { valid: false, reason: candidateFailures[0] };
+  if (journal.candidate != null) {
+    const expectedCandidate = sgosLifecycleCandidateIdentity(journal.event);
+    if (journal.candidate.candidateId !== expectedCandidate.candidateId
+        || journal.candidate.normalizedEventSha256 !== expectedCandidate.normalizedEventSha256) {
+      return { valid: false, reason: 'the Candidate does not bind the journal lifecycle event' };
+    }
+  }
+  const expectedStateSha256 = `sha256:${recordSha256({
+    transactionId: journal.transactionId,
+    expectedHead: journal.expectedHead,
+    branch: journal.branch,
+    tree: journal.tree,
+    eventSha256: journal.eventSha256,
+    publicationMode: journal.publicationMode,
+    ...(journal.candidate ? { candidate: journal.candidate } : {}),
+    ...(journal.remoteFingerprint ? { remoteFingerprint: journal.remoteFingerprint } : {}),
+    ...(journal.expectedRemoteSha !== undefined
+      ? { expectedRemoteSha: journal.expectedRemoteSha }
+      : {})
+  })}`;
   const mismatch = [
     [identity.parents.length === 1 && identity.parents[0] === journal.expectedHead, 'parent commit'],
     [identity.tree === journal.tree, 'tree'],
     [identity.transactionId === journal.transactionId, 'transaction ID'],
     [identity.eventSha256 === journal.eventSha256, 'event digest'],
     [identity.stateSha256 === journal.stateSha256, 'state digest'],
-    [identity.publicationMode === journal.publicationMode, 'publication mode']
+    [journal.stateSha256 === expectedStateSha256, 'recomputed state digest'],
+    [identity.publicationMode === journal.publicationMode, 'publication mode'],
+    [candidateIdentityMatches(identity.candidate, journal.candidate), 'Candidate binding'],
+    [journal.candidate == null || journal.tree === journal.candidate.candidateTree,
+      'Candidate tree']
   ].find(([matches]) => !matches);
   return mismatch
     ? { valid: false, reason: `the recorded commit has a different ${mismatch[1]}` }
@@ -194,6 +272,34 @@ function fullObjectId(value) {
 
 function sha256Digest(value) {
   return typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value);
+}
+
+function candidateBindingFailures(candidate, label = 'Candidate binding') {
+  if (candidate == null) return [];
+  if (typeof candidate !== 'object' || Array.isArray(candidate)) return [`${label} is invalid`];
+  const failures = [];
+  if (!/^CAN-[A-Za-z0-9._:-]{6,127}$/.test(candidate.candidateId ?? '')) {
+    failures.push(`${label} ID is invalid`);
+  }
+  for (const field of [
+    'normalizedEventSha256', 'candidateSha256', 'retainedCandidateSha256', 'verificationReceiptSha256',
+    'verificationProfileSha256'
+  ]) {
+    if (!sha256Digest(candidate[field])) failures.push(`${label} ${field} is invalid`);
+  }
+  for (const field of ['candidateTree', 'candidateCommit']) {
+    if (!fullObjectId(candidate[field])) failures.push(`${label} ${field} is invalid`);
+  }
+  return failures;
+}
+
+function candidateIdentityMatches(identityCandidate, candidate) {
+  if (candidate == null) return identityCandidate == null;
+  if (!identityCandidate || identityCandidate.invalid === true) return false;
+  return identityCandidate.candidateId === candidate.candidateId
+    && identityCandidate.candidateSha256 === candidate.candidateSha256
+    && identityCandidate.verificationReceiptSha256 === candidate.verificationReceiptSha256
+    && identityCandidate.verificationProfileSha256 === candidate.verificationProfileSha256;
 }
 
 /**
@@ -213,12 +319,16 @@ export function verifyPendingPublicationCommit(root, record, {
   const failures = [];
   const publicationModes = allowPublicationOff ? ['off', 'required', 'warn'] : ['required', 'warn'];
   if (!record || typeof record !== 'object' || Array.isArray(record)) {
-    return Object.freeze({ valid: false, failures: ['marker is not an object'], identity: null });
+    return Object.freeze({
+      valid: false, failures: ['marker is not an object'], identity: null,
+      candidateVerified: false, legacyUnverified: false
+    });
   }
+  failures.push(...candidateBindingFailures(record.candidate));
   if (!record.subject || typeof record.subject !== 'object' || Array.isArray(record.subject)) {
     failures.push('subject is missing');
   } else {
-    if (!['story', 'initiative'].includes(record.subject.kind)) failures.push('subject kind is invalid');
+    if (!['story', 'initiative', 'adhoc', 'goal'].includes(record.subject.kind)) failures.push('subject kind is invalid');
     if (!String(record.subject.id ?? '').trim()) failures.push('subject ID is missing');
     if (subject?.kind && record.subject.kind !== subject.kind) failures.push('subject kind does not match the requested subject');
     if (subject?.id && record.subject.id !== subject.id) failures.push('subject ID does not match the requested subject');
@@ -272,6 +382,19 @@ export function verifyPendingPublicationCommit(root, record, {
         failures.push('event transport binding is invalid');
       }
     }
+    if (record.candidate != null) {
+      try {
+        const expectedCandidate = sgosLifecycleCandidateIdentity(transactionEvent);
+        if (record.candidate.candidateId !== expectedCandidate.candidateId) {
+          failures.push('Candidate ID does not bind the marker lifecycle event');
+        }
+        if (record.candidate.normalizedEventSha256 !== expectedCandidate.normalizedEventSha256) {
+          failures.push('Candidate normalized event digest does not match the marker event');
+        }
+      } catch {
+        failures.push('Candidate lifecycle event binding is invalid');
+      }
+    }
   }
 
   const identity = fullObjectId(record.commit) ? governedCommitIdentity(root, record.commit) : null;
@@ -284,6 +407,12 @@ export function verifyPendingPublicationCommit(root, record, {
     if (identity.eventSha256 !== record.eventSha256) failures.push('commit event trailer does not match the marker');
     if (identity.stateSha256 !== record.stateSha256) failures.push('commit state trailer does not match the marker');
     if (identity.publicationMode !== record.publicationMode) failures.push('commit publication-mode trailer does not match the marker');
+    if (!candidateIdentityMatches(identity.candidate, record.candidate)) {
+      failures.push('commit Candidate trailers do not match the marker');
+    }
+    if (record.candidate != null && record.candidate.candidateTree !== record.tree) {
+      failures.push('Candidate tree does not match the governed commit tree');
+    }
     if (identity.parents.length === 1
       && fullObjectId(record.tree)
       && String(record.transactionId ?? '').trim()
@@ -296,6 +425,7 @@ export function verifyPendingPublicationCommit(root, record, {
         tree: record.tree,
         eventSha256: record.eventSha256,
         publicationMode: record.publicationMode,
+        ...(record.candidate ? { candidate: record.candidate } : {}),
         ...(record.remoteFingerprint ? { remoteFingerprint: record.remoteFingerprint } : {}),
         ...(record.expectedRemoteSha !== undefined
           ? { expectedRemoteSha: record.expectedRemoteSha }
@@ -304,7 +434,159 @@ export function verifyPendingPublicationCommit(root, record, {
       if (record.stateSha256 !== stateSha256) failures.push('state digest does not match the governed transaction identity');
     }
   }
-  return Object.freeze({ valid: failures.length === 0, failures: Object.freeze(failures), identity });
+  const candidateVerified = failures.length === 0 && record.candidate != null;
+  return Object.freeze({
+    valid: failures.length === 0,
+    failures: Object.freeze(failures),
+    identity,
+    candidateVerified,
+    // Exact legacy commits remain recoverable, but recovery never invents a Candidate receipt.
+    legacyUnverified: failures.length === 0 && record.candidate == null
+  });
+}
+
+/**
+ * Prove that a Candidate-bearing recovery receipt still has its immutable Candidate authority.
+ *
+ * Commit trailers and a pending marker can prove that their fields agree with each other, but they
+ * cannot prove that a Candidate was actually retained and passed the installed verifier. Recovery
+ * therefore reopens the content-addressed retained record and verification receipt before any
+ * remote operation. Pre-Candidate receipts deliberately remain exact-but-unverified compatibility
+ * authority; this function never fabricates a Candidate for them.
+ */
+export async function verifyPendingPublicationCandidateAuthority(root, record) {
+  if (record?.candidate == null) {
+    return Object.freeze({
+      valid: true,
+      candidateVerified: false,
+      legacyUnverified: true,
+      failures: Object.freeze([])
+    });
+  }
+  try {
+    const verified = await verifySgosLifecycleCandidateBinding(root, record.candidate, {
+      publishedCommit: record.commit
+    });
+    return Object.freeze({
+      valid: true,
+      candidateVerified: true,
+      legacyUnverified: false,
+      failures: Object.freeze([]),
+      lifecycleAdmission: structuredClone(verified.receipt.lifecycleAdmission)
+    });
+  } catch (error) {
+    return Object.freeze({
+      valid: false,
+      candidateVerified: false,
+      legacyUnverified: false,
+      failures: Object.freeze([
+        `Candidate authority is unavailable or invalid (${error?.code ?? 'SGOS_CANDIDATE_BINDING_INVALID'})`
+      ])
+    });
+  }
+}
+
+export function isPendingStoryBranchPromotion(record) {
+  return record?.recoveryKind === 'story-branch-promotion';
+}
+
+/**
+ * Finish one machine-sealed Story child-to-canonical promotion using its exact verified Candidate.
+ * The caller owns the Story subject lock. A durable transport-indeterminate marker is written
+ * before the remote compare-and-swap so process death can reconcile only exact remote equality.
+ */
+export async function completePendingStoryBranchPromotion(root, pending, {
+  subject, targetBranch, remote
+} = {}) {
+  const record = pending?.record;
+  const failures = [];
+  if (!isPendingStoryBranchPromotion(record)) failures.push('recovery kind is invalid');
+  if (pending?.integrityVerified !== true) failures.push('machine-local recovery integrity is invalid');
+  if (record?.subject?.kind !== 'story' || record.subject.id !== subject?.id) {
+    failures.push('Story subject does not match the requested promotion');
+  }
+  if (!String(record?.sourceBranch ?? '').trim()
+      || !String(record?.targetBranch ?? '').trim()
+      || record.sourceBranch === record.targetBranch) failures.push('promotion branch identity is invalid');
+  if (targetBranch && record?.targetBranch !== targetBranch) failures.push('canonical target branch changed');
+  if (remote && record?.remote !== remote) failures.push('publication remote changed');
+  if (!fullObjectId(record?.commit)) failures.push('promotion commit is invalid');
+  if (record?.expectedRemoteSha !== null && !fullObjectId(record?.expectedRemoteSha)) {
+    failures.push('promotion remote lease is invalid');
+  }
+  const candidateAuthority = failures.length
+    ? null : await verifyPendingPublicationCandidateAuthority(root, record);
+  if (candidateAuthority && !candidateAuthority.valid) failures.push(...candidateAuthority.failures);
+  const admission = candidateAuthority?.lifecycleAdmission;
+  if (candidateAuthority?.valid
+      && (admission?.subject?.kind !== 'story' || admission.subject.id !== subject.id
+        || !['work-completed', 'impact-finalized'].includes(admission.eventType))) {
+    failures.push('Candidate is not the exact finalized Story lifecycle publication');
+  }
+  let authority = null;
+  try { authority = configuredRemoteAuthority(root, record?.remote); } catch { /* fail below */ }
+  if (!record?.remoteFingerprint || !authority?.url
+      || authority.fingerprint !== record.remoteFingerprint) {
+    failures.push('promotion remote authority changed');
+  }
+  if (failures.length) {
+    throw new SingularityFlowError(
+      `Story '${subject?.id ?? 'unknown'}' branch promotion recovery is invalid: ${failures.join('; ')}. `
+      + 'The marker was retained and no ref was pushed.',
+      {
+        code: 'STORY_PROMOTION_RECOVERY_INVALID',
+        details: { subject, failures }
+      }
+    );
+  }
+
+  const priorOutcome = record.pushOutcome ?? 'not-attempted';
+  await writePendingPublication(root, {
+    ...subject,
+    record: { ...record, pushOutcome: 'transport-indeterminate' }
+  });
+  const published = await publishVerifiedSgosLifecycleCandidate(root, {
+    binding: record.candidate,
+    commit: record.commit,
+    branch: record.targetBranch,
+    remote: record.remote,
+    expectedRemoteSha: record.expectedRemoteSha,
+    transportRemote: authority.url,
+    upstreamRemote: authority.remote,
+    advanceLocalRef: false
+  });
+  if (published.result.status !== 0) {
+    const outcome = publicationPushOutcome(published.result);
+    const mayReconcile = priorOutcome === 'transport-indeterminate'
+      || outcome === 'transport-indeterminate';
+    const observed = mayReconcile
+      ? await exactRemoteBranchObservationAsync(root, authority.url, record.targetBranch) : null;
+    if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
+      if (outcome !== 'transport-indeterminate') {
+        await writePendingPublication(root, {
+          ...subject,
+          record: { ...record, pushOutcome: 'rejected' }
+        });
+      }
+      throw new SingularityFlowError(
+        `Story '${subject.id}' branch promotion push failed. The exact Candidate and recovery marker were retained.`,
+        {
+          code: 'STORY_PROMOTION_PUSH_FAILED',
+          details: { subject, targetBranch: record.targetBranch, outcome }
+        }
+      );
+    }
+  }
+  await clearPendingPublication(root, subject);
+  return Object.freeze({
+    mode: 'direct',
+    pending: false,
+    pushed: record.commit,
+    commit: record.commit,
+    branch: record.sourceBranch,
+    canonicalBranch: record.targetBranch,
+    recovered: priorOutcome === 'transport-indeterminate'
+  });
 }
 
 /**
@@ -318,7 +600,8 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
   const shared = await sharedPendingPublication(root, kind, id, { migrate });
   if (shared) return {
     path: shared.path, record: shared.value, migrated: shared.migrated,
-    integrityVerified: await verifyPendingPublicationIntegrity(root, shared.value),
+    integrityVerified: shared.integrityVerified,
+    ...(shared.schemaMigrated ? { schemaMigrated: true } : {}),
     ...(shared.migratedFrom?.length ? { migratedFrom: shared.migratedFrom } : {})
   };
   const subject = { kind, id };
@@ -328,8 +611,13 @@ export async function readPendingPublication(root, { kind, id, legacyPath = null
     // must not diagnose its own marker as a previous crash; every other process still sees it.
     if (publicationJournalOwnedByCurrentProcess(journal.record, root)) return null;
     const recorded = journal.record;
-    const currentHead = head(root);
-    const currentBranch = branch(root);
+    // Goal mutations run in a linked lifecycle worktree so the developer's Story checkout never
+    // changes. Their recovery authority is the exact Goal ref, not whichever branch happens to be
+    // checked out in the caller that later runs `goal sync`.
+    const goalRef = recorded.subject?.kind === 'goal'
+      ? `refs/heads/${recorded.branch}` : null;
+    const currentHead = goalRef && refExists(root, goalRef) ? refHead(root, goalRef) : head(root);
+    const currentBranch = goalRef ? recorded.branch : branch(root);
     if (currentBranch !== recorded.branch) {
       return {
         path: journal.path,
@@ -482,6 +770,143 @@ export async function clearPendingPublication(root, { kind, id, legacyPath = nul
     if (await exists(legacy)) await unlink(legacy);
   }
   await clearPublicationJournal(root, { kind, id });
+}
+
+/**
+ * Synchronize one exact Candidate-bound lifecycle commit for subjects without an aggregate-specific
+ * recovery tail. Story and Initiative keep their richer wrappers (capability/ledger handling);
+ * ad-hoc landing uses this kernel path so it cannot become permanently stuck after a push refusal.
+ */
+export async function syncPendingLifecyclePublication(root, options = {}) {
+  const subject = subjectRef(options);
+  return withSubjectLock(root, subject, async () => {
+    const pending = await readPendingPublication(root, { ...options, ...subject });
+    if (!pending) return Object.freeze({ pending: false, pushed: null, noOp: true, subject });
+    const record = pending.record;
+    if (record.recoveryStage === 'interrupted-before-branch-ref-advanced'
+        || record.recoveryStage === 'publication-recovery-diverged') {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' requires pre-commit recovery before synchronization.`,
+        { code: 'PUBLICATION_RECOVERY_REQUIRED', details: { subject, markerPath: pending.path } }
+      );
+    }
+    const localOnly = record.publicationMode === 'off' && record.localCommitted === true;
+    const verification = verifyPendingPublicationCommit(root, record, {
+      subject,
+      branch: options.branch ?? record.branch,
+      remote: options.remote ?? record.remote,
+      allowPublicationOff: localOnly
+    });
+    if (!verification.valid || (['adhoc', 'goal'].includes(subject.kind) && !verification.candidateVerified)) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' pending publication does not prove one exact Candidate-bound commit: `
+        + `${verification.failures.join('; ') || 'legacy publication has no Candidate verification'}.`,
+        { code: 'PENDING_PUBLICATION_IDENTITY_INVALID', details: { subject, failures: verification.failures } }
+      );
+    }
+    // Ad hoc and Goal recovery were introduced with the Candidate boundary and therefore have no
+    // legitimate unsealed marker format. Their local tail metadata controls terminal session/Goal
+    // cleanup, so authenticating only the commit while accepting edited progress metadata would
+    // let a hand-edited receipt skip or redirect that cleanup.
+    if (['adhoc', 'goal'].includes(subject.kind) && pending.integrityVerified !== true) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' pending publication integrity is invalid.`,
+        {
+          code: 'PENDING_PUBLICATION_PROGRESS_INTEGRITY_INVALID',
+          details: { subject, markerPath: pending.path }
+        }
+      );
+    }
+    const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, record);
+    if (!candidateAuthority.valid
+        || (['adhoc', 'goal'].includes(subject.kind) && !candidateAuthority.candidateVerified)) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' pending publication does not retain its exact verified Candidate: `
+        + `${candidateAuthority.failures.join('; ') || 'legacy publication has no Candidate verification'}.`,
+        {
+          code: 'PENDING_PUBLICATION_CANDIDATE_INVALID',
+          details: { subject, failures: candidateAuthority.failures }
+        }
+      );
+    }
+    if (localOnly) {
+      if (typeof options.finalize === 'function') {
+        await options.finalize(Object.freeze({
+          subject, record, commit: record.commit, localOnly: true
+        }));
+      }
+      await clearPendingPublication(root, subject);
+      return Object.freeze({
+        pending: false,
+        pushed: null,
+        commit: record.commit,
+        recovered: true,
+        localOnly: true,
+        subject
+      });
+    }
+    let authority = null;
+    try { authority = configuredRemoteAuthority(root, record.remote); } catch { /* fail below */ }
+    if (!record.remoteFingerprint || !authority?.url
+        || authority.fingerprint !== record.remoteFingerprint) {
+      throw new SingularityFlowError(
+        `${subject.kind} '${subject.id}' publication remote changed after its exact commit was retained.`,
+        { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject } }
+      );
+    }
+    if (record.rootPublished === true) {
+      const observed = await exactRemoteBranchObservationAsync(root, authority.url, record.branch);
+      if (!observed.reachable || observed.malformed || observed.sha !== record.commit) {
+        throw new SingularityFlowError('Pending publication claims an unproven remote commit.', {
+          code: 'PENDING_PUBLICATION_ROOT_UNPROVEN', details: { subject }
+        });
+      }
+      if (typeof options.finalize === 'function') {
+        await options.finalize(Object.freeze({
+          subject, record, commit: record.commit, localOnly: false
+        }));
+      }
+      await clearPendingPublication(root, subject);
+      return Object.freeze({ pending: false, pushed: record.commit, recovered: true, subject });
+    }
+    const priorOutcome = pending.integrityVerified === true
+      ? record.pushOutcome ?? 'not-attempted' : 'not-attempted';
+    await writePendingPublication(root, {
+      ...subject,
+      record: { ...record, pushOutcome: 'transport-indeterminate' }
+    });
+    const result = await pushCommitToBranchAsync(root, record.remote, record.commit, record.branch, {
+      expectedRemoteSha: record.expectedRemoteSha,
+      transportRemote: authority.url,
+      upstreamRemote: authority.remote
+    });
+    if (result.status !== 0) {
+      const outcome = publicationPushOutcome(result);
+      const mayReconcile = priorOutcome === 'transport-indeterminate'
+        || outcome === 'transport-indeterminate';
+      const observed = mayReconcile
+        ? await exactRemoteBranchObservationAsync(root, authority.url, record.branch) : null;
+      if (!observed || !observed.reachable || observed.malformed || observed.sha !== record.commit) {
+        if (outcome !== 'transport-indeterminate') {
+          await writePendingPublication(root, {
+            ...subject, record: { ...record, pushOutcome: 'rejected' }
+          });
+        }
+        throw new SingularityFlowError(
+          `Push still fails. ${result.failure?.advice
+            ?? 'Run workspace doctor --network and inspect Git access outside SFlow before retrying.'}`,
+          { code: 'PUBLICATION_PUSH_FAILED', details: { subject, outcome } }
+        );
+      }
+    }
+    if (typeof options.finalize === 'function') {
+      await options.finalize(Object.freeze({
+        subject, record, commit: record.commit, localOnly: false
+      }));
+    }
+    await clearPendingPublication(root, subject);
+    return Object.freeze({ pending: false, pushed: record.commit, recovered: true, subject });
+  });
 }
 
 function processIsAlive(pid) {

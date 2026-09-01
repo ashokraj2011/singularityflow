@@ -47,13 +47,17 @@ import {
   readConfigurationSource, retainStateConfigurationHistory, stateConfigurationHistoryBranch,
 } from './configuration-branch.mjs';
 import { mergeConfigurationAssetPolicies } from './configuration-assets.mjs';
-import { classifyPartialCloneResult, normalizeCloneStrategy } from './clone-strategy.mjs';
+import {
+  normalizeCloneStrategy, partialCloneConfigured, partialCloneFallbackDecision
+} from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText, sanitizeRemote
+  assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
+  redactDiagnosticText, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
+import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
-  GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync
+  GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
@@ -122,10 +126,10 @@ function capabilityProposalBranch(value) {
   return branch;
 }
 
-function proposalChangedFiles(root, base, proposal) {
-  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root })
+function proposalChangedFiles(root, base, proposal, { env = process.env } = {}) {
+  const names = run('git', ['diff', '--name-only', `${base}..${proposal}`], { cwd: root, env })
     .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean);
-  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root })
+  const statuses = run('git', ['diff', '--name-status', `${base}..${proposal}`], { cwd: root, env })
     .stdout.split('\n').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
       const [status, ...paths] = entry.split('\t');
       return { status, paths };
@@ -134,28 +138,30 @@ function proposalChangedFiles(root, base, proposal) {
 }
 
 /** Paths whose final Git identities prove a squash/rebase applied this exact proposal content. */
-function proposalContentPaths(root, base, proposal) {
+function proposalContentPaths(root, base, proposal, { env = process.env } = {}) {
   return run('git', [
     'diff', '--no-renames', '--name-only', '-z', `${base}..${proposal}`
-  ], { cwd: root }).stdout.split('\0').filter(Boolean);
+  ], { cwd: root, env }).stdout.split('\0').filter(Boolean);
 }
 
-function proposalContentIsPresent(root, base, proposal, target = 'HEAD') {
-  const paths = proposalContentPaths(root, base, proposal);
+function proposalContentIsPresent(root, base, proposal, target = 'HEAD', {
+  env = process.env
+} = {}) {
+  const paths = proposalContentPaths(root, base, proposal, { env });
   if (!paths.length) return false;
   return run('git', ['diff', '--quiet', target, proposal, '--', ...paths], {
-    cwd: root, allowFailure: true
+    cwd: root, env, allowFailure: true
   }).status === 0;
 }
 
 /** Resolve the immutable proposal base encoded in every generated review-branch name. */
-function proposalBaseCommit(root, proposalBranch, ref) {
+function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {}) {
   const prefix = proposalBranch.match(/-([0-9a-f]{8})$/)?.[1] ?? null;
   const revision = run('git', ['rev-list', '--parents', '-n', '1', ref], {
-    cwd: root, allowFailure: true
+    cwd: root, env, allowFailure: true
   }).stdout.trim().split(/\s+/);
   const history = prefix
-    ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, allowFailure: true })
+    ? run('git', ['rev-list', '--first-parent', ref], { cwd: root, env, allowFailure: true })
         .stdout.split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
     : [];
   if (revision.length !== 2 || history.length !== 1 || history[0] === revision[0]) {
@@ -168,14 +174,14 @@ function proposalBaseCommit(root, proposalBranch, ref) {
   return history[0];
 }
 
-function proposalConfigurationError(root, ref) {
+function proposalConfigurationError(root, ref, { env = process.env } = {}) {
   try {
     const capabilities = run('git', ['show', `${ref}:${CAPABILITIES_PATH}`], {
-      cwd: root, allowFailure: true
+      cwd: root, env, allowFailure: true
     });
     if (capabilities.status !== 0) return `missing ${CAPABILITIES_PATH}`;
     const portfolio = run('git', ['show', `${ref}:${PORTFOLIO_PATH}`], {
-      cwd: root, allowFailure: true
+      cwd: root, env, allowFailure: true
     });
     validateCapabilities(
       YAML.parse(capabilities.stdout),
@@ -195,8 +201,10 @@ function configurationProtectionProbe() {
   };
 }
 
-function commitIdentity(root, ref) {
-  const shown = run('git', ['show', '-s', '--format=%an%x00%ae', ref], { cwd: root }).stdout.trim();
+function commitIdentity(root, ref, { env = process.env } = {}) {
+  const shown = run('git', ['show', '-s', '--format=%an%x00%ae', ref], {
+    cwd: root, env
+  }).stdout.trim();
   const [name = '', email = ''] = shown.split('\0');
   return { name: name || null, email: email || null };
 }
@@ -211,17 +219,24 @@ function proposalAssetPolicy(root, ...refs) {
     .map((ref) => configurationAssetPolicyFromRef(root, ref)));
 }
 
+function proposalAssetPolicyInEnvironment(root, refs, env) {
+  return mergeConfigurationAssetPolicies(...refs.filter(Boolean)
+    .map((ref) => configurationAssetPolicyFromRef(root, ref, { env })));
+}
+
 /** Recover a deleted review branch from its exact reviewed commit, when the remote still retains it. */
-async function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
+async function recoverMergedProposalRef(root, expectedCommit, proposalBranch, {
+  env = process.env
+} = {}) {
   const commit = fullCommit(expectedCommit);
   if (!commit) return null;
   const ref = `refs/singularity/capability-proposal-recovery/${commit}`;
   const available = () => run('git', ['cat-file', '-e', `${commit}^{commit}`], {
-    cwd: root, allowFailure: true
+    cwd: root, env, allowFailure: true
   }).status === 0;
   const contained = () => available() && run('git', [
     'merge-base', '--is-ancestor', commit, 'HEAD'
-  ], { cwd: root, allowFailure: true }).status === 0;
+  ], { cwd: root, env, allowFailure: true }).status === 0;
   if (!available()) {
     // GitHub and many office providers retain a just-merged review commit after deleting its source
     // branch. Ask only for the caller-confirmed full object ID; if the server no longer exposes it,
@@ -229,7 +244,7 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
     const recovered = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `${commit}:${ref}`
-    ], { cwd: root, operation: 'remote-configuration' });
+    ], { cwd: root, operation: 'remote-configuration', env });
     if (recovered.status !== 0 || !available()) return null;
   }
   // `confirm` is caller input, not a durable branch receipt. Bind it back to the immutable base
@@ -237,13 +252,13 @@ async function recoverMergedProposalRef(root, expectedCommit, proposalBranch) {
   // source. This also supports a proposal that accumulated multiple reviewed commits while refusing
   // merge commits, unrelated history, and invented branch/commit pairs.
   let base;
-  try { base = proposalBaseCommit(root, proposalBranch, commit); }
+  try { base = proposalBaseCommit(root, proposalBranch, commit, { env }); }
   catch { return null; }
-  const changed = proposalChangedFiles(root, base, commit).names;
-  const policy = proposalAssetPolicy(root, base, commit);
+  const changed = proposalChangedFiles(root, base, commit, { env }).names;
+  const policy = proposalAssetPolicyInEnvironment(root, [base, commit], env);
   if (!changed.length || changed.some((relative) => !isConfigurationAsset(relative, policy))) return null;
-  if (!contained() && !proposalContentIsPresent(root, base, commit)) return null;
-  run('git', ['update-ref', ref, commit], { cwd: root });
+  if (!contained() && !proposalContentIsPresent(root, base, commit, 'HEAD', { env })) return null;
+  run('git', ['update-ref', ref, commit], { cwd: root, env });
   return ref;
 }
 
@@ -256,7 +271,9 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
-  const session = new GitRemoteSession();
+  const gitEnv = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env: gitEnv });
+  const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
@@ -278,10 +295,25 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
     // this branch plus the exact proposal ref fetched below is the complete review input.
-    const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
-      '--branch', CONFIGURATION_BRANCH, remote, scratch
-    ], { operation: 'remote-configuration' });
+    const clone = (filtered) => runRemoteGitAsync([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    let cloned = await clone(true);
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. Correct Git access, then retry the same capability review.`, {
@@ -293,13 +325,21 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
           })
         });
     }
-    const fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
+    let fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
-      cwd: scratch, operation: 'remote-configuration'
+      cwd: scratch, operation: 'remote-configuration', env: transport.env
     });
+    if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
+      fetched = await runRemoteGitAsync(['fetch', '--quiet', '--no-tags', 'origin',
+        `refs/heads/${proposalBranch}:refs/remotes/origin/${proposalBranch}`], {
+        cwd: scratch, operation: 'remote-configuration', env: transport.env
+      });
+    }
     const proposalRef = fetched.status === 0
       ? `refs/remotes/origin/${proposalBranch}`
-      : await recoverMergedProposalRef(scratch, expectedCommit, proposalBranch);
+      : await recoverMergedProposalRef(scratch, expectedCommit, proposalBranch, {
+          env: transport.env
+        });
     if (!proposalRef) {
       throw new SingularityFlowError(
         `Capability proposal '${proposalBranch}' does not exist on '${sanitizeRemote(remote)}'. Refresh the proposal list before retrying.`, {
@@ -311,7 +351,9 @@ async function withCapabilityProposalCheckout(url, branch, operation, { expected
           })
         });
     }
-    return await operation(scratch, remote, proposalBranch, proposalRef);
+    return await operation(scratch, remote, proposalBranch, proposalRef, {
+      env: transport.env, session
+    });
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -361,7 +403,7 @@ async function writeOrganisationCache(remote, tipSha, organisation) {
  * so that no caller can forget either.
  */
 async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
-  remoteSession = new GitRemoteSession(), authorityObservation = null
+  remoteSession = null, authorityObservation = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -375,25 +417,41 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
   // One combined advertisement answers both questions needed by first-map bootstrap: whether the
   // configuration authority exists and which application branch HEAD names. Existing authorities
   // pay the same one probe; new authorities no longer pay a second HEAD round trip.
-  const observedAuthority = authorityObservation ?? await remoteSession.observeAsync(remote, {
+  const operationSession = remoteSession ?? new GitRemoteSession({
+    env: enterpriseGitEnvironment()
+  });
+  const observedAuthority = authorityObservation ?? await operationSession.observeAsync(remote, {
     includeHead: true, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
   const approvedHead = configurationBranchHead(remote, {
-    session: remoteSession, observation: observedAuthority
+    session: operationSession, observation: observedAuthority
   });
   if (!approvedHead.exists) {
-    await ensureConfigurationBranch(remote, { remoteSession, observedHead: approvedHead });
+    await ensureConfigurationBranch(remote, {
+      remoteSession: operationSession, observedHead: approvedHead, env: operationSession.env
+    });
   }
   const baseBranch = CONFIGURATION_BRANCH;
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-lead-'));
   try {
+    const transport = frozenRemoteTransport(remote, {
+      push: true, env: operationSession.env
+    });
     const clone = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      ...(filtered ? ['--filter=blob:none'] : []), '--branch', baseBranch, remote, scratch
-    ], { operation: 'remote-configuration' });
+      ...(filtered ? ['--filter=blob:none'] : []), '--branch', baseBranch,
+      transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
     let cloned = await clone(true);
-    if (cloned.status !== 0
-      && classifyPartialCloneResult(cloned).kind === 'filter-rejected') {
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
       await removeTemporaryTree(scratch);
       await mkdir(scratch, { recursive: true });
       cloned = await clone(false);
@@ -410,12 +468,18 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
         });
     }
 
-    const baseCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
-    const result = await mutate(scratch, baseBranch, remoteSession, observedAuthority);
+    const baseCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const result = await mutate(scratch, baseBranch, operationSession, observedAuthority);
 
-    const staged = run('git', ['add', '-A'], { cwd: scratch, allowFailure: true });
+    const staged = run('git', ['add', '-A'], {
+      cwd: scratch, env: transport.env, allowFailure: true
+    });
     if (staged.status !== 0) throw new SingularityFlowError('Could not stage the change.');
-    if (!run('git', ['diff', '--cached', '--name-only'], { cwd: scratch }).stdout.trim()) {
+    if (!run('git', ['diff', '--cached', '--name-only'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim()) {
       return {
         ...result, changed: false, pushed: false, commit: null,
         branch: null, baseBranch, baseCommit, reviewRequired: false
@@ -428,13 +492,17 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const safePrefix = String(reviewBranchPrefix ?? 'capability-change')
       .toLowerCase().replace(/[^a-z0-9._/-]+/g, '-').replace(/^-+|-+$/g, '');
     const reviewBranch = `sflow/config-change/${safePrefix}-${baseCommit.slice(0, 8)}`;
-    run('git', ['switch', '--quiet', '-c', reviewBranch], { cwd: scratch });
+    run('git', ['switch', '--quiet', '-c', reviewBranch], {
+      cwd: scratch, env: transport.env
+    });
 
-    const actor = gitCommitIdentity(scratch);
+    const actor = gitCommitIdentity(scratch, { env: transport.env });
     run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-      'commit', '-m', message], { cwd: scratch });
-    const commit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+      'commit', '-m', message], { cwd: scratch, env: transport.env });
+    const commit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
 
     // Pushed here rather than left for later: the temporary checkout is about to be deleted, so a
     // commit that is not pushed is a commit that never existed. This deliberately targets only a
@@ -442,7 +510,7 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const pushed = await runRemoteGitAsync([
       'push', '--porcelain', `--force-with-lease=refs/heads/${reviewBranch}:`, 'origin',
       `HEAD:refs/heads/${reviewBranch}`
-    ], { cwd: scratch, operation: 'remote-push' });
+    ], { cwd: scratch, operation: 'remote-push', env: transport.env });
     const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
     const duplicateProposal = () => new SingularityFlowError(
       `Review branch '${reviewBranch}' already exists on '${sanitizeRemote(remote)}'. The existing proposal was preserved; review and activate it instead of creating a competing proposal.`, {
@@ -558,8 +626,8 @@ async function repairLeadDefaultBranch(
   await writeFile(file, document.toString(YAML_OUTPUT), 'utf8');
 }
 
-function configurationAssetsFromRef(root, ref = 'HEAD') {
-  return configurationTreeEntries(root, ref);
+function configurationAssetsFromRef(root, ref = 'HEAD', { env = process.env } = {}) {
+  return configurationTreeEntries(root, ref, null, { env });
 }
 
 function configurationAssetsMatch(stateAssets, configuredAssets, configuredPaths) {
@@ -572,27 +640,47 @@ function configurationAssetsMatch(stateAssets, configuredAssets, configuredPaths
   });
 }
 
-async function loadCapabilityStateSnapshot(remote, branch, commit) {
+async function loadCapabilityStateSnapshot(remote, branch, commit, { env = process.env } = {}) {
+  const gitEnv = enterpriseGitEnvironment(env);
   if (branch === STATE_CONFIGURATION_BRANCH) {
     return loadStoryConfigurationSnapshot({
       remote, branch, commit, source: 'verified-state-mirror'
-    });
+    }, { env: gitEnv });
   }
   // Ledger branches are configurable. The Story snapshot reader intentionally recognizes only the
   // product's canonical `state` authority, so verify an explicitly configured alternative here with
   // the same complete-file, digest, Git-identity, source-commit, and operational-definition gates.
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-custom-state-'));
   try {
-    const cloned = await runRemoteGitAsync([
+    const transport = frozenRemoteTransport(remote, { env: gitEnv });
+    const clone = (filtered) => runRemoteGitAsync([
       '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      '--depth', '1', '--filter=blob:none', '--branch', branch, remote, scratch
-    ], { operation: 'remote-configuration' });
+      '--depth', '1', ...(filtered ? ['--filter=blob:none'] : []),
+      '--branch', branch, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    let cloned = await clone(true);
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
-        `Cannot read configured state branch '${branch}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`
+        `Cannot read configured state branch '${branch}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`,
+        { code: cloned.failure?.code ?? 'REMOTE_UNKNOWN' }
       );
     }
-    const observedCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
+    const observedCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
     if (observedCommit !== commit) {
       throw new SingularityFlowError(
         `Configured state branch '${branch}' moved from ${commit} to ${observedCommit} while it was being verified.`
@@ -626,7 +714,7 @@ async function loadCapabilityStateSnapshot(remote, branch, commit) {
       || JSON.stringify(Object.keys(manifest.assets).sort()) !== JSON.stringify(declared)) {
       throw new SingularityFlowError('State configuration mirror files do not exactly match its manifest.');
     }
-    const canonical = await canonicalConfigurationAssets(scratch, paths);
+    const canonical = await canonicalConfigurationAssets(scratch, paths, { env: transport.env });
     for (const relative of paths) {
       const asset = canonical.get(relative);
       const declaredAsset = manifest.assets[relative];
@@ -657,8 +745,12 @@ async function loadCapabilityStateSnapshot(remote, branch, commit) {
 }
 
 /** Read and completely verify the state-branch configuration mirror without moving a checkout. */
-async function capabilityMapFromState(remote, branch = 'state') {
-  const observed = await new GitRemoteSession().observeAsync(remote, {
+async function capabilityMapFromState(remote, branch = 'state', {
+  env = process.env, session = null
+} = {}) {
+  const gitEnv = enterpriseGitEnvironment(env);
+  const operationSession = session ?? new GitRemoteSession({ env: gitEnv });
+  const observed = await operationSession.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${branch}`]
   });
   if (!observed.ok) {
@@ -670,7 +762,7 @@ async function capabilityMapFromState(remote, branch = 'state') {
   const commit = observed.refs.get(`refs/heads/${branch}`) ?? null;
   if (!commit) return null;
   try {
-    const snapshot = await loadCapabilityStateSnapshot(remote, branch, commit);
+    const snapshot = await loadCapabilityStateSnapshot(remote, branch, commit, { env: gitEnv });
     const capability = snapshot.assets.find((entry) => entry.relative === CAPABILITIES_PATH);
     if (!capability) {
       return { invalid: true, branch, commit, error: `State configuration is missing ${CAPABILITIES_PATH}.` };
@@ -713,7 +805,11 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   });
   const branch = CONFIGURATION_BRANCH;
   const cached = await readOrganisationCache(remote);
-  const session = new GitRemoteSession();
+  // Build one sanitized enterprise environment for this complete authority read. Reusing it for
+  // the observation, clone, state projection and local object reads both prevents ambient Git
+  // selectors from redirecting the operation and avoids repeating system/global config probes.
+  const gitEnv = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env: gitEnv });
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
@@ -763,10 +859,26 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-'));
   try {
-    const cloned = await runRemoteGitAsync([
+    const transport = frozenRemoteTransport(remote, { env: gitEnv });
+    const clone = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--no-checkout', '--branch', branch, remote, scratch
-    ], { operation: 'remote-configuration' });
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--no-checkout', '--branch', branch, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    let cloned = await clone(true);
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. Correct Git access and refresh the same organisation.`, {
@@ -781,15 +893,22 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     // The authority can advance between the cache probe and this clone. Bind every comparison and
     // the resulting cache entry to the revision actually cloned; the next read will observe and
     // refresh again if the remote has already advanced beyond it.
-    const configurationCommit = run('git', ['rev-parse', 'HEAD'], { cwd: scratch }).stdout.trim();
-    const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], { cwd: scratch, allowFailure: true });
-    const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], { cwd: scratch, allowFailure: true });
+    const configurationCommit = run('git', ['rev-parse', 'HEAD'], {
+      cwd: scratch, env: transport.env
+    }).stdout.trim();
+    const configured = run('git', ['show', `HEAD:${CAPABILITIES_PATH}`], {
+      cwd: scratch, allowFailure: true, env: transport.env
+    });
+    const workflow = run('git', ['show', `HEAD:${WORKFLOW_PATH}`], {
+      cwd: scratch, allowFailure: true, env: transport.env
+    });
     const stateBranch = workflow.status === 0
       ? (YAML.parse(workflow.stdout)?.ledger?.branch ?? 'state')
       : 'state';
-    const state = configured.status === 0 ? await capabilityMapFromState(remote, stateBranch) : null;
+    const state = configured.status === 0
+      ? await capabilityMapFromState(remote, stateBranch, { env: gitEnv, session }) : null;
     const configuredAssets = configured.status === 0
-      ? configurationAssetsFromRef(scratch) : new Map();
+      ? configurationAssetsFromRef(scratch, 'HEAD', { env: transport.env }) : new Map();
     const configuredPaths = [...configuredAssets.keys()].sort();
     // The state branch is a mirror, never a second authority. An interrupted projection may leave
     // it behind `sflow/config`; in that case read the approved bytes rather than presenting stale
@@ -826,7 +945,9 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     }
 
     const definition = validateCapabilities(YAML.parse(shown.text));
-    const portfolio = run('git', ['show', `HEAD:${PORTFOLIO_PATH}`], { cwd: scratch, allowFailure: true });
+    const portfolio = run('git', ['show', `HEAD:${PORTFOLIO_PATH}`], {
+      cwd: scratch, allowFailure: true, env: transport.env
+    });
     const organisation = {
       url: remote,
       branch,
@@ -905,7 +1026,7 @@ export async function mapCapability(leadUrl, {
       const exact = assertCredentialFreeRemote(url);
       return [exact, exact];
     })).values()];
-  const remoteSession = new GitRemoteSession();
+  const remoteSession = new GitRemoteSession({ env: enterpriseGitEnvironment() });
   const leadKey = assertCredentialFreeRemote(leadUrl);
   const deliveryKeys = new Set(urls);
   const probeTargets = new Map([[leadKey, leadKey], ...urls.map((url) => [url, url])]);
@@ -1045,7 +1166,7 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
   });
   const cloneStrategy = clone == null ? null
     : normalizeCloneStrategy(clone, `Capability '${capabilityId}' repository clone strategy`);
-  const remoteSession = new GitRemoteSession();
+  const remoteSession = new GitRemoteSession({ env: enterpriseGitEnvironment() });
   const leadKey = assertCredentialFreeRemote(leadUrl);
   const repositoryKey = assertCredentialFreeRemote(repositoryUrl);
   const targets = new Map([[leadKey, leadKey], [repositoryKey, repositoryKey]]);
@@ -1125,7 +1246,9 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
  * repository with no state branch, or an unreachable remote, is a reason to say so and not a reason
  * to fail an edit that has already happened. The caller reports what came back.
  */
-export async function publishCapabilityMap(root, { message = 'Publish the capability map' } = {}) {
+export async function publishCapabilityMap(root, {
+  message = 'Publish the capability map', env = process.env
+} = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
   if (!existsSync(file)) return { published: false, reason: 'there is no capability map to publish' };
   const definition = await loadDefinition(root).catch(() => null);
@@ -1138,12 +1261,12 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     // The state branch is a complete approved-configuration mirror, not a second capabilities.yml
     // slot. Publishing only the edited map invalidates its manifest and makes Story startup reject
     // the state authority. Rebuild the whole bounded mirror from the reviewed configuration tip.
-    const configurationCommit = head(root);
+    const configurationCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
     const configurationFiles = {};
     const configurationHashes = {};
     const configurationAssets = {};
     const configurationPaths = await configurationAssetPaths(root);
-    const canonicalAssets = await canonicalConfigurationAssets(root, configurationPaths);
+    const canonicalAssets = await canonicalConfigurationAssets(root, configurationPaths, { env });
     for (const relative of configurationPaths) {
       const asset = canonicalAssets.get(relative);
       configurationFiles[relative] = asset.contents;
@@ -1155,7 +1278,7 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
       };
     }
     const history = await retainStateConfigurationHistory(
-      root, ledger.remote, configurationCommit
+      root, ledger.remote, configurationCommit, { env }
     );
     const manifest = {
       format: STATE_CONFIGURATION_FORMAT,
@@ -1172,26 +1295,26 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
     const stateFetch = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--force', '--', ledger.remote,
       `+refs/heads/${ledger.branch}:${remoteRef}`
-    ], { cwd: root, operation: 'remote-configuration' });
+    ], { cwd: root, operation: 'remote-configuration', env });
     // A successful exact fetch is already the observation publishToStateBranch needs for its CAS.
     // Bind the publication to that SHA and do not immediately fetch the same ref a second time. If
     // the fetch failed (including an absent first state branch), retain the ordinary refresh/bootstrap
     // path rather than trusting a stale local remote-tracking ref.
     const observedStateSha = stateFetch.status === 0
       ? run('git', ['rev-parse', '--verify', `${remoteRef}^{commit}`], {
-          cwd: root, allowFailure: true
+          cwd: root, env, allowFailure: true
         }).stdout.trim()
       : '';
     const observedState = /^[0-9a-f]{40,64}$/.test(observedStateSha);
     const trackedAssets = observedState
-      ? [...configurationTreeEntries(root, remoteRef).keys()]
+      ? [...configurationTreeEntries(root, remoteRef, null, { env }).keys()]
       : [];
     const trackedMetadata = observedState ? run('git', [
       'ls-tree', '-r', '-z', '--name-only', remoteRef, '--', 'configuration'
-    ], { cwd: root, allowFailure: true }).stdout.split('\0').filter(Boolean) : [];
+    ], { cwd: root, env, allowFailure: true }).stdout.split('\0').filter(Boolean) : [];
     const previousManifest = observedState
       ? run('git', ['show', `${remoteRef}:${STATE_CONFIGURATION_MANIFEST}`], {
-          cwd: root, allowFailure: true
+          cwd: root, env, allowFailure: true
         })
       : { status: 1, stdout: '' };
     if (previousManifest.status === 0) {
@@ -1216,15 +1339,23 @@ export async function publishCapabilityMap(root, { message = 'Publish the capabi
           expectedRemoteSha: observedStateSha,
           baseRef: remoteRef,
           refreshRemote: false
-        } : {})
+        } : {}),
+        env
       });
     // Unchanged is not a failure and must not be reported as one: an edit that touched a field the
     // branch already agreed with is the ordinary case, not a problem to explain.
     if (!result.changed) return { published: false, branch: result.branch, reason: 'it is already current there' };
     return { published: true, branch: result.branch, commit: result.commit };
   } catch (error) {
-    if (ledger.publication === 'required') throw error;
-    return { published: false, reason: error.message };
+    const diagnostic = safeGitDiagnosticReference({
+      status: error?.exitCode ?? 1, error
+    }, 'Capability state projection failed');
+    if (ledger.publication === 'required') {
+      throw new SingularityFlowError(diagnostic, {
+        code: error?.code ?? 'CAPABILITY_STATE_PROJECTION_FAILED'
+      });
+    }
+    return { published: false, reason: diagnostic };
   }
 }
 
@@ -1244,7 +1375,9 @@ export async function publishOrganisationCapabilityMap(url) {
     })
   });
   const baseBranch = CONFIGURATION_BRANCH;
-  const session = new GitRemoteSession();
+  const gitEnv = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env: gitEnv });
+  const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const configurationObservation = await session.observeAsync(remote, {
     includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
   });
@@ -1264,10 +1397,25 @@ export async function publishOrganisationCapabilityMap(url) {
   }
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-map-'));
   try {
-    const cloned = await runRemoteGitAsync([
+    const clone = (filtered) => runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--filter=blob:none', '--branch', baseBranch, remote, scratch
-    ], { operation: 'remote-configuration' });
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--branch', baseBranch, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    let cloned = await clone(true);
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       const failure = classifyGitRemoteFailure(cloned);
       throw new SingularityFlowError(
@@ -1281,7 +1429,8 @@ export async function publishOrganisationCapabilityMap(url) {
         });
     }
     const state = await publishCapabilityMap(scratch, {
-      message: `Publish reviewed capability map from ${baseBranch}`
+      message: `Publish reviewed capability map from ${baseBranch}`,
+      env: transport.env
     });
     return { baseBranch, ...state };
   } finally {
@@ -1291,7 +1440,8 @@ export async function publishOrganisationCapabilityMap(url) {
 
 /** Pending capability proposals on a lead repository, without changing either authority branch. */
 export async function listCapabilityProposals(url, {
-  includeMerged = false, includeDiff = true
+  includeMerged = false, includeDiff = true,
+  env = process.env, remoteSession = null
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -1301,7 +1451,9 @@ export async function listCapabilityProposals(url, {
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
-  const session = new GitRemoteSession();
+  const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
+  const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
+  const transport = frozenRemoteTransport(remote, { env: gitEnv });
   const advertised = await session.observeAsync(remote, {
     includeHead: false,
     refs: [`refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*`]
@@ -1329,19 +1481,40 @@ export async function listCapabilityProposals(url, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
   try {
-    const cloned = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--filter=blob:none',
-      '--branch', CONFIGURATION_BRANCH, remote, scratch
-    ], { operation: 'remote-configuration' });
+    const clone = (filtered) => runRemoteGitAsync([
+      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      ...(filtered ? ['--filter=blob:none'] : []),
+      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
+    ], { operation: 'remote-configuration', env: transport.env });
+    let cloned = await clone(true);
+    const partial = partialCloneFallbackDecision(cloned, {
+      configured: cloned.status === 0
+        ? partialCloneConfigured(scratch, 'origin', (args, options) => run('git', args, {
+            ...options, env: transport.env
+          }))
+        : null,
+      fallback: 'full'
+    });
+    if (partial.action === 'retry-full') {
+      await removeTemporaryTree(scratch);
+      await mkdir(scratch, { recursive: true });
+      cloned = await clone(false);
+    }
     if (cloned.status !== 0) {
       throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
         code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE'
       });
     }
-    const fetched = await runRemoteGitAsync([
+    let fetched = await runRemoteGitAsync([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
       `+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`
-    ], { cwd: scratch, operation: 'remote-configuration' });
+    ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+    if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
+      fetched = await runRemoteGitAsync([
+        'fetch', '--quiet', '--no-tags', 'origin',
+        `+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+    }
     const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
       `Capability proposals could not be fetched. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
       { code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE' }
@@ -1353,10 +1526,12 @@ export async function listCapabilityProposals(url, {
         // The ordinary inbox excludes merged proposals. Determine that with ancestry before
         // computing names, identities, and the full diff for a proposal the caller will discard.
         if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-          cwd: scratch, allowFailure: true
+          cwd: scratch, env: transport.env, allowFailure: true
         }).status === 0) continue;
         const proposal = inspectCapabilityProposalCheckout(
-          scratch, sanitizeRemote(remote), entry.branch, ref, { includeDiff }
+          scratch, sanitizeRemote(remote), entry.branch, ref, {
+            includeDiff, env: transport.env
+          }
         );
         if (includeMerged || !proposal.merged) proposals.push(proposal);
       } catch (error) {
@@ -1395,10 +1570,14 @@ export async function listCapabilityProposals(url, {
   return proposals;
 }
 
-function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { includeDiff = true } = {}) {
-  const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-  const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
-  const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
+function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
+  includeDiff = true, env = process.env
+} = {}) {
+  const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+  const proposalCommit = run('git', ['rev-parse', ref], { cwd: root, env }).stdout.trim();
+  const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], {
+    cwd: root, env, allowFailure: true
+  });
   if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
     throw new SingularityFlowError(
       `Capability proposal '${proposalBranch}' does not share history with '${CONFIGURATION_BRANCH}'.`, {
@@ -1410,22 +1589,23 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { 
         })
       });
   }
-  const proposalBase = proposalBaseCommit(root, proposalBranch, ref);
+  const proposalBase = proposalBaseCommit(root, proposalBranch, ref, { env });
   const mergeBase = mergeBaseResult.stdout.trim();
   const ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-    cwd: root, allowFailure: true
+    cwd: root, env, allowFailure: true
   }).status === 0;
-  const contentMerged = !ancestryMerged && proposalContentIsPresent(root, proposalBase, ref);
+  const contentMerged = !ancestryMerged
+    && proposalContentIsPresent(root, proposalBase, ref, 'HEAD', { env });
   const merged = ancestryMerged || contentMerged;
   const reviewBase = merged ? proposalBase : mergeBase;
-  const changed = proposalChangedFiles(root, reviewBase, ref);
-  const policy = proposalAssetPolicy(root, reviewBase, ref);
+  const changed = proposalChangedFiles(root, reviewBase, ref, { env });
+  const policy = proposalAssetPolicyInEnvironment(root, [reviewBase, ref], env);
   const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
-  const configurationError = proposalConfigurationError(root, ref);
+  const configurationError = proposalConfigurationError(root, ref, { env });
   const valid = invalidFiles.length === 0 && changed.names.length > 0 && !configurationError;
   const diff = includeDiff
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
-        cwd: root
+        cwd: root, env
       }).stdout
     : null;
   return {
@@ -1452,8 +1632,9 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { 
 
 /** Exact commits, file set, and diff a reviewer is being asked to activate. */
 export async function inspectCapabilityProposal(url, branch) {
-  return withCapabilityProposalCheckout(url, branch, async (root, remote, proposalBranch, ref) =>
-    inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref));
+  return withCapabilityProposalCheckout(url, branch, async (
+    root, remote, proposalBranch, ref, { env }
+  ) => inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, { env }));
 }
 
 function capabilityFsckCheck(id, status, summary, {
@@ -1793,7 +1974,12 @@ export async function discardStaleCapabilityProposal(url, branch, {
       code: 'CAPABILITY_PROPOSAL_DISCARD_REASON_INVALID'
     });
   }
-  const proposals = await listCapabilityProposals(remote, { includeMerged: true, includeDiff: false });
+  const gitEnv = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env: gitEnv });
+  const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
+  const proposals = await listCapabilityProposals(remote, {
+    includeMerged: true, includeDiff: false, env: gitEnv, remoteSession: session
+  });
   const proposal = proposals.find((entry) => entry.branch === proposalBranch);
   if (!proposal) {
     throw new SingularityFlowError(
@@ -1837,8 +2023,8 @@ export async function discardStaleCapabilityProposal(url, branch, {
   const targetRef = `refs/heads/${proposalBranch}`;
   const deleted = await runRemoteGitAsync([
     'push', '--porcelain', `--force-with-lease=${targetRef}:${expected}`,
-    remote, `:${targetRef}`
-  ], { operation: 'remote-push' });
+    transport.remote, `:${targetRef}`
+  ], { operation: 'remote-push', env: transport.env });
   if (deleted.status !== 0) {
     throw new SingularityFlowError(
       `Stale proposal '${proposalBranch}' was not discarded. The remote may have moved or refused the exact deletion. ${deleted.failure?.advice ?? 'Refresh fsck and retry.'}`, {
@@ -1851,7 +2037,8 @@ export async function discardStaleCapabilityProposal(url, branch, {
       }
     );
   }
-  const observed = await new GitRemoteSession().observeAsync(remote, {
+  session.invalidate(remote);
+  const observed = await session.observeAsync(remote, {
     includeHead: false, refs: [targetRef], refresh: true
   });
   if (!observed.ok || observed.refs.has(targetRef)) {
@@ -1887,9 +2074,9 @@ export async function activateCapabilityProposal(url, branch, {
   acknowledgeUnprotected = false
 } = {}) {
   const reviewed = await withCapabilityProposalCheckout(
-    url, branch, async (root, remote, proposalBranch, ref) => {
-      const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-      const proposalCommit = run('git', ['rev-parse', ref], { cwd: root }).stdout.trim();
+    url, branch, async (root, remote, proposalBranch, ref, { env, session }) => {
+      const targetBefore = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+      const proposalCommit = run('git', ['rev-parse', ref], { cwd: root, env }).stdout.trim();
       if (String(confirm ?? '').trim() !== proposalCommit) {
         const nextAction = {
           command: capabilityCommand('activate', {
@@ -1907,7 +2094,9 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
-      const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], { cwd: root, allowFailure: true });
+      const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], {
+        cwd: root, env, allowFailure: true
+      });
       if (mergeBaseResult.status !== 0 || !mergeBaseResult.stdout.trim()) {
         const nextAction = {
           command: capabilityCommand('discard-proposal', {
@@ -1926,11 +2115,12 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
-      const proposalBase = proposalBaseCommit(root, proposalBranch, ref);
+      const proposalBase = proposalBaseCommit(root, proposalBranch, ref, { env });
       const ancestryMerged = run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
-        cwd: root, allowFailure: true
+        cwd: root, env, allowFailure: true
       }).status === 0;
-      const contentMerged = !ancestryMerged && proposalContentIsPresent(root, proposalBase, ref);
+      const contentMerged = !ancestryMerged
+        && proposalContentIsPresent(root, proposalBase, ref, 'HEAD', { env });
       let alreadyMerged = ancestryMerged || contentMerged;
       let mergeEvidence = ancestryMerged ? 'commit-ancestry'
         : contentMerged ? 'content-equivalent' : null;
@@ -1943,7 +2133,7 @@ export async function activateCapabilityProposal(url, branch, {
       // Once a provider merged the branch, this process can prove the resulting target but cannot
       // honestly reconstruct the authority tip immediately before that external action.
       let auditedTargetBefore = alreadyMerged ? null : targetBefore;
-      const changed = proposalChangedFiles(root, reviewBase, ref);
+      const changed = proposalChangedFiles(root, reviewBase, ref, { env });
       if (!changed.names.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
         throw new SingularityFlowError(`Capability proposal '${proposalBranch}' contains no changes. Nothing was changed; inspect or replace the preserved proposal.`, {
@@ -1955,7 +2145,7 @@ export async function activateCapabilityProposal(url, branch, {
           })
         });
       }
-      const policy = proposalAssetPolicy(root, reviewBase, ref);
+      const policy = proposalAssetPolicyInEnvironment(root, [reviewBase, ref], env);
       const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
       if (invalidFiles.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
@@ -2004,12 +2194,12 @@ export async function activateCapabilityProposal(url, branch, {
         }
       };
       if (!alreadyMerged) {
-        const actor = identity(root);
+        const actor = identity(root, { env });
         const merged = run('git', [
           '-c', `user.name=${actor.name || 'Singularity Flow'}`,
           '-c', `user.email=${actor.email || 'unknown@invalid'}`,
           'merge', '--no-ff', '--no-edit', ref
-        ], { cwd: root, allowFailure: true });
+        ], { cwd: root, env, allowFailure: true });
         if (merged.status !== 0) {
           const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
@@ -2049,13 +2239,13 @@ export async function activateCapabilityProposal(url, branch, {
             }
           );
         }
-        const proposedMergeCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+        const proposedMergeCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
         let pushed = await runRemoteGitAsync([
           'push', '--porcelain',
           `--force-with-lease=refs/heads/${CONFIGURATION_BRANCH}:${targetBefore}`,
           'origin', `HEAD:refs/heads/${CONFIGURATION_BRANCH}`
         ], {
-          cwd: root, operation: 'remote-push'
+          cwd: root, operation: 'remote-push', env
         });
         const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
         const transition = pushed.status === 0
@@ -2069,7 +2259,7 @@ export async function activateCapabilityProposal(url, branch, {
           // actor acquires the old->new transition around receive-pack. Re-read the exact authority
           // in both cases. Matching bytes are an external merge, never a direct activation by this
           // reviewer; any other result takes the ordinary recoverable failure path.
-          const authority = await new GitRemoteSession().observeAsync(remote, {
+          const authority = await session.observeAsync(remote, {
             includeHead: false, refs: [targetRef], refresh: true
           });
           if (authority.ok && authority.refs.get(targetRef) === proposedMergeCommit) {
@@ -2128,7 +2318,7 @@ export async function activateCapabilityProposal(url, branch, {
               message: reviewRequired
                 ? `The proposal is preserved. Merge '${proposalBranch}' into '${CONFIGURATION_BRANCH}' through the repository review controls.`
                 : `The proposal is preserved. ${failure.advice}`,
-              diagnostic: redactDiagnosticText(pushDiagnostic).trim().slice(0, 4_096) || null
+              diagnostic: safeGitDiagnosticReference(pushed, 'Capability activation was refused')
             },
             externalAction: reviewRequired ? {
               action: 'merge-proposal', sourceBranch: proposalBranch,
@@ -2151,9 +2341,9 @@ export async function activateCapabilityProposal(url, branch, {
       // skip this gate and could be audited and projected even when its capability forest was
       // invalid.
       if (alreadyMerged) await validateEffectiveCapabilities();
-      const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-      const proposer = commitIdentity(root, ref);
-      const approver = identity(root);
+      const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+      const proposer = commitIdentity(root, ref, { env });
+      const approver = identity(root, { env });
       const intent = createLedgerIntent({
         eventType: 'capability-configuration-activated',
         capabilityId: 'organisation',
@@ -2184,7 +2374,9 @@ export async function activateCapabilityProposal(url, branch, {
       });
       let audit;
       try {
-        audit = await appendLedgerIntent(root, definition.ledger, intent, targetCommit);
+        audit = await appendLedgerIntent(root, definition.ledger, intent, targetCommit, {
+          env, transportRemote: remote
+        });
       } catch (error) {
         const nextAction = {
           command: capabilityCommand('activate', {
@@ -2194,7 +2386,9 @@ export async function activateCapabilityProposal(url, branch, {
         };
         throw new SingularityFlowError(
           `Capability configuration reached '${CONFIGURATION_BRANCH}' at ${targetCommit}, but its `
-          + `activation audit could not be appended: ${error.message}. Re-run to reconcile: ${nextAction.command}`,
+          + `activation audit could not be appended. ${safeGitDiagnosticReference({
+            status: error?.exitCode ?? 1, error
+          }, 'Activation audit append failed')}. Re-run to reconcile: ${nextAction.command}`,
           {
             code: 'CAPABILITY_ACTIVATION_AUDIT_PENDING',
             details: capabilityRecovery({
@@ -2232,7 +2426,7 @@ export async function activateCapabilityProposal(url, branch, {
       // it and cloning the same authority again. Audit remains first: a projection failure therefore
       // has the same recoverable "activation complete, projection pending" contract as before.
       try {
-        const projectionAuthority = await new GitRemoteSession().observeAsync(remote, {
+        const projectionAuthority = await session.observeAsync(remote, {
           includeHead: false,
           refs: [`refs/heads/${CONFIGURATION_BRANCH}`],
           refresh: true
@@ -2246,7 +2440,8 @@ export async function activateCapabilityProposal(url, branch, {
           );
         }
         const state = await publishCapabilityMap(root, {
-          message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`
+          message: `Publish reviewed capability map from ${CONFIGURATION_BRANCH}`,
+          env
         });
         const projection = { baseBranch: CONFIGURATION_BRANCH, ...state };
         const projectionPending = !projection.published && !projection.branch
@@ -2336,7 +2531,8 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
   // identical remotes, this makes the worker limit real: the old synchronous `observe` blocked the
   // event loop inside each worker, so four repositories paid four serial office-proxy delays before
   // their fetches could become concurrent.
-  const session = new GitRemoteSession();
+  const gitEnv = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env: gitEnv });
   const resolved = await mapLimit(entries, workers, async ([id, declared]) => {
     const url = declared?.url;
     const advertised = await session.observeAsync(url, { includeHead: false, includeAllHeads: true });
@@ -2349,17 +2545,18 @@ export async function capabilityReadiness(leadUrl, { stateBranch = 'state', outp
     if (inspect.length) {
       const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ready-'));
       try {
-        run('git', ['init', '--quiet', '--bare', scratch]);
+        const transport = frozenRemoteTransport(url, { env: gitEnv });
+        run('git', ['init', '--quiet', '--bare', scratch], { env: transport.env });
         const fetched = await runRemoteGitAsync([
-          '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', url,
+          '--git-dir', scratch, 'fetch', '--quiet', '--depth', '1', transport.remote,
           ...inspect.map((branch, index) => `refs/heads/${branch}:refs/heads/read-${index}`)
-        ], { operation: 'remote-configuration' });
+        ], { operation: 'remote-configuration', env: transport.env });
         if (fetched.status === 0) {
           inspect.forEach((branch, index) => {
             models.set(branch, run('git', [
               '--git-dir', scratch, 'cat-file', '-e',
               `refs/heads/read-${index}:${outputDir}/manifest.json`
-            ], { allowFailure: true }).status === 0);
+            ], { allowFailure: true, env: transport.env }).status === 0);
           });
         }
       } finally {
@@ -2626,6 +2823,10 @@ export async function initializeWorkspaceState(leadDirectory, {
   branch = 'state', push = true, transport = {}
 } = {}) {
   const root = path.resolve(leadDirectory);
+  // Establish the operation environment before the first repository lookup. GIT_DIR and
+  // GIT_WORK_TREE are repository selectors, so reading HEAD or origin with the ambient process
+  // environment first could select an attacker-controlled repository and only sanitize later.
+  const gitEnv = enterpriseGitEnvironment(transport.env ?? process.env);
   if (!existsSync(path.join(root, '.git'))) {
     throw new SingularityFlowError(`${root} is not a Git repository, so it cannot carry the state branch.`);
   }
@@ -2635,7 +2836,9 @@ export async function initializeWorkspaceState(leadDirectory, {
   // that repository needs a definition naming the branch.
   // A checkout with no commit on the current branch cannot carry a governed branch, and the raw
   // git error for it names an ambiguous argument, which describes git and not the situation.
-  const current = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, allowFailure: true })
+  const current = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+    cwd: root, env: gitEnv, allowFailure: true
+  })
     .stdout.trim();
   if (!current || current === 'HEAD') {
     throw new SingularityFlowError(
@@ -2651,65 +2854,88 @@ export async function initializeWorkspaceState(leadDirectory, {
   let governancePublished = true;
   let publicationError = null;
   let publicationIntent = null;
-  const url = run('git', ['remote', 'get-url', 'origin'], { cwd: root, allowFailure: true }).stdout.trim();
+  const url = run('git', ['remote', 'get-url', 'origin'], {
+    cwd: root, env: gitEnv, allowFailure: true
+  }).stdout.trim();
   const repositoryId = repositoryIdFromUrl(url || path.basename(root));
+  const exactTransport = url
+    ? frozenRemoteTransport(assertCredentialFreeRemote(url), { push: true, env: gitEnv })
+    : null;
+  const observeBranch = async (candidate) => {
+    if (!exactTransport) {
+      throw new SingularityFlowError('Workspace initialization requires a readable credential-free origin URL.', {
+        code: 'REMOTE_NOT_FOUND'
+      });
+    }
+    const observed = await runRemoteGitAsync([
+      'ls-remote', '--heads', '--', exactTransport.remote, `refs/heads/${candidate}`
+    ], { cwd: root, operation: 'remote-probe', env: exactTransport.env });
+    if (observed.status !== 0) {
+      throw new SingularityFlowError(
+        `Cannot inspect '${sanitizeRemote(url)}' before workspace initialization. ${observed.failure?.advice ?? 'Git remote access failed.'}`,
+        { code: observed.failure?.code ?? 'REMOTE_UNKNOWN' }
+      );
+    }
+    return observed.stdout.trim();
+  };
   let resumeGovernancePublication = false;
   if (!needsGovernanceProposal && current.startsWith('sflow/govern/')) {
-    const remoteCurrent = runRemoteGit(['ls-remote', '--heads', 'origin', `refs/heads/${current}`], {
-      cwd: root, operation: 'remote-probe'
-    });
-    resumeGovernancePublication = remoteCurrent.status !== 0 || !remoteCurrent.stdout.trim();
+    resumeGovernancePublication = !(await observeBranch(current));
   }
   if (needsGovernanceProposal) {
-    const applicationBranch = defaultBranchName(root);
+    const trackedHead = run('git', [
+      'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'
+    ], { cwd: root, env: gitEnv, allowFailure: true }).stdout.trim();
+    const applicationBranch = trackedHead.startsWith('origin/')
+      ? trackedHead.slice('origin/'.length)
+      : (trackedHead || 'main');
     if (current !== applicationBranch) {
       throw new SingularityFlowError(
         `Cannot initialize repository governance from '${current}'. Switch to the application branch '${applicationBranch}' first.`
       );
     }
-    governanceBranch = `sflow/govern/${repositoryId}-${head(root).slice(0, 8)}`;
-    const remoteReview = runRemoteGit(['ls-remote', '--heads', 'origin', `refs/heads/${governanceBranch}`], {
-      cwd: root, operation: 'remote-probe'
-    }).stdout.trim();
+    const sourceHead = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim();
+    governanceBranch = `sflow/govern/${repositoryId}-${sourceHead.slice(0, 8)}`;
+    const remoteReview = await observeBranch(governanceBranch);
     if (remoteReview) {
       throw new SingularityFlowError(
         `Governance review branch '${governanceBranch}' already exists. Review or remove that proposal before retrying.`
       );
     }
     const localReview = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${governanceBranch}`], {
-      cwd: root, allowFailure: true
+      cwd: root, env: gitEnv, allowFailure: true
     });
     if (localReview.status === 0) {
       throw new SingularityFlowError(
         `Local governance review branch '${governanceBranch}' already exists. Resume or remove it before retrying.`
       );
     }
-    run('git', ['switch', '-c', governanceBranch], { cwd: root });
+    run('git', ['switch', '-c', governanceBranch], { cwd: root, env: gitEnv });
     if (!governed) {
       await initializeDefinition(root);
       await setDefaultBaseBranch(root, applicationBranch);
     }
-    const actor = gitCommitIdentity(root);
+    const actor = gitCommitIdentity(root, { env: gitEnv });
     if (!governed && url) {
       await describeRepository(root, repositoryIdFromUrl(url), url, applicationBranch, actor);
     }
     await enableLedger(root, branch);
-    run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: root });
-    if (run('git', ['diff', '--cached', '--name-only'], { cwd: root }).stdout.trim()) {
+    run('git', ['add', '--', ...GOVERNED_ROOTS], { cwd: root, env: gitEnv });
+    if (run('git', ['diff', '--cached', '--name-only'], { cwd: root, env: gitEnv }).stdout.trim()) {
       run('git', ['-c', `user.name=${actor.name || 'Singularity Flow'}`,
         '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-        'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: root });
+        'commit', '-m', 'Govern this repository with Singularity Flow'], { cwd: root, env: gitEnv });
     }
   }
   if (push && (needsGovernanceProposal || resumeGovernancePublication)) {
     publicationIntent = await createAndPushTransportIntent({
       repositoryRoot: root,
       remote: 'origin',
-      sourceCommit: head(root),
+      sourceCommit: run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim(),
       targetRef: `refs/heads/${governanceBranch}`,
       expectedRemote: null,
       scope: { operation: 'sflow.initialize', repositoryId, governanceBranch }
-    }, transport);
+    }, { ...transport, env: gitEnv });
     governancePublished = publicationIntent.status === 'succeeded';
     publicationError = governancePublished
       ? null
@@ -2719,18 +2945,23 @@ export async function initializeWorkspaceState(leadDirectory, {
     await ensureConfigurationBranch(url, {
       sourceBranch: governanceBranch,
       publisherRoot: root,
-      transport
+      transport: { ...transport, env: gitEnv },
+      env: gitEnv
     });
   }
 
-  const existed = runRemoteGit(['ls-remote', '--heads', 'origin', branch], {
-    cwd: root, operation: 'remote-probe'
-  })
-    .stdout.includes(`refs/heads/${branch}`);
+  const existed = (await observeBranch(branch)).includes(`refs/heads/${branch}`);
   const ledger = await initializeLedger(
     root,
     { enabled: true, branch, remote: push ? 'origin' : null },
-    { publish: push && governancePublished }
+    {
+      publish: push && governancePublished,
+      // Ledger owns its own single-use alias. Passing an already frozen alias makes Git apply one
+      // rewrite and then attempt to resolve the intermediate alias as an SSH host because url.*
+      // rewrites are not recursive.
+      env: gitEnv,
+      transportRemote: url || undefined
+    }
   );
   return {
     root,

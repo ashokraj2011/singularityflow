@@ -4,10 +4,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  assignLocalStoryIds, currentLocalEpicReservation, nextLocalEpicId, reserveLocalEpicBranch
+  assignLocalStoryIds, currentLocalEpicReservation, nextLocalEpicId, reserveLocalEpicBranch,
+  syncLocalEpicReservation
 } from '../src/local-identity.mjs';
-import { checkout, fetchRemote, hasUpstream, refExists } from '../src/git.mjs';
+import { checkout, fetchRemote, governedCommitIdentity, hasUpstream, refExists } from '../src/git.mjs';
 import { listInitiatives } from '../src/initiative-state.mjs';
+import {
+  readPendingPublication, verifyPendingPublicationCommit, writePendingPublication
+} from '../src/publication-pending.mjs';
 import { run } from '../src/util.mjs';
 
 function policy(publish = 'off') {
@@ -76,6 +80,9 @@ test('local Epic reservation is a committed branch allocation', async () => {
   assert.equal(result.pushed, false);
   assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'SF-E-001');
   assert.match(run('git', ['show', '--format=', '--name-only', 'HEAD'], { cwd: root }).stdout, /identity-reservations\/SF-E-001\.json/);
+  const transaction = governedCommitIdentity(root, result.reservationCommit);
+  assert.ok(transaction?.candidate, 'Epic reservation bypassed the universal Candidate boundary');
+  assert.match(transaction.candidate.candidateId, /^CAN-/);
   const recoverable = await currentLocalEpicReservation(root, policy());
   assert.equal(recoverable.id, 'SF-E-001');
   assert.equal(recoverable.reservationCommit, result.reservationCommit);
@@ -84,6 +91,133 @@ test('local Epic reservation is a committed branch allocation', async () => {
   await mkdir(path.join(root, 'singularity/initiatives/SF-E-001'), { recursive: true });
   await writeFile(path.join(root, 'singularity/initiatives/SF-E-001/state.json'), '{}');
   assert.equal(await currentLocalEpicReservation(root, policy()), null);
+});
+
+test('Candidate failure restores the exact pre-reservation branch, tree, and checkout', async () => {
+  const root = await repository();
+  const before = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+
+  await assert.rejects(
+    () => reserveLocalEpicBranch(root, policy(), {
+      base: 'main', actor: { name: 'Planner', email: 'planner@example.com' },
+      fault: (stage) => {
+        if (stage === 'after-candidate-verification') throw new Error('refuse reservation Candidate');
+      }
+    }),
+    /refuse reservation Candidate/
+  );
+
+  assert.equal(run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim(), 'main');
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), before);
+  assert.equal(run('git', ['status', '--porcelain'], { cwd: root }).stdout.trim(), '');
+  assert.equal(refExists(root, 'refs/heads/SF-E-001'), false);
+  await assert.rejects(
+    readFile(path.join(root, 'singularity/identity-reservations/SF-E-001.json')),
+    (error) => error?.code === 'ENOENT'
+  );
+});
+
+test('an interrupted local Epic reservation resumes only its exact Candidate commit', async () => {
+  const root = await repository();
+  const remoteRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reservation-origin-'));
+  const remote = path.join(remoteRoot, 'origin.git');
+  run('git', ['init', '--bare', remote], { cwd: remoteRoot });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  await assert.rejects(
+    () => reserveLocalEpicBranch(root, policy('required'), {
+      base: 'main', actor: { name: 'Planner', email: 'planner@example.com' },
+      fault: async (point) => {
+        if (point === 'after-commit') throw new Error('simulated Epic reservation interruption');
+      }
+    }),
+    /simulated Epic reservation interruption/
+  );
+  const retained = await currentLocalEpicReservation(root, policy('required'));
+  assert.equal(retained.id, 'SF-E-001');
+  assert.equal(retained.pushed, false);
+  const transaction = governedCommitIdentity(root, retained.reservationCommit);
+  assert.ok(transaction?.candidate);
+  const pending = await readPendingPublication(root, { kind: 'initiative', id: retained.id });
+  const verification = verifyPendingPublicationCommit(root, pending.record, {
+    subject: { kind: 'initiative', id: retained.id }, branch: retained.id, remote: 'origin'
+  });
+  assert.equal(verification.valid, true, verification.failures.join('; '));
+  assert.equal(verification.candidateVerified, true);
+  assert.equal(pending.record.candidate.candidateTree, transaction.tree);
+
+  const recovered = await syncLocalEpicReservation(root, policy('required'), retained);
+  assert.equal(recovered.pushed, true);
+  assert.equal(recovered.reservationCommit, retained.reservationCommit);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/SF-E-001'], {
+    cwd: remoteRoot
+  }).stdout.trim(), retained.reservationCommit);
+});
+
+test('a definitive create-only rejection never adopts another identical remote ref', async () => {
+  const root = await repository();
+  const remoteRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reservation-collision-'));
+  const remote = path.join(remoteRoot, 'origin.git');
+  run('git', ['init', '--bare', remote], { cwd: remoteRoot });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  await assert.rejects(
+    () => reserveLocalEpicBranch(root, policy('required'), {
+      base: 'main', actor: { name: 'Planner', email: 'planner@example.com' },
+      fault: async (point, context) => {
+        if (point !== 'after-commit') return;
+        // Another publisher installs the byte-identical object before this transaction's
+        // create-only push. Equality is not proof that this invocation acquired the ref.
+        run('git', [
+          'push', 'origin', `${context.sourceCommit}:refs/heads/SF-E-001`
+        ], { cwd: root });
+      }
+    }),
+    (error) => error?.code === 'PUBLICATION_PUSH_FAILED'
+  );
+  const pending = await readPendingPublication(root, {
+    kind: 'initiative', id: 'SF-E-001', migrate: false
+  });
+  assert.equal(pending?.record?.pushOutcome, 'rejected');
+  assert.equal(pending?.record?.commit,
+    run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/SF-E-001'], {
+      cwd: remoteRoot
+    }).stdout.trim());
+});
+
+test('a sealed indeterminate Epic reservation reconciles exact remote equality', async () => {
+  const root = await repository();
+  const remoteRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-reservation-ambiguous-'));
+  const remote = path.join(remoteRoot, 'origin.git');
+  run('git', ['init', '--bare', remote], { cwd: remoteRoot });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+
+  await assert.rejects(
+    () => reserveLocalEpicBranch(root, policy('required'), {
+      base: 'main', actor: { name: 'Planner', email: 'planner@example.com' },
+      fault: async (point) => {
+        if (point === 'after-commit') throw new Error('simulate death before transport result');
+      }
+    }),
+    /simulate death/
+  );
+  const subject = { kind: 'initiative', id: 'SF-E-001' };
+  const pending = await readPendingPublication(root, subject);
+  await writePendingPublication(root, {
+    ...subject,
+    record: { ...pending.record, pushOutcome: 'transport-indeterminate' }
+  });
+  run('git', [
+    'push', 'origin', `${pending.record.commit}:refs/heads/SF-E-001`
+  ], { cwd: root });
+
+  const recovered = await syncLocalEpicReservation(root, policy('required'));
+  assert.equal(recovered.pushed, true);
+  assert.equal(recovered.reservationCommit, pending.record.commit);
+  assert.equal(await readPendingPublication(root, { ...subject, migrate: false }), null);
 });
 
 test('Epic home discovers committed initiative state from remote branches', async () => {

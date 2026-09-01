@@ -6,6 +6,9 @@ import {
   branch, gitCommitIdentity, head, protectedBranchNames
 } from '../git.mjs';
 import { lifecycleEvent, LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
+import {
+  clearPendingPublication, syncPendingLifecyclePublication
+} from '../publication-pending.mjs';
 import { publishLifecycleChange } from '../publication-unit-of-work.mjs';
 import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths
@@ -16,7 +19,7 @@ import {
   nowIso, optionString, optionStrings, run, SingularityFlowError, writeJson
 } from '../util.mjs';
 import {
-  ADHOC_DISPOSITIONS, adhocError, assertRecordHash, assertSessionMutable,
+  ADHOC_DISPOSITIONS, ADHOC_TERMINAL_STATES, adhocError, assertRecordHash, assertSessionMutable,
   normalizeResourceId, stampRecord
 } from './contracts.mjs';
 import { createIntentCandidate, observeAdhocEffects } from './effect-set.mjs';
@@ -389,6 +392,133 @@ async function writeAuthorityRecord(root, directory, file, family, value, hashFi
   return record;
 }
 
+function exactAdhocRecoveryMetadata(record, sessionId) {
+  const metadata = record?.adhoc;
+  const payload = record?.event?.payload;
+  const validWorkId = /^ADH-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6}$/.test(
+    String(metadata?.workId ?? '')
+  );
+  if (metadata?.sessionId !== sessionId
+      || !validWorkId
+      || !/^sha256:[a-f0-9]{64}$/.test(String(metadata?.packetSha256 ?? ''))
+      || payload?.workId !== metadata.workId
+      || payload?.packetSha256 !== metadata.packetSha256
+      || !/^sha256:[a-f0-9]{64}$/.test(String(payload?.landingReceiptSha256 ?? ''))
+      || record?.event?.subject?.kind !== 'adhoc'
+      || record.event.subject.id !== sessionId
+      || !/^[a-f0-9]{64}$/.test(String(record.event.idempotencyHash ?? ''))) {
+    throw adhocError(
+      'ADH_PUBLICATION_RECOVERY_INVALID',
+      `Pending publication metadata does not bind the exact landing for '${sessionId}'.`,
+      'Run singularity-flow doctor and inspect the retained publication receipt; no local session state was finalized.'
+    );
+  }
+  return { metadata, payload };
+}
+
+async function finalizeAdhocLandingPublication(root, sessionId, record, { pushed = true } = {}) {
+  const { metadata, payload } = exactAdhocRecoveryMetadata(record, sessionId);
+  const authorityDirectory = `singularity/adhoc-work/${metadata.workId}`;
+  const shown = run('git', [
+    'show', `${record.commit}:${authorityDirectory}/landing-receipt.json`
+  ], { cwd: root, allowFailure: true });
+  if (shown.status !== 0) {
+    throw adhocError(
+      'ADH_PUBLICATION_RECOVERY_INVALID',
+      `The exact published commit does not contain the landing receipt for '${sessionId}'.`,
+      'Run singularity-flow doctor and inspect the retained Candidate commit; the recovery marker was kept.'
+    );
+  }
+  const authorityReceipt = assertRecordHash(
+    readRecord('adhoc-landing-receipt', shown.stdout).record,
+    'receiptSha256', 'committed landing receipt'
+  );
+  if (authorityReceipt.sessionId !== sessionId
+      || authorityReceipt.workId !== metadata.workId
+      || authorityReceipt.packetSha256 !== metadata.packetSha256
+      || authorityReceipt.receiptSha256 !== payload.landingReceiptSha256
+      || authorityReceipt.authority?.commit !== null
+      || authorityReceipt.authority?.newRevision !== null) {
+    throw adhocError(
+      'ADH_PUBLICATION_RECOVERY_INVALID',
+      `The committed landing receipt does not match the exact pending authority for '${sessionId}'.`,
+      'Run singularity-flow doctor and inspect the retained Candidate commit; the recovery marker was kept.'
+    );
+  }
+
+  const session = await readSessionRecord(root, sessionId, 'session');
+  if (ADHOC_TERMINAL_STATES.includes(session.status) && session.status !== 'landed') {
+    throw adhocError(
+      'ADH_PUBLICATION_RECOVERY_INVALID',
+      `Ad hoc session '${sessionId}' became '${session.status}' before publication recovery finalized.`,
+      'Inspect the exact session and Candidate receipts; the pending marker was kept.'
+    );
+  }
+  if (session.status === 'landed'
+      && (session.workId !== metadata.workId
+        || session.publication?.commit !== record.commit)) {
+    throw adhocError(
+      'ADH_PUBLICATION_RECOVERY_INVALID',
+      `Ad hoc session '${sessionId}' has a different terminal publication binding.`,
+      'Inspect the exact session and Candidate receipts; the pending marker was kept.'
+    );
+  }
+  // Validate the existing operational tail before writing either record. A terminal conflict is a
+  // review decision, not permission to leave behind half of a replacement tail.
+  const localReceipt = await writeSessionRecord(root, sessionId, 'receipt', {
+    ...authorityReceipt,
+    authorityTransactionSha256: `sha256:${record.event.idempotencyHash}`,
+    authority: {
+      ...authorityReceipt.authority,
+      newRevision: record.commit,
+      commit: record.commit
+    },
+    completedAt: authorityReceipt.completedAt,
+    receiptSha256: undefined,
+    schemaVersion: currentSchemaVersion('adhoc-landing-receipt')
+  });
+  if (session.status !== 'landed') {
+    await writeSessionRecord(root, sessionId, 'session', {
+      ...session,
+      status: 'landed',
+      landedAt: authorityReceipt.completedAt,
+      workId: metadata.workId,
+      publication: { commit: record.commit, pushed: pushed === true, pending: false },
+      updatedAt: nowIso(),
+      schemaVersion: currentSchemaVersion('adhoc-session'),
+      sessionSha256: undefined
+    });
+  }
+  await clearActiveSession(root, sessionId);
+  return { localReceipt, authorityReceipt: `${authorityDirectory}/landing-receipt.json` };
+}
+
+/** Finish one exact ad hoc publication and only then close its local operational session. */
+export async function syncAdhocLanding(root, sessionId) {
+  let finalization = null;
+  const result = await syncPendingLifecyclePublication(root, {
+    kind: 'adhoc', id: sessionId,
+    finalize: async ({ record, localOnly }) => {
+      finalization = await finalizeAdhocLandingPublication(root, sessionId, record, {
+        pushed: localOnly !== true
+      });
+    }
+  });
+  if (!result.recovered) return result;
+  const session = await readSessionRecord(root, sessionId, 'session');
+  const localOnly = result.localOnly === true;
+  return {
+    ...result,
+    sessionId,
+    workId: session.workId,
+    commit: result.commit ?? result.pushed,
+    pushed: !localOnly,
+    pending: false,
+    receipt: finalization?.localReceipt ?? null,
+    authorityReceipt: finalization?.authorityReceipt ?? null
+  };
+}
+
 export async function publishAdhocLanding(root, definition, requested, { confirm } = {}) {
   const session = assertSessionMutable(await readAdhocSession(root, requested));
   const packet = await readSessionRecord(root, session.sessionId, 'packet', { required: false });
@@ -490,6 +620,12 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
       adhoc: { sessionId: session.sessionId, workId: packet.workId, packetSha256: packet.packetSha256 },
       lifecycleEventId: envelope.eventId
     }),
+    pendingMetadata: {
+      adhoc: { sessionId: session.sessionId, workId: packet.workId, packetSha256: packet.packetSha256 }
+    },
+    // The exact marker also protects the local-only operational tail. It is cleared only after the
+    // receipt, terminal session state, and active-session pointer have all been finalized.
+    retainPendingOnSuccess: true,
     state: {
       write: async () => {
         await writeAuthorityRecord(root, authorityDirectory, 'confirmed-intent.json', 'adhoc-confirmed-intent', intent, 'intentSha256');
@@ -537,24 +673,21 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
     },
     stabilityGuard: () => resourceFingerprint(root, applicationResources)
   });
-  const localReceipt = await writeSessionRecord(root, session.sessionId, 'receipt', {
-    ...authoritativeReceipt,
-    authorityTransactionSha256: publication.event.idempotencyHash
-      ? `sha256:${publication.event.idempotencyHash}` : null,
-    authority: {
-      ...authoritativeReceipt.authority,
-      newRevision: publication.sha,
-      commit: publication.sha
-    },
-    completedAt: nowIso(),
-    receiptSha256: undefined,
-    schemaVersion: currentSchemaVersion('adhoc-landing-receipt')
-  }).catch(() => null);
-  await updateAdhocSession(root, session.sessionId, {
-    status: 'landed', landedAt: nowIso(), workId: packet.workId,
-    publication: { commit: publication.sha, pushed: publication.pushed, pending: publication.pending === true }
-  }).catch(() => null);
-  await clearActiveSession(root, session.sessionId).catch(() => null);
+  let localReceipt = null;
+  if (publication.pushed || (definition.git?.publish ?? 'required') === 'off') {
+    const finalized = await finalizeAdhocLandingPublication(root, session.sessionId, {
+      commit: publication.sha,
+      event: publication.event,
+      adhoc: { sessionId: session.sessionId, workId: packet.workId, packetSha256: packet.packetSha256 }
+    }, { pushed: publication.pushed });
+    localReceipt = finalized.localReceipt;
+    await clearPendingPublication(root, { kind: 'adhoc', id: session.sessionId });
+  } else {
+    await updateAdhocSession(root, session.sessionId, {
+      status: 'publication-pending', workId: packet.workId,
+      publication: { commit: publication.sha, pushed: false, pending: true }
+    });
+  }
   return {
     sessionId: session.sessionId,
     workId: packet.workId,

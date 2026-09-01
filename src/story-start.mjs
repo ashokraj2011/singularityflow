@@ -334,7 +334,7 @@ export async function startStory(root, {
           configurationSnapshot: approvedConfigurationSnapshot
         })
       : null;
-    capabilityPublications = capabilityPublicationPlan(capabilityPreflight, root);
+    capabilityPublications = await capabilityPublicationPlan(capabilityPreflight, root);
     const rootFetchedByCapabilityPreflight = preflightIncludesRepository(capabilityPreflight, root);
     if (rootFetchedByCapabilityPreflight) {
       publicationAuthority = preflightPublicationAuthority(capabilityPreflight, root);

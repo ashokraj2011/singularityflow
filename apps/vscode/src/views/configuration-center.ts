@@ -1,7 +1,7 @@
 /** First-class VS Code configuration for humans, approvals, MCP, and the other designers. */
 import * as vscode from 'vscode';
 import { createHash } from 'node:crypto';
-import type { WorkspaceStore } from '../state.ts';
+import { DEFAULT_WORLD_MODEL_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore } from '../state.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
@@ -27,7 +27,8 @@ export type ConfigurationCenterMessage =
    * Open a repository file the Center listed. Carries the path rather than an action name because
    * the set is data — every template in the catalog — not a fixed vocabulary of commands.
    */
-  | { type: 'open-path'; path: string };
+  | { type: 'open-path'; path: string }
+  | { type: 'open-world-model-ref'; ref: string };
 
 const emptyAuthority = (): AuthorityView => ({ id: '', label: '', scope: 'story', allowAnyGitIdentity: false, members: [] });
 const emptyMcp = (): McpServerView => ({ id: '', label: '', hostReference: '', agents: [], phases: [], tools: [], required: false, approval: 'confirm', configured: false, sources: [], captureToolCalls: true, captureResults: false });
@@ -48,18 +49,26 @@ export class ConfigurationCenterPanel {
   private readonly subscription: { dispose(): void };
   private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
+  private worldModelLease: SliceLease | null;
+  private worldModelLeaseAcquisition: Promise<void> | null = null;
+  private worldModelRenewal: ReturnType<typeof setInterval> | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private readonly store: WorkspaceStore,
     private readonly profile: () => { name: string; role: string },
     private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>,
-    private readonly lease: { dispose(): void }
+    private readonly lease: SliceLease,
+    initialTab: ConfigurationTab,
+    worldModelLease: SliceLease | null
   ) {
+    this.tab = initialTab;
+    this.worldModelLease = worldModelLease;
+    this.armWorldModelRenewal();
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
       () => this.storeChanged(),
-      ['repository', 'configuration', 'integrations']
+      ['repository', 'configuration', 'integrations', 'worldModel']
     );
     this.subscription = store.onDidChange((_state, change) =>
       this.snapshotRenders.changed(change.kind, change.changedSlices));
@@ -72,25 +81,39 @@ export class ConfigurationCenterPanel {
     }, null, this.disposables);
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.onDidChangeViewState?.(({ webviewPanel }) => {
-      this.snapshotRenders.visibilityChanged(webviewPanel.visible !== false);
+      const visible = webviewPanel.visible !== false;
+      this.snapshotRenders.visibilityChanged(visible);
+      if (visible && this.tab === 'world-model') {
+        void this.ensureWorldModelLease().then(() => this.render());
+      }
     }, null, this.disposables);
     this.render();
   }
 
   static async show(context: vscode.ExtensionContext, store: WorkspaceStore, profile: () => { name: string; role: string }, onMessage: (message: ConfigurationCenterMessage) => Promise<string | null>, tab: ConfigurationTab = 'overview'): Promise<ConfigurationCenterPanel> {
     if (ConfigurationCenterPanel.current) {
-      ConfigurationCenterPanel.current.tab = tab;
+      await ConfigurationCenterPanel.current.selectTab(tab);
       ConfigurationCenterPanel.current.panel.reveal(vscode.ViewColumn.Active);
-      ConfigurationCenterPanel.current.render();
       return ConfigurationCenterPanel.current;
     }
     const lease = await store.acquireSlices(['configuration', 'integrations']);
+    let worldModelLease: SliceLease | null = null;
+    if (tab === 'world-model') {
+      try {
+        worldModelLease = await store.acquireSlices(
+          'world-model-explorer', ['worldModel'], { ttlMs: DEFAULT_WORLD_MODEL_SLICE_LEASE_MS }
+        );
+      } catch (error) {
+        lease.dispose();
+        throw error;
+      }
+    }
     const raced = ConfigurationCenterPanel.current as ConfigurationCenterPanel | null;
     if (raced) {
       lease.dispose();
-      raced.tab = tab;
+      worldModelLease?.dispose();
+      await raced.selectTab(tab);
       raced.panel.reveal(vscode.ViewColumn.Active);
-      raced.render();
       return raced;
     }
     let panel: vscode.WebviewPanel;
@@ -99,14 +122,77 @@ export class ConfigurationCenterPanel {
         enableScripts: true, retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-      ConfigurationCenterPanel.current = new ConfigurationCenterPanel(panel, store, profile, onMessage, lease);
+      ConfigurationCenterPanel.current = new ConfigurationCenterPanel(
+        panel, store, profile, onMessage, lease, tab, worldModelLease
+      );
     } catch (error) {
       lease.dispose();
+      worldModelLease?.dispose();
       throw error;
     }
-    ConfigurationCenterPanel.current.tab = tab;
-    ConfigurationCenterPanel.current.render();
     return ConfigurationCenterPanel.current;
+  }
+
+  private armWorldModelRenewal(): void {
+    if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
+    this.worldModelRenewal = null;
+    if (!this.worldModelLease) return;
+    this.worldModelRenewal = setInterval(() => {
+      if (this.disposed || this.tab !== 'world-model' || this.panel.visible === false) return;
+      try { this.worldModelLease?.renew(); }
+      catch {
+        this.worldModelLease = null;
+        if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
+        this.worldModelRenewal = null;
+        void this.ensureWorldModelLease().then(() => this.render());
+      }
+    }, Math.max(1_000, Math.floor(DEFAULT_WORLD_MODEL_SLICE_LEASE_MS / 2)));
+    this.worldModelRenewal.unref?.();
+  }
+
+  /** Acquire or revive the heavy slice only while the World-Model Explorer is selected. */
+  private async ensureWorldModelLease(): Promise<void> {
+    if (this.disposed || this.tab !== 'world-model') return;
+    if (this.worldModelLease) {
+      try {
+        this.worldModelLease.renew();
+        this.armWorldModelRenewal();
+        return;
+      } catch {
+        this.worldModelLease = null;
+      }
+    }
+    if (!this.worldModelLeaseAcquisition) {
+      this.worldModelLeaseAcquisition = this.store.acquireSlices(
+        'world-model-explorer', ['worldModel'], { ttlMs: DEFAULT_WORLD_MODEL_SLICE_LEASE_MS }
+      ).then((lease) => {
+        if (this.disposed || this.tab !== 'world-model') lease.dispose();
+        else this.worldModelLease = lease;
+      }).finally(() => { this.worldModelLeaseAcquisition = null; });
+    }
+    await this.worldModelLeaseAcquisition;
+    this.armWorldModelRenewal();
+  }
+
+  private releaseWorldModelLease(): void {
+    if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
+    this.worldModelRenewal = null;
+    this.worldModelLease?.dispose();
+    this.worldModelLease = null;
+  }
+
+  /** World-model bytes exist only while the Explorer tab itself owns this bounded lease. */
+  private async selectTab(tab: ConfigurationTab): Promise<void> {
+    if (tab === 'world-model') {
+      this.tab = tab;
+      await this.ensureWorldModelLease();
+    } else {
+      // Update the visible tab before release publishes its reduced snapshot; the synchronous store
+      // notification must never re-render an empty World-Model Explorer during the transition.
+      this.tab = tab;
+      this.releaseWorldModelLease();
+    }
+    this.render();
   }
 
   private view() {
@@ -154,7 +240,7 @@ export class ConfigurationCenterPanel {
     if (message.type === 'form-dirty') { this.dirty = message.dirty === true; return; }
     if (message.type === 'reload-dirty') { this.dirty = false; return this.render(); }
     if (message.type === 'keep-dirty') return;
-    if (message.type === 'tab' && (CONFIGURATION_TABS as readonly string[]).includes(String(message.tab))) { this.tab = message.tab as ConfigurationTab; this.newAuthority = false; this.newMcp = false; return this.render(); }
+    if (message.type === 'tab' && (CONFIGURATION_TABS as readonly string[]).includes(String(message.tab))) { this.newAuthority = false; this.newMcp = false; return this.selectTab(message.tab as ConfigurationTab); }
     if (message.type === 'select-authority' && typeof message.key === 'string') { this.authorityKey = message.key; this.newAuthority = false; return this.render(); }
     if (message.type === 'select-mcp' && typeof message.id === 'string') { this.mcpId = message.id; this.newMcp = false; return this.render(); }
     if (message.type === 'save-profile') {
@@ -208,11 +294,18 @@ export class ConfigurationCenterPanel {
       if (error) { this.errors = [error]; return this.render(); }
       return;
     }
+    if (message.type === 'open-world-model-ref') {
+      const error = await this.onMessage({
+        type: 'open-world-model-ref', ref: String(message.ref ?? '')
+      });
+      if (error) { this.errors = [error]; return this.render(); }
+      return;
+    }
     if (message.type === 'action') {
       const action = String(message.action ?? '');
-      if (action === 'world-model') { this.tab = 'world-model'; return this.render(); }
-      if (action === 'new-authority') { this.tab = 'people'; this.newAuthority = true; this.authorityKey = null; return this.render(); }
-      if (action === 'new-mcp') { this.tab = 'mcp'; this.newMcp = true; this.mcpId = null; return this.render(); }
+      if (action === 'world-model') return this.selectTab('world-model');
+      if (action === 'new-authority') { this.newAuthority = true; this.authorityKey = null; return this.selectTab('people'); }
+      if (action === 'new-mcp') { this.newMcp = true; this.mcpId = null; return this.selectTab('mcp'); }
       if (action === 'cancel-edit') { this.newAuthority = false; this.newMcp = false; this.authorityKey = null; this.mcpId = null; return this.render(); }
       if (action === 'delete-authority') return this.deleteAuthority();
       if (action === 'delete-mcp') return this.deleteMcp();
@@ -289,6 +382,15 @@ export class ConfigurationCenterPanel {
   }
 
   private render(): void {
+    // Rendering is proof the retained explorer still has a live consumer. A panel that disappears
+    // without a dispose event cannot pin the heavy WMB projection beyond this bounded lease.
+    if (this.tab === 'world-model' && this.worldModelLease) {
+      try { this.worldModelLease.renew(); }
+      catch {
+        this.worldModelLease = null;
+        void this.ensureWorldModelLease().then(() => this.render());
+      }
+    }
     this.snapshotRenders.rendered();
     const view = this.view(); const token = nonce();
     if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
@@ -304,6 +406,7 @@ export class ConfigurationCenterPanel {
     this.subscription.dispose();
     this.snapshotRenders.dispose();
     this.lease.dispose();
+    this.releaseWorldModelLease();
     this.disposables.forEach((item) => item.dispose());
     ConfigurationCenterPanel.current = null;
   }

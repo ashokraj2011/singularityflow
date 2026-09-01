@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-build-plan.schema.json",
+  "title": "WMB v4 build plan", "type": "object",
+  "required": ["schemaVersion", "kind", "requestSha256", "sourceManifestSha256", "scopeManifestSha256", "views", "extractors", "factRequirements", "bodyAccess", "budgets", "estimatedWork", "planSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-build-plan" },
+    "requestSha256": { "$ref": "#/$defs/hash" }, "sourceManifestSha256": { "$ref": "#/$defs/hash" }, "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "views": { "type": "array", "items": { "type": "object", "required": ["viewId", "viewVersion", "viewSpecSha256", "required", "cacheStatus"], "properties": { "viewId": { "type": "string" }, "viewVersion": { "type": "integer", "minimum": 1 }, "viewSpecSha256": { "$ref": "#/$defs/hash" }, "required": { "type": "boolean" }, "cacheStatus": { "enum": ["hit", "miss", "stale", "corrupt"] } }, "additionalProperties": false } },
+    "extractors": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "factRequirements": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "bodyAccess": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "budgets": { "type": "object" }, "estimatedWork": { "type": "object" }, "planSha256": { "$ref": "#/$defs/hash" }
+  }, "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

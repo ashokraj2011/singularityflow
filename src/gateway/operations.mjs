@@ -35,6 +35,7 @@ export const GATEWAY_PLANNERS = Object.freeze([
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
   'workspace-doctor-guide', 'workspace-explore-guide',
+  'world-model-inspect', 'world-model-next', 'world-model-explain',
   'impact-quick', 'impact-quick-assisted', 'impact-what-if', 'impact-what-if-assisted',
   'problem-investigate', 'problem-investigate-assisted', 'repository-explore', 'intent-trace',
   'compare', 'watch-list', 'watch-create', 'watch-revoke', 'review-packet', 'review-open', 'help-explain'
@@ -166,6 +167,39 @@ export const GATEWAY_DECLARATIONS = Object.freeze([
     argumentSchema: 'no-arguments-v1',
     planner: 'ast-status',
     noModelFixture: 'wm-ast-status-model-free'
+  },
+  {
+    ...READ,
+    id: 'world-model.inspect',
+    modelPolicy: 'never',
+    goals: ['repository.explore', 'help'],
+    aliases: en('show registered world model', 'inspect registered world model'),
+    subjects: ['repository', 'workspace', 'story'],
+    argumentSchema: 'world-model-inspect-v1',
+    planner: 'world-model-inspect',
+    noModelFixture: 'world-model-inspect-model-free'
+  },
+  {
+    ...READ,
+    id: 'world-model.next',
+    modelPolicy: 'never',
+    goals: ['work.continue', 'repository.explore'],
+    aliases: en('show next registered world model action', 'what should I do with this world model'),
+    subjects: ['repository', 'workspace', 'story'],
+    argumentSchema: 'world-model-next-v1',
+    planner: 'world-model-next',
+    noModelFixture: 'world-model-next-model-free'
+  },
+  {
+    ...READ,
+    id: 'world-model.explain',
+    modelPolicy: 'never',
+    goals: ['help', 'repository.explore'],
+    aliases: en('explain registered world model provenance', 'explain a world model fact'),
+    subjects: ['repository', 'workspace', 'story'],
+    argumentSchema: 'world-model-explain-v1',
+    planner: 'world-model-explain',
+    noModelFixture: 'world-model-explain-model-free'
   },
   {
     ...READ,

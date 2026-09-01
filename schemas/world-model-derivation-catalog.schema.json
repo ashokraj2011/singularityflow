@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-derivation-catalog.schema.json",
+  "title": "WMB v4 derivation catalog", "type": "object",
+  "required": ["schemaVersion", "kind", "derivations", "catalogSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-derivation-catalog" }, "derivations": { "type": "array", "items": { "$ref": "world-model-derivation.schema.json" } }, "catalogSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

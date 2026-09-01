@@ -3,6 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 
 import {
+  mergeSignedVerificationReceipts, REQUIRED_RELEASE_PLATFORM_MATRIX,
   signVerificationReceipt, verifyVerificationReceipt
 } from '../src/verification-receipt.mjs';
 
@@ -14,15 +15,17 @@ function keys() {
   };
 }
 
-function evidence() {
+function evidence({
+  platform = 'darwin', nodeVersion = '22.18.0', packageCharacter = 'c', vsixCharacter = 'd'
+} = {}) {
   return {
     schemaVersion: 2,
     commit: 'a'.repeat(40), tree: 'b'.repeat(40), cleanCheckout: true,
     npmCi: 'passed', npmRunCheck: { passed: true, checks: 880 },
     npmTest: { passed: 2654, failed: 0 },
-    platforms: ['darwin'], nodeVersions: ['22.18.0'],
-    vscodeBuild: 'passed', packageSha256: `sha256:${'c'.repeat(64)}`,
-    vsixSha256: `sha256:${'d'.repeat(64)}`
+    platforms: [platform], nodeVersions: [nodeVersion],
+    vscodeBuild: 'passed', packageSha256: `sha256:${packageCharacter.repeat(64)}`,
+    vsixSha256: `sha256:${vsixCharacter.repeat(64)}`
   };
 }
 
@@ -40,6 +43,61 @@ test('a trusted signed receipt binds the exact commit, tree, package, and observ
   assert.equal(result.verifierIdentity, 'release@example.test');
   assert.match(result.publicKeySha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(result.vsixSha256, evidence().vsixSha256);
+});
+
+test('release promotion accepts only a reviewed signed aggregate covering the exact platform matrix', () => {
+  const runner = keys();
+  const release = keys();
+  const cells = REQUIRED_RELEASE_PLATFORM_MATRIX.map(({ platform, nodeMajor }) => (
+    signVerificationReceipt(
+      evidence({
+        platform, nodeVersion: `${nodeMajor}.18.0`
+      }),
+      runner.privateKey,
+      `${platform}-node-${nodeMajor}@example.test`
+    )
+  ));
+  const aggregate = mergeSignedVerificationReceipts(
+    cells, release.privateKey, 'release-matrix@example.test',
+    { generatedAt: '2026-09-01T00:00:00.000Z', artifactReceipt: cells[0] }
+  );
+  const result = verifyVerificationReceipt(aggregate, {
+    trustedPublicKeyPem: release.publicKey,
+    expectedCommit: evidence().commit,
+    expectedTree: evidence().tree,
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+  });
+  assert.equal(result.valid, true);
+  assert.equal(aggregate.platformMatrix.length, REQUIRED_RELEASE_PLATFORM_MATRIX.length);
+  assert.deepEqual(aggregate.platforms, ['darwin', 'linux', 'win32']);
+  assert.equal(aggregate.packageSha256, cells[0].packageSha256);
+  assert.equal(aggregate.artifactEvidence.payloadSha256, cells[0].signature.payloadSha256);
+
+  const partial = mergeSignedVerificationReceipts(
+    cells.slice(0, 2), release.privateKey, 'release-matrix@example.test'
+  );
+  assert.throws(() => verifyVerificationReceipt(partial, {
+    trustedPublicKeyPem: release.publicKey,
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+  }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.failures.some((failure) => failure.includes('matrix is incomplete')));
+
+  assert.throws(() => verifyVerificationReceipt(cells[0], {
+    trustedPublicKeyPem: runner.publicKey,
+    requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
+  }), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.failures.includes('platformMatrix is absent'));
+
+  const mismatchedArtifact = [...cells];
+  mismatchedArtifact[1] = signVerificationReceipt(
+    evidence({ platform: 'darwin', nodeVersion: '22.18.0', packageCharacter: 'e' }),
+    runner.privateKey,
+    'darwin-node-22@example.test'
+  );
+  assert.throws(() => mergeSignedVerificationReceipts(
+    mismatchedArtifact, release.privateKey, 'release-matrix@example.test'
+  ), (error) => error.code === 'VERIFICATION_RECEIPT_REJECTED'
+    && error.details.field === 'packageSha256');
 });
 
 test('receipt tampering, an untrusted signer, and missing checks fail closed', () => {

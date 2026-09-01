@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-consumer-profile.schema.json",
+  "title": "WMB v4 consumer profile", "type": "object",
+  "required": ["schemaVersion", "kind", "consumer", "depth", "preferences", "profileSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-consumer-profile" }, "consumer": { "enum": ["developer", "architect", "tester", "business", "operations", "security", "release"] }, "depth": { "enum": ["quick", "standard", "deep"] }, "preferences": { "type": "object", "required": ["terminology", "includeUnavailable", "includeContradictions", "maximumExamples"], "properties": { "terminology": { "enum": ["source-native", "plain-language"] }, "includeUnavailable": { "type": "boolean" }, "includeContradictions": { "type": "boolean" }, "maximumExamples": { "type": "integer", "minimum": 0, "maximum": 20 } }, "additionalProperties": false }, "profileSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

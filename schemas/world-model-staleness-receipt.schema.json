@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-staleness-receipt.schema.json",
+  "title": "WMB v4 staleness receipt", "type": "object",
+  "required": ["schemaVersion", "kind", "previousViewSha256", "cause", "affectedFactIds", "unaffectedFactIds", "status", "nextAction", "receiptSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-staleness-receipt" }, "previousViewSha256": { "$ref": "#/$defs/hash" }, "cause": { "type": "object", "required": ["kind", "previousSha256", "currentSha256"], "properties": { "kind": { "enum": ["source-change", "scope-change", "view-contract-change", "fact-ledger-change", "consumer-profile-change", "budget-change", "validator-change", "execution-profile-change"] }, "previousSha256": { "$ref": "#/$defs/hash" }, "currentSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false }, "affectedFactIds": { "$ref": "#/$defs/factIds" }, "unaffectedFactIds": { "$ref": "#/$defs/factIds" }, "status": { "const": "stale" }, "nextAction": { "type": "object", "required": ["operation", "view"], "properties": { "operation": { "const": "world-model.regenerate-view" }, "view": { "type": "string" } }, "additionalProperties": false }, "receiptSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "factIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" } } }, "additionalProperties": false
+}

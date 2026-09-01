@@ -49,6 +49,17 @@ import {
   workspacePrepareGuide
 } from '../../../src/gateway/planners/workspace-reliability-surface.mjs';
 
+// The WMB store imports its registries, validators, and Git-backed authority reader. Keep those
+// bytes off extension activation and ordinary gateway turns; the existing planner declaration is
+// fulfilled lazily only after `world-model.inspect` has actually been resolved and read.
+const loadWorldModelPlanner = () => import('../../../src/gateway/planners/world-model.mjs');
+const worldModelInspect = (request: unknown) => loadWorldModelPlanner()
+  .then((module) => (module.worldModelInspect as (value: unknown) => unknown)(request));
+const worldModelNext = (request: unknown) => loadWorldModelPlanner()
+  .then((module) => (module.worldModelNext as (value: unknown) => unknown)(request));
+const worldModelExplain = (request: unknown) => loadWorldModelPlanner()
+  .then((module) => (module.worldModelExplain as (value: unknown) => unknown)(request));
+
 /** What this host can answer without leaving the editor process. */
 export function editorPlanners(): Map<string, unknown> {
   return new Map<string, unknown>([
@@ -74,6 +85,9 @@ export function editorPlanners(): Map<string, unknown> {
     ['repository-open-guide', repositoryOpenGuide],
     ['workspace-doctor-guide', workspaceDoctorGuide],
     ['workspace-explore-guide', workspaceExploreGuide],
+    ['world-model-inspect', worldModelInspect],
+    ['world-model-next', worldModelNext],
+    ['world-model-explain', worldModelExplain],
     ['impact-quick', impactQuick],
     ['impact-what-if', impactWhatIf],
     ['impact-what-if-assisted', impactWhatIfAssisted],

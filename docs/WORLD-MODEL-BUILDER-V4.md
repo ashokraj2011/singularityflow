@@ -1,0 +1,255 @@
+# Governed World-Model Builder v4
+
+WMB v4 turns an exact, approved repository scope into reusable registered facts and independently
+composed views. Deterministic extractors own evidence and fact creation. A model, when a registered
+view permits one, can only narrate those facts; it cannot mint evidence, raise assurance, expand
+scope, or write provenance.
+
+Implementation was validated against the exact repository baseline
+`c50205ca147afc708b68cc7c43e0d1f633ff4acc`. This baseline is the review anchor required by the
+WMB v4 specification; the resulting release commit and packaged artifacts are bound separately by
+the signed verification-matrix receipt described below.
+
+The v4 model belongs to the scoped repository source, not to a Story. It is published as one atomic
+projection on the configured state branch and reused by every Story that resolves the same source,
+scope, registries, contracts, budgets, and execution profile. Story lifecycle metadata and generated
+SFlow state are excluded from the default application-source scope, so starting or advancing a Story
+does not rebuild an unchanged repository model.
+
+## Enable v4
+
+`legacy-v3` remains the configuration default for compatibility. In VS Code, open **Singularity
+Flow → Configuration Center → World model**, choose **Registered v4 — governed facts**, review the
+composer, consumer, cache, and token controls, then use the normal configuration review/publication
+flow. The same approved setting can be written directly in `singularity/workflow.yml`:
+
+```yaml
+worldModel:
+  format: registered-v4
+  views:
+    - dev.impact
+    - arch.contracts
+  sourceRoots:
+    - src
+    - test
+  sharedRoots:
+    - packages/contracts
+  excludedRoots:
+    - vendor
+  maximumTraversalDepth: 8
+  v4:
+    composer: deterministic
+    consumer: developer
+    cachePolicy: reuse-valid
+    totalMaximumOutputTokens: 5600
+```
+
+The built-in active view catalog is:
+
+| View | Purpose |
+|---|---|
+| `dev.impact@4` | Changed structure, dependency, contract, test, and unavailable impact |
+| `dev.hotspots@4` | Structural, change, and dependency concentration |
+| `biz.rules@4` | Registered rules, conditions, locations, and unavailable business meaning |
+| `arch.contracts@4` | Contracts, implementations, consumers, contradictions, and unavailable guarantees |
+
+List the exact installed contracts with `sflow world-model views` and inspect one with
+`sflow world-model view-contract dev.impact`.
+
+## Plan, build, and inspect
+
+Planning is read-only and model-free:
+
+```bash
+sflow world-model plan --views dev.impact,arch.contracts --json
+```
+
+Build only the requested registered views:
+
+```bash
+sflow world-model build --views dev.impact,arch.contracts
+```
+
+With a `registered-v4` workflow configuration, the shorter `sflow wm ...` spelling selects the same
+runtime. In a compatibility repository, `--format v4` is a one-command override: repeat it on later
+versioned reads, or publish the YAML setting so every surface resolves v4 consistently. `--local`
+validates without publishing. `--rebuild` deliberately bypasses exact cache reuse.
+
+`composer: deterministic` makes no model call. `model-optional` remains deterministic when the
+registered facts are sufficient; `model-required` invokes the governed provider. `--model MODEL`
+selects the concrete model only after the composer requires one—it does not turn model composition
+on. When a model is required and `--model` is absent, governed provider routing chooses it.
+
+The normal inspection commands are:
+
+```bash
+sflow world-model status
+sflow world-model manifest
+sflow world-model show dev.impact
+sflow world-model facts dev.impact
+sflow world-model evidence EV-...
+sflow world-model derivation DRV-...
+sflow world-model validate
+sflow world-model validate-view dev.impact
+sflow world-model verify-cache
+sflow world-model doctor
+```
+
+Every command supports `--json`. Reads resolve the locally available remote-tracking state ref first,
+then the local state branch, then the current revision. A read does not fetch the network, so refresh
+the configured remote explicitly when the latest remote publication is required. A legacy manifest
+on an authoritative ref is never silently treated as v4.
+
+## Trust boundary
+
+The v4 pipeline is:
+
+```text
+exact Source Snapshot
+  -> exact Scope Manifest
+  -> closed Extractor Registry
+  -> Evidence Catalog
+  -> Derivation Catalog
+  -> registered Fact Ledger
+  -> view-scoped Fact Ledger
+  -> deterministic or governed-model composition candidate
+  -> 20 deterministic validation checks
+  -> kernel Facts block, header, and stamp
+  -> aggregate manifest
+  -> one state-branch compare-and-swap publication
+```
+
+Every factual unit in a candidate must end in one or more registered references such as
+`[F:FACT-0123456789abcdef]`. Required unavailable facts and material contradictions must remain
+visible. Because a model-never validator cannot prove unrestricted paraphrase entailment, the
+built-in contracts admit only exact canonical fact sentences (or exact unavailable reasons) followed
+by their sorted Fact reference set. The model can select and organize facts but cannot attach an
+unrelated valid Fact ID to invented prose. The kernel adds the canonical Facts block and provenance
+only after validation. A failed view produces a typed refusal and preserves the deterministic
+evidence/facts; it cannot corrupt an already valid independent view.
+
+Source bodies are denied by the built-in contracts. Evidence descriptors are reference-first and
+bounded. Exact expansion is a separate, scoped read and must match the pinned source hash.
+
+## Cache, staleness, and reuse
+
+The machine-local cache is content-addressed beneath the repository Git common directory. A hit
+requires all twelve registered identities: source, scope, view/version/contract, view Fact Ledger,
+consumer profile, pinned composer core, candidate schema, validator, output budget, and execution
+profile. Cache records and objects are revalidated on every read. Corrupt or incomplete entries are
+misses and cannot publish.
+
+Each entry also retains an immutable canonical key object. `verify-cache` can therefore recheck the
+original execution-profile identity of model-composed entries even when the laptop's current
+provider or model selection has changed; it never reruns a model to reconstruct that identity.
+
+An exact hit performs no model call and reuses the original validated bytes and kernel stamp. A
+later selective build adds the previously published active views to the current request as optional
+independent executions. Unchanged views are exact cache hits; a changed profile, budget, source,
+scope, registry, or Fact Ledger regenerates the affected view under the current request instead of
+copying an orphaned old receipt. A source or scope change marks the previous model stale; regenerate
+the smallest view or all stale views explicitly:
+
+```bash
+sflow world-model regenerate dev.impact
+sflow world-model regenerate --stale
+```
+
+## State publication and recovery
+
+Successful builds stage every dependency, receipt, context manifest, view, usage observation, and
+the aggregate manifest under `singularity/world-model/`. The entire directory is replaced in one
+state-branch Git transaction. Application branches remain unchanged.
+
+Every state-backed read enumerates that committed directory and compares it with the exact
+schema-derived allowlist. Missing records fail as a partial publication; ambient views, receipts,
+or other unexpected files fail as an unexpected publication path. A migration receipt is allowed
+only at its content-addressed path and only when it binds the current source, scope, facts, evidence,
+and a current available view.
+
+WMB v4 does not currently create a separate pending-publication recovery marker. If publication
+fails, keep the source, configuration, and build options unchanged and rerun the exact build command.
+The content-addressed cache revalidates and reuses the completed view bytes, so a valid exact hit
+does not call the model again. If the source or governing inputs moved, inspect and plan again rather
+than treating the old result as publishable.
+
+## Migration from v3
+
+V1-v3 prose is unregistered narrative. It must be rebuilt or migrated explicitly. Migration is a
+fresh v4 rebuild from the current local checkout plus a migration receipt; it does not convert legacy
+prose into trusted facts in place. Use `--local` first when you want to validate the rebuilt projection
+without publishing:
+
+```bash
+sflow world-model migrate singularity/world-model/legacy-view.md \
+  --view dev.impact --local
+# Repeat without --local only after reviewing the result.
+```
+
+Migration maps a legacy claim only when it resolves to an exact fact in the freshly built registered
+catalog. Unproven claims remain `unavailable`; their text never becomes evidence and never inherits
+assurance from the old document. The durable receipt records every legacy claim index, its exact
+registered Fact ID and Fact hash when mapped, or its typed unavailable reason and candidate
+locators when unresolved; aggregate counts are recomputed from those rows during publication and
+state-backed reads. A successful governed migration atomically replaces the complete
+`singularity/world-model/` projection on the state branch and includes the receipt. A
+model-required composer may invoke its governed provider during that rebuild.
+
+## VS Code and gateway behavior
+
+The World-Model Explorer requests an on-demand leased `worldModel` slice. The ordinary extension
+snapshot contains no Fact Ledger or Evidence Catalog. Its initial projection contains only the
+manifest summary, bounded view previews, counts, cache state, staleness, and content-addressed
+expansion references. **Open exact view** reads the referenced bytes from the verified state-backed
+store rather than looking for a copy on the application branch. Facts, Evidence, Derivations, and
+Manifest buttons perform the same explicit bounded read; complete catalogs never join the retained
+snapshot. Closing the last consumer releases the slice and drops the heavy projection while
+retaining the local content-addressed cache.
+
+Gateway inspection reuses the existing five-tool surface through `resolve` followed by `read` of the
+read-only `world-model.inspect`, `world-model.next`, and `world-model.explain` operations. `next`
+computes the smallest legal plan, validation, diagnosis, or regeneration command from verified
+authority; `explain` traces a fact, evidence item, derivation, view, refusal, or manifest without a
+model. `sflow_run` remains fail-closed for every operation in the current gateway, so it cannot build
+or regenerate a model. Perform builds and regeneration with the CLI, or use a VS Code/Copilot action
+that only prefills a reviewed command; no surface adds an approval bypass.
+
+## Release matrix
+
+Ordinary development remains a one-machine workflow. Release promotion is stricter: it requires
+individually signed clean-checkout receipts for macOS, Linux, and Windows on Node 20 and Node 22,
+merged and reviewed into one signed aggregate for the exact commit. One explicitly selected
+artifact receipt binds the npm/VSIX bytes promoted by the release.
+
+```bash
+npm run verification:receipt -- --signing-key runner.pem --out darwin-node20.json
+# Repeat on each required host/runtime, then on the release verifier machine:
+npm run verification:receipt:merge -- \
+  --receipt darwin-node20.json --receipt darwin-node22.json \
+  --receipt linux-node20.json --receipt linux-node22.json \
+  --receipt windows-node20.json --receipt windows-node22.json \
+  --artifact-receipt linux-node22.json \
+  --signing-key release.pem --identity release-reviewer@example.com \
+  --out verification-matrix-receipt.json
+```
+
+The merge refuses mixed commits or trees and records the original signed payload behind every cell.
+The real release command refuses a single-host or incomplete aggregate and verifies its packaged
+bytes against the selected artifact receipt; `release:dry` and normal test/check commands do not
+require it.
+
+## Troubleshooting
+
+- `WMB_MANIFEST_MISSING`: run an explicit v4 build for at least one registered view.
+- `WMB_MIGRATION_REQUIRED`: rebuild or run the explicit migration command; do not rename a v3 file.
+- `WMB_SOURCE_SNAPSHOT_REQUIRED`: commit or stash the in-scope application bytes, then rerun the
+  plan/build against a clean exact source snapshot. There is no WMB Candidate Snapshot command.
+  Out-of-scope Story metadata does not block a scoped build.
+- `WMB_SOURCE_SNAPSHOT_STALE`: inspect the new source revision, then regenerate only the needed view.
+- `WMB_VIEW_UNKNOWN` or `WMB_VIEW_REVOKED`: inspect the closed registry and use an active exact view.
+- `WMB_CACHE_ENTRY_CORRUPT`: rebuild the affected view; the corrupt cache entry cannot publish.
+- `WMB_REQUIRED_VIEW_UNAVAILABLE`: inspect the refusal and its smallest next action. Valid sibling
+  views and registered facts remain preserved.
+
+Use `sflow world-model doctor --json` to distinguish missing, legacy, stale, corrupt, and current
+state before changing anything.

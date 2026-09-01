@@ -1172,10 +1172,34 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     evidence: phase.worldModel?.evidence ?? false,
     context: definition.worldModel?.context ?? {}
   });
-  const requiredViews = plan.views.map((entry) => entry.view);
-  if (Array.isArray(record.requiredSelections)) {
+  // The receipt, not today's mutable repository default, decides how historical grounding is
+  // verified. Every v4 composition records this exact tier marker; changing configuration later
+  // must not reinterpret an already published legacy-v3 generation.
+  const recordedV4Selections = (record.requiredSelections ?? []).filter((entry) => (
+    entry?.kind === 'view' && entry?.tier === 'registered-v4'
+  ));
+  const registeredV4 = recordedV4Selections.length > 0;
+  const requiredSelections = registeredV4 ? recordedV4Selections : plan.selections;
+  const requiredViews = registeredV4
+    ? [...new Set(recordedV4Selections.map((entry) => entry.view))].sort()
+    : plan.views.map((entry) => entry.view);
+  if (registeredV4) {
+    const identities = recordedV4Selections.map((entry) => `${entry.view}@${entry.version ?? 'missing'}`);
+    if (recordedV4Selections.some((entry) => (
+      typeof entry.view !== 'string' || !entry.view
+      || !Number.isSafeInteger(entry.version) || entry.version < 1
+    ))) problems.push(`grounding composition contains an invalid registered-v4 selection for ${phase.id}`);
+    if (new Set(identities).size !== identities.length) {
+      problems.push(`grounding composition repeats a registered-v4 selection for ${phase.id}`);
+    }
+    for (const view of requiredViews) {
+      if (!(record.requiredViews ?? []).includes(view)) {
+        problems.push(`grounding composition requiredViews omits recorded registered-v4 view '${view}' for ${phase.id}`);
+      }
+    }
+  } else if (Array.isArray(record.requiredSelections)) {
     const recorded = new Set(record.requiredSelections.map(selectionId));
-    for (const selection of plan.selections) {
+    for (const selection of requiredSelections) {
       const id = selectionId(selection);
       if (!recorded.has(id)) problems.push(`grounding composition omitted required selection '${id}' for ${phase.id}`);
     }
@@ -1298,11 +1322,26 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     }
   }
   if (committedManifest) {
-    if (committedManifest.source_tree_sha256 !== record.modelSourceTreeSha256) problems.push('world-model source hash differs from the composition record');
+    const committedRegisteredV4 = committedManifest.format === 'wmb-v4';
+    const committedSourceSha256 = committedRegisteredV4
+      ? committedManifest.sourceManifestSha256
+      : committedManifest.source_tree_sha256;
+    if (committedSourceSha256 !== record.modelSourceTreeSha256) problems.push('world-model source hash differs from the composition record');
     const outputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
-    const normalizedCommitted = normalizeWorldModelManifest(committedManifest);
     const exactReceipt = Array.isArray(record.requiredSelections);
-    if (exactReceipt) {
+    if (committedRegisteredV4) {
+      if (!registeredV4) problems.push('registered WMB v4 manifest was composed with a legacy grounding receipt');
+      for (const selection of requiredSelections) {
+        const entry = (committedManifest.views ?? []).find((candidate) => (
+          candidate.viewId === selection.view && candidate.status === 'available'
+        ));
+        const expected = entry?.path ? posix(path.join(outputDir, entry.path)) : null;
+        if (!expected || !(record.files ?? []).some((file) => file.path === expected)) {
+          problems.push(`grounding composition has no committed content for required selection '${selectionId(selection)}'`);
+        }
+      }
+    } else if (exactReceipt) {
+      const normalizedCommitted = normalizeWorldModelManifest(committedManifest);
       const allowLegacyFallback = normalizedCommitted.source_schema_version !== '3.0';
       for (const selection of plan.selections) {
         const entry = worldModelSelectionEntry(normalizedCommitted, selection, { allowLegacyFallback });
@@ -1322,20 +1361,23 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
         if (!candidates.length || !(record.files ?? []).some((file) => candidates.includes(file.path))) problems.push(`grounding composition has no committed content for required view '${view}'`);
       }
     }
-    const plannedCore = worldModelSelectionEntry(normalizedCommitted, plan.core, {
-      allowLegacyFallback: normalizedCommitted.source_schema_version !== '3.0'
-    });
-    const requiredContextPaths = exactReceipt ? [] : [committedManifest.core?.summary];
-    if (exactReceipt && plannedCore?.status === 'ready') requiredContextPaths.push(plannedCore.path);
-    if (record.task) {
-      const guide = (committedManifest.task_guides ?? []).find((entry) => normalizeTask(entry.task) === normalizeTask(record.task));
-      if (!guide) problems.push(`committed world model has no exact task guide for '${record.task}'`);
-      else requiredContextPaths.push(guide.path);
-    }
-    if (phase.worldModel?.evidence) requiredContextPaths.push(committedManifest.evidence?.path);
-    for (const contextPath of requiredContextPaths.filter(Boolean)) {
-      const recordedPath = posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', contextPath));
-      if (!(record.files ?? []).some((file) => file.path === recordedPath)) problems.push(`grounding composition omitted required context '${contextPath}'`);
+    if (!committedRegisteredV4) {
+      const normalizedCommitted = normalizeWorldModelManifest(committedManifest);
+      const plannedCore = worldModelSelectionEntry(normalizedCommitted, plan.core, {
+        allowLegacyFallback: normalizedCommitted.source_schema_version !== '3.0'
+      });
+      const requiredContextPaths = exactReceipt ? [] : [committedManifest.core?.summary];
+      if (exactReceipt && plannedCore?.status === 'ready') requiredContextPaths.push(plannedCore.path);
+      if (record.task) {
+        const guide = (committedManifest.task_guides ?? []).find((entry) => normalizeTask(entry.task) === normalizeTask(record.task));
+        if (!guide) problems.push(`committed world model has no exact task guide for '${record.task}'`);
+        else requiredContextPaths.push(guide.path);
+      }
+      if (phase.worldModel?.evidence) requiredContextPaths.push(committedManifest.evidence?.path);
+      for (const contextPath of requiredContextPaths.filter(Boolean)) {
+        const recordedPath = posix(path.join(definition.worldModel?.outputDir ?? 'singularity/world-model', contextPath));
+        if (!(record.files ?? []).some((file) => file.path === recordedPath)) problems.push(`grounding composition omitted required context '${contextPath}'`);
+      }
     }
   }
   const severity = severityResult(mode, problems);

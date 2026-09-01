@@ -28,6 +28,141 @@ const MAX_SCAN_BYTES = 512 * 1024;
 
 const JS_LIKE = new Set(['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx']);
 
+function maskedLexicalSpan(value) {
+  return String(value).replace(/[^\r\n]/g, ' ');
+}
+
+function quotedLiteralEnd(source, start, quote) {
+  let index = start + 1;
+  while (index < source.length) {
+    if (source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+    if (source[index] === quote) return index + 1;
+    // An unescaped line break makes a single/double-quoted JS literal invalid. Mask the remainder
+    // of that line conservatively; never resume inside bytes that looked like a literal.
+    if (source[index] === '\n' || source[index] === '\r') return index;
+    index += 1;
+  }
+  return source.length;
+}
+
+function lineCommentEnd(source, start) {
+  const newline = source.indexOf('\n', start + 2);
+  return newline < 0 ? source.length : newline;
+}
+
+function blockCommentEnd(source, start) {
+  const closing = source.indexOf('*/', start + 2);
+  return closing < 0 ? source.length : closing + 2;
+}
+
+/** Find a template's real closing backtick, including nested `${...}` expressions. */
+function templateLiteralEnd(source, start) {
+  const expressionEnd = (expressionStart) => {
+    let depth = 1;
+    let index = expressionStart;
+    while (index < source.length) {
+      const pair = source.slice(index, index + 2);
+      if (pair === '//') { index = lineCommentEnd(source, index); continue; }
+      if (pair === '/*') { index = blockCommentEnd(source, index); continue; }
+      if (source[index] === "'" || source[index] === '"') {
+        index = quotedLiteralEnd(source, index, source[index]);
+        continue;
+      }
+      if (source[index] === '`') {
+        index = templateLiteralEnd(source, index);
+        continue;
+      }
+      if (source[index] === '{') depth += 1;
+      else if (source[index] === '}') {
+        depth -= 1;
+        if (depth === 0) return index + 1;
+      }
+      index += 1;
+    }
+    return source.length;
+  };
+
+  let index = start + 1;
+  while (index < source.length) {
+    if (source[index] === '\\') { index += 2; continue; }
+    if (source[index] === '`') return index + 1;
+    if (source[index] === '$' && source[index + 1] === '{') {
+      index = expressionEnd(index + 2);
+      continue;
+    }
+    index += 1;
+  }
+  return source.length;
+}
+
+/**
+ * Separate JavaScript/TypeScript code from comments and literals without changing source lines.
+ *
+ * Regular quoted literals are replaced by generated tokens in `tokenized`, allowing an actual
+ * import target to be recovered after its surrounding code has matched. Comments, templates, and
+ * every literal are whitespace in `masked`, which is the only input trusted symbol extraction
+ * scans. A declaration-looking line in documentation, a template, or a quoted string can no
+ * longer mint structurally-derived evidence.
+ */
+function javascriptLexicalProjection(value) {
+  const source = String(value);
+  const replacements = [];
+  const literals = new Map();
+  let index = 0;
+  while (index < source.length) {
+    const pair = source.slice(index, index + 2);
+    if (pair === '//') {
+      const end = lineCommentEnd(source, index);
+      replacements.push({ start: index, end, token: null });
+      index = end;
+      continue;
+    }
+    if (pair === '/*') {
+      const end = blockCommentEnd(source, index);
+      replacements.push({ start: index, end, token: null });
+      index = end;
+      continue;
+    }
+    const character = source[index];
+    if (character === "'" || character === '"') {
+      const end = quotedLiteralEnd(source, index, character);
+      const token = `__SFLOW_LITERAL_${literals.size}__`;
+      literals.set(token, source.slice(index + 1, Math.max(index + 1, end - 1)));
+      replacements.push({ start: index, end, token, quote: character });
+      index = Math.max(end, index + 1);
+      continue;
+    }
+    if (character === '`') {
+      const end = templateLiteralEnd(source, index);
+      replacements.push({ start: index, end, token: null });
+      index = Math.max(end, index + 1);
+      continue;
+    }
+    index += 1;
+  }
+
+  const render = (keepLiteralTokens) => {
+    const chunks = [];
+    let cursor = 0;
+    for (const replacement of replacements) {
+      chunks.push(source.slice(cursor, replacement.start));
+      const original = source.slice(replacement.start, replacement.end);
+      if (keepLiteralTokens && replacement.token) {
+        const lineBreaks = original.match(/\r\n|\r|\n/g)?.join('') ?? '';
+        chunks.push(`${replacement.quote}${replacement.token}${replacement.quote}${lineBreaks}`);
+      } else chunks.push(maskedLexicalSpan(original));
+      cursor = replacement.end;
+    }
+    chunks.push(source.slice(cursor));
+    return chunks.join('');
+  };
+
+  return { masked: render(false), tokenized: render(true), literals };
+}
+
 /**
  * Frameworks worth naming, recognised from declared dependencies.
  *
@@ -147,8 +282,9 @@ async function readCargoManifest(text, relative) {
 export function extractSymbols(text, relative) {
   const symbols = [];
   const lineAt = lineNumbers(text);
+  const { masked } = javascriptLexicalProjection(text);
   const declaration = /^export\s+(?:default\s+)?(?:async\s+)?(function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm;
-  for (const match of text.matchAll(declaration)) {
+  for (const match of masked.matchAll(declaration)) {
     const [, keyword, name] = match;
     symbols.push({
       name,
@@ -161,10 +297,18 @@ export function extractSymbols(text, relative) {
 
 /** `import`/`export … from` and `require()` targets, resolved only far enough to be a graph edge. */
 export function extractImports(text) {
+  const { tokenized, literals } = javascriptLexicalProjection(text);
   const targets = [];
-  for (const match of text.matchAll(/^\s*(?:import|export)[\s\S]{0,200}?from\s*['"]([^'"]+)['"]/gm)) targets.push(match[1]);
-  for (const match of text.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) targets.push(match[1]);
-  for (const match of text.matchAll(/^\s*import\s+['"]([^'"]+)['"]/gm)) targets.push(match[1]);
+  const record = (token) => {
+    const target = literals.get(token);
+    if (target != null) targets.push(target);
+  };
+  // Import/export specifiers admit identifiers, braces, commas, `*`, and whitespace. Excluding
+  // arbitrary punctuation prevents a later `from` in unrelated code from being joined to an
+  // earlier export merely because both happened to be within a fixed byte window.
+  for (const match of tokenized.matchAll(/^\s*(?:import|export)\s+(?:type\s+)?[A-Za-z0-9_$*{},\s]*?\bfrom\s*(['"])(__SFLOW_LITERAL_[0-9]+__)\1/gm)) record(match[2]);
+  for (const match of tokenized.matchAll(/(?<![\w$.])require\s*\(\s*(['"])(__SFLOW_LITERAL_[0-9]+__)\1\s*\)/g)) record(match[2]);
+  for (const match of tokenized.matchAll(/^\s*import\s*(['"])(__SFLOW_LITERAL_[0-9]+__)\1/gm)) record(match[2]);
   return [...new Set(targets)];
 }
 

@@ -93,7 +93,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
-  ['validate'], ['gate'], ['wm'], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
+  ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
@@ -124,6 +124,18 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set(['init', 'inject', 'compose', 'show-prompt', 'cleanup', 'prompt', 'context', 'budget', 'facts', 'check', 'cache', 'light', 'availability', 'status', 'design-inventory']);
+// The registered-v4 dispatcher has its own closed public surface. Keep it here as well as in the
+// handler: command admission happens before that handler is imported, so an omitted entry makes a
+// fully implemented command unreachable from the CLI. The registry test compares this vocabulary
+// with the public WMB command set and the operation catalog, preventing that split-brain state.
+const WMB_V4_READ_OPERATIONS = new Set([
+  'plan', 'status', 'availability', 'ensure', 'manifest', 'show', 'facts', 'evidence',
+  'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'views',
+  'view-contract', 'extractors', 'doctor', 'context'
+]);
+const WMB_V4_EXECUTION_OPERATIONS = new Set(['build', 'regenerate', 'migrate']);
+const WMB_V4_OPERATIONS = new Set([...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS]);
+const WMB_V4_MODEL_COMPOSERS = new Set(['model', 'model-required']);
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
 const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
@@ -295,7 +307,10 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   capability: CAPABILITY_SUBCOMMANDS,
   ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
-  wm: Object.freeze([...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, 'ensure', 'ast', 'recovery']),
+  wm: Object.freeze([...new Set([
+    ...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, ...WMB_V4_OPERATIONS,
+    'ensure', 'ast', 'recovery'
+  ])]),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration',
     ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
@@ -639,7 +654,17 @@ function unclassified(id) {
   });
 }
 
-function resolveWorldModelOperation(definition, positionals, options) {
+function registeredV4Operation(options, context) {
+  const requested = optionString(options, 'format');
+  if (requested) return ['v4', 'wmb-v4', 'registered-v4'].includes(requested);
+  return context?.worldModel?.format === 'registered-v4';
+}
+
+function registeredV4Composer(options, context) {
+  return optionString(options, 'composer') ?? context?.worldModel?.composer ?? 'deterministic';
+}
+
+function resolveWorldModelOperation(definition, positionals, options, context = {}) {
   const subcommand = positionals[1] ?? 'check';
   if (subcommand === 'ast') {
     const action = positionals[2] ?? 'status';
@@ -681,15 +706,27 @@ function resolveWorldModelOperation(definition, positionals, options) {
   // ensure can only select the same deterministic builder. Classify both from their actual work so
   // `--no-model` does not reject a zero-token operation before its handler is loaded.
   if (subcommand === 'ensure') {
+    if (registeredV4Operation(options, context)) {
+      return never('wm.ensure.registered-v4', definition, 'read');
+    }
     return optionString(options, 'depth') === 'light'
       ? never('wm.light', definition, 'mutation')
       : optional('wm.ensure', 'wm.light', definition);
   }
   if (WM_MODEL_OPERATIONS.has(subcommand)) {
-    return optionString(options, 'depth') === 'light'
-      ? never('wm.light', definition, 'mutation')
-      : required(id);
+    if (optionString(options, 'depth') === 'light') return never('wm.light', definition, 'mutation');
+    if (registeredV4Operation(options, context)
+        && !WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))) {
+      return never('wm.build.deterministic', definition, 'mutation');
+    }
+    return required(id);
   }
+  if (WMB_V4_EXECUTION_OPERATIONS.has(subcommand)) {
+    return WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))
+      ? required(id)
+      : never(`${id}.deterministic`, definition, 'mutation');
+  }
+  if (WMB_V4_READ_OPERATIONS.has(subcommand)) return never(id, definition, 'read');
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
@@ -839,10 +876,10 @@ function resolveSgosOperation(definition, positionals, options) {
   );
 }
 
-export function resolveOperation({ requestedCommand, positionals, options = {} }) {
+export function resolveOperation({ requestedCommand, positionals, options = {}, context = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
-  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options);
+  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options, context);
   if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
@@ -880,10 +917,19 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
 
 export function operationCatalog() {
   const direct = COMMAND_REGISTRY.flatMap((entry) => entry.operation ? [entry.operation] : []);
+  const wmDefinition = commandDefinition('wm');
+  const v4ExclusiveReads = [...WMB_V4_READ_OPERATIONS]
+    .filter((name) => !WM_NEVER_OPERATIONS.has(name) && name !== 'ensure');
   const wm = [...WM_NEVER_OPERATIONS]
-    .map((name) => never(`wm.${name}`, commandDefinition('wm'), WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
+    .map((name) => never(`wm.${name}`, wmDefinition, WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
-    .concat([optional('wm.ensure', 'wm.light', commandDefinition('wm'))])
+    .concat([optional('wm.ensure', 'wm.light', wmDefinition)])
+    .concat([never('wm.ensure.registered-v4', wmDefinition, 'read')])
+    .concat(v4ExclusiveReads.map((name) => never(`wm.${name}`, wmDefinition, 'read')))
+    .concat([...WMB_V4_EXECUTION_OPERATIONS].flatMap((name) => [
+      ...(name === 'build' ? [] : [required(`wm.${name}`)]),
+      never(`wm.${name}.deterministic`, wmDefinition, 'mutation')
+    ]))
     .concat([...WM_AST_READ_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
     .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
     .concat(['symbol', 'references', 'hierarchy', 'module'].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))

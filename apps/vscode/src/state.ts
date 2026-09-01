@@ -77,8 +77,40 @@ export interface SnapshotCache {
 }
 
 const SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
-  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos'
+  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'worldModel'
 ]);
+
+/** Never restore an unleased WMB payload after a process/window disappeared before panel dispose. */
+function withoutWorldModelSlice(snapshot: RepositorySnapshot): RepositorySnapshot {
+  if (!Object.hasOwn(snapshot, 'worldModel')) return snapshot;
+  const reduced = { ...snapshot } as RepositorySnapshot;
+  delete (reduced as Record<string, unknown>).worldModel;
+  const slices = { ...(reduced.revision?.slices ?? {}) };
+  delete slices.worldModel;
+  return {
+    ...reduced,
+    included: reduced.included?.filter((slice) => slice !== 'worldModel'),
+    ...(reduced.revision ? {
+      // The aggregate revision included bytes that were intentionally dropped. A live core read
+      // must confirm the repository instead of accepting a not-modified receipt for that aggregate.
+      revision: { ...reduced.revision, subjectRevision: undefined, slices }
+    } : {})
+  };
+}
+
+export const DEFAULT_WORLD_MODEL_SLICE_LEASE_MS = 5 * 60 * 1_000;
+export const MAX_SLICE_LEASE_MS = 60 * 60 * 1_000;
+
+export interface SliceLeaseOptions { ttlMs?: number | null }
+
+export interface SliceLease {
+  readonly id: string;
+  readonly owner: string;
+  readonly slices: readonly SnapshotSlice[];
+  readonly expiresAt: string | null;
+  renew(ttlMs?: number): string | null;
+  dispose(): void;
+}
 
 /** Compare the coordinator's per-slice content digests without inferring from payload fields. */
 export function changedSnapshotSlices(
@@ -120,6 +152,8 @@ export class WorkspaceStore {
   private forceFullSnapshot = false;
   private readonly loadedSlices = new Set<SnapshotSlice>(CORE_SNAPSHOT_SLICES);
   private readonly sliceLeases = new Map<SnapshotSlice, number>();
+  private readonly leaseDisposers = new Set<() => void>();
+  private leaseSequence = 0;
   private disposed = false;
 
   constructor(client: SingularityFlowClient, cache: SnapshotCache | null = null) {
@@ -140,11 +174,11 @@ export class WorkspaceStore {
    */
   primeFromCache(): boolean {
     if (this.state.snapshot || !this.cache) return false;
-    const cached = this.cache.read();
-    if (!cached) return false;
-    // Cached heavy data may paint immediately, but it must not make every future activation pay to
-    // reload every panel the person happened to open in an earlier session. The live activation
-    // refresh remains core-only; a heavy surface calls ensureSlices when it is opened again.
+    const found = this.cache.read();
+    if (!found) return false;
+    // A crashed extension host may not deliver panel disposal. Never let that turn yesterday's
+    // Explorer lease into today's activation snapshot; the content cache survives independently.
+    const cached = withoutWorldModelSlice(found);
     this.publish({ snapshot: cached, error: null, stale: true }, {
       kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
     });
@@ -174,6 +208,7 @@ export class WorkspaceStore {
     let cached: RepositorySnapshot | null = null;
     try { cached = this.cache?.read() ?? null; } catch { /* A broken cache is simply empty. */ }
     if (cached) {
+      if (!(this.sliceLeases.get('worldModel') ?? 0)) cached = withoutWorldModelSlice(cached);
       this.publish({ snapshot: cached, error: null, loading: this.inFlight !== null, stale: true }, {
         kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
       });
@@ -228,12 +263,34 @@ export class WorkspaceStore {
    * Keep heavyweight read-model slices only while a surface is using them.
    *
    * A transient command preflight may still use `ensureSlices`; heavyweight panels use this lease
-   * so closing the last panel stops future refreshes from paying for its domain. SGOS is also removed
-   * from the in-memory/cache projection immediately because it has a single, isolated snapshot key;
-   * no authority is changed by releasing a read projection.
+   * so closing the last panel stops future refreshes from paying for its domain. Independently keyed
+   * slices such as SGOS and WMB v4 are removed from memory/cache immediately after the final lease;
+   * no authority is changed by releasing a read projection. Named consumers may also use an expiring
+   * lease and renew it while visible, so a lost panel cannot pin a heavy projection forever.
    */
-  async acquireSlices(slices: readonly SnapshotSlice[]): Promise<{ dispose(): void }> {
+  async acquireSlices(slices: readonly SnapshotSlice[]): Promise<SliceLease>;
+  async acquireSlices(owner: string, slices: readonly SnapshotSlice[], options?: SliceLeaseOptions): Promise<SliceLease>;
+  async acquireSlices(
+    ownerOrSlices: string | readonly SnapshotSlice[],
+    requestedSlicesOrOptions: readonly SnapshotSlice[] | SliceLeaseOptions = [],
+    leaseOptions: SliceLeaseOptions = {}
+  ): Promise<SliceLease> {
+    const named = typeof ownerOrSlices === 'string';
+    const owner = named ? ownerOrSlices.trim() : 'anonymous-panel';
+    if (!owner || owner.length > 128 || /[\u0000-\u001f\u007f]/.test(owner)) {
+      throw new TypeError('A slice lease owner must be a non-empty, single-line identifier of at most 128 characters.');
+    }
+    const slices = (named ? requestedSlicesOrOptions : ownerOrSlices) as readonly SnapshotSlice[];
+    const options = (named ? leaseOptions : requestedSlicesOrOptions) as SliceLeaseOptions;
     const unique = [...new Set(slices)];
+    if (!unique.length) throw new TypeError('A slice lease must name at least one slice.');
+    const unknown = unique.filter((slice) => !SNAPSHOT_SLICES.includes(slice));
+    if (unknown.length) throw new TypeError(`Unknown slice lease target(s): ${unknown.join(', ')}.`);
+    const requestedTtl = options?.ttlMs ?? null;
+    if (requestedTtl !== null && (!Number.isSafeInteger(requestedTtl)
+      || requestedTtl < 1 || requestedTtl > MAX_SLICE_LEASE_MS)) {
+      throw new TypeError(`A slice lease ttlMs must be an integer from 1 through ${MAX_SLICE_LEASE_MS}.`);
+    }
     for (const slice of unique) this.sliceLeases.set(slice, (this.sliceLeases.get(slice) ?? 0) + 1);
     try {
       await this.ensureSlices(unique);
@@ -241,14 +298,38 @@ export class WorkspaceStore {
       for (const slice of unique) this.releaseSlice(slice);
       throw error;
     }
+    const id = `slice_${Date.now().toString(36)}_${(++this.leaseSequence).toString(36)}`;
     let disposed = false;
-    return {
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        for (const slice of unique) this.releaseSlice(slice);
-      }
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let expiresAt: string | null = null;
+    const dispose = (): void => {
+      if (disposed) return;
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      expiresAt = null;
+      this.leaseDisposers.delete(dispose);
+      for (const slice of unique) this.releaseSlice(slice);
     };
+    const renew = (ttlMs = requestedTtl ?? 0): string | null => {
+      if (disposed) throw new TypeError(`Slice lease '${id}' has already been released.`);
+      if (ttlMs === 0 && requestedTtl === null) return null;
+      if (!Number.isSafeInteger(ttlMs) || ttlMs < 1 || ttlMs > MAX_SLICE_LEASE_MS) {
+        throw new TypeError(`A slice lease ttlMs must be an integer from 1 through ${MAX_SLICE_LEASE_MS}.`);
+      }
+      if (timer) clearTimeout(timer);
+      expiresAt = new Date(Date.now() + ttlMs).toISOString();
+      timer = setTimeout(dispose, ttlMs);
+      timer.unref?.();
+      return expiresAt;
+    };
+    this.leaseDisposers.add(dispose);
+    if (requestedTtl !== null) renew(requestedTtl);
+    return Object.freeze({
+      id, owner, slices: Object.freeze(unique),
+      get expiresAt() { return expiresAt; },
+      renew, dispose
+    });
   }
 
   private releaseSlice(slice: SnapshotSlice): void {
@@ -260,21 +341,23 @@ export class WorkspaceStore {
     this.sliceLeases.delete(slice);
     if (CORE_SNAPSHOT_SLICES.includes(slice)) return;
     this.loadedSlices.delete(slice);
-    if (slice !== 'sgos' || !this.state.snapshot?.sgos) return;
-    const { sgos: _discarded, ...withoutSgos } = this.state.snapshot;
-    const included = withoutSgos.included?.filter((entry) => entry !== 'sgos');
-    const slices = { ...(withoutSgos.revision?.slices ?? {}) };
-    delete slices.sgos;
+    const dedicated = slice === 'sgos' || slice === 'worldModel';
+    if (!dedicated || !this.state.snapshot || !Object.hasOwn(this.state.snapshot, slice)) return;
+    const releasedPayload = { ...this.state.snapshot } as RepositorySnapshot;
+    delete (releasedPayload as Record<string, unknown>)[slice];
+    const included = releasedPayload.included?.filter((entry) => entry !== slice);
+    const slices = { ...(releasedPayload.revision?.slices ?? {}) };
+    delete slices[slice];
     const released: RepositorySnapshot = {
-      ...withoutSgos,
+      ...releasedPayload,
       included,
       notModified: false,
-      ...(withoutSgos.revision ? {
-        revision: { ...withoutSgos.revision, subjectRevision: undefined, slices }
+      ...(releasedPayload.revision ? {
+        revision: { ...releasedPayload.revision, subjectRevision: undefined, slices }
       } : {})
     };
     this.publish({ snapshot: released }, {
-      kind: 'snapshot', revisionChanged: false, changedSlices: Object.freeze(['sgos'])
+      kind: 'snapshot', revisionChanged: false, changedSlices: Object.freeze([slice])
     });
     try { this.cache?.write(released); } catch { /* A cache that cannot be written is not a failure. */ }
   }
@@ -404,6 +487,7 @@ export class WorkspaceStore {
   dispose(): void {
     this.disposed = true;
     this.controller?.abort();
+    for (const release of [...this.leaseDisposers]) release();
     this.listeners.clear();
   }
 }

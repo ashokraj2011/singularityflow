@@ -11,9 +11,20 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 14
+version: 16
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
+
+## Registered v4 builder
+
+Set `worldModel.format: registered-v4` to use the governed v4 pipeline: exact scoped source,
+closed extractors and view contracts, deterministic Evidence/Derivation/Fact catalogs, independently
+validated views, exact cache reuse, and one atomic state-branch publication. Every factual unit is
+bound to a registered Fact ID; model composition cannot create facts, evidence, assurance, or
+provenance. The built-in views are `dev.impact`, `dev.hotspots`, `biz.rules`, and
+`arch.contracts`. Use `sflow world-model plan`, `build`, `facts`, `evidence`, `validate`, and
+`doctor`; see [the complete WMB v4 guide](../WORLD-MODEL-BUILDER-V4.md). Legacy v3 remains the
+compatibility default and requires an explicit rebuild or migration before v4 reads will trust it.
 
 ## Shared lifetime and regeneration
 
@@ -24,7 +35,15 @@ are excluded from the source fingerprint, and Story context is injected separate
 phase prompt.
 
 Normal lifecycle commands inspect, reuse, and compose this shared model without a task guide. They
-never turn a Story title or conversational objective into `--task`. A direct `wm ensure --task` or
+never turn a Story title or conversational objective into `--task`. In registered v4, `wm ensure` is
+a read-only readiness check: a missing or stale required view is refused rather than built. Create or
+replace v4 bytes only through an explicit `wm build`, `wm regenerate`, or `wm migrate`; exact valid
+cache entries are reused without another model call.
+
+## Legacy v3 materialization and model routing
+
+The following `light`, automatic materialization, task-guide, discovery, and synthesis behavior
+applies only when `worldModel.format` is absent or set to `legacy-v3`. A direct `wm ensure --task` or
 `wm compose --task` is an explicit request for an ad-hoc task guide; it may extend the shared model
 while preserving all valid existing artifacts. Expensive semantic generation requires an explicit
 `wm build`/`wm ensure` action or an opted-in `on-demand` policy with confirmation. Automatic
@@ -60,22 +79,22 @@ Use this topic when the current goal matches **world model**. Start in a governe
 ## Use it from each surface
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
-- **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. Model-free gateway hosts may resolve bounded AST status/context/query/replay reads; cache builds remain explicit CLI operations.
-- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope, or **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
+- **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. The gateway can resolve and read bounded `world-model.inspect` results, but its `sflow_run` tool is currently fail-closed; builds remain explicit CLI operations or user-submitted Copilot commands.
+- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered-v4 format, composer, consumer, cache, and total-token controls. Dotted registered view IDs such as `dev.impact` are accepted. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
 
 ## Guided workflow
 
 1. For a normal repository, leave `worldModel.sourceRoots` and `sharedRoots` absent to describe the whole application tree.
 2. For a monorepo, set `sourceRoots` to the owned application directories and `sharedRoots` to required contracts/libraries. Capability scopes override application roots at the nearest child and inherit shared roots additively.
 3. Run `sflow doctor --performance --offline`. Review scoped/total file counts and warm fingerprint time before building.
-4. Run `sflow wm status`, then explicitly materialize with `sflow wm light`, `sflow wm build`, or `sflow wm ensure` as policy requires.
+4. Run `sflow wm status`. For registered v4, materialize with an explicit `sflow wm build --views ...`; `wm ensure` only verifies readiness and `wm light` is refused. For legacy v3, use `sflow wm light`, `sflow wm build`, or `sflow wm ensure` as policy requires.
 5. Re-read `sflow wm check`. New Stories and Initiatives pin the resolved capability scope, so later capability-map edits do not silently change their evidence boundary.
 6. If structural predicates are configured, optionally run `sflow wm ast gate --json` for diagnostics. Its result never gates publication or submission. Reproduce any successfully retained diagnostic evidence with `sflow wm ast evidence reproduce --receipt <RECEIPT> --json` (`replay` remains a compatibility alias).
-7. If validation succeeds but publication fails, run `sflow wm recovery list`, inspect the retained ID, then use `sflow wm recovery publish <ID> --confirm <ID>`. It republishes the retained bytes without another model call.
+7. For a legacy-v3 retained publication, run `sflow wm recovery list`, inspect the retained ID, then use `sflow wm recovery publish <ID> --confirm <ID>`. Registered v4 has no separate pending-publication marker: keep the exact source/options unchanged and rerun the build so its validated cache entry can be reused without another model call.
 
 ## State and safety
 
-World-model fingerprints use Git's existing index object IDs for clean paths and read visible bytes only for changed or untracked paths. They do not write Git objects or execute configured clean filters. Sparse-checkout paths absent from disk remain represented by their index objects and are not mistaken for deletions. Semantic model generation and governed publication still mutate only through the documented `wm` commands and lifecycle checks.
+Legacy-v3 world-model fingerprints use Git's existing index object IDs for clean paths and read visible bytes only for changed or untracked paths. Registered v4 requires a clean exact in-scope source snapshot; commit or stash those bytes before building. Neither format writes Git objects merely to fingerprint source or executes configured clean filters. Sparse-checkout paths absent from disk remain represented by their index objects and are not mistaken for deletions. Semantic model generation and governed publication still mutate only through the documented `wm` commands and lifecycle checks.
 
 AST context/query/gate reads reuse and best-effort warm content-addressed blob skeletons for exact
 committed Git inputs; dirty inputs remain memory-only and cache failures never block the read.
@@ -101,7 +120,7 @@ toolchain matrix for the selected repository.
 
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
-- If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
+- If legacy-v3 publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`. For registered v4, rerun the exact build after a publication failure; a valid exact cache hit is reused, while changed governing inputs require a new plan.
 - If all files remain in scope, save non-empty `sourceRoots`/`sharedRoots` in Configuration Center or the capability map; an empty list deliberately means the whole application tree.
 - If a scoped file is absent because of sparse checkout, add its directory to the capability's sparse cone and create/repair the workspace. Do not manually copy files around Git's sparse index.
 - If warm status or fingerprint time remains high, run `sflow doctor --performance --json` and retain the measurements when asking the repository platform team about FSMonitor or untracked-cache policy.

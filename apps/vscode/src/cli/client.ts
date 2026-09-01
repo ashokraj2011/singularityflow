@@ -31,6 +31,7 @@ interface SnapshotEnvelope {
   integrations?: Partial<RepositorySnapshot>;
   diagnostics?: RepositorySnapshot['diagnostics'];
   sgos?: RepositorySnapshot['sgos'];
+  worldModel?: RepositorySnapshot['worldModel'];
 }
 
 function snapshotArgs(slices: readonly SnapshotSlice[], ifRevision?: string | null): string[] {
@@ -63,6 +64,9 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
     } : {}),
     ...(envelope.diagnostics ? { diagnostics: envelope.diagnostics } : {}),
     ...(envelope.sgos ? { sgos: envelope.sgos } : {}),
+    // A separately leased WMB v4 projection wins over the legacy compatibility value embedded in
+    // Configuration. It is bounded and carries no complete Fact/Evidence catalogs.
+    ...(envelope.worldModel ? { worldModel: envelope.worldModel } : {}),
     included: [...(envelope.included ?? [])],
     ...(envelope.notModified ? { notModified: true } : {}),
     ...(envelope.revision ? { revision: envelope.revision } : {})

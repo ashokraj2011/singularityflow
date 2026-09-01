@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-extractor-manifest.schema.json",
+  "title": "WMB v4 extractor manifest", "type": "object",
+  "required": ["schemaVersion", "kind", "id", "version", "producer", "languages", "evidenceKinds", "factTypes", "inputs", "outputs", "failure", "permissions", "tests", "manifestSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-extractor-manifest" }, "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "producer": { "type": "object", "required": ["kind", "implementationSha256", "parser"], "properties": { "kind": { "const": "deterministic-module" }, "implementationSha256": { "$ref": "#/$defs/hash" }, "parser": { "type": "object", "required": ["id", "version", "grammarSha256"], "properties": { "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }, "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }, "grammarSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false } }, "additionalProperties": false },
+    "languages": { "$ref": "#/$defs/strings" }, "evidenceKinds": { "$ref": "#/$defs/strings" }, "factTypes": { "$ref": "#/$defs/strings" },
+    "inputs": { "type": "object", "required": ["sourceManifest", "scopeManifest"], "properties": { "sourceManifest": { "const": "required" }, "scopeManifest": { "const": "required" } }, "additionalProperties": false },
+    "outputs": { "type": "object", "required": ["evidenceCatalogEntries", "derivationRecords", "factLedgerEntries"], "properties": { "evidenceCatalogEntries": { "type": "boolean" }, "derivationRecords": { "type": "boolean" }, "factLedgerEntries": { "type": "boolean" } }, "additionalProperties": false },
+    "failure": { "type": "object", "required": ["unsupportedLanguage", "parseFailure", "internalError"], "properties": { "unsupportedLanguage": { "const": "unavailable" }, "parseFailure": { "enum": ["partial-or-unavailable", "unavailable"] }, "internalError": { "const": "refuse" } }, "additionalProperties": false },
+    "permissions": { "type": "object", "required": ["network", "model", "writes"], "properties": { "network": { "const": "none" }, "model": { "const": "never" }, "writes": { "const": "derived-store-only" } }, "additionalProperties": false },
+    "tests": { "type": "object", "required": ["conformanceReceiptSha256"], "properties": { "conformanceReceiptSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false }, "manifestSha256": { "$ref": "#/$defs/hash" }
+  }, "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "strings": { "type": "array", "uniqueItems": true, "items": { "type": "string" } } }, "additionalProperties": false
+}

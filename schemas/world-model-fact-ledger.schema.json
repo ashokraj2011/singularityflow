@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-fact-ledger.schema.json",
+  "title": "WMB v4 fact ledger", "type": "object",
+  "required": ["schemaVersion", "kind", "sourceManifestSha256", "scopeManifestSha256", "extractorRegistrySha256", "facts", "ledgerSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-fact-ledger" }, "sourceManifestSha256": { "$ref": "#/$defs/hash" }, "scopeManifestSha256": { "$ref": "#/$defs/hash" }, "extractorRegistrySha256": { "$ref": "#/$defs/hash" },
+    "facts": { "type": "array", "items": { "$ref": "#/$defs/fact" } }, "ledgerSha256": { "$ref": "#/$defs/hash" }
+  }, "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "fact": { "type": "object", "required": ["id", "factType", "subject", "claim", "claimSha256", "status", "assurance", "evidenceIds", "derivationId", "conflictsWith", "scopeStatus", "factSha256"], "properties": {
+      "id": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" }, "factType": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "subject": { "type": "object", "required": ["kind", "id"], "properties": { "kind": { "type": "string" }, "id": { "type": "string" } }, "additionalProperties": false }, "claim": { "type": ["string", "null"] }, "claimSha256": { "$ref": "#/$defs/hash" },
+      "status": { "enum": ["available", "partial", "unavailable", "contradicted", "stale"] }, "assurance": { "enum": ["source-exact", "structurally-derived", "deterministically-derived", "human-confirmed", "runtime-observed", "heuristic", "model-advisory", "not-applicable"] },
+      "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^EV-[a-f0-9]{16,64}$" } }, "derivationId": { "type": "string", "pattern": "^DRV-[a-f0-9]{16,64}$" }, "conflictsWith": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" } }, "scopeStatus": { "enum": ["inside", "shared", "excluded"] },
+      "reason": { "type": "object", "required": ["code", "detail", "attemptedProducer"], "properties": { "code": { "type": "string", "pattern": "^[A-Z0-9_]+$" }, "detail": { "type": "string" }, "attemptedProducer": { "type": "string" } }, "additionalProperties": false }, "factSha256": { "$ref": "#/$defs/hash" }
+    }, "additionalProperties": false }
+  }, "additionalProperties": false
+}

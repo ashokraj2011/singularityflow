@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-build-request.schema.json",
+  "title": "WMB v4 build request",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "requestId", "source", "scopeManifestSha256", "requestedViews", "policySnapshotSha256", "viewRegistrySha256", "extractorRegistrySha256", "composerProfileSha256", "outputBudgetSha256", "consistency", "cachePolicy", "requestSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-build-request" },
+    "requestId": { "type": "string", "pattern": "^WMB-REQ-[A-Za-z0-9_-]+$" },
+    "source": {
+      "type": "object", "required": ["subjectKind", "subjectId", "snapshotRef", "snapshotSha256", "commit"],
+      "properties": {
+        "subjectKind": { "const": "repository" }, "subjectId": { "type": "string", "minLength": 1 },
+        "snapshotRef": { "type": "string", "minLength": 1 }, "snapshotSha256": { "$ref": "#/$defs/hash" },
+        "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" }
+      }, "additionalProperties": false
+    },
+    "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "requestedViews": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "object", "required": ["viewId", "required"], "properties": { "viewId": { "$ref": "#/$defs/view" }, "required": { "type": "boolean" } }, "additionalProperties": false } },
+    "policySnapshotSha256": { "$ref": "#/$defs/hash" }, "viewRegistrySha256": { "$ref": "#/$defs/hash" },
+    "extractorRegistrySha256": { "$ref": "#/$defs/hash" }, "composerProfileSha256": { "$ref": "#/$defs/hash" },
+    "outputBudgetSha256": { "$ref": "#/$defs/hash" }, "consistency": { "const": "exact" },
+    "cachePolicy": { "enum": ["reuse-valid", "rebuild"] }, "requestSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "view": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" } },
+  "additionalProperties": false
+}

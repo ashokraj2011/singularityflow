@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-derivation.schema.json",
+  "title": "WMB v4 derivation", "type": "object",
+  "required": ["schemaVersion", "kind", "id", "extractor", "sourceManifestSha256", "scopeManifestSha256", "configurationSha256", "grammarSha256", "dependencyManifestSha256", "inputEvidenceIds", "outputFactIds", "status", "derivationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-derivation" }, "id": { "type": "string", "pattern": "^DRV-[a-f0-9]{16,64}$" },
+    "extractor": { "type": "object", "required": ["id", "version", "implementationSha256"], "properties": { "id": { "type": "string" }, "version": { "type": "string" }, "implementationSha256": { "$ref": "#/$defs/hash" } }, "additionalProperties": false },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" }, "scopeManifestSha256": { "$ref": "#/$defs/hash" }, "configurationSha256": { "$ref": "#/$defs/hash" }, "grammarSha256": { "$ref": "#/$defs/hash" }, "dependencyManifestSha256": { "$ref": "#/$defs/hash" },
+    "inputEvidenceIds": { "$ref": "#/$defs/evidenceIds" }, "outputFactIds": { "$ref": "#/$defs/factIds" }, "status": { "enum": ["complete", "partial", "unavailable", "failed"] }, "derivationSha256": { "$ref": "#/$defs/hash" }
+  }, "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^EV-[a-f0-9]{16,64}$" } }, "factIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" } } }, "additionalProperties": false
+}

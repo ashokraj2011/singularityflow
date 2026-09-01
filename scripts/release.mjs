@@ -29,7 +29,9 @@ import { mkdir, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promi
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { releaseChannelManifest } from '../src/release-channel.mjs';
-import { verifyVerificationReceipt } from '../src/verification-receipt.mjs';
+import {
+  REQUIRED_RELEASE_PLATFORM_MATRIX, verifyVerificationReceipt
+} from '../src/verification-receipt.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -82,7 +84,8 @@ async function main() {
     verifyVerificationReceipt(verificationReceipt, {
       trustedPublicKeyPem: trustedVerificationKey,
       expectedCommit: commit,
-      expectedTree: tree
+      expectedTree: tree,
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
     });
   }
 
@@ -120,7 +123,8 @@ async function main() {
       trustedPublicKeyPem: trustedVerificationKey,
       expectedCommit: commit,
       expectedTree: tree,
-      expectedPackageSha256: `sha256:${await sha256(tarball)}`
+      expectedPackageSha256: `sha256:${await sha256(tarball)}`,
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
     });
   }
 
@@ -138,7 +142,8 @@ async function main() {
       expectedCommit: commit,
       expectedTree: tree,
       expectedPackageSha256: `sha256:${await sha256(tarball)}`,
-      expectedVsixSha256: `sha256:${await sha256(vsix)}`
+      expectedVsixSha256: `sha256:${await sha256(vsix)}`,
+      requiredPlatformMatrix: REQUIRED_RELEASE_PLATFORM_MATRIX
     });
   }
 

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-output-budget.schema.json",
+  "title": "WMB v4 output budget", "type": "object",
+  "required": ["schemaVersion", "kind", "viewBudgets", "totalMaximumOutputTokens", "overflowPolicy", "budgetSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-output-budget" }, "viewBudgets": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "object", "required": ["maximumNarrativeWords", "maximumSelectedFacts", "maximumOutputTokens"], "properties": { "maximumNarrativeWords": { "type": "integer", "minimum": 1 }, "maximumSelectedFacts": { "type": "integer", "minimum": 1 }, "maximumOutputTokens": { "type": "integer", "minimum": 1 } }, "additionalProperties": false } }, "totalMaximumOutputTokens": { "type": "integer", "minimum": 1 }, "overflowPolicy": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["omit-optional-facts", "shorten-narrative", "split-view", "route-larger-context", "refuse"] } }, "budgetSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

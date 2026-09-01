@@ -269,6 +269,26 @@ export const RESULT_MESSAGES = Object.freeze({
     'Bounded structural evidence',
     'This read reports structural facts from the selected repository cone without returning source bodies or changing repository state.'
   ),
+  'world-model.registered-authority': M(
+    'From the registered world model',
+    'The answer is bound to the verified published authority at {authority}; freshness is {fresh}.'
+  ),
+  'world-model.authority-unavailable': M(
+    'The registered world model is unavailable',
+    'Select a governed repository, then inspect the world-model diagnosis before continuing.'
+  ),
+  'world-model.entity-identifier-required': M(
+    'Choose the world-model item to inspect',
+    'An identifier is required for this entity type.'
+  ),
+  'world-model.entity-unavailable': M(
+    'That world-model item is unavailable',
+    'It is not present in the verified registered authority.'
+  ),
+  'world-model.expansion-refused': M(
+    'The source expansion was refused',
+    'The requested expansion did not satisfy the registered scope, lease, or byte boundary.'
+  ),
   'goal.durable-execution': M(
     'From the governed Goal lifecycle branch',
     'The contract, plan, approval, and state were reconstructed from the exact GEX revision.'

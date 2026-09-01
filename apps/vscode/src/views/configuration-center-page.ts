@@ -192,12 +192,38 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
     ? `${generatedDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`
     : status.generatedAt ?? (status.built ? 'governed state branch' : 'never');
 
+  const facts = status.summary?.facts ?? status.views.reduce((total, entry) => total + (entry.counts?.total ?? 0), 0);
+  const unavailable = status.summary?.unavailable ?? status.views.reduce((total, entry) => total + (entry.counts?.unavailable ?? 0), 0);
+  const contradictions = status.summary?.contradictions ?? status.views.reduce((total, entry) => total + (entry.counts?.contradicted ?? 0), 0);
+  const evidence = status.summary?.evidence ?? 0;
+  const derivations = status.summary?.derivations ?? 0;
+  const stale = status.views.reduce((total, entry) => total + (entry.counts?.stale ?? 0), 0);
+  const cacheHits = status.summary?.cacheHits ?? status.views.filter((entry) => entry.cache === 'hit').length;
+  const expansionButton = (kind: string, label: string) => {
+    const reference = status.expansion.find((entry) => entry.kind === kind);
+    return reference
+      ? `<button class="secondary" data-open-world-model-ref="${escape(reference.ref)}">${escape(label)}</button>`
+      : `<button class="secondary" disabled>${escape(label)}</button>`;
+  };
+
   const catalogRows = status.views.map((entry) => `<tr>
     <td><strong>${escape(entry.id)}</strong></td>
-    <td><span class="wm-state ${entry.generated ? 'ready' : 'missing'}">${entry.generated ? 'Available' : 'Declared'}</span></td>
+    <td><span class="wm-state ${entry.generated ? 'ready' : 'missing'}">${entry.generated ? 'Available' : 'Declared'}</span>${entry.required ? '<small>required</small>' : ''}</td>
+    <td>${entry.counts ? `<strong>${entry.counts.total}</strong><small>${entry.counts.available} ready · ${entry.counts.partial} partial</small>` : '<span class="muted">—</span>'}</td>
+    <td>${entry.counts ? `<strong>${entry.counts.unavailable}</strong><small>${entry.counts.contradicted} contradiction${entry.counts.contradicted === 1 ? '' : 's'}</small>` : '<span class="muted">—</span>'}</td>
+    <td>${entry.cache ? `<span class="wm-state ${entry.cache === 'hit' ? 'ready' : 'missing'}">${escape(entry.cache)}</span>` : '<span class="muted">—</span>'}</td>
     <td><strong>${entry.workflowCount}</strong> workflow${entry.workflowCount === 1 ? '' : 's'}<small>${entry.phaseCount} phase assignment${entry.phaseCount === 1 ? '' : 's'}</small></td>
-    <td>${entry.references.length ? `<details class="wm-references"><summary>${entry.references.length} reference${entry.references.length === 1 ? '' : 's'}</summary><ul>${entry.references.map((reference) => `<li>${escape(reference)}</li>`).join('')}</ul></details>` : '<small class="muted">no references</small>'}</td>
-    <td>${entry.generated ? `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>` : `<code>${escape(entry.path)}</code>`}</td>
+    <td>${entry.preview?.text
+      ? `<details class="wm-references"><summary>Preview${entry.preview.truncated ? ' · bounded' : ''}</summary><pre>${escape(entry.preview.text)}</pre></details>`
+      : entry.references.length
+        ? `<details class="wm-references"><summary>${entry.references.length} policy reference${entry.references.length === 1 ? '' : 's'}</summary><ul>${entry.references.map((reference) => `<li>${escape(reference)}</li>`).join('')}</ul></details>`
+        : '<small class="muted">no preview · no references</small>'}</td>
+    <td>${entry.generated ? (() => {
+      const reference = entry.expansion.find((candidate) => candidate.kind === 'view');
+      return reference
+        ? `<button class="link" data-open-world-model-ref="${escape(reference.ref)}">Open exact view</button>${entry.expansion.length ? `<details class="wm-references"><summary>${entry.expansion.length} exact reference${entry.expansion.length === 1 ? '' : 's'}</summary><ul>${entry.expansion.map((item) => `<li><code>${escape(item.ref)}</code></li>`).join('')}</ul></details>` : ''}`
+        : `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>`;
+    })() : `<code>${escape(entry.path)}</code>`}</td>
   </tr>`).join('');
 
   const matrix = status.workflows.length && status.views.length ? `<section class="wm-coverage" aria-labelledby="wm-coverage-title">
@@ -217,10 +243,17 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
 
   return `<div class="wm-explorer">
     <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div></div>
-    <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${workflowsUsingGrounding.length}</strong><span>workflows using grounding</span></div><div class="summary-card"><strong>${phaseUses}</strong><span>view-to-phase assignments</span></div></div>
-    <dl class="wm-provenance"><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div></dl>
+    <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
+    <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? 'legacy')}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
+    <div class="wm-filter-bar" role="group" aria-label="World model exact records">
+      ${expansionButton('manifest', 'Manifest')}
+      ${expansionButton('facts', 'Facts')}
+      ${expansionButton('evidence', 'Evidence')}
+      ${expansionButton('derivations', 'Derivations')}
+      <small class="muted">Exact, content-addressed state records open only when requested; large records are bounded.</small>
+    </div>
     <h2>${icon('book')}View catalog</h2>
-    ${status.views.length ? `<div class="wm-catalog-wrap"><table class="configuration-table wm-catalog"><thead><tr><th>View</th><th>Status</th><th>Workflow use</th><th>Policy references</th><th>Content</th></tr></thead><tbody>${catalogRows}</tbody></table></div>` : '<p class="empty">No world-model views are declared.</p>'}
+    ${status.views.length ? `<div class="wm-catalog-wrap"><table class="configuration-table wm-catalog"><thead><tr><th>View</th><th>Status</th><th>Facts</th><th>Gaps</th><th>Cache</th><th>Workflow use</th><th>Preview</th><th>Content</th></tr></thead><tbody>${catalogRows}</tbody></table></div>` : '<p class="empty">No world-model views are declared.</p>'}
     ${matrix}
   </div>`;
 }
@@ -259,9 +292,22 @@ function worldModel(view: ConfigurationCenterView): string {
       </div>
 
       <div class="editor-card">
+        <h2>${icon('worldModel')}Builder format</h2>
+        <p class="muted">Registered v4 uses closed extractors, registered facts, independently validated views, and exact cache reuse. These controls govern future builds; they do not build or migrate anything while saving.</p>
+        <div class="form-grid">
+          <label><span>Format</span><select name="format">${option('legacy-v3', model.format, 'Legacy v3 — compatibility')}${option('registered-v4', model.format, 'Registered v4 — governed facts')}</select></label>
+          <label><span>v4 composer</span><select name="v4Composer">${option('deterministic', model.v4.composer, 'Deterministic — zero model calls')}${option('model-optional', model.v4.composer, 'Model optional — deterministic when sufficient')}${option('model-required', model.v4.composer, 'Model required — invoke governed provider')}</select></label>
+          <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
+          <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
+          <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}"><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
+        </div>
+        <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
+      </div>
+
+      <div class="editor-card">
         <h2>${icon('document')}Content and storage</h2>
         <div class="form-grid">
-          <label class="span-2"><span>Declared views</span><input name="views" type="text" value="${csv(model.views)}" placeholder="business, architecture, development"><small>Comma-separated lower-case IDs. Saving is refused if a phase or agent references a view you removed.</small></label>
+          <label class="span-2"><span>Declared views</span><input name="views" type="text" value="${csv(model.views)}" placeholder="dev.impact, arch.contracts"><small>Comma-separated lower-case IDs; registered-v4 namespaces may use dots. Saving is refused if a phase or agent references a view you removed.</small></label>
           <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to model the whole application tree.</small></label>
           <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
           <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
@@ -422,6 +468,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     const authority = event.target.closest('[data-authority]'); if (authority) return vscode.postMessage({ type: 'select-authority', key: authority.dataset.authority });
     const mcp = event.target.closest('[data-mcp]'); if (mcp) return vscode.postMessage({ type: 'select-mcp', id: mcp.dataset.mcp });
     const openPath = event.target.closest('[data-open-path]'); if (openPath) return vscode.postMessage({ type: 'open-path', path: openPath.dataset.openPath });
+    const worldModelRef = event.target.closest('[data-open-world-model-ref]'); if (worldModelRef) return vscode.postMessage({ type: 'open-world-model-ref', ref: worldModelRef.dataset.openWorldModelRef });
     const action = event.target.closest('[data-action]'); if (action) return vscode.postMessage({ type: 'action', action: action.dataset.action });
   });
   document.addEventListener('submit', (event) => {
@@ -430,7 +477,7 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'current-identity-authority-form') vscode.postMessage({ type: 'add-current-identity', target: data.get('target'), allowSelfApproval: data.get('allowSelfApproval') === 'on', autoEnrollNewIdentities: data.get('autoEnrollNewIdentities') === 'on' });
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
-    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', format: data.get('format'), v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), promptSource: data.get('promptSource'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')), strategy: 'view' }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();

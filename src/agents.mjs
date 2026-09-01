@@ -9,6 +9,7 @@ import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson, write
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
@@ -225,7 +226,7 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string' || !tool.trim())) throw new SingularityFlowError(`Agent '${id}' tools must be an array of non-empty tool names.`);
   if (new Set(tools).size !== tools.length) throw new SingularityFlowError(`Agent '${id}' tools must not contain duplicates.`);
   for (const phase of [...phases, ...defaultFor]) if (!idPattern(phase)) throw new SingularityFlowError(`Agent '${id}' references invalid phase '${phase}'.`);
-  for (const view of worldModelViews) if (!idPattern(view)) throw new SingularityFlowError(`Agent '${id}' references invalid world-model view '${view}'.`);
+  for (const view of worldModelViews) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`Agent '${id}' references invalid world-model view '${view}'.`);
   for (const phase of defaultFor) if (phases.length && !phases.includes(phase)) throw new SingularityFlowError(`Agent '${id}' defaults phase '${phase}' without supporting it.`);
   const skillRows = rowsForHeading(text, 'Remote skills', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);
   const templateRows = rowsForHeading(text, 'Remote artifact templates', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);

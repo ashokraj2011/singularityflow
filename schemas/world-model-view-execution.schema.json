@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-view-execution.schema.json",
+  "title": "WMB v4 view execution", "type": "object",
+  "required": ["schemaVersion", "kind", "requestSha256", "viewId", "viewVersion", "executionUnitManifestSha256", "contextManifestSha256", "viewFactLedgerSha256", "status", "candidateSha256", "validationReceiptSha256", "publishedViewSha256", "usageObservationSha256", "executionSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-view-execution" }, "requestSha256": { "$ref": "#/$defs/hash" }, "viewId": { "type": "string" }, "viewVersion": { "type": "integer", "minimum": 1 }, "executionUnitManifestSha256": { "$ref": "#/$defs/hash" }, "contextManifestSha256": { "$ref": "#/$defs/hash" }, "viewFactLedgerSha256": { "$ref": "#/$defs/hash" }, "status": { "enum": ["completed", "failed", "cached", "unavailable"] }, "candidateSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "validationReceiptSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "publishedViewSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "usageObservationSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "executionSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

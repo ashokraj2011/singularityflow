@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/world-model-migration-receipt.schema.json",
+  "title": "WMB v3 to v4 migration receipt",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "sourceFormat", "targetFormat", "sourceViewSha256",
+    "targetViewSha256", "sourceManifestSha256", "scopeManifestSha256",
+    "evidenceCatalogSha256", "factLedgerSha256", "claims", "mappings",
+    "unresolvedClaims", "receiptSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "world-model-migration-receipt" },
+    "sourceFormat": { "const": "wmb-v3" },
+    "targetFormat": { "const": "wmb-v4" },
+    "sourceViewSha256": { "$ref": "#/$defs/hash" },
+    "targetViewSha256": { "$ref": "#/$defs/hash" },
+    "sourceManifestSha256": { "$ref": "#/$defs/hash" },
+    "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "evidenceCatalogSha256": { "$ref": "#/$defs/hash" },
+    "factLedgerSha256": { "$ref": "#/$defs/hash" },
+    "claims": {
+      "type": "object",
+      "required": ["total", "mappedToRegisteredFacts", "unresolved", "contradicted"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "mappedToRegisteredFacts": { "type": "integer", "minimum": 0 },
+        "unresolved": { "type": "integer", "minimum": 0 },
+        "contradicted": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sourceClaimIndex", "sourceClaimSha256", "factId", "factSha256", "status"],
+        "properties": {
+          "sourceClaimIndex": { "type": "integer", "minimum": 0 },
+          "sourceClaimSha256": { "$ref": "#/$defs/hash" },
+          "factId": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" },
+          "factSha256": { "$ref": "#/$defs/hash" },
+          "status": { "enum": ["available", "partial", "contradicted", "stale"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unresolvedClaims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sourceClaimIndex", "sourceClaimSha256", "status", "reason", "evidenceCandidates"],
+        "properties": {
+          "sourceClaimIndex": { "type": "integer", "minimum": 0 },
+          "sourceClaimSha256": { "$ref": "#/$defs/hash" },
+          "status": { "const": "unavailable" },
+          "reason": { "enum": ["ambiguous-registered-fact-match", "no-registered-fact-match"] },
+          "evidenceCandidates": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}

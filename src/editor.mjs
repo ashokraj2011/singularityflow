@@ -830,7 +830,8 @@ const SNAPSHOT_SLICES = new Set([
   'capabilities',
   'integrations',
   'diagnostics',
-  'sgos'
+  'sgos',
+  'worldModel'
 ]);
 
 async function repositorySlice(root) {
@@ -1074,11 +1075,22 @@ async function configurationSlice(root) {
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
   const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  const repositoryWorldModel = await editorWorldModelStatus(root, definition, modelRoot);
-  const worldModelManifest = repositoryWorldModel.manifest;
-  const promptViewReferences = await worldModelPromptViewReferences(root, definition);
-  const structuredViewReferences = structuredWorldModelViewReferences(definition);
-  const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
+  // Registered v4 runtime data has its own on-demand leased slice. Loading the compatibility file
+  // inventory here would make opening People, MCP, or Templates silently read and retain WMB.
+  const registeredV4 = definition.worldModel?.format === 'registered-v4';
+  const repositoryWorldModel = registeredV4
+    ? null
+    : await editorWorldModelStatus(root, definition, modelRoot);
+  const worldModelManifest = repositoryWorldModel?.manifest ?? null;
+  const promptViewReferences = registeredV4
+    ? new Map()
+    : await worldModelPromptViewReferences(root, definition);
+  const structuredViewReferences = registeredV4
+    ? new Map()
+    : structuredWorldModelViewReferences(definition);
+  const viewCatalog = registeredV4
+    ? []
+    : worldModelViewCatalog(definition, promptViewReferences.keys());
   const templatesRoot = typeof definition.templatesRoot === 'string'
     ? definition.templatesRoot
     : 'singularity/templates';
@@ -1132,11 +1144,11 @@ async function configurationSlice(root) {
       definition,
       modelMode: operationContext()?.modelMode ?? { enabled: true, source: 'default' }
     }),
-    worldModel: {
+    ...(registeredV4 ? {} : { worldModel: {
       root: modelRoot,
       generatedAt: worldModelManifest?.generated_at ?? null,
-      rebuildReason: repositoryWorldModel.reason,
-      readiness: repositoryWorldModel.readiness,
+      rebuildReason: repositoryWorldModel?.reason ?? null,
+      readiness: repositoryWorldModel?.readiness ?? null,
       views: viewCatalog.map((id) => ({
         id,
         structuredReferences: structuredViewReferences.get(id) ?? [],
@@ -1147,8 +1159,8 @@ async function configurationSlice(root) {
         ]
       })),
       workflows: worldModelWorkflowViewUsage(definition),
-      files: await editorWorldModelFiles(root, modelRoot, repositoryWorldModel.located)
-    },
+      files: await editorWorldModelFiles(root, modelRoot, repositoryWorldModel?.located ?? null)
+    } }),
     mcp: await mcpConfigurationStatus(root, definition)
   };
 }
@@ -1194,6 +1206,44 @@ async function integrationSlice(root) {
 /** SGOS operational state is a lazy, model-free read from the Git-common-dir sidecar. */
 async function sgosSlice(root) {
   return loadSgosCommandCenter(root);
+}
+
+/**
+ * WMB v4 is a dedicated heavy slice: the core snapshot never reads the state branch or retains
+ * view prose. The projection contains bounded previews and content-addressed expansion handles,
+ * while full Facts/Evidence/Derivations remain behind explicit reads.
+ */
+async function worldModelSlice(root) {
+  const definition = await loadDefinition(root);
+  const outputDir = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
+  if (definition.worldModel?.format !== 'registered-v4') {
+    return {
+      schemaVersion: 1,
+      kind: 'world-model-ide-slice',
+      format: definition.worldModel?.format ?? 'legacy-v3',
+      status: 'unavailable',
+      reason: 'WMB_V4_NOT_CONFIGURED',
+      root: outputDir,
+      generatedAt: null,
+      rebuildReason: null,
+      readiness: { status: 'not-configured', ready: false, source: null, command: null },
+      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
+      views: [],
+      expansion: []
+    };
+  }
+  const { loadWorldModelIdeSlice } = await import('./world-model/ide/slice.mjs');
+  const slice = loadWorldModelIdeSlice(root, {
+    outputDir,
+    stateBranch: definition.ledger?.branch ?? 'state',
+    remote: definition.git?.remote ?? 'origin'
+  });
+  return {
+    ...slice,
+    // Policy-to-phase usage is configuration metadata, not authority content. It joins only after
+    // the dedicated slice is leased so other Configuration Center tabs never retain this payload.
+    workflows: worldModelWorkflowViewUsage(definition)
+  };
 }
 
 /**
@@ -1255,6 +1305,7 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
       workId: requestedWorkId, offline: true, probeModelProvider: false
     });
     else if (slice === 'sgos') result.sgos = await sgosSlice(root);
+    else if (slice === 'worldModel') result.worldModel = await worldModelSlice(root);
   }
   return result;
 }

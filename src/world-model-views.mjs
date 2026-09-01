@@ -1,4 +1,4 @@
-export const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
 function addReference(index, view, reference) {
   if (!view || !WORLD_MODEL_VIEW_ID.test(view)) return;

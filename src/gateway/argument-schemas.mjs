@@ -213,6 +213,24 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     slice: optional('enum', { values: ['brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'observation'] }),
     maxOutputBytes: optional('integer', { min: 4096, max: 128 * 1024 })
   }),
+  schema('world-model-inspect-v1', {
+    entity: optional('enum', { values: [
+      'manifest', 'view', 'fact', 'evidence', 'derivation', 'refusal', 'expansion'
+    ] }),
+    id: optional('string', { maxLength: 500 }),
+    viewId: optional('string', { maxLength: 128 }),
+    offset: optional('integer', { min: 0, max: Number.MAX_SAFE_INTEGER }),
+    maximumBytes: optional('integer', { min: 256, max: 65_536 })
+  }),
+  schema('world-model-next-v1', {
+    viewId: optional('string', { maxLength: 128 })
+  }),
+  schema('world-model-explain-v1', {
+    entity: optional('enum', { values: [
+      'manifest', 'view', 'fact', 'evidence', 'derivation', 'refusal'
+    ] }),
+    id: optional('string', { maxLength: 500 })
+  }),
   schema('work-start-intake-v1', {
     source: optional('enum', { values: [
       'jira', 'github-issue', 'manual', 'initiative', 'story', 'bug-report', 'idea',

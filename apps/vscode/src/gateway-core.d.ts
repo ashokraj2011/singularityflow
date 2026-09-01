@@ -123,6 +123,11 @@ declare module '*/gateway/planners/workspace-reliability-surface.mjs' {
   export const workspaceDoctorGuide: unknown;
   export const workspaceExploreGuide: unknown;
 }
+declare module '*/gateway/planners/world-model.mjs' {
+  export const worldModelInspect: unknown;
+  export const worldModelNext: unknown;
+  export const worldModelExplain: unknown;
+}
 
 declare module '*/workspace-bootstrap.mjs' {
   export function latestWorkspaceBootstrap(options?: Record<string, unknown>): Promise<any | null>;

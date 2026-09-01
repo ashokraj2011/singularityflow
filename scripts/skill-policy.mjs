@@ -27,6 +27,8 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'story.converge.assisted': /\bstory\s+converge\b[^\n`]*--assisted\b/,
   'wm.build': /\bwm\s+build\b/,
   'wm.ensure': /\bwm\s+ensure\b/,
+  'wm.migrate': /\bwm\s+migrate\b/,
+  'wm.regenerate': /\bwm\s+regenerate\b/,
   'workspace.copilot': /\bsingularity-flow\s+workspace\s+copilot\b/,
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-evidence-catalog.schema.json",
+  "title": "WMB v4 evidence catalog", "type": "object",
+  "required": ["schemaVersion", "kind", "sourceManifestSha256", "scopeManifestSha256", "items", "catalogSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-evidence-catalog" }, "sourceManifestSha256": { "$ref": "#/$defs/hash" }, "scopeManifestSha256": { "$ref": "#/$defs/hash" },
+    "items": { "type": "array", "items": { "type": "object", "required": ["id", "kind", "locator", "subjectSha256", "sourceContentSha256", "scope", "evidenceSha256"], "properties": {
+      "id": { "type": "string", "pattern": "^EV-[a-f0-9]{16,64}$" }, "kind": { "enum": ["file", "directory", "symbol", "signature", "export", "import", "dependency-edge", "call-edge", "reference-edge", "interface-implementation", "configuration-object", "rule-object", "condition-expression", "test-identity", "test-symbol-binding", "clause-binding", "decision-record", "runtime-observation", "human-confirmed-record", "unavailability-observation"] },
+      "locator": { "type": "object", "properties": { "path": { "type": "string" }, "symbol": { "type": "string" }, "range": { "type": "object", "required": ["startLine", "endLine"], "properties": { "startLine": { "type": "integer", "minimum": 1 }, "endLine": { "type": "integer", "minimum": 1 } }, "additionalProperties": false }, "target": { "type": "string" } }, "additionalProperties": false },
+      "subjectSha256": { "$ref": "#/$defs/hash" }, "sourceContentSha256": { "anyOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "scope": { "type": "object", "required": ["status"], "properties": { "status": { "enum": ["inside", "shared", "excluded"] } }, "additionalProperties": false }, "evidenceSha256": { "$ref": "#/$defs/hash" }
+    }, "additionalProperties": false } }, "catalogSha256": { "$ref": "#/$defs/hash" }
+  }, "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

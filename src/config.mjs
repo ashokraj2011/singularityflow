@@ -62,6 +62,7 @@ import {
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
 import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
+import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -720,7 +721,59 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.views != null) {
     if (!Array.isArray(definition.worldModel.views) || !definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must be a non-empty array when configured.');
     if (new Set(definition.worldModel.views).size !== definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must not contain duplicates.');
-    for (const view of definition.worldModel.views) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be lower-case kebab-case.`);
+    for (const view of definition.worldModel.views) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`);
+  }
+  if (definition.worldModel != null) {
+    const worldModel = definition.worldModel;
+    if (worldModel.format != null && !['legacy-v3', 'registered-v4'].includes(worldModel.format)) {
+      throw new SingularityFlowError("worldModel.format must be 'legacy-v3' or 'registered-v4'.");
+    }
+    worldModelSourceScope(definition);
+    normalizeSourceRoots(worldModel.excludedRoots, 'worldModel.excludedRoots');
+    const allowedSubjects = new Set([
+      'symbol', 'file', 'contract', 'dependency-edge', 'test', 'configuration', 'rule',
+      'runtime-observation'
+    ]);
+    if (worldModel.allowedSubjects != null
+        && (!Array.isArray(worldModel.allowedSubjects)
+          || new Set(worldModel.allowedSubjects).size !== worldModel.allowedSubjects.length
+          || worldModel.allowedSubjects.some((subject) => !allowedSubjects.has(subject)))) {
+      throw new SingularityFlowError(
+        `worldModel.allowedSubjects must be a unique array containing only: ${[...allowedSubjects].join(', ')}.`
+      );
+    }
+    if (worldModel.maximumTraversalDepth != null
+        && (!Number.isInteger(worldModel.maximumTraversalDepth)
+          || worldModel.maximumTraversalDepth < 0 || worldModel.maximumTraversalDepth > 128)) {
+      throw new SingularityFlowError('worldModel.maximumTraversalDepth must be an integer from 0 through 128.');
+    }
+    if (worldModel.v4 != null) {
+      const v4 = worldModel.v4;
+      if (!v4 || typeof v4 !== 'object' || Array.isArray(v4)) {
+        throw new SingularityFlowError('worldModel.v4 must be an object.');
+      }
+      for (const key of Object.keys(v4)) if (![
+        'composer', 'consumer', 'cachePolicy', 'totalMaximumOutputTokens'
+      ].includes(key)) throw new SingularityFlowError(`worldModel.v4 contains unknown field '${key}'.`);
+      if (v4.composer != null && ![
+        'deterministic', 'model-optional', 'model-required'
+      ].includes(v4.composer)) {
+        throw new SingularityFlowError('worldModel.v4.composer must be deterministic, model-optional, or model-required.');
+      }
+      if (v4.consumer != null && ![
+        'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
+      ].includes(v4.consumer)) {
+        throw new SingularityFlowError('worldModel.v4.consumer is not a registered consumer profile.');
+      }
+      if (v4.cachePolicy != null && !['reuse-valid', 'rebuild'].includes(v4.cachePolicy)) {
+        throw new SingularityFlowError('worldModel.v4.cachePolicy must be reuse-valid or rebuild.');
+      }
+      if (v4.totalMaximumOutputTokens != null
+          && (!Number.isInteger(v4.totalMaximumOutputTokens)
+            || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000)) {
+        throw new SingularityFlowError('worldModel.v4.totalMaximumOutputTokens must be an integer from 1 through 1000000.');
+      }
+    }
   }
   if (definition.worldModel?.generation != null) {
     const generation = definition.worldModel.generation;

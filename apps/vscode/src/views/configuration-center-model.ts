@@ -63,6 +63,7 @@ export interface McpServerView {
   readiness?: 'ready' | 'needs-host-setup' | 'misconfigured'; readinessReasons?: string[];
 }
 export interface WorldModelSettingsView {
+  format: 'legacy-v3' | 'registered-v4';
   views: string[];
   sourceRoots: string[];
   sharedRoots: string[];
@@ -70,6 +71,12 @@ export interface WorldModelSettingsView {
   promptSource: string;
   stateFetchTimeoutMs: number;
   generation: { parallel: boolean; maxWorkers: number; strategy: 'view' };
+  v4: {
+    composer: 'deterministic' | 'model-optional' | 'model-required';
+    consumer: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
+    cachePolicy: 'reuse-valid' | 'rebuild';
+    totalMaximumOutputTokens: number;
+  };
   materialization: {
     mode: 'explicit' | 'on-demand' | 'disabled'; publish: 'governed' | 'local';
     lookahead: 'none' | 'next-phase'; depth: 'light' | 'phase';
@@ -120,9 +127,17 @@ export interface ConfigurationCenterView {
     generatedAt: string | null;
     rebuildReason: string | null;
     readiness: NonNullable<RepositorySnapshot['worldModel']>['readiness'];
+    format: string | null;
+    summary: NonNullable<RepositorySnapshot['worldModel']>['summary'] | null;
+    /** Content-addressed, inert drill-downs into the verified state-backed WMB store. */
+    expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     views: Array<{
       id: string; path: string; references: string[]; generated: boolean;
       workflowCount: number; phaseCount: number;
+      status: string | null; required: boolean; cache: string | null;
+      counts: { total: number; available: number; partial: number; unavailable: number; contradicted: number; stale: number } | null;
+      preview: { text: string; bytes: number; truncated: boolean } | null;
+      expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     }>;
     workflows: WorldModelWorkflowUsage[];
   };
@@ -144,7 +159,11 @@ export interface ConfigurationCenterView {
 
 export interface McpDraft extends Omit<McpServerView, 'configured' | 'sources'> { previousId?: string; }
 export interface AuthorityDraft extends AuthorityView { previousId?: string; }
-export type WorldModelDraft = Omit<WorldModelSettingsView, 'injection'> & {
+export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'injection'> & {
+  /** Optional so older extension messages preserve rather than erase the new policy. */
+  format?: WorldModelSettingsView['format'];
+  /** Optional so drafts created before registered-v4 remain valid and non-destructive. */
+  v4?: Partial<WorldModelSettingsView['v4']>;
   injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
 };
 
@@ -164,7 +183,14 @@ export function configurationRefreshDecision(
     : 'conflict';
 }
 
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
+const WORLD_MODEL_FORMATS = new Set(['legacy-v3', 'registered-v4']);
+const WORLD_MODEL_V4_COMPOSERS = new Set(['deterministic', 'model-optional', 'model-required']);
+const WORLD_MODEL_V4_CONSUMERS = new Set([
+  'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
+]);
+const WORLD_MODEL_V4_CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
 const email = /^[^@\s]+@[^@\s]+$/;
 
 function member(value: unknown): AuthorityMemberView {
@@ -323,18 +349,30 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       generatedAt: snapshot.worldModel?.generatedAt ?? null,
       rebuildReason: snapshot.worldModel?.rebuildReason ?? null,
       readiness: snapshot.worldModel?.readiness ?? null,
+      format: snapshot.worldModel?.format ?? null,
+      summary: snapshot.worldModel?.summary ?? null,
+      expansion: [...(snapshot.worldModel?.expansion ?? [])],
       views: catalog.map((id) => {
-        const path = `${modelRoot}/views/${id}.md`;
+        const snapshotView = snapshotViews.get(id);
+        const path = snapshotView?.path ?? `${modelRoot}/views/${id}.md`;
         const workflowMatches = workflowUsage.filter((workflow) =>
           workflow.phases.some((phase) => phase.views.includes(id)));
         const phaseCount = workflowMatches.reduce((count, workflow) =>
           count + workflow.phases.filter((phase) => phase.views.includes(id)).length, 0);
         return {
           id, path,
-          references: [...(snapshotViews.get(id)?.references ?? [])],
-          generated: built && (fileInventory === undefined || generatedPaths.has(path)),
+          references: [...(snapshotView?.references ?? [])],
+          generated: snapshotView?.status
+            ? snapshotView.status === 'available'
+            : built && (fileInventory === undefined || generatedPaths.has(path)),
           workflowCount: workflowMatches.length,
-          phaseCount
+          phaseCount,
+          status: snapshotView?.status ?? null,
+          required: snapshotView?.required === true,
+          cache: snapshotView?.cache ?? null,
+          counts: snapshotView?.counts ?? null,
+          preview: snapshotView?.preview ?? null,
+          expansion: [...(snapshotView?.expansion ?? [])]
         };
       }),
       workflows: workflowUsage
@@ -371,6 +409,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     // the kernel disagree about which model a task reaches.
     modelRouting: snapshot.modelRouting ?? null,
     worldModel: {
+      format: worldModel.format === 'registered-v4' ? 'registered-v4' : 'legacy-v3',
       views: worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'],
       sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
       sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : [],
@@ -381,6 +420,12 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         parallel: generation.parallel !== false,
         maxWorkers: generation.maxWorkers ?? 4,
         strategy: generation.strategy ?? 'view'
+      },
+      v4: {
+        composer: worldModel.v4?.composer ?? 'deterministic',
+        consumer: worldModel.v4?.consumer ?? 'developer',
+        cachePolicy: worldModel.v4?.cachePolicy ?? 'reuse-valid',
+        totalMaximumOutputTokens: worldModel.v4?.totalMaximumOutputTokens ?? 5600
       },
       materialization: {
         mode: materialization.mode ?? 'explicit', publish: materialization.publish ?? 'governed',
@@ -404,9 +449,24 @@ function unsafeRelative(value: string): boolean {
 
 export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   const errors: string[] = [];
+  const format = draft.format ?? 'legacy-v3';
+  const v4 = {
+    composer: draft.v4?.composer ?? 'deterministic',
+    consumer: draft.v4?.consumer ?? 'developer',
+    cachePolicy: draft.v4?.cachePolicy ?? 'reuse-valid',
+    totalMaximumOutputTokens: draft.v4?.totalMaximumOutputTokens ?? 5600
+  };
+  if (!WORLD_MODEL_FORMATS.has(format)) errors.push(`Unknown world-model format '${format}'.`);
+  if (!WORLD_MODEL_V4_COMPOSERS.has(v4.composer)) errors.push(`Unknown registered-v4 composer '${v4.composer}'.`);
+  if (!WORLD_MODEL_V4_CONSUMERS.has(v4.consumer)) errors.push(`Unknown registered-v4 consumer '${v4.consumer}'.`);
+  if (!WORLD_MODEL_V4_CACHE_POLICIES.has(v4.cachePolicy)) errors.push(`Unknown registered-v4 cache policy '${v4.cachePolicy}'.`);
+  if (!Number.isInteger(v4.totalMaximumOutputTokens)
+      || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000) {
+    errors.push('Registered-v4 total output budget must be from 1 through 1000000 tokens.');
+  }
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
-  draft.views.forEach((view) => { if (!ID.test(view)) errors.push(`World-model view '${view}' must be lower-case kebab-case.`); });
+  draft.views.forEach((view) => { if (!WORLD_MODEL_VIEW_ID.test(view)) errors.push(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`); });
   for (const [label, roots] of [
     ['Source roots', draft.sourceRoots ?? []], ['Shared roots', draft.sharedRoots ?? []]
   ] as const) {
@@ -429,9 +489,9 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
 
 export function validateMcpDraft(draft: McpDraft): string[] {
   const errors: string[] = [];
-  if (!ID.test(draft.id)) errors.push('Server ID must be lower-case kebab-case.');
+  if (!KEBAB_ID.test(draft.id)) errors.push('Server ID must be lower-case kebab-case.');
   if (!draft.label.trim()) errors.push('Give the server a display label.');
-  if (!ID.test(draft.hostReference)) errors.push('Host reference must be lower-case kebab-case.');
+  if (!KEBAB_ID.test(draft.hostReference)) errors.push('Host reference must be lower-case kebab-case.');
   if (new Set(draft.tools).size !== draft.tools.length) errors.push('Tool names must not contain duplicates.');
   if (draft.tools.some((tool) => !/^[A-Za-z0-9_.-]+$/.test(tool))) errors.push('Tools must be unqualified MCP tool names.');
   return errors;
@@ -439,7 +499,7 @@ export function validateMcpDraft(draft: McpDraft): string[] {
 
 export function validateAuthorityDraft(draft: AuthorityDraft): string[] {
   const errors: string[] = [];
-  if (!ID.test(draft.id)) errors.push('Authority ID must be lower-case kebab-case.');
+  if (!KEBAB_ID.test(draft.id)) errors.push('Authority ID must be lower-case kebab-case.');
   if (!draft.label.trim()) errors.push('Give the authority a display label.');
   if (!draft.members.length && (draft.scope === 'initiative' || !draft.allowAnyGitIdentity)) {
     errors.push(draft.scope === 'initiative'
@@ -558,6 +618,17 @@ export function updateWorldModelYaml(text: string, draft: WorldModelDraft): stri
   const parsed = document(text, 'workflow.yml');
   const errors = validateWorldModelDraft(draft);
   if (errors.length) throw new Error(errors.join(' '));
+  // An older webview does not send these fields. In that case preserve the exact existing policy
+  // instead of silently downgrading a registered-v4 repository during an otherwise unrelated save.
+  if (draft.format !== undefined) parsed.setIn(['worldModel', 'format'], draft.format);
+  if (draft.v4 !== undefined) {
+    if (draft.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], draft.v4.composer);
+    if (draft.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], draft.v4.consumer);
+    if (draft.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], draft.v4.cachePolicy);
+    if (draft.v4.totalMaximumOutputTokens !== undefined) {
+      parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], draft.v4.totalMaximumOutputTokens);
+    }
+  }
   parsed.setIn(['worldModel', 'views'], draft.views);
   // Callers from before scoped world models omit these fields. Preserve the existing YAML in that
   // case; the current form always supplies arrays, including [] when the user deliberately selects

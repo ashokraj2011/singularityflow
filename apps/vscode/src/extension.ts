@@ -3818,6 +3818,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return null;
     }
 
+    if (message.type === 'open-world-model-ref') {
+      const snapshot = store.current.snapshot;
+      const references = [
+        ...(snapshot?.worldModel?.expansion ?? []),
+        ...(snapshot?.worldModel?.views ?? []).flatMap((view) => view.expansion ?? [])
+      ];
+      const selected = references.find((entry) => entry.ref === message.ref);
+      if (!selected) return 'This world-model reference is no longer current. Refresh the Explorer and try again.';
+      const active = activeRepositoryContext();
+      if (!active || active.root !== client.repository) {
+        return 'The selected repository changed. Refresh the Explorer before opening state-backed world-model content.';
+      }
+      try {
+        const { kernel } = gatewaySession(active);
+        const resolution = await kernel.resolve({
+          utterance: 'show registered world model',
+          arguments: { entity: 'expansion', id: selected.ref, maximumBytes: 65_536 }
+        });
+        const envelope = resolution.kind === 'read' && resolution.next?.length === 1
+          ? await kernel.read({ resolutionId: resolution.next[0].handle })
+          : resolution;
+        const page = envelope?.data?.worldModel?.value;
+        if (page?.kind !== 'world-model-exact-expansion' || page.encoding !== 'base64') {
+          const reason = envelope?.why?.[0]?.code ?? 'world-model.entity-unavailable';
+          return `The exact state-backed record could not be opened (${reason}).`;
+        }
+        const exact = Buffer.from(page.content, 'base64').toString('utf8');
+        const complete = page.complete === true;
+        const content = complete
+          ? exact
+          : `${exact}\n\n[Bounded at ${page.bytes} of ${page.totalBytes} bytes. Use the CLI or gateway cursor to read the remaining exact record.]\n`;
+        const language = complete && page.contentType === 'application/json'
+          ? 'json'
+          : complete && page.contentType === 'text/markdown'
+            ? 'markdown'
+            : 'plaintext';
+        const document = await vscode.workspace.openTextDocument({ content, language });
+        await vscode.window.showTextDocument(document, { preview: true });
+        if (!complete) {
+          void vscode.window.showInformationMessage(
+            `Opened a bounded ${page.bytes}-byte preview of ${selected.kind}:${selected.id}.`
+          );
+        }
+        return null;
+      } catch (error) {
+        output.appendLine(`  world-model expansion refused: ${(error as Error).message}`);
+        return (error as Error).message;
+      }
+    }
+
     if (message.action === 'capabilities') await vscode.commands.executeCommand('singularityFlow.openCapabilities');
     else if (message.action === 'add-capability') await vscode.commands.executeCommand('singularityFlow.addCapability');
     else if (message.action === 'proposals') await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');

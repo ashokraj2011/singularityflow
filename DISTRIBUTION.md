@@ -14,7 +14,10 @@ The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and bran
 ## Cut a release
 
 ```bash
-npm run release            # or: npm run release:dry
+npm run release:dry
+npm run release -- \
+  --verification-receipt verification-matrix-receipt.json \
+  --verification-key trusted-release-public.pem
 ```
 
 `scripts/release.mjs` refuses a dirty tree, runs `npm run check` (which asserts one version across
@@ -23,7 +26,16 @@ script, and leaves `dist/` holding both artifacts, a `SHA256SUMS` file, a `RELEA
 `RELEASE-CHANNEL.json`. The release-channel record binds the version and source commit to the
 minimum Node/VS Code versions and the SHA-256 of each installable artifact.
 
-It deliberately stops there. Uploading to the approved internal registry is the one step that
+Real promotion requires a reviewed signed aggregate of the clean-checkout receipts from the
+supported macOS/Linux/Windows and Node 20/22 matrix. Generate one receipt on each exact host/runtime
+with `npm run verification:receipt -- --signing-key <runner.pem> --out <cell.json>`, then merge the
+six receipts with `npm run verification:receipt:merge -- --receipt <cell.json> ...
+--artifact-receipt <selected-cell.json> --signing-key <release.pem> --identity <reviewer>`. Mixed
+commits, trees, npm tarballs, or VSIX bytes are refused; the selected signed artifact receipt binds
+the identical artifacts that every matrix cell verified. Dry runs and ordinary developer checks
+remain single-machine operations.
+
+The release command deliberately stops after local artifact collection. Uploading to the approved internal registry is the one step that
 differs per organization, so it is left to whoever knows the destination.
 
 Build the VSIX through `npm run vscode:package` or the release script — never `vsce package`

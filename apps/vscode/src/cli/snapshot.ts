@@ -624,9 +624,25 @@ export interface RepositorySnapshot {
   documents?: StoryArtifact[];
   detachedDocuments?: StoryArtifact[];
   worldModel?: {
+    schemaVersion?: number;
+    kind?: 'world-model-ide-slice' | string;
+    format?: 'wmb-v4' | 'registered-v4' | 'legacy-v3' | string;
+    status?: 'ready' | 'unavailable' | string;
+    revision?: string;
+    reason?: string | null;
+    detail?: string | null;
     root: string;
     generatedAt: string | null;
     rebuildReason: string | null;
+    authority?: { ref?: string; commit?: string | null; manifestSha256?: string };
+    source?: {
+      sourceManifestSha256?: string; scopeManifestSha256?: string;
+      fresh?: boolean; reason?: string | null;
+    };
+    summary?: {
+      views?: number; facts?: number; evidence?: number; derivations?: number;
+      unavailable?: number; contradictions?: number; cacheHits?: number;
+    };
     readiness?: {
       status: string;
       ready: boolean;
@@ -645,7 +661,18 @@ export interface RepositorySnapshot {
       };
       command: string | null;
     } | null;
-    views: Array<{ id: string; references: string[] }>;
+    views: Array<{
+      id: string; references: string[];
+      viewId?: string; viewVersion?: number; status?: string; required?: boolean;
+      path?: string | null; viewSha256?: string | null; cache?: 'hit' | 'miss';
+      counts?: {
+        total: number; available: number; partial: number;
+        unavailable: number; contradicted: number; stale: number;
+      };
+      preview?: { text: string; bytes: number; truncated: boolean };
+      expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
+    }>;
+    expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     workflows?: Array<{
       id: string; label: string; mode: string;
       phases: Array<{
@@ -724,11 +751,18 @@ export interface RepositorySnapshot {
       }>;
     };
     worldModel?: {
+      format?: 'legacy-v3' | 'registered-v4';
       views?: string[];
       outputDir?: string;
       promptSource?: string;
       stateFetchTimeoutMs?: number;
       generation?: { parallel?: boolean; maxWorkers?: number; strategy?: 'view' };
+      v4?: {
+        composer?: 'deterministic' | 'model-optional' | 'model-required';
+        consumer?: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
+        cachePolicy?: 'reuse-valid' | 'rebuild';
+        totalMaximumOutputTokens?: number;
+      };
       materialization?: {
         mode?: 'explicit' | 'on-demand' | 'disabled';
         publish?: 'governed' | 'local';
@@ -848,7 +882,7 @@ export interface RepositorySnapshot {
   [key: string]: unknown;
 }
 
-export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos';
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'worldModel';
 
 export interface VisualEvidenceRecord {
   id: string;

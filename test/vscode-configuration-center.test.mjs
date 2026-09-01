@@ -131,6 +131,8 @@ test('solo developer mode changes only the approval security profile', () => {
 
 test('configuration center exposes guided world-model policy, generation, and injection settings', () => {
   const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  assert.equal(view.worldModel.format, 'legacy-v3');
+  assert.equal(view.worldModel.v4.composer, 'deterministic');
   assert.deepEqual(view.worldModel.views, ['business', 'architecture']);
   assert.equal(view.worldModel.materialization.confirmation, 'automatic');
   assert.equal(view.worldModel.materialization.depth, 'light');
@@ -142,7 +144,12 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(html, /Light — deterministic, zero model tokens/);
   assert.match(html, /Disabled — no automatic materialization; explicit builds remain available/);
   assert.match(html, /Prompt injection/);
+  assert.match(html, /Registered v4 — governed facts/);
+  assert.match(html, /Deterministic — zero model calls/);
+  assert.match(html, /v4 total output-token budget/);
   assert.match(html, /Save world-model settings/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /format: data\.get\('format'\)/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /totalMaximumOutputTokens: Number\(data\.get\('v4TotalMaximumOutputTokens'\)\)/);
 });
 
 test('world-model explorer joins views to phases across workflows and respects overrides and off mode', () => {
@@ -222,7 +229,7 @@ test('configuration center reports dirty edits and offers an explicit conflict d
 });
 
 test('world-model editor preserves comments, advanced context, and injection rules', () => {
-  const input = `version: 2\n# keep this policy note\nworldModel:\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
+  const input = `version: 2\n# keep this policy note\nworldModel:\n  format: registered-v4\n  v4:\n    composer: model-required\n    consumer: architect\n    cachePolicy: rebuild\n    totalMaximumOutputTokens: 7200\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
   const output = updateWorldModelYaml(input, {
     views: ['business', 'architecture'], outputDir: 'singularity/world-model',
     promptSource: 'singularity/prompts/worldmodel-builder.md', stateFetchTimeoutMs: 10000,
@@ -238,6 +245,32 @@ test('world-model editor preserves comments, advanced context, and injection rul
   assert.equal(parsed.worldModel.materialization.mode, 'on-demand');
   assert.equal(parsed.worldModel.materialization.depth, 'light');
   assert.equal(parsed.worldModel.generation.maxWorkers, 3);
+  assert.deepEqual(parsed.worldModel.v4, {
+    composer: 'model-required', consumer: 'architect', cachePolicy: 'rebuild',
+    totalMaximumOutputTokens: 7200
+  }, 'an older draft preserves v4 policy it does not know about');
+});
+
+test('world-model editor accepts dotted registered views and persists every v4 control', () => {
+  const draft = {
+    format: 'registered-v4',
+    v4: {
+      composer: 'model-optional', consumer: 'tester', cachePolicy: 'reuse-valid',
+      totalMaximumOutputTokens: 4200
+    },
+    views: ['dev.impact', 'arch.contracts'], sourceRoots: ['src'], sharedRoots: ['packages/contracts'],
+    outputDir: 'singularity/world-model', promptSource: 'builtin', stateFetchTimeoutMs: 10000,
+    generation: { parallel: false, maxWorkers: 4, strategy: 'view' },
+    materialization: { mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt' },
+    grounding: 'warn', staleness: 'fail',
+    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
+  };
+  assert.deepEqual(validateWorldModelDraft(draft), []);
+  const parsed = YAML.parse(updateWorldModelYaml('version: 2\nworldModel: {}\n', draft));
+  assert.equal(parsed.worldModel.format, 'registered-v4');
+  assert.deepEqual(parsed.worldModel.views, ['dev.impact', 'arch.contracts']);
+  assert.deepEqual(parsed.worldModel.v4, draft.v4);
+  assert.equal(parsed.worldModel.generation.parallel, false);
 });
 
 test('world-model editor rejects unsafe paths and unconfirmed model-driven automation', () => {
@@ -251,6 +284,8 @@ test('world-model editor rejects unsafe paths and unconfirmed model-driven autom
   assert.match(validateWorldModelDraft(base).join(' '), /Automatic materialization requires deterministic light depth/);
   assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, outputDir: '../outside' }).join(' '), /repository-relative path/);
   assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['Business View'] }).join(' '), /lower-case kebab-case/);
+  assert.deepEqual(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['dev.impact'] }), []);
+  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, v4: { totalMaximumOutputTokens: 0 } }).join(' '), /1 through 1000000/);
 });
 
 test('MCP editor changes only the governed server registry and preserves YAML comments', () => {
@@ -313,6 +348,13 @@ test('configuration drafts reject ambiguous approval identities and unsafe MCP i
     id: 'Bad ID', label: '', hostReference: '../host', agents: [], phases: [], tools: ['a', 'a'],
     required: false, approval: 'confirm', captureToolCalls: true, captureResults: false
   }).join(' '), /lower-case kebab-case.*display label.*Host reference.*duplicates/);
+  assert.match(validateMcpDraft({
+    id: 'host.namespace', label: 'Host', hostReference: 'host.namespace', agents: [], phases: [], tools: [],
+    required: false, approval: 'confirm', captureToolCalls: true, captureResults: false
+  }).join(' '), /Server ID must be lower-case kebab-case.*Host reference must be lower-case kebab-case/);
+  assert.match(validateAuthorityDraft({
+    id: 'review.group', label: 'Review group', scope: 'story', allowAnyGitIdentity: true, members: []
+  }).join(' '), /Authority ID must be lower-case kebab-case/);
 });
 
 /**
@@ -450,6 +492,45 @@ test('the world model shows its current state, not only its policy', () => {
   assert.match(html, /data-open-path="singularity\/world-model\/views\/business\.md"/);
   assert.match(html, /no references/);
   assert.doesNotMatch(html, /data-action="build-world-model"/);
+});
+
+test('registered-v4 Explorer opens exact state references and keeps full catalogs on demand', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const viewRef = `sfref:world-model:view:dev.impact:${'a'.repeat(64)}`;
+  const factsRef = `sfref:world-model:facts:all:${'a'.repeat(64)}`;
+  const registered = {
+    ...snapshot,
+    worldModel: {
+      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready',
+      root: 'singularity/world-model', generatedAt: null, rebuildReason: null,
+      readiness: { status: 'fresh', ready: true, source: 'state-branch', command: null },
+      summary: {
+        views: 1, facts: 12, evidence: 9, derivations: 4,
+        unavailable: 2, contradictions: 1, cacheHits: 1
+      },
+      expansion: [{ kind: 'facts', id: 'all', sha256: digest, path: 'catalogs/facts.json', ref: factsRef }],
+      views: [{
+        id: 'dev.impact', viewId: 'dev.impact', viewVersion: 4, status: 'available',
+        required: true, path: 'views/dev.impact.md', viewSha256: digest, cache: 'hit',
+        references: [], counts: {
+          total: 12, available: 8, partial: 1, unavailable: 2, contradicted: 1, stale: 0
+        },
+        preview: { text: '# Impact', bytes: 8, truncated: false },
+        expansion: [{ kind: 'view', id: 'dev.impact', sha256: digest, path: 'views/dev.impact.md', ref: viewRef }]
+      }]
+    }
+  };
+  const html = centerHtml(registered, 'world-model');
+  assert.match(html, new RegExp(`data-open-world-model-ref="${viewRef.replaceAll('.', '\\.')}"`));
+  assert.match(html, new RegExp(`data-open-world-model-ref="${factsRef.replaceAll('.', '\\.')}"`));
+  assert.match(html, /Open exact view/);
+  assert.match(html, /evidence \/ derivations/);
+  assert.match(html, /unavailable \/ contradicted/);
+  assert.match(html, /view cache reuse/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'open-world-model-ref'/);
+  assert.match(extensionSource, /message\.type === 'open-world-model-ref'/);
+  assert.match(extensionSource, /show registered world model/);
+  assert.match(extensionSource, /Buffer\.from\(page\.content, 'base64'\)/);
 });
 
 test('a stale world model offers the rebuild the engine asked for, in its own words', () => {

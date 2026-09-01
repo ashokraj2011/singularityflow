@@ -32,6 +32,15 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   ], { cwd: staged, encoding: 'utf8' });
   assert.equal(providerImport.status, 0,
     `the staged CLI cannot load its locked ACP production dependency closure: ${providerImport.stderr}`);
+  const sourceDigestImport = spawnSync(process.execPath, [
+    '--input-type=module', '-e', [
+      'const value = await import("./src/world-model/source-digest.mjs");',
+      'process.stdout.write(value.WMB_V4_KERNEL_SOURCE_SHA256);'
+    ].join('')
+  ], { cwd: staged, encoding: 'utf8' });
+  assert.equal(sourceDigestImport.status, 0,
+    `the staged CLI cannot hash its installed WMB implementation bytes: ${sourceDigestImport.stderr}`);
+  assert.match(sourceDigestImport.stdout, /^sha256:[a-f0-9]{64}$/);
   assert.equal(existsSync(path.join(staged, 'node_modules', 'singularity-flow-vscode')), false,
     'the staged production closure must exclude npm workspace links');
 });

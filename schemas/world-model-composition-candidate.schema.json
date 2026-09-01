@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-composition-candidate.schema.json",
+  "title": "WMB v4 composition candidate", "type": "object",
+  "required": ["schemaVersion", "kind", "view", "viewVersion", "title", "tldrMarkdown", "sections", "usedFactIds"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-composition-candidate" }, "view": { "type": "string" }, "viewVersion": { "type": "integer", "minimum": 1 }, "title": { "type": "string", "minLength": 1 }, "tldrMarkdown": { "type": "string" }, "sections": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["sectionId", "markdown"], "properties": { "sectionId": { "type": "string" }, "markdown": { "type": "string" } }, "additionalProperties": false } }, "usedFactIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^FACT-[a-f0-9]{16,64}$" } } }, "additionalProperties": false
+}

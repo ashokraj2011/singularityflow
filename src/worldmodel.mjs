@@ -71,6 +71,10 @@ import { latestWorldModelBuildDiagnostics } from './world-model-build-diagnostic
 import { compilePromptSections } from './prompt-budget.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { compileWorldModelSynthesisPrompt } from './world-model-synthesis-budget.mjs';
+import {
+  configuredWorldModelV4ViewIds, handleWorldModelV4Command, isWorldModelV4,
+  resolveWorldModelV4Grounding, WORLD_MODEL_V4_COMMANDS
+} from './world-model/commands.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -416,7 +420,7 @@ function defaults() {
   return JSON.parse(requireTemplate('worldmodel.json'));
 }
 
-const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WORLD_MODEL_VIEW_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
 
 function configuredWorldModelViews(config) {
   const declared = Array.isArray(config.definition?.worldModel?.views)
@@ -453,7 +457,7 @@ export function resolveWorldModelViewIds(config, values, { label = 'World-model 
     .sort();
   const invalid = concrete.filter((view) => view === 'all' || !WORLD_MODEL_VIEW_ID.test(view));
   if (invalid.length) {
-    throw new SingularityFlowError(`${label} must contain concrete lower-case kebab-case IDs: ${invalid.join(', ')}.`, {
+    throw new SingularityFlowError(`${label} must contain concrete lower-case kebab-case or namespaced dot IDs: ${invalid.join(', ')}.`, {
       code: 'WORLD_MODEL_VIEW_INVALID', details: { views: invalid }
     });
   }
@@ -3699,10 +3703,25 @@ async function compose(root, options) {
     labels: source?.labels ?? []
   };
   if (!signals.phase) throw new SingularityFlowError('Provide --phase or run from an active work-item branch.');
-  const plan = groundingPlan(config, options, signals.phase);
+  const registeredV4 = isWorldModelV4(config, options);
+  let plan = registeredV4
+    ? {
+        phase: signals.phase,
+        depth: config.phases?.[signals.phase]?.depth ?? 'standard',
+        includeEvidence: false,
+        views: configuredWorldModelV4ViewIds(config, options, signals.phase)
+          .map((view) => ({ view })),
+        selections: []
+      }
+    : groundingPlan(config, options, signals.phase);
   const worldModelEnabled = config.grounding !== 'off';
   const required = worldModelEnabled
-    ? await (async () => {
+    ? registeredV4
+      ? resolveWorldModelV4Grounding(root, config, {
+          phase: signals.phase,
+          options
+        })
+      : await (async () => {
       const availability = await ensureGrounding(root, config, plan, { authorized: false });
       return resolveWorldModelContext(root, config, signals.phase, {
         plan,
@@ -3714,6 +3733,7 @@ async function compose(root, options) {
       selected: [], located: null, directory: null, manifest: {},
       freshness: { fresh: true, built: null, current: null }
     };
+  if (registeredV4 && worldModelEnabled) plan = { ...plan, selections: required.selections };
   if (worldModelEnabled && !required.freshness.fresh) {
     const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
@@ -3727,7 +3747,10 @@ async function compose(root, options) {
     : null;
   const { text, injection } = await injectAgentPrompt(root, definition, agent, signals, {
     promptOverride: promptStudy,
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow),
+    // Registered v4 views are read as exact state-backed blobs above. The legacy rule injector
+    // walks a mutable repository directory and would silently mix a second representation into
+    // the same prompt, so it is disabled only for this format.
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow) || registeredV4,
     modelDirectory: worldModelEnabled ? required.directory : null
   });
   const phase = workflow?.phases?.[signals.phase] ?? null;
@@ -3738,7 +3761,7 @@ async function compose(root, options) {
   }) : { text: '', skills: [], warnings: [] };
   const mandatory = [];
   for (const item of required.selected) {
-    const content = await readFile(item.absolute, 'utf8');
+    const content = item.body ?? await readFile(item.absolute, 'utf8');
     mandatory.push({
       path: posix(path.join(config.outputDir, item.relative)), sha256: item.sha256, bytes: item.size,
       injectedBytes: item.size, truncated: false, level: item.level, reason: item.reason, category: 'required', body: content
@@ -3861,12 +3884,14 @@ async function compose(root, options) {
     : null;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   const manifestInfo = worldModelEnabled
-    ? await snapshot(path.join(required.directory, 'manifest.json'))
+    ? registeredV4
+      ? { sha256: required.manifestContentSha256 }
+      : await snapshot(path.join(required.directory, 'manifest.json'))
     : { sha256: null };
   const modelCommit = worldModelEnabled
     ? required.located?.commit ?? worldModelCommit(root, config.outputDir)
     : null;
-  const modelChanges = worldModelEnabled && required.located?.source === 'worktree'
+  const modelChanges = worldModelEnabled && !registeredV4 && required.located?.source === 'worktree'
     ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
     : '';
   if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
@@ -3971,12 +3996,18 @@ async function compose(root, options) {
       } : null,
       remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
       manifestSha256: manifestInfo.sha256,
-      modelSourceTreeSha256: required.manifest.source_tree_sha256 ?? null,
+      modelSourceTreeSha256: registeredV4
+        ? required.sourceManifestSha256
+        : required.manifest.source_tree_sha256 ?? null,
       composedSourceTreeSha256: required.freshness.current,
       fresh: required.freshness.fresh,
       renderedSha256,
       renderedText: composedText,
-      requiredViews: worldModelEnabled ? config.phases[signals.phase]?.views ?? [] : [],
+      requiredViews: worldModelEnabled
+        ? registeredV4
+          ? required.views.map((view) => view.viewId)
+          : config.phases[signals.phase]?.views ?? []
+        : [],
       requiredSelections: worldModelEnabled ? plan.selections : [],
       task: optionString(options, 'task') ?? null,
       supportingEvidence: governed.evidenceEntries,
@@ -4113,6 +4144,14 @@ async function showPrompt(root, options) {
 
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
+  const v4OnlyCommands = new Set([
+    'plan', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
+    'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate'
+  ]);
+  const versionedCommands = new Set([
+    'build', 'status', 'availability', 'ensure', 'context', 'check', 'facts'
+  ]);
+  const explicitV4 = ['v4', 'wmb-v4', 'registered-v4'].includes(optionString(options, 'format'));
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
   if (command === 'recovery') return worldModelRecoveryCommand(root, positionals.slice(2), options);
   if (command === 'cache') {
@@ -4137,9 +4176,14 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return init(root);
   }
-  // Facts are computed from the repository, not read from the world model, so this works before
-  // `wm init` and answers "what does this tool actually see here?" without committing anything.
-  if (command === 'facts') return factsCommand(root, options);
+  // Legacy facts are computed from the repository and deliberately remain available before init.
+  // A configured/explicit v4 facts command instead reads the registered immutable Fact Ledger and
+  // is routed below after configuration has established the state authority.
+  if (command === 'facts'
+      && !explicitV4
+      && !existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
+    return factsCommand(root, options);
+  }
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
   if (command === 'cleanup') {
@@ -4151,12 +4195,29 @@ export async function worldModelCommand(root, positionals, options) {
     }
     return result;
   }
-  if (!['prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'status', 'ensure'].includes(command)) {
-    throw new SingularityFlowError('Usage: singularity-flow wm init|prompt|build|light|ensure|availability|status|context <phase>|budget|facts|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear');
+  const legacyCommands = new Set([
+    'prompt', 'build', 'light', 'context', 'check', 'budget', 'availability', 'status', 'ensure', 'facts'
+  ]);
+  if (!legacyCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
+    throw new SingularityFlowError(
+      'Usage: singularity-flow wm init|plan|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
+    );
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
     const config = await load(targetRoot);
+    const registeredV4 = isWorldModelV4(config, options);
+    if (v4OnlyCommands.has(command) || (versionedCommands.has(command) && registeredV4)) {
+      return handleWorldModelV4Command(targetRoot, config, command, positionals, options);
+    }
+    if (registeredV4 && ['light', 'budget'].includes(command)) {
+      throw new SingularityFlowError(
+        `wm ${command} is a legacy-v3 operation and cannot write or inspect a registered-v4 store. `
+        + 'Use wm build (deterministic by default), wm plan, wm context, or pass --format legacy-v3 explicitly.',
+        { code: 'WMB_FORMAT_COMMAND_MISMATCH' }
+      );
+    }
+    if (command === 'facts') return factsCommand(targetRoot, options);
     if (command === 'prompt') return prompt(targetRoot, config, options);
     if (command === 'build') return build(targetRoot, config, options);
     if (command === 'light') return build(targetRoot, config, { ...options, depth: 'light' });

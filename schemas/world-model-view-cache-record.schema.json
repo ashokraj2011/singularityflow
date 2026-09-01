@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://example.invalid/singularity-flow/world-model-view-cache-record.schema.json",
+  "title": "WMB v4 view cache record", "type": "object",
+  "required": ["schemaVersion", "kind", "cacheKeySha256", "viewSha256", "validationReceiptSha256", "createdAt", "lastUsedAt", "status", "recordSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "world-model-view-cache-record" }, "cacheKeySha256": { "$ref": "#/$defs/hash" }, "viewSha256": { "$ref": "#/$defs/hash" }, "validationReceiptSha256": { "$ref": "#/$defs/hash" }, "createdAt": { "type": "string", "format": "date-time" }, "lastUsedAt": { "type": "string", "format": "date-time" }, "status": { "enum": ["valid", "stale", "corrupt"] }, "recordSha256": { "$ref": "#/$defs/hash" } },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }, "additionalProperties": false
+}

@@ -436,7 +436,8 @@
     "worldModel": {
       "type": "object",
       "properties": {
-        "views": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" } },
+        "format": { "enum": ["legacy-v3", "registered-v4"], "default": "legacy-v3", "description": "registered-v4 uses deterministic registered facts and kernel-owned provenance; legacy-v3 remains readable only for compatibility." },
+        "views": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" } },
         "sourceRoots": {
           "type": "array",
           "description": "Repository-relative directory prefixes included in this repository's world model. Empty means the whole application tree.",
@@ -448,6 +449,27 @@
           "description": "Repository-relative shared directories included alongside sourceRoots.",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/sourceRoot" }
+        },
+        "excludedRoots": {
+          "type": "array",
+          "description": "Repository-relative prefixes that cannot contribute WMB v4 evidence or facts.",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceRoot" }
+        },
+        "allowedSubjects": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["symbol", "file", "contract", "dependency-edge", "test", "configuration", "rule", "runtime-observation"] }
+        },
+        "maximumTraversalDepth": { "type": "integer", "minimum": 0, "maximum": 128, "default": 8 },
+        "v4": {
+          "type": "object",
+          "properties": {
+            "composer": { "enum": ["deterministic", "model-optional", "model-required"], "default": "deterministic" },
+            "consumer": { "enum": ["developer", "architect", "tester", "business", "operations", "security", "release"], "default": "developer" },
+            "cachePolicy": { "enum": ["reuse-valid", "rebuild"], "default": "reuse-valid" },
+            "totalMaximumOutputTokens": { "type": "integer", "minimum": 1, "maximum": 1000000, "default": 5600 }
+          },
+          "additionalProperties": false
         },
         "outputDir": { "type": "string", "minLength": 1 },
         "promptSource": { "type": "string", "minLength": 1 },

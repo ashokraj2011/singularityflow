@@ -256,7 +256,12 @@ export const SURFACE_CODES = Object.freeze([
   'publication.marker-unreadable',
   'mcp.evidence-observation-required',
   'ast.bounded-structural-evidence',
-  'goal.durable-execution'
+  'goal.durable-execution',
+  'world-model.registered-authority',
+  'world-model.authority-unavailable',
+  'world-model.entity-identifier-required',
+  'world-model.entity-unavailable',
+  'world-model.expansion-refused'
 ]);
 
 /** Golden-journey repository orientation and bug triage. */

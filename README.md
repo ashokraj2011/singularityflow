@@ -46,6 +46,9 @@ For bounded work that begins without a Story, follow the
 For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT
 semantic AST, VS Code visualization, and measured reuse, follow the
 [Java/Maven world-model and semantic AST demo](./README-JAVA-MAVEN-WORLD-MODEL-DEMO.md).
+For deterministic registered facts, evidence-bound views, exact cache reuse, atomic state-branch
+publication, and explicit v3 migration, see the
+[Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
 The read-only return experience is documented in
 [Developer Home and Story Return](./docs/DEVELOPER-HOME.md).
 The shared Home routing, readiness evidence, compact submission receipt, and cross-clone return
@@ -1805,6 +1808,14 @@ child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
+For registered v4, choose **Builder format → Registered v4** in that page (or set
+`worldModel.format: registered-v4`), declare dotted views such as `dev.impact`, and review the
+composer, consumer, cache, and total-token controls. Use `sflow world-model plan --views ...` before
+`sflow world-model build --views ...`. In v4, `wm ensure` only verifies readiness, `wm light` is not a
+v4 builder, and the gateway exposes read-only inspection rather than mutation. The complete command,
+migration, cache, IDE, and state-publication behavior is in the
+[Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
+
 For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
 same pinned scope and a selected-cone content binding. Java, Python, Kotlin, and Swift receive
 `text`-assured declaration previews from the bundled on-demand polyglot scanner; JavaScript/TypeScript
@@ -1901,7 +1912,14 @@ In Copilot use `/sf-fault` and `/sf-fix`. In VS Code unresolved faults appear in
 **My Work** with **Fix this** and **Diagnose**. All surfaces call the same records
 and kernel functions. See `singularity-flow explain fault-intake-and-repair`.
 
-For the smallest and lowest-token validated model, run this from the
+### Legacy v3 world-model commands
+
+The commands and automatic-materialization behavior below describe the compatibility `legacy-v3`
+builder. Registered-v4 repositories should use the v4 guide linked above; a one-command
+`--format v4` override must be repeated on later versioned reads unless the approved YAML format is
+also changed.
+
+For the smallest and lowest-token validated legacy model, run this from the
 application repository:
 
 ```bash
@@ -2353,10 +2371,10 @@ evidence workflow.
 | `singularity-flow stack status\|sync [--epic ID]` | Inspect or replicate the enforced Story/PR order to each repository's orphan state branch. |
 | `singularity-flow refresh-branch [--remote origin]` | Fetch and fast-forward only the checked-out clean branch; stop safely when it diverges. |
 | `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
-| `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic repository inventory with zero model tokens, then validate and commit it like any other world model. |
-| `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build the repository world model on the current or selected branch; light is deterministic and zero-token, while semantic depths support parallel discovery and exact-match checkpoint resume. |
+| `singularity-flow wm light [--phase PHASE] [--branch BRANCH] [--local]` | Build a compact deterministic legacy-v3 repository inventory with zero model tokens. Registered v4 refuses this command. |
+| `singularity-flow wm build [--depth light\|quick\|standard\|deep] [--branch BRANCH] [--local] [--parallel\|--no-parallel] [--workers N] [--resume\|--no-resume]` | Build using the approved format. These depth/checkpoint options describe legacy v3; registered v4 uses registered views, composer policy, exact cache reuse, and `--views`. |
 | `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
-| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish a validated snapshot retained after publication failure; publishing revalidates exact bytes and never invokes the provider. |
+| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish a legacy-v3 snapshot retained after publication failure. Registered v4 instead reuses exact validated cache entries when the same build is rerun. |
 | `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate\|warm\|pack\|evidence reproduce` | Inspect, build, warm, package, or reproduce bounded structural evidence with explicit assurance and coverage. No model is invoked. |
 | `sflow-wm-minimal [--phase PHASE] [--branch BRANCH] [--publish]` | Build the smallest deterministic zero-token validated model; defaults to one development view and a local commit. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |

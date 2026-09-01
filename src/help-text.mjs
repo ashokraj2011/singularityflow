@@ -344,6 +344,12 @@ Usage:
     invoke and recovery read the complete typed request from --request <REPOSITORY-JSON-FILE>
     installed profiles are read-only filesystem-read and Git-common fixture-only sandbox-cas
   singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm <RECOVERY-PLAN-SHA256>] [--json]
+  singularity-flow authority-store signer-create --signer <KEY-ID> [--store ID] [--json]
+  singularity-flow authority-store export --out <REPOSITORY-FILE> --signer <KEY-ID> [--store ID] [--json]
+  singularity-flow authority-store inspect|import <REPOSITORY-FILE> [--store ID] [--confirm <IMPORT-PLAN-SHA256>] [--json]
+  singularity-flow authority-store rollback --receipt <CUTOVER-SHA256> [--store ID] [--confirm <ROLLBACK-PLAN-SHA256>] [--json]
+    transport trust comes only from approved singularity/sgos/capability-pack-trust.json v2
+    import and rollback preview first; no command merges or silently rewinds Authority Store history
   singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow learn list|show ... --role <ROLE> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow learn start|inspect <LESSON-ID> --role <ROLE> --module <LEARNING-MODULE.json>

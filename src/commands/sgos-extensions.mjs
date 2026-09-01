@@ -6,10 +6,12 @@
  * confirmation boundary; this dispatcher does not invent authority or weaken those checks.
  */
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { link, lstat, open, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitCommonDir, identity, repoRoot } from '../git.mjs';
+import { safePrivateSidecarDirectory } from '../private-sidecar.mjs';
 import { canonicalJson } from '../records.mjs';
 import {
   candidateDiffArguments, freezeSgosCandidate, listSgosCandidates,
@@ -25,26 +27,40 @@ import {
 } from '../sgos/execution-units.mjs';
 import {
   createCapabilityPackRegistry, createMetaToolService, createPlatformMemoryService,
-  createReadOnlyLessonCatalog, openFilesystemAuthorityStore, validatePlatformRecord,
-  verifySignedPlatformRecord
+  createAuthorityState, createReadOnlyLessonCatalog, openFilesystemAuthorityStore,
+  planPortableAuthorityImport, platformSha256, validatePlatformRecord,
+  verifyPortableAuthorityTransport, verifySignedPlatformRecord
 } from '../sgos/platform/index.mjs';
-import { SingularityFlowError, optionBoolean, optionNumber, optionString, secureRepositoryPath } from '../util.mjs';
+import {
+  authorityTransportContext, createLocalAuthorityTransportSigner, parseAuthorityTransport,
+  serializeAuthorityTransport, SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES
+} from '../sgos/authority-transport.mjs';
+import {
+  ensureSecureRepositoryDirectory, SingularityFlowError, optionBoolean, optionNumber,
+  optionString, secureRepositoryPath
+} from '../util.mjs';
+import {
+  createSgosCapabilityPackTransportTrustScaffold,
+  loadApprovedSgosCapabilityPackLocalTrust, SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+  sgosCapabilityPackTransportRepositoryBinding
+} from '../sgos/capability-pack-authority.mjs';
 import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
-// Store IDs become directory names below the Git common directory. Keep the CLI profile portable:
-// ':' is invalid in Windows path components, a trailing dot is normalized away there, and device
-// names such as CON/NUL are reserved even with an extension.
+// New Stores and every transport-v2 action use the portable vocabulary. The wider identifier is
+// read compatibility for an exact Store already named by approved v1 Pack trust on POSIX only.
 const STORE_ID = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9_-])?$/;
+const LEGACY_STORE_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const WINDOWS_RESERVED_STORE_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/;
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_STORE_ID = 'repository-platform';
 const MUTATIONS = new Set([
   'candidate.freeze', 'candidate.verify', 'candidate.publish.plan', 'candidate.publish',
   'device.invoke', 'device.recover', 'device.revoke',
-  'authority-store.init', 'authority-store.recover',
+  'authority-store.init', 'authority-store.recover', 'authority-store.signer-create',
+  'authority-store.export', 'authority-store.import', 'authority-store.rollback',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
   'memory.register', 'memory.promote',
   'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote'
@@ -52,6 +68,20 @@ const MUTATIONS = new Set([
 
 function fail(message, code = 'SGOS_EXTENSION_CLI_INVALID', details = null) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+async function syncDirectory(directory) {
+  let handle;
+  try {
+    handle = await open(directory, fsConstants.O_RDONLY);
+    await handle.sync();
+  } catch (error) {
+    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EPERM', 'EACCES', 'EBADF'].includes(error?.code)) {
+      throw error;
+    }
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 function rejectSecretArgv(options) {
@@ -170,8 +200,17 @@ function cas(options) {
   };
 }
 
-function storeId(options) {
+function localStoreId(options) {
   const id = optionString(options, 'store') ?? DEFAULT_STORE_ID;
+  if (!LEGACY_STORE_ID.test(id)) {
+    fail('--store must be a canonical lower-case identifier.',
+      'SGOS_AUTHORITY_STORE_ID_INVALID');
+  }
+  return id;
+}
+
+function portableStoreId(options) {
+  const id = localStoreId(options);
   if (!STORE_ID.test(id) || WINDOWS_RESERVED_STORE_ID.test(id)) {
     fail('--store must be a portable canonical lower-case identifier.',
       'SGOS_AUTHORITY_STORE_ID_INVALID');
@@ -179,14 +218,127 @@ function storeId(options) {
   return id;
 }
 
+function isPortableStoreId(id) {
+  return STORE_ID.test(id) && !WINDOWS_RESERVED_STORE_ID.test(id);
+}
+
 function authorityStoreLocation(root, options) {
-  const id = storeId(options);
+  const id = localStoreId(options);
   const authorityRoot = path.join(gitCommonDir(root), 'singularity-flow', 'sgos', 'platform-authority', id);
   return { id, authorityRoot, stateFile: path.join(authorityRoot, 'state.json') };
 }
 
+async function authorityTransportInput(root, candidate) {
+  if (!candidate) fail('Authority transport file is required.',
+    'SGOS_AUTHORITY_TRANSPORT_FILE_REQUIRED');
+  const secured = await secureRepositoryPath(root, String(candidate), {
+    label: 'Authority transport input', mustExist: true, type: 'file'
+  });
+  let handle;
+  try {
+    handle = await open(secured.absolute, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const before = await handle.stat();
+    if (!before.isFile() || before.size > SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES) {
+      fail('Authority transport input exceeds the installed portable bundle limit.',
+        'SGOS_AUTHORITY_TRANSPORT_LIMIT');
+    }
+    const bytes = await handle.readFile();
+    const rebound = await secureRepositoryPath(root, secured.relative, {
+      label: 'Authority transport input', mustExist: true, type: 'file'
+    });
+    if ((before.ino !== 0 && rebound.entry?.ino !== before.ino)
+        || (before.dev !== 0 && rebound.entry?.dev !== before.dev)) {
+      fail('Authority transport input changed while it was read.',
+        'SGOS_AUTHORITY_TRANSPORT_FILE_CHANGED');
+    }
+    return { signedTransport: parseAuthorityTransport(bytes), relative: secured.relative };
+  } catch (error) {
+    if (['ELOOP', 'EMLINK'].includes(error?.code)) {
+      fail('Authority transport input cannot be a symbolic link.',
+        'SGOS_AUTHORITY_TRANSPORT_PATH_UNSAFE');
+    }
+    throw error;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+async function publishAuthorityTransport(root, candidate, bytes) {
+  if (!candidate) fail('Authority export requires --out <REPOSITORY-FILE>.',
+    'SGOS_AUTHORITY_TRANSPORT_OUTPUT_REQUIRED');
+  let target = await secureRepositoryPath(root, String(candidate), {
+    label: 'Authority transport output', mustExist: false, type: 'file'
+  });
+  if (target.exists) fail('Authority transport output already exists.',
+    'SGOS_AUTHORITY_TRANSPORT_OUTPUT_EXISTS', { path: target.relative });
+  const directory = await ensureSecureRepositoryDirectory(root, path.dirname(target.relative), {
+    label: 'Authority transport output directory'
+  });
+  target = await secureRepositoryPath(root, target.relative, {
+    label: 'Authority transport output', mustExist: false, type: 'file'
+  });
+  if (target.exists) fail('Authority transport output already exists.',
+    'SGOS_AUTHORITY_TRANSPORT_OUTPUT_EXISTS', { path: target.relative });
+  const temporary = path.join(directory.absolute,
+    `.${path.basename(target.absolute)}.pending-${process.pid}-${randomUUID()}`);
+  let handle;
+  try {
+    handle = await open(temporary,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL
+        | (fsConstants.O_NOFOLLOW ?? 0), 0o600);
+    await handle.writeFile(bytes, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    try { await link(temporary, target.absolute); } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      fail('Authority transport output already exists.',
+        'SGOS_AUTHORITY_TRANSPORT_OUTPUT_EXISTS', { path: target.relative });
+    }
+    await syncDirectory(directory.absolute);
+    const observed = await readFile(target.absolute, 'utf8');
+    if (observed !== bytes) {
+      fail('Authority transport output changed during publication.',
+        'SGOS_AUTHORITY_TRANSPORT_FILE_CHANGED');
+    }
+    return { path: target.relative, bytes: Buffer.byteLength(bytes, 'utf8'), sha256: platformSha256(bytes) };
+  } finally {
+    await handle?.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
+    await syncDirectory(directory.absolute);
+  }
+}
+
 async function authorityStore(root, options, { initialize = false } = {}) {
   const { id, authorityRoot, stateFile } = authorityStoreLocation(root, options);
+  const portable = isPortableStoreId(id);
+  if (initialize && !portable) portableStoreId(options);
+  if (!portable) {
+    const trust = await loadApprovedSgosCapabilityPackLocalTrust(root);
+    if (trust.format !== SGOS_CAPABILITY_PACK_TRUST_FORMAT || trust.storeId !== id) {
+      fail(`Nonportable Authority Store '${id}' is available only when approved legacy-v1 Pack trust names that exact local Store.`,
+        'SGOS_AUTHORITY_STORE_ID_INVALID', {
+          requestedStoreId: id,
+          approvedStoreId: trust.storeId,
+          approvedFormat: trust.format
+        });
+    }
+  }
+  try {
+    await safePrivateSidecarDirectory(root, path.dirname(authorityRoot), {
+      create: initialize
+    });
+  } catch (error) {
+    if (error?.code === 'ENOENT' && !initialize) {
+      fail(`Authority Store '${id}' is not initialized. Run: singularity-flow authority-store init --store ${id}.`,
+        'SGOS_AUTHORITY_STORE_NOT_INITIALIZED', { storeId: id });
+    }
+    if (error?.code === 'PRIVATE_SIDECAR_PATH_UNSAFE') {
+      fail('Authority Store path must remain inside ordinary Git-common directories.',
+        'SGOS_AUTHORITY_PATH_UNSAFE');
+    }
+    throw error;
+  }
   if (!initialize) {
     try { await lstat(stateFile); } catch (error) {
       if (error?.code === 'ENOENT') {
@@ -196,15 +348,17 @@ async function authorityStore(root, options, { initialize = false } = {}) {
       throw error;
     }
   }
-  return openFilesystemAuthorityStore({ root: authorityRoot, storeId: id });
+  return openFilesystemAuthorityStore({
+    root: authorityRoot, storeId: id, allowLegacyStoreId: !portable
+  });
 }
 
 async function emit(value, options, operation, summary, {
-  changed = false,
+  changed = false, stateChanged = changed, filesChanged = changed,
   externalSystemsChanged = false
 } = {}) {
   const declared = {
-    stateChanged: changed, filesChanged: changed,
+    stateChanged, filesChanged,
     publicationCreated: operation === 'candidate.publish' && changed,
     externalSystemsChanged
   };
@@ -352,6 +506,224 @@ async function deviceCommand(root, positionals, options) {
 
 async function authorityStoreCommand(root, positionals, options) {
   const action = positionals[1] ?? 'status';
+  if (action === 'signer-create') {
+    if (positionals.length !== 2) {
+      fail('authority-store signer-create accepts no positional arguments.', 'SGOS_POSITIONAL_INVALID');
+    }
+    // Complete every deterministic bootstrap check before creating private material. A malformed
+    // Store ID or unverifiable repository must not leave behind a signer from a failed command.
+    const scaffoldStoreId = portableStoreId(options);
+    const repositoryBinding = sgosCapabilityPackTransportRepositoryBinding(root);
+    const signer = await createLocalAuthorityTransportSigner(
+      root, requiredString(options, 'signer')
+    );
+    const trustScaffold = createSgosCapabilityPackTransportTrustScaffold({
+      root, storeId: scaffoldStoreId,
+      signerKeyId: signer.keyId, signerPublicKeyPem: signer.publicKeyPem,
+      repositoryBinding
+    });
+    const result = Object.freeze({ ...signer, trustScaffold });
+    return emit(result, options, 'authority-store.signer-create',
+      `${result.created ? 'Created' : 'Reused'} local Ed25519 Authority transport signer '${result.keyId}'. Review its complete v2 trust scaffold through sflow/config before exporting.`,
+      { changed: result.created });
+  }
+
+  if (['export', 'inspect', 'import', 'rollback'].includes(action)) {
+    if (['inspect', 'import'].includes(action)) {
+      if (positionals.length !== 3 || !positionals[2]) {
+        fail(`authority-store ${action} requires exactly one repository-contained bundle file.`,
+          'SGOS_AUTHORITY_TRANSPORT_FILE_REQUIRED');
+      }
+    } else if (positionals.length !== 2) {
+      fail(`authority-store ${action} accepts no positional arguments.`, 'SGOS_POSITIONAL_INVALID');
+    }
+    if (action === 'export') {
+      requiredString(options, 'signer');
+      if (!optionString(options, 'out')) {
+        fail('Authority export requires --out <REPOSITORY-FILE>.',
+          'SGOS_AUTHORITY_TRANSPORT_OUTPUT_REQUIRED');
+      }
+    }
+    if (action === 'rollback') exactHash(options, 'receipt', '--receipt');
+    const requestedStoreId = optionString(options, 'store');
+    const mutation = action === 'export'
+      ? 'authority-store.export'
+      : action === 'import' && optionString(options, 'confirm')
+        ? 'authority-store.import'
+        : action === 'rollback' && optionString(options, 'confirm')
+          ? 'authority-store.rollback'
+          : null;
+    const context = await authorityTransportContext(root, mutation, {
+      signer: action === 'export' ? requiredString(options, 'signer') : null
+    });
+    const trustedStoreId = context.trust.storeId;
+    if (requestedStoreId != null && requestedStoreId !== trustedStoreId) {
+      fail('Requested Authority Store does not equal approved transport trust.',
+        'SGOS_AUTHORITY_TRANSPORT_STORE_MISMATCH', {
+          requestedStoreId, approvedStoreId: trustedStoreId
+        });
+    }
+    const transportOptions = {
+      expectedRepositoryBindingSha256: context.trust.repositoryBindingSha256,
+      expectedPolicySha256: context.trust.policySha256,
+      authorityContextSha256: context.trust.authorityContextSha256,
+      minimumAuthority: context.trust.minimumAuthority,
+      validateEntries: context.validateEntries
+    };
+
+    if (action !== 'export' && context.trust.minimumAuthority == null) {
+      fail('Approved transport trust has no anti-rollback checkpoint. Export the current store, review its revision/state/export digests into capability-pack-trust.json v2, publish sflow/config, and retry.',
+        'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
+    }
+
+    if (action === 'export') {
+      const store = await authorityStore(root, { ...options, store: trustedStoreId });
+      const signedTransport = await store.exportTransport({
+        privateKeyPem: context.signer.privateKeyPem,
+        keyId: context.signer.keyId,
+        repositoryBindingSha256: context.trust.repositoryBindingSha256,
+        policySha256: context.trust.policySha256,
+        authorization: context.authorization,
+        validateEntries: context.validateEntries
+      });
+      const bytes = serializeAuthorityTransport(signedTransport);
+      const output = await publishAuthorityTransport(root, optionString(options, 'out'), bytes);
+      const result = {
+        status: 'exported', storeId: trustedStoreId,
+        revision: signedTransport.record.head.revision,
+        stateSha256: signedTransport.record.head.recordSha256,
+        eventSha256: signedTransport.record.head.eventSha256,
+        exportSha256: signedTransport.record.recordSha256,
+        signedTransportSha256: platformSha256(signedTransport),
+        repositoryBindingSha256: signedTransport.record.repositoryBindingSha256,
+        signer: {
+          keyId: context.signer.keyId, algorithm: 'ed25519',
+          publicKeySha256: context.signer.publicKeySha256
+        },
+        capabilityPacks: await context.validateEntries(signedTransport.record.head.entries),
+        output,
+        credentialScan: { clean: true, findings: 0 }
+      };
+      return emit(result, options, 'authority-store.export',
+        `Exported signed Authority Store ${trustedStoreId} revision ${result.revision} to ${output.path}.`,
+        { changed: true, stateChanged: false, filesChanged: true });
+    }
+
+    if (action === 'rollback') {
+      const store = await authorityStore(root, { ...options, store: trustedStoreId });
+      const cutoverSha256 = exactHash(options, 'receipt', '--receipt');
+      const confirmationSha256 = optionString(options, 'confirm');
+      if (!confirmationSha256) {
+        const result = await store.planRollback({
+          cutoverSha256,
+          validateRollback: context.validateRollback,
+          authorityContextSha256: context.trust.authorityContextSha256
+        });
+        return emit(result, options, 'authority-store.rollback.plan',
+          `Review the exact Authority rollback plan, then repeat with --confirm ${result.plan.confirmationSha256}.`);
+      }
+      const result = await store.rollbackTransport({
+        cutoverSha256, confirmationSha256,
+        authorization: context.authorization,
+        validateRollback: context.validateRollback,
+        authorityContextSha256: context.trust.authorityContextSha256
+      });
+      return emit(result, options, 'authority-store.rollback',
+        `Rolled Authority Store ${trustedStoreId} back to revision ${result.current.revision}.`,
+        { changed: true });
+    }
+
+    const input = await authorityTransportInput(root, positionals[2]);
+    const keyId = input.signedTransport?.signature?.keyId;
+    const trustedPublicKeyPem = context.trust.exporters[keyId];
+    if (!trustedPublicKeyPem) {
+      fail('Authority transport signer is not trusted by current approved configuration.',
+        'SGOS_AUTHORITY_TRANSPORT_SIGNER_UNTRUSTED', { keyId: keyId ?? null });
+    }
+    const inputOptions = {
+      ...transportOptions,
+      signedTransport: input.signedTransport,
+      trustedPublicKeyPem,
+      expectedKeyId: keyId
+    };
+    const { stateFile } = authorityStoreLocation(root, { ...options, store: trustedStoreId });
+    const exists = await lstat(stateFile).then((entry) => entry.isFile() && !entry.isSymbolicLink())
+      .catch((error) => error?.code === 'ENOENT' ? false : Promise.reject(error));
+    let planned;
+    if (exists) {
+      const store = await authorityStore(root, { ...options, store: trustedStoreId });
+      planned = await store.planImport(inputOptions);
+    } else {
+      const transport = await verifyPortableAuthorityTransport(input.signedTransport, {
+        ...inputOptions
+      });
+      const genesis = createAuthorityState({
+        storeId: trustedStoreId,
+        revision: 0,
+        eventSha256: null,
+        entriesSha256: platformSha256({}),
+        entries: {}
+      });
+      planned = {
+        transport,
+        plan: planPortableAuthorityImport(genesis, [], transport, {
+          authorityContextSha256: context.trust.authorityContextSha256
+        })
+      };
+    }
+    const report = {
+      status: planned.plan.mode === 'noop' ? 'noop' : 'ready',
+      trusted: true,
+      repositoryMatch: true,
+      file: input.relative,
+      exportSha256: planned.transport.exportSha256,
+      source: {
+        storeId: planned.transport.storeId,
+        revision: planned.transport.revision,
+        stateSha256: planned.transport.stateSha256,
+        eventSha256: planned.transport.eventSha256
+      },
+      destination: {
+        exists,
+        revision: planned.plan.beforeRevision,
+        stateSha256: planned.plan.beforeStateSha256
+      },
+      mode: planned.plan.mode,
+      capabilityPacks: planned.transport.semantic,
+      plan: planned.plan
+    };
+    if (action === 'inspect') {
+      return emit(report, options, 'authority-store.inspect',
+        `Verified signed Authority transport ${report.exportSha256}; destination mode is ${report.mode}.`);
+    }
+    const confirmationSha256 = optionString(options, 'confirm');
+    if (!confirmationSha256) {
+      return emit(report, options, 'authority-store.import.plan',
+        `Review the exact Authority import plan, then repeat with --confirm ${report.plan.confirmationSha256}.`);
+    }
+    // The first import plans against a virtual genesis Store. Validate that exact plan before
+    // opening the filesystem adapter, because opening an absent Store durably writes genesis.
+    // The adapter repeats this check under its cutover/transaction locks to close the later race.
+    if (confirmationSha256 !== report.plan.confirmationSha256) {
+      fail('Authority import confirmation does not match the exact current plan.',
+        'SGOS_AUTHORITY_TRANSPORT_PLAN_STALE', {
+          requiredConfirmationSha256: report.plan.confirmationSha256
+        });
+    }
+    const store = await authorityStore(root, { ...options, store: trustedStoreId }, {
+      initialize: true
+    });
+    const result = await store.importTransport({
+      ...inputOptions,
+      confirmationSha256,
+      authorization: context.authorization
+    });
+    return emit(result, options, 'authority-store.import', result.changed
+      ? `Imported Authority Store ${trustedStoreId} at revision ${result.current.revision}; rollback receipt ${result.cutoverSha256}.`
+      : `Authority Store ${trustedStoreId} already equals the signed transport.`,
+    { changed: result.changed });
+  }
+
   const { stateFile } = authorityStoreLocation(root, options);
   const existed = await lstat(stateFile).then(() => true).catch((error) => {
     if (error?.code === 'ENOENT') return false;

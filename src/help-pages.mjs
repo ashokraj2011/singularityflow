@@ -79,6 +79,69 @@ export function synopsisFor(command) {
  * what it refuses and why, and a worked example. Commands absent from this map still render.
  */
 const PAGES = Object.freeze({
+  'authority-store': {
+    summary: 'Inspect local SGOS authority and move reviewed Capability Pack authority between laptops.',
+    description: [
+      'The default Authority Store is private Git-common state. Portable transport is an explicit',
+      'review ceremony: create one local signer, publish its public key and repository binding in',
+      'capability-pack-trust.json v2 on sflow/config, export one canonical signed bundle, then add',
+      'that bundle minimum revision/state/export checkpoint to approved configuration.',
+      'The scaffold explicitly grants the signer full-authority-store-snapshot authority: this is',
+      'a high-privilege attestor of the complete Store history, not a low-privilege file courier.',
+      '',
+      'On another laptop, inspect is read-only. Import first emits an exact plan; repeat with its',
+      '--confirm digest to install or strictly fast-forward the same Pack lineage. Divergence and',
+      'rewind are refused. A successful cutover retains the signed proof and a rollback receipt.',
+      'Rollback is also preview-and-confirm and cannot reactivate revoked or superseded authority.',
+      '',
+      'The portable profile accepts only fully authorized Capability Pack proposal, review,',
+      'activation, and revocation history. Mixed legacy or other Authority Store namespaces are',
+      'reported as unportable rather than silently copied. Private signer material is never placed',
+      'in tracked repository content or the exported bundle. Windows supports inspect and import;',
+      'signer-create and export fail closed until an owner-only Windows credential backend ships.'
+    ],
+    options: [
+      ['--store ID', 'Select a portable Store ID for creation/transport. POSIX maintenance also accepts the exact nonportable ID named by approved legacy-v1 Pack trust.'],
+      ['--signer KEY-ID', 'Select a local Ed25519 export signer whose public key is approved in sflow/config.'],
+      ['--out REPOSITORY-FILE', 'Create one new canonical bundle inside the repository; existing files are never replaced.'],
+      ['--receipt SHA256', 'Select the exact durable cutover receipt for rollback.'],
+      ['--confirm SHA256', 'Apply only the exact current import, rollback, or recovery plan.'],
+      ['--json', 'Emit bounded digest summaries; Authority Store entries and private keys are omitted.']
+    ],
+    examples: [
+      ['singularity-flow authority-store signer-create --signer organisation-authority --store repository-platform --json', 'Create or reuse the private local key and print a complete path-free v2 trust scaffold containing only its public key.'],
+      ['singularity-flow authority-store export --signer organisation-authority --out .sflow/authority/repository-platform.json --json', 'Create a signed, repository-bound bundle after v2 trust is approved.'],
+      ['singularity-flow authority-store inspect .sflow/authority/repository-platform.json --json', 'Verify signer, repository, checkpoint, lineage, and Pack graph without changing state.'],
+      ['singularity-flow authority-store import .sflow/authority/repository-platform.json --json', 'Preview installation or strict fast-forward; repeat with the returned --confirm digest.'],
+      ['singularity-flow authority-store rollback --receipt sha256:<CUTOVER> --json', 'Preview an exact history-preserving rollback.']
+    ],
+    seeAlso: ['pack', 'policy', 'doctor']
+  },
+  pack: {
+    summary: 'Propose, review, activate, revoke, and inspect signed declarative Capability Packs.',
+    description: [
+      'A Pack becomes usable only after its publisher signature, exact review, activation, and',
+      'current selector all verify against approved configuration and the local Authority Store.',
+      'Revocation takes effect immediately. Caller-supplied identity never grants review authority.',
+      '',
+      'Pack portability is deliberately not a separate copy command. Use authority-store export',
+      'and import so the Pack, review, activation, revocation, selector, and immutable event lineage',
+      'move together under one repository-bound signature and anti-rollback checkpoint.'
+    ],
+    options: [
+      ['--store ID', 'Select the local Authority Store.'],
+      ['--signed-pack FILE', 'Read a bounded signed Pack record from the repository.'],
+      ['--review FILE', 'Read an exact Pack review record from the repository.'],
+      ['--confirm SHA256', 'Confirm the exact Pack digest for activation or revocation.'],
+      ['--json', 'Emit the bounded Pack result.']
+    ],
+    examples: [
+      ['singularity-flow pack active --json', 'List only currently valid active Pack selections.'],
+      ['singularity-flow pack show sha256:<PACK> --json', 'Revalidate and inspect one exact Pack.'],
+      ['singularity-flow authority-store export --signer organisation-authority --out .sflow/authority/repository-platform.json --json', 'Move Pack authority only through the complete signed Store transport.']
+    ],
+    seeAlso: ['authority-store', 'learn', 'program']
+  },
   comprehension: {
     summary: 'Inspect deterministic change regions and explanation coverage without changing lifecycle state.',
     description: [

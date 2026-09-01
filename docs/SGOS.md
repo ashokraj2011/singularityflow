@@ -347,6 +347,41 @@ authority still validate; historical observations and activations are retained. 
 is available from `src/sgos/platform/meta-tools.mjs`; a public CLI for these additional transitions
 remains staged so callers cannot mistake a convenience command for a second authority path.
 
+## Portable Authority Store and Capability Packs
+
+The `authority-store` surface can now create a local Ed25519 transport signer on supported POSIX
+hosts, export one canonical repository-bound Store bundle, inspect it against freshly approved
+trust, import it through an exact plan/confirm boundary, and explicitly roll back the resulting
+cutover receipt. Windows can inspect and import a reviewed bundle, but signer creation and export
+fail closed until an owner-only operating-system credential backend and signed platform proof are
+available. Pack state is not copied independently: the complete portable Store event lineage
+carries every signed Pack, review, activation, revocation, and supersession record and revalidates
+them with current approved publisher keys before cutover.
+
+Transport trust is format v2 of
+`singularity/sgos/capability-pack-trust.json`. It separates Pack publishers from Authority export
+signers, admits a path-neutral set of raw credential-free repository fingerprints (or an offline
+root binding), and requires a minimum revision/state/export checkpoint before import. Private keys
+remain in the source clone's owner-only Git-common sidecar and are never placed in argv, tracked
+repository content, the bundle, or diagnostics. Import accepts install, exact no-op, or strict
+fast-forward only. It stages and verifies a complete sibling Store before a stable-lock,
+tamper-evident journaled directory cutover; stale, divergent, cross-repository, counterfeit,
+secret-bearing, partial, revoked, or superseded authority fails closed. The imported signed proof
+and exact cutover receipt are retained for verification and guarded rollback.
+
+The current portable profile is intentionally limited to fully authorized Capability Pack events.
+Legacy or mixed Memory, Meta-tool, Secret Broker, and unknown Authority Store namespaces are
+reported as unportable instead of being copied without a schema-specific semantic verifier. The
+public status, verify, recovery, and Pack-maintenance paths can still open an existing nonportable
+Store ID on POSIX only when refreshed approved v1 trust names that exact local Store; new Store
+creation and every v2 transport action continue to require a portable ID. The
+v2 policy must explicitly grant each approved exporter `full-authority-store-snapshot` authority:
+the outer signature attests the complete historical Store lineage, while deterministic replay
+proves that lineage is a legal Pack proposal/review/activation/revocation sequence. Exporter keys
+are therefore high-privilege authority roots and must be reviewed and protected as such. The
+full operator recipe is in the
+[SGOS governed-execution topic](topics/sgos-governed-execution.md#move-authority-store-and-capability-packs-to-another-laptop).
+
 ## What remains staged
 
 The following larger SGOS capabilities remain behind explicit refusal boundaries until their
@@ -361,13 +396,11 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
 - universal Candidate routing is implemented for the supported lifecycle surfaces; its
   cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - automatic working-set injection into live Agent executions, Secret Broker integration with real
-  external adapters, garbage-collection plans, and portable Authority Store migration/cutover;
+  external adapters, and garbage-collection plans;
 - a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store
   remains explicitly experimental;
-- portable Capability Pack Authority Store transport, executable/disposable tutorial environments,
-  portable learning progress and certification, a public meta-tool activation/rollback CLI, and
-  multi-domain proof packs; signed declarative compilation in
-  this release requires the exact machine-local store to be reconstructed and verified;
+- executable/disposable tutorial environments, portable learning progress and certification, a
+  public meta-tool activation/rollback CLI, and multi-domain proof packs;
 - fresh-authority trace-to-evidence reconstruction, external telemetry transport beyond the
   content-free read-only OpenTelemetry projection, and measured semantic read-model latency targets;
 - full software-conversion and hypothesis-analysis end-to-end proofs, the supported OS/Node matrix,

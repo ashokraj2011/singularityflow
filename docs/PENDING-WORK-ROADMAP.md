@@ -34,7 +34,7 @@ credential-helper evidence.
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
-| SGOS | Universal Candidate publication is code-complete; signed release proof and portable authority remain open | Finish `SGOS-P0-001` release proof, then `SGOS-P0-003` | [SGOS pending work](SGOS-PENDING-WORK.md) |
+| SGOS | Universal Candidate publication and portable authority transport are code-complete; signed cross-platform release proof remains open | Finish the `SGOS-P0-001` and `SGOS-P0-003` signed platform matrices | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Observe-only baseline shipped; exact/authenticated testcase claims and enforcement are unavailable | `WEL-P0-001` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | Corrected design only; implementation is not authorized | `CAB-R0` design alignment | [CAB roadmap](CAB-ROADMAP.md) |

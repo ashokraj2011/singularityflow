@@ -81,4 +81,10 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['device', 'revoke', 'sha256:manifest']), 'read');
   assert.equal(commandClass(['authority-store', 'recover']), 'read');
   assert.equal(commandClass(['authority-store', 'recover', '--confirm', 'sha256:plan']), 'mutation');
+  assert.equal(commandClass(['authority-store', 'inspect', 'authority.json']), 'read');
+  assert.equal(commandClass(['authority-store', 'import', 'authority.json']), 'read');
+  assert.equal(commandClass(['authority-store', 'import', 'authority.json', '--confirm', 'sha256:plan']), 'mutation');
+  assert.equal(commandClass(['authority-store', 'rollback', '--receipt', 'sha256:receipt']), 'read');
+  assert.equal(commandClass(['authority-store', 'rollback', '--receipt', 'sha256:receipt', '--confirm', 'sha256:plan']), 'mutation');
+  assert.equal(commandClass(['authority-store', 'export', '--out', 'authority.json']), 'mutation');
 });

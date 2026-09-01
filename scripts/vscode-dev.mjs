@@ -406,8 +406,9 @@ async function demoRepository({ github = false } = {}) {
  * the first thing a new user meets is a settings path to fill in, which is a poor greeting for a tool
  * whose entire value is that it runs commands for you.
  *
- * `yaml` comes along because it is the engine's one dependency; `npm run check` asserts there is
- * exactly one, so this list does not quietly grow.
+ * Runtime dependencies come from the exact production closure in package-lock.json below rather
+ * than a hand-maintained package list, so the source checkout and installed VSIX load the same
+ * engine graph.
  */
 /**
  * `docs` is here because the topic *bodies* live in `docs/topics/` and are read at runtime —

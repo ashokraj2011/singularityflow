@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 12
+version: 13
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -249,6 +249,85 @@ content-addressed local-export integrity: it does not claim a signature, an Auth
 fresh authority verification, or approval. Missing task-contract bytes, approved authority bytes,
 raw Device evidence, transient agent events, and non-durable stop/quiescence receipts remain
 explicit gaps rather than being upgraded into proof.
+
+## Move Authority Store and Capability Packs to another laptop
+
+Authority transport is one signed Store operation, not a separate Pack copy. The current portable
+profile accepts a Pack-only Store lineage, so every event must be an exact authorized Pack proposal,
+review, activation, or revocation and a Pack arrives with its complete history. Mixed legacy,
+Memory, Meta-tool, Secret Broker, or unknown Store namespaces are refused as unportable rather than
+copied without a schema-specific verifier. The bundle contains no repository path, hostname, remote
+URL, credential, or private signing key, and it can be imported only into another clone whose raw
+repository identity is admitted by refreshed approved configuration.
+
+An administrator performs the signer bootstrap once on the source machine:
+
+```sh
+singularity-flow authority-store signer-create \
+  --signer organisation-authority --store repository-platform --json
+```
+
+The command keeps the Ed25519 private key under the repository's private Git-common SFlow sidecar
+with owner-only POSIX permissions and prints a complete public v2 trust scaffold. Windows import and
+inspection work with the public trust policy; Windows signer creation/export remains gated pending
+an owner-only OS credential backend and signed platform proof. Add that public key, the
+approved credential-free remote fingerprints, and the Store ID to
+`singularity/sgos/capability-pack-trust.json` using format
+`singularity-flow-sgos-capability-pack-trust/v2`, then publish it through the normal `sflow/config`
+review. The scaffold deliberately sets `transport.exporterAuthority` to
+`full-authority-store-snapshot`: an approved exporter is a high-privilege snapshot attestor whose
+signature vouches for the complete historical approval/activation lineage, not merely a file-copy
+transport. Pack publisher keys and Authority export signer keys are independent; approve and
+protect exporter keys accordingly.
+
+Create the first signed bundle without replacing an existing output:
+
+```sh
+singularity-flow authority-store export \
+  --signer organisation-authority \
+  --out .sflow/authority/repository-platform.json \
+  --json
+```
+
+Before anyone imports it, copy the returned `revision`, `stateSha256`, and `exportSha256` into the
+v2 trust manifest's `transport.minimumAuthority`, publish that approved configuration update, and
+refresh it on both machines. This checkpoint is mandatory for import: a signature alone cannot
+distinguish a valid old snapshot from current authority after a Pack was revoked.
+
+On the new laptop, clone the same repository, refresh approved configuration, copy the canonical
+bundle into a repository-relative file, and run the guarded sequence:
+
+```sh
+singularity-flow authority-store inspect .sflow/authority/repository-platform.json --json
+singularity-flow authority-store import .sflow/authority/repository-platform.json --json
+singularity-flow authority-store import .sflow/authority/repository-platform.json \
+  --confirm sha256:<IMPORT-PLAN> --json
+singularity-flow authority-store verify --json
+```
+
+Import accepts only an absent/genesis Store, an identical Store, or an exact lineage
+fast-forward. It never merges histories and never treats an older bundle as rollback. A complete
+sibling Store is verified before the directory cutover. A stable parent lease prevents a live
+cutover from being mistaken for recovery; its crash journal has machine-local integrity and is
+removed only after the complete lineage, retained signed bundle, and receipt verify. An
+interruption restores the exact old Store or retains the exact new Store, never a copied prefix.
+The import result names a cutover receipt. Preview an operational rollback and confirm its exact current plan only while no later
+Store mutation has occurred:
+
+```sh
+singularity-flow authority-store rollback --receipt sha256:<CUTOVER> --json
+singularity-flow authority-store rollback --receipt sha256:<CUTOVER> \
+  --confirm sha256:<ROLLBACK-PLAN> --json
+```
+
+Rollback retains both complete histories and refuses to reactivate a Pack that the imported state
+revoked or superseded. Neither import nor rollback has a force, caller-trust, merge, or
+cross-repository override.
+
+Legacy trust v1 remains local-only. On POSIX, public Store status, verification, recovery, and Pack
+maintenance can open an existing nonportable Store ID only when refreshed approved v1 trust names
+that exact Store. New Store creation, signer scaffolds, export, inspect, import, and rollback always
+use the portable v2 identifier contract; Windows does not open a nonportable legacy path.
 
 ## State and safety
 

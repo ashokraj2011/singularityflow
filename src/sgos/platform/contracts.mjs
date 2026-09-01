@@ -6,6 +6,8 @@ import { SingularityFlowError } from '../../util.mjs';
 export const SGOS_PLATFORM_FORMAT = 'sflow.sgos.platform-envelope';
 export const SGOS_PLATFORM_VERSION = 1;
 export const PLATFORM_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+export const PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION =
+  'full-authority-store-snapshot';
 
 export const MEMORY_CLASSES = Object.freeze([
   'input', 'shared-artifact', 'evidence', 'derived', 'approved-guidance', 'cache'
@@ -107,6 +109,20 @@ function identifier(value, label) {
   string(value, label, /^[a-z0-9][a-z0-9._:-]{1,127}$/);
 }
 
+const PORTABLE_STORE_ID = /^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9_-])?$/;
+const WINDOWS_RESERVED_STORE_ID = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/;
+
+function portableStoreIdentifier(value, label) {
+  if (typeof value !== 'string' || !PORTABLE_STORE_ID.test(value)
+      || WINDOWS_RESERVED_STORE_ID.test(value)) {
+    fail(`${label} must be a portable canonical lower-case identifier.`);
+  }
+}
+
+function localStoreIdentifier(value, label) {
+  string(value, label, /^[a-z0-9][a-z0-9._:-]{0,127}$/);
+}
+
 function sortedUniqueStrings(value, label, { digests = false } = {}) {
   if (!Array.isArray(value)) fail(`${label} must be an array.`);
   for (let index = 0; index < value.length; index += 1) {
@@ -140,6 +156,9 @@ export function validatePlatformRecord(record, expectedKind = null) {
     'platform-authority-state': createAuthorityState,
     'platform-authority-transaction': createAuthorityTransactionEvent,
     'platform-authority-export': createAuthorityPortableExport,
+    'platform-authority-transport': createAuthorityTransport,
+    'platform-authority-cutover': createAuthorityCutover,
+    'platform-authority-rollback': createAuthorityRollback,
     'platform-mutation-authorization': createPlatformMutationAuthorization,
     'platform-memory-ref': createMemoryRef,
     'platform-memory-candidate': createMemoryCandidate,
@@ -207,7 +226,9 @@ export function createAuthorityState(input) {
     allowed: ['storeId', 'revision', 'eventSha256', 'entriesSha256', 'entries'],
     required: ['storeId', 'revision', 'eventSha256', 'entriesSha256', 'entries'],
     validate(value) {
-      identifier(value.storeId, 'authority state.storeId');
+      // Local v1 Stores predate the portable transport profile and may contain `:`. Keep their
+      // durable state readable; the transport/cutover records below impose the narrower ID.
+      localStoreIdentifier(value.storeId, 'authority state.storeId');
       integer(value.revision, 'authority state.revision');
       digest(value.eventSha256, 'authority state.eventSha256', { nullable: true });
       if ((value.revision === 0) !== (value.eventSha256 === null)) fail('Authority genesis alone may have a null event digest.');
@@ -233,7 +254,7 @@ export function createAuthorityTransactionEvent(input) {
       'actorId', 'committedAt', 'changes'
     ],
     validate(value) {
-      identifier(value.storeId, 'authority transaction.storeId');
+      localStoreIdentifier(value.storeId, 'authority transaction.storeId');
       integer(value.revision, 'authority transaction.revision', 1);
       digest(value.priorEventSha256, 'authority transaction.priorEventSha256', { nullable: true });
       if ((value.revision === 1) !== (value.priorEventSha256 === null)) fail('Only revision 1 may have no prior event.');
@@ -304,7 +325,7 @@ export function createAuthorityPortableExport(input) {
     allowed: ['storeId', 'head', 'events', 'exportedAt'],
     required: ['storeId', 'head', 'events', 'exportedAt'],
     validate(value) {
-      identifier(value.storeId, 'authority export.storeId');
+      localStoreIdentifier(value.storeId, 'authority export.storeId');
       validatePlatformRecord(value.head, 'platform-authority-state');
       if (value.head.storeId !== value.storeId) fail('Authority export head belongs to another store.');
       if (!Array.isArray(value.events) || value.events.length !== value.head.revision) {
@@ -321,6 +342,147 @@ export function createAuthorityPortableExport(input) {
       }
       if (priorEventSha256 !== value.head.eventSha256) fail('Authority export events do not reach the exported head.');
       timestamp(value.exportedAt, 'authority export.exportedAt');
+    }
+  });
+}
+
+/**
+ * Signed, repository-bound Authority Store transport.
+ *
+ * The earlier `platform-authority-export` record remains readable as an internal compatibility
+ * primitive, but it is deliberately not importable.  Transport v1 adds the approved repository
+ * and trust-policy bindings needed to move authority between machines without trusting a local
+ * path, hostname, remote URL, or caller-supplied key.
+ */
+export function createAuthorityTransport(input) {
+  return createRecord('platform-authority-transport', input, {
+    allowed: [
+      'transportProfile', 'attestationAuthority', 'repositoryBindingSha256', 'policySha256', 'storeId', 'head',
+      'events', 'eventCount', 'authorization', 'exportedAt'
+    ],
+    required: [
+      'transportProfile', 'attestationAuthority', 'repositoryBindingSha256', 'policySha256', 'storeId', 'head',
+      'events', 'eventCount', 'authorization', 'exportedAt'
+    ],
+    validate(value) {
+      if (value.transportProfile !== 'repository-bound-v1') {
+        fail('Authority transport profile is unsupported.');
+      }
+      if (value.attestationAuthority !== PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION) {
+        fail('Authority transport does not carry an explicit complete Store snapshot attestation.');
+      }
+      digest(value.repositoryBindingSha256, 'authority transport.repositoryBindingSha256');
+      digest(value.policySha256, 'authority transport.policySha256');
+      portableStoreIdentifier(value.storeId, 'authority transport.storeId');
+      const authorization = validatePlatformRecord(
+        value.authorization, 'platform-mutation-authorization'
+      );
+      if (authorization.operation !== 'authority-store.export') {
+        fail('Authority transport authorization does not permit export.');
+      }
+      validatePlatformRecord(value.head, 'platform-authority-state');
+      if (value.head.storeId !== value.storeId) {
+        fail('Authority transport head belongs to another store.');
+      }
+      integer(value.eventCount, 'authority transport.eventCount');
+      if (!Array.isArray(value.events) || value.events.length !== value.head.revision
+          || value.eventCount !== value.events.length) {
+        fail('Authority transport must contain exactly one event per committed revision.');
+      }
+      let priorEventSha256 = null;
+      for (const [index, event] of value.events.entries()) {
+        validatePlatformRecord(event, 'platform-authority-transaction');
+        if (event.storeId !== value.storeId || event.revision !== index + 1
+            || event.priorEventSha256 !== priorEventSha256) {
+          fail('Authority transport event lineage is invalid.');
+        }
+        if (event.authorization == null) {
+          fail('Authority transport refuses an event without exact approved mutation authorization.');
+        }
+        priorEventSha256 = event.recordSha256;
+      }
+      if (priorEventSha256 !== value.head.eventSha256) {
+        fail('Authority transport events do not reach the transported head.');
+      }
+      timestamp(value.exportedAt, 'authority transport.exportedAt');
+    }
+  });
+}
+
+/** Immutable receipt for one exact staged store cutover. */
+export function createAuthorityCutover(input) {
+  return createRecord('platform-authority-cutover', input, {
+    allowed: [
+      'repositoryBindingSha256', 'storeId', 'exportSha256', 'signedTransportSha256',
+      'signerKeyId', 'beforeHead', 'afterHead', 'importedEventSha256s', 'authorization',
+      'committedAt'
+    ],
+    required: [
+      'repositoryBindingSha256', 'storeId', 'exportSha256', 'signedTransportSha256',
+      'signerKeyId', 'beforeHead', 'afterHead', 'importedEventSha256s', 'authorization',
+      'committedAt'
+    ],
+    validate(value) {
+      digest(value.repositoryBindingSha256, 'authority cutover.repositoryBindingSha256');
+      portableStoreIdentifier(value.storeId, 'authority cutover.storeId');
+      digest(value.exportSha256, 'authority cutover.exportSha256');
+      digest(value.signedTransportSha256, 'authority cutover.signedTransportSha256');
+      identifier(value.signerKeyId, 'authority cutover.signerKeyId');
+      const before = validatePlatformRecord(value.beforeHead, 'platform-authority-state');
+      const after = validatePlatformRecord(value.afterHead, 'platform-authority-state');
+      if (before.storeId !== value.storeId || after.storeId !== value.storeId
+          || after.revision < before.revision) {
+        fail('Authority cutover heads are inconsistent.');
+      }
+      if (!Array.isArray(value.importedEventSha256s)) {
+        fail('authority cutover.importedEventSha256s must be an array.');
+      }
+      const seen = new Set();
+      for (const [index, eventSha256] of value.importedEventSha256s.entries()) {
+        digest(eventSha256, `authority cutover.importedEventSha256s[${index}]`);
+        if (seen.has(eventSha256)) {
+          fail('authority cutover.importedEventSha256s must be unique.');
+        }
+        seen.add(eventSha256);
+      }
+      if (value.importedEventSha256s.length !== after.revision - before.revision) {
+        fail('Authority cutover event suffix does not match its revision interval.');
+      }
+      const authorization = validatePlatformRecord(
+        value.authorization, 'platform-mutation-authorization'
+      );
+      if (authorization.operation !== 'authority-store.import') {
+        fail('Authority cutover authorization does not permit import.');
+      }
+      timestamp(value.committedAt, 'authority cutover.committedAt');
+    }
+  });
+}
+
+/** Immutable receipt for one explicit, exact cutover rollback. */
+export function createAuthorityRollback(input) {
+  return createRecord('platform-authority-rollback', input, {
+    allowed: [
+      'repositoryBindingSha256', 'storeId', 'cutoverSha256', 'beforeStateSha256',
+      'afterStateSha256', 'authorization', 'rolledBackAt'
+    ],
+    required: [
+      'repositoryBindingSha256', 'storeId', 'cutoverSha256', 'beforeStateSha256',
+      'afterStateSha256', 'authorization', 'rolledBackAt'
+    ],
+    validate(value) {
+      digest(value.repositoryBindingSha256, 'authority rollback.repositoryBindingSha256');
+      portableStoreIdentifier(value.storeId, 'authority rollback.storeId');
+      digest(value.cutoverSha256, 'authority rollback.cutoverSha256');
+      digest(value.beforeStateSha256, 'authority rollback.beforeStateSha256');
+      digest(value.afterStateSha256, 'authority rollback.afterStateSha256');
+      const authorization = validatePlatformRecord(
+        value.authorization, 'platform-mutation-authorization'
+      );
+      if (authorization.operation !== 'authority-store.rollback') {
+        fail('Authority rollback authorization does not permit rollback.');
+      }
+      timestamp(value.rolledBackAt, 'authority rollback.rolledBackAt');
     }
   });
 }

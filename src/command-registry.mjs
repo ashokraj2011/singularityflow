@@ -277,7 +277,10 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   candidate: Object.freeze({ read: ['list', 'show', 'diff-argv'], mutation: ['freeze', 'verify', 'publish'] }),
   'execution-unit': Object.freeze({ read: ['list', 'doctor'], mutation: [] }),
   device: Object.freeze({ read: ['list', 'doctor', 'intent', 'result'], mutation: ['invoke', 'recover', 'revoke'] }),
-  'authority-store': Object.freeze({ read: ['status', 'verify'], mutation: ['init', 'recover'] }),
+  'authority-store': Object.freeze({
+    read: ['status', 'verify', 'inspect'],
+    mutation: ['init', 'recover', 'signer-create', 'export', 'import', 'rollback']
+  }),
   pack: Object.freeze({ read: ['list', 'active', 'show'], mutation: ['propose', 'review', 'activate', 'revoke'] }),
   learn: Object.freeze({
     read: ['list', 'show', 'start', 'inspect', 'explain-change', 'quiz', 'teach-back'],
@@ -875,6 +878,10 @@ function resolveSgosOperation(definition, positionals, options) {
       && optionString(options, 'confirm') == null) {
     return never('authority-store.recover.plan', definition, 'read');
   }
+  if (definition.name === 'authority-store' && ['import', 'rollback'].includes(subcommand)
+      && optionString(options, 'confirm') == null) {
+    return never(`authority-store.${subcommand}.plan`, definition, 'read');
+  }
   return never(
     `${definition.name}.${subcommand}`,
     definition,
@@ -1032,6 +1039,8 @@ export function operationCatalog() {
   sgos.push(never('candidate.publish.plan', commandDefinition('candidate'), 'mutation'));
   sgos.push(never('device.revoke.plan', commandDefinition('device'), 'read'));
   sgos.push(never('authority-store.recover.plan', commandDefinition('authority-store'), 'read'));
+  sgos.push(never('authority-store.import.plan', commandDefinition('authority-store'), 'read'));
+  sgos.push(never('authority-store.rollback.plan', commandDefinition('authority-store'), 'read'));
   const modelFreeMixed = [
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),

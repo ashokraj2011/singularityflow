@@ -7,23 +7,34 @@
  * store. The built-in core profile is separate: it is a versioned code authority and never opens or
  * accepts a caller-provided Authority Store.
  */
+import { createPublicKey } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { gitCommonDir } from '../git.mjs';
-import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import {
+  configuredRemoteAuthority, configuredRemoteIdentity
+} from '../git-remote-diagnostics.mjs';
 import { canonicalJson } from '../records.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
-import { openFilesystemAuthorityStore } from './platform/authority-store.mjs';
-import { platformSha256 } from './platform/contracts.mjs';
+import {
+  assertPortableAuthorityStoreId, openFilesystemAuthorityStore
+} from './platform/authority-store.mjs';
+import {
+  PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION, platformSha256
+} from './platform/contracts.mjs';
 import { createCapabilityPackRegistry } from './platform/packs.mjs';
 
 export const SGOS_CAPABILITY_PACK_TRUST_PATH = 'singularity/sgos/capability-pack-trust.json';
 export const SGOS_CAPABILITY_PACK_TRUST_FORMAT = 'singularity-flow-sgos-capability-pack-trust/v1';
+export const SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2 = 'singularity-flow-sgos-capability-pack-trust/v2';
 export const SGOS_CAPABILITY_PACK_AUTHORITY_FORMAT = 'singularity-flow-sgos-capability-pack-authority/v1';
+
+const SGOS_CAPABILITY_PACK_REPOSITORY_BINDING_FORMAT_V2 =
+  'singularity-flow-sgos-capability-pack-repository-binding/v2';
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const IDENTIFIER = /^[a-z0-9][a-z0-9._:-]{1,127}$/;
@@ -172,20 +183,144 @@ export function workflowCapabilityPackSelector(workflow) {
   return Object.freeze({ kind: 'signed-declarative', domain: name, packSha256 });
 }
 
-function validateTrustManifest(value) {
-  exactKeys(value, ['format', 'storeId', 'publishers'], 'Capability Pack trust manifest');
-  if (value.format !== SGOS_CAPABILITY_PACK_TRUST_FORMAT || !IDENTIFIER.test(value.storeId)) {
-    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', 'Approved Capability Pack trust manifest is invalid.');
+function validatePublicKeyMap(value, label, { ed25519 = false, required = false } = {}) {
+  if (!plainObject(value) || Object.keys(value).length > 64
+      || (required && Object.keys(value).length === 0)) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', `${label} must be a bounded object${required ? ' with at least one entry' : ''}.`);
   }
-  if (!plainObject(value.publishers) || Object.keys(value.publishers).length > 64) {
-    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', 'Approved Capability Pack publishers must be a bounded object.');
-  }
-  for (const [keyId, publicKeyPem] of Object.entries(value.publishers)) {
-    if (!IDENTIFIER.test(keyId) || typeof publicKeyPem !== 'string' || !publicKeyPem.trim()) {
-      fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', 'Approved Capability Pack publisher entry is invalid.', { keyId });
+  for (const [keyId, publicKeyPem] of Object.entries(value)) {
+    if (!IDENTIFIER.test(keyId) || typeof publicKeyPem !== 'string' || !publicKeyPem.trim()
+        || (ed25519 && publicKeyPem.length > 16 * 1024)) {
+      fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', `${label} entry is invalid.`, { keyId });
+    }
+    if (ed25519) {
+      try {
+        if (/PRIVATE KEY/u.test(publicKeyPem)) throw new Error('private key material is forbidden');
+        const key = createPublicKey(publicKeyPem);
+        if (key.type !== 'public' || key.asymmetricKeyType !== 'ed25519') {
+          throw new Error('key is not an Ed25519 public key');
+        }
+      } catch {
+        fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+          `${label} '${keyId}' must contain an Ed25519 public key and no private key material.`,
+          { keyId });
+      }
     }
   }
+}
+
+function validateTransportRepositoryBinding(value) {
+  exactKeys(value, ['remoteFingerprints', 'offlineRootCommitsSha256'],
+    'Capability Pack transport repository binding');
+  sortedUniqueStrings(value.remoteFingerprints,
+    'Capability Pack transport repository binding.remoteFingerprints');
+  if (value.remoteFingerprints.length > 64
+      || value.remoteFingerprints.some((entry) => !DIGEST.test(entry))) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+      'Capability Pack transport remote fingerprints must be a bounded sorted digest array.');
+  }
+  if (value.offlineRootCommitsSha256 !== null
+      && !DIGEST.test(String(value.offlineRootCommitsSha256 ?? ''))) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+      'Capability Pack transport offline root commits binding must be null or an exact digest.');
+  }
+  if (!value.remoteFingerprints.length && value.offlineRootCommitsSha256 == null) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+      'Capability Pack transport trust must bind at least one remote fingerprint or offline repository root.');
+  }
+}
+
+function validateMinimumAuthority(value) {
+  if (value === null) return;
+  exactKeys(value, ['revision', 'stateSha256', 'exportSha256'],
+    'Capability Pack transport minimum authority');
+  if (!Number.isSafeInteger(value.revision) || value.revision < 0
+      || !DIGEST.test(String(value.stateSha256 ?? ''))
+      || !DIGEST.test(String(value.exportSha256 ?? ''))) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+      'Capability Pack transport minimum authority must contain a non-negative revision and exact state/export digests.');
+  }
+}
+
+/** Validate either the legacy Pack-only trust manifest or the transport-capable v2 policy. */
+export function validateSgosCapabilityPackTrustManifest(value) {
+  if (!plainObject(value)) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', 'Approved Capability Pack trust manifest must be an object.');
+  }
+  if (value.format === SGOS_CAPABILITY_PACK_TRUST_FORMAT) {
+    exactKeys(value, ['format', 'storeId', 'publishers'], 'Capability Pack trust manifest');
+  } else if (value.format === SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2) {
+    exactKeys(value, ['format', 'storeId', 'publishers', 'transport'],
+      'Capability Pack trust manifest');
+  } else {
+    fail('SGOS_CAPABILITY_PACK_TRUST_INVALID', 'Approved Capability Pack trust manifest has an unsupported format.');
+  }
+  if (value.format === SGOS_CAPABILITY_PACK_TRUST_FORMAT) {
+    // v1 is a machine-local compatibility profile. Its already-issued Store IDs used the
+    // platform identifier vocabulary (including `:`), so loading one must not silently become a
+    // transport migration. v2 below is the only profile allowed to cross a machine boundary.
+    if (typeof value.storeId !== 'string' || !IDENTIFIER.test(value.storeId)) {
+      fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+        'Approved legacy Capability Pack trust manifest has an invalid local storeId.');
+    }
+  } else {
+    try { assertPortableAuthorityStoreId(value.storeId); } catch {
+      fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+        'Approved Capability Pack transport trust has a non-portable storeId.');
+    }
+  }
+  // Preserve the v1 publisher contract. Signed Pack verification independently enforces the
+  // algorithm when the key is used, while v2 transport exporters are admitted eagerly below.
+  validatePublicKeyMap(value.publishers, 'Approved Capability Pack publishers');
+  if (value.format === SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2) {
+    exactKeys(value.transport, [
+      'repositoryBinding', 'exporterAuthority', 'exporters', 'minimumAuthority'
+    ],
+      'Capability Pack transport trust');
+    if (value.transport.exporterAuthority !== PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION) {
+      fail('SGOS_CAPABILITY_PACK_TRUST_INVALID',
+        'Capability Pack transport exporters must be explicitly trusted as complete Authority Store snapshot attestors.');
+    }
+    validateTransportRepositoryBinding(value.transport.repositoryBinding);
+    validatePublicKeyMap(value.transport.exporters,
+      'Approved Capability Pack transport exporters', { ed25519: true, required: true });
+    validateMinimumAuthority(value.transport.minimumAuthority);
+  }
   return deepFreeze(structuredClone(value));
+}
+
+/**
+ * Return the path- and credential-free repository fragment required to bootstrap v2 trust.
+ * Raw Git remote URLs are consumed only to derive their canonical digest and never leave this
+ * process; a remote-less repository is bound to its sorted root-commit digest instead.
+ */
+export function sgosCapabilityPackTransportRepositoryBinding(root) {
+  const remoteFingerprint = rawRepositoryRemoteFingerprint(root);
+  return deepFreeze(remoteFingerprint == null ? {
+    remoteFingerprints: [],
+    offlineRootCommitsSha256: offlineRepositoryRootsSha256(root)
+  } : {
+    remoteFingerprints: [remoteFingerprint],
+    offlineRootCommitsSha256: null
+  });
+}
+
+/** Build the complete reviewed-configuration document printed by signer-create. */
+export function createSgosCapabilityPackTransportTrustScaffold({
+  root, storeId, signerKeyId, signerPublicKeyPem, repositoryBinding = null
+}) {
+  return validateSgosCapabilityPackTrustManifest({
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2,
+    storeId,
+    publishers: {},
+    transport: {
+      repositoryBinding: repositoryBinding
+        ?? sgosCapabilityPackTransportRepositoryBinding(root),
+      exporterAuthority: PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION,
+      exporters: { [signerKeyId]: signerPublicKeyPem },
+      minimumAuthority: null
+    }
+  });
 }
 
 export async function sgosCapabilityPackRepositoryBinding(root) {
@@ -222,6 +357,81 @@ export async function sgosCapabilityPackRepositoryBinding(root) {
   return platformSha256({
     format: 'singularity-flow-sgos-capability-pack-repository-binding/v1',
     identity
+  });
+}
+
+function rawRepositoryRemoteFingerprint(root) {
+  const remotesResult = run('git', ['remote'], { cwd: root, allowFailure: true });
+  if (remotesResult.status !== 0) {
+    fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_UNVERIFIED',
+      'Capability Pack transport could not inspect repository remotes.');
+  }
+  const remotes = remotesResult.stdout.split(/\r?\n/u)
+    .map((entry) => entry.trim()).filter(Boolean).sort();
+  if (!remotes.length) return null;
+  const selectedRemote = remotes.includes('origin')
+    ? 'origin'
+    : remotes.length === 1 ? remotes[0] : null;
+  if (selectedRemote == null) {
+    fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_UNVERIFIED',
+      'Capability Pack transport requires an origin remote when multiple remotes are configured.',
+      { remotes });
+  }
+  // Identity must come from the raw repository-local remote configuration. `get-url` applies
+  // machine-local insteadOf rewrites and is therefore a transport selector, not a portable proof.
+  const identity = configuredRemoteIdentity(root, selectedRemote, { direction: 'fetch' });
+  if (!identity.configured || identity.ambiguous || !identity.fingerprint) {
+    fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_UNVERIFIED',
+      'Capability Pack transport requires one unambiguous credential-free fetch URL on the canonical remote.', {
+        remote: selectedRemote,
+        configured: identity.configured,
+        ambiguous: identity.ambiguous
+      });
+  }
+  return `sha256:${identity.fingerprint}`;
+}
+
+function offlineRepositoryRootsSha256(root) {
+  const roots = run('git', ['rev-list', '--max-parents=0', '--all'], {
+    cwd: root, allowFailure: true
+  });
+  const commits = roots.status === 0
+    ? [...new Set(roots.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean))].sort()
+    : [];
+  if (!commits.length || commits.some((entry) => !/^[a-f0-9]{40,64}$/u.test(entry))) {
+    fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_UNVERIFIED',
+      'Remote-less Capability Pack transport requires an established repository root commit.');
+  }
+  return platformSha256(commits);
+}
+
+function assertTransportRepositoryBinding(root, binding) {
+  const remoteFingerprint = rawRepositoryRemoteFingerprint(root);
+  let observedIdentity;
+  if (remoteFingerprint != null) {
+    if (!binding.remoteFingerprints.includes(remoteFingerprint)) {
+      fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_MISMATCH',
+        'Approved Capability Pack transport trust belongs to a different repository remote.', {
+          observedRemoteFingerprint: remoteFingerprint,
+          approvedRemoteFingerprints: binding.remoteFingerprints
+        });
+    }
+    observedIdentity = { kind: 'remote-fingerprint', sha256: remoteFingerprint };
+  } else {
+    const observed = offlineRepositoryRootsSha256(root);
+    if (binding.offlineRootCommitsSha256 == null
+        || binding.offlineRootCommitsSha256 !== observed) {
+      fail('SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_MISMATCH',
+        'Approved Capability Pack transport trust belongs to different offline repository roots.', {
+          observedOfflineRootCommitsSha256: observed,
+          approvedOfflineRootCommitsSha256: binding.offlineRootCommitsSha256
+        });
+    }
+    observedIdentity = { kind: 'offline-root-commits', sha256: observed };
+  }
+  return platformSha256({
+    format: SGOS_CAPABILITY_PACK_REPOSITORY_BINDING_FORMAT_V2,
+    identity: observedIdentity
   });
 }
 
@@ -289,10 +499,107 @@ async function approvedTrustManifest(configurationRoot) {
     }
     throw error;
   }
-  return validateTrustManifest(parsed);
+  return validateSgosCapabilityPackTrustManifest(parsed);
 }
 
-async function localAuthorityStore(root, storeId) {
+/**
+ * Load the exact approved local Pack trust policy without upgrading v1 into transport authority.
+ * Public maintenance commands use this only to admit an already-existing nonportable v1 Store ID;
+ * all v2 transport entry points continue to require the narrower portable identifier contract.
+ */
+export async function loadApprovedSgosCapabilityPackLocalTrust(root, {
+  refreshAuthority = true
+} = {}) {
+  return withTrustedSgosConfigurationRead(root, async (authority) => {
+    if (!authority || authority.kind === 'working-tree' || !authority.ref || !authority.commit) {
+      fail('SGOS_CAPABILITY_PACK_TRUST_UNAVAILABLE',
+        'Legacy Capability Pack Store maintenance requires refreshed approved configuration trust.');
+    }
+    return approvedTrustManifest(configurationReadRoot(root));
+  }, {
+    refreshAuthority,
+    requireFreshRemote: refreshAuthority,
+    selectPaths: ['singularity/workflow.yml', SGOS_CAPABILITY_PACK_TRUST_PATH]
+  });
+}
+
+function configurationAuthorityMetadata(authority, authorityTrust) {
+  const sourceCommit = authority?.kind === 'verified-state-mirror'
+    ? authority.manifest?.source?.commit
+    : authority?.commit;
+  if (!authority?.ref || !/^[a-f0-9]{40,64}$/u.test(String(authority.commit ?? ''))
+      || !/^[a-f0-9]{40,64}$/u.test(String(sourceCommit ?? ''))
+      || !['approved-configuration-ref', 'verified-state-mirror'].includes(authority.kind)) {
+    fail('SGOS_CAPABILITY_PACK_TRUST_UNAVAILABLE',
+      'Capability Pack transport requires an exact approved configuration authority.');
+  }
+  return deepFreeze({
+    kind: authority.kind,
+    ref: authority.ref,
+    commit: authority.commit,
+    sourceCommit,
+    trustMode: authorityTrust?.mode ?? null,
+    workspaceId: authorityTrust?.workspaceId ?? null,
+    repositoryId: authorityTrust?.repositoryId ?? null
+  });
+}
+
+/**
+ * Load the transport-capable trust policy from one freshly verified approved configuration view.
+ * The returned repository binding is a digest-only policy identity; raw URLs and local paths are
+ * never exposed or made part of a portable authority bundle.
+ */
+export async function loadApprovedSgosCapabilityPackTransportTrust(root, {
+  refreshAuthority = true
+} = {}) {
+  return withTrustedSgosConfigurationRead(root, async (authority, authorityTrust) => {
+    const configurationAuthority = configurationAuthorityMetadata(authority, authorityTrust);
+    const manifest = await approvedTrustManifest(configurationReadRoot(root));
+    if (manifest.format !== SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2) {
+      fail('SGOS_CAPABILITY_PACK_TRANSPORT_TRUST_REQUIRED',
+        `Approved configuration must upgrade '${SGOS_CAPABILITY_PACK_TRUST_PATH}' to ${SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2} before authority export or import.`);
+    }
+    const repositoryBindingSha256 = assertTransportRepositoryBinding(
+      root, manifest.transport.repositoryBinding
+    );
+    return deepFreeze({
+      storeId: manifest.storeId,
+      publishers: manifest.publishers,
+      exporters: manifest.transport.exporters,
+      exporterAuthority: manifest.transport.exporterAuthority,
+      minimumAuthority: manifest.transport.minimumAuthority,
+      repositoryBindingSha256,
+      // Freshness advances independently after an export is signed. Excluding the checkpoint from
+      // this stable trust-policy digest avoids an impossible self-reference where a bundle would
+      // need to sign the digest of configuration that already names that bundle's own digest.
+      policySha256: platformSha256({
+        format: manifest.format,
+        storeId: manifest.storeId,
+        publishers: manifest.publishers,
+        repositoryBinding: manifest.transport.repositoryBinding,
+        exporterAuthority: manifest.transport.exporterAuthority,
+        exporters: manifest.transport.exporters
+      }),
+      authorityContextSha256: platformSha256({
+        format: manifest.format,
+        storeId: manifest.storeId,
+        publishers: manifest.publishers,
+        repositoryBindingSha256,
+        exporterAuthority: manifest.transport.exporterAuthority,
+        exporters: manifest.transport.exporters,
+        minimumAuthority: manifest.transport.minimumAuthority,
+        configurationAuthority
+      }),
+      configurationAuthority
+    });
+  }, {
+    refreshAuthority,
+    requireFreshRemote: refreshAuthority,
+    selectPaths: ['singularity/workflow.yml', SGOS_CAPABILITY_PACK_TRUST_PATH]
+  });
+}
+
+async function localAuthorityStore(root, storeId, { allowLegacyStoreId = false } = {}) {
   const common = await realpath(gitCommonDir(root));
   let authorityRoot = common;
   for (const segment of ['singularity-flow', 'sgos', 'platform-authority', storeId]) {
@@ -327,12 +634,14 @@ async function localAuthorityStore(root, storeId) {
         portability: 'machine-local-authority-store-not-transported-by-approved-configuration'
       });
   }
-  return openFilesystemAuthorityStore({ root: authorityRoot, storeId });
+  return openFilesystemAuthorityStore({ root: authorityRoot, storeId, allowLegacyStoreId });
 }
 
 async function resolveMountedSignedSelection(root, selector, configurationRoot) {
   const trust = await approvedTrustManifest(configurationRoot);
-  const store = await localAuthorityStore(root, trust.storeId);
+  const store = await localAuthorityStore(root, trust.storeId, {
+    allowLegacyStoreId: trust.format === SGOS_CAPABILITY_PACK_TRUST_FORMAT
+  });
   const registry = createCapabilityPackRegistry({
     authorityStore: store,
     trustedPublishers: trust.publishers,

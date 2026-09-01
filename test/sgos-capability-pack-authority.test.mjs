@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import {
   lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile
 } from 'node:fs/promises';
@@ -14,9 +14,12 @@ import { initializeDefinition } from '../src/config.mjs';
 import {
   SGOS_BUILTIN_CORE_CAPABILITY_PACK_AUTHORITY,
   SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+  SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2,
   SGOS_CAPABILITY_PACK_TRUST_PATH,
   capabilityPackAuthoritiesForCompilation,
+  loadApprovedSgosCapabilityPackTransportTrust,
   sgosCapabilityPackRepositoryBinding,
+  validateSgosCapabilityPackTrustManifest,
   verifySgosCapabilityPackAuthorities
 } from '../src/sgos/capability-pack-authority.mjs';
 import {
@@ -115,6 +118,40 @@ async function repository(t, {
     repositoryRoot: root
   });
   return { root, store, registry, publisher, storeId };
+}
+
+function rawRemoteFingerprint(remote) {
+  return `sha256:${createHash('sha256').update(remote).digest('hex')}`;
+}
+
+function offlineRootCommitsSha256(root) {
+  const commits = git(root, 'rev-list', '--max-parents=0', '--all')
+    .split(/\r?\n/u).filter(Boolean).sort();
+  return platformSha256(commits);
+}
+
+async function approveTransportTrust(fixture, {
+  repositoryBinding,
+  exporter = keyPair(),
+  minimumAuthority = null
+}) {
+  const manifest = {
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2,
+    storeId: fixture.storeId,
+    publishers: { 'publisher-a': fixture.publisher.publicKeyPem },
+    transport: {
+      repositoryBinding,
+      exporterAuthority: 'full-authority-store-snapshot',
+      exporters: { 'exporter-a': exporter.publicKeyPem },
+      minimumAuthority
+    }
+  };
+  await writeFile(path.join(fixture.root, SGOS_CAPABILITY_PACK_TRUST_PATH),
+    `${JSON.stringify(manifest)}\n`);
+  git(fixture.root, 'add', SGOS_CAPABILITY_PACK_TRUST_PATH);
+  git(fixture.root, 'commit', '-m', 'approve portable Pack authority');
+  git(fixture.root, 'branch', '-f', 'sflow/config', 'HEAD');
+  return { manifest, exporter };
 }
 
 async function activatePack(fixture, {
@@ -472,6 +509,184 @@ test('repository binding is path-independent, credential-free, and rejects anoth
   assert.notEqual(await sgosCapabilityPackRepositoryBinding(first),
     await sgosCapabilityPackRepositoryBinding(other));
   assert.doesNotMatch(await sgosCapabilityPackRepositoryBinding(first), /example|acme|service/);
+});
+
+test('v2 transport trust loads from approved offline authority with exact policy and minimum state', async (t) => {
+  const fixture = await repository(t);
+  const minimumAuthority = {
+    revision: 7,
+    stateSha256: platformSha256('minimum-state'),
+    exportSha256: platformSha256('minimum-export')
+  };
+  const approved = await approveTransportTrust(fixture, {
+    repositoryBinding: {
+      remoteFingerprints: [],
+      offlineRootCommitsSha256: offlineRootCommitsSha256(fixture.root)
+    },
+    minimumAuthority
+  });
+  const loaded = await loadApprovedSgosCapabilityPackTransportTrust(fixture.root, {
+    refreshAuthority: false
+  });
+  assert.equal(loaded.storeId, fixture.storeId);
+  assert.deepEqual(loaded.publishers, approved.manifest.publishers);
+  assert.deepEqual(loaded.exporters, approved.manifest.transport.exporters);
+  assert.equal(loaded.exporterAuthority, 'full-authority-store-snapshot');
+  assert.deepEqual(loaded.minimumAuthority, minimumAuthority);
+  assert.equal(loaded.policySha256, platformSha256({
+    format: approved.manifest.format,
+    storeId: approved.manifest.storeId,
+    publishers: approved.manifest.publishers,
+    repositoryBinding: approved.manifest.transport.repositoryBinding,
+    exporterAuthority: approved.manifest.transport.exporterAuthority,
+    exporters: approved.manifest.transport.exporters
+  }));
+  assert.equal(loaded.repositoryBindingSha256, platformSha256({
+    format: 'singularity-flow-sgos-capability-pack-repository-binding/v2',
+    identity: {
+      kind: 'offline-root-commits',
+      sha256: approved.manifest.transport.repositoryBinding.offlineRootCommitsSha256
+    }
+  }));
+  assert.match(loaded.authorityContextSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.deepEqual(loaded.configurationAuthority, {
+    kind: 'approved-configuration-ref',
+    ref: 'refs/heads/sflow/config',
+    commit: git(fixture.root, 'rev-parse', 'sflow/config'),
+    sourceCommit: git(fixture.root, 'rev-parse', 'sflow/config'),
+    trustMode: 'offline-local-head-authority',
+    workspaceId: null,
+    repositoryId: null
+  });
+  assert.equal(Object.isFrozen(loaded), true);
+  assert.equal(Object.isFrozen(loaded.exporters), true);
+  assert.doesNotMatch(JSON.stringify({
+    repositoryBindingSha256: loaded.repositoryBindingSha256,
+    policySha256: loaded.policySha256
+  }), new RegExp(fixture.root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'u'));
+});
+
+test('v2 transport trust binds the raw configured remote and refuses another repository', async (t) => {
+  const fixture = await repository(t);
+  const remote = 'https://example.test/acme/portable-authority.git';
+  await approveTransportTrust(fixture, {
+    repositoryBinding: {
+      remoteFingerprints: [rawRemoteFingerprint(remote)],
+      offlineRootCommitsSha256: null
+    }
+  });
+  git(fixture.root, 'remote', 'add', 'origin', remote);
+  git(fixture.root, 'update-ref', 'refs/remotes/origin/sflow/config', 'HEAD');
+  // A machine-local rewrite changes `git remote get-url`, but not the reviewed raw repository
+  // identity. Transport authority must remain stable across that machine-local optimization.
+  git(fixture.root, 'config', '--local',
+    'url.https://mirror.example.test/cache/.insteadOf', 'https://example.test/acme/');
+  const loaded = await loadApprovedSgosCapabilityPackTransportTrust(fixture.root, {
+    refreshAuthority: false
+  });
+  assert.match(loaded.repositoryBindingSha256, /^sha256:[a-f0-9]{64}$/u);
+
+  git(fixture.root, 'remote', 'set-url', 'origin',
+    'https://example.test/acme/different-authority.git');
+  await assert.rejects(
+    () => loadApprovedSgosCapabilityPackTransportTrust(fixture.root, {
+      refreshAuthority: false
+    }),
+    (error) => error.code === 'SGOS_CAPABILITY_PACK_TRANSPORT_REPOSITORY_MISMATCH'
+  );
+});
+
+test('v2 transport binding selects the observed repository from a shared approved allow-list', async (t) => {
+  const first = await repository(t);
+  const second = await repository(t);
+  const exporter = keyPair();
+  const firstRemote = 'https://example.test/acme/portable-first.git';
+  const secondRemote = 'https://example.test/acme/portable-second.git';
+  const remoteFingerprints = [
+    rawRemoteFingerprint(firstRemote), rawRemoteFingerprint(secondRemote)
+  ].sort();
+  for (const [fixture, remote] of [[first, firstRemote], [second, secondRemote]]) {
+    await approveTransportTrust(fixture, {
+      exporter,
+      repositoryBinding: { remoteFingerprints, offlineRootCommitsSha256: null }
+    });
+    git(fixture.root, 'remote', 'add', 'origin', remote);
+    git(fixture.root, 'update-ref', 'refs/remotes/origin/sflow/config', 'HEAD');
+  }
+  const [firstTrust, secondTrust] = await Promise.all([
+    loadApprovedSgosCapabilityPackTransportTrust(first.root, { refreshAuthority: false }),
+    loadApprovedSgosCapabilityPackTransportTrust(second.root, { refreshAuthority: false })
+  ]);
+  assert.notEqual(firstTrust.repositoryBindingSha256, secondTrust.repositoryBindingSha256);
+});
+
+test('v2 transport trust rejects counterfeit exporters and malformed downgrade policies', async () => {
+  const exporter = keyPair();
+  const base = {
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2,
+    storeId: 'pack-authority',
+    publishers: {},
+    transport: {
+      repositoryBinding: {
+        remoteFingerprints: [platformSha256('repository')],
+        offlineRootCommitsSha256: null
+      },
+      exporterAuthority: 'full-authority-store-snapshot',
+      exporters: { 'exporter-a': exporter.publicKeyPem },
+      minimumAuthority: null
+    }
+  };
+  assert.deepEqual(validateSgosCapabilityPackTrustManifest(base), base);
+  assert.deepEqual(validateSgosCapabilityPackTrustManifest({
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+    storeId: 'pack:authority',
+    publishers: {}
+  }), {
+    format: SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+    storeId: 'pack:authority',
+    publishers: {}
+  });
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    storeId: 'pack:authority'
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_TRUST_INVALID');
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    transport: {
+      repositoryBinding: base.transport.repositoryBinding,
+      exporters: base.transport.exporters,
+      minimumAuthority: null
+    }
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_AUTHORITY_INVALID');
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    transport: { ...base.transport, exporterAuthority: 'transport-only' }
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_TRUST_INVALID');
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    transport: {
+      ...base.transport,
+      exporters: { 'exporter-a': exporter.privateKeyPem }
+    }
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_TRUST_INVALID');
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    transport: {
+      ...base.transport,
+      repositoryBinding: { remoteFingerprints: [], offlineRootCommitsSha256: null }
+    }
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_TRUST_INVALID');
+  assert.throws(() => validateSgosCapabilityPackTrustManifest({
+    ...base,
+    transport: {
+      ...base.transport,
+      minimumAuthority: {
+        revision: 1,
+        stateSha256: platformSha256('state'),
+        exportSha256: 'sha256:not-a-digest'
+      }
+    }
+  }), (error) => error.code === 'SGOS_CAPABILITY_PACK_TRUST_INVALID');
 });
 
 test('trust manifest and local Authority Store paths fail closed without traversal or initialization', async (t) => {

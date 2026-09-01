@@ -2929,7 +2929,13 @@ singularity-flow request respond <REQUEST-ID> --process <PROCESS-ID>
 singularity-flow candidate list|show|freeze|verify|publish|diff-argv ...
 singularity-flow execution-unit list|doctor [UNIT-ID] [--json]
 singularity-flow device list|doctor|invoke|recover|intent|result|revoke ...
-singularity-flow authority-store init|status|verify|recover [--store ID] [--json]
+singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm RECOVERY-PLAN-SHA256] [--json]
+singularity-flow authority-store signer-create --signer KEY-ID [--store ID] [--json]
+singularity-flow authority-store export --out REPOSITORY-FILE --signer KEY-ID [--store ID] [--json]
+singularity-flow authority-store inspect|import REPOSITORY-FILE [--store ID] [--confirm IMPORT-PLAN-SHA256] [--json]
+singularity-flow authority-store rollback --receipt CUTOVER-SHA256 [--store ID] [--confirm ROLLBACK-PLAN-SHA256] [--json]
+# Transport trust is read only from approved singularity/sgos/capability-pack-trust.json v2.
+# Import and rollback preview first and never merge or silently rewind authority history.
 singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust PUBLIC-TRUST.json
 singularity-flow learn list|show [LESSON-ID] --role ROLE [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]
 singularity-flow learn start|inspect LESSON-ID --role ROLE --module LEARNING-MODULE.json [--pack PACK-ID] --trust PUBLIC-TRUST.json [--json]

@@ -36,9 +36,16 @@ Every public operation is classified before its implementation module is importe
 | approve | mutation | never | — | — |
 | artifact | mutation | never | — | — |
 | assign | mutation | never | — | — |
+| authority-store.export | mutation | never | — | — |
+| authority-store.import | mutation | never | — | — |
+| authority-store.import.plan | read | never | — | — |
 | authority-store.init | mutation | never | — | — |
+| authority-store.inspect | read | never | — | — |
 | authority-store.recover | mutation | never | — | — |
 | authority-store.recover.plan | read | never | — | — |
+| authority-store.rollback | mutation | never | — | — |
+| authority-store.rollback.plan | read | never | — | — |
+| authority-store.signer-create | mutation | never | — | — |
 | authority-store.status | read | never | — | — |
 | authority-store.verify | read | never | — | — |
 | auto.adopt | read | never | — | — |

@@ -120,7 +120,12 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
     init: optionSet(...STORE),
     status: optionSet(...STORE),
     verify: optionSet(...STORE),
-    recover: optionSet(...STORE, 'confirm')
+    recover: optionSet(...STORE, 'confirm'),
+    'signer-create': optionSet(...STORE, 'signer'),
+    export: optionSet(...STORE, 'out', 'signer'),
+    inspect: optionSet(...STORE),
+    import: optionSet(...STORE, 'confirm'),
+    rollback: optionSet(...STORE, 'receipt', 'confirm')
   }),
   pack: Object.freeze({
     list: optionSet(...PACK_READ),
@@ -180,10 +185,11 @@ export function validateSgosCliOptions(command, action, options = {}) {
   }
   const supportsOutput = (command === 'intent' && [
     'capture', 'packet', 'confirm', 'workflow', 'ratification-packet', 'ratify', 'compile'
-  ].includes(action)) || (command === 'evidence' && action === 'export');
+  ].includes(action)) || (command === 'evidence' && action === 'export')
+    || (command === 'authority-store' && action === 'export');
   if (Object.hasOwn(options, 'out') && !supportsOutput) {
     throw new SingularityFlowError(
-      `--out is not supported by ${command}.${action}; it is available only for Intent record authoring and Process Evidence export commands.`,
+      `--out is not supported by ${command}.${action}; it is available only for Intent record authoring, Process Evidence export, and signed Authority Store export.`,
       { code: 'SGOS_OUTPUT_NOT_SUPPORTED', details: { operation: `${command}.${action}` } }
     );
   }

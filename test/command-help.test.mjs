@@ -143,6 +143,19 @@ test('learn help exposes only digest-bound descriptor missions and non-authorita
   assert.match(page, /not semantic understanding or certification/);
 });
 
+test('Authority Store and Pack help expose the signed portable boundary without overclaiming it', () => {
+  const authority = renderCommandHelp('authority-store');
+  assert.match(authority, /minimum revision\/state\/export checkpoint/);
+  assert.match(authority, /strictly fast-forward/);
+  assert.match(authority, /Capability Pack proposal, review,\s+activation, and revocation history/);
+  assert.match(authority, /Windows supports inspect and import/);
+  assert.match(authority, /signer-create and export fail closed/);
+
+  const pack = renderCommandHelp('pack');
+  assert.match(pack, /not a separate copy command/);
+  assert.match(pack, /immutable event lineage/);
+});
+
 test('the synopsis comes from the usage listing, not the worked example', () => {
   // `Typical flow:` at the end of the overview contains real invocations. Scanning the whole
   // document pulled one of them into `start`'s synopsis as though it were a distinct form.

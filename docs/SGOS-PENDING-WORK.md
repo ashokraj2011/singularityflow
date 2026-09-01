@@ -5,6 +5,10 @@ not a list of known regressions in the shipped bounded runtime. The baseline at 
 `main@adbb2079` on 2026-08-30; that baseline passed all 335 SGOS tests and the repository's 1,029
 static checks.
 
+The universal Candidate implementation checkpoint is `main@cb278ca6` on 2026-09-01. Its local
+full suite passed 3,974 tests and repository conformance passed 1,215 checks. Those results are not
+a substitute for the signed supported-platform release aggregate required below.
+
 ## Status rules
 
 - `[ ]` means the capability remains unavailable or behind an explicit refusal boundary.
@@ -27,9 +31,24 @@ static checks.
 
 ## P0 — release and portability
 
-### [ ] SGOS-P0-001 — Universal Candidate publication
+### [~] SGOS-P0-001 — Universal Candidate publication
 
 Route every existing lifecycle publication through the reviewed Candidate execution boundary.
+
+- **Owner:** Codex Candidate remediation
+- **Branch:** `main`
+- **Started:** 2026-09-01
+- **Implementation commit:** `cb278ca6`
+- **Target:** next `0.9.x` release after signed platform proof
+
+Story, Initiative, ad hoc landing, governed Goal, Initiative child-Story materialization, Epic
+reservation, capability sibling publication, and direct Story promotion now use verified exact
+Candidates. Candidate identity binds the normalized lifecycle event, retained commit and tree,
+verification profile and receipt, governed commit trailers, state digest, journal, and pending
+recovery marker. V2 recovery records are authenticated before migration and remain explicitly
+exact-but-unverified rather than receiving invented assurance. Push and ref races recover only the
+retained Candidate; an equal competing ref is not accepted without a sealed transport-indeterminate
+attempt.
 
 Acceptance gates:
 
@@ -40,6 +59,10 @@ Acceptance gates:
 - no parallel publication authority remains outside the Candidate boundary.
 
 Depends on: existing Candidate freeze, verify, and publish primitives.
+
+The code-local gates above are implemented. Before `[x]`, the final clean commit still requires the
+repository's signed macOS/Linux/Windows by Node 20/22 verification aggregate and exact npm/VSIX
+artifact binding. Local macOS/Node 25 runs and simulated Windows process tests are not release cells.
 
 ### [ ] SGOS-P0-002 — Live working-set and Secret Broker integration
 

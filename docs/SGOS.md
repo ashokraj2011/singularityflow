@@ -2,7 +2,8 @@
 
 SGOS is the additive execution layer that turns confirmed intent into a finite, content-addressed
 program. It does not replace the existing Story lifecycle. Story `workflow.json`, phase publication,
-submission, approval, and Git publication remain the authority for existing work.
+submission, and approval remain the authority for existing work; supported lifecycle publishers
+delegate their Git mutation to the shared Candidate boundary.
 
 ## What this release implements
 
@@ -58,9 +59,12 @@ It provides:
 
 The same build also contains separately bounded extension profiles:
 
-- a Git-backed Candidate lifecycle that freezes one exact tree behind a retained ref, verifies it
-  in an isolated worktree, and publishes only the exact confirmation-bound commit. Verifier
-  commands and timeout come only from the exact approved
+- a Git-backed Candidate publication boundary used by the supported Story, Initiative, ad hoc,
+  Goal, Epic, capability, and direct-promotion lifecycle surfaces. Automatic lifecycle verification
+  proves the exact prospective Git-object tree without checkout hooks, filters, or model work, and
+  binds its lifecycle event, verification receipt, commit trailers, journal, and recovery marker.
+  Explicit standalone `candidate verify` remains the isolated-worktree path for approved verifier
+  commands. Those commands and their timeout come only from the exact approved
   `singularity/sgos/candidate-verifier-policy.json` record on `sflow/config` (or its verified state
   mirror). Legacy command-line verifier inputs remain compatibility assertions only: they must
   equal the approved policy exactly and cannot select different authority. Verification receipts
@@ -131,7 +135,10 @@ Candidate publication treats branch ref advancement and index alignment as two r
 boundaries. A retry after the ref advances first proves that the worktree still equals the exact
 verified Candidate, idempotently aligns the index to that tree, verifies clean HEAD/index/worktree
 identity, and only then writes the publication receipt. It never resets or overwrites a divergent
-worktree during recovery.
+worktree during recovery. A same-valued competing remote ref is not inferred to be this transaction's
+success unless the local compare-and-swap completed or a sealed transport-indeterminate attempt binds
+that exact Candidate. Authenticated legacy recovery remains exact-only and never receives invented
+verification assurance.
 
 The Candidate verifier policy is a strict, content-addressed JSON record. It declares
 `format: sflow.sgos.candidate-verifier-policy/v1`, one canonical `policyId`, `decision: approved`,
@@ -351,7 +358,8 @@ tracked in [SGOS-PENDING-WORK.md](SGOS-PENDING-WORK.md):
   complete independent conformance/counterfeit-model programs;
 - dynamic or nested fan-out, quorum/reducer/manual-reconcile joins, general idempotent effect replay,
   non-genesis fork import, and consequential-effect task retry;
-- Candidate execution as the universal publication path for every existing lifecycle;
+- universal Candidate routing is implemented for the supported lifecycle surfaces; its
+  cross-platform signed release promotion remains tracked as `SGOS-P0-001`;
 - automatic working-set injection into live Agent executions, Secret Broker integration with real
   external adapters, garbage-collection plans, and portable Authority Store migration/cutover;
 - a general Authority Store SPI and an alternate Operational Store; the filesystem Authority Store

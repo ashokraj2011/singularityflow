@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 11
+version: 12
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -58,6 +58,20 @@ its reviewed active selection from approved publisher trust and this repository'
 Authority Store; Process admission revalidates that same selection before mutation. Configuration
 does not transport the store, so a missing office-machine store fails closed with a portability
 diagnostic instead of silently falling back to core or another Pack.
+
+## Lifecycle publication boundary
+
+Candidate handling is automatic for supported Story, Initiative, ad hoc, Goal, Epic, capability,
+and direct Story-promotion publications. It is not a second user workflow. Before the lifecycle can
+create a governed commit, SFlow freezes the exact prospective Git tree, admits protected paths and
+secrets, verifies the normalized lifecycle event, retains the Candidate, and binds its commit,
+tree, verification receipt, trailers, journal, and pending recovery record.
+
+If publication is interrupted, recovery reuses that retained Candidate rather than current `HEAD`
+or newly edited worktree bytes. An equal competing remote ref is not treated as success unless this
+transaction completed its local compare-and-swap or recorded a sealed transport-indeterminate
+attempt. Authenticated legacy pending records remain recoverable as exact-but-unverified history;
+SFlow never invents Candidate verification for them.
 
 ## Use it from each surface
 

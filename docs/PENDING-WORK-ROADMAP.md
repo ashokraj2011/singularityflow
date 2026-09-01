@@ -1,19 +1,21 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** master tracker; performance implementation landed, acceptance work remains active
+**Status:** master tracker; Candidate and office-Git implementation landed, release evidence remains active
 
-**Baseline:** `main@96bb55f8`
+**Baseline:** `main@cb278ca6`
 
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-01
 
 This is the one-page control plane for deliberately deferred product work. It does not replace the
 detailed domain roadmaps and it does not authorize implementation. It names the current boundary,
 the next eligible increment, and the source document that owns each acceptance contract.
 
-The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb55f8`. Its code,
-regressions, npm dry-run, and VSIX package are verified. Items remain `[~]`, not complete, wherever
-their contract still requires a pinned release baseline, real VS Code hosts, office-network proof,
-or live Windows/macOS process and credential-helper evidence.
+The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb55f8`. Universal
+Candidate publication and the next office-Git hardening slice landed on 2026-09-01 at
+`main@cb278ca6`. Their local regressions, npm dry-run, and VSIX package are verified. Items remain
+`[~]`, not complete, wherever their contract still requires a pinned release baseline, real VS Code
+hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
+credential-helper evidence.
 
 ## Status rules
 
@@ -31,8 +33,9 @@ or live Windows/macOS process and credential-helper evidence.
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Developer-experience performance | Hot paths remediated at `96bb55f8`; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
-| SGOS | Bounded runtime shipped; universal Candidate publication and portable authority remain staged | `SGOS-P0-001` | [SGOS pending work](SGOS-PENDING-WORK.md) |
+| Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
+| SGOS | Universal Candidate publication is code-complete; signed release proof and portable authority remain open | Finish `SGOS-P0-001` release proof, then `SGOS-P0-003` | [SGOS pending work](SGOS-PENDING-WORK.md) |
+| World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Observe-only baseline shipped; exact/authenticated testcase claims and enforcement are unavailable | `WEL-P0-001` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | Corrected design only; implementation is not authorized | `CAB-R0` design alignment | [CAB roadmap](CAB-ROADMAP.md) |
 
@@ -54,6 +57,36 @@ Parallel work is allowed only where the detailed items do not share the same act
 transport, or benchmark contracts.
 
 ## Developer-experience performance work
+
+### 2026-09-01 Candidate and office-Git checkpoint
+
+This checkpoint is implemented at `main@cb278ca6` and remains `[~]` until its external release
+evidence is recorded.
+
+- **Owner:** Codex reliability and Candidate remediation
+- **Branch:** `main`
+- **Started:** 2026-09-01
+- **Implementation commit:** `cb278ca6`
+- **Target:** next `0.9.x` release after the supported-platform gates pass
+
+| Scope | Code-local outcome at `cb278ca6` | Remaining evidence before `[x]` |
+|---|---|---|
+| `DXP-P0-004` | One reusable sanitized enterprise Git environment preserves reviewed proxy, CA, TLS backend, and credential-helper behavior; endpoint binding and diagnostics remain credential-free | Live Windows GCM/Git Bash, macOS helper, and office proxy/CA exercises |
+| `DXP-P0-005` | Interactive onboarding and configuration refresh use the bounded async process-tree supervisor and stable failure taxonomy | Migrate the remaining legacy synchronous recovery/ledger/configuration remote helpers; collect live POSIX and Windows descendant-cleanup receipts |
+| `DXP-P0-006` | One partial-clone classifier retries only explicit filter rejection, recognizes ignored filters, and prevents double clone | Live provider exercises for filter rejection and filter ignored, with stage and transfer evidence |
+| `SGOS-P0-001` | Supported lifecycle publishers route through exact retained Candidate verification, commit binding, and recoverable publication | Signed supported-platform aggregate and artifact binding for the final release commit |
+
+Local development evidence for this checkpoint:
+
+- full suite: 3,974 tests passed;
+- affected-regression suite: 149 tests passed, in addition to the 435-test Candidate/Git focused run;
+- model-free boundary: 7 tests passed;
+- repository conformance: 1,215 checks passed;
+- VS Code TypeScript compilation passed;
+- npm dry package: 1,018 files, 3.2 MB packed, 12.5 MB unpacked;
+- VSIX: 2,075 files, 6.77 MB.
+
+These are local macOS arm64/Node 25 development results. They are not signed release-matrix cells.
 
 ### 2026-08-30 implementation checkpoint
 
@@ -90,6 +123,21 @@ Local verification attached to the checkpoint:
   `snapshotUi` p50/p95 377.9/462.9 ms with subprocess growth 1.00x.
 
 The last line is useful local evidence, not an accepted reference baseline.
+
+## Cross-platform release evidence
+
+### [~] WMB-REL-001 — Signed supported-platform release matrix
+
+- **Owner:** release engineering
+- **Branch:** `main`
+- **Started:** 2026-09-01
+- **Implementation anchor:** `main@89ee3a4f`
+- **Target:** the release that promotes WMB v4
+
+The receipt generator, merger, artifact binding, and release refusal gate are implemented. Completion
+requires clean-checkout signed receipts for macOS, Linux, and Windows on Node 20 and Node 22, one
+reviewed aggregate over the same final commit and tree, and one selected npm/VSIX artifact receipt.
+Local Node 25 runs and simulated platform tests satisfy none of those six cells.
 
 ### Pre-remediation audit baseline
 

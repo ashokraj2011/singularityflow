@@ -323,6 +323,11 @@ individually signed clean-checkout receipts for macOS, Linux, and Windows on Nod
 merged and reviewed into one signed aggregate for the exact commit. One explicitly selected
 artifact receipt binds the npm/VSIX bytes promoted by the release.
 
+**Evidence status — pending as of 2026-09-01.** The receipt generator, merger, verifier, and release
+gate are implemented, but no reviewed six-cell aggregate is recorded for the current final release
+commit. Local Node 25 validation and simulated platform tests satisfy none of the required Node
+20/22 cells.
+
 ```bash
 npm run verification:receipt -- --signing-key runner.pem --out darwin-node20.json
 # Repeat on each required host/runtime, then on the release verifier machine:

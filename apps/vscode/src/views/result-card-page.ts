@@ -49,6 +49,22 @@ export const RESULT_CARD_STYLE = `
   font-size: .78em; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .sf-fault-title { font-weight: 600; overflow-wrap: anywhere; }
 .sf-fault-summary { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.sf-auto-cards { display:grid; gap:9px; }
+.sf-auto-card { display:grid; gap:7px; padding:11px 12px; border:1px solid var(--vscode-panel-border); border-radius:6px; }
+.sf-auto-card-needs-you, .sf-auto-card-refusal, .sf-auto-card-unavailable { border-left:3px solid var(--vscode-editorWarning-foreground); }
+.sf-auto-card-running { border-left:3px solid var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.sf-auto-card h4, .sf-auto-card p { margin:0; }
+.sf-auto-details { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:6px; }
+.sf-auto-details span { display:grid; gap:2px; color:var(--vscode-descriptionForeground); font-size:.84em; }
+.sf-auto-details strong { color:var(--vscode-foreground); font-weight:500; overflow-wrap:anywhere; }
+.sf-auto-command { margin:0; padding:7px; user-select:text; overflow-x:auto; background:var(--vscode-textCodeBlock-background); border-radius:4px; }
+.sf-auto-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.sf-auto-action { display:grid; gap:4px; min-width:min(100%,220px); }
+.sf-auto-action code { color:var(--vscode-descriptionForeground); font-size:.78em; overflow-wrap:anywhere; user-select:text; }
+.sf-auto-actions button { font:inherit; padding:5px 12px; border-radius:3px; cursor:pointer;
+  text-align:left; background:transparent; color:var(--vscode-foreground);
+  border:1px solid var(--vscode-panel-border); }
+.sf-auto-actions button:hover { background:var(--vscode-list-hoverBackground); }
 .sf-rail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; padding: 0; list-style: none;
   font-size: .92em; color: var(--vscode-descriptionForeground); }
 .sf-rail li { display: flex; align-items: center; gap: 5px; }
@@ -383,6 +399,22 @@ function faultsHtml(view: ResultCardView): string {
     </article>`).join('')}</section>`;
 }
 
+function autoHtml(view: ResultCardView): string {
+  if (!view.auto.length) return '';
+  return `<section class="sf-auto-cards" aria-label="Auto work">${view.auto.map((card) => `
+    <article class="sf-auto-card sf-auto-card-${escape(card.kind)}">
+      <h4>${escape(card.title)}</h4>
+      ${card.status ? `<p>${escape(card.status)}</p>` : ''}
+      ${card.details.length ? `<div class="sf-auto-details">${card.details.map((entry) =>
+        `<span>${escape(entry.label)}<strong>${escape(entry.value)}</strong></span>`).join('')}</div>` : ''}
+      ${card.actions.length ? `<div class="sf-auto-actions">${card.actions.map((action) => `
+        <span class="sf-auto-action">
+          <button type="button" data-auto-action-id="${escape(action.id)}">${escape(action.label)}</button>
+          <code>${escape(action.command)}</code>
+        </span>`).join('')}</div>` : ''}
+    </article>`).join('')}</section>`;
+}
+
 function flightPlanHtml(view: ResultCardView): string {
   const plan = view.flightPlan;
   if (!plan) return '';
@@ -554,7 +586,7 @@ export function resultCardHtml(view: ResultCardView, { now = Date.now() }: { now
   return `<section class="sf-card sf-card-${view.tone}">
     ${view.replyName ? `<p class="sf-card-greeting">Hello, ${escape(view.replyName)}.</p>` : ''}
     <h3>${icon(view.tone === 'refusal' ? 'statusBlocked' : 'statusCurrent')} ${escape(view.headline)}</h3>
-    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${flightPlanHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
+    ${railHtml(view)}${receiptHtml(view)}${sinceHtml(view, now)}${guidanceHtml(view)}${autoHtml(view)}${flightPlanHtml(view)}${faultsHtml(view)}${why}${warnings}${gates}${preserved}${actions}${rest}${details}
   </section>`;
 }
 
@@ -595,7 +627,11 @@ document.addEventListener('click', (event) => {
     return;
   }
   const button = event.target instanceof Element ? event.target.closest('[data-action-id]') : null;
-  if (!button) return;
-  vscode.postMessage({ type: 'sflow.action', actionId: button.getAttribute('data-action-id') });
+  if (button) {
+    vscode.postMessage({ type: 'sflow.action', actionId: button.getAttribute('data-action-id') });
+    return;
+  }
+  const auto = event.target instanceof Element ? event.target.closest('[data-auto-action-id]') : null;
+  if (auto) vscode.postMessage({ type: 'sflow.auto.action', actionId: auto.getAttribute('data-auto-action-id') });
 });
 `;

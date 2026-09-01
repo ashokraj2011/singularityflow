@@ -103,6 +103,19 @@ test('retained hidden panels ignore loading and render the latest snapshot once 
   assert.deepEqual(rendered, [1, 101]);
 });
 
+test('retained panels render only when their subscribed snapshot slice changed', () => {
+  const rendered = [];
+  const gate = new RetainedPanelRenderGate(() => true, () => rendered.push('render'), ['configuration']);
+
+  gate.changed('snapshot', ['lifecycle']);
+  gate.changed('snapshot', []);
+  assert.deepEqual(rendered, [], 'an exact unrelated or unchanged slice must not replace the panel DOM');
+  gate.changed('snapshot', ['repository', 'configuration']);
+  assert.deepEqual(rendered, ['render']);
+  gate.changed('error', []);
+  assert.deepEqual(rendered, ['render', 'render'], 'errors remain visible regardless of slice filtering');
+});
+
 test('sidebar and configuration validation route their hot paths through the coalescers', async () => {
   const [sidebar, lifecycle, validation] = await Promise.all([
     readFile(source('views/sidebar.ts'), 'utf8'),
@@ -134,6 +147,8 @@ test('leased heavyweight panels gate snapshot-driven rendering while hidden', as
       `${file} can repaint after it has been disposed`);
     assert.match(content, /snapshotRenders\.rendered\(\)/,
       `${file} can duplicate a direct render when the reveal event consumes pending state`);
+    assert.match(content, /change\.changedSlices/,
+      `${file} does not subscribe to the exact changed snapshot slices`);
   }
 
   // AST reloads additional diagnostics rather than only projecting the snapshot, but it obeys the

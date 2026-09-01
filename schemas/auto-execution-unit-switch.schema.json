@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-execution-unit-switch.schema.json",
+  "title": "Singularity Flow Auto Execution Unit Switch v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "fromExecutionUnit", "toExecutionUnit", "taskContractSha256", "parentAttemptId", "reason", "status", "createdAt", "switchPlanId", "switchPlanSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-execution-unit-switch" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "fromExecutionUnit": { "$ref": "#/$defs/executionUnitId" },
+    "toExecutionUnit": { "$ref": "#/$defs/executionUnitId" }, "taskContractSha256": { "$ref": "#/$defs/hash" },
+    "parentAttemptId": { "$ref": "#/$defs/attemptId" }, "reason": { "$ref": "#/$defs/nonempty" },
+    "status": { "enum": ["proposed", "confirmed", "applied", "refused"] },
+    "createdAt": { "$ref": "#/$defs/timestamp" }, "switchPlanId": { "type": "string", "pattern": "^AUS-[A-F0-9]{26}$" },
+    "switchPlanSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "timestamp": { "type": "string", "format": "date-time" },
+    "nonempty": { "type": "string", "minLength": 1 }, "executionUnitId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" }
+  },
+  "additionalProperties": false
+}

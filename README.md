@@ -2496,7 +2496,11 @@ commands are:
 /sf-about
 /sf-start ENG-142 --title "Add invoice export"
 /sf-auto plan "Add bounded retry telemetry"
+/sf-auto --goal GOL-20260901-001
 /sf-auto list
+/sf-auto continue ENG-142
+/sf-auto adopt --from-adhoc AHS-EXACT-SESSION-ID
+/sf-auto needs-you AFL-EXACT-FLIGHT-ID
 /sf-agent
 /sf-phase
 /sf-progress

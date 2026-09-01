@@ -22,6 +22,7 @@ import { WORK_GROUP_ORDER, workRecords } from '../work-records.mjs';
 import { personalizationFromGitIdentity } from '../../personalization.mjs';
 import { branch as gitBranch } from '../../git.mjs';
 import { normalizeHomeLens } from '../home-projection-v2.mjs';
+import { autoHomeSummary } from '../auto-home-summary.mjs';
 
 /** The stable choice set. Six at most, and never one this list does not contain `[INT:REQ-022]`. */
 /**
@@ -285,6 +286,7 @@ export function homeOverviewResult({
   journalAvailable = true,
   governedGoal = null,
   latestReceipt = null,
+  auto = null,
   /**
    * How many *other* workspaces the registry knows about, or null when it could not be read.
    *
@@ -356,7 +358,7 @@ export function homeOverviewResult({
           blocking: bootstrap.preflight?.findings?.filter((finding) => finding.severity === 'blocker').length ?? 0,
           nextAction: bootstrap.nextAction ?? null
         } : null,
-        briefingAvailable: false, choiceSet: lead.map((entry) => entry.id)
+        briefingAvailable: false, choiceSet: lead.map((entry) => entry.id), auto: null
       }
     });
   }
@@ -525,7 +527,9 @@ export function homeOverviewResult({
         others: otherWorkspaces === null ? 'unknown' : String(otherWorkspaces)
       }
     }]),
-      ...(faultsUnavailable ? [{ code: 'fault.records-unavailable', source: 'unavailable', slots: {} }] : [])
+      ...(faultsUnavailable ? [{ code: 'fault.records-unavailable', source: 'unavailable', slots: {} }] : []),
+      ...(auto && auto.availability !== 'available'
+        ? [{ code: 'home.auto-unavailable', source: 'unavailable', slots: {} }] : [])
     ],
     next: (() => {
       const decisionBlocksCurrent = Boolean(attentionWork && !recovery && !active
@@ -614,6 +618,7 @@ export function homeOverviewResult({
       activeWork: projectWork(active),
       governedGoal,
       latestReceipt,
+      auto,
       /** The first decision this actor is authorized to make, even when another Story is selected. */
       attentionWork: projectWork(attentionWork),
       /**
@@ -764,6 +769,9 @@ export async function homeOverview({ subject = null, root = null, context = {} }
       latestReceipt = null;
     }
   }
+  const auto = context.auto !== undefined
+    ? context.auto
+    : await autoHomeSummary(root, { workId: homeState.currentWork?.id ?? null });
   return homeOverviewResult({
     workspace: context.workspace ?? { id: root, name: context.workspaceName ?? root },
     repository: context.repository ?? {
@@ -786,6 +794,7 @@ export async function homeOverview({ subject = null, root = null, context = {} }
     journalAvailable,
     governedGoal,
     latestReceipt,
+    auto,
     otherWorkspaces,
     /**
      * The same worktree read `work.continue` and `work.return` use.

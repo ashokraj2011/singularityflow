@@ -2,14 +2,16 @@
 import {
   listPrivateSidecar, readPrivateSidecar, writeImmutablePrivateSidecar,
   writeMutablePrivateSidecar
-} from '../sgos/private-sidecar.mjs';
+} from '../private-sidecar.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 export const AUTO_PRIVATE_RECORD_LIMITS = Object.freeze({
   plan: 2 * 1024 * 1024,
   authorization: 256 * 1024,
+  candidate: 16 * 1024 * 1024,
   'flight-state': 8 * 1024 * 1024,
-  'flight-report': 8 * 1024 * 1024
+  'flight-report': 8 * 1024 * 1024,
+  'auto-p1-record': 2 * 1024 * 1024
 });
 
 function maximumBytes(kind) {
@@ -22,9 +24,9 @@ function maximumBytes(kind) {
 
 function translate(error, kind) {
   const code = {
-    SGOS_SIDECAR_PATH_UNSAFE: 'AUTO_PRIVATE_STORE_UNSAFE',
-    SGOS_RECORD_SIZE_LIMIT: 'AUTO_PRIVATE_STORE_SIZE_LIMIT',
-    SGOS_SIDECAR_RECORD_CONFLICT: 'AUTO_PRIVATE_STORE_CONFLICT'
+    PRIVATE_SIDECAR_PATH_UNSAFE: 'AUTO_PRIVATE_STORE_UNSAFE',
+    PRIVATE_RECORD_SIZE_LIMIT: 'AUTO_PRIVATE_STORE_SIZE_LIMIT',
+    PRIVATE_SIDECAR_RECORD_CONFLICT: 'AUTO_PRIVATE_STORE_CONFLICT'
   }[error?.code];
   if (!code) throw error;
   throw new SingularityFlowError(`Auto ${kind} private storage refused an unsafe record: ${error.message}`, {

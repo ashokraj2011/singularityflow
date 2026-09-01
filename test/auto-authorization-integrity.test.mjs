@@ -36,7 +36,7 @@ async function repository(t) {
   workflow.git.publish = 'off';
   workflow.auto.enabled = true;
   workflow.models.providers['copilot-cli'] = {
-    type: 'copilot-cli', executable: process.execPath, promptTransport: 'attachment', arguments: []
+    type: 'copilot-cli', executable: process.execPath, promptTransport: 'acp-stdio', arguments: []
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.workTypes.feature.auto = {

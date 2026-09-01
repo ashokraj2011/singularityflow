@@ -43,12 +43,26 @@ export type HomeRequest = {
   readonly view: ResultCardView;
 };
 
+export type AutoActionRequest = {
+  readonly actionId: string;
+  readonly command: string;
+  readonly view: ResultCardView;
+  readonly repositoryRoot: string;
+  readonly repositoryEpoch: number;
+};
+
 let panel: vscode.WebviewPanel | null = null;
 let current: ResultCardView | null = null;
 let currentOrigin: ResultOrigin = 'cli';
 let currentNote: string | null = null;
 let currentHelpTopic: string | null = null;
-type ResultHistoryEntry = { view: ResultCardView; origin: ResultOrigin; note: string | null; helpTopic: string | null };
+type RepositoryBinding = { root: string; epoch: number };
+let repositoryBinding: RepositoryBinding | null = null;
+let currentRepositoryBinding: RepositoryBinding | null = null;
+type ResultHistoryEntry = {
+  view: ResultCardView; origin: ResultOrigin; note: string | null; helpTopic: string | null;
+  repositoryBinding: RepositoryBinding | null;
+};
 let history: ResultHistoryEntry[] = [];
 
 /**
@@ -61,6 +75,7 @@ let history: ResultHistoryEntry[] = [];
  */
 let dispatch: ((request: ActionRequest) => void | Promise<void>) | null = null;
 let dispatchHomeRequest: ((request: HomeRequest) => void | Promise<void>) | null = null;
+let dispatchAutoAction: ((request: AutoActionRequest) => void | Promise<void>) | null = null;
 
 export function onResultAction(handler: (request: ActionRequest) => void | Promise<void>): void {
   dispatch = handler;
@@ -68,6 +83,28 @@ export function onResultAction(handler: (request: ActionRequest) => void | Promi
 
 export function onHomeRequest(handler: (request: HomeRequest) => void | Promise<void>): void {
   dispatchHomeRequest = handler;
+}
+
+export function onAutoResultAction(
+  handler: (request: AutoActionRequest) => void | Promise<void>
+): void {
+  dispatchAutoAction = handler;
+}
+
+/** Invalidate every repository-bound card before a workspace/repository selection changes. */
+export function resultPanelRepositoryChanged(repositoryRoot: string): void {
+  const nextEpoch = (repositoryBinding?.epoch ?? 0) + 1;
+  repositoryBinding = Object.freeze({ root: repositoryRoot, epoch: nextEpoch });
+  // A retained A card must not become live again after A → B → A. Dispose the document and its
+  // history while preserving the activation-owned dispatch handlers for the next repository.
+  panel?.dispose();
+  panel = null;
+  current = null;
+  currentOrigin = 'cli';
+  currentNote = null;
+  currentHelpTopic = null;
+  currentRepositoryBinding = null;
+  history = [];
 }
 
 function render(target: vscode.WebviewPanel, view: ResultCardView, note: string | null, helpTopic: string | null): void {
@@ -131,12 +168,14 @@ export function showResultCard(view: ResultCardView,
     helpTopic?: string | null;
   } = {}): void {
   if (historyMode === 'push' && current) history.push({
-    view: current, origin: currentOrigin, note: currentNote, helpTopic: currentHelpTopic
+    view: current, origin: currentOrigin, note: currentNote, helpTopic: currentHelpTopic,
+    repositoryBinding: currentRepositoryBinding
   });
   if (historyMode === 'reset') history = [];
   current = view;
   currentOrigin = origin;
   currentNote = note;
+  currentRepositoryBinding = repositoryBinding;
   currentHelpTopic = helpTopic ?? (view.tone === 'refusal' ? helpTopicForError({
     messageId: view.details.message ?? null,
     operation: view.details.operation ?? null,
@@ -149,7 +188,10 @@ export function showResultCard(view: ResultCardView,
       { viewColumn: view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, retainContextWhenHidden: true }
     );
-    panel.onDidDispose(() => { panel = null; current = null; currentNote = null; history = []; });
+    panel.onDidDispose(() => {
+      panel = null; current = null; currentOrigin = 'cli'; currentNote = null;
+      currentHelpTopic = null; currentRepositoryBinding = null; history = [];
+    });
     /**
      * Everything this panel accepts, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`
      *
@@ -170,6 +212,7 @@ export function showResultCard(view: ResultCardView,
         currentOrigin = previous.origin;
         currentNote = previous.note;
         currentHelpTopic = previous.helpTopic;
+        currentRepositoryBinding = previous.repositoryBinding;
         render(panel, current, currentNote, currentHelpTopic);
       },
       'result.home': () => { void vscode.commands.executeCommand('singularityFlow.myWork'); },
@@ -199,6 +242,22 @@ export function showResultCard(view: ResultCardView,
           || current.since?.action?.id === actionId;
         if (!offered) return;
         void dispatch?.({ actionId, view: current, origin: currentOrigin });
+      },
+      'sflow.auto.action': (message) => {
+        const actionId = stringField(message, 'actionId');
+        if (!actionId || !current) return;
+        const binding = currentRepositoryBinding;
+        if (!binding || binding.epoch !== repositoryBinding?.epoch
+            || binding.root !== repositoryBinding.root) return;
+        const offered = current.auto.flatMap((card) => card.actions)
+          .find((action) => action.id === actionId);
+        if (!offered) return;
+        // Auto controls are deliberately review-only in the editor. The host receives only the
+        // exact command rendered by the current card and prefills it without submitting it.
+        void dispatchAutoAction?.({
+          actionId, command: offered.command, view: current,
+          repositoryRoot: binding.root, repositoryEpoch: binding.epoch
+        });
       }
     });
     panel.webview.onDidReceiveMessage((raw: unknown) => {
@@ -258,4 +317,8 @@ export function resetResultPanel(): void {
   history = [];
   dispatch = null;
   dispatchHomeRequest = null;
+  dispatchAutoAction = null;
+  currentOrigin = 'cli';
+  currentRepositoryBinding = null;
+  repositoryBinding = null;
 }

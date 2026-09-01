@@ -17,6 +17,9 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { runRemoteGit } from './git-execution.mjs';
+import {
+  validateAutoCandidateBinding, validateAutoCandidateVerification
+} from './auto/auto-candidate.mjs';
 
 function hash(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -351,7 +354,11 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
       sha256: phase.deliveryEvidence.receiptSha256 ?? null,
       changeSetPath: phase.deliveryEvidence.changeSetPath ?? null,
       changeSetDigest: phase.deliveryEvidence.changeSet?.digest ?? null,
-      status: phase.deliveryEvidence.status ?? null
+      status: phase.deliveryEvidence.status ?? null,
+      autoCandidate: structuredClone(phase.deliveryEvidence.autoCandidate ?? null),
+      autoCandidateVerification: structuredClone(
+        phase.deliveryEvidence.autoCandidateVerification ?? null
+      )
     } } : {}),
     testExecutions: (phase.deliveryEvidence?.testExecutions ?? []).map((entry) => ({
       commandId: entry.commandId,
@@ -363,6 +370,24 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     checksSha256: hash(phase.checks ?? []),
     artifactSetSha256: reviewArtifactSetSha256(artifacts)
   };
+  const sourceTreeSha256 = await sourceTreeHash(root, config, workflow);
+  if (submissionEvidence.codeDelivery?.autoCandidate) {
+    const candidate = validateAutoCandidateBinding(
+      submissionEvidence.codeDelivery.autoCandidate
+    );
+    const verification = validateAutoCandidateVerification(
+      submissionEvidence.codeDelivery.autoCandidateVerification
+    );
+    if (candidate.candidateSha256 !== sourceTreeSha256
+        || verification.status !== 'passed'
+        || verification.candidateSha256 !== candidate.candidateSha256
+        || verification.bindingSha256 !== candidate.bindingSha256) {
+      throw new SingularityFlowError(
+        'Submission source and isolated verification do not bind the exact Auto Candidate.',
+        { code: 'AUTO_CANDIDATE_SUBMISSION_MISMATCH' }
+      );
+    }
+  }
   const witnessReview = await witnessReviewSnapshot(root, config, workflow, phase);
   const base = {
     schemaVersion: currentSchemaVersion('story-submission-packet'),
@@ -376,7 +401,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
     submittedBranch,
     submissionCommit: submittedCommit,
     sourceCommit: submittedCommit,
-    sourceTreeSha256: await sourceTreeHash(root, config, workflow),
+    sourceTreeSha256,
     phase: phase.id,
     generation: phase.generation,
     authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' },
@@ -457,6 +482,24 @@ export async function readStoryReviewPacket(root, config, workflow, packetSha256
       || packet.submissionEvidence.artifactSetSha256 !== reviewArtifactSetSha256(packet.artifacts ?? [])) {
       failures.push(`${evidenceCommit.slice(0, 12)} has invalid checks or artifact-set bindings`);
       continue;
+    }
+    const candidateEvidence = packet.submissionEvidence.codeDelivery?.autoCandidate ?? null;
+    if (candidateEvidence) {
+      try {
+        const candidate = validateAutoCandidateBinding(candidateEvidence);
+        const verification = validateAutoCandidateVerification(
+          packet.submissionEvidence.codeDelivery.autoCandidateVerification
+        );
+        if (candidate.candidateSha256 !== packet.sourceTreeSha256
+            || verification.status !== 'passed'
+            || verification.candidateSha256 !== candidate.candidateSha256
+            || verification.bindingSha256 !== candidate.bindingSha256) {
+          throw new Error('Candidate identity differs');
+        }
+      } catch (error) {
+        failures.push(`${evidenceCommit.slice(0, 12)} has invalid Auto Candidate evidence: ${error.message}`);
+        continue;
+      }
     }
     let artifactBindingsValid = true;
     for (const artifact of packet.artifacts ?? []) {

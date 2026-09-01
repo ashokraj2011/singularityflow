@@ -440,6 +440,8 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--work-type ID', 'Select an Auto-eligible Story work type.'],
+      ['--goal ID', 'Seed a Plan from one exact active personal or governed Goal record.'],
+      ['--from-adhoc ID', 'With auto adopt, verify and render a non-startable provenance-preserving Ad Hoc handoff.'],
       ['--from-branch BRANCH', 'Pin one branch that is currently published by every selected repository.'],
       ['--pace MODE', 'continuous, phase, or interval:DURATION; policy may only restrict it.'],
       ['--until SELECTOR', 'first-human-boundary, story-complete, or a phase publication/submission/completion boundary.'],
@@ -448,6 +450,9 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow auto plan "Add bounded retry telemetry" --work-type feature --from-branch main', 'Creates only a machine-local Plan.'],
+      ['singularity-flow auto --goal GOL-20260901-001 --work-type feature --from-branch main', 'Creates a Goal-bound Plan; changing the Goal makes it stale.'],
+      ['singularity-flow auto continue ENG-142', 'Reports one exact Story/flight continuation without resuming or approving.'],
+      ['singularity-flow auto adopt --from-adhoc AHS-...', 'Verifies confirmed effects and renders a non-startable handoff without relabelling them.'],
       ['singularity-flow auto start APL-... --confirm sha256:...', 'Creates the Story only after exact Plan ratification.']
     ],
     seeAlso: ['start', 'impact', 'status', 'goal']

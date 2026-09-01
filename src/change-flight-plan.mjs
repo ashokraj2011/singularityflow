@@ -23,6 +23,12 @@ import {
   configurationReadAuthority, configurationReadRoot, isConfigurationReadPath
 } from './configuration-read-scope.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { recordSha256 } from './records.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport,
+  remoteFingerprint
+} from './git-remote-diagnostics.mjs';
+import { runRemoteGit } from './git-execution.mjs';
 import {
   nowIso, posix, readJson, run, secureRepositoryPath, SingularityFlowError, writeAtomic, writeJson, writeText
 } from './util.mjs';
@@ -485,6 +491,277 @@ function localRoot(root) { return path.join(gitCommonDir(root), 'singularity-flo
 function planFile(root, planId) { return path.join(localRoot(root), 'plans', `${planId}.json`); }
 function startFile(root, planId) { return path.join(localRoot(root), 'starts', `${planId}.json`); }
 
+function cfpStagingBranch(planId, workId) {
+  return `sflow-cfp-${sha256([planId, workId]).slice(0, 16)}`;
+}
+
+function localRefHead(root, ref) {
+  const result = run('git', ['rev-parse', '--verify', ref], { cwd: root, allowFailure: true });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function autoRecoveryError(message, details = {}) {
+  return new SingularityFlowError(message, { code: 'CFP_RECOVERY_REQUIRED', details });
+}
+
+function exactAutoStartIdentity(root, id, cfpPlan, options) {
+  const auto = options.auto;
+  const plan = auto?.plan;
+  const repository = plan?.repositories?.[0];
+  const workId = String(options.workId ?? '').trim();
+  const mismatches = [
+    [!auto, 'missing-auto-authority'],
+    [auto?.executionOrigin?.mode !== 'auto', 'execution-origin-mode'],
+    [auto?.flightId !== auto?.executionOrigin?.flightId, 'flight-id'],
+    [plan?.planId !== auto?.executionOrigin?.planId, 'plan-id'],
+    [plan?.planSha256 !== auto?.executionOrigin?.planSha256, 'plan-sha256'],
+    [plan?.bindings?.flightPlanId !== id, 'flight-plan-id'],
+    [plan?.bindings?.flightPlanSha256 !== `sha256:${recordSha256(cfpPlan)}`,
+      'flight-plan-sha256'],
+    [plan?.story?.workId !== workId || plan?.story?.branch !== workId, 'story-id'],
+    [repository?.baseCommit !== cfpPlan.baseline.revision, 'baseline'],
+    [auto?.ratification?.planId !== plan?.planId, 'ratification-plan-id'],
+    [auto?.ratification?.planSha256 !== plan?.planSha256, 'ratification-plan-sha256']
+  ].filter(([failed]) => failed).map(([, label]) => label);
+  if (mismatches.length) {
+    throw autoRecoveryError(
+      'Auto start recovery identity does not match the accepted Change Flight Plan.',
+      { mismatches }
+    );
+  }
+  const expectedWorktree = path.join(
+    gitCommonDir(root), 'singularity-flow', 'auto-worktrees', auto.flightId, repository.id
+  );
+  if (path.resolve(String(options.worktree ?? '')) !== path.resolve(expectedWorktree)) {
+    throw autoRecoveryError('Auto start recovery worktree is outside its exact managed flight path.');
+  }
+  return Object.freeze({ auto, plan, repository, workId, expectedWorktree });
+}
+
+function autoRemoteAuthority(root, repository) {
+  const remoteName = repository.remote ?? 'origin';
+  const configured = configuredRemoteIdentity(root, remoteName, { direction: 'fetch' });
+  const expected = assertCredentialFreeRemote(repository.remoteUrl ?? configured.url);
+  if (!configured.url || configured.ambiguous
+      || configured.fingerprint !== (repository.remoteFingerprint ?? remoteFingerprint(expected))) {
+    throw autoRecoveryError('Auto start recovery repository authority differs from the ratified Plan.', {
+      repository: repository.id
+    });
+  }
+  const transport = frozenRemoteTransport(expected);
+  return Object.freeze({
+    remoteName, transportRemote: transport.remote, url: transport.url, env: transport.env
+  });
+}
+
+function remoteStoryHead(root, authority, workId) {
+  const result = runRemoteGit([
+    'ls-remote', '--heads', '--', authority.transportRemote, `refs/heads/${workId}`
+  ], {
+    cwd: root, operation: 'remote-probe', env: authority.env
+  });
+  if (result.status !== 0) {
+    throw autoRecoveryError('Auto start recovery could not inspect the exact Story remote authority.', {
+      classification: result.failure?.classification ?? 'unknown'
+    });
+  }
+  return result.stdout.trim().split(/\s+/u)[0] || null;
+}
+
+async function validateRecoveredAutoStory(worktree, id, cfpPlan, identity) {
+  const definition = await loadDefinition(worktree);
+  const { loadStoryAggregate } = await import('./state-stores.mjs');
+  const workflow = await loadStoryAggregate(worktree, definition, identity.workId);
+  const actualBranch = run('git', ['branch', '--show-current'], {
+    cwd: worktree, allowFailure: true
+  }).stdout.trim();
+  if (actualBranch !== identity.workId
+      || workflow.workItem?.id !== identity.workId
+      || workflow.workItem?.branch !== identity.workId
+      || workflow.changeFlightPlan?.planId !== id
+      || workflow.changeFlightPlan?.acceptedPlanSha256 !== sha256(cfpPlan)) {
+    throw autoRecoveryError('Existing branch is not the exact Change Flight Plan Story being recovered.', {
+      workId: identity.workId
+    });
+  }
+  const { readVerifiedAcceptedAutoBinding } = await import('./auto/auto-origin.mjs');
+  await readVerifiedAcceptedAutoBinding(worktree, definition, workflow, {
+    flightId: identity.auto.flightId,
+    planId: identity.plan.planId,
+    planSha256: identity.plan.planSha256,
+    story: { workId: identity.workId }
+  });
+  return { definition, workflow, commit: localRefHead(worktree, 'HEAD') };
+}
+
+async function removeExactPreparedAutoWorktree(root, id, cfpPlan, identity) {
+  const stagingBranch = cfpStagingBranch(id, identity.workId);
+  const actualBranch = run('git', ['branch', '--show-current'], {
+    cwd: identity.expectedWorktree, allowFailure: true
+  }).stdout.trim();
+  const actualHead = localRefHead(identity.expectedWorktree, 'HEAD');
+  const dirty = run('git', ['status', '--porcelain=v2', '-z'], {
+    cwd: identity.expectedWorktree, allowFailure: true
+  });
+  if (actualBranch !== stagingBranch || actualHead !== cfpPlan.baseline.revision
+      || dirty.status !== 0 || dirty.stdout.length) {
+    throw autoRecoveryError('Prepared Auto worktree changed before recovery and was preserved for review.', {
+      expectedBranch: stagingBranch, actualBranch, expectedHead: cfpPlan.baseline.revision,
+      actualHead
+    });
+  }
+  const removed = run('git', [
+    'worktree', 'remove', '--force', '--', identity.expectedWorktree
+  ], { cwd: root, allowFailure: true });
+  if (removed.status !== 0) {
+    throw autoRecoveryError('Exact prepared Auto worktree could not be removed for idempotent replay.');
+  }
+  const deleted = run('git', [
+    'update-ref', '-d', `refs/heads/${stagingBranch}`, cfpPlan.baseline.revision
+  ], { cwd: root, allowFailure: true });
+  if (deleted.status !== 0) {
+    throw autoRecoveryError('Exact prepared Auto staging ref changed during recovery.');
+  }
+}
+
+/**
+ * Recover only effects owned by one already-claimed Auto start.
+ *
+ * The claimed flight, deterministic worktree, governed execution origin, accepted Auto Plan, and
+ * accepted Change Flight Plan must all agree. A coincidentally named branch is never adopted.
+ */
+async function recoverExactAutoStart(root, id, cfpPlan, options, existing = null) {
+  const identity = exactAutoStartIdentity(root, id, cfpPlan, options);
+  let worktreePresent = Boolean(await lstat(identity.expectedWorktree).catch((error) => (
+    error?.code === 'ENOENT' ? null : Promise.reject(error)
+  )));
+  if (worktreePresent) {
+    const { recoverStoryStart } = await import('./story-start-journal.mjs');
+    await recoverStoryStart(identity.expectedWorktree, identity.workId);
+    const currentBranch = run('git', ['branch', '--show-current'], {
+      cwd: identity.expectedWorktree, allowFailure: true
+    }).stdout.trim();
+    if (currentBranch === cfpStagingBranch(id, identity.workId)) {
+      await removeExactPreparedAutoWorktree(root, id, cfpPlan, identity);
+      return null;
+    }
+  }
+
+  const localStoryCommit = localRefHead(root, `refs/heads/${identity.workId}`);
+  const stagingBranch = cfpStagingBranch(id, identity.workId);
+  const stagingCommit = localRefHead(root, `refs/heads/${stagingBranch}`);
+  if (!worktreePresent && !localStoryCommit && stagingCommit) {
+    if (stagingCommit !== cfpPlan.baseline.revision) {
+      throw autoRecoveryError('Detached Auto staging ref changed and was preserved for review.', {
+        stagingBranch
+      });
+    }
+    const deleted = run('git', [
+      'update-ref', '-d', `refs/heads/${stagingBranch}`, cfpPlan.baseline.revision
+    ], { cwd: root, allowFailure: true });
+    if (deleted.status !== 0) {
+      throw autoRecoveryError('Detached exact Auto staging ref could not be retired.');
+    }
+    return null;
+  }
+  const definition = await loadDefinition(root);
+  const publishRequired = (definition.git?.publish ?? 'required') !== 'off';
+  const authority = autoRemoteAuthority(root, identity.repository);
+  const publishedCommit = publishRequired || !localStoryCommit
+    ? remoteStoryHead(root, authority, identity.workId)
+    : null;
+
+  if (!worktreePresent && !localStoryCommit && !publishedCommit) {
+    if (existing) {
+      throw autoRecoveryError('The recorded Auto Story has no reachable local or remote branch.');
+    }
+    return null;
+  }
+  if (publishedCommit && localStoryCommit && publishedCommit !== localStoryCommit) {
+    throw autoRecoveryError('Local and remote Auto Story refs differ; neither was changed.', {
+      workId: identity.workId
+    });
+  }
+  if (publishRequired && !publishedCommit) {
+    throw autoRecoveryError('The exact Auto Story was not retained by its required remote authority.');
+  }
+  if (!localStoryCommit && publishedCommit) {
+    const remoteRef = `refs/remotes/${authority.remoteName}/${identity.workId}`;
+    const fetched = runRemoteGit([
+      'fetch', '--no-tags', '--quiet', authority.transportRemote,
+      `refs/heads/${identity.workId}:${remoteRef}`
+    ], { cwd: root, operation: 'remote-configuration', env: authority.env });
+    if (fetched.status !== 0 || localRefHead(root, remoteRef) !== publishedCommit) {
+      throw autoRecoveryError('The exact remote Auto Story could not be fetched for recovery.');
+    }
+    const created = run('git', [
+      'update-ref', `refs/heads/${identity.workId}`, publishedCommit, '0'.repeat(publishedCommit.length)
+    ], { cwd: root, allowFailure: true });
+    if (created.status !== 0) {
+      throw autoRecoveryError('The exact local Auto Story ref could not be reconstructed.');
+    }
+  }
+  if (!worktreePresent) {
+    await mkdir(path.dirname(identity.expectedWorktree), { recursive: true });
+    const added = run('git', [
+      'worktree', 'add', '--', identity.expectedWorktree, identity.workId
+    ], { cwd: root, allowFailure: true });
+    if (added.status !== 0) {
+      throw autoRecoveryError('The exact Auto Story worktree could not be reconstructed.', {
+        diagnostic: String(added.stderr || added.stdout).slice(0, 2048).trim()
+      });
+    }
+    worktreePresent = true;
+  }
+
+  let verified;
+  try {
+    verified = await validateRecoveredAutoStory(
+      identity.expectedWorktree, id, cfpPlan, identity
+    );
+  } catch (error) {
+    if (error?.code === 'CFP_RECOVERY_REQUIRED') throw error;
+    throw autoRecoveryError(
+      `Existing Story branch failed its exact Auto recovery binding: ${error.message}`,
+      { workId: identity.workId }
+    );
+  }
+  if (publishedCommit && verified.commit !== publishedCommit) {
+    throw autoRecoveryError('Recovered worktree does not name the exact published Auto Story commit.');
+  }
+  const stagingHead = localRefHead(root, `refs/heads/${stagingBranch}`);
+  if (stagingHead) {
+    if (stagingHead !== cfpPlan.baseline.revision) {
+      throw autoRecoveryError('Auto staging ref changed after Story publication and was preserved.', {
+        stagingBranch
+      });
+    }
+    const deleted = run('git', [
+      'update-ref', '-d', `refs/heads/${stagingBranch}`, cfpPlan.baseline.revision
+    ], { cwd: root, allowFailure: true });
+    if (deleted.status !== 0) {
+      throw autoRecoveryError('Exact Auto staging ref could not be retired after recovery.');
+    }
+  }
+  const record = {
+    schemaVersion: currentSchemaVersion('change-flight-plan-start'),
+    planId: id, workId: identity.workId, worktree: identity.expectedWorktree,
+    branch: identity.workId, baselineRevision: cfpPlan.baseline.revision,
+    acceptedPlanSha256: sha256(cfpPlan),
+    publication: {
+      sha: verified.commit, commit: verified.commit,
+      pushed: Boolean(publishedCommit), remote: authority.remoteName,
+      branch: identity.workId, ref: `refs/heads/${identity.workId}`
+    },
+    startedAt: nowIso()
+  };
+  await writeAtomic(startFile(root, id), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  return {
+    ...record, idempotent: true, recovered: true,
+    workflow: verified.workflow, definition: verified.definition
+  };
+}
+
 function validatePlanId(planId) {
   if (!PLAN_ID.test(String(planId ?? ''))) throw new SingularityFlowError(`Invalid Change Flight Plan ID '${planId ?? ''}'.`, { code: 'CFP_TARGET_NOT_FOUND' });
   return String(planId);
@@ -800,7 +1077,7 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
   const id = validatePlanId(planId);
   if (options.confirm !== id) throw new SingularityFlowError(`Starting governed work requires --confirm ${id}.`, { code: 'CFP_START_TRANSACTION_INCOMPLETE' });
   const existing = await startRecord(root, id);
-  if (existing) {
+  if (existing && !options.auto) {
     const worktreeExists = await lstat(existing.worktree).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
     if (!worktreeExists) throw new SingularityFlowError(`Change Flight Plan '${id}' started as '${existing.workId}', but its worktree is missing.`, {
       code: 'CFP_RECOVERY_REQUIRED', details: { existing, nextAction: `Run git worktree repair, then resume ${existing.workId}.` }
@@ -808,6 +1085,10 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
     return { ...existing, idempotent: true };
   }
   const plan = await readChangeFlightPlan(root, id);
+  if (options.auto && (existing || options.recoverClaim === true)) {
+    const recovered = await recoverExactAutoStart(root, id, plan, options, existing);
+    if (recovered) return recovered;
+  }
   if (plan.status === 'partial' && options.acceptPartial !== true) throw new SingularityFlowError(`Change Flight Plan '${id}' is partial and cannot be accepted silently.`, {
     code: 'CFP_ANALYSIS_PARTIAL', details: { nextAction: `Refresh ${id} with a larger budget or pass --accept-partial after reviewing pending categories.` }
   });
@@ -851,7 +1132,7 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
   const repositoryKey = sha256(plan.baseline.repository).slice(0, 12);
   const defaultWorktree = path.join(path.dirname(path.resolve(root)), '.singularity-flow', 'worktrees', repositoryKey, workId);
   const worktree = await safeNewWorktreePath(root, options.worktree ?? defaultWorktree);
-  const stagingBranch = `sflow-cfp-${sha256([id, workId]).slice(0, 16)}`;
+  const stagingBranch = cfpStagingBranch(id, workId);
   if (run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${stagingBranch}`], { cwd: root, allowFailure: true }).status === 0) {
     throw new SingularityFlowError(`Recovery branch '${stagingBranch}' already exists from an incomplete start.`, {
       code: 'CFP_RECOVERY_REQUIRED', details: { nextAction: `Inspect and remove ${stagingBranch}, then retry the same plan.` }
@@ -862,6 +1143,9 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
     const added = run('git', ['worktree', 'add', '-b', stagingBranch, '--', worktree, plan.baseline.revision], { cwd: root, allowFailure: true });
     if (added.status !== 0) throw new SingularityFlowError(`Git could not create the isolated worktree: ${(added.stderr || added.stdout).trim()}`, { code: 'CFP_WORKSPACE_CREATION_FAILED' });
     created = true;
+    if (typeof options.afterWorktreeCreated === 'function') {
+      await options.afterWorktreeCreated({ id, workId, worktree, stagingBranch });
+    }
     const { manualStorySource, startStory } = await import('./story-start.mjs');
     const autoProposal = options.auto?.plan?.proposal ?? null;
     const source = {
@@ -887,6 +1171,9 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
       flightPlan: plan,
       auto: options.auto ?? null
     });
+    if (typeof options.afterStoryStarted === 'function') {
+      await options.afterStoryStarted({ id, workId, worktree, started });
+    }
     run('git', ['branch', '-D', '--', stagingBranch], { cwd: root, allowFailure: true });
     const record = {
       schemaVersion: currentSchemaVersion('change-flight-plan-start'),
@@ -896,6 +1183,9 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
       publication: started.publication ?? null,
       startedAt: nowIso()
     };
+    if (typeof options.beforeStartReceipt === 'function') {
+      await options.beforeStartReceipt({ id, workId, worktree, started, record });
+    }
     await writeAtomic(startFile(root, id), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
     return { ...record, idempotent: false, workflow: started.workflow };
   } catch (error) {

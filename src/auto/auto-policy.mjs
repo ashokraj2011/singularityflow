@@ -3,6 +3,10 @@ import { SingularityFlowError } from '../util.mjs';
 export const AUTO_ELIGIBILITY = Object.freeze(['disabled', 'plan-only', 'bounded']);
 export const AUTO_PACES = Object.freeze(['step', 'continuous', 'phase', 'interval']);
 export const AUTO_PROFILE_SELECTIONS = Object.freeze(['story', 'sgos', 'auto-select']);
+// Automatic repair remains unavailable until deterministic machine-actionability is implemented.
+// Accepting a configuration value without an enforcing classifier would silently turn policy into
+// an unconditional retry, so the installed vocabulary fails closed at human-confirmed repair.
+export const AUTO_REPAIR_POLICIES = Object.freeze(['never', 'ask']);
 export const AUTO_STOP_KINDS = Object.freeze([
   'first-human-boundary', 'published', 'submitted', 'phase-complete', 'story-complete'
 ]);
@@ -14,7 +18,8 @@ export const AUTO_AUTHORING_TOOLS = Object.freeze([
 
 const DEFAULT_CEILINGS = Object.freeze({
   maximumPhases: 3,
-  maximumAuthoringAttemptsPerPhase: 1,
+  // One initial attempt plus, when the separately ratified repair policy permits it, one repair.
+  maximumAuthoringAttemptsPerPhase: 2,
   maximumModelInvocations: 6,
   maximumActiveMinutes: 20,
   maximumElapsedMinutes: 120,
@@ -247,7 +252,7 @@ export function normalizeAutoPolicy(value = null) {
   object(value, 'auto');
   keys(value, [
     'enabled', 'profile', 'defaultPace', 'defaultUntil', 'workIdAllocator', 'planTtlMinutes',
-    'concurrency', 'execution', 'ceilings', 'reporting'
+    'concurrency', 'execution', 'ceilings', 'repair', 'reporting'
   ], 'auto');
   if (value.enabled != null && typeof value.enabled !== 'boolean') {
     throw new SingularityFlowError('auto.enabled must be boolean.', { code: 'AUTO_PLAN_INVALID' });
@@ -287,6 +292,18 @@ export function normalizeAutoPolicy(value = null) {
   if (reporting.final != null && !['required'].includes(reporting.final)) {
     throw new SingularityFlowError('auto.reporting.final must be required.', { code: 'AUTO_PLAN_INVALID' });
   }
+  const repair = object(value.repair ?? {}, 'auto.repair');
+  keys(repair, ['policy', 'maximumAttempts'], 'auto.repair');
+  const repairPolicy = repair.policy ?? 'ask';
+  if (!AUTO_REPAIR_POLICIES.includes(repairPolicy)) {
+    throw new SingularityFlowError(`auto.repair.policy must be ${AUTO_REPAIR_POLICIES.join(', ')}.`, {
+      code: 'AUTO_PLAN_INVALID'
+    });
+  }
+  const maximumRepairAttempts = repair.maximumAttempts ?? 1;
+  if (!Number.isSafeInteger(maximumRepairAttempts) || maximumRepairAttempts < 0 || maximumRepairAttempts > 1) {
+    throw new SingularityFlowError('auto.repair.maximumAttempts must be 0 or 1.', { code: 'AUTO_PLAN_INVALID' });
+  }
   return {
     enabled: value.enabled === true,
     profile: normalizeAutoProfile(value.profile),
@@ -308,6 +325,7 @@ export function normalizeAutoPolicy(value = null) {
       allowScopeExpansion: false
     },
     ceilings: normalizeAutoCeilings(value.ceilings ?? {}),
+    repair: { policy: repairPolicy, maximumAttempts: maximumRepairAttempts },
     reporting: { checkpoint: reporting.checkpoint ?? 'governed-when-publishing', final: 'required' }
   };
 }

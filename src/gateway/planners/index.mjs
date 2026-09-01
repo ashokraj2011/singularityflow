@@ -10,6 +10,7 @@
  * result-shaped.
  */
 import { helpExplain } from './help-explain.mjs';
+import { autoFlightRead } from './auto-flight.mjs';
 import {
   astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
   astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner
@@ -48,6 +49,7 @@ export function gatewayPlanners(overrides = {}) {
     'ast-references': astReferencesPlanner,
     'ast-status': astStatusPlanner,
     'ast-symbol': astSymbolPlanner,
+    'auto-flight-read': autoFlightRead,
     'help-explain': helpExplain,
     'developer-next': developerNext,
     'context-brief': contextBrief,
@@ -82,6 +84,7 @@ export function gatewayPlanners(overrides = {}) {
 export {
   astContextPlanner, astEvidenceReplayPlanner, astHierarchyPlanner, astModulePlanner,
   astQueryPlanner, astReferencesPlanner, astStatusPlanner, astSymbolPlanner,
+  autoFlightRead,
   contextBrief, developerNext, governedGoalImpactPlanner, governedGoalInspectPlanner, governedGoalNextPlanner,
   governedGoalTracePlanner, helpExplain, homeOverview, impactQuick, impactWhatIf, impactWhatIfAssisted, problemInvestigate,
   problemInvestigateAssisted, repositoryExplore, reviewPacket, workContinue, workHandoff,

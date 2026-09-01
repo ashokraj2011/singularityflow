@@ -6,10 +6,13 @@ import { startChangeFlightPlan } from '../change-flight-plan.mjs';
 import { gitCommonDir, head } from '../git.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { autoExecutionOrigin } from './auto-origin.mjs';
+import { publishAutoBoundaryCheckpoint } from './auto-checkpoint.mjs';
 import {
   claimAutoAuthorization, finishAutoAuthorization, ratifyAutoPlan
 } from './auto-plan.mjs';
-import { createAutoFlightState, listAutoFlights } from './auto-flight-store.mjs';
+import {
+  createAutoFlightState, listAutoFlights, mutateAutoFlightState
+} from './auto-flight-store.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 
 function flightId(plan) {
@@ -17,7 +20,7 @@ function flightId(plan) {
   return `AFL-${digest.slice(0, 26).toUpperCase()}`;
 }
 
-async function startAutoFlightLocked(root, planId, confirmation) {
+async function startAutoFlightLocked(root, planId, confirmation, options = {}) {
   const { plan, authorization } = await ratifyAutoPlan(root, planId, confirmation);
   const active = (await listAutoFlights(root)).filter((state) => [
     'running', 'paused', 'waiting-human', 'manual-takeover', 'recovery-required'
@@ -49,6 +52,13 @@ async function startAutoFlightLocked(root, planId, confirmation) {
       workType: plan.story.workType,
       baseBranch: repository.baseBranch,
       worktree,
+      recoverClaim: authorization.recovery === 'reconstruct-flight',
+      ...(typeof options.afterWorktreeCreated === 'function'
+        ? { afterWorktreeCreated: options.afterWorktreeCreated } : {}),
+      ...(typeof options.afterStoryStarted === 'function'
+        ? { afterStoryStarted: options.afterStoryStarted } : {}),
+      ...(typeof options.beforeStartReceipt === 'function'
+        ? { beforeStartReceipt: options.beforeStartReceipt } : {}),
       auto: {
         plan,
         ratification: claimed,
@@ -59,7 +69,7 @@ async function startAutoFlightLocked(root, planId, confirmation) {
     const firstPhase = started.workflow?.currentPhase ?? plan.story.phaseRail[0] ?? null;
     const waiting = plan.proposal.unresolvedDecisions.length > 0
       || plan.humanBoundaries?.firstPhaseClarificationRequired === true;
-    const state = await createAutoFlightState(root, {
+    let state = await createAutoFlightState(root, {
       flightId: id, planId: plan.planId, planSha256: plan.planSha256,
       status: waiting ? 'waiting-human' : 'running',
       story: {
@@ -82,6 +92,28 @@ async function startAutoFlightLocked(root, planId, confirmation) {
         ? 'Resolve the Plan questions in governed clarification records; Auto will not answer them.'
         : 'Run the one authorized phase step; any failure halts without retry.'
     });
+    // The local .git flight projection is disposable. Commit a first reconstructible authority
+    // checkpoint before declaring start complete, even when Auto is about to run immediately.
+    // A recovered running start deliberately rests as paused until its exact rebuilt checkpoint is
+    // reviewed and resumed.
+    const initial = await publishAutoBoundaryCheckpoint(
+      started.worktree, state,
+      waiting ? 'human-boundary' : 'phase-boundary',
+      { definition: started.definition, workflow: started.workflow, operationalRoot: root }
+    );
+    state = await mutateAutoFlightState(root, id, (draft) => {
+      const pointer = {
+        checkpointClass: initial.checkpointClass, path: initial.path,
+        checkpointSha256: initial.checkpointSha256, commit: initial.commit,
+        eventId: initial.eventId, phase: initial.phase, position: initial.position,
+        createdAt: initial.createdAt
+      };
+      draft.boundaryCheckpoints = [pointer];
+      draft.boundaryCheckpoint = pointer;
+      draft.lastSuccessfulStoryRevision = initial.commit;
+      draft.story.revision = initial.commit;
+      draft.commits = { ...(draft.commits ?? {}), startCheckpoint: initial.commit };
+    }, { expectedCheckpoint: state.checkpointSha256 });
     await finishAutoAuthorization(root, plan.planId, id, { success: true });
     return { plan, flight: state, story: started };
   } catch (error) {
@@ -100,7 +132,7 @@ async function startAutoFlightLocked(root, planId, confirmation) {
 }
 
 /** Serialize concurrency admission, authorization claim, Story start, and flight creation. */
-export async function startAutoFlight(root, planId, confirmation) {
+export async function startAutoFlight(root, planId, confirmation, options = {}) {
   return withSubjectLock(root, { kind: 'auto-workspace', id: 'concurrency' }, () =>
-    startAutoFlightLocked(root, planId, confirmation));
+    startAutoFlightLocked(root, planId, confirmation, options));
 }

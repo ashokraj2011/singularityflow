@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-token-economics-receipt.schema.json",
+  "title": "Singularity Flow Auto Token Economics Receipt v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "attemptId", "contextManifestSha256", "input", "output", "cost", "quality", "classification", "worldModelReference", "comprehensionReference", "createdAt", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-token-economics-receipt" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "attemptId": { "$ref": "#/$defs/attemptId" },
+    "contextManifestSha256": { "$ref": "#/$defs/hash" },
+    "input": {
+      "type": "object", "required": ["promptBytes", "estimatedTokens", "providerTokens", "cachedTokens"],
+      "properties": {
+        "promptBytes": { "$ref": "#/$defs/nullableCounter" }, "estimatedTokens": { "$ref": "#/$defs/nullableCounter" },
+        "providerTokens": { "$ref": "#/$defs/nullableCounter" }, "cachedTokens": { "$ref": "#/$defs/nullableCounter" }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object", "required": ["estimatedTokens", "providerTokens"],
+      "properties": { "estimatedTokens": { "$ref": "#/$defs/nullableCounter" }, "providerTokens": { "$ref": "#/$defs/nullableCounter" } },
+      "additionalProperties": false
+    },
+    "cost": { "$ref": "#/$defs/cost" },
+    "quality": {
+      "type": "object", "required": ["verification", "firstPass", "repairAttempts", "reviewReturned", "missingContextIncident"],
+      "properties": {
+        "verification": { "enum": ["pending", "passed", "failed"] }, "firstPass": { "type": "boolean" },
+        "repairAttempts": { "$ref": "#/$defs/counter" }, "reviewReturned": { "type": "boolean" },
+        "missingContextIncident": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "classification": { "enum": ["unavailable", "first-pass-pending-verification", "repair-pending-verification", "verified-first-pass", "verified-after-one-repair", "verification-failed"] },
+    "worldModelReference": { "oneOf": [{ "$ref": "#/$defs/worldModelReference" }, { "type": "null" }] },
+    "comprehensionReference": { "oneOf": [{ "$ref": "#/$defs/comprehensionReference" }, { "type": "null" }] },
+    "createdAt": { "$ref": "#/$defs/timestamp" }, "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "timestamp": { "type": "string", "format": "date-time" },
+    "nonempty": { "type": "string", "minLength": 1 }, "counter": { "type": "integer", "minimum": 0 },
+    "nullableCounter": { "oneOf": [{ "$ref": "#/$defs/counter" }, { "type": "null" }] },
+    "cost": {
+      "type": "object", "required": ["amount", "currency", "assurance"],
+      "properties": { "amount": { "type": ["number", "null"], "minimum": 0 }, "currency": { "const": "USD" }, "assurance": { "enum": ["unavailable", "provider-reported"] } },
+      "allOf": [
+        { "if": { "properties": { "assurance": { "const": "unavailable" } }, "required": ["assurance"] }, "then": { "properties": { "amount": { "type": "null" } } } },
+        { "if": { "properties": { "assurance": { "const": "provider-reported" } }, "required": ["assurance"] }, "then": { "properties": { "amount": { "type": "number", "minimum": 0 } } } }
+      ],
+      "additionalProperties": false
+    },
+    "worldModelReference": {
+      "type": "object",
+      "required": ["protocol", "path", "workId", "phase", "generation", "agent", "worldModelCommit", "manifestSha256", "renderedSha256", "modelSourceTreeSha256", "composedSourceTreeSha256", "fresh"],
+      "properties": {
+        "protocol": { "const": "auto-world-model-reference-v1" },
+        "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$" },
+        "workId": { "$ref": "#/$defs/nonempty" }, "phase": { "$ref": "#/$defs/nonempty" },
+        "generation": { "$ref": "#/$defs/counter" }, "agent": { "$ref": "#/$defs/nonempty" },
+        "worldModelCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "manifestSha256": { "$ref": "#/$defs/hash" }, "renderedSha256": { "$ref": "#/$defs/hash" },
+        "modelSourceTreeSha256": { "$ref": "#/$defs/hash" }, "composedSourceTreeSha256": { "$ref": "#/$defs/hash" },
+        "fresh": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "comprehensionReference": {
+      "type": "object", "required": ["protocol", "packetSha256", "subjectSha256", "status"],
+      "properties": {
+        "protocol": { "const": "auto-comprehension-reference-v1" }, "packetSha256": { "$ref": "#/$defs/hash" },
+        "subjectSha256": { "$ref": "#/$defs/hash" }, "status": { "enum": ["pending", "verified"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

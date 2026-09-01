@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-attempt.schema.json",
+  "title": "Singularity Flow Auto Attempt v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "phase", "attemptNumber", "attemptKind", "parentAttemptId", "reason", "generationIntentSha256", "taskContractSha256", "contextManifestSha256", "executionUnitManifestSha256", "status", "candidateSha256", "verificationReceiptSha256", "publicationReceiptSha256", "budgetImpact", "result", "createdAt", "updatedAt", "attemptId", "recordSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-attempt" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "phase": { "$ref": "#/$defs/nonempty" },
+    "attemptNumber": { "type": "integer", "minimum": 1 },
+    "attemptKind": { "enum": ["initial", "repair", "manual-adoption", "resume"] },
+    "parentAttemptId": { "$ref": "#/$defs/nullableAttemptId" }, "reason": { "$ref": "#/$defs/nonempty" },
+    "generationIntentSha256": { "$ref": "#/$defs/hash" }, "taskContractSha256": { "$ref": "#/$defs/hash" },
+    "contextManifestSha256": { "$ref": "#/$defs/hash" }, "executionUnitManifestSha256": { "$ref": "#/$defs/hash" },
+    "status": { "enum": ["planned", "running", "authored", "verifying", "refused", "published", "failed", "completed"] },
+    "candidateSha256": { "$ref": "#/$defs/nullableHash" }, "verificationReceiptSha256": { "$ref": "#/$defs/nullableHash" },
+    "publicationReceiptSha256": { "$ref": "#/$defs/nullableHash" },
+    "budgetImpact": {
+      "type": "object",
+      "properties": {
+        "modelInvocations": { "$ref": "#/$defs/counter" }, "repairAttempts": { "$ref": "#/$defs/counter" },
+        "maximumRepairAttempts": { "$ref": "#/$defs/counter" }, "routeChanges": { "$ref": "#/$defs/counter" },
+        "tokens": { "$ref": "#/$defs/counter" }, "toolOutputTokens": { "$ref": "#/$defs/counter" },
+        "contextExpansions": { "$ref": "#/$defs/counter" }, "fullContextFallbacks": { "$ref": "#/$defs/counter" }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "oneOf": [
+        { "type": "null" }, { "$ref": "#/$defs/authoredResult" }, { "$ref": "#/$defs/refusedResult" },
+        { "$ref": "#/$defs/publishedResult" }, { "$ref": "#/$defs/completedResult" }, { "$ref": "#/$defs/failedResult" }
+      ]
+    },
+    "createdAt": { "$ref": "#/$defs/timestamp" }, "updatedAt": { "$ref": "#/$defs/timestamp" },
+    "attemptId": { "$ref": "#/$defs/attemptId" }, "recordSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "refusalId": { "type": "string", "pattern": "^ARF-[A-F0-9]{26}$" },
+    "nullableAttemptId": { "oneOf": [{ "$ref": "#/$defs/attemptId" }, { "type": "null" }] },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "timestamp": { "type": "string", "format": "date-time" }, "nonempty": { "type": "string", "minLength": 1 },
+    "counter": { "type": "integer", "minimum": 0 },
+    "authoredResult": {
+      "type": "object", "required": ["status", "invocationId"],
+      "properties": { "status": { "const": "authored" }, "invocationId": { "oneOf": [{ "$ref": "#/$defs/nonempty" }, { "type": "null" }] } },
+      "additionalProperties": false
+    },
+    "refusedResult": {
+      "type": "object", "required": ["status", "refusalId", "refusalSha256"],
+      "properties": { "status": { "const": "refused" }, "refusalId": { "$ref": "#/$defs/refusalId" }, "refusalSha256": { "$ref": "#/$defs/hash" } },
+      "additionalProperties": false
+    },
+    "publishedResult": {
+      "type": "object", "required": ["status", "generation"],
+      "properties": { "status": { "const": "published" }, "generation": { "type": ["integer", "null"], "minimum": 0 } },
+      "additionalProperties": false
+    },
+    "completedResult": {
+      "type": "object", "required": ["status"], "properties": { "status": { "const": "completed" } }, "additionalProperties": false
+    },
+    "failedResult": {
+      "type": "object", "required": ["status", "code", "message"],
+      "properties": { "status": { "const": "failed" }, "code": { "$ref": "#/$defs/nonempty" }, "message": { "$ref": "#/$defs/nonempty" } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -43,7 +43,7 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
-function autoFlightCheckpointSha256(source) {
+function autoFlightCheckpointSha256V1(source) {
   return `sha256:${recordSha256({
     flightId: source.flightId,
     planSha256: source.planSha256,
@@ -58,6 +58,27 @@ function autoFlightCheckpointSha256(source) {
   })}`;
 }
 
+function autoFlightCheckpointSha256(source) {
+  return `sha256:${recordSha256({
+    flightId: source.flightId,
+    planSha256: source.planSha256,
+    status: source.status,
+    workId: source.story?.workId,
+    phase: source.story?.phase,
+    position: source.position,
+    counters: source.counters,
+    checkpointSequence: source.checkpointSequence,
+    stopReason: source.stopReason,
+    stopRequested: source.stopRequested ?? null,
+    candidate: source.candidate ?? null,
+    worldModelReference: source.worldModelReference ?? null,
+    comprehensionReference: source.comprehensionReference ?? null,
+    phaseContracts: source.phaseContracts ?? {},
+    boundaryCheckpoints: source.boundaryCheckpoints ?? [],
+    boundaryCheckpoint: source.boundaryCheckpoint ?? null
+  })}`;
+}
+
 function autoFlightRecordSha256(source) {
   const record = clone(source);
   delete record.recordSha256;
@@ -67,17 +88,255 @@ function autoFlightRecordSha256(source) {
 function autoFlightStateV1ToV2(source) {
   // A migration must not turn altered legacy bytes into a newly valid v2 record. Verify both
   // independent v1 seals before changing the schema stamp, then reseal the current representation.
-  if (source.checkpointSha256 !== autoFlightCheckpointSha256(source)
+  if (source.checkpointSha256 !== autoFlightCheckpointSha256V1(source)
       || source.recordSha256 !== autoFlightRecordSha256(source)) {
     throw new SingularityFlowError(
       'Auto flight state v1 failed its integrity check and cannot be migrated.',
       { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'auto-flight-state', storedVersion: 1 } }
     );
   }
-  const migrated = { ...clone(source), schemaVersion: 2 };
+  const migrated = {
+    ...clone(source),
+    schemaVersion: 2,
+    candidate: null,
+    worldModelReference: null,
+    comprehensionReference: null,
+    phaseContracts: {},
+    boundaryCheckpoints: [],
+    boundaryCheckpoint: null,
+    lastSuccessfulStoryRevision: source.story?.revision ?? null
+  };
   migrated.checkpointSha256 = autoFlightCheckpointSha256(migrated);
   migrated.recordSha256 = autoFlightRecordSha256(migrated);
   return migrated;
+}
+
+const AUTO_P1_HASH = /^sha256:[a-f0-9]{64}$/;
+const AUTO_P1_BUDGET_FIELDS = new Set([
+  'modelInvocations', 'repairAttempts', 'maximumRepairAttempts', 'routeChanges', 'tokens',
+  'toolOutputTokens', 'contextExpansions', 'fullContextFallbacks'
+]);
+
+function autoP1Counter(value, fallback = null) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
+}
+
+function autoP1Hash(value) {
+  return AUTO_P1_HASH.test(String(value ?? '')) ? value : null;
+}
+
+function autoP1Strings(value) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => entry.trim()))];
+}
+
+function autoP1Reseal(source, changes, hashField) {
+  const migrated = { ...clone(source), ...clone(changes), schemaVersion: 2 };
+  delete migrated[hashField];
+  migrated[hashField] = `sha256:${recordSha256(migrated)}`;
+  return migrated;
+}
+
+function autoPhaseRunV1ToV2(source) {
+  const publishedGenerations = (Array.isArray(source.publishedGenerations)
+    ? source.publishedGenerations : []).map((entry) => ({
+    generation: autoP1Counter(entry?.generation),
+    candidateSha256: autoP1Hash(entry?.candidateSha256),
+    publicationReceiptSha256: autoP1Hash(entry?.publicationReceiptSha256)
+  }));
+  return autoP1Reseal(source, { publishedGenerations }, 'recordSha256');
+}
+
+function autoAttemptResultV1ToV2(result) {
+  if (result == null) return null;
+  if (result.status === 'authored') return {
+    status: 'authored', invocationId: typeof result.invocationId === 'string' && result.invocationId
+      ? result.invocationId : null
+  };
+  if (result.status === 'refused') return {
+    status: 'refused', refusalId: result.refusalId, refusalSha256: result.refusalSha256
+  };
+  if (result.status === 'published') return {
+    status: 'published', generation: autoP1Counter(result.generation)
+  };
+  if (result.status === 'completed') return { status: 'completed' };
+  if (result.status === 'failed') return {
+    status: 'failed', code: String(result.code ?? 'LEGACY_ATTEMPT_FAILED'),
+    message: String(result.message ?? 'Legacy attempt failed.')
+  };
+  throw new SingularityFlowError('Auto attempt v1 has an unrecognized result discriminator.', {
+    code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'auto-attempt', status: result.status ?? null }
+  });
+}
+
+function autoAttemptV1ToV2(source) {
+  const budgetImpact = Object.fromEntries(Object.entries(plainObject(source.budgetImpact)
+    ? source.budgetImpact : {}).filter(([field, value]) => (
+    AUTO_P1_BUDGET_FIELDS.has(field) && autoP1Counter(value) != null
+  )));
+  return autoP1Reseal(source, {
+    budgetImpact, result: autoAttemptResultV1ToV2(source.result)
+  }, 'recordSha256');
+}
+
+function autoRefusalV1ToV2(source) {
+  const candidateSha256 = autoP1Hash(source.subject?.candidateSha256)
+    ?? autoP1Hash(source.preserved?.candidateSha256);
+  const verificationReceiptSha256 = autoP1Hash(source.subject?.verificationReceiptSha256)
+    ?? autoP1Hash(source.preserved?.verificationReceiptSha256);
+  const paths = autoP1Strings(source.preserved?.paths);
+  const missing = (Array.isArray(source.missing) ? source.missing : []).map((entry) => {
+    if (typeof entry === 'string' && entry.trim()) return { evidence: entry.trim() };
+    const result = {};
+    if (typeof entry?.requirement === 'string' && entry.requirement.trim()) result.requirement = entry.requirement.trim();
+    if (typeof entry?.evidence === 'string' && entry.evidence.trim()) result.evidence = entry.evidence.trim();
+    return result;
+  }).filter((entry) => Object.keys(entry).length);
+  const eligibility = ['auto-eligible', 'ask-only', 'manual-only', 'ineligible']
+    .includes(source.repair?.eligibility) ? source.repair.eligibility : 'ineligible';
+  return autoP1Reseal(source, {
+    subject: { candidateSha256, verificationReceiptSha256 },
+    missing: missing.length ? missing : [{ evidence: String(source.code ?? 'legacy refusal') }],
+    preserved: {
+      candidateSha256,
+      verificationReceiptSha256,
+      changedPaths: autoP1Counter(source.preserved?.changedPaths, paths.length),
+      paths,
+      workingArea: source.preserved?.workingArea !== false
+    },
+    repair: {
+      eligibility, operation: 'auto.repair', scope: autoP1Strings(source.repair?.scope),
+      maximumAttempts: ['manual-only', 'ineligible'].includes(eligibility)
+        ? 0 : source.repair?.maximumAttempts === 0 ? 0 : 1
+    },
+    primaryNextAction: {
+      operation: ['auto.repair', 'auto.takeover', 'auto.respond', 'auto.resume', 'auto.halt']
+        .includes(source.primaryNextAction?.operation)
+        ? source.primaryNextAction.operation : eligibility === 'ineligible' ? 'auto.takeover' : 'auto.repair',
+      label: String(source.primaryNextAction?.label ?? 'Review the preserved refusal')
+    }
+  }, 'refusalSha256');
+}
+
+function autoRepairPlanV1ToV2(source) {
+  return autoP1Reseal(source, {
+    readScope: autoP1Strings(source.readScope), writeScope: autoP1Strings(source.writeScope),
+    forbiddenChanges: autoP1Strings(source.forbiddenChanges),
+    requiredEvidence: autoP1Strings(source.requiredEvidence),
+    budget: {
+      maximumAttempts: 1,
+      remainingModelInvocations: autoP1Counter(source.budget?.remainingModelInvocations, 0)
+    }
+  }, 'repairPlanSha256');
+}
+
+function autoHumanRequestOptionV1ToV2(option) {
+  if (typeof option === 'string') return option;
+  const migrated = { id: String(option?.id ?? '') };
+  for (const field of ['label', 'description']) {
+    if (typeof option?.[field] === 'string' && option[field].trim()) migrated[field] = option[field].trim();
+  }
+  const consequences = autoP1Strings(option?.consequences);
+  if (consequences.length) migrated.consequences = consequences;
+  return migrated;
+}
+
+function autoHumanRequestV1ToV2(source) {
+  const type = source.requestType;
+  const detail = type === 'credential'
+    ? { provider: String(source.detail?.provider ?? 'approved-broker') }
+    : type === 'architecture-choice'
+      ? { reason: String(source.detail?.reason ?? source.detail?.question ?? 'Architecture choice required.') }
+      : {
+          question: String(source.detail?.question ?? 'Clarification required.'),
+          ...(source.detail?.whyStopped ? { whyStopped: String(source.detail.whyStopped) } : {})
+        };
+  return autoP1Reseal(source, {
+    detail,
+    options: (Array.isArray(source.options) ? source.options : []).map(autoHumanRequestOptionV1ToV2)
+  }, 'requestSha256');
+}
+
+function autoEconomicsWorldModelV1ToV2(reference) {
+  const required = [
+    'protocol', 'path', 'workId', 'phase', 'generation', 'agent', 'worldModelCommit',
+    'manifestSha256', 'renderedSha256', 'modelSourceTreeSha256',
+    'composedSourceTreeSha256', 'fresh'
+  ];
+  if (!plainObject(reference) || required.some((field) => !Object.hasOwn(reference, field))) return null;
+  return Object.fromEntries(required.map((field) => [field, clone(reference[field])]));
+}
+
+function autoEconomicsComprehensionV1ToV2(reference) {
+  const required = ['protocol', 'packetSha256', 'subjectSha256', 'status'];
+  if (!plainObject(reference) || required.some((field) => !Object.hasOwn(reference, field))) return null;
+  return Object.fromEntries(required.map((field) => [field, clone(reference[field])]));
+}
+
+function autoTokenEconomicsV1ToV2(source) {
+  const verification = ['pending', 'passed', 'failed'].includes(source.quality?.verification)
+    ? source.quality.verification
+    : ['pending', 'passed', 'failed'].includes(source.quality?.status)
+      ? source.quality.status : 'pending';
+  const repairAttempts = Math.min(1, autoP1Counter(source.quality?.repairAttempts, 0));
+  const firstPass = typeof source.quality?.firstPass === 'boolean'
+    ? source.quality.firstPass : repairAttempts === 0;
+  const classification = verification === 'passed'
+    ? firstPass && repairAttempts === 0 ? 'verified-first-pass' : 'verified-after-one-repair'
+    : verification === 'failed' ? 'verification-failed'
+      : firstPass && repairAttempts === 0
+        ? 'first-pass-pending-verification' : 'repair-pending-verification';
+  const amount = Number.isFinite(source.cost?.amount) && source.cost.amount >= 0
+    ? source.cost.amount : null;
+  return autoP1Reseal(source, {
+    input: {
+      promptBytes: autoP1Counter(source.input?.promptBytes),
+      estimatedTokens: autoP1Counter(source.input?.estimatedTokens,
+        autoP1Counter(source.input?.tokens)),
+      providerTokens: autoP1Counter(source.input?.providerTokens),
+      cachedTokens: autoP1Counter(source.input?.cachedTokens)
+    },
+    output: {
+      estimatedTokens: autoP1Counter(source.output?.estimatedTokens,
+        autoP1Counter(source.output?.tokens)),
+      providerTokens: autoP1Counter(source.output?.providerTokens)
+    },
+    cost: { amount, currency: 'USD', assurance: amount == null ? 'unavailable' : 'provider-reported' },
+    quality: {
+      verification, firstPass, repairAttempts,
+      reviewReturned: source.quality?.reviewReturned === true,
+      missingContextIncident: source.quality?.missingContextIncident === true
+    },
+    classification,
+    worldModelReference: autoEconomicsWorldModelV1ToV2(source.worldModelReference),
+    comprehensionReference: autoEconomicsComprehensionV1ToV2(source.comprehensionReference)
+  }, 'receiptSha256');
+}
+
+function autoFlightReportV1ToV2(source) {
+  const historical = clone(source);
+  const storedSha256 = historical.reportSha256;
+  delete historical.reportSha256;
+  if (storedSha256 !== `sha256:${recordSha256(historical)}`) {
+    throw new SingularityFlowError(
+      'Auto flight report v1 failed its historical integrity check and cannot be migrated.', {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'auto-flight-report', storedVersion: 1 }
+      }
+    );
+  }
+  return autoP1Reseal(source, {
+    lineage: {
+      'auto-phase-run': [], 'auto-attempt': [], 'auto-refusal': [],
+      'auto-repair-plan': [], 'auto-human-request': [],
+      'auto-token-economics-receipt': [], 'auto-execution-unit-switch': []
+    },
+    approvalSource: 'flight-checkpoint'
+  }, 'reportSha256');
+}
+
+function autoExecutionUnitSwitchV1ToV2(source) {
+  return autoP1Reseal(source, {}, 'switchPlanSha256');
 }
 
 function specificationClaimMapV1ToV2(source) {
@@ -1426,7 +1685,66 @@ const families = [
   family({ id: 'auto-origin', currentVersion: 1 }),
   family({ id: 'auto-step-result', currentVersion: 1, immutable: true }),
   family({
-    id: 'auto-flight-report', currentVersion: 1,
+    id: 'auto-phase-run', currentVersion: 2,
+    steps: [migration(1, 2, autoPhaseRunV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/phase-runs\/APR-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-attempt', currentVersion: 2,
+    steps: [migration(1, 2, autoAttemptV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/attempts\/AAT-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-refusal', currentVersion: 2,
+    steps: [migration(1, 2, autoRefusalV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/refusals\/ARF-[A-F0-9]{26}\.json$/],
+    immutable: true
+  }),
+  family({
+    id: 'auto-repair-plan', currentVersion: 2,
+    steps: [migration(1, 2, autoRepairPlanV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/repair-plans\/ARP-[A-F0-9]{26}\.json$/],
+    immutable: true
+  }),
+  family({
+    id: 'auto-human-request', currentVersion: 2,
+    steps: [migration(1, 2, autoHumanRequestV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/human-requests\/AHR-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-token-economics-receipt', currentVersion: 2,
+    steps: [migration(1, 2, autoTokenEconomicsV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/economics\/AAT-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-execution-unit-switch', currentVersion: 2,
+    steps: [migration(1, 2, autoExecutionUnitSwitchV1ToV2)],
+    paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/execution-unit-switches\/AUS-[A-F0-9]{26}\.json$/]
+  }),
+  family({
+    id: 'auto-candidate-binding', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/candidates\/CAN-[A-F0-9]{26}\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-candidate-verification', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/candidates\/CAN-[A-F0-9]{26}\.verification\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-boundary-checkpoint', currentVersion: 1,
+    paths: [
+      /^singularity\/work-items\/[^/]+\/context\/auto\/checkpoints\/[0-9]{6}-(?:phase-boundary|human-boundary|publication-boundary|recovery|completion)-[a-f0-9]{12}\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-flight-report', currentVersion: 2,
+    steps: [migration(1, 2, autoFlightReportV1ToV2)],
     paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/report\.json$/],
     immutable: true
   }),

@@ -89,14 +89,24 @@ export class RetainedPanelRenderGate {
   private disposed = false;
   private readonly isVisible: () => boolean;
   private readonly renderLatest: () => void;
+  private readonly relevantSlices: ReadonlySet<string>;
 
-  constructor(isVisible: () => boolean, renderLatest: () => void) {
+  constructor(
+    isVisible: () => boolean,
+    renderLatest: () => void,
+    relevantSlices: readonly string[] = []
+  ) {
     this.isVisible = isVisible;
     this.renderLatest = renderLatest;
+    this.relevantSlices = new Set(relevantSlices);
   }
 
-  changed(kind: string): void {
+  changed(kind: string, changedSlices?: readonly string[]): void {
     if (this.disposed || kind === 'loading') return;
+    // Undefined preserves compatibility with non-sliced producers. An exact empty or disjoint list
+    // proves this retained surface's model did not move and must not replace its DOM.
+    if (kind === 'snapshot' && changedSlices !== undefined && this.relevantSlices.size > 0
+      && !changedSlices.some((slice) => this.relevantSlices.has(slice))) return;
     if (!this.isVisible()) {
       this.pending = true;
       return;

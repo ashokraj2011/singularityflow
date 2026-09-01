@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
+import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { run } from '../src/util.mjs';
 
 process.env.NODE_ENV = 'test';
@@ -1227,6 +1228,42 @@ async function activated() {
   await extension.activate(context());
   return { root, api, registered, extension };
 }
+
+test('Auto card controls only prefill the exact selected command and never execute it', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated();
+  const flightId = `AFL-${'A'.repeat(26)}`;
+  const flight = await createAutoFlightState(root, {
+    flightId, planId: `APL-${'B'.repeat(26)}`,
+    planSha256: `sha256:${'b'.repeat(64)}`, status: 'running',
+    story: { workId: 'AUTO-HOST', branch: 'AUTO-HOST', phase: 'implementation' },
+    worktree: root, execution: { ceilings: {} }
+  });
+
+  await registered.commands.get('singularityFlow.myWork')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(panel, 'My Work rendered the Auto controls');
+  const pauseId = `auto:running:${flightId}:pause`;
+  assert.match(panel.webview.html, new RegExp(`data-auto-action-id="${pauseId}"`));
+  assert.match(panel.webview.html, /Prepare pause/);
+  assert.match(panel.webview.html, /Prepare takeover/);
+  assert.match(panel.webview.html, /Prepare stop/);
+
+  await panel.post({ type: 'sflow.auto.action', actionId: `auto:running:${flightId}:discard` });
+  await settle();
+  assert.equal(registered.terminals.length, 0, 'a forged action not rendered by the current card is ignored');
+
+  await panel.post({ type: 'sflow.auto.action', actionId: pauseId });
+  const terminal = await until(() => registered.terminals.find((entry) =>
+    entry.options?.name === 'Singularity Flow Auto review'));
+  assert.deepEqual(terminal.sent, [{
+    text: `singularity-flow auto pause ${flightId} --confirm ${flight.checkpointSha256}`,
+    addNewLine: false
+  }]);
+  assert.equal(await realpath(terminal.options.cwd), await realpath(root));
+  assert.equal((await readAutoFlightState(root, flightId)).status, 'running',
+    'button dispatch prepared the command but did not mutate the flight');
+});
 
 test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
   if (!requireBundle(t)) return;

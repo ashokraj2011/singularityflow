@@ -58,6 +58,10 @@ auto:
     allowClarificationAnswers: false
     allowSequenceOverrides: false
     allowScopeExpansion: false
+  # Refusals produce an exact Repair Plan. Nothing retries until a person confirms that Plan.
+  repair:
+    policy: ask
+    maximumAttempts: 1
 
 # Work may begin without a Story. Direct landing remains bounded: the first release accepts one
 # repository, at most twenty resources, no protected path, one deterministic test command, and an

@@ -83,6 +83,72 @@ function inside(candidate, root) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+async function canonicalScopePath(value, cwd) {
+  if (typeof value !== 'string' || !value.trim() || /[\r\n\0]/.test(value)) {
+    throw new SingularityFlowError('Model tool-scope paths must be non-empty absolute paths.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const target = path.resolve(cwd, value);
+  if (!path.isAbsolute(value)) {
+    throw new SingularityFlowError('Model tool-scope paths must be absolute.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const missing = [];
+  let ancestor = target;
+  for (;;) {
+    const resolved = await realpath(ancestor).catch((error) => (
+      error?.code === 'ENOENT' ? null : Promise.reject(error)
+    ));
+    if (resolved) return path.join(resolved, ...missing);
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) {
+      throw new SingularityFlowError(`Model tool-scope path cannot be resolved: ${value}`, {
+        code: 'MODEL_REQUEST_INVALID'
+      });
+    }
+    missing.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+}
+
+async function normalizeToolScope(scope, { cwd, allowedRoots, toolMode }) {
+  if (scope == null) return null;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) {
+    throw new SingularityFlowError('Model request tools.scope must be an object.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  const normalized = {};
+  for (const field of ['readRoots', 'writeRoots']) {
+    const values = scope[field] ?? [];
+    if (!Array.isArray(values) || values.some((entry) => typeof entry !== 'string')) {
+      throw new SingularityFlowError(`Model request tools.scope.${field} must be an array of absolute paths.`, {
+        code: 'MODEL_REQUEST_INVALID'
+      });
+    }
+    const canonical = [...new Set(await Promise.all(values.map((entry) => canonicalScopePath(entry, cwd))))]
+      .sort();
+    if (canonical.some((entry) => !allowedRoots.some((root) => inside(entry, root)))) {
+      throw new SingularityFlowError(`Model request tools.scope.${field} escapes allowedRoots.`, {
+        code: 'MODEL_TOOL_SCOPE_FORBIDDEN'
+      });
+    }
+    normalized[field] = Object.freeze(canonical);
+  }
+  if (toolMode !== 'none' && normalized.readRoots.length === 0) {
+    throw new SingularityFlowError('A scoped model tool policy requires at least one read root.', {
+      code: 'MODEL_REQUEST_INVALID'
+    });
+  }
+  return Object.freeze({
+    protocol: 'path-v1',
+    readRoots: normalized.readRoots,
+    writeRoots: normalized.writeRoots
+  });
+}
+
 function positiveInteger(value, label) {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new SingularityFlowError(`Model request ${label} must be a positive integer.`, { code: 'MODEL_REQUEST_INVALID' });
@@ -238,6 +304,9 @@ async function normalizeRequest(request, context) {
       throw new SingularityFlowError('Model prompt file is outside the operation allowed roots.', { code: 'MODEL_REQUEST_INVALID' });
     }
   }
+  const toolScope = await normalizeToolScope(request.tools?.scope, {
+    cwd: resolvedCwd, allowedRoots: resolvedRoots, toolMode
+  });
   // A task is optional and additive: every caller that names a model directly still works. When one
   // is given it must be in the closed enum, refused here rather than deep in the mapping.
   if (request.task != null) assertModelTask(request.task, 'Model request task');
@@ -259,7 +328,8 @@ async function normalizeRequest(request, context) {
     tools: Object.freeze({
       mode: toolMode, names: Object.freeze([...toolNames]),
       requireSuccessful: toolMode !== 'none' && request.tools?.requireSuccessful !== false,
-      rejectTruncated: toolMode !== 'none' && request.tools?.rejectTruncated !== false
+      rejectTruncated: toolMode !== 'none' && request.tools?.rejectTruncated !== false,
+      ...(toolScope ? { scope: toolScope } : {})
     }),
     limits: Object.freeze(limits)
   });
@@ -461,7 +531,18 @@ export async function invokeModel(request) {
     toolPolicy: {
       mode: normalized.tools.mode, names: [...normalized.tools.names],
       requireSuccessful: normalized.tools.requireSuccessful,
-      rejectTruncated: normalized.tools.rejectTruncated
+      rejectTruncated: normalized.tools.rejectTruncated,
+      ...(normalized.tools.scope ? { scope: {
+        protocol: normalized.tools.scope.protocol,
+        read: {
+          count: normalized.tools.scope.readRoots.length,
+          sha256: `sha256:${sha256(canonicalJson(normalized.tools.scope.readRoots))}`
+        },
+        write: {
+          count: normalized.tools.scope.writeRoots.length,
+          sha256: `sha256:${sha256(canonicalJson(normalized.tools.scope.writeRoots))}`
+        }
+      } } : {})
     },
     toolObservation: null,
     limits: normalized.limits,

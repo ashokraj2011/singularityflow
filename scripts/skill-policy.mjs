@@ -17,6 +17,7 @@ const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
 const MODEL_OPERATION_PATTERNS = Object.freeze({
   'auto.flight-step': /\bsingularity-flow\s+auto\s+flight-step\b/,
   'auto.plan': /\bsingularity-flow\s+auto\s+plan\b/,
+  'auto.repair': /\bsingularity-flow\s+auto\s+repair\b/,
   'copilot.launch': /\bsingularity-flow\s+copilot\b/,
   'next.orchestrate': /\bsingularity-flow\s+next\b/,
   'pr.describe.polish': /\bsingularity-flow\s+pr\s+describe\b[^\n`]*--polish\b/,

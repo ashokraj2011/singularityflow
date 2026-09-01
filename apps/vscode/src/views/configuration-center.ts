@@ -58,9 +58,11 @@ export class ConfigurationCenterPanel {
   ) {
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
-      () => this.storeChanged()
+      () => this.storeChanged(),
+      ['repository', 'configuration', 'integrations']
     );
-    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
+    this.subscription = store.onDidChange((_state, change) =>
+      this.snapshotRenders.changed(change.kind, change.changedSlices));
     panel.webview.onDidReceiveMessage(async (raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
       // this panel's own message contract, because "go to another page" is not this panel's business.

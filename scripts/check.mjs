@@ -108,6 +108,26 @@ if (!packageJson.files?.includes('RELEASE-EPIC-STORY-LINEAGE.md') || !existsSync
 checked.push('DISTRIBUTION.md', 'INITIATIVE-ORCHESTRATION.md', 'RELEASE-INITIATIVE-ORCHESTRATION.md');
 
 const allFiles = repositoryFiles();
+
+// Story Auto is the dependency-free default profile. Keep that a mechanically enforced
+// architecture boundary: optional SGOS modules may reuse neutral core primitives, but an Auto
+// source module must never import SGOS and make the default profile depend on the optional one.
+{
+  const autoSources = allFiles.filter((file) => {
+    const relative = path.relative(root, file).split(path.sep).join('/');
+    return relative.startsWith('src/auto/') && relative.endsWith('.mjs');
+  });
+  for (const file of autoSources) {
+    const source = await readFile(file, 'utf8');
+    const imports = [...source.matchAll(/\bfrom\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)]
+      .map((match) => match[1] ?? match[2]);
+    const forbidden = imports.filter((specifier) => specifier.split('/').includes('sgos'));
+    if (forbidden.length) {
+      fail(`${path.relative(root, file)}: Story Auto must not import optional SGOS modules (${forbidden.join(', ')})`);
+    }
+  }
+  checked.push('Story Auto optional-profile dependency boundary');
+}
 /** Independent read-only repository audits run together and are reported in stable declaration order. */
 const externalAudits = [
   ['scripts/generate-codeowners.mjs', 'Generated CODEOWNERS', []],
@@ -489,6 +509,16 @@ for (const schemaFile of [
   'schemas/auto-flight-state.schema.json',
   'schemas/auto-origin.schema.json',
   'schemas/auto-step-result.schema.json',
+  'schemas/auto-candidate-binding.schema.json',
+  'schemas/auto-candidate-verification.schema.json',
+  'schemas/auto-boundary-checkpoint.schema.json',
+  'schemas/auto-phase-run.schema.json',
+  'schemas/auto-attempt.schema.json',
+  'schemas/auto-refusal.schema.json',
+  'schemas/auto-repair-plan.schema.json',
+  'schemas/auto-human-request.schema.json',
+  'schemas/auto-token-economics-receipt.schema.json',
+  'schemas/auto-execution-unit-switch.schema.json',
   'schemas/auto-flight-report.schema.json',
   'schemas/artifact-validation.schema.json',
   'schemas/sgos-contract.schema.json'

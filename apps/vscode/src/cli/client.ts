@@ -322,6 +322,15 @@ export class SingularityFlowClient {
   }
 
   /**
+   * Lightweight exact repository revision used to distinguish our delayed watcher echo from a
+   * later external write. This requests only the core repository slice; it never fans out the
+   * lifecycle/configuration readers and never publishes a WorkspaceStore event.
+   */
+  async revisionProbe(signal?: AbortSignal): Promise<RepositorySnapshot['revision'] | null> {
+    return (await this.snapshot(signal, ['repository'], null)).revision ?? null;
+  }
+
+  /**
    * Read editable configuration even when its lifecycle schema is obsolete or invalid.
    * The engine returns inventory, never an operational lifecycle snapshot, so this cannot
    * accidentally make invalid configuration runnable.

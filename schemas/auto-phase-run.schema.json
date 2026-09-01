@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-phase-run.schema.json",
+  "title": "Singularity Flow Auto Phase Run v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "phase", "status", "attemptIds", "activeAttemptId", "publishedGenerations", "requiredHumanRequestIds", "phaseCheckpointSha256", "createdAt", "updatedAt", "phaseRunId", "recordSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "const": "auto-phase-run" },
+    "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" },
+    "phase": { "$ref": "#/$defs/nonempty" },
+    "status": { "enum": ["planned", "running", "verifying", "waiting-human", "refused", "published", "completed", "halted"] },
+    "attemptIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/attemptId" } },
+    "activeAttemptId": { "oneOf": [{ "$ref": "#/$defs/attemptId" }, { "type": "null" }] },
+    "publishedGenerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["generation", "candidateSha256", "publicationReceiptSha256"],
+        "properties": {
+          "generation": { "type": ["integer", "null"], "minimum": 0 },
+          "candidateSha256": { "$ref": "#/$defs/nullableHash" },
+          "publicationReceiptSha256": { "$ref": "#/$defs/nullableHash" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "requiredHumanRequestIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/requestId" } },
+    "phaseCheckpointSha256": { "$ref": "#/$defs/nullableHash" },
+    "createdAt": { "$ref": "#/$defs/timestamp" },
+    "updatedAt": { "$ref": "#/$defs/timestamp" },
+    "phaseRunId": { "type": "string", "pattern": "^APR-[A-F0-9]{26}$" },
+    "recordSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "requestId": { "type": "string", "pattern": "^AHR-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "nonempty": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

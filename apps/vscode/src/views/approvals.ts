@@ -142,9 +142,11 @@ export class ApprovalsPanel {
     this.store = store;
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
-      () => this.render()
+      () => this.render(),
+      ['repository', 'lifecycle', 'configuration']
     );
-    this.subscription = store.onDidChange((_state, change) => this.snapshotRenders.changed(change.kind));
+    this.subscription = store.onDidChange((_state, change) =>
+      this.snapshotRenders.changed(change.kind, change.changedSlices));
 
     /**
      * The three messages this panel speaks, enumerated. `[UXH:REQ-134]` `[UXH:AC-014]`

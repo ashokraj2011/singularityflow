@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
-  COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT, invokeCopilotCli, modelProviderStartErrorCode
+  acpPermissionOutcome, COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT,
+  invokeCopilotCli, modelProviderStartErrorCode
 } from '../src/model-providers/copilot-cli.mjs';
 import { stageModelPrompt } from '../src/model-prompt-transport.mjs';
 import { prepareTelemetryLaunch, setTelemetryCapture } from '../src/telemetry-provision.mjs';
@@ -29,8 +30,11 @@ import { access } from 'node:fs/promises';
 import readline from 'node:readline';
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+const providerToolName = (operation) => operation === 'read' ? 'view'
+  : operation === 'search' ? 'grep' : 'edit';
 let cwd = null;
 let pendingPrompt = null;
+let pendingCreate = null;
 for await (const line of lines) {
   const message = JSON.parse(line);
   if (message.method === 'initialize') {
@@ -61,24 +65,44 @@ for await (const line of lines) {
       envLeak: Object.values(process.env).some((value) => String(value).includes('ACP_CANARY_DO_NOT_LEAK'))
     });
     if (process.argv.includes('--fixture-large-output')) result = 'x'.repeat(2048);
-    if (process.argv.includes('--fixture-create-target')) {
-      send({ jsonrpc: '2.0', method: 'session/update', params: {
+    const fixtureOperation = ['read', 'search', 'edit', 'delete', 'move', 'copy']
+      .find((operation) => process.argv.includes('--fixture-operation-' + operation));
+    if (process.argv.includes('--fixture-create-target') || fixtureOperation) {
+      const initialKind = fixtureOperation || 'edit';
+      const initialRawInput = initialKind === 'move' || initialKind === 'copy'
+        ? { from: prompt, to: prompt + '.other' } : { path: prompt };
+      const initialLocations = initialKind === 'move' || initialKind === 'copy'
+        ? [{ path: initialRawInput.from }, { path: initialRawInput.to }]
+        : [{ path: initialRawInput.path }];
+      const toolCall = {
+        toolCallId: 'fixture-tool', title: 'fixture operation', name: providerToolName(initialKind),
+        kind: initialKind === 'copy' ? 'other' : initialKind,
+        status: 'in_progress', rawInput: initialRawInput, locations: initialLocations
+      };
+      if (!process.argv.includes('--fixture-permission-first')) {
+        send({ jsonrpc: '2.0', method: 'session/update', params: {
+          sessionId: message.params.sessionId,
+          update: { sessionUpdate: 'tool_call', ...toolCall }
+        }});
+      }
+      pendingCreate = {
+        promptId: message.id, sessionId: message.params.sessionId, path: prompt, toolCall,
+        permissionFirst: process.argv.includes('--fixture-permission-first'),
+        changedAfterPermission: process.argv.includes('--fixture-changed-after-permission'),
+        completionKind: process.argv.includes('--fixture-completion-delete') ? 'delete'
+          : process.argv.includes('--fixture-completion-move') ? 'move'
+            : process.argv.includes('--fixture-completion-copy') ? 'copy'
+              : process.argv.includes('--fixture-completion-edit') ? 'edit' : initialKind
+      };
+      send({ jsonrpc: '2.0', id: 901, method: 'session/request_permission', params: {
         sessionId: message.params.sessionId,
-        update: {
-          sessionUpdate: 'tool_call', toolCallId: 'create-target', title: 'create output',
-          name: 'edit', kind: 'edit', status: 'in_progress', rawInput: { path: prompt }
-        }
+        toolCall,
+        options: [
+          { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
+          { optionId: 'reject', name: 'Reject once', kind: 'reject_once' }
+        ]
       }});
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      const created = await access(prompt).then(() => true, () => false);
-      send({ jsonrpc: '2.0', method: 'session/update', params: {
-        sessionId: message.params.sessionId,
-        update: {
-          sessionUpdate: 'tool_call_update', toolCallId: 'create-target',
-          name: 'edit', kind: 'edit', status: 'completed', rawOutput: { bytes: 0 }
-        }
-      }});
-      result = JSON.stringify({ created });
+      continue;
     }
     if (process.argv.includes('--fixture-tool-failure')) {
       send({ jsonrpc: '2.0', method: 'session/update', params: {
@@ -110,7 +134,10 @@ for await (const line of lines) {
       pendingPrompt = { id: message.id, sessionId: message.params.sessionId, result };
       send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: {
         sessionId: message.params.sessionId,
-        toolCall: { toolCallId: 'tool-1', name: 'edit', kind: 'edit', title: 'edit file' },
+        toolCall: {
+          toolCallId: 'tool-1', name: 'edit', kind: 'edit', title: 'edit file',
+          rawInput: { path: prompt }, locations: [{ path: prompt }]
+        },
         options: [
           { optionId: 'allow', name: 'Allow once', kind: 'allow_once' },
           { optionId: 'reject', name: 'Reject once', kind: 'reject_once' }
@@ -136,6 +163,40 @@ for await (const line of lines) {
     }});
     send({ jsonrpc: '2.0', id: pendingPrompt.id, result: { stopReason: 'end_turn' }});
     pendingPrompt = null;
+  } else if (message.id === 901 && pendingCreate) {
+    if (pendingCreate.permissionFirst) {
+      send({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: pendingCreate.sessionId,
+        update: { sessionUpdate: 'tool_call', ...pendingCreate.toolCall }
+      }});
+    }
+    const created = await access(pendingCreate.path).then(() => true, () => false);
+    const rawInput = pendingCreate.changedAfterPermission
+      ? { path: pendingCreate.path + '.changed' }
+      : pendingCreate.completionKind === 'move' || pendingCreate.completionKind === 'copy'
+        ? { from: pendingCreate.path, to: pendingCreate.path + '.other' }
+        : pendingCreate.toolCall.rawInput;
+    const locations = pendingCreate.completionKind === 'move' || pendingCreate.completionKind === 'copy'
+      ? [{ path: rawInput.from }, { path: rawInput.to }]
+      : [{ path: rawInput.path }];
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: pendingCreate.sessionId,
+      update: {
+        sessionUpdate: 'tool_call_update', toolCallId: pendingCreate.toolCall.toolCallId,
+        name: providerToolName(pendingCreate.completionKind),
+        kind: pendingCreate.completionKind === 'copy' ? 'other' : pendingCreate.completionKind,
+        status: 'completed', rawInput,
+        locations, rawOutput: { bytes: 0 }
+      }
+    }});
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: pendingCreate.sessionId,
+      update: { sessionUpdate: 'agent_message_chunk', messageId: 'final', content: {
+        type: 'text', text: JSON.stringify({ created, permission: message.result })
+      }}
+    }});
+    send({ jsonrpc: '2.0', id: pendingCreate.promptId, result: { stopReason: 'end_turn' }});
+    pendingCreate = null;
   }
 }
 `;
@@ -235,7 +296,10 @@ test('ACP records exact normalized output and fails closed on response and token
 
 test('ACP audits tool outcomes and rejects failed, truncated, excessive-call, and excessive-turn sessions', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-tool-outcomes-'));
-  const tools = { mode: 'allowlist', names: ['read_file'], requireSuccessful: true, rejectTruncated: true };
+  const tools = {
+    mode: 'allowlist', names: ['read_file', 'search'],
+    requireSuccessful: true, rejectTruncated: true
+  };
   await t.test('failed tool', async () => {
     await assert.rejects(() => invokeAcp(root, { fixtureArguments: ['--fixture-tool-failure'], tools }),
       (error) => error.code === 'MODEL_TOOL_EXECUTION_FAILED'
@@ -314,13 +378,17 @@ test('ACP accepts and records the concrete model selected by Copilot auto routin
 
 test('ACP permission requests are bounded by the normalized SFlow tool policy', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-permission-'));
+  const target = path.join(root, 'existing.md');
+  await writeFile(target, 'existing');
   const allowed = JSON.parse((await invokeAcp(root, {
     fixtureArguments: ['--fixture-permission'],
+    publicPrompt: { text: target },
     tools: { mode: 'allowlist', names: ['edit_file'] }
   })).output);
   assert.deepEqual(allowed.permission, { outcome: { outcome: 'selected', optionId: 'allow' } });
   const denied = JSON.parse((await invokeAcp(root, {
-    fixtureArguments: ['--fixture-permission'], tools: { mode: 'none', names: [] }
+    fixtureArguments: ['--fixture-permission'], publicPrompt: { text: target },
+    tools: { mode: 'none', names: [] }
   })).output);
   assert.deepEqual(denied.permission, { outcome: { outcome: 'cancelled' } });
 });
@@ -328,34 +396,292 @@ test('ACP permission requests are bounded by the normalized SFlow tool policy', 
 test('ACP supplies create_file semantics only inside admitted roots and only when authorized', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-'));
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-create-output-'));
+  const scope = { protocol: 'path-v1', readRoots: [root], writeRoots: [outputRoot] };
   const target = path.join(outputRoot, 'nested', 'packet.md');
   const createdResult = await invokeAcp(root, {
     fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: target },
-    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['create_file'] }
+    allowedRoots: [root, outputRoot],
+    tools: { mode: 'allowlist', names: ['create_file'], scope }
   });
   const created = JSON.parse(createdResult.output);
-  assert.equal(created.created, true);
+  assert.equal(created.created, true, JSON.stringify(created));
   assert.equal(await readFile(target, 'utf8'), '');
   assert.equal(createdResult.toolObservation.totalCalls, 1);
   assert.deepEqual(createdResult.toolObservation.calls[0], {
-    sequence: 1, name: 'edit', kind: 'edit', status: 'completed',
+    sequence: 1, name: 'edit', kind: 'edit', operation: 'create_file', status: 'completed',
     outputBytes: 11, truncated: false, preparationFailed: false
   });
   assert.doesNotMatch(JSON.stringify(createdResult.toolObservation), /packet\.md|nested/);
 
   const editOnlyTarget = path.join(outputRoot, 'edit-only.md');
-  const editOnly = JSON.parse((await invokeAcp(root, {
+  await assert.rejects(() => invokeAcp(root, {
     fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: editOnlyTarget },
-    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['edit_file'] }
-  })).output);
-  assert.equal(editOnly.created, false);
+    allowedRoots: [root, outputRoot],
+    tools: { mode: 'allowlist', names: ['edit_file'], scope }
+  }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
 
   const outsideTarget = path.join(os.tmpdir(), `sflow-provider-acp-outside-${Date.now()}.md`);
-  const outside = JSON.parse((await invokeAcp(root, {
+  await assert.rejects(() => invokeAcp(root, {
     fixtureArguments: ['--fixture-create-target'], publicPrompt: { text: outsideTarget },
-    allowedRoots: [root, outputRoot], tools: { mode: 'allowlist', names: ['create_file'] }
-  })).output);
-  assert.equal(outside.created, false);
+    allowedRoots: [root, outputRoot],
+    tools: { mode: 'allowlist', names: ['create_file'], scope }
+  }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
+});
+
+test('scoped ACP tools accept both permission orderings and bind the exact path through completion', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-scope-order-'));
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-scope-output-'));
+  const scope = { protocol: 'path-v1', readRoots: [root], writeRoots: [outputRoot] };
+  for (const fixtureArguments of [
+    ['--fixture-create-target'],
+    ['--fixture-create-target', '--fixture-permission-first']
+  ]) {
+    const target = path.join(outputRoot, `packet-${fixtureArguments.length}.md`);
+    const result = await invokeAcp(root, {
+      fixtureArguments, publicPrompt: { text: target }, allowedRoots: [root, outputRoot],
+      tools: { mode: 'allowlist', names: ['create_file'], scope }
+    });
+    const observed = JSON.parse(result.output);
+    assert.equal(observed.created, true, JSON.stringify(observed));
+    assert.equal(result.toolObservation.calls[0].status, 'completed');
+  }
+
+  const changedTarget = path.join(outputRoot, 'changed.md');
+  await assert.rejects(() => invokeAcp(root, {
+    fixtureArguments: ['--fixture-create-target', '--fixture-changed-after-permission'],
+    publicPrompt: { text: changedTarget }, allowedRoots: [root, outputRoot],
+    tools: { mode: 'allowlist', names: ['create_file'], scope }
+  }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
+});
+
+test('ACP preserves every file operation identity through both event orderings', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-operation-flow-'));
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-operation-flow-output-'));
+  const scope = {
+    protocol: 'path-v1', readRoots: [root, outputRoot], writeRoots: [outputRoot]
+  };
+  const operations = [
+    { canonical: 'read_file', fixture: '--fixture-operation-read', needsExisting: true },
+    { canonical: 'search', fixture: '--fixture-operation-search', needsExisting: true },
+    { canonical: 'create_file', fixture: '--fixture-create-target', needsExisting: false },
+    { canonical: 'edit_file', fixture: '--fixture-operation-edit', needsExisting: true },
+    { canonical: 'delete_file', fixture: '--fixture-operation-delete', needsExisting: true },
+    { canonical: 'move_file', fixture: '--fixture-operation-move', needsExisting: true },
+    { canonical: 'copy_file', fixture: '--fixture-operation-copy', needsExisting: true }
+  ];
+  for (const permissionFirst of [false, true]) {
+    for (const operation of operations) {
+      const target = path.join(
+        outputRoot, `${permissionFirst ? 'permission' : 'announce'}-${operation.canonical}.md`
+      );
+      if (operation.needsExisting) await writeFile(target, operation.canonical);
+      const result = await invokeAcp(root, {
+        fixtureArguments: [
+          operation.fixture, ...(permissionFirst ? ['--fixture-permission-first'] : [])
+        ],
+        publicPrompt: { text: target }, allowedRoots: [root, outputRoot],
+        tools: { mode: 'allowlist', names: [operation.canonical], scope }
+      }).catch((error) => {
+        error.message = `${permissionFirst ? 'permission-first' : 'announce-first'} ${operation.canonical}: ${error.message}`;
+        throw error;
+      });
+      assert.equal(result.toolObservation.calls[0].operation, operation.canonical);
+      assert.equal(result.toolObservation.calls[0].status, 'completed');
+    }
+  }
+});
+
+test('scoped ACP permission checks every read, write, copy, and move path', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-scope-'));
+  const readRoot = path.join(root, 'read');
+  const writeRoot = path.join(root, 'src');
+  await Promise.all([mkdir(readRoot, { recursive: true }), mkdir(writeRoot, { recursive: true })]);
+  await Promise.all([
+    writeFile(path.join(readRoot, 'a.md'), 'read'),
+    writeFile(path.join(writeRoot, 'a.js'), 'source'),
+    writeFile(path.join(writeRoot, 'a.md'), 'move')
+  ]);
+  const request = {
+    cwd: root,
+    tools: {
+      mode: 'allowlist',
+      names: ['read_file', 'search', 'edit_file', 'create_file', 'delete_file', 'move_file', 'copy_file'],
+      scope: { protocol: 'path-v1', readRoots: [root, readRoot], writeRoots: [writeRoot] }
+    }
+  };
+  const options = [{ optionId: 'allow', kind: 'allow_once' }];
+  const decision = (toolCall) => acpPermissionOutcome(request, { toolCall, options });
+  assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: 'read/a.md' } }),
+    { outcome: 'selected', optionId: 'allow' });
+  assert.deepEqual(await decision({ name: 'view', kind: 'read', rawInput: { path: '../outside.md' } }),
+    { outcome: 'cancelled' });
+  assert.deepEqual(await decision({ name: 'edit', kind: 'edit', rawInput: { path: 'src/a.js' } }),
+    { outcome: 'selected', optionId: 'allow' });
+  assert.deepEqual(await decision({ name: 'edit', kind: 'edit', rawInput: { path: 'test/a.js' } }),
+    { outcome: 'cancelled' });
+  assert.deepEqual(await decision({
+    name: 'edit', kind: 'copy', rawInput: { from: 'read/a.md', to: 'src/a.md' },
+    locations: [{ path: 'read/a.md' }, { path: 'src/a.md' }]
+  }), { outcome: 'selected', optionId: 'allow' });
+  assert.deepEqual(await decision({
+    name: 'edit', kind: 'copy', rawInput: { from: 'read/a.md', to: 'test/a.md' }
+  }), { outcome: 'cancelled' });
+  assert.deepEqual(await decision({
+    name: 'edit', kind: 'move', rawInput: { from: 'read/a.md', to: 'src/a.md' }
+  }), { outcome: 'cancelled' });
+  assert.deepEqual(await decision({
+    name: 'edit', kind: 'move', rawInput: { from: 'src/a.md', to: 'src/b.md' },
+    locations: [{ path: 'src/a.md' }, { path: 'src/b.md' }]
+  }), { outcome: 'selected', optionId: 'allow' });
+});
+
+test('ACP permission keeps read, search, create, edit, delete, move, and copy identities distinct', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-operation-'));
+  const readRoot = path.join(root, 'read');
+  const writeRoot = path.join(root, 'write');
+  await Promise.all([mkdir(readRoot), mkdir(writeRoot)]);
+  await Promise.all([
+    writeFile(path.join(readRoot, 'source.md'), 'source'),
+    writeFile(path.join(writeRoot, 'existing.md'), 'existing'),
+    writeFile(path.join(writeRoot, 'move.md'), 'move')
+  ]);
+  const scope = { protocol: 'path-v1', readRoots: [root], writeRoots: [writeRoot] };
+  const options = [{ optionId: 'allow', kind: 'allow_once' }];
+  const decide = (names, toolCall) => acpPermissionOutcome({
+    cwd: root, tools: { mode: 'allowlist', names, scope }
+  }, { toolCall, options });
+  const selected = { outcome: 'selected', optionId: 'allow' };
+  const cancelled = { outcome: 'cancelled' };
+
+  assert.deepEqual(await decide(['read_file'], {
+    name: 'view', kind: 'read', rawInput: { path: 'read/source.md' }
+  }), selected);
+  assert.deepEqual(await decide(['read_file'], {
+    name: 'grep', kind: 'search', rawInput: { path: 'read' }
+  }), cancelled);
+  assert.deepEqual(await decide(['search'], {
+    name: 'grep', kind: 'search', rawInput: { path: 'read' }
+  }), selected);
+
+  assert.deepEqual(await decide(['create_file'], {
+    name: 'edit', kind: 'edit', rawInput: { path: 'write/new.md' }
+  }), selected);
+  assert.deepEqual(await decide(['create_file'], {
+    name: 'edit', kind: 'edit', rawInput: { path: 'write/existing.md' }
+  }), cancelled, 'create-only must not overwrite an existing file');
+  assert.deepEqual(await decide(['edit_file'], {
+    name: 'edit', kind: 'edit', rawInput: { path: 'write/existing.md' }
+  }), selected);
+  assert.deepEqual(await decide(['edit_file'], {
+    name: 'edit', kind: 'edit', rawInput: { path: 'write/missing.md' }
+  }), cancelled, 'edit-only must not create a missing file');
+
+  const deleteCall = { name: 'edit', kind: 'delete', rawInput: { path: 'write/existing.md' } };
+  const moveCall = {
+    name: 'edit', kind: 'move', rawInput: { from: 'write/move.md', to: 'write/moved.md' }
+  };
+  const copyCall = {
+    name: 'edit', kind: 'copy', rawInput: { from: 'read/source.md', to: 'write/copied.md' }
+  };
+  for (const substituted of [deleteCall, moveCall, copyCall]) {
+    assert.deepEqual(await decide(['edit_file'], substituted), cancelled,
+      `edit_file must not authorize ${substituted.kind}`);
+    assert.deepEqual(await decide(['create_file'], substituted), cancelled,
+      `create_file must not authorize ${substituted.kind}`);
+  }
+  assert.deepEqual(await decide(['delete_file'], deleteCall), selected);
+  assert.deepEqual(await decide(['delete_file'], moveCall), cancelled);
+  assert.deepEqual(await decide(['move_file'], moveCall), selected);
+  assert.deepEqual(await decide(['move_file'], copyCall), cancelled);
+  assert.deepEqual(await decide(['copy_file'], copyCall), selected);
+  assert.deepEqual(await decide(['copy_file'], moveCall), cancelled);
+
+  assert.deepEqual(await decide(['delete_file'], {
+    name: 'view', kind: 'delete', rawInput: { path: 'write/existing.md' }
+  }), cancelled, 'contradictory provider name/kind must fail closed');
+});
+
+test('ACP refuses operation substitution after permission in both event orderings', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-operation-order-'));
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-operation-output-'));
+  const scope = {
+    protocol: 'path-v1', readRoots: [root, outputRoot], writeRoots: [outputRoot]
+  };
+  const initialOperations = [
+    {
+      canonical: 'read_file', fixture: '--fixture-operation-read', needsExisting: true,
+      substitutions: ['edit', 'delete', 'move', 'copy']
+    },
+    {
+      canonical: 'search', fixture: '--fixture-operation-search', needsExisting: true,
+      substitutions: ['edit', 'delete', 'move', 'copy']
+    },
+    {
+      canonical: 'create_file', fixture: '--fixture-create-target', needsExisting: false,
+      substitutions: ['delete', 'move', 'copy']
+    },
+    {
+      canonical: 'edit_file', fixture: '--fixture-operation-edit', needsExisting: true,
+      substitutions: ['delete', 'move', 'copy']
+    },
+    {
+      canonical: 'delete_file', fixture: '--fixture-operation-delete', needsExisting: true,
+      substitutions: ['edit', 'move', 'copy']
+    },
+    {
+      canonical: 'move_file', fixture: '--fixture-operation-move', needsExisting: true,
+      substitutions: ['edit', 'delete', 'copy']
+    },
+    {
+      canonical: 'copy_file', fixture: '--fixture-operation-copy', needsExisting: true,
+      substitutions: ['edit', 'delete', 'move']
+    }
+  ];
+  for (const permissionFirst of [false, true]) {
+    for (const initial of initialOperations) {
+      for (const substitute of initial.substitutions) {
+        const target = path.join(outputRoot, [
+          permissionFirst ? 'permission' : 'announce', initial.canonical, substitute
+        ].join('-') + '.md');
+        if (initial.needsExisting) await writeFile(target, initial.canonical);
+        await assert.rejects(() => invokeAcp(root, {
+          fixtureArguments: [
+            initial.fixture, `--fixture-completion-${substitute}`,
+            ...(permissionFirst ? ['--fixture-permission-first'] : [])
+          ],
+          publicPrompt: { text: target }, allowedRoots: [root, outputRoot],
+          tools: { mode: 'allowlist', names: [initial.canonical], scope }
+        }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED', [
+          permissionFirst ? 'permission-first' : 'announce-first',
+          `${initial.canonical}→${substitute}`
+        ].join(' '));
+      }
+    }
+  }
+
+  for (const permissionFirst of [false, true]) {
+    const ordering = permissionFirst ? 'permission' : 'announce';
+    const existing = path.join(outputRoot, `${ordering}-existing.md`);
+    await writeFile(existing, 'do not overwrite');
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: [
+        '--fixture-create-target', ...(permissionFirst ? ['--fixture-permission-first'] : [])
+      ],
+      publicPrompt: { text: existing }, allowedRoots: [root, outputRoot],
+      tools: { mode: 'allowlist', names: ['create_file'], scope }
+    }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
+    assert.equal(await readFile(existing, 'utf8'), 'do not overwrite');
+
+    const missing = path.join(outputRoot, `${ordering}-missing.md`);
+    await assert.rejects(() => invokeAcp(root, {
+      fixtureArguments: [
+        '--fixture-operation-edit', ...(permissionFirst ? ['--fixture-permission-first'] : [])
+      ],
+      publicPrompt: { text: missing }, allowedRoots: [root, outputRoot],
+      tools: { mode: 'allowlist', names: ['edit_file'], scope }
+    }), (error) => error.code === 'MODEL_TOOL_SCOPE_UNENFORCED');
+    await assert.rejects(readFile(missing), (error) => error.code === 'ENOENT');
+  }
 });
 
 test('ACP fails closed on unsupported protocol, malformed NDJSON, timeout, and cancellation', async (t) => {

@@ -80,6 +80,7 @@ export const KERNEL_CODES = Object.freeze([
 export const HOME_CODES = Object.freeze([
   'home.active-work-leads',
   'home.governed-goal-active',
+  'home.auto-unavailable',
   'home.briefing-unavailable',
   'home.default-order',
   'home.no-workspace-selected',
@@ -334,6 +335,8 @@ export const COMPOSED_CODES = Object.freeze({
  * the checklist draws between `unmet` and `unknown`, at the level of the whole result.
  */
 export const WARNING_CODES = Object.freeze([
+  /** Auto private records were unreadable; Home must not represent that as zero Auto work. */
+  'home.auto-unavailable',
   /** The My Flow briefing is cross-workspace; a planner that read one repository says so. */
   'home.briefing-unavailable',
   /** The Git-local fault store was unreadable, so no-faults would be an invented answer. */

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-human-request.schema.json",
+  "title": "Singularity Flow Auto Human Request v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "phase", "attemptId", "requestType", "title", "detail", "options", "subjectSha256", "policySha256", "checkpointSha256", "status", "response", "createdAt", "expiresAt", "requestId", "requestSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-human-request" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "phase": { "$ref": "#/$defs/nonempty" },
+    "attemptId": { "oneOf": [{ "$ref": "#/$defs/attemptId" }, { "type": "null" }] },
+    "requestType": { "enum": ["clarification", "credential", "architecture-choice"] }, "title": { "$ref": "#/$defs/nonempty" },
+    "detail": { "type": "object" },
+    "options": { "type": "array", "items": { "$ref": "#/$defs/option" } },
+    "subjectSha256": { "$ref": "#/$defs/hash" }, "policySha256": { "$ref": "#/$defs/hash" }, "checkpointSha256": { "$ref": "#/$defs/hash" },
+    "status": { "enum": ["open", "answered", "expired", "cancelled"] }, "response": {},
+    "createdAt": { "$ref": "#/$defs/timestamp" }, "expiresAt": { "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }] },
+    "requestId": { "type": "string", "pattern": "^AHR-[A-F0-9]{26}$" }, "requestSha256": { "$ref": "#/$defs/hash" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "answered" } }, "required": ["status"] },
+      "then": { "properties": { "response": { "$ref": "#/$defs/response" } } },
+      "else": { "properties": { "response": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "requestType": { "const": "clarification" } }, "required": ["requestType"] },
+      "then": {
+        "properties": {
+          "detail": { "$ref": "#/$defs/clarificationDetail" },
+          "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/clarificationResponse" }] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "requestType": { "const": "credential" } }, "required": ["requestType"] },
+      "then": {
+        "properties": {
+          "detail": { "$ref": "#/$defs/credentialDetail" }, "options": { "maxItems": 0 },
+          "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/credentialResponse" }] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "requestType": { "const": "architecture-choice" } }, "required": ["requestType"] },
+      "then": {
+        "properties": {
+          "detail": { "$ref": "#/$defs/architectureDetail" }, "options": { "minItems": 2 },
+          "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/architectureResponse" }] }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "timestamp": { "type": "string", "format": "date-time" },
+    "nonempty": { "type": "string", "minLength": 1 },
+    "stringSet": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonempty" } },
+    "option": {
+      "oneOf": [
+        { "$ref": "#/$defs/nonempty" },
+        {
+          "type": "object", "required": ["id"],
+          "properties": {
+            "id": { "$ref": "#/$defs/nonempty" }, "label": { "$ref": "#/$defs/nonempty" },
+            "description": { "$ref": "#/$defs/nonempty" }, "consequences": { "$ref": "#/$defs/stringSet" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "clarificationDetail": {
+      "type": "object", "required": ["question"],
+      "properties": { "question": { "$ref": "#/$defs/nonempty" }, "whyStopped": { "$ref": "#/$defs/nonempty" } },
+      "additionalProperties": false
+    },
+    "credentialDetail": {
+      "type": "object", "required": ["provider"], "properties": { "provider": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false
+    },
+    "architectureDetail": {
+      "type": "object", "required": ["reason"], "properties": { "reason": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false
+    },
+    "response": {
+      "type": "object", "required": ["value", "requestSha256", "responseSha256"],
+      "properties": { "value": { "type": "object" }, "requestSha256": { "$ref": "#/$defs/hash" }, "responseSha256": { "$ref": "#/$defs/hash" } },
+      "additionalProperties": false
+    },
+    "clarificationResponse": {
+      "allOf": [
+        { "$ref": "#/$defs/response" },
+        { "properties": { "value": { "type": "object", "minProperties": 1, "maxProperties": 1, "properties": { "answer": { "$ref": "#/$defs/nonempty" }, "choice": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false } } }
+      ]
+    },
+    "credentialResponse": {
+      "allOf": [
+        { "$ref": "#/$defs/response" },
+        { "properties": { "value": { "type": "object", "required": ["brokerReference"], "properties": { "brokerReference": { "type": "string", "minLength": 10, "maxLength": 256, "pattern": "^broker://[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._:-]*)*$" }, "status": { "enum": ["available", "unavailable"] } }, "additionalProperties": false } } }
+      ]
+    },
+    "architectureResponse": {
+      "allOf": [
+        { "$ref": "#/$defs/response" },
+        { "properties": { "value": { "type": "object", "required": ["choice"], "properties": { "choice": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false } } }
+      ]
+    }
+  },
+  "additionalProperties": false
+}

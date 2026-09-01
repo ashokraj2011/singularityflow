@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-candidate-verification.schema.json",
+  "title": "Singularity Flow isolated Auto Candidate verification v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "flightId", "candidateId", "candidateSha256", "bindingSha256", "status", "commands", "candidateTreeUnchanged", "verifiedAt", "verificationReceiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-candidate-verification" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "candidateId": { "type": "string", "pattern": "^CAN-[A-F0-9]{26}$" },
+    "candidateSha256": { "$ref": "#/$defs/hash" },
+    "bindingSha256": { "$ref": "#/$defs/hash" },
+    "status": { "enum": ["passed", "failed"] },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": ["id", "argvSha256", "workingDirectory", "status", "signal", "timedOut", "overflow", "outputSha256", "outputBytes"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "argvSha256": { "$ref": "#/$defs/hash" },
+          "workingDirectory": { "type": "string", "minLength": 1 },
+          "status": { "type": "integer" },
+          "signal": { "type": ["string", "null"] },
+          "timedOut": { "type": "boolean" },
+          "overflow": { "type": "boolean" },
+          "outputSha256": { "$ref": "#/$defs/hash" },
+          "outputBytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "candidateTreeUnchanged": { "type": "boolean" },
+    "verifiedAt": { "type": "string", "format": "date-time" },
+    "verificationReceiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

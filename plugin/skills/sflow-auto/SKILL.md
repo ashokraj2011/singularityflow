@@ -2,7 +2,7 @@
 name: sflow-auto
 description: Plan, ratify, and control one bounded Singularity Flow Auto flight.
 disable-model-invocation: true
-argument-hint: "<requirement> | plan <requirement> | show-plan <PLAN-ID> | start <PLAN-ID> | list | status|report|pause|stop|halt|takeover|resume|discard <FLIGHT-ID>"
+argument-hint: "<requirement> | --goal <GOAL-ID> | plan <requirement> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>"
 
 ---
 # Run bounded Auto work
@@ -12,13 +12,12 @@ argument-hint: "<requirement> | plan <requirement> | show-plan <PLAN-ID> | start
 <!-- sflow-execution-boundary -->
 **Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.
 
-Accept an explicit Auto subcommand or quoted-requirement shorthand. With no argument, show the forms and change nothing.
-
-1. Run `singularity-flow workspace current --json`; require a verified `repositoryPath` and use it as cwd for every command. Never discover a repository from chat history, `$HOME`, or a filesystem search.
-2. For `singularity-flow auto plan <requirement>` or `singularity-flow auto <requirement>`, require the exact requirement. Both are the same planning-only model operation and create no Story, branch, worktree, approval, or authorization. Preserve only supplied `--capability`, `--work-type`, `--work-id`, `--from-branch`, `--profile`, `--pace`, and `--until`. Run once and reproduce the Plan card, validation status, and ratification-packet SHA-256.
-3. For `show-plan`, require the exact Plan ID and run `singularity-flow auto show-plan <PLAN-ID> --json`. It is read-only.
-4. For `start`, first show the Plan. Explain that start creates the governed Story and may author until its declared human boundary. Require the contributor to type the complete ratification-packet SHA-256; never extract, prefill, shorten, or infer it from command output. Then run `singularity-flow auto start --plan <PLAN-ID> --confirm <PACKET-SHA256> --json` once.
-5. For `list`, run `singularity-flow auto list --json`; it is read-only. For `status` or `report`, require the exact flight ID and run the corresponding read-only command with `--json`.
-6. Pause is resumable; takeover proves quiescence and preserves the worktree for manual control; stop/halt is terminal but retains it; discard removes the worktree and only an unpublished local Story branch. Require the action and flight ID, then run exactly one of `singularity-flow auto pause <FLIGHT-ID> --json`, `singularity-flow auto takeover <FLIGHT-ID> --json`, or `singularity-flow auto stop <FLIGHT-ID> --json` (legacy `singularity-flow auto halt <FLIGHT-ID> --json`). Resume requires the typed complete checkpoint SHA-256 and runs `singularity-flow auto resume <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> --json`. For discard, require the contributor to type the exact flight ID as confirmation, then run `singularity-flow auto discard <FLIGHT-ID> --confirm <FLIGHT-ID> --json`.
-7. Never invoke `auto flight-step` directly, retry a failed authoring attempt, answer clarification, approve, reject, waive policy, expand scope, merge, deploy, or bypass a human boundary. Stop on any stale hash, policy refusal, provider failure, or Git publication failure and preserve the exact recovery action.
-8. Report Plan/flight ID, status, Story and phase when present, isolated worktree, model/usage assurance, Git publication result, stop reason, checkpoint SHA-256, and the exact next command. Do not continue automatically.
+1. Use the verified workspace cwd. Never search `$HOME` or infer a repository from chat. With no argument, show the forms and change nothing.
+2. Plan with `singularity-flow auto plan "<REQUIREMENT>" --json`, its shorthand, or `singularity-flow auto --goal <GOL-ID|GEX-ID> --json`. Goal input stays exact and needs separate ratification. Planning creates no Story or authority. Show the complete Plan and complete ratification-packet SHA-256.
+3. Read with `singularity-flow auto show-plan <PLAN-ID> --json`, `auto list --json`, `auto status|report|needs-you <FLIGHT-ID> --json`, or `auto continue <STORY-ID> --json`. Continue only proposes. `auto adopt --from-adhoc <AHS-ID> --json` stays non-startable and retains `pre-auto-adhoc`/`discovered-at-landing` provenance.
+4. Start only after the user types the full packet hash: `singularity-flow auto start --plan <PLAN-ID> --confirm <PACKET-SHA256> --json`. Never extract or prefill confirmation.
+5. Preview repair with `singularity-flow auto repair <FLIGHT-ID> --refusal <REFUSAL-ID> --json`. Show scope, evidence, parent, and hash. Run its confirmed command once only after the user types that hash; a second failure halts.
+6. Show typed requests first. Record exactly one explicit response with `singularity-flow auto respond <FLIGHT-ID> --request <REQUEST-ID> --choice <ID> --confirm <REQUEST-SHA256> --json`; use `--answer <TEXT>` for clarification or `--broker-reference <REFERENCE>` for credentials. Never collect credential values. Responding does not resume.
+7. Preview `auto switch-unit <FLIGHT-ID> --execution-unit <ID> --reason "<TEXT>" --json`; apply only its exact-hash command. It links a new attempt without changing the Task Contract.
+8. Control with `auto pause|takeover|stop <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> --json` only after displaying the complete checkpoint SHA-256. Resume uses `auto resume <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> --json`; open requests block it. Before discard, require the user to type the exact flight ID as confirmation, then run `auto discard <FLIGHT-ID> --confirm <FLIGHT-ID> --json`. `halt` remains a stop alias.
+9. Never invoke `auto flight-step` directly, decide an approval/request, waive policy, expand scope, merge, deploy, or infer a hash. Stop on stale authority or failure. Report references, Git outcome, checkpoint, and exact next command.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-repair-plan.schema.json",
+  "title": "Singularity Flow Auto Repair Plan v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "parentAttemptId", "refusalSha256", "objective", "readScope", "writeScope", "forbiddenChanges", "requiredEvidence", "budget", "attemptNumber", "createdAt", "repairPlanId", "repairPlanSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-repair-plan" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "parentAttemptId": { "$ref": "#/$defs/attemptId" },
+    "refusalSha256": { "$ref": "#/$defs/hash" }, "objective": { "$ref": "#/$defs/nonempty" },
+    "readScope": { "$ref": "#/$defs/stringSet" }, "writeScope": { "$ref": "#/$defs/stringSet" },
+    "forbiddenChanges": { "$ref": "#/$defs/stringSet" }, "requiredEvidence": { "$ref": "#/$defs/stringSet" },
+    "budget": {
+      "type": "object", "required": ["maximumAttempts", "remainingModelInvocations"],
+      "properties": { "maximumAttempts": { "const": 1 }, "remainingModelInvocations": { "$ref": "#/$defs/counter" } },
+      "additionalProperties": false
+    },
+    "attemptNumber": { "const": 1 }, "createdAt": { "$ref": "#/$defs/timestamp" },
+    "repairPlanId": { "type": "string", "pattern": "^ARP-[A-F0-9]{26}$" }, "repairPlanSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "timestamp": { "type": "string", "format": "date-time" },
+    "nonempty": { "type": "string", "minLength": 1 }, "counter": { "type": "integer", "minimum": 0 },
+    "stringSet": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonempty" } }
+  },
+  "additionalProperties": false
+}

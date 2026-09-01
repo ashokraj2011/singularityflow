@@ -24,6 +24,9 @@ import { approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelW
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
+import {
+  assertAutoCandidateMatches, observeAutoCandidateWorktree
+} from './auto/auto-candidate.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
@@ -4195,7 +4198,19 @@ async function phaseCommand(positionals, options) {
               );
             }
           }
-          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}`;
+          // The generic delivery digest closes ordinary editor/test races. Auto publication has a
+          // stronger one-Candidate law: immediately before and after the isolated Git index is
+          // staged, reproduce the exact frozen Candidate resource identity as well. This keeps
+          // the lifecycle commit/event/trailer bound to the same Candidate that was verified even
+          // when a concurrent writer changes source after the earlier generation preflight.
+          let autoCandidateDigest = null;
+          if (phase.deliveryEvidence?.autoCandidate) {
+            const candidate = phase.deliveryEvidence.autoCandidate;
+            const observation = await observeAutoCandidateWorktree(root, candidate, pathContext);
+            assertAutoCandidateMatches(candidate, observation);
+            autoCandidateDigest = `${candidate.bindingSha256}:${observation.applicationResourceDigest}`;
+          }
+          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}`;
         };
       },
       worktreeGuard: async () => {

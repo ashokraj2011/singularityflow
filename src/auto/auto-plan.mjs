@@ -16,6 +16,8 @@ import { previewChangeFlightPlan, readChangeFlightPlan } from '../change-flight-
 import { loadDefinition, resolveWorkType } from '../config.mjs';
 import { branch, gitCommonDir, head, identity } from '../git.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
+import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
+import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -36,6 +38,7 @@ import {
   configurationReadRoot, configurationReadSnapshot
 } from '../configuration-read-scope.mjs';
 import { readAutoPrivateRecord, writeAutoPrivateRecord } from './auto-private-store.mjs';
+import { assertAutoRequirementSourceCurrent } from './auto-entry-modes.mjs';
 
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const PLAN_HASH = /^sha256:[a-f0-9]{64}$/;
@@ -66,7 +69,31 @@ async function claimedEffects(root, plan, authorization) {
   const start = path.join(
     localRoot(root), 'change-flight-plans', 'starts', `${plan.bindings.flightPlanId}.json`
   );
-  return { flight: Boolean(flight && await exists(flight)), start: await exists(start) };
+  const repository = plan.repositories?.[0] ?? null;
+  const worktree = authorization.flightId && repository?.id
+    ? path.join(gitCommonDir(root), 'singularity-flow', 'auto-worktrees',
+        authorization.flightId, repository.id)
+    : null;
+  const localStory = run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${plan.story.workId}`
+  ], { cwd: root, allowFailure: true }).status === 0;
+  const stagingBranch = `sflow-cfp-${sha256([
+    plan.bindings.flightPlanId, plan.story.workId
+  ]).slice(0, 16)}`;
+  const staging = run('git', [
+    'show-ref', '--verify', '--quiet', `refs/heads/${stagingBranch}`
+  ], { cwd: root, allowFailure: true }).status === 0;
+  // A claimed start owns one deterministic managed worktree and one exact Story branch. Either is
+  // a consequential effect: releasing the claim here would allocate a second flight on retry and
+  // strand (or accidentally adopt) the first branch. The recovery path validates the complete
+  // governed Auto origin before it reuses either effect.
+  return {
+    flight: Boolean(flight && await exists(flight)),
+    start: await exists(start),
+    worktree: Boolean(worktree && await exists(worktree)),
+    localStory,
+    staging
+  };
 }
 
 function validatePlanId(value) {
@@ -416,6 +443,27 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const hostAllowed = policy.execution.allowedHosts.includes(selectedHost.provider);
   const firstPhase = resolution.phases[0]?.id ?? null;
   const driver = await executionUnitDriverDoctor(root, definition, firstPhase);
+  const selectorWithinPilot = until.kind === 'first-human-boundary'
+    || (resolution.phases.some((phase) => phase.id === until.phase)
+      && ['published', 'submitted', 'phase-complete'].includes(until.kind))
+    || until.kind === 'story-complete';
+  const pilotWindow = ['step', 'continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
+  const endpointPhaseIndex = until.kind === 'story-complete'
+    ? resolution.phases.length - 1
+    : until.kind === 'first-human-boundary'
+      ? 0 : resolution.phases.findIndex((phase) => phase.id === until.phase);
+  const reachablePhases = endpointPhaseIndex < 0
+    ? [] : resolution.phases.slice(0, endpointPhaseIndex + 1);
+  const phaseVerification = await Promise.all(reachablePhases.map(async (phase) => {
+    const required = phaseRequiresCodeDelivery(phase);
+    const commands = required ? await resolveDeliveryQualityCommands(root, phase) : [];
+    return { phase: phase.id, required, commands };
+  }));
+  const missingVerificationPhases = phaseVerification
+    .filter((entry) => entry.required && entry.commands.length === 0)
+    .map((entry) => entry.phase);
+  const deliveryQualityCommands = phaseVerification.flatMap((entry) => entry.commands);
+  const verificationReady = missingVerificationPhases.length === 0;
   const executionHost = {
     id: selectedHost.provider,
     model: selectedHost.model,
@@ -427,12 +475,27 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     containment: { managedWorktree: true, networkPolicy: 'host-controlled' },
     cancellation: driver.cancellation.supported,
     driver,
-    status: hostAllowed && driver.status === 'available' ? 'available' : 'unavailable'
+    verification: {
+      status: verificationReady ? 'available' : 'unavailable',
+      commandIds: [...new Set(deliveryQualityCommands.map((command) => command.id))].sort()
+    },
+    status: hostAllowed && driver.status === 'available' && verificationReady
+      ? 'available' : 'unavailable'
   };
-  const selectorWithinPilot = until.kind === 'first-human-boundary'
-    || (until.phase === firstPhase && ['published', 'submitted', 'phase-complete'].includes(until.kind))
-    || (until.kind === 'story-complete' && resolution.phases.length === 1);
-  const pilotWindow = ['step', 'continuous', 'phase'].includes(pace.mode) && selectorWithinPilot;
+  // Every reachable phase consumes phase capacity, but kernel-owned non-code phases are prepared
+  // deterministically and consume no model invocation. Prove both ceilings against the actual
+  // pinned rail before a Plan can become startable.
+  const minimumPhaseExecutions = endpointPhaseIndex < 0 ? Number.POSITIVE_INFINITY
+    : endpointPhaseIndex + 1;
+  const minimumModelInvocations = endpointPhaseIndex < 0 ? Number.POSITIVE_INFINITY
+    : reachablePhases.filter((phase) => !(
+      phase.generationPolicy?.producer === 'deterministic'
+      && !phaseRequiresCodeDelivery(phase)
+    )).length;
+  const phaseCapacityReady = Number.isFinite(minimumPhaseExecutions)
+    && policy.ceilings.maximumPhases >= minimumPhaseExecutions;
+  const modelCapacityReady = Number.isFinite(minimumModelInvocations)
+    && policy.ceilings.maximumModelInvocations >= minimumModelInvocations;
   const tokenAssuranceStartable = policy.ceilings.tokenBudget.assurance !== 'exact-required';
   const destinationCollision = branchExists(root, workId, remote);
   const startable = policy.eligibility === 'bounded'
@@ -441,6 +504,8 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     && baseHeads[catalog.repositoryId] === head(root)
     && executionHost.status === 'available'
     && pilotWindow
+    && phaseCapacityReady
+    && modelCapacityReady
     && tokenAssuranceStartable
     && !destinationCollision;
   const createdAt = nowIso();
@@ -450,7 +515,10 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     kind: 'auto-plan',
     mode: 'auto',
     confirmation: { protocol: 'packet-v1' },
-    requirement: { text: requirement, sha256: sha256(requirement) },
+    requirement: {
+      text: requirement, sha256: sha256(requirement),
+      ...(options.requirementSource ? { source: structuredClone(options.requirementSource) } : {})
+    },
     proposal: {
       title: cleanTitle(proposal.title, requirement), assumptions: proposal.assumptions,
       unresolvedDecisions: proposal.unresolvedDecisions, predictedPaths: proposal.predictedPaths,
@@ -459,7 +527,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     story: { workId, workType, branch: workId, phaseRail: resolution.phases.map((phase) => phase.id) },
     execution: {
       profile, pace, until, ceilings: policy.ceilings, concurrency: policy.concurrency,
-      eligibility: policy.eligibility
+      eligibility: policy.eligibility, repair: policy.repair
     },
     humanBoundaries: {
       firstPhaseClarificationRequired: resolution.phases[0]?.clarification?.mode === 'required',
@@ -495,10 +563,19 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
         ...(protectedPaths.length ? ['protected scope is predicted'] : []),
         ...(baseHeads[catalog.repositoryId] !== head(root) ? ['active HEAD does not equal the selected published base'] : []),
         ...(!hostAllowed ? [`execution host '${selectedHost.provider}' is not allowed by policy`] : []),
+        ...missingVerificationPhases.map((phase) => (
+          `phase '${phase}' has no deterministic delivery-quality command`
+        )),
         ...(driver.status !== 'available'
           ? driver.checks.filter((entry) => entry.status === 'fail').map((entry) => `execution driver ${entry.id}: ${entry.detail}`)
           : []),
-        ...(!pilotWindow ? ['Story Auto authorizes only step/phase/continuous pace through the first phase or human boundary in this release'] : []),
+        ...(!pilotWindow ? ['Story Auto requires step, phase, or continuous pace and an endpoint on the pinned Story rail'] : []),
+        ...(!phaseCapacityReady
+          ? [`endpoint requires ${minimumPhaseExecutions} phase execution(s), above maximumPhases ${policy.ceilings.maximumPhases}`]
+          : []),
+        ...(!modelCapacityReady
+          ? [`endpoint requires at least ${minimumModelInvocations} model invocation(s), above maximumModelInvocations ${policy.ceilings.maximumModelInvocations}`]
+          : []),
         ...(!tokenAssuranceStartable ? ['exact-required token assurance cannot be proven before invocation by this execution host'] : []),
         ...(destinationCollision ? [`destination branch '${workId}' already exists`] : [])
       ]
@@ -616,6 +693,14 @@ async function revalidateAutoPlanInScope(root, plan) {
   }
   const flightPlan = await readChangeFlightPlan(root, plan.bindings.flightPlanId);
   if (`sha256:${recordSha256(flightPlan)}` !== plan.bindings.flightPlanSha256) changed.push('Change Flight Plan changed');
+  if (plan.requirement?.source) {
+    try {
+      await assertAutoRequirementSourceCurrent(root, plan.requirement.source, { definition: await loadDefinition(root) });
+    } catch (error) {
+      if (error?.code === 'AUTO_GOAL_SOURCE_STALE') changed.push('Goal source changed');
+      else throw error;
+    }
+  }
   if (changed.length) throw new SingularityFlowError(`Auto Plan '${plan.planId}' is stale: ${changed.join(', ')}.`, {
     code: 'AUTO_PLAN_STALE', details: { changed, nextAction: 'Create and review a new Auto Plan.' }
   });
@@ -674,7 +759,9 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
         code: 'AUTO_AUTHORIZATION_CONSUMED', details: { flightId: existing.flightId, recovered: true }
       });
     }
-    if (effects.start) return { plan, authorization: { ...existing, recovery: 'reconstruct-flight' } };
+    if (effects.start || effects.worktree || effects.localStory || effects.staging) {
+      return { plan, authorization: { ...existing, recovery: 'reconstruct-flight' } };
+    }
     existing = sealAuthorization({
       ...existing, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
     });
@@ -786,11 +873,21 @@ export async function finishAutoAuthorization(root, planIdValue, flightId, { suc
     if (stored.flightId !== flightId || !stored.claimedAt || stored.consumedAt) {
       throw new SingularityFlowError(`Auto authorization for '${planId}' is not claimed by '${flightId}'.`, { code: 'AUTO_AUTHORIZATION_STALE' });
     }
+    const effects = success ? null : await claimedEffects(root, plan, stored);
+    const preserveClaim = effects && Object.values(effects).some(Boolean);
     const next = success
       ? sealAuthorization({ ...stored, consumedAt: nowIso(), claimExpiresAt: null })
-      : sealAuthorization({
-          ...stored, claimedAt: null, claimExpiresAt: null, claimOwner: null, claimId: null, flightId: null
-        });
+      : preserveClaim
+        // The command is returning, so no live process owns this retained claim. Expire its lease
+        // immediately while keeping the exact flight identity; the next invocation can reconcile
+        // the known effects instead of waiting ten minutes or allocating another flight.
+        ? sealAuthorization({
+            ...stored, claimExpiresAt: nowIso(), claimOwner: null
+          })
+        : sealAuthorization({
+            ...stored, claimedAt: null, claimExpiresAt: null, claimOwner: null,
+            claimId: null, flightId: null
+          });
     await writeAutoPrivateRecord(
       root, authorizationFile(root, planId), 'authorization', canonicalJson(next)
     );

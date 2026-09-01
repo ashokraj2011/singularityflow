@@ -24,7 +24,7 @@ async function schema(name) {
   return JSON.parse(await readFile(path.join(root, 'schemas', `${name}.schema.json`), 'utf8'));
 }
 
-function flightCheckpointSha256(state) {
+function legacyFlightCheckpointSha256(state) {
   return `sha256:${recordSha256({
     flightId: state.flightId,
     planSha256: state.planSha256,
@@ -36,6 +36,27 @@ function flightCheckpointSha256(state) {
     checkpointSequence: state.checkpointSequence,
     stopReason: state.stopReason,
     stopRequested: state.stopRequested ?? null
+  })}`;
+}
+
+function flightCheckpointSha256(state) {
+  return `sha256:${recordSha256({
+    flightId: state.flightId,
+    planSha256: state.planSha256,
+    status: state.status,
+    workId: state.story.workId,
+    phase: state.story.phase,
+    position: state.position,
+    counters: state.counters,
+    checkpointSequence: state.checkpointSequence,
+    stopReason: state.stopReason,
+    stopRequested: state.stopRequested ?? null,
+    candidate: state.candidate ?? null,
+    worldModelReference: state.worldModelReference ?? null,
+    comprehensionReference: state.comprehensionReference ?? null,
+    phaseContracts: state.phaseContracts ?? {},
+    boundaryCheckpoints: state.boundaryCheckpoints ?? [],
+    boundaryCheckpoint: state.boundaryCheckpoint ?? null
   })}`;
 }
 
@@ -72,7 +93,7 @@ function sealedLegacyFlight(status = 'paused') {
     updatedAt: '2026-01-02T03:04:05.000Z',
     recordSha256: null
   };
-  state.checkpointSha256 = flightCheckpointSha256(state);
+  state.checkpointSha256 = legacyFlightCheckpointSha256(state);
   const record = structuredClone(state);
   delete record.recordSha256;
   state.recordSha256 = recordSha256(record);

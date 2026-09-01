@@ -19,6 +19,13 @@ export interface WorkspaceStateChange {
   kind: 'cache' | 'loading' | 'snapshot' | 'error';
   /** True only when model data changed, never for a loading indicator. */
   revisionChanged: boolean;
+  /**
+   * Exact read-model slices whose content digest changed.
+   *
+   * A whole-snapshot revision says that something moved. Retained surfaces need the narrower fact:
+   * rebuilding Configuration because only Lifecycle changed is paid work with no visible result.
+   */
+  changedSlices: readonly SnapshotSlice[];
 }
 
 export type StateListener = (state: WorkspaceState, change: WorkspaceStateChange) => void;
@@ -69,6 +76,38 @@ export interface SnapshotCache {
   write(snapshot: RepositorySnapshot): void;
 }
 
+const SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
+  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos'
+]);
+
+/** Compare the coordinator's per-slice content digests without inferring from payload fields. */
+export function changedSnapshotSlices(
+  previous: RepositorySnapshot | null,
+  next: RepositorySnapshot | null
+): readonly SnapshotSlice[] {
+  if (!next) return Object.freeze([]);
+  const included = new Set<SnapshotSlice>(next.included ?? []);
+  for (const slice of SNAPSHOT_SLICES) {
+    if (next.revision?.slices?.[slice] !== undefined) included.add(slice);
+  }
+  if (!previous) return Object.freeze([...included]);
+
+  const previousSlices = previous.revision?.slices;
+  const nextSlices = next.revision?.slices;
+  const hasExactSlices = previousSlices && nextSlices
+    && Object.keys(previousSlices).length > 0 && Object.keys(nextSlices).length > 0;
+  if (hasExactSlices) {
+    return Object.freeze([...included].filter((slice) => previousSlices[slice] !== nextSlices[slice]));
+  }
+
+  // Compatibility for a cached snapshot written before per-slice revisions existed. It cannot
+  // safely claim a narrower update, so a changed aggregate revision invalidates every included
+  // slice once. The following live snapshot returns to exact slice comparison.
+  const before = previous.revision?.subjectRevision ?? null;
+  const after = next.revision?.subjectRevision ?? null;
+  return Object.freeze(before === after && before !== null ? [] : [...included]);
+}
+
 export class WorkspaceStore {
   private readonly client: SingularityFlowClient;
   private readonly cache: SnapshotCache | null;
@@ -106,7 +145,9 @@ export class WorkspaceStore {
     // Cached heavy data may paint immediately, but it must not make every future activation pay to
     // reload every panel the person happened to open in an earlier session. The live activation
     // refresh remains core-only; a heavy surface calls ensureSlices when it is opened again.
-    this.publish({ snapshot: cached, error: null, stale: true }, { kind: 'cache', revisionChanged: true });
+    this.publish({ snapshot: cached, error: null, stale: true }, {
+      kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
+    });
     return true;
   }
 
@@ -134,12 +175,12 @@ export class WorkspaceStore {
     try { cached = this.cache?.read() ?? null; } catch { /* A broken cache is simply empty. */ }
     if (cached) {
       this.publish({ snapshot: cached, error: null, loading: this.inFlight !== null, stale: true }, {
-        kind: 'cache', revisionChanged: true
+        kind: 'cache', revisionChanged: true, changedSlices: changedSnapshotSlices(null, cached)
       });
       return true;
     }
     this.publish({ snapshot: null, error: null, loading: this.inFlight !== null, stale: false }, {
-      kind: 'snapshot', revisionChanged: true
+      kind: 'snapshot', revisionChanged: true, changedSlices: Object.freeze([...SNAPSHOT_SLICES])
     });
     return false;
   }
@@ -232,7 +273,9 @@ export class WorkspaceStore {
         revision: { ...withoutSgos.revision, subjectRevision: undefined, slices }
       } : {})
     };
-    this.publish({ snapshot: released }, { kind: 'snapshot', revisionChanged: false });
+    this.publish({ snapshot: released }, {
+      kind: 'snapshot', revisionChanged: false, changedSlices: Object.freeze(['sgos'])
+    });
     try { this.cache?.write(released); } catch { /* A cache that cannot be written is not a failure. */ }
   }
 
@@ -245,10 +288,10 @@ export class WorkspaceStore {
     });
   }
 
-  private revisionChanged(next: RepositorySnapshot): boolean {
+  private revisionChanged(next: RepositorySnapshot, changedSlices: readonly SnapshotSlice[]): boolean {
     const previous = this.state.snapshot?.revision?.subjectRevision ?? null;
     const current = next.revision?.subjectRevision ?? null;
-    return previous === null || current === null || previous !== current;
+    return changedSlices.length > 0 || previous === null || current === null || previous !== current;
   }
 
   /**
@@ -259,7 +302,9 @@ export class WorkspaceStore {
    * paying most of the snapshot cost, and callers awaiting either request wait for the latest one.
    */
   private async refreshLoop(controller: AbortController): Promise<void> {
-    this.publish({ loading: true }, { kind: 'loading', revisionChanged: false });
+    this.publish({ loading: true }, {
+      kind: 'loading', revisionChanged: false, changedSlices: Object.freeze([])
+    });
     while (!controller.signal.aborted && !this.disposed) {
       const generation = this.refreshGeneration;
       let failure: Error | null = null;
@@ -305,15 +350,16 @@ export class WorkspaceStore {
             notModified: false
           };
           this.publish({ snapshot: confirmed, error: null, loading: false, stale: false }, {
-            kind: 'snapshot', revisionChanged: false
+            kind: 'snapshot', revisionChanged: false, changedSlices: Object.freeze([])
           });
           try { this.cache?.write(confirmed); } catch { /* A cache that cannot be written is not a failure. */ }
           return;
         }
-        const changed = this.revisionChanged(snapshot);
+        const changedSlices = changedSnapshotSlices(this.state.snapshot, snapshot);
+        const changed = this.revisionChanged(snapshot, changedSlices);
         this.forceFullSnapshot = false;
         this.publish({ snapshot, error: null, loading: false, stale: false }, {
-          kind: 'snapshot', revisionChanged: changed
+          kind: 'snapshot', revisionChanged: changed, changedSlices
         });
         try { this.cache?.write(snapshot); } catch { /* A cache that cannot be written is not a failure. */ }
         return;
@@ -324,12 +370,15 @@ export class WorkspaceStore {
       try {
         const recovery = await this.client.configurationSnapshot(controller.signal);
         if (generation !== this.refreshGeneration) continue;
+        const changedSlices = changedSnapshotSlices(this.state.snapshot, recovery);
         this.publish({ snapshot: recovery, error: failure, loading: false, stale: false }, {
-          kind: 'error', revisionChanged: true
+          kind: 'error', revisionChanged: true, changedSlices
         });
       } catch {
         if (generation !== this.refreshGeneration) continue;
-        this.publish({ error: failure, loading: false }, { kind: 'error', revisionChanged: false });
+        this.publish({ error: failure, loading: false }, {
+          kind: 'error', revisionChanged: false, changedSlices: Object.freeze([])
+        });
       }
       return;
     }

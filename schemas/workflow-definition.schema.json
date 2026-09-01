@@ -609,6 +609,14 @@
           "additionalProperties": false
         },
         "ceilings": { "$ref": "#/$defs/autoCeilings" },
+        "repair": {
+          "type": "object",
+          "properties": {
+            "policy": { "enum": ["never", "ask"], "default": "ask" },
+            "maximumAttempts": { "type": "integer", "minimum": 0, "maximum": 1, "default": 1 }
+          },
+          "additionalProperties": false
+        },
         "reporting": {
           "type": "object",
           "properties": {

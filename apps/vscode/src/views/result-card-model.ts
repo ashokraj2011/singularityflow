@@ -13,6 +13,7 @@
  */
 import { message, type Message, type Slots } from './result-messages.ts';
 import { homeDelta, type HomeAcknowledgement, type HomeDelta } from './home-acknowledgement.ts';
+import { buildAutoCards, type AutoCardView } from './auto-cards-model.ts';
 
 /** One gate, as the reader meets it. `[UXH:REQ-062]` */
 export type ChecklistRow = {
@@ -127,6 +128,8 @@ export type ResultCardView = {
     readonly faultId: string; readonly severity: string; readonly type: string;
     readonly summary: string; readonly disposition: string; readonly repairId: string | null;
   }[];
+  /** AUT v2 projections from the read-only gateway; commands route back through CLI/kernel. */
+  readonly auto: readonly AutoCardView[];
   /** Change Flight Plan projection; source bodies and unrestricted host paths never enter it. */
   readonly flightPlan: {
     readonly planId: string; readonly status: string; readonly intent: string;
@@ -366,6 +369,7 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
       disposition: String(fault.disposition ?? 'recorded'),
       repairId: fault.repair?.repairId ? String(fault.repair.repairId) : null
     })).filter((fault: any) => fault.faultId)) : Object.freeze([]),
+    auto: buildAutoCards(result.data?.auto),
     flightPlan: String(result.operation?.id ?? '').startsWith('impact.what-if') && result.data?.changeFlightPlan
       ? (() => {
         const plan = result.data.changeFlightPlan;

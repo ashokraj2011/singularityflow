@@ -57,7 +57,10 @@ import {
 } from './evidence.ts';
 import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
-import { onHomeRequest, onResultAction, showRefusal, showResultCard } from './views/result-panel.ts';
+import {
+  onAutoResultAction, onHomeRequest, onResultAction, resultPanelRepositoryChanged,
+  showRefusal, showResultCard
+} from './views/result-panel.ts';
 import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import {
   ACKNOWLEDGE_ACTION_ID, acknowledgementKey, homeAcknowledgementFor, type HomeAcknowledgement
@@ -73,6 +76,7 @@ import { recordHelpMetric } from '../../../src/help-metrics.mjs';
 import { storyCheckoutIssue, unsavedRepositoryPaths } from './generation-guards.ts';
 import { renderReworkRollForwardPreview } from './views/rework-roll-forward-preview.ts';
 import { RepositoryEpochGuard, type RepositoryEpochToken } from './repository-epoch.ts';
+import { RevisionSliceWatcherFence } from './watcher-refresh-fence.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -398,6 +402,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const terminal = vscode.window.createTerminal({ name: 'Singularity Flow' });
     terminal.show(true);
     terminal.sendText(action.command, false);
+  });
+
+  onAutoResultAction(async ({ command, repositoryRoot }) => {
+    const activeRoot = activeRepositoryContext()?.root;
+    if (!activeRoot || path.resolve(activeRoot) !== path.resolve(repositoryRoot)) return;
+    // A card click prepares the exact current CAS/hash-bound command but never presses Enter.
+    // The developer can review, add a typed answer where required, or discard it safely.
+    const terminal = vscode.window.createTerminal({
+      name: 'Singularity Flow Auto review', cwd: repositoryRoot
+    });
+    terminal.show(true);
+    terminal.sendText(command, false);
   });
 
   /**
@@ -2247,6 +2263,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     leadRepositoryPath: resolved.leadRepositoryPath ?? repository,
     origin
   });
+  resultPanelRepositoryChanged(repository);
   // Which repository this window is acting on, and why that one. Every screen below operates on it,
   // and when it was not the open folder that has to be visible rather than inferred.
   output.appendLine(`Governed repository: ${repository} (${origin})`);
@@ -2450,12 +2467,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_REFRESH_DEBOUNCE_MS = 750;
   let repositoryWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-  const scheduleRepositoryRefresh = (): void => {
+  const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
+  const armRepositoryRefresh = (): void => {
     if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
     repositoryRefreshTimer = setTimeout(() => {
       repositoryRefreshTimer = null;
-      void store.refresh();
+      const batch = repositoryWatcherFence.capture();
+      void (async () => {
+        if (await repositoryWatcherFence.matchesDelayedEcho(batch, () => client.revisionProbe())) return;
+        repositoryWatcherFence.clearDelayedEcho();
+        await store.refresh();
+      })();
     }, REPOSITORY_REFRESH_DEBOUNCE_MS);
+  };
+  const scheduleRepositoryRefresh = (uri?: vscode.Uri): void => {
+    repositoryWatcherFence.observe(uri?.fsPath);
+    armRepositoryRefresh();
+  };
+
+  /** One explicit mutation refresh, with an exact fence around already-observed watcher echoes. */
+  const refreshAfterKnownMutation = async (): Promise<void> => {
+    if (repositoryRefreshTimer) {
+      clearTimeout(repositoryRefreshTimer);
+      repositoryRefreshTimer = null;
+    }
+    await repositoryWatcherFence.reconcileExplicitRefresh(
+      () => store.current.snapshot,
+      () => store.refresh()
+    );
+    // A mismatched captured event, or any event delivered during the refresh, is still owed its own
+    // read. Never let the fence for one mutation consume somebody else's later repository change.
+    if (repositoryWatcherFence.hasPending) armRepositoryRefresh();
   };
   // Deliberately still only `singularity/**`. A disturbance from outside it — an autosave, a build —
   // is handled where it belongs, by the store retrying a transient failure, and not by watching the
@@ -2463,6 +2505,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // model on every keystroke-adjacent save would spawn a CLI process each time.
   const watchGovernedRepository = (target: string): void => {
     repositoryWatcher?.dispose();
+    if (repositoryRefreshTimer) {
+      clearTimeout(repositoryRefreshTimer);
+      repositoryRefreshTimer = null;
+    }
+    repositoryWatcherFence.reset();
     repositoryWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(target), 'singularity/**/*')
     );
@@ -2736,6 +2783,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     repositoryEpoch.moved(canonicalTarget);
     repository = canonicalTarget;
+    resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
     watchGovernedRepository(canonicalTarget);
     workspaceLabel = selected.workspaceName;
@@ -2850,7 +2898,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    */
   const runNode = async (node?: TreeNode): Promise<void> => {
     if (node?.approve) {
-      if (await approveWithReceipt(client, node.approve, output)) await store.refresh();
+      if (await approveWithReceipt(client, node.approve, output)) await refreshAfterKnownMutation();
       return;
     }
     if (!node?.command) return;
@@ -2928,7 +2976,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(checkout), false);
           return;
         }
-        await store.refresh();
+        await refreshAfterKnownMutation();
       } catch (error) {
         output.appendLine(`Story attachment failed: ${(error as Error).message}`);
         showRefusal(error, { headline: `Could not attach Story ${argv[2] ?? ''}`.trim() });
@@ -2940,7 +2988,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       title: node.confirmation?.summary ?? `singularity-flow ${argv.join(' ')}`,
       ...(node.confirmation ? { confirmation: node.confirmation } : {})
     }, output);
-    if (ran) await store.refresh();
+    if (ran) await refreshAfterKnownMutation();
   };
 
   /** Named Story commands work both from a phase row and directly from the command palette. */
@@ -3088,7 +3136,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             'cancel', cancelled.workItem.id, '--release', '--apply',
             '--confirm', cancelled.workItem.id, '--json'
           ]);
-          await store.refresh();
+          await refreshAfterKnownMutation();
           const preserved = result.stashSha
             ? ` Changes were preserved at stash commit ${result.stashSha.slice(0, 12)}.` : '';
           void vscode.window.showInformationMessage(
@@ -3135,7 +3183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         return;
       }
-      await store.refresh();
+      await refreshAfterKnownMutation();
       const subject = started.shape === 'story' ? 'Story'
         : started.shape === 'epic' ? 'Epic' : 'Initiative';
       const next = started.currentPhase
@@ -3178,7 +3226,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       command: ['epic', 'sources', 'add', '--provider', 'local', '--file', picked[0].fsPath],
       title: 'Pinning source'
     }, output);
-    if (ran) await store.refresh();
+    if (ran) await refreshAfterKnownMutation();
   };
 
   /**
@@ -3301,7 +3349,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }, output);
       if (!ran) return;
     }
-    await store.refresh();
+    await refreshAfterKnownMutation();
     void vscode.window.showInformationMessage(
       `Attached ${summary} to ${target.label}. Open Lifecycle to review the governed IDs and artifacts.`);
   };
@@ -3378,7 +3426,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => client.runText(command)
       );
       output.appendLine(result.trim());
-      await store.refresh();
+      await refreshAfterKnownMutation();
       const meaningful = result.split(/\r?\n/).filter((line) =>
         /^(Commit|Invalidated phases|Reopened phase|Next in Copilot|Run|In Copilot):/.test(line));
       const action = await vscode.window.showInformationMessage(
@@ -3599,7 +3647,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         branch?: string | null; reviewRequired?: boolean; capabilityId?: string
       }>(argv);
       if (!proposed.reviewRequired || !proposed.branch) {
-        await store.refresh();
+        await refreshAfterKnownMutation();
         panel.settled(message.type === 'remove' ? '' : message.id);
         return;
       }
@@ -3613,7 +3661,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
       CapabilityProposalPanel.show(context, selected.url, proposed.branch, run, async () => {
-        await store.refresh();
+        await refreshAfterKnownMutation();
         panel.settled(message.type === 'remove' ? '' : message.id);
       });
       return;
@@ -3642,7 +3690,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const session = await client.run<{ ready?: boolean; workId?: string | null }>(['session', 'status', '--json']);
       if (session.ready !== true || session.workId !== activeWorkId) {
         await client.run(['session', 'attach', activeWorkId, '--json']);
-        await store.refresh();
+        await refreshAfterKnownMutation();
       }
     }
     const prompt = await client.runText(['wm', 'show-prompt', '--record-audit']);
@@ -3680,7 +3728,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.appendLine(`\n$ singularity-flow configuration save ${message.path} --expected-sha256 ${message.expectedSha256}`);
       try {
         await client.runText(['configuration', 'save', message.path, '--expected-sha256', message.expectedSha256], { input: message.content });
-        await store.refresh();
+        await refreshAfterKnownMutation();
         return null;
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
@@ -3717,7 +3765,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (result.changed && !result.pushed) {
           return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${result.nextAction?.command ? `Run: ${result.nextAction.command}` : 'Open Push recovery to continue.'}`;
         }
-        await store.refresh();
+        await refreshAfterKnownMutation();
         if (!result.changed) {
           void vscode.window.showInformationMessage('Your current Git identity already belongs to the selected approval groups.');
         } else {
@@ -3856,7 +3904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'playwright') {
       try {
         await client.runText(['mcp', 'scaffold', 'playwright']);
-        await store.refresh();
+        await refreshAfterKnownMutation();
         void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers.');
       } catch (error) {
         const detail = (error as Error).message;
@@ -3875,7 +3923,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (confirmed !== 'Replace Playwright entry') return 'The existing Playwright MCP host entry was left unchanged.';
         try {
           await client.runText(['mcp', 'scaffold', 'playwright', '--replace-server']);
-          await store.refresh();
+          await refreshAfterKnownMutation();
           void vscode.window.showInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers.');
         } catch (replacementError) { return (replacementError as Error).message; }
       }
@@ -3903,7 +3951,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const refreshAfterSurfaceMutation = async (): Promise<void> => {
     const refreshHome = lastHome !== null;
     resetGatewaySession(); lastHome = null;
-    await store.refresh();
+    await refreshAfterKnownMutation();
     if (refreshHome) await vscode.commands.executeCommand('singularityFlow.myWork');
   };
 
@@ -3942,7 +3990,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.expandReference': expandReference as never,
     'singularityFlow.openHarnessReport': openHarnessReport,
     'singularityFlow.continueSafely': async () => {
-      if (await runPlannedAction(client, output)) await store.refresh();
+      if (await runPlannedAction(client, output)) await refreshAfterKnownMutation();
     },
     'singularityFlow.startWork': startWork,
     'singularityFlow.openAdhocWork': async () => {
@@ -4077,7 +4125,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (decision !== 'Cancel and archive') return;
       try {
         await client.runText(['cancel', workflow.workItem.id, '--reason', reason.trim(), '--confirm', workflow.workItem.id]);
-        await store.refresh();
+        await refreshAfterKnownMutation();
         void vscode.window.showInformationMessage(`${workflow.workItem.id} was cancelled and moved to Archived.`);
       } catch (error) {
         showRefusal(error, { headline: 'Could not cancel ${workflow.workItem.id}' });
@@ -4115,7 +4163,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!reason?.trim()) return;
       try {
         await client.runText(['reopen', workflow.workItem.id, '--fetch', '--to', selected.phaseId, '--reason', reason.trim()]);
-        await store.refresh();
+        await refreshAfterKnownMutation();
         void vscode.window.showInformationMessage(`${workflow.workItem.id} reopened at ${selected.phaseId}.`);
       } catch (error) {
         showRefusal(error, { headline: 'Could not reopen ${workflow.workItem.id}' });
@@ -4177,7 +4225,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'story', 'rework', 'roll-forward', '--work-id', plan.workId,
           '--change-request', plan.changeRequestId, '--confirm', plan.confirmation, '--json'
         ]);
-        await store.refresh();
+        await refreshAfterKnownMutation();
         void vscode.window.showInformationMessage(
           `${plan.workId} returned to ${result.phase ?? 'complete'} in ${result.commit.slice(0, 8)}. `
           + `${result.restoredPaths.length} path(s) were backed up locally and restored.`
@@ -4243,7 +4291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             void vscode.window.showWarningMessage(message);
             return message;
           }
-          await store.refresh();
+          await refreshAfterKnownMutation();
           void vscode.window.showInformationMessage(
             `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
             + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
@@ -4278,7 +4326,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
             baseBranch?: string; nextAction?: string;
           }>(command));
-          await store.refresh();
+          await refreshAfterKnownMutation();
           if (proposal.reviewRequired && proposal.branch) {
             const files = proposal.files?.length ?? 0;
             const review = 'Review and activate';
@@ -4312,7 +4360,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const proposal = JSON.parse(text) as {
           branch?: string; files?: string[]; reviewRequired?: boolean; baseBranch?: string;
         };
-        await store.refresh();
+        await refreshAfterKnownMutation();
         if (proposal.reviewRequired && proposal.branch) {
           void vscode.window.showInformationMessage(
             `Artifact-template proposal ${proposal.branch} was pushed. Merge it into `
@@ -4343,7 +4391,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           output.appendLine(`\n$ singularity-flow agents sync ${message.agentId}`);
           try {
             await client.runText(['agents', 'sync', message.agentId]);
-            await store.refresh();
+            await refreshAfterKnownMutation();
             return null;
           } catch (error) {
             output.appendLine(`  refused: ${(error as Error).message}`);
@@ -4373,7 +4421,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.appendLine(`\n$ singularity-flow configuration save ${message.path}`);
       try {
         await client.runText(['configuration', 'save', message.path], { input: message.content });
-        await store.refresh();
+        await refreshAfterKnownMutation();
         return null;
       } catch (error) {
         output.appendLine(`  refused: ${(error as Error).message}`);
@@ -4416,7 +4464,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const published = await client.run<{ sha?: string; pushed?: boolean; remote?: string; files?: string[] }>([
           'configuration', 'publish', '--message', 'Configure Singularity Flow', '--json'
         ]);
-        await store.refresh();
+        await refreshAfterKnownMutation();
         const destination = published.pushed ? `${published.remote ?? 'remote'}/${branchName}` : 'the local repository';
         void vscode.window.showInformationMessage(
           `Configuration published to ${destination}${published.sha ? ` at ${published.sha.slice(0, 8)}` : ''}.`

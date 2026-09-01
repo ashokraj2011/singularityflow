@@ -8,9 +8,15 @@ import {
 import { buildAutoPlanPacket, buildAutoPlanValidation } from '../auto/auto-plan-packet.mjs';
 import { startAutoFlight } from '../auto/auto-flight.mjs';
 import { executeAutoFlightStep } from '../auto/auto-executor.mjs';
+import { rebuildAutoFlightState } from '../auto/auto-checkpoint.mjs';
+import {
+  authorizeAutoRepair, autoFlightProductProjection, confirmAutoExecutionUnitSwitch,
+  planAutoExecutionUnitSwitch, planAutoRepair,
+  respondAutoHumanRequest
+} from '../auto/auto-p1-control.mjs';
 import {
   discardAutoFlight, haltAutoFlight, pauseAutoFlight, readAutoFlightState,
-  buildAutoFlightReport, listAutoFlights, readAutoFlightReport, renderAutoFlightReport,
+  listAutoFlights, projectAutoFlightReport, readAutoFlightReport, renderAutoFlightReport,
   resumeAutoFlight, takeoverAutoFlight
 } from '../auto/auto-flight-store.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
@@ -20,10 +26,14 @@ import {
   run as runProcess, SingularityFlowError
 } from '../util.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import {
+  buildAdhocAutoHandoff, buildAutoContinuationProposal, resolveAutoGoalSeed
+} from '../auto/auto-entry-modes.mjs';
 
 const SUBCOMMANDS = new Set([
   'plan', 'show-plan', 'start', 'list', 'status', 'report',
-  'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step'
+  'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
+  'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
 const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
 
@@ -39,11 +49,15 @@ function emitAuto(value, {
         ? 'auto.plan-ready'
         : operation === 'auto.list' ? 'auto.flight-list-ready'
         : operation === 'auto.report' ? 'auto.report-ready' : 'auto.flight-reported',
-      state
-        ? { flightId: state.flightId, status: state.status }
-        : operation === 'auto.list'
+      operation === 'auto.continue'
+        ? { proposalSha256: value.proposal?.proposalSha256, flightId: state?.flightId ?? null }
+        : operation === 'auto.adopt'
+          ? { proposalSha256: value.handoff?.proposalSha256 }
+          : state
+            ? { flightId: state.flightId, status: state.status }
+            : operation === 'auto.list'
           ? { count: String(value.flights?.length ?? 0) }
-          : { planId: value.planId ?? value.plan?.planId }
+              : { planId: value.planId ?? value.plan?.planId }
     ),
     effects: changed ? effects({ stateChanged: true, filesChanged, publicationCreated }) : noEffects(),
     restState: 'informational',
@@ -60,6 +74,9 @@ function planCard(plan) {
     `Plan hash: ${plan.planSha256}`,
     `Ratification packet: ${packet.packetSha256}`,
     '', `Requirement: ${plan.requirement.text}`,
+    ...(plan.requirement.source?.kind === 'goal'
+      ? [`Goal source: ${plan.requirement.source.goalId} · ${plan.requirement.source.authority} · ${plan.requirement.source.goalSha256}`]
+      : []),
     `Workspace: ${plan.bindings.repository}`,
     `Capability: ${plan.capability?.id ?? 'repository-only'}`,
     `Work: ${plan.story.workId} · ${plan.story.workType} · branch ${plan.story.branch}`,
@@ -108,6 +125,82 @@ function statusCard(state) {
   ].join('\n');
 }
 
+function productCard(projection) {
+  const { flight, current } = projection;
+  const lines = [statusCard(flight)];
+  if (current.phaseRun) lines.push('', `Phase run: ${current.phaseRun.phaseRunId} · ${current.phaseRun.status}`);
+  if (current.attempt) lines.push(`Attempt: ${current.attempt.attemptId} · ${current.attempt.attemptKind} · ${current.attempt.status}`);
+  if (current.refusal) lines.push(
+    '', `Refusal: ${current.refusal.refusalId} · ${current.refusal.gate}/${current.refusal.code}`,
+    `Repair: ${current.refusal.repair.eligibility}`
+  );
+  if (current.humanRequest) lines.push(
+    '', `Needs you: ${current.humanRequest.requestType} · ${current.humanRequest.title}`,
+    `Request: ${current.humanRequest.requestId}`
+  );
+  return lines.join('\n');
+}
+
+function continuationCard(value) {
+  const proposal = value.proposal;
+  return [
+    `Auto continuation proposal ${proposal.proposalSha256}`,
+    `Story: ${proposal.story.workId} · ${proposal.story.status} · phase ${proposal.story.currentPhase ?? 'complete'}`,
+    `Workflow: ${proposal.story.workflowSha256}`,
+    `Flight: ${proposal.flight?.flightId ?? 'none'}${proposal.flight ? ` · checkpoint ${proposal.flight.checkpointSha256}` : ''}`,
+    `Status: ${proposal.proposal.status}`,
+    `Reason: ${proposal.proposal.reason}`,
+    proposal.proposal.command ? `Review next action: ${proposal.proposal.command}` : 'No executable continuation is authorized.',
+    '', 'This command did not resume, approve, publish, or mutate the Story.'
+  ].join('\n');
+}
+
+function adoptionCard(value) {
+  const handoff = value.handoff;
+  return [
+    `Auto Ad Hoc handoff ${handoff.proposalSha256}`,
+    `Session: ${handoff.source.sessionId}`,
+    `Origin: ${handoff.source.origin} · intent ${handoff.source.intentProvenance}`,
+    `Effect set: ${handoff.source.changeSetSha256}`,
+    `Resources: ${handoff.preserved.resources.length}`,
+    `Startable: ${handoff.safety.startable ? 'yes' : 'no'}`,
+    ...handoff.safety.reasons.map((reason) => `- ${reason}`),
+    '', `Reviewed handoff action: ${handoff.nextAction}`,
+    'No effects were relabelled, copied, committed, or started.'
+  ].join('\n');
+}
+
+function repairCard(value) {
+  const { repairPlan } = value;
+  return [
+    `Auto Repair Plan ${repairPlan.repairPlanId}`,
+    `Flight: ${repairPlan.flightId}`,
+    `Refusal: ${repairPlan.refusalSha256}`,
+    `Objective: ${repairPlan.objective}`,
+    `Write scope: ${repairPlan.writeScope.join(', ') || 'none'}`,
+    `Required evidence: ${repairPlan.requiredEvidence.join('; ') || 'none'}`,
+    `Budget: exactly ${repairPlan.attemptNumber} repair attempt`,
+    `Plan hash: ${repairPlan.repairPlanSha256}`,
+    '', 'No repair has run.', '',
+    `To run exactly this repair: singularity-flow auto repair ${repairPlan.flightId} --refusal ${value.refusal?.refusalId ?? '<REFUSAL-ID>'} --confirm ${repairPlan.repairPlanSha256}`
+  ].join('\n');
+}
+
+function switchCard(value) {
+  const plan = value.switchPlan;
+  return [
+    `Auto Execution Unit Switch ${plan.switchPlanId}`,
+    `Flight: ${plan.flightId}`,
+    `Route: ${plan.fromExecutionUnit} → ${plan.toExecutionUnit}`,
+    `Parent attempt: ${plan.parentAttemptId}`,
+    `Task Contract: ${plan.taskContractSha256}`,
+    `Reason: ${plan.reason}`,
+    `Plan hash: ${plan.switchPlanSha256}`,
+    '', 'The current Execution Unit has not changed.', '',
+    `To apply exactly this switch: singularity-flow auto switch-unit ${plan.flightId} --execution-unit ${plan.toExecutionUnit} --confirm ${plan.switchPlanSha256}`
+  ].join('\n');
+}
+
 function listCard(states) {
   if (!states.length) return 'Auto flights\n\nNo Auto flights are recorded in this repository.';
   return [
@@ -141,7 +234,8 @@ function executeInRegisteredChild(root, state) {
 export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
-  const token = positionals[1] ?? 'status';
+  const goalId = optionString(options, 'goal');
+  const token = positionals[1] ?? (goalId ? 'plan' : 'status');
   const shorthand = !SUBCOMMANDS.has(token);
   const nearest = nearestNames(token, [...SUBCOMMANDS], { limit: 1 })[0] ?? null;
   if (shorthand && nearest && Math.abs(String(token).length - nearest.length) <= 2) {
@@ -152,26 +246,45 @@ export async function run(_argv, { positionals, options }) {
     );
   }
   const subcommand = shorthand ? 'plan' : token;
+  if (goalId && subcommand !== 'plan') throw new SingularityFlowError(
+    '--goal is valid only for Auto Plan creation.', { code: 'AUTO_ARGUMENT_CONFLICT' }
+  );
+  if (options['from-adhoc'] != null && subcommand !== 'adopt') throw new SingularityFlowError(
+    '--from-adhoc is valid only with auto adopt.', { code: 'AUTO_ARGUMENT_CONFLICT' }
+  );
 
   if (subcommand === 'plan') {
-    if (options.goal != null) throw new SingularityFlowError('Goal-linked and multi-repository Auto execution is not enabled in the thin pilot.', {
-      code: 'AUTO_PILOT_SCOPE', details: { supported: 'single-repository Story rail' }
-    });
     // The shorthand is planning only. It deliberately reaches the same exact Plan path and never
     // treats invoking `auto` as confirmation to create a Story or start a flight.
-    const requirement = required(positionals, shorthand ? 1 : 2, 'a quoted requirement');
     return withApprovedConfigurationRead(root, async (authority) => {
       if (!authority) throw new SingularityFlowError('Auto Plan requires approved Singularity Flow configuration.', {
         code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
       });
       const definition = await loadDefinition(root);
+      const goalSeed = goalId ? await resolveAutoGoalSeed(root, goalId, { definition }) : null;
+      const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
+      if (goalSeed && suppliedRequirement) throw new SingularityFlowError(
+        'Choose either a quoted requirement or --goal <GOAL-ID>; combining them would create ambiguous intake authority.',
+        { code: 'AUTO_ARGUMENT_CONFLICT' }
+      );
+      const requirement = goalSeed?.requirement
+        ?? required(positionals, shorthand ? 1 : 2, 'a quoted requirement');
       const synthesized = await synthesizeAutoPlanProposal(root, requirement, { definition });
-      const plan = await createAutoPlan(root, requirement, synthesized.proposal, {
+      const proposal = goalSeed ? {
+        ...synthesized.proposal,
+        acceptanceCriteria: [...goalSeed.acceptanceCriteria],
+        assumptions: [...new Set([
+          ...synthesized.proposal.assumptions,
+          `Goal ${goalSeed.goalId} seeds outcome direction only; this Auto Plan remains separately ratified.`
+        ])]
+      } : synthesized.proposal;
+      const plan = await createAutoPlan(root, requirement, proposal, {
         definition,
         workType: optionString(options, 'work-type'), capabilityId: optionString(options, 'capability'),
         workId: optionString(options, 'work-id'), fromBranch: optionString(options, 'from-branch'),
         profile: optionString(options, 'profile'), pace: optionString(options, 'pace'),
         until: optionString(options, 'until'),
+        requirementSource: goalSeed?.source ?? null,
         synthesis: {
           invocationId: synthesized.invocation?.id ?? null,
           provider: synthesized.invocation?.provider ?? null,
@@ -222,6 +335,176 @@ export async function run(_argv, { positionals, options }) {
     });
   }
 
+  if (subcommand === 'continue') {
+    const definition = await loadDefinition(root);
+    const result = await buildAutoContinuationProposal(
+      root, definition, required(positionals, 2, 'a Story ID')
+    );
+    return emitAuto(result, {
+      operation: 'auto.continue', state: result.flight,
+      card: continuationCard(result), json
+    });
+  }
+
+  if (subcommand === 'adopt') {
+    const sessionId = optionString(options, 'from-adhoc');
+    if (!sessionId) throw new SingularityFlowError(
+      'Auto adopt requires --from-adhoc <AHS-ID>.', { code: 'AUTO_ARGUMENT_REQUIRED' }
+    );
+    const result = await buildAdhocAutoHandoff(root, sessionId);
+    return emitAuto(result, {
+      operation: 'auto.adopt', card: adoptionCard(result), json
+    });
+  }
+
+  if (subcommand === 'recover') {
+    const workId = required(positionals, 2, 'a Story ID');
+    const definition = await loadDefinition(root);
+    const { loadStoryAggregate } = await import('../state-stores.mjs');
+    let workflow = null;
+    try { workflow = await loadStoryAggregate(root, definition, workId); }
+    catch (localError) {
+      // A recovery command is specifically required to work after clone/crash, where main need
+      // not contain the Story. Read only the named remote Story workflow to discover its committed
+      // execution origin; rebuildAutoFlightState then clones and verifies the complete authority.
+      const checked = runProcess('git', ['check-ref-format', '--branch', workId], {
+        cwd: root, allowFailure: true
+      });
+      if (checked.status !== 0) throw localError;
+      const fetched = runProcess('git', [
+        'fetch', '--no-tags', 'origin',
+        `refs/heads/${workId}:refs/remotes/origin/${workId}`
+      ], { cwd: root, allowFailure: true, timeoutMs: 120_000 });
+      const relative = `${definition.workItemRoot ?? 'singularity/work-items'}/${workId}/workflow.json`;
+      const shown = fetched.status === 0 ? runProcess('git', [
+        'show', `refs/remotes/origin/${workId}:${relative}`
+      ], { cwd: root, allowFailure: true }) : fetched;
+      if (shown.status !== 0) throw new SingularityFlowError(
+        `Story '${workId}' is not available locally or on origin for Auto recovery.`, {
+          code: 'AUTO_CHECKPOINT_NOT_FOUND', cause: localError,
+          details: { diagnostic: (shown.stderr || shown.stdout).trim() }
+        }
+      );
+      try { workflow = JSON.parse(shown.stdout); }
+      catch (error) { throw new SingularityFlowError(
+        `Story '${workId}' has an invalid remote workflow record.`, {
+          code: 'AUTO_CHECKPOINT_INVALID', cause: error
+        }
+      ); }
+      if (workflow.workItem?.id !== workId) throw new SingularityFlowError(
+        `Remote Story workflow identity does not match '${workId}'.`, {
+          code: 'AUTO_CHECKPOINT_INVALID'
+        }
+      );
+    }
+    const requestedFlight = optionString(options, 'flight');
+    const flightId = requestedFlight ?? workflow.executionOrigin?.flightId;
+    if (!flightId) throw new SingularityFlowError(
+      `Story '${workId}' does not declare an Auto execution origin.`, {
+        code: 'AUTO_CHECKPOINT_NOT_FOUND'
+      }
+    );
+    if (requestedFlight && requestedFlight !== workflow.executionOrigin?.flightId) {
+      throw new SingularityFlowError(
+        `Flight '${requestedFlight}' does not match Story '${workId}'.`, {
+          code: 'AUTO_FLIGHT_BINDING_MISMATCH'
+        }
+      );
+    }
+    const state = await rebuildAutoFlightState(root, {
+      storyRoot: root, workId, flightId
+    });
+    return emitAuto(state, {
+      operation: 'auto.recover', classification: 'mutation', state,
+      card: statusCard(state), json, changed: true
+    });
+  }
+
+  if (subcommand === 'repair') {
+    const flightId = required(positionals, 2, 'a flight ID');
+    const refusalId = optionString(options, 'refusal');
+    if (!refusalId) throw new SingularityFlowError('Auto repair requires --refusal <REFUSAL-ID>.', {
+      code: 'AUTO_ARGUMENT_REQUIRED'
+    });
+    const confirmation = optionString(options, 'confirm');
+    if (!confirmation) {
+      const planned = await planAutoRepair(root, flightId, refusalId);
+      return emitAuto(planned, {
+        operation: 'auto.repair.plan', state: planned.flight, card: repairCard(planned), json
+      });
+    }
+    const preview = await planAutoRepair(root, flightId, refusalId);
+    const authorized = await authorizeAutoRepair(
+      root, flightId, preview.repairPlan.repairPlanId, confirmation
+    );
+    let state = authorized.flight;
+    if (state.status === 'running') {
+      const child = executeInRegisteredChild(root, state);
+      state = child.data?.value ?? child;
+    }
+    return emitAuto({ ...authorized, flight: state }, {
+      operation: 'auto.repair', classification: 'mutation', state,
+      card: statusCard(state), json, changed: true, filesChanged: true
+    });
+  }
+
+  if (subcommand === 'needs-you') {
+    const flightId = required(positionals, 2, 'a flight ID');
+    const projection = await autoFlightProductProjection(root, flightId);
+    return emitAuto({ flight: projection.flight, requests: projection.humanRequests }, {
+      operation: 'auto.needs-you', state: projection.flight,
+      card: productCard(projection), json
+    });
+  }
+
+  if (subcommand === 'respond') {
+    const flightId = required(positionals, 2, 'a flight ID');
+    const requestId = optionString(options, 'request');
+    if (!requestId) throw new SingularityFlowError('Auto respond requires --request <REQUEST-ID>.', {
+      code: 'AUTO_ARGUMENT_REQUIRED'
+    });
+    const brokerReference = optionString(options, 'broker-reference');
+    const answer = optionString(options, 'answer');
+    const choice = optionString(options, 'choice');
+    const supplied = [brokerReference, answer, choice].filter((value) => value != null);
+    if (supplied.length !== 1) throw new SingularityFlowError(
+      'Auto respond requires exactly one of --choice, --answer, or --broker-reference.',
+      { code: 'AUTO_ARGUMENT_CONFLICT' }
+    );
+    const response = brokerReference != null
+      ? { brokerReference, status: 'available' }
+      : choice != null ? { choice } : { answer };
+    const responded = await respondAutoHumanRequest(
+      root, flightId, requestId, response, optionString(options, 'confirm')
+    );
+    return emitAuto(responded, {
+      operation: 'auto.respond', classification: 'mutation', state: responded.flight,
+      card: statusCard(responded.flight), json, changed: true
+    });
+  }
+
+  if (subcommand === 'switch-unit') {
+    const flightId = required(positionals, 2, 'a flight ID');
+    const executionUnit = optionString(options, 'execution-unit');
+    if (!executionUnit) throw new SingularityFlowError('Auto switch-unit requires --execution-unit <ID>.', {
+      code: 'AUTO_ARGUMENT_REQUIRED'
+    });
+    const planned = await planAutoExecutionUnitSwitch(
+      root, flightId, executionUnit, optionString(options, 'reason')
+    );
+    const confirmation = optionString(options, 'confirm');
+    if (!confirmation) return emitAuto(planned, {
+      operation: 'auto.switch-unit.plan', state: planned.flight, card: switchCard(planned), json
+    });
+    const applied = await confirmAutoExecutionUnitSwitch(
+      root, flightId, planned.switchPlan.switchPlanId, confirmation
+    );
+    return emitAuto(applied, {
+      operation: 'auto.switch-unit', classification: 'mutation', state: applied.flight,
+      card: statusCard(applied.flight), json, changed: true
+    });
+  }
+
   const id = required(positionals, 2, 'a flight ID');
   if (subcommand === 'flight-step') {
     const state = await executeAutoFlightStep(root, id, optionString(options, 'confirm'));
@@ -239,21 +522,31 @@ export async function run(_argv, { positionals, options }) {
     const state = await readAutoFlightState(root, id);
     const record = state.finalReportSha256
       ? await readAutoFlightReport(root, id)
-      : buildAutoFlightReport(state);
+      : await projectAutoFlightReport(root, state);
     const report = renderAutoFlightReport(state, record);
     return emitAuto({ flight: state, report: record }, {
       operation: 'auto.report', state, card: report, json
     });
   }
   let state;
-  if (subcommand === 'pause') state = await pauseAutoFlight(root, id);
+  const expectedCheckpoint = optionString(options, 'confirm');
+  if (subcommand === 'pause') state = await pauseAutoFlight(root, id, { expectedCheckpoint });
   else if (subcommand === 'resume') {
     state = await resumeAutoFlight(root, id, optionString(options, 'confirm'));
-    const child = executeInRegisteredChild(root, state);
-    state = child.data?.value ?? child;
+    // Resume may itself reconcile an externally approved phase boundary. Phase pacing rests at
+    // that boundary, and a terminal transition is already complete; neither authorizes another
+    // executor process.
+    if (state.status === 'running') {
+      const child = executeInRegisteredChild(root, state);
+      state = child.data?.value ?? child;
+    }
   }
-  else if (subcommand === 'stop' || subcommand === 'halt') state = await haltAutoFlight(root, id);
-  else if (subcommand === 'takeover') state = await takeoverAutoFlight(root, id);
+  else if (subcommand === 'stop' || subcommand === 'halt') {
+    state = await haltAutoFlight(root, id, 'human-halted', { expectedCheckpoint });
+  }
+  else if (subcommand === 'takeover') {
+    state = await takeoverAutoFlight(root, id, { expectedCheckpoint });
+  }
   else if (subcommand === 'discard') state = await discardAutoFlight(root, id, optionString(options, 'confirm'));
   return emitAuto(state, {
     operation: `auto.${subcommand}`, classification: 'mutation', state,

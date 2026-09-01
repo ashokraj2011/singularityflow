@@ -103,3 +103,9 @@ test('Auto private storage refuses symlink ancestors and final records', {
   );
   assert.equal(await readFile(external, 'utf8'), 'outside');
 });
+
+test('Story Auto private storage has no SGOS module dependency', async () => {
+  const source = await readFile(path.resolve('src/auto/auto-private-store.mjs'), 'utf8');
+  assert.doesNotMatch(source, /(?:from|import\()\s*['"][^'"]*\/sgos\//u);
+  assert.match(source, /from ['"]\.\.\/private-sidecar\.mjs['"]/u);
+});

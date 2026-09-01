@@ -216,6 +216,23 @@ test('an allowlist tool policy must name at least one tool', async () => {
   }))), (error) => error.code === 'MODEL_REQUEST_INVALID' && /must not be empty/.test(error.message));
 });
 
+test('the model runner preserves operation-exact file tool identities in the provider request and audit', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-tool-identities-'));
+  run('git', ['init', '-q'], { cwd: root });
+  const names = [
+    'read_file', 'search', 'create_file', 'edit_file', 'delete_file', 'move_file', 'copy_file'
+  ];
+  const result = await withOperationContext({
+    operation: { id: 'model.test', modelPolicy: 'required' },
+    modelMode: { enabled: true }, root, command: 'test'
+  }, () => invokeModel(request(root, {
+    tools: { mode: 'allowlist', names }
+  })));
+  assert.equal(result.output, 'ok');
+  const [audit] = await listModelInvocations(root);
+  assert.deepEqual(audit.toolPolicy.names, names);
+});
+
 test('the universal model boundary refuses unsafe enforcement before provider execution', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-model-admission-'));
   run('git', ['init', '-q'], { cwd: root });

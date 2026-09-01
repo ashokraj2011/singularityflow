@@ -6,6 +6,7 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { TransformStream } from 'node:stream/web';
 import { StringDecoder } from 'node:string_decoder';
+import { fileURLToPath } from 'node:url';
 import { isPreparedTelemetryLaunch, recordTelemetryLaunch } from '../telemetry-provision.mjs';
 import { COPILOT_MINIMUM_AI_CREDITS } from '../model-limits.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
@@ -53,14 +54,28 @@ const COPILOT_TOOL_NAMES = Object.freeze({
   read_file: Object.freeze(['view']),
   search: Object.freeze(['grep']),
   edit_file: Object.freeze(['edit']),
-  create_file: Object.freeze(['edit'])
+  create_file: Object.freeze(['edit']),
+  delete_file: Object.freeze(['edit']),
+  move_file: Object.freeze(['edit']),
+  copy_file: Object.freeze(['edit'])
 });
+
+const ACP_MUTATING_OPERATIONS = new Set([
+  'edit_file', 'create_file', 'delete_file', 'move_file', 'copy_file'
+]);
 
 function unique(values) { return [...new Set(values)]; }
 
 export function copilotToolArguments(tools = { mode: 'none', names: [] }) {
   if (tools.mode === 'none') return ['--available-tools='];
-  if (tools.mode === 'all') return ['--allow-all-tools'];
+  if (tools.mode === 'all') {
+    if (tools.scope) throw new SingularityFlowError(
+      'Path-scoped model execution requires an explicit reviewed tool allowlist.', {
+        code: 'MODEL_TOOL_SCOPE_UNSUPPORTED'
+      }
+    );
+    return ['--allow-all-tools'];
+  }
   const unsupported = tools.names.filter((name) => !COPILOT_TOOL_NAMES[name]);
   if (unsupported.length) {
     throw new SingularityFlowError(
@@ -70,11 +85,13 @@ export function copilotToolArguments(tools = { mode: 'none', names: [] }) {
   }
   const available = unique(tools.names.flatMap((name) => COPILOT_TOOL_NAMES[name]));
   const argumentsList = [`--available-tools=${available.join(',')}`];
-  if (tools.names.some((name) => name === 'edit_file' || name === 'create_file')) {
+  if (tools.names.some((name) => ACP_MUTATING_OPERATIONS.has(name))) {
     // Copilot's permission grammar authorizes file mutations as `write(...)`; `edit` is the
     // availability name, not a valid permission pattern. The request still has a bounded cwd,
     // allowed roots, an exact output contract, and the caller's post-run isolation check.
-    argumentsList.push('--allow-tool=write');
+    // A path-scoped request must be decided through ACP request_permission for every effect.
+    // Auto-allowing `write` here would bypass the only pre-effect message carrying the target path.
+    if (!tools.scope) argumentsList.push('--allow-tool=write');
   }
   return argumentsList;
 }
@@ -163,15 +180,185 @@ function providerEnvironment(overrides = {}, telemetry = null) {
   ]);
 }
 
-function acpPermissionOutcome(tools, params) {
+/**
+ * Normalize only provider identities that Copilot was actually offered on argv. `kind` carries the
+ * operation while `name` identifies the one host tool that implements it. Treating either field as
+ * a fallback for a contradictory other field would let a completion relabel `edit` as `delete` (or
+ * vice versa) after permission.
+ */
+function acpProviderOperation(toolCall) {
+  const name = toolCall?.name ?? null;
+  const kind = toolCall?.kind ?? null;
+  const input = toolCall?.rawInput;
+  const source = input?.source ?? input?.from ?? input?.src ?? input?.oldPath ?? input?.old_path;
+  const destination = input?.destination ?? input?.to ?? input?.dst ?? input?.newPath ?? input?.new_path;
+  const byKind = Object.freeze({
+    read: { name: 'view', operation: 'read' },
+    search: { name: 'grep', operation: 'search' },
+    edit: { name: 'edit', operation: 'edit' },
+    delete: { name: 'edit', operation: 'delete' },
+    move: { name: 'edit', operation: 'move' },
+    copy: { name: 'edit', operation: 'copy' }
+  });
+  if (kind != null) {
+    // ACP v1 has no `copy` ToolKind. Its decoder converts an extension kind to `other`, so retain a
+    // copy identity only when the offered `edit` tool also supplies both explicit path endpoints.
+    // An unlabelled `other` call or a contradictory provider name remains unclassifiable.
+    if (kind === 'other' && name === 'edit') {
+      return source != null && destination != null ? 'copy' : null;
+    }
+    const expected = byKind[kind];
+    if (!expected || (name != null && name !== expected.name)) return null;
+    return expected.operation;
+  }
+  // The v1 SDK's forward-compatible decoder can also omit an unknown extension kind. Preserve only
+  // the same unambiguous copy shape; a plain kind-less `edit` remains an edit below.
+  if (name === 'edit' && source != null && destination != null) return 'copy';
+  const byName = Object.freeze({ view: 'read', grep: 'search', edit: 'edit' });
+  return byName[name] ?? null;
+}
+
+function boundedPathValue(value, cwd) {
+  if (typeof value !== 'string' || !value.trim() || /[\r\n\0]/.test(value)) return null;
+  if (value.startsWith('file:')) {
+    try { return fileURLToPath(value); } catch { return null; }
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null;
+  return path.resolve(cwd, value);
+}
+
+function acpToolTargets(toolCall, cwd, operation = acpProviderOperation(toolCall)) {
+  const input = toolCall?.rawInput;
+  const targets = [];
+  const add = (value, access) => {
+    if (value == null) return;
+    targets.push({ path: boundedPathValue(value, cwd), access });
+  };
+  if (input && typeof input === 'object' && !Array.isArray(input)) {
+    if (operation === 'move' || operation === 'copy') {
+      // Moving removes the source and is therefore a write at both ends. Copying only reads the
+      // source. Treating a move source as read-only would let an agent delete from a read root.
+      add(input.source ?? input.from ?? input.src ?? input.oldPath ?? input.old_path,
+        operation === 'move' ? 'write' : 'read');
+      add(input.destination ?? input.to ?? input.dst ?? input.newPath ?? input.new_path, 'write');
+    } else {
+      const access = operation === 'read' || operation === 'search' ? 'read' : 'write';
+      for (const key of [
+        'path', 'filePath', 'file_path', 'directory', 'cwd', 'root',
+        'source', 'destination', 'from', 'to', 'oldPath', 'newPath',
+        'old_path', 'new_path', 'src', 'dst'
+      ]) add(input[key], access);
+    }
+  }
+  if (Array.isArray(toolCall?.locations)) {
+    const source = operation === 'copy'
+      ? boundedPathValue(input?.source ?? input?.from ?? input?.src
+        ?? input?.oldPath ?? input?.old_path, cwd)
+      : null;
+    for (const location of toolCall.locations) {
+      const value = typeof location === 'string'
+        ? location : location?.path ?? location?.uri ?? location?.filePath ?? location?.file_path;
+      const located = boundedPathValue(value, cwd);
+      // ACP locations describe affected paths but do not declare their access direction. For a
+      // copy, the exact raw-input source remains read-only; every other affected location is an
+      // effect. Unknown or extra paths consequently fail closed against the write scope.
+      add(value, operation === 'read' || operation === 'search'
+        || (operation === 'copy' && located === source)
+        ? 'read' : 'write');
+    }
+  }
+  if (!targets.length && operation === 'search') {
+    targets.push({ path: cwd, access: 'read' });
+  }
+  return targets;
+}
+
+async function canonicalToolTarget(target) {
+  let ancestor = target;
+  const missing = [];
+  for (;;) {
+    const canonical = await realpath(ancestor).catch((error) => (
+      error?.code === 'ENOENT' ? null : Promise.reject(error)
+    ));
+    if (canonical) return path.join(canonical, ...missing);
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) return null;
+    missing.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+}
+
+async function canonicalAcpOperation(toolCall, cwd, expectedOperation = null) {
+  const providerOperation = acpProviderOperation(toolCall);
+  if (!providerOperation) return null;
+  if (providerOperation !== 'edit') return `${providerOperation}_file`.replace('search_file', 'search');
+  if (['create_file', 'edit_file'].includes(expectedOperation)) return expectedOperation;
+  const targets = acpToolTargets(toolCall, cwd, providerOperation)
+    .filter((target) => target.access === 'write' && target.path);
+  const paths = [...new Set(targets.map((target) => target.path))];
+  if (paths.length !== 1) return null;
+  const info = await lstat(paths[0]).catch((error) => (
+    error?.code === 'ENOENT' ? null : Promise.reject(error)
+  ));
+  return info == null ? 'create_file' : 'edit_file';
+}
+
+function operationAllowed(tools, operation) {
+  if (!operation || tools?.mode === 'none') return false;
+  if (tools?.mode === 'all') return true;
+  return tools?.mode === 'allowlist' && tools.names?.includes(operation);
+}
+
+/** Build one operation-and-target identity used unchanged by announce, permission, and completion. */
+async function acpToolDecision(request, toolCall, { expectedOperation = null } = {}) {
+  const operation = await canonicalAcpOperation(toolCall, request.cwd, expectedOperation);
+  if (!operation || !operationAllowed(request.tools, operation)) {
+    return { allowed: false, operation, identity: null, targets: [] };
+  }
+  const providerOperation = acpProviderOperation(toolCall);
+  let targets = acpToolTargets(toolCall, request.cwd, providerOperation);
+  // Legacy/unscoped ACP read notifications occasionally omit a location. They remain bounded by
+  // cwd and the normalized read operation. A path-v1 request never accepts an undisclosed target.
+  if (!targets.length && !request.tools?.scope && operation === 'read_file') {
+    targets = [{ path: request.cwd, access: 'read' }];
+  }
+  if (!targets.length || targets.some((target) => !target.path)) {
+    return { allowed: false, operation, identity: null, targets };
+  }
+  const scope = request.tools?.scope;
+  if (scope && scope.protocol !== 'path-v1') {
+    return { allowed: false, operation, identity: null, targets };
+  }
+  const identities = [];
+  for (const target of targets) {
+    const canonical = await canonicalToolTarget(target.path);
+    if (!canonical) return { allowed: false, operation, identity: null, targets };
+    if (scope) {
+      const configuredRoots = target.access === 'write' ? scope.writeRoots : scope.readRoots;
+      const admitted = (await Promise.all(
+        configuredRoots.map((root) => canonicalToolTarget(root))
+      )).filter(Boolean);
+      if (!admitted.some((root) => inside(canonical, root))) {
+        return { allowed: false, operation, identity: null, targets };
+      }
+    }
+    identities.push(`${target.access}:${canonical}`);
+  }
+  return {
+    allowed: true,
+    operation,
+    identity: `${operation}|${[...new Set(identities)].sort().join('|')}`,
+    targets
+  };
+}
+
+export async function acpPermissionOutcome(request, params) {
+  const tools = request.tools;
   if (tools?.mode === 'none') return { outcome: 'cancelled' };
   const option = params.options?.find((entry) => entry.kind === 'allow_once');
   if (!option) return { outcome: 'cancelled' };
-  if (tools?.mode === 'all') return { outcome: 'selected', optionId: option.optionId };
-  const allowed = new Set((tools?.names ?? []).flatMap((name) => COPILOT_TOOL_NAMES[name] ?? []));
-  const byKind = Object.freeze({ read: 'view', search: 'grep', edit: 'edit', delete: 'edit', move: 'edit' });
-  const requested = params.toolCall?.name ?? byKind[params.toolCall?.kind] ?? null;
-  return requested && allowed.has(requested)
+  const decision = await acpToolDecision(request, params.toolCall);
+  return decision.allowed
     ? { outcome: 'selected', optionId: option.optionId }
     : { outcome: 'cancelled' };
 }
@@ -252,12 +439,6 @@ function inside(candidate, root) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function acpEditPath(rawInput) {
-  if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) return null;
-  const value = rawInput.path ?? rawInput.filePath ?? rawInput.file_path;
-  return typeof value === 'string' && value.trim() && !/[\r\n\0]/.test(value) ? value : null;
-}
-
 /**
  * Copilot CLI 1.0.80 exposes one `edit` tool for both provider-independent `edit_file` and
  * `create_file`, but that tool opens the target before applying its patch. A new path therefore
@@ -268,15 +449,15 @@ function acpEditPath(rawInput) {
  * roots. Copilot still supplies every content byte through its ordinary edit tool and all caller
  * post-run isolation and validation remains in force.
  */
-async function precreateAcpEditTarget(request, toolCall) {
-  const mayCreate = request.tools?.mode === 'all'
-    || request.tools?.names?.includes('create_file');
-  if (!mayCreate || (toolCall.name !== 'edit' && toolCall.kind !== 'edit')) return;
-  const requestedPath = acpEditPath(toolCall.rawInput);
-  if (!requestedPath) return;
-  const candidate = path.resolve(request.cwd, requestedPath);
+async function precreateAcpEditTarget(request, decision) {
+  if (decision.operation !== 'create_file') return true;
+  const requested = decision.targets;
+  if (!requested.length || requested.some((target) => target.access !== 'write' || !target.path)) return false;
+  const requestedPaths = [...new Set(requested.map((target) => target.path))];
+  if (requestedPaths.length !== 1) return false;
+  const [candidate] = requestedPaths;
   const basename = path.basename(candidate);
-  if (!basename || basename === '.' || basename === path.parse(candidate).root) return;
+  if (!basename || basename === '.' || basename === path.parse(candidate).root) return false;
 
   // Resolve the closest existing ancestor first. This handles macOS /var -> /private/var without
   // trusting a lexical prefix, and prevents mkdir from following an unreviewed symlink outside an
@@ -285,38 +466,42 @@ async function precreateAcpEditTarget(request, toolCall) {
   const missing = [];
   while (!await lstat(ancestor).catch(() => null)) {
     const parent = path.dirname(ancestor);
-    if (parent === ancestor) return;
+    if (parent === ancestor) return false;
     missing.unshift(path.basename(ancestor));
     ancestor = parent;
   }
   const canonicalAncestor = await realpath(ancestor).catch(() => null);
-  if (!canonicalAncestor) return;
+  if (!canonicalAncestor) return false;
   const canonicalRoots = (await Promise.all(
-    request.allowedRoots.map((root) => realpath(root).catch(() => null))
+    (request.tools?.scope?.writeRoots ?? request.allowedRoots)
+      .map((root) => realpath(root).catch(() => canonicalToolTarget(root)))
   )).filter(Boolean);
-  const allowedRoot = canonicalRoots.find((root) => inside(canonicalAncestor, root));
-  if (!allowedRoot) return;
+  const canonicalCandidate = path.join(canonicalAncestor, ...missing, basename);
+  const allowedRoot = canonicalRoots.find((root) => inside(canonicalCandidate, root));
+  if (!allowedRoot) return false;
 
   let parent = canonicalAncestor;
   for (const segment of missing) {
     const next = path.join(parent, segment);
-    if (!inside(next, allowedRoot)) return;
+    if (!inside(next, allowedRoot) && !inside(allowedRoot, next)) return false;
     await mkdir(next, { mode: 0o700 }).catch((error) => {
       if (error?.code !== 'EEXIST') throw error;
     });
     const info = await lstat(next).catch(() => null);
-    if (!info?.isDirectory() || info.isSymbolicLink()) return;
+    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
     parent = next;
   }
   const target = path.join(parent, basename);
-  if (!inside(target, allowedRoot)) return;
+  if (!inside(target, allowedRoot)) return false;
   const existing = await lstat(target).catch(() => null);
-  if (existing) return;
+  if (existing) return false;
   const handle = await open(target, 'wx', 0o600).catch((error) => {
     if (error?.code === 'EEXIST') return null;
     throw error;
   });
-  await handle?.close();
+  if (!handle) return false;
+  await handle.close();
+  return true;
 }
 
 function providerIdentity(request) {
@@ -481,6 +666,28 @@ async function invokeCopilotAcp(request) {
   const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), guardedInput);
   const toolCalls = new Map();
   const activeToolCalls = new Set();
+  const toolPermissions = new Map();
+  let sessionUpdateTail = Promise.resolve();
+  const enqueueSessionUpdate = (work) => {
+    const current = sessionUpdateTail.then(work, work);
+    // Keep the serialization chain live after an individual update failure. The invocation's
+    // boundary promise carries the actual failure to the caller.
+    sessionUpdateTail = current.catch(() => {});
+    return current;
+  };
+  const drainSessionUpdates = async () => {
+    // The ACP SDK resolves the prompt response independently from async notification callbacks. A
+    // response can therefore become visible while a preceding tool completion is only queued for
+    // dispatch. Require two stable event-loop turns so no operation/target change can arrive just
+    // after the invocation has been accepted.
+    let stableTurns = 0;
+    while (stableTurns < 2) {
+      const observedTail = sessionUpdateTail;
+      await observedTail;
+      await new Promise((resolve) => setImmediate(resolve));
+      stableTurns = observedTail === sessionUpdateTail ? stableTurns + 1 : 0;
+    }
+  };
   let toolRounds = 0;
   const maximumToolCalls = request.limits.maxToolCalls ?? 64;
   const toolCallsAreAutomatic = maximumToolCalls === 'auto';
@@ -496,6 +703,7 @@ async function invokeCopilotAcp(request) {
       sequence: entry.sequence,
       name: boundedToolName(entry.name, boundedToolName(entry.kind)),
       kind: boundedToolName(entry.kind),
+      operation: boundedToolName(entry.operation),
       status: ['pending', 'in_progress', 'completed', 'failed'].includes(entry.status)
         ? entry.status : 'unknown',
       outputBytes: Number.isSafeInteger(entry.outputBytes) ? entry.outputBytes : 0,
@@ -537,10 +745,50 @@ async function invokeCopilotAcp(request) {
     return error;
   };
   const connection = new acp.ClientSideConnection(() => ({
-    async requestPermission(params) { return { outcome: acpPermissionOutcome(request.tools, params) }; },
+    async requestPermission(params) {
+      // An announce notification may precede the permission request. Finish its canonical-path and
+      // operation classification before deciding the same toolCallId so either ACP ordering has one
+      // identical authorization boundary.
+      await drainSessionUpdates();
+      const option = params.options?.find((entry) => entry.kind === 'allow_once');
+      const decision = option
+        ? await acpToolDecision(request, params.toolCall)
+        : { allowed: false, operation: null, identity: null, targets: [] };
+      const toolCallId = params.toolCall?.toolCallId;
+      if (decision.allowed && option && toolCallId) {
+        const announced = toolCalls.get(toolCallId);
+        if (announced && (announced.operation !== decision.operation
+            || announced.identity !== decision.identity)) {
+          boundaryError(
+            `${providerLabel} changed an ACP tool's operation or targets before permission.`,
+            request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED'
+          );
+          return { outcome: { outcome: 'cancelled' } };
+        }
+        try {
+          if (!await precreateAcpEditTarget(request, decision)) {
+            boundaryError(
+              `${providerLabel} could not prove an empty ACP create target at permission time.`,
+              'MODEL_CREATE_TARGET_FAILED'
+            );
+            return { outcome: { outcome: 'cancelled' } };
+          }
+        } catch {
+          boundaryError(
+            `${providerLabel} could not safely materialize an authorized ACP create target.`,
+            'MODEL_CREATE_TARGET_FAILED'
+          );
+          return { outcome: { outcome: 'cancelled' } };
+        }
+        toolPermissions.set(toolCallId, decision);
+        return { outcome: { outcome: 'selected', optionId: option.optionId } };
+      }
+      return { outcome: { outcome: 'cancelled' } };
+    },
     async sessionUpdate(params) {
-      if (boundaryStopped) return;
-      const update = params.update;
+      return enqueueSessionUpdate(async () => {
+        if (boundaryStopped) return;
+        const update = params.update;
       if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
         const isNew = !toolCalls.has(update.toolCallId);
         if (isNew && !toolCallsAreAutomatic && toolCalls.size >= maximumToolCalls) {
@@ -571,12 +819,44 @@ async function invokeCopilotAcp(request) {
           ...(update.kind != null ? { kind: update.kind } : {}),
           ...(update.status != null ? { status: update.status } : {}),
           ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
+          ...(update.locations != null ? { locations: update.locations } : {}),
           ...(toolOutput != null ? {
             outputBytes: serializedBytes(toolOutput),
             truncated: prior.truncated || truncationObserved(toolOutput)
           } : {})
         };
+        const permission = toolPermissions.get(update.toolCallId) ?? null;
+        const decision = await acpToolDecision(request, current, {
+          expectedOperation: permission?.operation ?? prior.operation ?? null
+        });
+        current.operation = decision.operation;
+        current.identity = decision.identity;
         toolCalls.set(update.toolCallId, current);
+        const terminal = ['completed', 'failed'].includes(current.status) || toolOutput != null;
+        const changedFromAnnouncement = prior.operation && (
+          prior.operation !== decision.operation || prior.identity !== decision.identity
+        );
+        const changedFromPermission = permission && (
+          permission.operation !== decision.operation || permission.identity !== decision.identity
+        );
+        const permissionRequired = ACP_MUTATING_OPERATIONS.has(decision.operation);
+        if (!decision.allowed || !decision.identity || changedFromAnnouncement
+            || changedFromPermission || (terminal && permissionRequired && !permission)) {
+          boundaryError(
+            `${providerLabel} attempted an ACP tool without one exact operation-and-target permission.`,
+            request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED',
+            {
+              operation: decision.operation,
+              operationAllowed: decision.allowed,
+              changedFromAnnouncement: Boolean(changedFromAnnouncement),
+              changedFromPermission: Boolean(changedFromPermission),
+              permissionPresent: Boolean(permission),
+              providerTool: boundedToolName(current.name),
+              providerKind: boundedToolName(current.kind)
+            }
+          );
+          return;
+        }
         if (!['completed', 'failed'].includes(current.status)) activeToolCalls.add(update.toolCallId);
         else activeToolCalls.delete(update.toolCallId);
         if (current.outputBytes > maximumToolResultBytes) {
@@ -586,28 +866,19 @@ async function invokeCopilotAcp(request) {
           );
           return;
         }
-        try { await precreateAcpEditTarget(request, current); }
-        catch {
-          current.preparationFailed = true;
-          toolCalls.set(update.toolCallId, current);
+      }
+        if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
+        const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
+        outputBytes += chunkBytes;
+        if (outputBytes > outputLimit) {
           boundaryError(
-            `${providerLabel} could not safely materialize an authorized ACP create target.`,
-            'MODEL_CREATE_TARGET_FAILED'
+            `${providerLabel} output exceeded ${outputLimit} bytes.`,
+            'MODEL_OUTPUT_LIMIT', { outputLimit }
           );
           return;
         }
-      }
-      if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
-      const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
-      outputBytes += chunkBytes;
-      if (outputBytes > outputLimit) {
-        boundaryError(
-          `${providerLabel} output exceeded ${outputLimit} bytes.`,
-          'MODEL_OUTPUT_LIMIT', { outputLimit }
-        );
-        return;
-      }
-      output += update.content.text;
+        output += update.content.text;
+      });
     }
   }), stream);
   let timer;
@@ -653,6 +924,9 @@ async function invokeCopilotAcp(request) {
       const result = await connection.prompt({
         sessionId, prompt: [{ type: 'text', text: promptText }]
       });
+      // ACP notifications preceding the prompt result can contain asynchronous canonical-path
+      // checks. Do not accept the result until every preceding update has crossed that boundary.
+      await drainSessionUpdates();
       if (result.stopReason !== 'end_turn') {
         throw new SingularityFlowError(`Copilot ACP stopped with reason '${result.stopReason}'.`, {
           code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED'
@@ -777,6 +1051,12 @@ async function invokeCopilotAcp(request) {
 }
 
 async function invokeCopilotAttachment(request) {
+  if (request.tools?.scope && request.tools.mode !== 'none') {
+    throw new SingularityFlowError(
+      'Copilot attachment transport cannot enforce path-scoped tools before filesystem effects. Use ACP stdio.',
+      { code: 'MODEL_TOOL_SCOPE_UNSUPPORTED', details: { transport: 'attachment' } }
+    );
+  }
   const configured = request.providerConfig ?? {};
   const executable = configured.executable ?? 'copilot';
   if (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/.test(executable)) {

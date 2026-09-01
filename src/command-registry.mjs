@@ -207,7 +207,8 @@ const CONTEXT_SUBCOMMANDS = Object.freeze([...CONTEXT_READ_SUBCOMMANDS, ...CONTE
 const TOKENS_SUBCOMMANDS = Object.freeze(['status', 'report', 'compare']);
 const AUTO_SUBCOMMANDS = Object.freeze([
   'plan', 'show-plan', 'start', 'list', 'status', 'report',
-  'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step'
+  'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
+  'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
 const ADHOC_SUBCOMMANDS = Object.freeze([
   'start', 'status', 'diff', 'effects', 'evidence', 'pause', 'resume', 'land', 'intent',
@@ -556,8 +557,8 @@ function resolveReturnOperation(definition, options) {
     : never('return.plan', definition, 'read');
 }
 
-function resolveAutoOperation(definition, positionals) {
-  const token = positionals[1] ?? 'status';
+function resolveAutoOperation(definition, positionals, options = {}) {
+  const token = positionals[1] ?? (optionString(options, 'goal') ? 'plan' : 'status');
   // A token outside the closed subcommand vocabulary is the documented shorthand requirement.
   // A near spelling of a control verb is a typo, not a requirement that may consume a model call.
   const nearest = nearestNames(token, AUTO_SUBCOMMANDS, { limit: 1 })[0] ?? null;
@@ -567,7 +568,16 @@ function resolveAutoOperation(definition, positionals) {
   }
   const subcommand = AUTO_SUBCOMMANDS.includes(token) ? token : 'plan';
   if (subcommand === 'plan' || subcommand === 'flight-step') return required(`auto.${subcommand}`);
-  if (['show-plan', 'list', 'status', 'report'].includes(subcommand)) return never(`auto.${subcommand}`, definition, 'read');
+  if (subcommand === 'repair' && optionString(options, 'confirm') == null) {
+    return never('auto.repair.plan', definition, 'read');
+  }
+  if (subcommand === 'repair') return required('auto.repair');
+  if (subcommand === 'switch-unit' && optionString(options, 'confirm') == null) {
+    return never('auto.switch-unit.plan', definition, 'read');
+  }
+  if (['show-plan', 'list', 'status', 'report', 'continue', 'adopt', 'needs-you'].includes(subcommand)) {
+    return never(`auto.${subcommand}`, definition, 'read');
+  }
   return never(`auto.${subcommand}`, definition, 'mutation');
 }
 
@@ -857,7 +867,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {} }
   if (definition.name === 'impact') return resolveImpactOperation(definition, positionals);
   if (definition.name === 'context') return resolveContextOperation(definition, positionals);
   if (definition.name === 'tokens') return resolveTokensOperation(definition, positionals);
-  if (definition.name === 'auto') return resolveAutoOperation(definition, positionals);
+  if (definition.name === 'auto') return resolveAutoOperation(definition, positionals, options);
   if (definition.name === 'adhoc') return resolveAdhocOperation(definition, positionals);
   if (definition.name === 'return') return resolveReturnOperation(definition, options);
   if (definition.name === 'story') return resolveStoryOperation(definition, positionals, options);
@@ -972,8 +982,12 @@ export function operationCatalog() {
     required('copilot.launch'),
     required('auto.plan'),
     required('auto.flight-step'),
-    ...AUTO_SUBCOMMANDS.filter((name) => !['plan', 'flight-step'].includes(name)).map((name) => never(
-      `auto.${name}`, autoDefinition, ['show-plan', 'list', 'status', 'report'].includes(name) ? 'read' : 'mutation'
+    required('auto.repair'),
+    never('auto.repair.plan', autoDefinition, 'read'),
+    never('auto.switch-unit.plan', autoDefinition, 'read'),
+    ...AUTO_SUBCOMMANDS.filter((name) => !['plan', 'flight-step', 'repair'].includes(name)).map((name) => never(
+      `auto.${name}`, autoDefinition,
+      ['show-plan', 'list', 'status', 'report', 'continue', 'adopt', 'needs-you'].includes(name) ? 'read' : 'mutation'
     )),
     never('return.plan', returnDefinition, 'read'),
     never('return.apply', returnDefinition, 'mutation'),

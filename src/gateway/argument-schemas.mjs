@@ -190,6 +190,9 @@ export const ARGUMENT_SCHEMAS = Object.freeze([
     workId: required('identifier'),
     workKind: optional('enum', { values: ['story', 'initiative'] })
   }),
+  schema('auto-flight-v1', { flightId: required('identifier') }),
+  schema('auto-story-v1', { workId: required('identifier') }),
+  schema('auto-plan-v1', { planId: required('identifier') }),
   schema('governed-goal-v1', {
     goalId: required('identifier'),
     criterionId: optional('identifier')

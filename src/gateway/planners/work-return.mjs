@@ -31,6 +31,7 @@ import { subjectWith } from '../handles.mjs';
 import { noEffects, plannerNavigation, preservedAll, sflowResult } from '../result.mjs';
 import { resolveWorkRecord, workRecords } from '../work-records.mjs';
 import { branch, head } from '../../git.mjs';
+import { autoHomeSummary } from '../auto-home-summary.mjs';
 
 /**
  * What a reconciliation can say about a changed path, in the order a reader meets it.
@@ -90,7 +91,8 @@ export function returnChecklist(report) {
  * `why[]` rather than by an empty checklist that reads like "nothing changed".
  */
 export function workReturnResult(item, {
-  report = null, localChanges = null, subject = null, acknowledgedAt = null, repository = null
+  report = null, localChanges = null, subject = null, acknowledgedAt = null, repository = null,
+  auto = null
 } = {}) {
   const attached = Boolean(report);
   const decision = report?.decision ?? null;
@@ -152,6 +154,9 @@ export function workReturnResult(item, {
       reference: acknowledgedAt,
       slots: {}
     });
+  }
+  if (auto && auto.availability !== 'available') {
+    warnings.push({ code: 'home.auto-unavailable', source: 'unavailable', slots: {} });
   }
 
   return sflowResult({
@@ -237,6 +242,7 @@ export function workReturnResult(item, {
       },
       repository,
       recovery: { required: item.group === 'recovery-required' },
+      auto,
       reconciliation: report
         ? {
           sha256: report.reconciliationSha256,
@@ -285,7 +291,10 @@ export async function workReturn({ arguments: args = {}, subject = null, root = 
      */
     localChanges,
     acknowledgedAt: context.acknowledgedAt ?? null,
-    repository
+    repository,
+    auto: context.auto !== undefined
+      ? context.auto
+      : await autoHomeSummary(root, { workId: item.id })
   });
 }
 

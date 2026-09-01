@@ -267,8 +267,306 @@
       "updatedAt": "2026-01-02T03:04:05.000Z",
       "recordSha256": "57808cad8eca6f1c7df1aebdcb69f726a8c5b4d1b7c2a88631e7c3af9170911c"
     },
-    { "schemaVersion": 2, "status": "paused" }
+    {
+      "schemaVersion": 2, "kind": "auto-flight-state", "mode": "auto",
+      "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC",
+      "planId": "APL-DDDDDDDDDDDDDDDDDDDDDDDDDD",
+      "planSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "capabilityId": "example", "status": "paused",
+      "story": { "workId": "WORK-1", "branch": "work-1", "phase": "implementation",
+        "revision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209" },
+      "worktree": "/tmp/sflow-auto-fixture", "scopePrediction": ["src/"],
+      "configuration": null, "repositories": [], "operations": [], "evidence": {},
+      "candidate": null, "worldModelReference": null, "comprehensionReference": null,
+      "phaseContracts": {}, "boundaryCheckpoints": [],
+      "boundaryCheckpoint": null,
+      "lastSuccessfulStoryRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+      "position": "story-created",
+      "execution": { "pace": { "mode": "phase" },
+        "until": { "kind": "phase", "phase": "implementation" }, "ceilings": {} },
+      "counters": { "modelInvocations": 0, "authoringAttempts": {}, "phasesCompleted": 0,
+        "touchedPaths": 0, "touchedChanges": 0, "totalTokens": 0, "activeMilliseconds": 0 },
+      "stopRequested": null, "checkpointSequence": 1,
+      "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
+      "stopReason": "fixture", "nextAction": "Review",
+      "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
+      "recordSha256": "395c96c7b462e1e865dc02960f6daa8977497c61e43a7fc30751abc5ca2914c2"
+    }
   ],
   "auto-step-result": [{ "schemaVersion": 1 }],
-  "auto-flight-report": [{ "schemaVersion": 1 }]
+  "auto-phase-run": [{
+    "kind": "auto-phase-run", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "status": "planned", "attemptIds": [], "activeAttemptId": null,
+    "publishedGenerations": [], "requiredHumanRequestIds": [], "phaseCheckpointSha256": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
+    "phaseRunId": "APR-3C53DBD00DDC037E96226E4125", "schemaVersion": 1,
+    "recordSha256": "sha256:6a929905b114f835eb163cb4af952619c8bada9f4c2d214c1b41f4fc34232f9f"
+  }, {
+    "kind": "auto-phase-run", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "status": "planned", "attemptIds": [], "activeAttemptId": null,
+    "publishedGenerations": [], "requiredHumanRequestIds": [], "phaseCheckpointSha256": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
+    "phaseRunId": "APR-3C53DBD00DDC037E96226E4125", "schemaVersion": 2,
+    "recordSha256": "sha256:075861dd5bfe3d154b1dcdccde7c537c5c8c0db024fb242a9c06036d46d967b4"
+  }],
+  "auto-attempt": [{
+    "kind": "auto-attempt", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptNumber": 1, "attemptKind": "initial",
+    "parentAttemptId": null, "reason": "phase-entry",
+    "generationIntentSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "taskContractSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "contextManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "executionUnitManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "status": "planned", "candidateSha256": null, "verificationReceiptSha256": null,
+    "publicationReceiptSha256": null, "budgetImpact": { "tokens": 0 }, "result": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB", "schemaVersion": 1,
+    "recordSha256": "sha256:7d3938e62c2648415374f1338d86a0a047ba02a6419efedfda0d671da4b2d40d"
+  }, {
+    "kind": "auto-attempt", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptNumber": 1, "attemptKind": "initial",
+    "parentAttemptId": null, "reason": "phase-entry",
+    "generationIntentSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "taskContractSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "contextManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "executionUnitManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "status": "planned", "candidateSha256": null, "verificationReceiptSha256": null,
+    "publicationReceiptSha256": null, "budgetImpact": { "tokens": 0 }, "result": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "updatedAt": "2026-01-02T03:04:05.000Z",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB", "schemaVersion": 2,
+    "recordSha256": "sha256:f3a08bc4dd11aab04548c74d4b2431b7de45d089ba1b6fa0f8510bff53675272"
+  }],
+  "auto-refusal": [{
+    "kind": "auto-refusal", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "gate": "verification", "code": "TEST_FAILED", "subject": { "kind": "candidate" },
+    "missing": ["passing-tests"],
+    "preserved": { "candidateSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "repair": { "eligibility": "ask-only", "operation": "auto.repair", "scope": ["src/"], "maximumAttempts": 1 },
+    "primaryNextAction": { "operation": "auto.repair", "label": "Review repair" },
+    "createdAt": "2026-01-02T03:04:05.000Z", "refusalId": "ARF-47F06F80A2ABC422ED3C92B99F",
+    "schemaVersion": 1,
+    "refusalSha256": "sha256:f3e7ba03b70d6a1f3703d62dda38d6662781947ae84d97a791a227214798ea8e"
+  }, {
+    "kind": "auto-refusal", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "gate": "verification", "code": "TEST_FAILED",
+    "subject": { "candidateSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "verificationReceiptSha256": null },
+    "missing": [{ "evidence": "passing-tests" }],
+    "preserved": { "candidateSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111", "verificationReceiptSha256": null, "changedPaths": 0, "paths": [], "workingArea": true },
+    "repair": { "eligibility": "ask-only", "operation": "auto.repair", "scope": ["src/"], "maximumAttempts": 1 },
+    "primaryNextAction": { "operation": "auto.repair", "label": "Review repair" },
+    "createdAt": "2026-01-02T03:04:05.000Z", "refusalId": "ARF-47F06F80A2ABC422ED3C92B99F",
+    "schemaVersion": 2,
+    "refusalSha256": "sha256:c342a2bc37b5824b3ec7ea8c116e995969736b77bd3c2555e9bc0fe775263b80"
+  }],
+  "auto-repair-plan": [{
+    "kind": "auto-repair-plan", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "parentAttemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "refusalSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "objective": "Repair the failed test", "readScope": ["src/"], "writeScope": ["src/"],
+    "forbiddenChanges": ["singularity/"], "requiredEvidence": ["passing-tests"],
+    "budget": { "maximumAttempts": 1 }, "attemptNumber": 1,
+    "createdAt": "2026-01-02T03:04:05.000Z", "repairPlanId": "ARP-133F5515D3F6C572D8ABC53E60",
+    "schemaVersion": 1,
+    "repairPlanSha256": "sha256:b9364af5db37deaa9c9ad91bd93f23db7f8d5725f5405795cac19a3418bf8a4c"
+  }, {
+    "kind": "auto-repair-plan", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "parentAttemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "refusalSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "objective": "Repair the failed test", "readScope": ["src/"], "writeScope": ["src/"],
+    "forbiddenChanges": ["singularity/"], "requiredEvidence": ["passing-tests"],
+    "budget": { "maximumAttempts": 1, "remainingModelInvocations": 0 }, "attemptNumber": 1,
+    "createdAt": "2026-01-02T03:04:05.000Z", "repairPlanId": "ARP-133F5515D3F6C572D8ABC53E60",
+    "schemaVersion": 2,
+    "repairPlanSha256": "sha256:5a258bdecc965a3fe22ea950c112ada3fa6d8b7dea2012f1ace84de865e7fdf6"
+  }],
+  "auto-human-request": [{
+    "kind": "auto-human-request", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "requestType": "clarification", "title": "Choose behavior",
+    "detail": { "question": "Which behavior?" }, "options": [{ "id": "one", "label": "One" }],
+    "subjectSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "policySha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "checkpointSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "status": "open", "response": null, "createdAt": "2026-01-02T03:04:05.000Z",
+    "expiresAt": null, "requestId": "AHR-8C9ECF0FA98AD320C79D03E9C2", "schemaVersion": 1,
+    "requestSha256": "sha256:7f87cdbd8803c7eb0037b6cff5de8cd217e6ddfc9b3ec6ef46e559596f4982cc"
+  }, {
+    "kind": "auto-human-request", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "requestType": "clarification", "title": "Choose behavior",
+    "detail": { "question": "Which behavior?" }, "options": [{ "id": "one", "label": "One" }],
+    "subjectSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "policySha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "checkpointSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "status": "open", "response": null, "createdAt": "2026-01-02T03:04:05.000Z",
+    "expiresAt": null, "requestId": "AHR-8C9ECF0FA98AD320C79D03E9C2", "schemaVersion": 2,
+    "requestSha256": "sha256:9573bd4db3bb3a0fd739259f427a1ff251c7b420f095bcfbbf9610418ad89a43"
+  }],
+  "auto-token-economics-receipt": [{
+    "kind": "auto-token-economics-receipt", "mode": "auto",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "contextManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "input": { "tokens": 100 }, "output": { "tokens": 50 },
+    "cost": { "amount": null, "currency": "USD", "assurance": "unavailable" },
+    "quality": { "status": "passed" }, "classification": "efficient",
+    "worldModelReference": null, "comprehensionReference": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "schemaVersion": 1,
+    "receiptSha256": "sha256:0aa25f8efd40c36f5d3dc8b64a086094de1e8af30f6175e3a408ac903717bdfe"
+  }, {
+    "kind": "auto-token-economics-receipt", "mode": "auto",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "contextManifestSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "input": { "promptBytes": null, "estimatedTokens": 100, "providerTokens": null, "cachedTokens": null },
+    "output": { "estimatedTokens": 50, "providerTokens": null },
+    "cost": { "amount": null, "currency": "USD", "assurance": "unavailable" },
+    "quality": { "verification": "passed", "firstPass": true, "repairAttempts": 0, "reviewReturned": false, "missingContextIncident": false },
+    "classification": "verified-first-pass", "worldModelReference": null, "comprehensionReference": null,
+    "createdAt": "2026-01-02T03:04:05.000Z", "schemaVersion": 2,
+    "receiptSha256": "sha256:dfed465042483b05399535fbd61efdc51676bf5dcd0060cd3740f06e3218f666"
+  }],
+  "auto-execution-unit-switch": [{
+    "kind": "auto-execution-unit-switch", "mode": "auto",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA", "fromExecutionUnit": "copilot",
+    "toExecutionUnit": "local",
+    "taskContractSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "parentAttemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB", "reason": "provider unavailable",
+    "status": "proposed", "createdAt": "2026-01-02T03:04:05.000Z",
+    "switchPlanId": "AUS-74D1DFCF46DCB0BE95E3B456E9", "schemaVersion": 1,
+    "switchPlanSha256": "sha256:70cccb67ddd94afa2ba8c87c99e03a85f57f1c15fee17f8c26419547bcd0455c"
+  }, {
+    "kind": "auto-execution-unit-switch", "mode": "auto",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA", "fromExecutionUnit": "copilot",
+    "toExecutionUnit": "local",
+    "taskContractSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "parentAttemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB", "reason": "provider unavailable",
+    "status": "proposed", "createdAt": "2026-01-02T03:04:05.000Z",
+    "switchPlanId": "AUS-74D1DFCF46DCB0BE95E3B456E9", "schemaVersion": 2,
+    "switchPlanSha256": "sha256:ab922c2d7b2799369e436c4e8b74c744c40e51fed7bcff6dba55db3f18371e26"
+  }],
+  "auto-candidate-binding": [{
+    "schemaVersion": 1, "kind": "auto-candidate-binding",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC", "attemptId": "AAT-EE6B80D724EEFD3858553A8331",
+    "candidateId": "CAN-82D1478DA8EC29CB8ABD6483B7",
+    "candidateSha256": "sha256:22bc978ef86787b46f0f332331f69092bc0dbd2039849b1acf0ad500f581f349",
+    "baselineSha256": "sha256:f9619b79e989e449d8b5d5bfd2caaf37de73ecec05a03bd3e15748c31d6fd88e",
+    "resourceManifestSha256": "sha256:d82f637aa3c1b06c0accbe47a6f557e65739a99fd0075c1088d3a45a68be06ac",
+    "applicationChangeSetDigest": "sha256:b56ecad76e0e7c0ad109692b20ee316913930fd5ab78d5f14e187f566c9133c8",
+    "applicationResourceDigest": "sha256:8bfc2957128afbe3447539a204a21cca15fce5852593631a58afb8a480117f06",
+    "origin": { "mode": "auto", "executionUnitId": "copilot-cli", "attemptKind": "phase-authoring" },
+    "repository": {
+      "baselineCommit": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+      "baselineTree": "8dd4e33388572da74869b3717d5abfa36ef06e8c",
+      "candidateTree": "45d75de6679153b4f417cd204d00cd2986e8e6c5",
+      "candidateCommit": "5c0061fc5372fdee97665788c1e609220d62acf5",
+      "retainedRef": "refs/singularity-flow/auto-candidates/AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC/CAN-82D1478DA8EC29CB8ABD6483B7"
+    },
+    "resourceManifest": {
+      "changeSetDigest": "sha256:b56ecad76e0e7c0ad109692b20ee316913930fd5ab78d5f14e187f566c9133c8",
+      "entries": [{
+        "changeId": "sha256:5044758547774becd4d756dd57b2495a571de667248a87eaede4ffdba21fd48c",
+        "status": "modified", "oldPath": "src/a.js", "newPath": "src/a.js",
+        "oldMode": "100644", "newMode": "100644",
+        "oldObject": "8cfc2f235869a79f41ae2d66195262729425b88c",
+        "newObject": "645416e45bf866be3f599a5648d072f826ff8485", "newContent": null
+      }]
+    },
+    "bindingSha256": "sha256:388cab2df164a399ce150a203c8deceb185594a3892d68db8f36e7ba92127b25"
+  }],
+  "auto-candidate-verification": [{
+    "schemaVersion": 1, "kind": "auto-candidate-verification",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "candidateId": "CAN-82D1478DA8EC29CB8ABD6483B7",
+    "candidateSha256": "sha256:22bc978ef86787b46f0f332331f69092bc0dbd2039849b1acf0ad500f581f349",
+    "bindingSha256": "sha256:388cab2df164a399ce150a203c8deceb185594a3892d68db8f36e7ba92127b25",
+    "status": "passed", "commands": [{
+      "id": "node-check", "argvSha256": "sha256:e074b4819799f364e9c7ae33060f2484d00a8e37013afa90c0e9cab1054afe1f",
+      "workingDirectory": ".", "status": 0, "signal": null, "timedOut": false,
+      "overflow": false, "outputSha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputBytes": 0
+    }], "candidateTreeUnchanged": true, "verifiedAt": "2026-01-02T03:04:05.000Z",
+    "verificationReceiptSha256": "sha256:c9878489a92a008fcc583ce3c51d8663f68eaa27f06192838ccd8c3d260745c5"
+  }],
+  "auto-boundary-checkpoint": [{
+    "schemaVersion": 1, "kind": "auto-boundary-checkpoint", "mode": "auto",
+    "checkpointClass": "phase-boundary", "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "planId": "APL-DDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "planSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "story": { "workId": "WORK-1", "branch": "work-1", "phase": "implementation", "generation": 1,
+      "status": "in_progress", "workflowSha256": "sha256:da24273f8950c1948a30b5d537ddbd6546543a61e0caf32b49d5fecaa5b67d1d",
+      "sourceRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209" },
+    "position": "story-created", "status": "paused", "stopReason": "fixture",
+    "execution": { "pace": { "mode": "phase" }, "until": { "kind": "phase", "phase": "implementation" }, "ceilings": {} },
+    "capabilityId": "example", "scopePrediction": ["src/"], "configuration": null,
+    "repositories": [], "completedOperations": [], "commits": {}, "evidence": {},
+    "counters": { "modelInvocations": 0, "authoringAttempts": {}, "phasesCompleted": 0,
+      "touchedPaths": 0, "touchedChanges": 0, "totalTokens": 0, "activeMilliseconds": 0 },
+    "lastSuccessfulStoryRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+    "phaseContracts": {}, "phaseContractSha256": null,
+    "candidate": null, "candidateBinding": null, "candidateVerification": null,
+    "runtime": {
+      "lastInvocationId": null, "token": null, "observedPaths": [], "touchedPaths": [],
+      "ceiling": null, "quality": [], "approvals": [], "lastError": null,
+      "activePhaseRunId": null, "activeAttemptId": null, "activeRefusalId": null,
+      "activeRepairPlanId": null, "activeRepair": null, "phaseRunIds": [],
+      "attemptIds": [], "refusalIds": [], "repairAttempts": [], "failureComparison": null,
+      "openHumanRequestIds": [], "humanRequestDecisions": [], "executionUnit": null,
+      "executionUnitSwitches": [], "worldModelReference": null,
+      "comprehensionReference": null
+    },
+    "lineage": {
+      "auto-phase-run": [], "auto-attempt": [], "auto-refusal": [],
+      "auto-repair-plan": [], "auto-human-request": [],
+      "auto-token-economics-receipt": [], "auto-execution-unit-switch": []
+    },
+    "finalReportSha256": null, "finalReport": null,
+    "flightCreatedAt": "2026-09-01T00:02:55.543Z", "createdAt": "2026-09-01T00:02:55.560Z",
+    "checkpointSha256": "sha256:fa0e01489cb49ea12aefae91c84b98400080d8d50ea6ad89475cb4a0c588e722"
+  }],
+  "auto-flight-report": [{
+    "schemaVersion": 1, "kind": "auto-flight-report", "mode": "auto",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC", "planId": "APL-DDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "planSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "status": "paused", "stopReason": "fixture", "nextAction": "Review", "position": "story-created",
+    "configuration": null, "repositories": [], "operations": [], "commits": {}, "evidence": {},
+    "candidate": null, "worldModelReference": null, "comprehensionReference": null,
+    "phaseContracts": {}, "boundaryCheckpoints": [], "boundaryCheckpoint": null,
+    "lastSuccessfulStoryRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+    "retainedUnpublishedPaths": [], "authorityTarget": null, "quality": [], "approvals": [],
+    "humanIntervention": { "required": false, "reason": null, "requested": null }, "lastError": null,
+    "counters": { "modelInvocations": 0, "authoringAttempts": {}, "phasesCompleted": 0,
+      "touchedPaths": 0, "touchedChanges": 0, "totalTokens": 0, "activeMilliseconds": 0 },
+    "scope": { "predicted": { "status": "predicted", "paths": ["src/"] },
+      "observed": { "status": "unavailable", "paths": [] } },
+    "accounting": { "tokens": { "assurance": "unavailable", "totalTokens": null },
+      "activeMilliseconds": 0, "elapsedMilliseconds": 0, "cost": { "assurance": "unavailable", "amount": null } },
+    "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
+    "reportSha256": "sha256:3e52a7be45962d015e6deac0287c6b5a0be85b965d84a777ae6253c496f77487"
+  }, {
+    "schemaVersion": 2, "kind": "auto-flight-report", "mode": "auto",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC", "planId": "APL-DDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "planSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "status": "paused", "stopReason": "fixture", "nextAction": "Review", "position": "story-created",
+    "configuration": null, "repositories": [], "operations": [], "commits": {}, "evidence": {},
+    "candidate": null, "worldModelReference": null, "comprehensionReference": null,
+    "lineage": {
+      "auto-phase-run": [], "auto-attempt": [], "auto-refusal": [],
+      "auto-repair-plan": [], "auto-human-request": [],
+      "auto-token-economics-receipt": [], "auto-execution-unit-switch": []
+    },
+    "approvalSource": "flight-checkpoint",
+    "phaseContracts": {}, "boundaryCheckpoints": [], "boundaryCheckpoint": null,
+    "lastSuccessfulStoryRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+    "retainedUnpublishedPaths": [], "authorityTarget": null, "quality": [], "approvals": [],
+    "humanIntervention": { "required": false, "reason": null, "requested": null }, "lastError": null,
+    "counters": { "modelInvocations": 0, "authoringAttempts": {}, "phasesCompleted": 0,
+      "touchedPaths": 0, "touchedChanges": 0, "totalTokens": 0, "activeMilliseconds": 0 },
+    "scope": { "predicted": { "status": "predicted", "paths": ["src/"] },
+      "observed": { "status": "unavailable", "paths": [] } },
+    "accounting": { "tokens": { "assurance": "unavailable", "totalTokens": null },
+      "activeMilliseconds": 0, "elapsedMilliseconds": 0, "cost": { "assurance": "unavailable", "amount": null } },
+    "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
+    "reportSha256": "sha256:a708a14914c371e1b014d44d92da2483c88bbf2d87bf00cc8198dc5207797d29"
+  }]
 }

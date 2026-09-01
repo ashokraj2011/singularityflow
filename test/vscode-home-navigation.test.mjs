@@ -50,3 +50,15 @@ test('My Work results provide Back history and a direct route home', async () =>
   assert.match(extension, /historyMode: 'push'/);
   assert.match(extension, /historyMode: 'replace'/);
 });
+
+test('Auto card actions are validated against the rendered card and only prefilled', async () => {
+  assert.match(RESULT_CARD_SCRIPT, /sflow\.auto\.action/);
+  const panel = await readFile(source('views', 'result-panel.ts'), 'utf8');
+  assert.match(panel, /current\.auto\.flatMap\(\(card\) => card\.actions\)/);
+  assert.match(panel, /binding\.epoch !== repositoryBinding\?\.epoch/);
+  const extension = await readFile(source('extension.ts'), 'utf8');
+  assert.match(extension, /onAutoResultAction/);
+  assert.match(extension, /name: 'Singularity Flow Auto review', cwd: repositoryRoot/);
+  assert.match(extension, /terminal\.sendText\(command, false\)/);
+  assert.doesNotMatch(extension, /onAutoResultAction[\s\S]{0,500}terminal\.sendText\(command, true\)/);
+});

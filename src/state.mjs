@@ -59,6 +59,7 @@ import { runQualityCommand } from './quality-command-runner.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import {
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
@@ -126,6 +127,10 @@ import {
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { canonicalJson } from './records.mjs';
 import { buildWelEnrollment, validateWelEnrollment } from './wel-policy.mjs';
+import {
+  assertAutoCandidateMatches, autoCandidatePublicationFromEnvironment,
+  observeAutoCandidateWorktree
+} from './auto/auto-candidate.mjs';
 import {
   buildTestExecutionReceipt, normalizeRequiredTestCommand, parseTestResult, readDurableTestObservation,
   resolveAffectedModule, testReceiptPassing
@@ -1921,7 +1926,9 @@ export async function sourceTreeHash(root, ...governanceSources) {
       return { path: posix(line.slice(tab + 1)), mode, object, stage: Number(stage) };
     })
     .filter((entry) => entry.stage === 0 && isApplicationChangePath(entry.path, pathContext));
-  const unstaged = new Set(run('git', ['diff', '--name-only', '-z', 'HEAD', '--'], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
+  const unstaged = new Set(run('git', [
+    'diff', '--name-only', '-z', '--ignore-submodules=none', 'HEAD', '--'
+  ], { cwd: root }).stdout.split('\0').filter(Boolean).map(posix));
   const byPath = new Map(indexed.map((entry) => [entry.path, entry]));
   for (const relative of untrackedFiles(root).filter((candidate) => isApplicationChangePath(candidate, {
     ...pathContext, untracked: true
@@ -1935,9 +1942,17 @@ export async function sourceTreeHash(root, ...governanceSources) {
     .update(Buffer.from(`blob ${bytes.length}\0`))
     .update(bytes)
     .digest('hex');
-  for (const entry of [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path))) {
+  for (const entry of [...byPath.values()].sort((left, right) => (
+    compareRepositoryIdentity(left.path, right.path)
+  ))) {
     if (!entry.untracked && !unstaged.has(entry.path)) {
-      manifest.push({ path: entry.path, mode: entry.mode, kind: entry.mode === '120000' ? 'symlink' : 'git-object', object: entry.object });
+      manifest.push({
+        path: entry.path,
+        mode: entry.mode,
+        kind: entry.mode === '120000' ? 'symlink'
+          : entry.mode === '160000' ? 'gitlink' : 'git-object',
+        object: entry.object
+      });
       continue;
     }
     const secured = await secureRepositoryPath(root, entry.path, {
@@ -1950,6 +1965,28 @@ export async function sourceTreeHash(root, ...governanceSources) {
       // The final committed tree does not contain a deleted path. Omitting it now makes the
       // working-state manifest stable when Git commits the exact deletion a moment later.
       continue;
+    } else if (entry.mode === '160000' && info.isDirectory()) {
+      const nestedHead = run('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: absolute, allowFailure: true
+      });
+      const nestedStatus = run('git', [
+        'status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'
+      ], { cwd: absolute, allowFailure: true });
+      if (nestedHead.status !== 0 || !/^[a-f0-9]{40,64}$/u.test(nestedHead.stdout.trim())) {
+        throw new SingularityFlowError(
+          `Application source hashing cannot resolve submodule '${entry.path}' to an exact commit.`,
+          { code: 'SOURCE_TREE_SUBMODULE_UNAVAILABLE', details: { path: entry.path } }
+        );
+      }
+      if (nestedStatus.status !== 0 || nestedStatus.stdout.trim()) {
+        throw new SingularityFlowError(
+          `Application source hashing cannot represent uncommitted files inside submodule '${entry.path}'.`,
+          { code: 'SOURCE_TREE_DIRTY_SUBMODULE', details: { path: entry.path } }
+        );
+      }
+      manifest.push({
+        path: entry.path, mode: '160000', kind: 'gitlink', object: nestedHead.stdout.trim()
+      });
     } else if (info.isSymbolicLink()) {
       const target = Buffer.from(await readlink(absolute));
       manifest.push({
@@ -2121,6 +2158,23 @@ export async function publishGeneration(root, config, workflow, {
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
     deliveryPreflight = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  }
+  // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
+  // publication path. Re-read the immutable Candidate after all preflight tests and before the
+  // first Story mutation so test/source drift cannot be adopted as a new Candidate implicitly.
+  const autoPublication = await autoCandidatePublicationFromEnvironment(root);
+  const autoCandidate = autoPublication?.binding ?? null;
+  const autoCandidateVerification = autoPublication?.verification ?? null;
+  if (autoCandidate) {
+    if (!deliveryPreflight) {
+      throw new SingularityFlowError(
+        'Auto Candidate publication requires a code-delivery phase with exact source evidence.',
+        { code: 'AUTO_CANDIDATE_DELIVERY_REQUIRED' }
+      );
+    }
+    assertAutoCandidateMatches(autoCandidate, await observeAutoCandidateWorktree(
+      root, autoCandidate, applicationPathContext(config, workflow)
+    ));
   }
   // Downstream briefs are derived later from the exact published bytes, but their authored
   // heading contract can be validated now. This keeps ambiguity, missing preserved sections, and
@@ -2332,6 +2386,10 @@ export async function publishGeneration(root, config, workflow, {
         bindings: deliveryPreflight.acceptanceCriteria.bindings
       },
       testExecutions: [],
+      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
+      ...(autoCandidateVerification ? {
+        autoCandidateVerification: structuredClone(autoCandidateVerification)
+      } : {}),
       tree: { workingStateDigest, generationCommit: null, generationTree: null },
       model: {
         task: 'code',
@@ -2364,10 +2422,23 @@ export async function publishGeneration(root, config, workflow, {
       receiptPath,
       changeSetPath,
       sourceTreeSha256: workingStateDigest,
+      ...(autoCandidate ? { autoCandidate: structuredClone(autoCandidate) } : {}),
+      ...(autoCandidateVerification ? {
+        autoCandidateVerification: structuredClone(autoCandidateVerification)
+      } : {}),
       status: 'pending-tests',
       capturedAt: publishedAt,
       validation: null
     };
+    if (autoCandidate && publicationTransaction?.publicationEvent?.payload) {
+      publicationTransaction.publicationEvent.payload.autoCandidate = {
+        candidateId: autoCandidate.candidateId,
+        candidateSha256: autoCandidate.candidateSha256,
+        bindingSha256: autoCandidate.bindingSha256,
+        attemptId: autoCandidate.attemptId,
+        verificationReceiptSha256: autoCandidateVerification.verificationReceiptSha256
+      };
+    }
   }
   const astReceipt = await persistAstLifecycleReceipt(root, config, workflow, phase, astGate);
   if (astReceipt) {

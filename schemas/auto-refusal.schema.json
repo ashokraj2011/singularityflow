@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-refusal.schema.json",
+  "title": "Singularity Flow Auto Refusal v2",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "flightId", "phase", "attemptId", "gate", "code", "subject", "missing", "preserved", "repair", "primaryNextAction", "createdAt", "refusalId", "refusalSha256"],
+  "properties": {
+    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-refusal" }, "mode": { "const": "auto" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "phase": { "$ref": "#/$defs/nonempty" }, "attemptId": { "$ref": "#/$defs/attemptId" },
+    "gate": { "$ref": "#/$defs/nonempty" }, "code": { "$ref": "#/$defs/nonempty" },
+    "subject": {
+      "type": "object", "required": ["candidateSha256", "verificationReceiptSha256"],
+      "properties": {
+        "candidateSha256": { "$ref": "#/$defs/nullableHash" },
+        "verificationReceiptSha256": { "$ref": "#/$defs/nullableHash" }
+      }, "additionalProperties": false
+    },
+    "missing": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": { "requirement": { "$ref": "#/$defs/nonempty" }, "evidence": { "$ref": "#/$defs/nonempty" } },
+        "anyOf": [{ "required": ["requirement"] }, { "required": ["evidence"] }],
+        "additionalProperties": false
+      }
+    },
+    "preserved": {
+      "type": "object", "required": ["candidateSha256", "verificationReceiptSha256", "changedPaths", "paths", "workingArea"],
+      "properties": {
+        "candidateSha256": { "$ref": "#/$defs/nullableHash" },
+        "verificationReceiptSha256": { "$ref": "#/$defs/nullableHash" },
+        "changedPaths": { "$ref": "#/$defs/counter" },
+        "paths": { "$ref": "#/$defs/stringSet" }, "workingArea": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "repair": {
+      "type": "object", "required": ["eligibility", "operation", "scope", "maximumAttempts"],
+      "properties": {
+        "eligibility": { "enum": ["auto-eligible", "ask-only", "manual-only", "ineligible"] },
+        "operation": { "const": "auto.repair" }, "scope": { "$ref": "#/$defs/stringSet" },
+        "maximumAttempts": { "type": "integer", "minimum": 0, "maximum": 1 }
+      },
+      "allOf": [{ "if": { "properties": { "eligibility": { "enum": ["manual-only", "ineligible"] } }, "required": ["eligibility"] }, "then": { "properties": { "maximumAttempts": { "const": 0 } } } }],
+      "additionalProperties": false
+    },
+    "primaryNextAction": {
+      "type": "object", "required": ["operation", "label"],
+      "properties": {
+        "operation": { "enum": ["auto.repair", "auto.takeover", "auto.respond", "auto.resume", "auto.halt"] },
+        "label": { "$ref": "#/$defs/nonempty" }
+      },
+      "additionalProperties": false
+    },
+    "createdAt": { "$ref": "#/$defs/timestamp" }, "refusalId": { "type": "string", "pattern": "^ARF-[A-F0-9]{26}$" },
+    "refusalSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableHash": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+    "timestamp": { "type": "string", "format": "date-time" }, "nonempty": { "type": "string", "minLength": 1 },
+    "counter": { "type": "integer", "minimum": 0 }, "stringSet": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/nonempty" } }
+  },
+  "additionalProperties": false
+}

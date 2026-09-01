@@ -113,10 +113,21 @@ async function untrackedEntries(root) {
   }));
 }
 
+/**
+ * Compare repository identities without consulting the host locale.
+ *
+ * These values participate in durable SHA-256 records. `localeCompare` makes the same Git tree
+ * sort differently under, for example, English, Turkish, and Swedish process locales. Git paths
+ * are byte identities, so use their UTF-8 byte order everywhere a repository digest is assembled.
+ */
+export function compareRepositoryIdentity(left, right) {
+  return Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
+}
+
 function entryOrder(left, right) {
-  return (left.oldPath ?? '').localeCompare(right.oldPath ?? '')
-    || (left.newPath ?? '').localeCompare(right.newPath ?? '')
-    || left.status.localeCompare(right.status);
+  return compareRepositoryIdentity(left.oldPath ?? '', right.oldPath ?? '')
+    || compareRepositoryIdentity(left.newPath ?? '', right.newPath ?? '')
+    || compareRepositoryIdentity(left.status, right.status);
 }
 
 function entryCore(entry) {

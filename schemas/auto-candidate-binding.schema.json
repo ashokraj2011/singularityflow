@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-candidate-binding.schema.json",
+  "title": "Singularity Flow immutable Auto Candidate binding v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "flightId", "attemptId", "candidateId", "candidateSha256", "baselineSha256", "resourceManifestSha256", "applicationChangeSetDigest", "applicationResourceDigest", "origin", "repository", "resourceManifest", "bindingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-candidate-binding" },
+    "flightId": { "$ref": "#/$defs/flightId" },
+    "attemptId": { "$ref": "#/$defs/attemptId" },
+    "candidateId": { "$ref": "#/$defs/candidateId" },
+    "candidateSha256": { "$ref": "#/$defs/hash" },
+    "baselineSha256": { "$ref": "#/$defs/hash" },
+    "resourceManifestSha256": { "$ref": "#/$defs/hash" },
+    "applicationChangeSetDigest": { "$ref": "#/$defs/hash" },
+    "applicationResourceDigest": { "$ref": "#/$defs/hash" },
+    "origin": {
+      "type": "object",
+      "required": ["mode", "executionUnitId", "attemptKind"],
+      "properties": {
+        "mode": { "const": "auto" },
+        "executionUnitId": { "type": "string", "minLength": 1 },
+        "attemptKind": { "enum": ["phase-authoring", "repair-authoring"] }
+      },
+      "additionalProperties": false
+    },
+    "repository": {
+      "type": "object",
+      "required": ["baselineCommit", "baselineTree", "candidateTree", "candidateCommit", "retainedRef"],
+      "properties": {
+        "baselineCommit": { "$ref": "#/$defs/gitObject" },
+        "baselineTree": { "$ref": "#/$defs/gitObject" },
+        "candidateTree": { "$ref": "#/$defs/gitObject" },
+        "candidateCommit": { "$ref": "#/$defs/gitObject" },
+        "retainedRef": { "type": "string", "pattern": "^refs/singularity-flow/auto-candidates/AFL-[A-F0-9]{26}/CAN-[A-F0-9]{26}$" }
+      },
+      "additionalProperties": false
+    },
+    "resourceManifest": {
+      "type": "object",
+      "required": ["changeSetDigest", "entries"],
+      "properties": {
+        "changeSetDigest": { "$ref": "#/$defs/hash" },
+        "entries": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/resource" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "bindingSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitObject": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "candidateId": { "type": "string", "pattern": "^CAN-[A-F0-9]{26}$" },
+    "nullablePath": { "type": ["string", "null"], "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\\\u0000]+$" },
+    "nullableMode": { "type": ["string", "null"], "pattern": "^(?:000000|100644|100755|120000|160000)$" },
+    "nullableObject": { "type": ["string", "null"], "pattern": "^[a-f0-9]{40,64}$" },
+    "resource": {
+      "type": "object",
+      "required": ["changeId", "status", "oldPath", "newPath", "oldMode", "newMode", "oldObject", "newObject", "newContent"],
+      "properties": {
+        "changeId": { "$ref": "#/$defs/hash" },
+        "status": { "enum": ["added", "copied", "deleted", "modified", "renamed", "type-changed", "unmerged", "unknown", "broken"] },
+        "oldPath": { "$ref": "#/$defs/nullablePath" },
+        "newPath": { "$ref": "#/$defs/nullablePath" },
+        "oldMode": { "$ref": "#/$defs/nullableMode" },
+        "newMode": { "$ref": "#/$defs/nullableMode" },
+        "oldObject": { "$ref": "#/$defs/nullableObject" },
+        "newObject": { "$ref": "#/$defs/nullableObject" },
+        "newContent": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["kind", "sha256", "bytes"],
+              "properties": {
+                "kind": { "enum": ["regular-file", "symlink", "missing", "non-regular"] },
+                "sha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] },
+                "bytes": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

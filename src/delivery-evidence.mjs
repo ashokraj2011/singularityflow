@@ -9,9 +9,13 @@ import {
   resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
-  buildRepositoryChangeSet, evaluateSourceBoundary,
+  buildRepositoryChangeSet, buildRepositoryTreeChangeSet, evaluateSourceBoundary,
   verifyRepositoryChangeSetIntegrity
 } from './repository-change-set.mjs';
+import {
+  autoCandidateResourceDigest, validateAutoCandidateBinding,
+  validateAutoCandidateVerification
+} from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
@@ -19,7 +23,8 @@ import { readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, predecessorSpecClauses } from './specifications.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import {
-  applicationPathContext, isApplicationChangeEntry, isGeneratedOutputPath, verifyWorkIntervalBaseline
+  applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry,
+  isGeneratedOutputPath, verifyWorkIntervalBaseline
 } from './work-intervals.mjs';
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -629,6 +634,40 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     if (!boundary.valid) fail(`source boundary fails: ${boundary.violations.map((item) => item.path).join(', ')}`);
     if (symlinkPolicy === 'reject' && applicationChangeSet.entries.some((entry) => entry.newContent?.kind === 'symlink')) {
       fail('source or test delivery contains a symbolic link');
+    }
+    if (receipt.autoCandidate) {
+      try {
+        const candidate = validateAutoCandidateBinding(receipt.autoCandidate);
+        const verification = validateAutoCandidateVerification(
+          receipt.autoCandidateVerification
+        );
+        if (verification.status !== 'passed'
+            || verification.flightId !== candidate.flightId
+            || verification.candidateId !== candidate.candidateId
+            || verification.candidateSha256 !== candidate.candidateSha256
+            || verification.bindingSha256 !== candidate.bindingSha256) {
+          fail('Auto Candidate verification does not bind the published Candidate');
+        }
+        if (candidate.candidateSha256 !== receipt.tree?.workingStateDigest) {
+          fail('Auto Candidate source-tree identity differs from the published generation');
+        }
+        if (receipt.tree?.generationTree) {
+          const publishedCandidate = applicationChangeSetProjection(buildRepositoryTreeChangeSet(root, {
+            baseTree: candidate.repository.baselineTree,
+            targetTree: receipt.tree.generationTree,
+            subject: { kind: 'auto-candidate', id: candidate.attemptId }
+          }), pathContext);
+          const publishedResourceDigest = autoCandidateResourceDigest(publishedCandidate, {
+            baselineTree: candidate.repository.baselineTree,
+            candidateSha256: candidate.candidateSha256
+          });
+          if (publishedResourceDigest !== candidate.applicationResourceDigest) {
+            fail('Auto Candidate resource delta differs from the published generation tree');
+          }
+        }
+      } catch (error) {
+        fail(`Auto Candidate binding is invalid: ${error.message}`);
+      }
     }
   }
 

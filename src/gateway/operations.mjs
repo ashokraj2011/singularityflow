@@ -30,6 +30,7 @@ import { compileOperationRegistry } from './registry.mjs';
 export const GATEWAY_PLANNERS = Object.freeze([
   'ast-status', 'ast-context', 'ast-query', 'ast-symbol', 'ast-references', 'ast-hierarchy', 'ast-module', 'ast-evidence-replay',
   'goal-inspect', 'goal-impact', 'goal-next', 'goal-trace',
+  'auto-flight-read',
   'home-overview', 'developer-next', 'work-list', 'work-continue', 'work-handoff', 'context-brief', 'work-start-intake', 'work-start',
   'work-draft-save', 'work-readiness', 'work-return', 'workspace-list', 'workspace-switch', 'workspace-materialize',
   'workspace-bootstrap-status', 'workspace-prepare-guide', 'repository-open-guide',
@@ -82,6 +83,35 @@ const ASSISTED = {
 };
 
 export const GATEWAY_DECLARATIONS = Object.freeze([
+  ...[
+    ['auto.status', 'show auto flight', 'show autonomous work status'],
+    ['auto.needs-you', 'show what auto needs from me', 'show auto human requests'],
+    ['auto.report', 'show auto flight report', 'show autonomous work evidence']
+  ].map(([id, ...phrases]) => ({
+    ...READ, id, kernelOperation: id,
+    goals: ['work.continue'], aliases: en(...phrases), subjects: ['story', 'workspace'],
+    argumentSchema: 'auto-flight-v1', planner: 'auto-flight-read',
+    noModelFixture: `${id.replaceAll('.', '-')}-model-free`
+  })),
+  {
+    ...READ, id: 'auto.list', kernelOperation: 'auto.list',
+    // Preserve exact Auto aliases while keeping the broad `work.list` goal unambiguous.
+    goals: ['home'], aliases: en('show auto flights', 'show autonomous work'),
+    subjects: ['workspace'], argumentSchema: 'no-arguments-v1',
+    planner: 'auto-flight-read', noModelFixture: 'auto-list-model-free'
+  },
+  {
+    ...READ, id: 'auto.show-plan', kernelOperation: 'auto.show-plan',
+    goals: ['work.continue'], aliases: en('show auto plan', 'review autonomous work plan'),
+    subjects: ['workspace', 'story'], argumentSchema: 'auto-plan-v1',
+    planner: 'auto-flight-read', noModelFixture: 'auto-show-plan-model-free'
+  },
+  {
+    ...READ, id: 'auto.continue', kernelOperation: 'auto.continue',
+    goals: ['work.continue'], aliases: en('continue auto story', 'show auto work for this story'),
+    subjects: ['story', 'workspace'], argumentSchema: 'auto-story-v1',
+    planner: 'auto-flight-read', noModelFixture: 'auto-continue-model-free'
+  },
   {
     ...READ,
     id: 'goal.inspect',

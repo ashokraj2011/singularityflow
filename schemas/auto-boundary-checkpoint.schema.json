@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-boundary-checkpoint.schema.json",
+  "title": "Singularity Flow governed Auto boundary checkpoint v1",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "mode", "checkpointClass", "flightId", "planId",
+    "planSha256", "story", "position", "status", "stopReason", "execution",
+    "capabilityId", "scopePrediction", "configuration", "repositories",
+    "completedOperations", "commits", "evidence", "counters",
+    "lastSuccessfulStoryRevision", "phaseContracts", "phaseContractSha256",
+    "candidate", "candidateBinding", "candidateVerification", "runtime", "lineage",
+    "finalReportSha256", "finalReport",
+    "flightCreatedAt", "createdAt", "checkpointSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-boundary-checkpoint" },
+    "mode": { "const": "auto" },
+    "checkpointClass": {
+      "enum": ["phase-boundary", "human-boundary", "publication-boundary", "recovery", "completion"]
+    },
+    "flightId": { "$ref": "#/$defs/flightId" },
+    "planId": { "$ref": "#/$defs/planId" },
+    "planSha256": { "$ref": "#/$defs/hash" },
+    "story": {
+      "type": "object",
+      "required": ["workId", "branch", "phase", "generation", "status", "workflowSha256", "sourceRevision"],
+      "properties": {
+        "workId": { "type": "string", "minLength": 1 },
+        "branch": { "type": "string", "minLength": 1 },
+        "phase": { "type": "string", "minLength": 1 },
+        "generation": { "type": ["integer", "null"], "minimum": 0 },
+        "status": { "type": ["string", "null"] },
+        "workflowSha256": { "$ref": "#/$defs/hash" },
+        "sourceRevision": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "position": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["paused", "waiting-human", "manual-takeover", "recovery-required", "halted", "completed"]
+    },
+    "stopReason": { "type": "string" },
+    "execution": { "type": "object" },
+    "capabilityId": { "type": ["string", "null"] },
+    "scopePrediction": { "type": "array", "items": { "type": "string" } },
+    "configuration": { "type": ["object", "null"] },
+    "repositories": { "type": "array", "items": { "type": "object" } },
+    "completedOperations": { "type": "array", "items": { "type": "object" } },
+    "commits": { "type": "object" },
+    "evidence": { "type": "object" },
+    "counters": { "type": "object" },
+    "lastSuccessfulStoryRevision": { "type": ["string", "null"] },
+    "phaseContracts": { "type": "object" },
+    "phaseContractSha256": {
+      "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }]
+    },
+    "candidate": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["candidateId", "candidateSha256", "bindingSha256", "attemptId", "applicationChangeSetDigest", "applicationResourceDigest"],
+          "properties": {
+            "candidateId": { "$ref": "#/$defs/candidateId" },
+            "candidateSha256": { "$ref": "#/$defs/hash" },
+            "bindingSha256": { "$ref": "#/$defs/hash" },
+            "attemptId": { "$ref": "#/$defs/attemptId" },
+            "applicationChangeSetDigest": { "$ref": "#/$defs/hash" },
+            "applicationResourceDigest": { "$ref": "#/$defs/hash" },
+            "verificationReceiptSha256": { "$ref": "#/$defs/hash" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "candidateBinding": {
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "candidateVerification": {
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "lastInvocationId", "token", "observedPaths", "touchedPaths", "ceiling",
+        "quality", "approvals", "lastError", "activePhaseRunId", "activeAttemptId",
+        "activeRefusalId", "activeRepairPlanId", "activeRepair", "phaseRunIds",
+        "attemptIds", "refusalIds", "repairAttempts", "failureComparison",
+        "openHumanRequestIds", "humanRequestDecisions", "executionUnit",
+        "executionUnitSwitches", "worldModelReference", "comprehensionReference"
+      ],
+      "properties": {
+        "lastInvocationId": { "type": ["string", "null"] },
+        "token": { "type": ["object", "null"] },
+        "observedPaths": { "type": "array", "items": { "type": "string" } },
+        "touchedPaths": { "type": "array", "items": { "type": "string" } },
+        "ceiling": { "type": ["object", "null"] },
+        "quality": { "type": "array", "items": { "type": "object" } },
+        "approvals": { "type": "array", "items": { "type": "object" } },
+        "lastError": { "type": ["object", "null"] },
+        "activePhaseRunId": { "type": ["string", "null"], "pattern": "^APR-[A-F0-9]{26}$" },
+        "activeAttemptId": { "type": ["string", "null"], "pattern": "^AAT-[A-F0-9]{26}$" },
+        "activeRefusalId": { "type": ["string", "null"], "pattern": "^ARF-[A-F0-9]{26}$" },
+        "activeRepairPlanId": { "type": ["string", "null"], "pattern": "^ARP-[A-F0-9]{26}$" },
+        "activeRepair": { "type": ["object", "null"] },
+        "phaseRunIds": { "type": "array", "items": { "type": "string", "pattern": "^APR-[A-F0-9]{26}$" } },
+        "attemptIds": { "type": "array", "items": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" } },
+        "refusalIds": { "type": "array", "items": { "type": "string", "pattern": "^ARF-[A-F0-9]{26}$" } },
+        "repairAttempts": { "type": "array", "items": { "type": "object" } },
+        "failureComparison": { "type": ["object", "null"] },
+        "openHumanRequestIds": { "type": "array", "items": { "type": "string", "pattern": "^AHR-[A-F0-9]{26}$" } },
+        "humanRequestDecisions": { "type": "array", "items": { "type": "object" } },
+        "executionUnit": { "type": ["object", "null"] },
+        "executionUnitSwitches": { "type": "array", "items": { "type": "object" } },
+        "worldModelReference": { "type": ["object", "null"] },
+        "comprehensionReference": { "type": ["object", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "lineage": {
+      "type": "object",
+      "required": [
+        "auto-phase-run", "auto-attempt", "auto-refusal", "auto-repair-plan",
+        "auto-human-request", "auto-token-economics-receipt",
+        "auto-execution-unit-switch"
+      ],
+      "properties": {
+        "auto-phase-run": { "type": "array", "items": { "type": "object" } },
+        "auto-attempt": { "type": "array", "items": { "type": "object" } },
+        "auto-refusal": { "type": "array", "items": { "type": "object" } },
+        "auto-repair-plan": { "type": "array", "items": { "type": "object" } },
+        "auto-human-request": { "type": "array", "items": { "type": "object" } },
+        "auto-token-economics-receipt": { "type": "array", "items": { "type": "object" } },
+        "auto-execution-unit-switch": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "finalReportSha256": {
+      "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }]
+    },
+    "finalReport": {
+      "oneOf": [{ "type": "object" }, { "type": "null" }]
+    },
+    "flightCreatedAt": { "type": "string", "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "checkpointSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
+    "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "candidateId": { "type": "string", "pattern": "^CAN-[A-F0-9]{26}$" }
+  },
+  "additionalProperties": false
+}

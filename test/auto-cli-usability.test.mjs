@@ -62,7 +62,7 @@ test('a mistyped Auto control never reaches model-backed requirement planning', 
   assert.match(result.stderr, /UNKNOWN_SUBCOMMAND|Did you mean 'list'/);
 });
 
-test('Auto list is read-only and stop retains the legacy halt behavior', async (t) => {
+test('Auto list is read-only and stop retains halt semantics at the governed checkpoint boundary', async (t) => {
   const root = await repository(t);
   const flightId = `AFL-${'A'.repeat(26)}`;
   await createAutoFlightState(root, {
@@ -84,11 +84,19 @@ test('Auto list is read-only and stop retains the legacy halt behavior', async (
   assert.equal(listed.data.value.flights.length, 1);
   assert.equal(listed.data.value.flights[0].flightId, flightId);
 
-  const stopped = JSON.parse(run(process.execPath, [cli, 'auto', 'stop', flightId, '--json'], root).stdout);
-  assert.equal(stopped.operation.id, 'auto.stop');
-  assert.equal(stopped.data.value.status, 'halted');
-  assert.equal(stopped.data.value.stopReason, 'human-halted');
-  assert.equal((await readAutoFlightState(root, flightId)).status, 'halted');
+  // This deliberately synthetic flight has no governed Story aggregate, so the halt checkpoint
+  // cannot publish. The alias must still take the halt path (rather than requirement planning) and
+  // preserve the quiesced flight as explicitly recoverable.
+  const stopped = run(process.execPath, [cli, 'auto', 'stop', flightId, '--json'], root, {
+    allowFailure: true
+  });
+  assert.notEqual(stopped.status, 0);
+  assert.match(stopped.stderr, /governed halt checkpoint could not be published/);
+  const recovery = await readAutoFlightState(root, flightId);
+  assert.equal(recovery.status, 'recovery-required');
+  assert.equal(recovery.stopReason, 'halt-checkpoint-publication-failed');
+  assert.equal(recovery.stopRequested.kind, 'halt');
+  assert.ok(recovery.stopRequested.quiescedAt);
 });
 
 test('Auto start accepts --plan without removing the positional compatibility form', async (t) => {

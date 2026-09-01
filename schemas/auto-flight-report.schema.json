@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-flight-report.schema.json",
-  "title": "Singularity Flow deterministic Auto flight report v1",
+  "title": "Singularity Flow deterministic Auto flight report v2",
   "type": "object",
-  "required": ["schemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "stopReason", "nextAction", "counters", "checkpointSha256", "reportSha256"],
+  "required": ["schemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "stopReason", "nextAction", "position", "configuration", "repositories", "operations", "commits", "evidence", "candidate", "worldModelReference", "comprehensionReference", "lineage", "approvalSource", "phaseContracts", "boundaryCheckpoints", "boundaryCheckpoint", "lastSuccessfulStoryRevision", "retainedUnpublishedPaths", "authorityTarget", "quality", "approvals", "humanIntervention", "lastError", "counters", "scope", "accounting", "checkpointSha256", "reportSha256"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "auto-flight-report" },
     "mode": { "const": "auto" },
     "flightId": { "type": "string" },
@@ -20,6 +20,27 @@
     "operations": { "type": "array" },
     "commits": { "type": "object" },
     "evidence": { "type": "object" },
+    "candidate": { "type": ["object", "null"] },
+    "worldModelReference": { "type": ["object", "null"] },
+    "comprehensionReference": { "type": ["object", "null"] },
+    "lineage": {
+      "type": "object",
+      "required": ["auto-phase-run", "auto-attempt", "auto-refusal", "auto-repair-plan", "auto-human-request", "auto-token-economics-receipt", "auto-execution-unit-switch"],
+      "properties": {
+        "auto-phase-run": { "type": "array", "items": { "type": "object" } },
+        "auto-attempt": { "type": "array", "items": { "type": "object" } },
+        "auto-refusal": { "type": "array", "items": { "type": "object" } },
+        "auto-repair-plan": { "type": "array", "items": { "type": "object" } },
+        "auto-human-request": { "type": "array", "items": { "type": "object" } },
+        "auto-token-economics-receipt": { "type": "array", "items": { "type": "object" } },
+        "auto-execution-unit-switch": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
+    "approvalSource": { "enum": ["story-authority", "flight-checkpoint"] },
+    "phaseContracts": { "type": "object" },
+    "boundaryCheckpoints": { "type": "array", "items": { "type": "object" } },
+    "boundaryCheckpoint": { "type": ["object", "null"] },
     "lastSuccessfulStoryRevision": { "type": ["string", "null"] },
     "retainedUnpublishedPaths": { "type": "array" },
     "authorityTarget": { "type": ["object", "null"] },

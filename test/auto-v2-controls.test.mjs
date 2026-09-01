@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import YAML from 'yaml';
 
+import { buildAutoPlanPacket } from '../src/auto/auto-plan-packet.mjs';
+import { createAutoPlan } from '../src/auto/auto-plan.mjs';
+import { startAutoFlight } from '../src/auto/auto-flight.mjs';
+import {
+  absoluteAutoWriteScope, autoPhaseContractKey, buildAutoPhaseContract
+} from '../src/auto/auto-phase-contract.mjs';
+import {
+  readGovernedAutoCheckpoint, rebuildAutoFlightState, validateAutoBoundaryCheckpoint
+} from '../src/auto/auto-checkpoint.mjs';
 import {
   buildAutoFlightReport, createAutoFlightState, discardAutoFlight, haltAutoFlight,
   mutateAutoFlightState, pauseAutoFlight, readAutoFlightReport, readAutoFlightState,
@@ -15,6 +25,7 @@ import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const PLAN_SHA256 = `sha256:${'a'.repeat(64)}`;
+const cli = path.resolve('bin/singularity-flow.mjs');
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
@@ -51,6 +62,49 @@ async function fixture(t, suffix) {
   return { root, flightId, state };
 }
 
+async function governedFixture(t, suffix) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-governed-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Auto Control Tester'], root);
+  run('git', ['config', 'user.email', 'auto-controls@example.com'], root);
+  run(process.execPath, [cli, 'init'], root);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.git.publish = 'off';
+  workflow.auto.enabled = true;
+  workflow.models.providers['copilot-cli'] = {
+    type: 'copilot-cli', executable: process.execPath,
+    promptTransport: 'acp-stdio', arguments: []
+  };
+  workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
+  workflow.workTypes.feature.auto = {
+    eligibility: 'bounded', allowedPaces: ['phase'], defaultUntil: 'first-human-boundary'
+  };
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  await writeFile(path.join(root, 'app.mjs'), 'export const value = 1;\n');
+  run('git', ['add', '.'], root);
+  run('git', ['commit', '-m', 'configure governed Auto controls'], root);
+  const remote = `${root}.git`;
+  t.after(() => rm(remote, { recursive: true, force: true }));
+  run('git', ['init', '--bare', '-b', 'main', remote], root);
+  run('git', ['remote', 'add', 'origin', remote], root);
+  run('git', ['push', '-u', 'origin', 'main'], root);
+  const proposal = {
+    title: 'Exercise governed Auto controls', workType: 'feature',
+    assumptions: ['The existing application source is the bounded target.'],
+    unresolvedDecisions: [], predictedPaths: ['app.mjs'],
+    acceptanceCriteria: ['The governed control boundary remains recoverable.'],
+    suggestedUntil: 'first-human-boundary'
+  };
+  const workId = `AUT-CONTROL-${suffix}`;
+  const plan = await createAutoPlan(root, 'Exercise a governed Auto control.', proposal, {
+    workId, workType: 'feature', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, buildAutoPlanPacket(plan).packetSha256);
+  return { root, remote, workId, plan, ...started };
+}
+
 async function holdStepLease(root, flightId) {
   const entered = deferred();
   const release = deferred();
@@ -67,6 +121,102 @@ const controls = [
   ['halt', 'B', (root, id, options) => haltAutoFlight(root, id, 'human-halted', options)],
   ['takeover', 'C', (root, id, options) => takeoverAutoFlight(root, id, options)]
 ];
+
+test('human control prefill is fenced by the rendered flight checkpoint', async (t) => {
+  const { root, flightId, state } = await fixture(t, 'E');
+  await assert.rejects(
+    () => pauseAutoFlight(root, flightId, {
+      expectedCheckpoint: `sha256:${'0'.repeat(64)}`,
+      quiescenceTimeoutMs: 50
+    }),
+    (error) => error.code === 'AUTO_CHECKPOINT_STALE'
+  );
+  assert.deepEqual(await readAutoFlightState(root, flightId), state,
+    'a stale card cannot record a stop request or change the flight');
+});
+
+test('predicted glob paths become concrete task-scope roots', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-scope-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.deepEqual(absoluteAutoWriteScope(root, ['src/**']), [path.join(root, 'src')]);
+  assert.deepEqual(
+    absoluteAutoWriteScope(root, ['src/**/*.mjs', 'src/exact.mjs', 'test/*.test.mjs']),
+    [path.join(root, 'src'), path.join(root, 'src/exact.mjs'), path.join(root, 'test')]
+  );
+});
+
+test('phase rollover pins the generation intent and keeps each authorization slot distinct', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-phase-contract-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  run('git', ['config', 'user.name', 'Auto Contract Tester'], root);
+  run('git', ['config', 'user.email', 'auto-contract@example.com'], root);
+  await writeFile(path.join(root, 'app.mjs'), 'export const value = 1;\n');
+  run('git', ['add', 'app.mjs'], root);
+  run('git', ['commit', '-m', 'seed application'], root);
+
+  const phase = {
+    id: 'implementation', generation: 1,
+    generationIntent: { id: 'GEN-2', generation: 2 }
+  };
+  const contract = await buildAutoPhaseContract(root, {
+    state: {
+      flightId: `AFL-${'F'.repeat(26)}`,
+      planSha256: PLAN_SHA256,
+      story: { workId: 'WORK-F' },
+      activeRepair: null,
+      worldModelReference: null,
+      comprehensionReference: null
+    },
+    plan: {
+      proposal: { predictedPaths: ['src/**'], acceptanceCriteria: ['AC-001'] },
+      requirement: { sha256: `sha256:${'b'.repeat(64)}` },
+      bindings: { workflowSha256: 'workflow-sha' }
+    },
+    definition: {},
+    workflow: { resolution: { configSha256: 'config-sha' } },
+    phase,
+    task: 'implementation-authoring',
+    composed: 'bounded prompt',
+    provider: { provider: 'copilot-cli', model: null }
+  });
+
+  assert.equal(contract.generation, 2,
+    'the consumed generation-intent authority wins over a stale phase generation projection');
+  assert.equal(contract.generationIntentId, 'GEN-2');
+  const initial = autoPhaseContractKey(phase.id, contract);
+  const repair = autoPhaseContractKey(phase.id, contract, { repairPlanId: 'ARP-EXACT' });
+  assert.equal(initial, 'implementation@2@GEN-2@initial');
+  assert.equal(repair, 'implementation@2@GEN-2@repair:ARP-EXACT');
+  assert.notEqual(initial, repair);
+  assert.notEqual(initial, autoPhaseContractKey(phase.id, {
+    ...contract, generation: 3, generationIntentId: 'GEN-3'
+  }));
+});
+
+test('the runtime reader migrates and reseals a genuine v1 flight with current checkpoint fields', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v1-reader-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['init', '-b', 'main'], root);
+  const goldens = JSON.parse(await readFile(path.resolve(
+    'test/fixtures/schema-migrations/goldens.json'
+  ), 'utf8'));
+  const legacy = goldens['auto-flight-state'][0];
+  const directory = path.join(
+    root, '.git', 'singularity-flow', 'auto-flights', legacy.flightId
+  );
+  await mkdir(directory, { recursive: true });
+  await writeFile(path.join(directory, 'state.json'), `${JSON.stringify(legacy)}\n`);
+
+  const migrated = await readAutoFlightState(root, legacy.flightId);
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.candidate, null);
+  assert.equal(migrated.worldModelReference, null);
+  assert.equal(migrated.comprehensionReference, null);
+  assert.deepEqual(migrated.phaseContracts, {});
+  assert.deepEqual(migrated.boundaryCheckpoints, []);
+  assert.match(migrated.checkpointSha256, /^sha256:[a-f0-9]{64}$/);
+});
 
 for (const [kind, suffix, control] of controls) {
   test(`${kind} records recovery-required when execution quiescence cannot be proven`, async (t) => {
@@ -103,7 +253,7 @@ for (const [kind, suffix, control] of controls) {
   });
 }
 
-test('manual takeover is durable before waiting and preserves flight evidence', async (t) => {
+test('manual takeover without governed Story authority fails closed after quiescence', async (t) => {
   const { root, flightId } = await fixture(t, 'D');
   const prepared = await mutateAutoFlightState(root, flightId, (state) => {
     state.position = 'authored';
@@ -113,7 +263,7 @@ test('manual takeover is durable before waiting and preserves flight evidence', 
     state.commits = { generation: '1234567890abcdef' };
   });
   const held = await holdStepLease(root, flightId);
-  let taken;
+  let failure;
   try {
     const takingOver = takeoverAutoFlight(root, flightId, { quiescenceTimeoutMs: 2_000 });
     let requested = null;
@@ -132,23 +282,93 @@ test('manual takeover is durable before waiting and preserves flight evidence', 
 
     held.release();
     await held.lease;
-    taken = await takingOver;
+    failure = await takingOver.then(() => null, (error) => error);
   } finally {
     held.release();
     await held.lease;
   }
-  assert.equal(taken.status, 'manual-takeover');
-  assert.equal(taken.stopReason, 'human-manual-takeover');
-  assert.deepEqual(taken.observedPaths, ['src/app.mjs', 'test/app.test.mjs']);
-  assert.deepEqual(taken.evidence, { changeSetDigest: `sha256:${'b'.repeat(64)}` });
-  assert.deepEqual(taken.operations, [{ operation: 'author', outcome: 'succeeded' }]);
-  assert.deepEqual(taken.commits, { generation: '1234567890abcdef' });
-  assert.match(taken.stopRequested.quiescedAt, /^\d{4}-\d{2}-\d{2}T/);
-  const report = buildAutoFlightReport(taken);
-  assert.deepEqual(report.retainedUnpublishedPaths, taken.observedPaths);
+  assert.equal(failure?.code, 'AUTO_CHECKPOINT_PUBLICATION_FAILED');
+  const recovery = await readAutoFlightState(root, flightId);
+  assert.equal(recovery.status, 'recovery-required');
+  assert.equal(recovery.stopReason, 'takeover-checkpoint-publication-failed');
+  assert.deepEqual(recovery.observedPaths, ['src/app.mjs', 'test/app.test.mjs']);
+  assert.deepEqual(recovery.evidence, { changeSetDigest: `sha256:${'b'.repeat(64)}` });
+  assert.deepEqual(recovery.operations, [{ operation: 'author', outcome: 'succeeded' }]);
+  assert.deepEqual(recovery.commits, { generation: '1234567890abcdef' });
+  assert.match(recovery.stopRequested.quiescedAt, /^\d{4}-\d{2}-\d{2}T/);
+  const report = buildAutoFlightReport(recovery);
+  assert.deepEqual(report.retainedUnpublishedPaths, recovery.observedPaths);
   assert.equal(report.humanIntervention.required, true);
-
 });
+
+for (const [kind, suffix, control, expectedStatus] of [
+  ['pause', 'PAUSE', (root, id) => pauseAutoFlight(root, id), 'paused'],
+  ['halt', 'HALT', (root, id) => haltAutoFlight(root, id), 'halted'],
+  ['takeover', 'TAKEOVER', (root, id) => takeoverAutoFlight(root, id), 'manual-takeover']
+]) {
+  test(`${kind} publishes a governed post-quiescence checkpoint`, async (t) => {
+    const { root, remote, workId, flight, story } = await governedFixture(t, suffix);
+    const result = await control(root, flight.flightId);
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.stopRequested.kind, kind);
+    assert.match(result.stopRequested.quiescedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(result.boundaryCheckpoint.checkpointClass, 'human-boundary');
+    assert.equal(result.boundaryCheckpoint.commit,
+      run('git', ['rev-parse', 'HEAD'], story.worktree).stdout.trim());
+    const workflow = JSON.parse(await readFile(path.join(
+      story.worktree, 'singularity/work-items', result.story.workId, 'workflow.json'
+    ), 'utf8'));
+    const projection = workflow.publicationProjections.at(-1);
+    assert.equal(projection.event.type, 'evidence-recorded');
+    assert.equal(projection.event.payload.kind, 'auto-boundary-checkpoint');
+    assert.equal(projection.event.payload.flightId, flight.flightId);
+    assert.equal(projection.event.payload.checkpointClass, 'human-boundary');
+    assert.equal(projection.event.payload.checkpointSha256,
+      result.boundaryCheckpoint.checkpointSha256);
+    const committed = JSON.parse(run('git', [
+      'show', `${result.boundaryCheckpoint.commit}:${result.boundaryCheckpoint.path}`
+    ], story.worktree).stdout);
+    assert.equal(committed.status, expectedStatus);
+    assert.equal(committed.checkpointSha256, result.boundaryCheckpoint.checkpointSha256);
+
+    if (kind === 'pause') {
+      const unknown = structuredClone(committed);
+      unknown.unreviewed = true;
+      delete unknown.checkpointSha256;
+      unknown.checkpointSha256 = `sha256:${recordSha256(unknown)}`;
+      assert.throws(
+        () => validateAutoBoundaryCheckpoint(unknown),
+        (error) => error.code === 'AUTO_CHECKPOINT_INVALID'
+      );
+      await writeFile(path.join(story.worktree, result.boundaryCheckpoint.path), JSON.stringify(unknown));
+      run('git', ['add', result.boundaryCheckpoint.path], story.worktree);
+      run('git', ['commit', '-m', 'tamper checkpoint fixture'], story.worktree);
+      await assert.rejects(
+        () => readGovernedAutoCheckpoint(story.worktree, workflow, projection),
+        (error) => error.code === 'AUTO_CHECKPOINT_INVALID'
+      );
+    }
+
+    if (kind === 'takeover') {
+      run('git', ['push', 'origin', result.story.branch], story.worktree);
+      const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-recovery-'));
+      t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
+      run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+      run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
+      run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
+      const rebuilt = await rebuildAutoFlightState(recoveryRoot, {
+        storyRoot: story.worktree, workId, flightId: flight.flightId
+      });
+      assert.equal(rebuilt.status, 'manual-takeover');
+      assert.equal(rebuilt.story.workId, workId);
+      assert.equal(rebuilt.boundaryCheckpoint.checkpointSha256,
+        result.boundaryCheckpoint.checkpointSha256);
+      assert.notEqual(path.resolve(rebuilt.worktree), path.resolve(story.worktree));
+      assert.equal(run('git', ['branch', '--show-current'], rebuilt.worktree).stdout.trim(),
+        result.story.branch);
+    }
+  });
+}
 
 test('self-consistent wrong-family state and report records fail closed', async (t) => {
   const { root, flightId } = await fixture(t, 'E');

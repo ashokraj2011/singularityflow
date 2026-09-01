@@ -30,3 +30,18 @@ test('an unavailable SGOS profile never blocks ordinary Story Auto', () => {
 test('step is a real bounded pacing mode', () => {
   assert.deepEqual(parseAutoPace('step'), { mode: 'step', intervalMs: null, source: 'step' });
 });
+
+test('unimplemented machine-actionable repair fails closed at configuration time', () => {
+  assert.throws(
+    () => normalizeAutoPolicy({
+      enabled: true,
+      repair: { policy: 'auto-on-machine-actionable', maximumAttempts: 1 }
+    }),
+    (error) => error.code === 'AUTO_PLAN_INVALID'
+      && /must be never, ask/.test(error.message)
+  );
+  assert.deepEqual(
+    normalizeAutoPolicy({ enabled: true, repair: { policy: 'ask', maximumAttempts: 1 } }).repair,
+    { policy: 'ask', maximumAttempts: 1 }
+  );
+});

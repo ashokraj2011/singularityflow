@@ -207,6 +207,142 @@ test('the card never renders a raw handle or an operation name into the DOM', ()
   assert.ok(!html.includes('readiness:PAY-1187:'), 'the handle is not in the markup');
 });
 
+test('Auto cards prefill the exact current confirmation and never auto-submit it', () => {
+  const packetSha256 = `sha256:${'a'.repeat(64)}`;
+  const card = buildResultCard({
+    kind: 'read', operation: { id: 'auto.show-plan', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { auto: { cards: [{
+      kind: 'plan', planId: 'APL-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      packetSha256, status: 'startable'
+    }] } }
+  });
+  const html = resultCardHtml(card);
+  const start = card.auto[0].actions.find((action) => action.id.endsWith(':start'));
+  assert.equal(start.command,
+    `singularity-flow auto start --plan APL-AAAAAAAAAAAAAAAAAAAAAAAAAA --confirm ${packetSha256}`);
+  assert.equal(start.confirmation, packetSha256);
+  assert.match(html, /data-auto-action-id="auto:plan:APL-AAAAAAAAAAAAAAAAAAAAAAAAAA:start"/);
+  assert.match(html, new RegExp(`--confirm ${packetSha256}`));
+  assert.doesNotMatch(html, /type exact hash/);
+});
+
+test('Auto cards refuse stale control clicks and review-required Plan starts', () => {
+  const checkpointSha256 = `sha256:${'d'.repeat(64)}`;
+  const packetSha256 = `sha256:${'e'.repeat(64)}`;
+  const flightId = 'AFL-DDDDDDDDDDDDDDDDDDDDDDDDDD';
+  const planId = 'APL-EEEEEEEEEEEEEEEEEEEEEEEEEE';
+  const card = buildResultCard({
+    kind: 'read', operation: { id: 'auto.status', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { auto: { cards: [
+      { kind: 'running', flightId, status: 'running', checkpointSha256 },
+      { kind: 'plan', planId, status: 'review-required', packetSha256 }
+    ] } }
+  });
+  assert.deepEqual(card.auto[0].actions.map((action) => action.command), [
+    `singularity-flow auto pause ${flightId} --confirm ${checkpointSha256}`,
+    `singularity-flow auto takeover ${flightId} --confirm ${checkpointSha256}`,
+    `singularity-flow auto stop ${flightId} --confirm ${checkpointSha256}`
+  ]);
+  assert.equal(card.auto[1].actions.some((action) => action.id.endsWith(':start')), false);
+  assert.equal(card.auto[1].actions.some((action) => action.id.endsWith(':review')), true);
+});
+
+test('an Auto Human Request offers only exact typed choices and retains read-only review', () => {
+  const requestSha256 = `sha256:${'b'.repeat(64)}`;
+  const card = buildResultCard({
+    kind: 'read', operation: { id: 'auto.needs-you', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { auto: { flightId: 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA', cards: [{
+      kind: 'needs-you', flightId: 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      requestId: 'AHR-BBBBBBBBBBBBBBBBBBBBBBBBBB', requestSha256,
+      requestType: 'architecture-choice', title: 'Choose the persistence strategy',
+      options: [{ id: 'sql', label: 'SQL' }, { id: 'document', label: 'Document' }]
+    }] } }
+  });
+  const html = resultCardHtml(card);
+  const review = card.auto[0].actions.find((action) => action.id.endsWith(':review'));
+  assert.equal(review.command,
+    'singularity-flow auto needs-you AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA');
+  assert.doesNotMatch(review.command, /--confirm|--choice|--answer/);
+  const sql = card.auto[0].actions.find((action) => action.id.includes(':choice-sql'));
+  assert.equal(sql.command,
+    `singularity-flow auto respond AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA --request AHR-BBBBBBBBBBBBBBBBBBBBBBBBBB --choice sql --confirm ${requestSha256}`);
+  assert.equal(sql.confirmation, requestSha256);
+  assert.match(html, new RegExp(requestSha256));
+  assert.match(html, /Review request/);
+  assert.match(html, /Choose SQL/);
+});
+
+test('Auto cards omit unsafe or unauthorised actions instead of manufacturing shell commands', () => {
+  const requestSha256 = `sha256:${'c'.repeat(64)}`;
+  const view = buildResultCard({
+    kind: 'read', operation: { id: 'auto.needs-you', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { auto: { flightId: 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA', cards: [{
+      kind: 'needs-you', flightId: 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      requestId: 'AHR-BBBBBBBBBBBBBBBBBBBBBBBBBB', requestSha256,
+      requestType: 'architecture-choice', title: 'Choose safely',
+      options: [
+        { id: 'safe' }, { id: 'option-2' }, { id: 'option-3' }, { id: 'option-4' },
+        { id: 'option-5' }, { id: 'option-6' }, { id: 'option-7' },
+        { id: '$(touch /tmp/not-allowed)' }
+      ]
+    }, {
+      kind: 'refusal', flightId: 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA',
+      refusalId: 'ARF-CCCCCCCCCCCCCCCCCCCCCCCCCC', repair: { eligibility: 'manual-only' }
+    }] } }
+  });
+  assert.equal(view.auto[0].actions.length, 6, 'the card bounds its action set');
+  assert.deepEqual(view.auto[0].actions.slice(0, 2).map((action) => action.label), [
+    'Review request', 'Choose safe'
+  ]);
+  assert.doesNotMatch(resultCardHtml(view), /touch \/tmp/);
+  assert.equal(view.auto[1].actions.some((action) => action.id.endsWith(':repair')), false);
+});
+
+test('Auto report and refusal cards expose exact origin and Candidate authority with bounded actions', () => {
+  const flightId = 'AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const candidateId = 'CAN-DDDDDDDDDDDDDDDDDDDDDDDDDD';
+  const candidateSha256 = `sha256:${'d'.repeat(64)}`;
+  const reportSha256 = `sha256:${'e'.repeat(64)}`;
+  const view = buildResultCard({
+    kind: 'read', operation: { id: 'auto.report', classification: 'read' },
+    outcome: { status: 'succeeded', messageId: 'gateway.read', slots: {} },
+    effects: {}, why: [], warnings: [], preserved: [], checklist: [], next: [],
+    restState: 'informational',
+    data: { auto: { flightId, cards: [{
+      kind: 'refusal', flightId, status: 'paused',
+      refusalId: 'ARF-CCCCCCCCCCCCCCCCCCCCCCCCCC', repair: { eligibility: 'ask-only' },
+      candidate: { candidateId, candidateSha256 }
+    }, {
+      kind: 'report', flightId, planId: 'APL-BBBBBBBBBBBBBBBBBBBBBBBBBB',
+      reportSha256, candidate: { candidateId, candidateSha256 }
+    }] } }
+  });
+  assert.deepEqual(view.auto[0].actions.map((action) => action.label), [
+    'Review bounded repair', 'Show report JSON', 'Prepare takeover'
+  ]);
+  assert.deepEqual(view.auto[1].actions.map((action) => action.label), [
+    'Open report', 'Show report JSON'
+  ]);
+  assert.ok(view.auto.every((card) => card.details.some((entry) =>
+    entry.label === 'Origin' && entry.value === `Auto · ${flightId}`)));
+  assert.ok(view.auto.every((card) => card.details.some((entry) =>
+    entry.label === 'Candidate' && entry.value === candidateId)));
+  assert.equal(view.auto[1].actions.length <= 6, true);
+  assert.match(resultCardHtml(view), new RegExp(candidateId));
+});
+
 test('technical details are copyable and carry no path or prompt', () => {
   const card = buildResultCard(blocked(['approvals-outstanding']));
   assert.equal(card.details.operation, 'work.readiness');

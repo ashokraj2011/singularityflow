@@ -36,7 +36,7 @@ async function repository(t) {
   workflow.git.publish = 'off';
   workflow.auto.enabled = true;
   workflow.models.providers['copilot-cli'] = {
-    type: 'copilot-cli', executable: process.execPath, promptTransport: 'attachment', arguments: []
+    type: 'copilot-cli', executable: process.execPath, promptTransport: 'acp-stdio', arguments: []
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.workTypes.feature.auto = {
@@ -84,6 +84,91 @@ test('Auto Plan ratification accepts the exact derived review packet digest', as
   const ratified = await ratifyAutoPlan(root, plan.planId, packet.packetSha256);
   assert.equal(ratified.authorization.planId, plan.planId);
   assert.equal(ratified.authorization.planSha256, plan.planSha256);
+});
+
+test('Auto Plan is not startable when its endpoint exceeds phase or model ceilings', async (t) => {
+  const root = await repository(t);
+  const phaseLimited = await createAutoPlan(root, 'Run the complete feature rail.', {
+    ...proposal, suggestedUntil: 'story-complete'
+  }, {
+    definition: await loadDefinition(root), workId: 'AUT-ENDPOINT-PHASE-LIMIT',
+    workType: 'feature', fromBranch: 'main', until: 'story-complete'
+  });
+  assert.equal(phaseLimited.safety.startable, false);
+  assert.ok(phaseLimited.safety.reasons.some((reason) => (
+    /endpoint requires 7 phase execution\(s\).*maximumPhases 3/.test(reason)
+  )));
+  assert.ok(phaseLimited.safety.reasons.some((reason) => (
+    /endpoint requires at least 7 model invocation\(s\).*maximumModelInvocations 6/.test(reason)
+  )));
+
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.auto.ceilings.maximumPhases = 10;
+  workflow.auto.ceilings.maximumModelInvocations = 2;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'isolate model ceiling feasibility'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const modelLimited = await createAutoPlan(root, 'Run another complete feature rail.', {
+    ...proposal, suggestedUntil: 'story-complete'
+  }, {
+    definition: await loadDefinition(root), workId: 'AUT-ENDPOINT-MODEL-LIMIT',
+    workType: 'feature', fromBranch: 'main', until: 'story-complete'
+  });
+  assert.equal(modelLimited.safety.startable, false);
+  assert.ok(!modelLimited.safety.reasons.some((reason) => /maximumPhases/.test(reason)));
+  assert.ok(modelLimited.safety.reasons.some((reason) => (
+    /endpoint requires at least [1-9][0-9]* model invocation\(s\).*maximumModelInvocations 2/.test(reason)
+  )));
+});
+
+test('Auto Plan preflights deterministic verification for every code phase before its endpoint', async (t) => {
+  const root = await repository(t);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.auto.ceilings.maximumPhases = 10;
+  workflow.auto.ceilings.maximumModelInvocations = 10;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'allow complete rail feasibility check'], root);
+  run('git', ['push', 'origin', 'main'], root);
+
+  const plan = await createAutoPlan(root, 'Run the complete feature rail.', {
+    ...proposal, suggestedUntil: 'story-complete'
+  }, {
+    definition: await loadDefinition(root), workId: 'AUT-ENDPOINT-VERIFY-ALL',
+    workType: 'feature', fromBranch: 'main', until: 'story-complete'
+  });
+  assert.equal(plan.safety.startable, false);
+  assert.ok(plan.safety.reasons.includes(
+    "phase 'implementation' has no deterministic delivery-quality command"
+  ));
+  assert.ok(!plan.safety.reasons.includes(
+    "phase 'intake' has no deterministic delivery-quality command"
+  ));
+});
+
+test('attachment-only model transport remains available to legacy callers but cannot start Auto', async (t) => {
+  const root = await repository(t);
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.models.providers['copilot-cli'].promptTransport = 'attachment';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'configure legacy attachment transport'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const plan = await createAutoPlan(root, 'Change the exported value.', proposal, {
+    definition: await loadDefinition(root), workId: 'AUT-ATTACHMENT-UNSTARTABLE',
+    workType: 'feature', fromBranch: 'main'
+  });
+  assert.equal(plan.executionHost.driver.promptTransport, 'attachment');
+  assert.equal(plan.safety.startable, false);
+  assert.ok(plan.safety.reasons.some((reason) => /path-scope-transport/.test(reason)));
+  await assert.rejects(
+    () => ratifyAutoPlan(root, plan.planId, buildAutoPlanPacket(plan).packetSha256),
+    (error) => error.code === 'AUTO_PLAN_NOT_STARTABLE'
+  );
 });
 
 test('a schema-v1 Plan is retained unchanged but cannot authorize execution', async (t) => {

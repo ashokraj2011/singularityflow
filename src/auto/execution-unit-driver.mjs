@@ -44,6 +44,23 @@ export async function executionUnitDriverDoctor(root, definition, phaseId) {
     ? { supported: true, scope: 'process-group', graceMs: 250, forcedTermination: true }
     : { supported: false, scope: null, graceMs: null, forcedTermination: false };
   check('cancellation', cancellation.supported, cancellation.scope ?? 'unsupported');
+  const promptTransport = providerConfig.promptTransport ?? 'auto';
+  let scopedTransport = adapter === 'copilot-cli' && promptTransport === 'acp-stdio';
+  if (adapter === 'copilot-cli' && promptTransport === 'auto'
+      && executable && commandExists(executable)) {
+    const help = run(executable, ['--help'], {
+      cwd: root, allowFailure: true, timeoutMs: 5_000
+    });
+    scopedTransport = help.status === 0 && /(?:^|\s)--acp(?:\s|,|$)/m.test(
+      `${help.stdout}\n${help.stderr}`
+    );
+  }
+  check(
+    'path-scope-transport', scopedTransport,
+    scopedTransport
+      ? `${promptTransport} provides ACP path-v1 pre-effect permission`
+      : `${promptTransport} cannot enforce Auto filesystem scope before effects`
+  );
   const toolContract = {
     mode: 'allowlist', names: [...AUTO_AUTHORING_TOOLS],
     shell: false, git: false, lifecycleMutation: false
@@ -52,7 +69,7 @@ export async function executionUnitDriverDoctor(root, definition, phaseId) {
   const core = {
     schemaVersion: 1, // schema-transient: content-addressed Plan component, persisted only inside auto-plan.
     driver: 'execution-unit-driver-v1', provider: selected.provider, adapter, executable,
-    task, resolvedModels, probe, cancellation, toolContract, checks
+    task, resolvedModels, probe, cancellation, promptTransport, toolContract, checks
   };
   return {
     ...core,

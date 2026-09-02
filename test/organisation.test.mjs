@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { run } from '../src/util.mjs';
+import { removeTemporaryTree, run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
   activateCapabilityProposal, addCapabilityRepository, capabilityFsck, discardStaleCapabilityProposal,
@@ -1063,7 +1063,10 @@ test('delivery repository reachability is proven before mapping mutates any auth
 
 test('capability mapping preserves distinct literal remote identities in probes and recovery commands', async (t) => {
   const org = await remotes('platform');
-  t.after(() => rm(org.base, { recursive: true, force: true }));
+  // A local receive-pack can launch transient Git auto-maintenance while a bare repository is
+  // being removed. Use the same bounded-retry cleanup as production scratch repositories so
+  // macOS and Linux teardown do not turn that harmless race into an ENOTEMPTY suite failure.
+  t.after(() => removeTemporaryTree(org.base));
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
   const makeLiteralRemote = async (suffix, branch) => {
     const bare = path.join(org.base, `delivery.git?${suffix}`);

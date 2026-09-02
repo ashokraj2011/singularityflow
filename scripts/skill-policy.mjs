@@ -14,6 +14,7 @@ const CONTRACT_TEXT = Object.freeze({
 });
 
 const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
+const EXECUTION_BOUNDARY_KINDS = new Set(['story', 'workspace', 'organisation']);
 const MODEL_OPERATION_PATTERNS = Object.freeze({
   'auto.flight-step': /\bsingularity-flow\s+auto\s+flight-step\b/,
   'auto.plan': /\bsingularity-flow\s+auto\s+plan\b/,
@@ -33,11 +34,11 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });
 
-function executionBoundary(skillName = null) {
-  if (['sflow-adhoc', 'sflow-auto', 'sflow-sgos-create', 'sflow-start'].includes(skillName)) {
+function executionBoundary(kind = 'story') {
+  if (kind === 'workspace') {
     return '**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.';
   }
-  if (skillName === 'sflow-capability-doctor') {
+  if (kind === 'organisation') {
     return '**Boundary:** organisation integrity is storyless and uses only the selected lead URL; repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`; never `$HOME`.';
   }
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
@@ -45,7 +46,10 @@ function executionBoundary(skillName = null) {
   // Story checkout on every skill invocation and make its absolute path the cwd of every shell/file
   // tool. `ready` and `workId` are checked before mutation so a stale workspace lead cannot silently
   // replace the Story selected before `/clear`. Keeping this generated makes the rule catalog-wide.
-  return '**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.';
+  if (kind === 'story') {
+    return '**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.';
+  }
+  throw new Error(`unknown skill execution boundary '${kind}'`);
 }
 
 function referencedModelOperations(body) {
@@ -86,12 +90,12 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, kernelModelPolicy, file) {
+function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
   const skill = splitSkill(text, file);
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
   const contractText = `**Output contract:** ${CONTRACT_TEXT[contract]}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
-  const boundaryText = executionBoundary(path.basename(path.dirname(file)));
+  const boundaryText = executionBoundary(executionBoundaryKind);
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
   const existing = /<!-- sflow-output-contract: [^>]+ -->\r?\n(?:\*\*Output contract:\*\*[^\n]*\r?\n?)?(?:<!-- sflow-execution-boundary -->\r?\n)?(?:\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?)*/;
   const rendered = `${marker}\n${contractText}\n${boundaryMarker}\n${boundaryText}\n`;
@@ -151,12 +155,17 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (classPolicy.hardMaximumBytes !== 65536) errors.push(`${name}: class hardMaximumBytes must be exactly 65536`);
     if (rule.maximumTokenOverride != null && !rule.exception) errors.push(`${name}: token override requires an exception reason`);
     const kernelModelPolicy = rule.kernelModelPolicy ?? classPolicy.kernelModelPolicy;
+    const executionBoundaryKind = rule.executionBoundary ?? 'story';
     if (!KERNEL_MODEL_POLICIES.has(kernelModelPolicy)) errors.push(`${name}: kernelModelPolicy must be never or conditional`);
+    if (!EXECUTION_BOUNDARY_KINDS.has(executionBoundaryKind)) {
+      errors.push(`${name}: executionBoundary must be story, workspace, or organisation`);
+      continue;
+    }
     const file = path.join(skillRoot, name, 'SKILL.md');
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file);
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind);
       await writeFile(file, text);
     }
     const skill = splitSkill(text, file);
@@ -165,7 +174,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const maximum = rule.maximumTokenOverride ?? classPolicy.maximumTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
-    const boundaryText = executionBoundary(name);
+    const boundaryText = executionBoundary(executionBoundaryKind);
     const modelOperations = referencedModelOperations(skill.body);
     if (skill.frontmatter.name !== name) errors.push(`${name}: frontmatter name must match directory`);
     if (automatic.has(name)) {
@@ -194,6 +203,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       name,
       class: rule.class,
       automatic: automatic.has(name),
+      executionBoundary: executionBoundaryKind,
       kernelModelPolicy,
       modelOperations,
       descriptionTokens,

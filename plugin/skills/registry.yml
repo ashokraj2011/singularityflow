@@ -81,10 +81,12 @@ classes:
     hardMaximumBytes: 65536
 
 # Every public skill is deliberately classified. All classes share the same body
-# budget so catalog growth cannot hide behind per-skill exceptions.
+# budget so catalog growth cannot hide behind per-skill exceptions. A skill defaults
+# to the active Story boundary; storyless entry points must explicitly declare
+# executionBoundary: workspace (or organisation for cross-repository diagnostics).
 skills:
   sflow-about: { class: echo }
-  sflow-adhoc: { class: interactive }
+  sflow-adhoc: { class: interactive, executionBoundary: workspace }
   sflow-advise: { class: conversational }
   sflow-agent: { class: interactive }
   sflow-agents: { class: echo }
@@ -92,10 +94,10 @@ skills:
   sflow-approvals: { class: echo }
   sflow-approve: { class: review }
   sflow-assign: { class: mutation }
-  sflow-auto: { class: interactive, kernelModelPolicy: conditional }
+  sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: workspace }
   sflow-cancel: { class: mutation }
   sflow-capabilities: { class: echo }
-  sflow-capability-doctor: { class: echo }
+  sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive }
   sflow-code: { class: generative }
   sflow-continue: { class: mutation }
@@ -190,14 +192,14 @@ skills:
   sflow-review: { class: review }
   sflow-run: { class: mutation, kernelModelPolicy: conditional }
   sflow-secrets: { class: mutation }
-  sflow-sgos-create: { class: interactive }
+  sflow-sgos-create: { class: interactive, executionBoundary: workspace }
   sflow-session: { class: interactive }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-snapshot: { class: echo }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation }
-  sflow-start: { class: interactive }
+  sflow-start: { class: interactive, executionBoundary: workspace }
   sflow-status: { class: conversational }
   sflow-story-branch: { class: interactive }
   sflow-story-checks: { class: mutation }

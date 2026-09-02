@@ -68,16 +68,23 @@ test('the two broadest skill reads state their governed base and repository fenc
 
 test('every skill resolves its selected governed boundary and forbids home-directory fallback', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
-  for (const name of Object.keys(registry.skills)) {
+  for (const name of ['sflow-adhoc', 'sflow-auto', 'sflow-sgos-create', 'sflow-start']) {
+    assert.equal(registry.skills[name]?.executionBoundary, 'workspace', `${name} must remain usable without an active Story`);
+  }
+  assert.equal(registry.skills['sflow-capability-doctor']?.executionBoundary, 'organisation');
+  assert.equal(registry.skills['sflow-phase']?.executionBoundary ?? 'story', 'story');
+  for (const [name, rule] of Object.entries(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /<!-- sflow-execution-boundary -->/, name);
-    if (['sflow-adhoc', 'sflow-auto', 'sflow-start'].includes(name)) {
+    const executionBoundary = rule.executionBoundary ?? 'story';
+    if (executionBoundary === 'workspace') {
       assert.match(content, /`singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`/, name);
       assert.match(content, /no active Story is required/, name);
-    } else if (name === 'sflow-capability-doctor') {
+    } else if (executionBoundary === 'organisation') {
       assert.match(content, /organisation integrity is storyless and uses only the selected lead URL/, name);
       assert.match(content, /repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`/, name);
     } else {
+      assert.equal(executionBoundary, 'story', `${name} declares an unknown execution boundary`);
       assert.match(content, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
       assert.match(content, /`singularity\/work-items\/<WORK-ID>\/`/, name);
     }

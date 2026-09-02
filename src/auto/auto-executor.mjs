@@ -13,6 +13,7 @@ import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { tryWindowsTaskkill } from '../platform-process.mjs';
 import {
   composePhasePrompt, inspectWorkflowGrounding, workflowGroundingMaterializationPlan
 } from '../worldmodel.mjs';
@@ -138,10 +139,9 @@ function childLifecycle(root, args, {
     const terminate = () => {
       if (!child.pid) return;
       if (process.platform === 'win32') {
-        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], {
-          stdio: 'ignore', windowsHide: true, timeout: 5_000
-        });
-        if (killed.error || killed.status !== 0) child.kill('SIGTERM');
+        if (!tryWindowsTaskkill(child.pid, {
+          environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
+        })) child.kill('SIGTERM');
       } else {
         try { process.kill(-child.pid, 'SIGTERM'); }
         catch { child.kill('SIGTERM'); }
@@ -149,9 +149,10 @@ function childLifecycle(root, args, {
       hardKillTimer ??= setTimeout(() => {
         if (child.exitCode != null || child.signalCode != null || !child.pid) return;
         if (process.platform === 'win32') {
-          spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-            stdio: 'ignore', windowsHide: true, timeout: 5_000
-          });
+          if (!tryWindowsTaskkill(child.pid, {
+            force: true, environment: process.env, spawnSyncCommand: spawnSync,
+            timeoutMs: 5_000
+          })) child.kill('SIGKILL');
           return;
         }
         try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }

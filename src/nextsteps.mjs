@@ -1,6 +1,9 @@
 import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import {
+  phasePublicationCommand, phasePublicationCommandForProducer
+} from './manual-authorship.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   return copilotAction({ timing, skill, command, reason, modelPolicy: 'never', availability: 'available', ...metadata });
@@ -29,10 +32,15 @@ function cancellationActions(workflow) {
   ];
 }
 
-function afterApprovalActions(workflow, phase) {
+function afterCompletionActions(workflow, phase, { withoutApproval = false } = {}) {
   const upcoming = nextPhase(workflow, phase.id);
   if (!upcoming) return completionActions(workflow.workItem.id, 'then');
-  return [action('then', generationSkillForPhase(upcoming), `singularity-flow prepare ${upcoming.id}`, `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`)];
+  return [action(
+    'then', generationSkillForPhase(upcoming), `singularity-flow prepare ${upcoming.id}`,
+    withoutApproval
+      ? `After ${phase.id} submission completes its no-approval phase, generate and publish ${upcoming.label}.`
+      : `After ${phase.id} approval advances the workflow, generate and publish ${upcoming.label}.`
+  )];
 }
 
 export function workflowNextSteps(workflow, {
@@ -60,7 +68,7 @@ export function workflowNextSteps(workflow, {
     item.command,
     item.reason
   ));
-  if (phase.status === 'awaiting_approval') return [...immediate, ...afterApprovalActions(workflow, phase)];
+  if (phase.status === 'awaiting_approval') return [...immediate, ...afterCompletionActions(workflow, phase)];
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
   const actions = [...prerequisites.map(copilotAction), ...immediate];
@@ -68,31 +76,45 @@ export function workflowNextSteps(workflow, {
   const modelFreeProducer = generationPolicy.allowedProducers?.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
   if (needsGeneration && !modelMode.enabled) {
     if (modelFreeProducer === 'human') actions.unshift(action(
-      'now', generationSkillForPhase(phase), `singularity-flow phase publish ${phase.id} --authored human --from <FILE> --channel manual-import --no-model`,
+      'now', generationSkillForPhase(phase), phasePublicationCommandForProducer(
+        phase, 'human', { source: '<FILE>', noModel: true }
+      ),
       `Import and publish ${phase.label} without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
-    else if (modelFreeProducer === 'deterministic') actions.unshift(action(
-      'now', generationSkillForPhase(phase), `singularity-flow prepare ${phase.id} --no-model`,
-      `Generate ${phase.label} deterministically without invoking a model.`,
-      { operationId: 'prepare', modelPolicy: 'never', route: 'deterministic' }
+    else if (modelFreeProducer === 'deterministic') actions.push(action(
+      'then', generationSkillForPhase(phase), phasePublicationCommandForProducer(phase, 'deterministic'),
+      `Publish the deterministically generated ${phase.label} without invoking a model.`,
+      { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
     ));
     else actions.unshift(action(
       'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId} --no-model`,
       `${phase.label} has no configured model-free producer.`,
       { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
     ));
-  }
+  } else if (needsGeneration) actions.push(action(
+    'then', generationSkillForPhase(phase), phasePublicationCommand(phase),
+    `Publish ${phase.label} with its configured producer and channel.`,
+    { operationId: 'phase', route: 'configured-producer' }
+  ));
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
   }
-  if (needsGeneration) actions.push(action('then', '/sflow-submit', `singularity-flow submit ${phase.id}`, `After publishing ${phase.id}, run its checks and submit it for approval.`));
-  actions.push(
+  const noApproval = phase.approvalPolicy?.mode === 'none';
+  if (needsGeneration) actions.push(action(
+    'then', '/sflow-submit', `singularity-flow submit ${phase.id}`,
+    noApproval
+      ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
+      : `After publishing ${phase.id}, run its checks and submit it for approval.`
+  ));
+  if (!noApproval) actions.push(
     action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
-    action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`),
+    action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`)
+  );
+  actions.push(
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.'),
-    ...afterApprovalActions(workflow, phase)
+    ...afterCompletionActions(workflow, phase, { withoutApproval: noApproval })
   );
   return actions;
 }

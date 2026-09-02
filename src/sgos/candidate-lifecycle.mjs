@@ -25,6 +25,7 @@ import {
 import { canonicalJson } from '../records.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
+import { resolvePlatformProcess, tryWindowsTaskkill } from '../platform-process.mjs';
 import { withTrustedSgosConfigurationRead } from './authority-trust.mjs';
 import {
   createCandidateSnapshot, sha256, validateCandidateSnapshot
@@ -1125,15 +1126,26 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
       'PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'ComSpec',
       'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'CI'
     ];
-    const child = spawn(command[0], command.slice(1), {
+    const childEnvironment = {
+      ...Object.fromEntries(allowedEnvironment
+        .filter((key) => Object.hasOwn(process.env, key))
+        .map((key) => [key, process.env[key]])),
+      GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
+    };
+    let launch;
+    try {
+      launch = resolvePlatformProcess(command[0], command.slice(1), {
+        platform: process.platform, environment: childEnvironment, cwd
+      });
+    } catch (error) {
+      return reject(new SingularityFlowError(`Candidate verifier executable is unavailable: ${error.message}`, {
+        code: 'SGOS_CANDIDATE_VERIFICATION_COMMAND_UNAVAILABLE', cause: error
+      }));
+    }
+    const child = spawn(launch.executable, launch.arguments, {
       cwd,
-      env: {
-        ...Object.fromEntries(allowedEnvironment
-          .filter((key) => Object.hasOwn(process.env, key))
-          .map((key) => [key, process.env[key]])),
-        GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never'
-      },
-      shell: false,
+      env: childEnvironment,
+      ...launch.spawnOptions,
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
@@ -1146,20 +1158,19 @@ async function runBoundedCommand(command, cwd, { timeoutMs, signal }) {
     const terminate = () => {
       if (child.exitCode !== null || child.signalCode !== null) return;
       if (process.platform === 'win32' && child.pid) {
-        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], {
-          stdio: 'ignore', windowsHide: true, timeout: 5_000
-        });
-        if (killed.status !== 0) child.kill('SIGTERM');
+        if (!tryWindowsTaskkill(child.pid, {
+          environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
+        })) child.kill('SIGTERM');
       } else {
         try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
       }
       forceTimer ??= setTimeout(() => {
         if (child.exitCode !== null || child.signalCode !== null) return;
         if (process.platform === 'win32' && child.pid) {
-          const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-            stdio: 'ignore', windowsHide: true, timeout: 5_000
-          });
-          if (killed.status !== 0) child.kill('SIGKILL');
+          if (!tryWindowsTaskkill(child.pid, {
+            force: true, environment: process.env, spawnSyncCommand: spawnSync,
+            timeoutMs: 5_000
+          })) child.kill('SIGKILL');
         } else {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }

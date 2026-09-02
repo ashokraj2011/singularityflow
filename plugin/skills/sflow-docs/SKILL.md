@@ -9,7 +9,7 @@ argument-hint: "[QUESTION | TOPIC]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 1. Pass the exact question or topic through the model-free resolver: run `singularity-flow explain "$ARGUMENTS" --json`. With no argument, run `singularity-flow explain --json` for the topic catalog. Do not map the question to a topic from model memory.
 2. Read the served bytes from `data.served.text` and preserve `data.helpIntent`, provenance, and warnings.
@@ -18,5 +18,7 @@ argument-hint: "[QUESTION | TOPIC]"
 5. If `explain` refuses with `docs.topic-not-found`, say so and offer the nearest topic ids it returned. Do not answer the question from memory instead — a fluent wrong answer about governance is worse than none.
 6. If the question is ambiguous between topics, present the returned choices. Do not pick one or blend their answers.
 7. For "what should I do here", "should I escalate", or any decision, do not answer. Point to `singularity-flow nextsteps` for the deterministic action set, and to the human approval authorities the pinned configuration names.
-8. When the reader wants their own situation as well as the concept, run `singularity-flow explain <topic> --here`, and keep the two parts labeled: concept cites a topic version, situation cites a revision.
+8. When the reader wants repository context, first run `singularity-flow workspace current --json`.
+   Only when it returns `repositoryPath`, use that exact cwd for `singularity-flow explain <topic>
+   --here`; label the cited concept and revision-bound situation separately.
 9. Do not generate, submit, approve, reject, upload, commit, or push anything.

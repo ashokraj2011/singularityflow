@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** organisation integrity is storyless and uses only the selected lead URL; repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`; never `$HOME`.
+**Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.
 
 This is a deterministic inspection skill. Do not infer capability ownership from
 folder or branch names, and do not repair governed state by hand.

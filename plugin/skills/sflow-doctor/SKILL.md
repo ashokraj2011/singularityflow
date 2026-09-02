@@ -9,20 +9,21 @@ argument-hint: "[work ID] [--offline] [--performance]"
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
-Run `singularity-flow init --check --json` first, then run
-`singularity-flow doctor $ARGUMENTS`. Report each failure with its exact safe
-fix and summarize warnings separately. The initialization check covers the
-workflow, portfolio, templates, prompts, and governed-agent files installed on
-the current branch. Both commands are read-only. Recommend `/sf-init` when
-assets are missing. Do not reset, stash, switch branches, or edit
-configuration unless the user explicitly asks you to apply a fix.
+1. Run `singularity-flow workspace current --json`. When it returns a repository, use only its exact
+   `repositoryPath` as cwd; when it returns no selected repository, do not search for one.
+2. With a repository, run `singularity-flow init --check --json`, then
+   `singularity-flow doctor $ARGUMENTS`. Report each failure with its exact safe fix and summarize
+   warnings separately. The initialization check covers workflow, portfolio, templates, prompts,
+   and governed-agent files on the current branch. Recommend `/sf-init` when assets are missing.
+3. Without a repository, run `singularity-flow workspace doctor --json`. It is machine-local and
+   offline by default. Add `--network` only after the contributor explicitly chooses to contact the
+   remotes named by unfinished bootstrap sessions. Relay proxy and certificate configuration source
+   names, never their values; never request credentials or recommend disabling TLS.
 
-When no repository or workspace exists, run `singularity-flow workspace doctor --json` instead.
-It is machine-local and offline by default. Add `--network` only after the contributor explicitly
-chooses to contact the remotes named by unfinished bootstrap sessions. Relay proxy and certificate
-configuration source names, never their values; never request credentials or recommend disabling TLS.
+All checks above are read-only. Do not reset, stash, switch branches, or edit configuration unless
+the user explicitly asks you to apply a fix.
 
 When the user asks about monorepo or Git slowness, pass `--performance --json`.
 Relay the measured total/scoped file counts, warm status/fingerprint times, clone

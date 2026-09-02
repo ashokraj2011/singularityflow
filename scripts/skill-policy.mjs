@@ -14,7 +14,11 @@ const CONTRACT_TEXT = Object.freeze({
 });
 
 const KERNEL_MODEL_POLICIES = new Set(['never', 'conditional']);
-const EXECUTION_BOUNDARY_KINDS = new Set(['story', 'workspace', 'organisation']);
+// The boundary is the minimum durable context a skill needs before it can do anything. `machine`
+// may narrow to an explicitly selected repository, and `repository` may narrow to an active Story;
+// neither direction permits filesystem discovery. Organisation operations are rooted in an exact
+// lead authority rather than in whichever checkout happens to be open.
+const EXECUTION_BOUNDARY_KINDS = new Set(['machine', 'repository', 'story', 'organisation']);
 const MODEL_OPERATION_PATTERNS = Object.freeze({
   'auto.flight-step': /\bsingularity-flow\s+auto\s+flight-step\b/,
   'auto.plan': /\bsingularity-flow\s+auto\s+plan\b/,
@@ -35,11 +39,14 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
 });
 
 function executionBoundary(kind = 'story') {
-  if (kind === 'workspace') {
-    return '**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.';
+  if (kind === 'machine') {
+    return '**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.';
+  }
+  if (kind === 'repository') {
+    return '**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.';
   }
   if (kind === 'organisation') {
-    return '**Boundary:** organisation integrity is storyless and uses only the selected lead URL; repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`; never `$HOME`.';
+    return '**Boundary:** no Story or repository required; use only the selected lead URL. Resolve local checks with `singularity-flow workspace current --json`; never search `$HOME`.';
   }
   // A relative artifact path is not a usable boundary after Copilot `/clear`: the host can retain
   // its process cwd while the model loses the conversational repository hint. Resolve the selected
@@ -158,7 +165,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const executionBoundaryKind = rule.executionBoundary ?? 'story';
     if (!KERNEL_MODEL_POLICIES.has(kernelModelPolicy)) errors.push(`${name}: kernelModelPolicy must be never or conditional`);
     if (!EXECUTION_BOUNDARY_KINDS.has(executionBoundaryKind)) {
-      errors.push(`${name}: executionBoundary must be story, workspace, or organisation`);
+      errors.push(`${name}: executionBoundary must be machine, repository, story, or organisation`);
       continue;
     }
     const file = path.join(skillRoot, name, 'SKILL.md');

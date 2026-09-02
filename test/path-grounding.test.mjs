@@ -14,7 +14,7 @@ import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { saveStoryDraft } from '../src/state-stores.mjs';
 import { buildSpecIndex, canonicalJson, derivePlannedClaimMap } from '../src/specifications.mjs';
-import { snapshot } from '../src/util.mjs';
+import { removeTemporaryTree, snapshot } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
@@ -66,30 +66,170 @@ test('the two broadest skill reads state their governed base and repository fenc
   assert.match(implement, /Inspect further files only as the implementation requires within this repository\./);
 });
 
-test('every skill resolves its selected governed boundary and forbids home-directory fallback', async () => {
+test('the skill boundary lattice keeps entry points storyless without weakening lifecycle scope', async () => {
   const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
-  for (const name of ['sflow-adhoc', 'sflow-auto', 'sflow-sgos-create', 'sflow-start']) {
-    assert.equal(registry.skills[name]?.executionBoundary, 'workspace', `${name} must remain usable without an active Story`);
+  const machineEntry = [
+    'sflow-about', 'sflow-advise', 'sflow-docs', 'sflow-doctor', 'sflow-fresh-install',
+    'sflow-help', 'sflow-home', 'sflow-local-reset', 'sflow-plugin', 'sflow-quickstart',
+    'sflow-recommend', 'sflow-reinstall', 'sflow-workspace', 'sflow-workspace-bootstrap',
+    'sflow-workspace-session', 'sflow-workspaces'
+  ];
+  const repositoryEntry = [
+    'sflow-adhoc', 'sflow-auto', 'sflow-factory-reset', 'sflow-init', 'sflow-reset-all',
+    'sflow-resume', 'sflow-return', 'sflow-session', 'sflow-sgos-create', 'sflow-start',
+    'sflow-story-fetch', 'sflow-story-inbox', 'sflow-story-start', 'sflow-workflows',
+    'sflow-workspace-impact', 'sflow-worldmodel'
+  ];
+  for (const name of machineEntry) {
+    assert.equal(registry.skills[name]?.executionBoundary, 'machine', `${name} must work before repository or Story selection`);
   }
-  assert.equal(registry.skills['sflow-capability-doctor']?.executionBoundary, 'organisation');
-  assert.equal(registry.skills['sflow-phase']?.executionBoundary ?? 'story', 'story');
+  for (const name of repositoryEntry) {
+    assert.equal(registry.skills[name]?.executionBoundary, 'repository', `${name} must work before active Story selection`);
+  }
+  for (const name of Object.keys(registry.skills).filter((name) => /^sflow-(?:epic|initiative)-/.test(name))) {
+    assert.equal(registry.skills[name]?.executionBoundary, 'repository', `${name} is not a Story lifecycle`);
+  }
+  for (const name of ['sflow-capability-doctor', 'sflow-capability-map']) {
+    assert.equal(registry.skills[name]?.executionBoundary, 'organisation', `${name} is rooted in a lead authority`);
+  }
+  for (const name of ['sflow-approve', 'sflow-phase', 'sflow-submit', 'sflow-verify']) {
+    assert.equal(registry.skills[name]?.executionBoundary ?? 'story', 'story', `${name} must retain the active Story fence`);
+  }
+  assert.ok(Object.values(registry.skills).every((rule) =>
+    ['machine', 'repository', 'story', 'organisation'].includes(rule.executionBoundary ?? 'story')));
+  assert.ok(Object.values(registry.skills).every((rule) => rule.executionBoundary !== 'workspace'),
+    'workspace is a selection mechanism, not an execution boundary');
+});
+
+test('every generated skill boundary forbids home search and uses only its declared authority', async () => {
+  const registry = YAML.parse(await readFile(path.join(root, 'plugin', 'skills', 'registry.yml'), 'utf8'));
   for (const [name, rule] of Object.entries(registry.skills)) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /<!-- sflow-execution-boundary -->/, name);
     const executionBoundary = rule.executionBoundary ?? 'story';
-    if (executionBoundary === 'workspace') {
-      assert.match(content, /`singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`/, name);
-      assert.match(content, /no active Story is required/, name);
+    const declared = content.match(/<!-- sflow-execution-boundary -->\r?\n([^\n]+)/)?.[1] ?? '';
+    assert.match(declared, /never (?:search )?`\$HOME`/, name);
+    if (executionBoundary === 'machine') {
+      assert.match(declared, /machine-local; no repository or Story required/, name);
+      assert.doesNotMatch(declared, /session current|ready.*workId/, name);
+      assert.doesNotMatch(content, /singularity-flow session current|git rev-parse --show-toplevel/, `${name} must not discover a repository or Story`);
+    } else if (executionBoundary === 'repository') {
+      assert.match(declared, /no Story required; cwd=opened Git root or verified `repositoryPath`/, name);
+      assert.match(declared, /from `singularity-flow workspace current --json`/, name);
+      assert.match(declared, /refuse if neither resolves/, name);
+      assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else if (executionBoundary === 'organisation') {
-      assert.match(content, /organisation integrity is storyless and uses only the selected lead URL/, name);
-      assert.match(content, /repository-local checks require `singularity-flow workspace current --json` and its verified `repositoryPath`/, name);
+      assert.match(declared, /no Story or repository required; use only the selected lead URL/, name);
+      assert.match(declared, /Resolve local checks with `singularity-flow workspace current --json`/, name);
+      assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else {
       assert.equal(executionBoundary, 'story', `${name} declares an unknown execution boundary`);
-      assert.match(content, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
-      assert.match(content, /`singularity\/work-items\/<WORK-ID>\/`/, name);
+      assert.match(declared, /`singularity-flow session current --json` → verified `ready`\/`workId`, cwd=`repositoryPath`/, name);
+      assert.match(declared, /`singularity\/work-items\/<WORK-ID>\/`/, name);
     }
-    assert.match(content, /never `\$HOME`/, name);
   }
+});
+
+test('blank-machine entry skills execute before workspace, repository, or Story selection', {
+  timeout: 45_000
+}, async (t) => {
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-machine-'));
+  const machineHome = path.join(machine, 'home');
+  const cwd = path.join(machine, 'empty-cwd');
+  await mkdir(machineHome, { recursive: true });
+  await mkdir(cwd, { recursive: true });
+  t.after(() => removeTemporaryTree(machine));
+  const env = {
+    ...process.env,
+    HOME: machineHome,
+    XDG_CONFIG_HOME: path.join(machineHome, '.config'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineHome, 'active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineHome, 'workspaces.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineHome, 'leads.json'),
+    SINGULARITY_FLOW_LOCAL_JOURNAL: path.join(machineHome, 'journal')
+  };
+  for (const key of [
+    'GIT_DIR', 'GIT_WORK_TREE', 'SINGULARITY_FLOW_NO_NETWORK',
+    'SINGULARITY_FLOW_WORKSPACE_ROOT'
+  ]) delete env[key];
+  const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
+    cwd, env, encoding: 'utf8', timeout: 30_000
+  });
+  const succeeds = (label, args) => {
+    const result = invoke(...args);
+    assert.equal(result.status, 0, `${label} failed before selection:\n${result.stderr || result.stdout}`);
+    return result.stdout;
+  };
+
+  const workspaceList = succeeds('/sf-workspaces and /sf-workspace', ['workspace', 'list', '--json']);
+  assert.deepEqual(JSON.parse(workspaceList), []);
+  const workspaceCurrent = succeeds('/sf-workspaces current state', ['workspace', 'current', '--json']);
+  assert.deepEqual(JSON.parse(workspaceCurrent), { active: false });
+  const bootstrap = JSON.parse(succeeds('/sf-workspace-bootstrap', [
+    'workspace', 'bootstrap', 'status', '--json'
+  ]));
+  assert.deepEqual(bootstrap, []);
+
+  const help = JSON.parse(succeeds('/sf-help and /sf-docs', ['explain', '--json']));
+  assert.equal(help.operation.id, 'explain');
+  const doctor = JSON.parse(succeeds('/sf-doctor', ['workspace', 'doctor', '--json']));
+  assert.equal(doctor.healthy, true);
+  const homeResult = JSON.parse(succeeds('/sf-home', ['home', '--json']));
+  assert.equal(homeResult.operation.id, 'home.overview');
+
+  const quickstart = succeeds('/sf-quickstart', ['quickstart']);
+  assert.match(quickstart, /0 model invocation\(s\) · network access: no/);
+  assert.match(quickstart, /Guide sandbox removed after successful completion/);
+  assert.deepEqual(await readdir(cwd), [], 'entry skills searched or wrote the blank cwd');
+});
+
+test('repository entry initializes an explicitly opened unregistered Git root without a workspace or Story', {
+  timeout: 45_000
+}, async (t) => {
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-skill-repository-'));
+  const machineHome = path.join(machine, 'home');
+  const repository = path.join(machine, 'repository');
+  await mkdir(machineHome, { recursive: true });
+  await mkdir(repository, { recursive: true });
+  t.after(() => removeTemporaryTree(machine));
+  git(repository, 'init', '-q', '-b', 'main');
+  git(repository, 'config', 'user.name', 'Repository Entry Tester');
+  git(repository, 'config', 'user.email', 'repository-entry@example.com');
+  await writeFile(path.join(repository, 'README.md'), '# unregistered repository\n');
+  git(repository, 'add', 'README.md');
+  git(repository, 'commit', '-qm', 'application baseline');
+
+  const env = {
+    ...process.env,
+    HOME: machineHome,
+    XDG_CONFIG_HOME: path.join(machineHome, '.config'),
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_NO_NETWORK: '1',
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineHome, 'active-workspace.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineHome, 'workspaces.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineHome, 'leads.json'),
+    SINGULARITY_FLOW_LOCAL_JOURNAL: path.join(machineHome, 'journal')
+  };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'SINGULARITY_FLOW_WORKSPACE_ROOT']) delete env[key];
+
+  const initialized = spawnSync(process.execPath, [cli, 'init'], {
+    cwd: repository, env, encoding: 'utf8', timeout: 30_000
+  });
+  assert.equal(initialized.status, 0,
+    `repository entry failed before registration:\n${initialized.stderr || initialized.stdout}`);
+  assert.match(initialized.stdout, /(?:^|\n)(?:Created|Verified) /,
+    'repository entry must reach deterministic initialization rather than a Story guard');
+  assert.equal((await readdir(machineHome)).includes('workspaces.json'), false,
+    'repository initialization must not silently create a workspace registration');
+
+  const checked = spawnSync(process.execPath, [cli, 'init', '--check', '--json'], {
+    cwd: repository, env, encoding: 'utf8', timeout: 30_000
+  });
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
+  const report = JSON.parse(checked.stdout);
+  assert.equal(report.complete, true);
+  assert.equal(report.repository, git(repository, 'rev-parse', '--show-toplevel'));
+  assert.equal(report.configurationMode, 'working-tree');
 });
 
 test('sf-next reapplies the repository boundary after clear or compact', async () => {

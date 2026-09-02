@@ -10,7 +10,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow epic complete <EPIC-KEY> --dry-run`.
 2. Show every blocking Story, canonical source commit, submitted review packet, exact-SHA check evidence, conformance tree hash, and blocker. Do not hide failed or stale Stories.

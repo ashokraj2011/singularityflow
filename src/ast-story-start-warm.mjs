@@ -31,6 +31,21 @@ function warmScope(definition, workflow, configuredScope) {
 
 export async function storyStartAstWarmPlan(root, definition, workflow) {
   const policy = normalizeAstPolicy(definition.ast ?? {});
+  // The Story's immutable workflow resolution is more specific than the repository default. In
+  // particular, model-free profiles pin AST off even when the installation normally warms it on
+  // every Story start. Stop before effective-mode preferences, Git revision reads, cache paths, or
+  // worker planning so an AST-off Story has literally no AST side effect.
+  if (workflow?.resolution?.intelligence?.ast === 'off') {
+    return {
+      workId: workflow.workItem.id,
+      mode: policy.warmOnStoryStart.mode,
+      scope: policy.warmOnStoryStart.scope,
+      options: null,
+      repositoryRevision: null,
+      enabled: false,
+      disabledReason: 'workflow-ast-off'
+    };
+  }
   const effective = await effectiveAstMode(policy);
   const selected = warmScope(definition, workflow, policy.warmOnStoryStart.scope);
   return {

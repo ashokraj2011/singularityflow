@@ -1094,6 +1094,49 @@ From a clean clone, update the tracked branch, create the distribution tarball, 
 
 `npm run install:local` is an alias for the same script.
 
+Every source-install mode requires Node.js 20 or newer. Use the narrowest surface that you need:
+
+```bash
+# Rebuild this exact clean checkout; do not fetch or pull.
+./install.sh --no-update
+
+# Install the CLI and VS Code extension without requiring or changing standalone Copilot assets.
+./install.sh --skip-copilot
+
+# Build, install, and verify only the VS Code extension.
+./install.sh --vscode-only
+
+# Install only the global CLI.
+./install.sh --cli-only
+
+# Resume an interrupted activation from the exact already-staged tarball and VSIX.
+./install.sh --from-staged-artifacts
+```
+
+`--vscode-only` requires the `code` command and does not install the global CLI, Copilot plugin or
+skills, telemetry helper, or workspace configuration. It is mutually exclusive with `--cli-only`,
+`--skip-vscode`, and `--skip-copilot`. `--no-update` still requires a clean Git checkout; it only
+suppresses network update of that checkout. `--skip-copilot` leaves existing standalone Copilot
+assets untouched while retaining the CLI and VSIX installation.
+
+The VSIX contains its own engine for extension features, but the portable Playwright MCP host entry
+uses the global `singularity-flow` launcher. On a blank machine that needs managed MCP, use
+`--skip-copilot` (CLI + VSIX) rather than `--vscode-only`; the latter deliberately does not install
+an MCP host launcher.
+
+`--from-staged-artifacts` is emitted automatically when product activation is interrupted. It is a
+standalone recovery mode: it reloads the machine-local activation journal, verifies the recorded
+checkout, installer, validator, content-addressed retained artifact paths, package identities,
+versions, and SHA-256 digests, and then retries only activation. The validated tarball and VSIX are
+retained under `~/.singularity-flow/installations/versions/sha256/<digest>/`, so recovery does not
+depend on mutable checkout archives. Activation is protected by a process-owned lease and
+operation/revision compare-and-swap journal updates. Recovery also rebuilds its isolated CLI prefix
+from the retained tarball before executing it; a prior mutable cache is never reused. It never pulls Git, installs source dependencies, runs tests,
+rebuilds, or repackages, and it ignores registry/mode environment overrides. If the original install
+requested workspace configuration refresh, recovery leaves that separate Git operation explicitly
+pending and prints its command. Successful activation does not delete the retained version set;
+the deliberate machine reset boundary removes the installation store.
+
 The VSCE packaging toolchain is installed once and cached, content-addressed by its pins, the npm
 registry, and the Node major, under `~/.singularity-flow/toolchains/vsce/`. Every later install
 verifies the cached tree against the pin table and reuses it — the step that used to re-download
@@ -1222,21 +1265,43 @@ attachment, model, or tool-policy flags.
 The single self-contained `install.sh` performs:
 
 ```text
-git pull --ff-only
+validate Node.js 20+ and the clean checkout
+git pull --ff-only (unless --no-update)
 choose configured, public, or custom npm registry
 npm ci --registry=<selected-registry>
+npm run check
 npm run vscode:build
 npm test
-npm run check
 npm pack --json
-npm uninstall --global singularity-flow
-npm install --global <generated-tarball> --registry=<selected-registry>
 npm run vscode:package
+retain and verify candidate and prior exact artifacts
 code --install-extension <generated-vsix> --force
-singularity-flow plugin install
+code --list-extensions --show-versions
+<private-candidate-cli> plugin install
 configure metadata-only Copilot OpenTelemetry
-install missing packaged workflows in the clean active workspace repository
+npm install --global <retained-tarball> --registry=<selected-registry>
+singularity-flow --version
+commit the installation receipt
+refresh approved configuration in registered workspace repositories
 ```
+
+The CLI is replaced directly; it is not uninstalled first, so a failed npm replacement does not
+deliberately remove the working command. All requested artifacts are built, validated, and copied
+into a content-addressed machine-local version store before activation. The retained tarball is
+installed and executed from a digest-addressed private prefix before any product mutation. Activation
+then replaces and verifies the VSIX, Copilot plugin, and telemetry files before replacing and verifying
+the globally callable CLI last. The installation receipt is the transaction commit point; workspace
+configuration refresh remains a separate Git operation after activation.
+
+The schema-v5 activation journal binds exact candidate and prior CLI/VSIX artifacts, byte-for-byte
+snapshots of touched configuration files, completed/skipped surface states, and a compare-and-swap
+revision. Any failure or handled signal before the commit point compensates in reverse dependency order
+and verifies restoration of every touched surface. A successful rollback records `rolled-back` and
+prints the exact `--from-staged-artifacts` retry command. An interrupted recovery completes rollback
+before retrying the same verified candidate. If any restoration cannot be verified, the journal records
+`rollback-failed`, blocks a new activation, and directs the operator to that journal instead of claiming
+success or guessing from version labels. Post-install PATH or version mismatches use this same recovery
+path and cannot leave an unexplained `activating` record.
 
 The script refuses a checkout with uncommitted changes and never resets, rebases, or force-pushes. It keeps the generated `singularity-flow-<version>.tgz` in the repository root for distribution and prints the installed CLI and Copilot plugin versions. Fully exit any running Copilot CLI process, then open a new terminal and start Copilot from the repository after installation; environment variables cannot be injected into a process that was already running.
 
@@ -1284,7 +1349,8 @@ The bundled profiles are:
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 | Benchmark A — governed intelligence | intake → design → implementation → testing → conformance |
 | Benchmark B — generic context | intake → design → implementation → testing → conformance |
-| POC workflow | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
+| POC workflow — enterprise Playwright | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
+| POC Lite | PLAN → ACT → VERIFY → FINALIZE |
 
 The two benchmark profiles are paired controls. They use the same five phases, artifact templates,
 default agents, write scopes, approvals, and rejection routes. Benchmark A requires a published
@@ -1306,7 +1372,11 @@ singularity-flow start ENG-142 --title "Add invoice export" --from-branch main -
 singularity-flow resume ENG-142 --fetch
 ```
 
-Every new Story first requires an explicit branch published by every required repository; no branch is preselected, even when only one is available. With no source flags, `start` then asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, `benchmarking-a`, `benchmarking-b`, `poc-workflow`, or another configured work type). The POC workflow requires a hash-bound Playwright host attestation and live browser smoke receipt, governed accessibility/runtime/visual evidence, real TypeScript and Playwright execution, at most two kernel-enforced human-authorized repair generations, and separate quality and engineering decisions at publication. The kernel restricts its generation and repair phases to recognized test-automation paths, so an instruction cannot authorize product-source edits. It never runs an autonomous healing loop or writes the selected base branch. Its phases use separate least-privilege analyst, explorer, test-developer, and validator agents. The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
+Every new Story first requires an explicit branch published by every required repository; no branch is preselected, even when only one is available. With no source flags, `start` then asks whether intake comes from a Jira story or a manual description and documents. Manual mode asks for the title, audience, problem, outcome, acceptance criteria, and supporting file paths or HTTPS URLs. After source intake is complete, `start` asks for a workflow template (`feature`, `bugfix`, `chore`, `figma-mobile`, `benchmarking-a`, `benchmarking-b`, `poc-lite`, `poc-workflow`, or another configured work type).
+
+`poc-lite` is the repository-native, model-free profile. PLAN records the bounded objective, ACT delivers product and executable test changes, VERIFY records the configured repository checks, and FINALIZE stops for one explicit human quality approval. The profile disables world-model, AST, model, agent-brief, and MCP requirements and imposes no external service dependency; use global `--no-model` when invoking it from the CLI.
+
+`poc-workflow` is the enterprise Playwright profile. It requires a hash-bound Playwright host attestation and live browser smoke receipt, governed accessibility/runtime/visual evidence, real TypeScript and Playwright execution, at most two kernel-enforced human-authorized repair generations, and separate quality and engineering decisions at publication. The kernel restricts its generation and repair phases to recognized test-automation paths, so an instruction cannot authorize product-source edits. It never runs an autonomous healing loop or writes the selected base branch. Its phases use separate least-privilege analyst, explorer, test-developer, and validator agents. The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
 
 The receipt flow is local and auditable: `singularity-flow choices begin start <WORK-ID> --json` returns the live remote-base, YAML-derived intake, and workflow options; Copilot presents them through `ask_user`; and each exact answer is recorded with `singularity-flow choices answer`. Approval receipts bind to the submitted phase, generation, artifact hashes, and exact phase confirmation. The phase agent is recorded as audit context; approval authority is recalculated from the reviewer’s identity and the pinned authority registry.
 
@@ -2263,6 +2333,10 @@ singularity-flow mcp scaffold playwright  # merge-safe, exact package version
 singularity-flow mcp scaffold figma       # remote Figma MCP; add --local for desktop
 singularity-flow mcp status
 singularity-flow mcp doctor
+singularity-flow mcp probe playwright --network
+singularity-flow mcp warm playwright --network
+singularity-flow mcp verify-offline playwright
+singularity-flow mcp auth status playwright
 singularity-flow mcp attest figma --confirm figma
 ```
 
@@ -2333,8 +2407,13 @@ evidence workflow.
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
 | `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names and report static readiness without exposing host secrets or making network calls. |
+| `singularity-flow mcp probe <SERVER> --network` | Check registry or endpoint reachability without installing a package or writing a receipt; unreachable and unsupported transports fail. |
+| `singularity-flow mcp warm <SERVER> --network` | Acquire the exact reviewed package into Git-local machine state and prove its executable starts with npm offline. |
+| `singularity-flow mcp verify-offline <SERVER>` | Renew the exact-package npm-offline start proof without registry or endpoint access; this is not a network sandbox for the server. |
+| `singularity-flow mcp auth import\|status\|remove playwright` | Preview, install, inspect, or remove a digest-bound Playwright storage-state profile in private Git-local machine state without changing tracked host configuration. |
 | `singularity-flow mcp scaffold figma\|playwright [--local] [--replace-server]` | Merge one reviewable, exact-version host entry while preserving unrelated `.vscode/mcp.json` servers. |
 | `singularity-flow mcp attest <SERVER> --confirm <SERVER>` | Record a machine-local statement that the reviewed host entry was trusted, started, and authenticated. |
+| `singularity-flow mcp serve playwright` | Internal stdio host entry: launch only the verified local Playwright package and add any managed auth path in memory. |
 | `singularity-flow mcp record <SERVER> --tool <TOOL> [--kind KIND] [--phase PHASE] [--output PATH]` | Copy and hash a declared MCP result into the active work item; Figma design sources also require file key and version. |
 | `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
 | `singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID>` | Explicitly promote a reviewed candidate, reopen capture, invalidate downstream approvals, and pin it for the next generation. |

@@ -9,9 +9,9 @@ argument-hint: "<INTENT-IR> --policy FILE --registry FILE --storage-profile-sha2
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow workspace current --json`; use `repositoryPath` as cwd. Inputs and distinct outputs must be repository-relative.
+1. If the host explicitly opened a Git repository, run `git rev-parse --show-toplevel` only there. Otherwise run `singularity-flow workspace current --json`. Use the one verified repository path as cwd; refuse when neither resolves. Inputs and distinct outputs must be repository-relative.
 2. Run `singularity-flow intent workflow-guide <INTENT-IR> --registry <FILE> --json`. Show clauses, eligible operations, their `verificationOperationIds`, and eligible verifiers. Stop on refusal or no compatible pair.
 3. Use `ask_user` for the lower-kebab ID, one returned operation and compatible verifier, policy, storage SHA-256, output paths, and optional title, attempts, and output reference. Outputs must be under `singularity/sgos-drafts/<id>/`. Never infer or preselect.
 4. Show the exact command and two uncommitted files; ask for confirmation. Invocation of this skill is not that confirmation.

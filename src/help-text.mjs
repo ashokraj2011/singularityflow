@@ -401,7 +401,14 @@ Usage:
   singularity-flow mcp list|status|doctor [--json]
   singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
   singularity-flow mcp doctor [--server ID] [--network] [--json]
+  singularity-flow mcp probe <SERVER> --network [--json]
   singularity-flow mcp warm <SERVER> --network
+  singularity-flow mcp verify-offline <SERVER> [--json]
+  singularity-flow mcp serve playwright
+  singularity-flow mcp auth status playwright [--json]
+  singularity-flow mcp auth import playwright --storage-state FILE --profile LOWER-KEBAB [--confirm SHA256] [--json]
+  singularity-flow mcp auth remove playwright --profile LOWER-KEBAB --confirm SHA256 [--json]
+  singularity-flow mcp auth clear playwright [--confirm SHA256] [--json]
   singularity-flow mcp attest <SERVER> --confirm <SERVER>
   singularity-flow mcp smoke <SERVER> --url AUTHORIZED-URL [--phase PHASE] [--json]
   singularity-flow mcp record <SERVER> --tool TOOL [--kind tool-call|design-source|visual-artifact]

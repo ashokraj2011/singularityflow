@@ -3927,7 +3927,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         await client.runText(['mcp', 'scaffold', 'playwright']);
         await refreshAfterKnownMutation();
-        void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers.');
+        void vscode.window.showInformationMessage('Playwright MCP host configuration created. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
       } catch (error) {
         const detail = (error as Error).message;
         // A differing entry is not a terminal-only recovery exercise. Keep unrelated MCP servers,
@@ -3946,7 +3946,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         try {
           await client.runText(['mcp', 'scaffold', 'playwright', '--replace-server']);
           await refreshAfterKnownMutation();
-          void vscode.window.showInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers.');
+          void vscode.window.showInformationMessage('Playwright MCP host entry replaced. Review it, then trust and start it through VS Code MCP: List Servers. The managed host requires the global Singularity Flow CLI; VSIX-only installation does not provide that launcher.');
         } catch (replacementError) { return (replacementError as Error).message; }
       }
     } else if (message.action === 'open-mcp-host') {

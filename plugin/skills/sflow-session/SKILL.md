@@ -9,9 +9,9 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-Do not orient with raw Git or scan instructions before step 1; session commands validate the repository. This is a session-setup-only skill, never implementation. Do not load phase skills, read source/artifacts, modify files, or execute lifecycle work. End the turn after reporting.
+This is a session-setup-only skill: before step 1, do not use raw Git, scan instructions, load phase skills, read source/artifacts, modify files, or execute lifecycle work. End after reporting.
 
 1. Run `singularity-flow session status --json`.
 2. If `initialized` is false, explain that Copilot must be opened inside the cloned application repository so its configured Git remote is known. Do not guess a repository URL.

@@ -330,6 +330,19 @@ sflow-wm-minimal --phase poc-validation
 sflow-wm-minimal --phase poc-publication-review
 ```
 
+#### POC Lite
+
+POC Lite normally runs with world-model, AST, model, and MCP context disabled. These commands
+document every phase identifier and remain available for an explicitly requested deterministic,
+zero-token repository inventory:
+
+```bash
+sflow-wm-minimal --phase poc-lite-plan
+sflow-wm-minimal --phase poc-lite-act
+sflow-wm-minimal --phase poc-lite-verify
+sflow-wm-minimal --phase poc-lite-finalize
+```
+
 #### Benchmark A and Benchmark B
 
 Both benchmark workflows use the same phase IDs so their outcomes remain comparable:

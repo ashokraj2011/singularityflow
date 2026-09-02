@@ -24,6 +24,11 @@ Copilot skill runs without its host model.
 Every skill also carries a generated execution boundary. Relative paths resolve
 from the root reported by Flow, Story artifacts remain under
 `singularity/work-items/<WORK-ID>/`, and filesystem-wide discovery is forbidden.
+The closed lattice is `machine` (no repository), `repository` (one explicitly
+opened or workspace-selected checkout), `story` (a ready Work ID and its exact
+repository), and `organisation` (one explicitly selected lead authority).
+Bootstrap, packaged-help, workspace-list, and quickstart skills therefore remain
+usable on a blank machine without weakening the Story boundary for lifecycle work.
 The same boundary declares the kernel-model policy: deterministic CLI work uses
 `--no-model`; only explicitly classified conditional skills may name a
 model-capable operation, and those require contributor consent.

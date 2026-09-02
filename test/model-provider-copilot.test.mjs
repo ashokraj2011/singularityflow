@@ -286,7 +286,7 @@ test('Windows cmd-shim ACP invocation uses the shared launch descriptor, streams
       limits: { timeoutMs: 2000, outputBytes: 64 * 1024 }
     }, {
       platform: 'win32',
-      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe', SystemRoot: 'C:\\Windows' },
       resolvedExecutable: 'C:\\Program Files\\GitHub Copilot\\copilot.cmd',
       spawnImpl
     });
@@ -294,9 +294,9 @@ test('Windows cmd-shim ACP invocation uses the shared launch descriptor, streams
     assert.equal(observed.sha256, createHash('sha256').update(prompt).digest('hex'));
     assert.equal(result.promptProtocolVersion, 1);
     assert.equal(launchCall.command, 'C:\\Windows\\System32\\cmd.exe');
-    assert.deepEqual(launchCall.args.slice(0, 3), ['/d', '/s', '/c']);
-    assert.match(launchCall.args[3], /copilot\.cmd/);
-    assert.match(launchCall.args[3], /--acp/);
+    assert.deepEqual(launchCall.args.slice(0, 4), ['/d', '/s', '/v:off', '/c']);
+    assert.match(launchCall.args[4], /copilot\.cmd/);
+    assert.match(launchCall.args[4], /--acp/);
     assert.doesNotMatch(launchCall.args[3], /private Windows ACP prompt/);
     assert.equal(launchCall.options.shell, false);
     assert.equal(launchCall.options.windowsVerbatimArguments, true);
@@ -315,6 +315,7 @@ test('Windows ACP cleanup fails closed when taskkill cannot prove a live child s
     stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
     kill: () => false
   });
+  const terminationCalls = [];
   try {
     await assert.rejects(() => invokeCopilotCli({
       provider: 'copilot-cli', providerConfig: { executable: 'copilot' }, cwd: root,
@@ -326,12 +327,19 @@ test('Windows ACP cleanup fails closed when taskkill cannot prove a live child s
       limits: { timeoutMs: 10, outputBytes: 1024 }
     }, {
       platform: 'win32', resolvedExecutable: 'C:\\bin\\copilot.cmd',
-      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe', SystemRoot: 'C:\\Windows' },
       spawnImpl: () => child,
-      spawnSyncImpl: () => ({ status: 1, error: new Error('taskkill denied') })
+      spawnSyncImpl: (command, args) => {
+        terminationCalls.push({ command, args });
+        return { status: 1, error: new Error('taskkill denied') };
+      }
     }), (error) => error.code === 'MODEL_PROVIDER_TERMINATION_FAILED'
       && error.details?.softSignalled === false
       && error.details?.forceSignalled === false);
+    assert.equal(terminationCalls.length, 2);
+    assert.ok(terminationCalls.every((call) => call.command === 'C:\\Windows\\System32\\taskkill.exe'));
+    assert.deepEqual(terminationCalls[0].args, ['/PID', '424242', '/T']);
+    assert.deepEqual(terminationCalls[1].args, ['/PID', '424242', '/T', '/F']);
   } finally {
     child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
     await staged.cleanup();
@@ -359,7 +367,7 @@ test('Windows ACP cancellation retains cancellation taxonomy when cleanup cannot
       limits: { timeoutMs: 2000, outputBytes: 1024 }
     }, {
       platform: 'win32', resolvedExecutable: 'C:\\bin\\copilot.cmd',
-      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe', SystemRoot: 'C:\\Windows' },
       spawnImpl: () => child,
       spawnSyncImpl: () => ({ status: 1 })
     }), (error) => error.code === 'MODEL_CANCELLED'

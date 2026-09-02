@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "aeb2c2972c679b67143390fcc94b2d3ed483bea3",
+  "sourceCommit": "b988a8c6bf3751956f1b211d29ca5c09b1c3bdf2",
   "topicCount": 59,
-  "contentSha256": "9ab06c9149152a8f057e301065b6fbaaaf1a425862c21c7905d1c08fddbd0c28",
+  "contentSha256": "873086a79a7c4ea4407ebaac32e4ead1d4beeb67205ec64751452655bb632c62",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -264,8 +264,8 @@
     {
       "id": "mcp-integration",
       "title": "MCP integration",
-      "version": 4,
-      "sha256": "a62a9ae21acfc5d5e2d2c09c0053d5ead8be4da617069808d9c6c6e1c48aeb15",
+      "version": 6,
+      "sha256": "31ea1e9277fed20dc2ab6c2499c4259ef6b939a18a0497ce4b91bef5474f4675",
       "routingSha256": "c84ac0fcbc53adf0f6f791f64254ceec3a4a1ddceb96b7767dcdd5db4aefcb39",
       "file": "mcp-integration.md"
     },
@@ -456,8 +456,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 7,
-      "sha256": "3eb0056be4aad7f965133e65daafce3ed1599467907917b5ac88dcaf8594df4a",
+      "version": 8,
+      "sha256": "a25cc2cff818e100e5ef7ef29676064eb93955835bbcd09df59109f3060084d6",
       "routingSha256": "eeebcb23e63ef32a4067d72ac7d20cfff07d987defa8c563962ffc8f279b3efc",
       "file": "workflow-authoring.md"
     },

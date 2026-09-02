@@ -618,7 +618,7 @@ test('auto skill keeps planning storyless and requires exact human ratification'
   assert.match(content, /^name: sflow-auto$/m);
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /workspace current --json/);
-  assert.match(content, /no active Story is required/);
+  assert.match(content, /no Story required/);
   assert.doesNotMatch(content, /session current --json/);
   assert.match(content, /singularity-flow auto plan/);
   assert.match(content, /singularity-flow auto show-plan/);

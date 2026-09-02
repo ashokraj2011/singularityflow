@@ -577,6 +577,24 @@ workTypes:
     phaseOverrides:
       verify: { inputs: [implement] }
 
+  poc-lite:
+    label: POC Lite — local governed change
+    description: A model-free four-checkpoint demonstration with repository-native validation and one explicit human finish decision; it imposes no MCP, tracker, or hosted-service dependency.
+    phases: [poc-lite-plan, poc-lite-act, poc-lite-verify, poc-lite-finalize]
+    plannedClaims:
+      mode: opt-out
+      reason: This deliberately small demonstration records a bounded plan but does not establish a specification-clause contract.
+    intelligence: { worldModel: off, ast: off, agentBriefs: off }
+    templateOverrides:
+      poc-lite-plan: poc-lite/plan.md
+      poc-lite-act: poc-lite/act.md
+      poc-lite-verify: poc-lite/verify.md
+      poc-lite-finalize: poc-lite/finalize.md
+    phaseOverrides:
+      poc-lite-act: { inputs: [poc-lite-plan] }
+      poc-lite-verify: { inputs: [poc-lite-plan, poc-lite-act] }
+      poc-lite-finalize: { inputs: [poc-lite-plan, poc-lite-act, poc-lite-verify] }
+
   benchmarking-a:
     label: Benchmark A — governed intelligence
     description: Requires governed world-model, bounded AST, and approval-bound agent-brief context.
@@ -647,7 +665,8 @@ workTypes:
         approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [design, implementation, testing, conformance] }
 
   poc-workflow:
-    label: POC workflow
+    label: POC workflow — enterprise Playwright
+    description: The existing enterprise browser-regression profile with governed Playwright MCP evidence and independent publication review.
     # A governed UI-regression proof of concept: understand the requested target, calculate the
     # change footprint, observe the live UI, author repository-native Playwright tests, validate
     # them with bounded repair, and stop at a human publication decision. The selected remote base
@@ -1008,6 +1027,64 @@ phases:
     writeScope: artifact-only
     generation: { task: summarize }
     approval: { authorities: [quality-reviewers, engineering-reviewers], requiredAuthorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation, poc-publication-review] }
+
+  # POC Lite is the first proof, not a second lifecycle engine. All four checkpoints use the
+  # ordinary phase machinery, deterministic artifacts, the repository's own executable tests,
+  # and one final human decision. It has no MCP, external tracker, model, or World Model dependency.
+  poc-lite-plan:
+    label: PLAN — bound the local change
+    defaultTemplate: poc-lite/plan.md
+    artifact:
+      path: artifacts/poc-lite-plan/plan.md
+      kind: delivery-plan
+      minimumBytes: 200
+      validation: { requiredHeadings: [Work item, Changed paths, Configured checks, Specification claims] }
+    generation: { requirement: required, producer: deterministic, task: reason }
+    worldModel: { views: [] }
+    writeScope: artifact-only
+    approval: none
+  poc-lite-act:
+    label: ACT — make the bounded change
+    defaultTemplate: poc-lite/act.md
+    artifact:
+      path: artifacts/poc-lite-act/implementation-summary.md
+      kind: implementation-summary
+      minimumBytes: 200
+      validation: { requiredHeadings: [Work item, Changed paths, Configured checks, Specification claims] }
+    generation: { requirement: required, producer: deterministic, task: code }
+    worldModel: { views: [] }
+    writeScope: source-and-artifact
+    approval: none
+    # Code-delivery publication adds the repository-native executable test command inferred from
+    # the changed module. This deterministic whitespace check is additive, not a substitute.
+    qualityCommands:
+      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+  poc-lite-verify:
+    label: VERIFY — run repository checks
+    defaultTemplate: poc-lite/verify.md
+    artifact:
+      path: artifacts/poc-lite-verify/verification.md
+      kind: test-evidence
+      minimumBytes: 200
+      validation: { requiredHeadings: [Work item, Changed paths, Configured checks, Specification claims] }
+    generation: { requirement: required, producer: deterministic, task: analyze }
+    worldModel: { views: [] }
+    writeScope: artifact-only
+    approval: none
+    qualityCommands:
+      - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
+  poc-lite-finalize:
+    label: FINALIZE — human finish decision
+    defaultTemplate: poc-lite/finalize.md
+    artifact:
+      path: artifacts/poc-lite-finalize/finalize.md
+      kind: publication-review
+      minimumBytes: 200
+      validation: { requiredHeadings: [Work item, Changed paths, Configured checks, Specification claims] }
+    generation: { requirement: required, producer: deterministic, task: summarize }
+    worldModel: { views: [] }
+    writeScope: artifact-only
+    approval: { authorities: [quality-reviewers], requiredAuthorities: [quality-reviewers], minimum: 1, rejectTo: [poc-lite-plan, poc-lite-act, poc-lite-verify, poc-lite-finalize] }
 
   # ---------------------------------------------------------------------------------------------
   # Spec-driven phases. Ordinary phases in every respect: they use the same generation, input,

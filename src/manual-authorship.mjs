@@ -66,15 +66,31 @@ function defaultChannel(producer, imported) {
 }
 
 /** The exact producer/channel pair pinned by a phase's generation contract. */
-export function phasePublicationAuthorship(phase) {
-  const producer = phase?.generationPolicy?.defaultProducer ?? 'governed-agent';
-  return Object.freeze({ producer, channel: defaultChannel(producer, false) });
+export function phasePublicationAuthorship(phase, { producer = null, imported = false } = {}) {
+  const selected = producer ?? phase?.generationPolicy?.defaultProducer ?? 'governed-agent';
+  return Object.freeze({ producer: selected, channel: defaultChannel(selected, imported) });
 }
 
 /** One canonical command prevents CLI guidance, recovery, and Copilot skills from drifting. */
 export function phasePublicationCommand(phase, executable = 'singularity-flow') {
   const { producer, channel } = phasePublicationAuthorship(phase);
   return `${executable} phase publish ${phase?.id ?? '<phase>'} --authored ${producer} --channel ${channel}`;
+}
+
+/** Build a deliberate alternate route only when the phase contract actually permits it. */
+export function phasePublicationCommandForProducer(phase, producer, {
+  executable = 'singularity-flow', source = null, noModel = false
+} = {}) {
+  assertProducerAllowed(phase, producer);
+  const { channel } = phasePublicationAuthorship(phase, {
+    producer, imported: source != null
+  });
+  return [
+    executable, 'phase', 'publish', phase?.id ?? '<phase>', '--authored', producer,
+    '--channel', channel,
+    ...(source == null ? [] : ['--from', source]),
+    ...(noModel ? ['--no-model'] : [])
+  ].join(' ');
 }
 
 function defaultChangeOrigins(producer) {

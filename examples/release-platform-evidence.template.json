@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "REPLACE_WITH_CANONICAL_UTC_TIMESTAMP",
+  "reviewerIdentity": "REPLACE_WITH_RECEIPT_SIGNER_IDENTITY",
+  "platform": "darwin",
+  "nodeVersion": "REPLACE_WITH_EXACT_NODE_VERSION",
+  "commit": "REPLACE_WITH_EXACT_GIT_COMMIT",
+  "tree": "REPLACE_WITH_EXACT_GIT_TREE",
+  "packageSha256": "sha256:REPLACE_WITH_EXACT_NPM_TARBALL_SHA256",
+  "vsixSha256": "sha256:REPLACE_WITH_EXACT_VSIX_SHA256",
+  "checks": {
+    "installedVsixActivation": {
+      "outcome": "passed",
+      "evidenceSha256": "sha256:REPLACE_WITH_RETAINED_EVIDENCE_SHA256"
+    },
+    "stagedInstallerRecovery": {
+      "outcome": "passed",
+      "evidenceSha256": "sha256:REPLACE_WITH_RETAINED_EVIDENCE_SHA256"
+    },
+    "windowsNpmNpxRoundTrip": {
+      "outcome": "not-applicable",
+      "evidenceSha256": null,
+      "reasonCode": "non-windows-platform"
+    },
+    "exactPackageLocalStart": {
+      "outcome": "passed",
+      "evidenceSha256": "sha256:REPLACE_WITH_RETAINED_EVIDENCE_SHA256",
+      "networkIsolationMechanism": "REPLACE_WITH_LOWER_KEBAB_NETWORK_DENY_MECHANISM",
+      "packageName": "@playwright/mcp",
+      "packageVersion": "0.0.79",
+      "packageClosureSha256": "sha256:REPLACE_WITH_WARMED_PACKAGE_CLOSURE_SHA256"
+    },
+    "authenticatedPlaywrightSmoke": {
+      "outcome": "passed",
+      "evidenceSha256": "sha256:REPLACE_WITH_RETAINED_EVIDENCE_SHA256",
+      "authenticationMechanism": "REPLACE_WITH_LOWER_KEBAB_AUTH_MECHANISM",
+      "authenticationProfileSha256": "sha256:REPLACE_WITH_PRIVATE_PROFILE_SHA256"
+    }
+  }
+}

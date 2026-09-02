@@ -8,6 +8,7 @@ import { loadDefinition } from '../config.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { canonicalJson } from '../records.mjs';
 import { SingularityFlowError, nowIso } from '../util.mjs';
+import { tryWindowsTaskkill } from '../platform-process.mjs';
 import { MAXIMUM_AGENT_PROPOSAL_OUTPUT_BYTES, sha256 } from './contracts.mjs';
 
 const ID = /^[a-z][a-z0-9-]{1,63}$/;
@@ -585,20 +586,19 @@ export function createGenericProcessExecutionUnit(manifest, {
       const terminate = () => {
         if (child.exitCode !== null || child.signalCode !== null) return;
         if (process.platform === 'win32' && child.pid) {
-          const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], {
-            stdio: 'ignore', windowsHide: true, timeout: 5_000
-          });
-          if (killed.status !== 0) child.kill('SIGTERM');
+          if (!tryWindowsTaskkill(child.pid, {
+            environment: process.env, spawnSyncCommand: spawnSync, timeoutMs: 5_000
+          })) child.kill('SIGTERM');
         } else {
           try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
         }
         forceTimer ??= setTimeout(() => {
           if (child.exitCode !== null || child.signalCode !== null) return;
           if (process.platform === 'win32' && child.pid) {
-            const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
-              stdio: 'ignore', windowsHide: true, timeout: 5_000
-            });
-            if (killed.status !== 0) child.kill('SIGKILL');
+            if (!tryWindowsTaskkill(child.pid, {
+              force: true, environment: process.env, spawnSyncCommand: spawnSync,
+              timeoutMs: 5_000
+            })) child.kill('SIGKILL');
           } else {
             try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
           }

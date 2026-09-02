@@ -27,6 +27,7 @@ const SHIPPED_STORY_CONTRACTS = Object.freeze({
     mode: 'required', clausePhases: ['mobile-spec'], owners: { implementation: 'mobile-spec' }
   },
   'quick-fix': { mode: 'opt-out' },
+  'poc-lite': { mode: 'opt-out' },
   'benchmarking-a': {
     mode: 'required', clausePhases: ['intake'], owners: { implementation: 'design' }
   },
@@ -105,6 +106,7 @@ test('workflow catalog validation reports the complete bundle and one requested 
   assert.deepEqual(report.workflows.map((entry) => entry.id), Object.keys(SHIPPED_STORY_CONTRACTS));
   assert.ok(report.workflows.every((entry) => entry.status !== 'legacy-compatibility'));
   assert.equal(report.workflows.find((entry) => entry.id === 'quick-fix').status, 'explicit-opt-out');
+  assert.equal(report.workflows.find((entry) => entry.id === 'poc-lite').status, 'explicit-opt-out');
   assert.equal(report.workflows.find((entry) => entry.id === 'chore').status, 'not-applicable');
   assert.ok(report.workflows.filter((entry) => entry.status === 'protected').length === 7);
 
@@ -112,7 +114,7 @@ test('workflow catalog validation reports the complete bundle and one requested 
   assert.equal(one.valid, true);
   assert.deepEqual(one.workflows, [{
     id: 'poc-workflow',
-    label: 'POC workflow',
+    label: 'POC workflow — enterprise Playwright',
     status: 'protected',
     clausePhases: ['poc-intake'],
     owners: { 'poc-test-generation': 'poc-ui-exploration' },

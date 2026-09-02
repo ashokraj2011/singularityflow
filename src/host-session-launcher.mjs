@@ -5,6 +5,7 @@ import {
   prepareTelemetryLaunch,
   recordTelemetryLaunch
 } from './telemetry-provision.mjs';
+import { resolvePlatformProcess } from './platform-process.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 // Interactive host sessions are intentionally separate from bounded kernel model calls.
@@ -28,7 +29,6 @@ export async function launchHostSession({
     }
   };
   if (dryRun) return launch;
-  const command = process.platform === 'win32' ? 'copilot.cmd' : 'copilot';
   const recordLaunch = execution?.recordTelemetryLaunch ?? recordTelemetryLaunch;
   const spawnHost = execution?.spawnSync ?? spawnSync;
   let launchEnvironment = telemetry.env;
@@ -52,7 +52,22 @@ export async function launchHostSession({
       console.warn(`Telemetry warning: ${notice}`);
     }
   }
-  const result = spawnHost(command, args, { cwd, env: launchEnvironment, stdio: 'inherit', shell: false });
+  let processLaunch;
+  try {
+    processLaunch = resolvePlatformProcess('copilot', args, {
+      platform: execution?.platform ?? process.platform,
+      environment: launchEnvironment,
+      spawnSyncCommand: execution?.platformLookup ?? spawnSync,
+      cwd
+    });
+  } catch (error) {
+    throw new SingularityFlowError(`Unable to resolve GitHub Copilot: ${error.message}`, {
+      code: 'MODEL_PROVIDER_UNAVAILABLE', cause: error
+    });
+  }
+  const result = spawnHost(processLaunch.executable, processLaunch.arguments, {
+    cwd, env: launchEnvironment, stdio: 'inherit', ...processLaunch.spawnOptions
+  });
   if (attributionRecorded) {
     await recordLaunch(telemetry, {
       state: 'finished', exitCode: result.status, signal: result.signal,

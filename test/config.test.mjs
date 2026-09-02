@@ -177,6 +177,7 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
     'bugfix/implementation',
     'feature/implementation',
     'figma-mobile/implementation',
+    'poc-lite/poc-lite-act',
     'poc-workflow/poc-test-generation',
     'quick-fix/implement',
     'spec-driven-standard/implementation'
@@ -196,7 +197,7 @@ test('every shipped Story workflow phase renders a contract-consistent guarded a
   const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
   validateDefinition(example);
   const matrices = [
-    { name: 'starter', definition: starter, expectedProfiles: 9, expectedPhases: 49 },
+    { name: 'starter', definition: starter, expectedProfiles: 10, expectedPhases: 53 },
     { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
   ];
 

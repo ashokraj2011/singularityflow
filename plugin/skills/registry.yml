@@ -82,102 +82,105 @@ classes:
 
 # Every public skill is deliberately classified. All classes share the same body
 # budget so catalog growth cannot hide behind per-skill exceptions. A skill defaults
-# to the active Story boundary; storyless entry points must explicitly declare
-# executionBoundary: workspace (or organisation for cross-repository diagnostics).
+# to the active Story boundary. Entry points that can run before Story selection must declare the
+# narrowest honest boundary: machine for installed-product and workspace-registry operations,
+# repository for one explicitly opened/selected checkout, or organisation for a selected lead
+# authority. A broader boundary may narrow through verified CLI output, but may never discover a
+# repository by searching a home or parent directory.
 skills:
-  sflow-about: { class: echo }
-  sflow-adhoc: { class: interactive, executionBoundary: workspace }
-  sflow-advise: { class: conversational }
+  sflow-about: { class: echo, executionBoundary: machine }
+  sflow-adhoc: { class: interactive, executionBoundary: repository }
+  sflow-advise: { class: conversational, executionBoundary: machine }
   sflow-agent: { class: interactive }
-  sflow-agents: { class: echo }
-  sflow-admin: { class: conversational }
+  sflow-agents: { class: echo, executionBoundary: repository }
+  sflow-admin: { class: conversational, executionBoundary: repository }
   sflow-approvals: { class: echo }
   sflow-approve: { class: review }
   sflow-assign: { class: mutation }
-  sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: workspace }
+  sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-cancel: { class: mutation }
-  sflow-capabilities: { class: echo }
+  sflow-capabilities: { class: echo, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
-  sflow-capability-map: { class: interactive }
+  sflow-capability-map: { class: interactive, executionBoundary: organisation }
   sflow-code: { class: generative }
   sflow-continue: { class: mutation }
-  sflow-configuration: { class: mutation }
-  sflow-constitution: { class: mutation }
+  sflow-configuration: { class: mutation, executionBoundary: repository }
+  sflow-constitution: { class: mutation, executionBoundary: repository }
   sflow-design: { class: generative }
-  sflow-docs: { class: echo }
+  sflow-docs: { class: echo, executionBoundary: machine }
   sflow-specify: { class: echo }
   sflow-plan: { class: echo }
   sflow-converge: { class: echo }
-  sflow-doctor: { class: echo }
+  sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-documents: { class: mutation }
-  sflow-epic-complete: { class: review }
-  sflow-epic-drift: { class: mutation }
-  sflow-epic-journey: { class: echo }
-  sflow-epic-merge-plan: { class: echo }
-  sflow-epic-next: { class: echo }
-  sflow-epic-planning: { class: generative }
-  sflow-epic-publish: { class: review }
-  sflow-epic-requirements: { class: generative }
-  sflow-epic-resume: { class: interactive }
-  sflow-epic-review: { class: review }
-  sflow-epic-review-decision: { class: review }
-  sflow-epic-sources: { class: mutation }
-  sflow-epic-start: { class: interactive }
-  sflow-epic-status: { class: echo }
-  sflow-epic-stories: { class: echo }
-  sflow-epic-story-draft: { class: generative }
-  sflow-epic-sync: { class: mutation }
-  sflow-factory-reset: { class: mutation }
+  sflow-epic-complete: { class: review, executionBoundary: repository }
+  sflow-epic-drift: { class: mutation, executionBoundary: repository }
+  sflow-epic-journey: { class: echo, executionBoundary: repository }
+  sflow-epic-merge-plan: { class: echo, executionBoundary: repository }
+  sflow-epic-next: { class: echo, executionBoundary: repository }
+  sflow-epic-planning: { class: generative, executionBoundary: repository }
+  sflow-epic-publish: { class: review, executionBoundary: repository }
+  sflow-epic-requirements: { class: generative, executionBoundary: repository }
+  sflow-epic-resume: { class: interactive, executionBoundary: repository }
+  sflow-epic-review: { class: review, executionBoundary: repository }
+  sflow-epic-review-decision: { class: review, executionBoundary: repository }
+  sflow-epic-sources: { class: mutation, executionBoundary: repository }
+  sflow-epic-start: { class: interactive, executionBoundary: repository }
+  sflow-epic-status: { class: echo, executionBoundary: repository }
+  sflow-epic-stories: { class: echo, executionBoundary: repository }
+  sflow-epic-story-draft: { class: generative, executionBoundary: repository }
+  sflow-epic-sync: { class: mutation, executionBoundary: repository }
+  sflow-factory-reset: { class: mutation, executionBoundary: repository }
   sflow-fault: { class: mutation }
-  sflow-fresh-install: { class: mutation }
-  sflow-local-reset: { class: mutation }
-  sflow-reinstall: { class: mutation }
+  sflow-fresh-install: { class: mutation, executionBoundary: machine }
+  sflow-local-reset: { class: mutation, executionBoundary: machine }
+  sflow-reinstall: { class: mutation, executionBoundary: machine }
   sflow-finalize: { class: mutation }
   sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }
-  sflow-goal: { class: interactive }
-  sflow-journal: { class: interactive }
-  sflow-harness: { class: echo }
-  sflow-help: { class: conversational }
-  sflow-home: { class: guided }
+  sflow-goal: { class: interactive, executionBoundary: machine }
+  sflow-journal: { class: interactive, executionBoundary: machine }
+  sflow-harness: { class: echo, executionBoundary: repository }
+  sflow-help: { class: conversational, executionBoundary: machine }
+  sflow-home: { class: guided, executionBoundary: machine }
   sflow-hook: { class: mutation }
   sflow-implement: { class: generative }
   sflow-inbox: { class: echo }
-  sflow-init: { class: mutation }
+  sflow-init: { class: mutation, executionBoundary: repository }
   sflow-impact: { class: mutation }
   sflow-inspect: { class: conversational }
-  sflow-initiative-approve: { class: review }
-  sflow-initiative-checklist: { class: echo }
-  sflow-initiative-documents: { class: echo }
-  sflow-initiative-evidence: { class: mutation }
-  sflow-initiative-materialize: { class: mutation }
-  sflow-initiative-next: { class: echo }
-  sflow-initiative-phase: { class: generative, kernelModelPolicy: conditional }
-  sflow-initiative-start: { class: interactive }
-  sflow-initiative-status: { class: echo }
+  sflow-initiative-approve: { class: review, executionBoundary: repository }
+  sflow-initiative-checklist: { class: echo, executionBoundary: repository }
+  sflow-initiative-documents: { class: echo, executionBoundary: repository }
+  sflow-initiative-evidence: { class: mutation, executionBoundary: repository }
+  sflow-initiative-materialize: { class: mutation, executionBoundary: repository }
+  sflow-initiative-next: { class: echo, executionBoundary: repository }
+  sflow-initiative-phase: { class: generative, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-initiative-start: { class: interactive, executionBoundary: repository }
+  sflow-initiative-status: { class: echo, executionBoundary: repository }
   sflow-inputs: { class: echo }
-  sflow-jira-assigned: { class: echo }
-  sflow-jira-board: { class: echo }
-  sflow-jira-doctor: { class: echo }
-  sflow-jira-initiative: { class: interactive }
-  sflow-jira-status: { class: echo }
-  sflow-jira-story: { class: echo }
-  sflow-jira-update: { class: mutation }
-  sflow-jira-work: { class: echo }
-  sflow-knowledge: { class: mutation }
-  sflow-ledger: { class: mutation }
-  sflow-logs: { class: echo }
-  sflow-mcp: { class: mutation }
+  sflow-jira-assigned: { class: echo, executionBoundary: repository }
+  sflow-jira-board: { class: echo, executionBoundary: repository }
+  sflow-jira-doctor: { class: echo, executionBoundary: repository }
+  sflow-jira-initiative: { class: interactive, executionBoundary: repository }
+  sflow-jira-status: { class: echo, executionBoundary: repository }
+  sflow-jira-story: { class: echo, executionBoundary: repository }
+  sflow-jira-update: { class: mutation, executionBoundary: repository }
+  sflow-jira-work: { class: echo, executionBoundary: repository }
+  sflow-knowledge: { class: mutation, executionBoundary: repository }
+  sflow-ledger: { class: mutation, executionBoundary: repository }
+  sflow-logs: { class: echo, executionBoundary: repository }
+  sflow-mcp: { class: mutation, executionBoundary: repository }
   sflow-next: { class: mutation, kernelModelPolicy: conditional }
   sflow-nextsteps: { class: conversational }
   sflow-phase: { class: generative }
-  sflow-plugin: { class: mutation }
+  sflow-plugin: { class: mutation, executionBoundary: machine }
   sflow-pr: { class: mutation }
   sflow-progress: { class: echo }
-  sflow-push: { class: mutation }
-  sflow-prompt-log: { class: mutation }
-  sflow-quickstart: { class: echo }
-  sflow-recommend: { class: conversational }
+  sflow-push: { class: mutation, executionBoundary: machine }
+  sflow-prompt-log: { class: mutation, executionBoundary: repository }
+  sflow-quickstart: { class: echo, executionBoundary: machine }
+  sflow-recommend: { class: conversational, executionBoundary: machine }
   sflow-receipt: { class: echo }
   sflow-refresh-branch: { class: mutation }
   sflow-regression-investigate: { class: generative }
@@ -186,38 +189,38 @@ skills:
   sflow-release: { class: generative }
   sflow-report: { class: echo }
   sflow-requirements: { class: generative }
-  sflow-reset-all: { class: mutation }
-  sflow-resume: { class: interactive }
-  sflow-return: { class: interactive }
+  sflow-reset-all: { class: mutation, executionBoundary: repository }
+  sflow-resume: { class: interactive, executionBoundary: repository }
+  sflow-return: { class: interactive, executionBoundary: repository }
   sflow-review: { class: review }
   sflow-run: { class: mutation, kernelModelPolicy: conditional }
-  sflow-secrets: { class: mutation }
-  sflow-sgos-create: { class: interactive, executionBoundary: workspace }
-  sflow-session: { class: interactive }
+  sflow-secrets: { class: mutation, executionBoundary: repository }
+  sflow-sgos-create: { class: interactive, executionBoundary: repository }
+  sflow-session: { class: interactive, executionBoundary: repository }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-snapshot: { class: echo }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation }
-  sflow-start: { class: interactive, executionBoundary: workspace }
+  sflow-start: { class: interactive, executionBoundary: repository }
   sflow-status: { class: conversational }
-  sflow-story-branch: { class: interactive }
+  sflow-story-branch: { class: interactive, executionBoundary: repository }
   sflow-story-checks: { class: mutation }
-  sflow-story-fetch: { class: interactive }
-  sflow-story-inbox: { class: echo }
+  sflow-story-fetch: { class: interactive, executionBoundary: repository }
+  sflow-story-inbox: { class: echo, executionBoundary: repository }
   sflow-work-interval: { class: mutation }
-  sflow-story-start: { class: interactive, kernelModelPolicy: conditional }
+  sflow-story-start: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-submit: { class: review }
-  sflow-telemetry: { class: echo }
+  sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: mutation }
   sflow-verify: { class: generative }
   sflow-visual: { class: mutation }
   sflow-watch: { class: echo }
-  sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional }
-  sflow-workflows: { class: mutation }
-  sflow-workspace: { class: interactive, kernelModelPolicy: conditional }
-  sflow-workspace-bootstrap: { class: interactive }
-  sflow-workspace-impact: { class: generative, kernelModelPolicy: conditional }
-  sflow-workspace-session: { class: interactive }
-  sflow-workspaces: { class: echo }
-  sflow-worldmodel: { class: interactive, kernelModelPolicy: conditional }
+  sflow-workflow-rules: { class: conversational, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-workflows: { class: mutation, executionBoundary: repository }
+  sflow-workspace: { class: interactive, kernelModelPolicy: conditional, executionBoundary: machine }
+  sflow-workspace-bootstrap: { class: interactive, executionBoundary: machine }
+  sflow-workspace-impact: { class: generative, kernelModelPolicy: conditional, executionBoundary: repository }
+  sflow-workspace-session: { class: interactive, executionBoundary: machine }
+  sflow-workspaces: { class: echo, executionBoundary: machine }
+  sflow-worldmodel: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }

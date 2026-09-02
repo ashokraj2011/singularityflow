@@ -646,6 +646,36 @@ function actionPlanV1ToV2(source) {
   };
 }
 
+function mcpHostReceiptV1ToV2(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 2,
+    receiptKind: source.confirmedAt ? 'host-attestation' : 'legacy-network-probe'
+  };
+}
+
+function mcpHostReceiptV2ToV3(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 3,
+    authProfile: source.authProfile ?? null
+  };
+}
+
+function mcpHostReceiptV3ToV4(source) {
+  // Earlier package-warm receipts bound only the package lock and entry script. They deliberately
+  // remain without a closure digest so readiness treats them as stale and re-verifies locally.
+  return { ...clone(source), schemaVersion: 4 };
+}
+
+function mcpObservationReceiptV1ToV2(source) {
+  return {
+    ...clone(source),
+    schemaVersion: 2,
+    authProfile: source.authProfile ?? null
+  };
+}
+
 function mcpEvidenceV1ToV2(source) {
   return {
     ...source,
@@ -1496,7 +1526,18 @@ const families = [
   family({ id: 'jira-drift-observation', currentVersion: 1, immutable: true }),
   family({ id: 'ledger-deployment-report', currentVersion: 1, immutable: true }),
   family({ id: 'local-identity-reservation', currentVersion: 1, paths: [/^singularity\/identity-reservations\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'mcp-host-receipt', currentVersion: 1, paths: [/^\$git\/mcp\/(?:cache|receipts)\/[^/]+\.json$/] }),
+  family({
+    id: 'mcp-auth-profile', currentVersion: 1,
+    paths: [/^\$git\/mcp\/auth\/playwright\/active\.json$/]
+  }),
+  family({
+    id: 'mcp-host-receipt', currentVersion: 4,
+    steps: [
+      migration(1, 2, mcpHostReceiptV1ToV2), migration(2, 3, mcpHostReceiptV2ToV3),
+      migration(3, 4, mcpHostReceiptV3ToV4)
+    ],
+    paths: [/^\$git\/mcp\/(?:cache|readiness|receipts)\/[^/]+\.json$/]
+  }),
   family({
     id: 'model-invocation-audit', currentVersion: 5,
     steps: [
@@ -1636,7 +1677,10 @@ const families = [
   }),
   family({ id: 'impact-evidence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/impact\/evidence\/[^/]+\.json$/], immutable: true }),
   family({ id: 'jira-write-receipt', currentVersion: 1, immutable: true }),
-  family({ id: 'mcp-observation-receipt', currentVersion: 1, immutable: true }),
+  family({
+    id: 'mcp-observation-receipt', currentVersion: 2, immutable: true,
+    steps: [migration(1, 2, mcpObservationReceiptV1ToV2)]
+  }),
   family({
     id: 'phase-approval', currentVersion: 2,
     steps: [migration(1, 2, phaseApprovalV1ToV2)],

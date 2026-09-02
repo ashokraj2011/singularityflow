@@ -9,7 +9,7 @@ argument-hint: "[doctor|configuration|workspace|agents|jira|state|recovery]"
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow doctor --json` and `singularity-flow state planes --json` before proposing a repair.
 2. Route configuration questions to `configuration`, workspace questions to `workspace`, remote Markdown to `agents status`, and Jira connectivity to `jira doctor`.

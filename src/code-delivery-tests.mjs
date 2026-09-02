@@ -205,7 +205,7 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       const wrapper = await at(platform === 'win32' ? 'mvnw.cmd' : 'mvnw');
       return {
         id: `${module.root}-maven-tests`, kind: 'test',
-        argv: wrapper ? [executable(platform, './mvnw', 'mvnw.cmd'), 'test'] : ['mvn', 'test'],
+        argv: wrapper ? [executable(platform, './mvnw', '.\\mvnw.cmd'), 'test'] : ['mvn', 'test'],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'junit-xml', path: 'target/surefire-reports', minimumDiscovered: 1 }
       };
@@ -214,7 +214,7 @@ export async function inferModuleTestCommand(root, module, { platform = process.
       const wrapper = await at(platform === 'win32' ? 'gradlew.bat' : 'gradlew');
       return {
         id: `${module.root}-gradle-tests`, kind: 'test',
-        argv: wrapper ? [executable(platform, './gradlew', 'gradlew.bat'), 'test'] : ['gradle', 'test'],
+        argv: wrapper ? [executable(platform, './gradlew', '.\\gradlew.bat'), 'test'] : ['gradle', 'test'],
         workingDirectory: module.root, affectedRoots: [module.root], modelPolicy: 'never',
         result: { adapter: 'junit-xml', path: 'build/test-results/test', minimumDiscovered: 1 }
       };

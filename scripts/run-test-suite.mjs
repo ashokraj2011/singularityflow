@@ -13,11 +13,13 @@ if (!SUITES.includes(suite)) throw new Error(`Test suite must be one of: ${SUITE
 /**
  * The VS Code extension is TypeScript, and its tests import the sources directly under
  * `--experimental-strip-types` rather than a built bundle — so they test what ships. Type stripping
- * arrived in Node 22.6, while this package supports Node 20, so the flag is added only when a
- * stripping test is actually selected and the running Node can do it.
+ * arrived in Node 22.6, while this package supports Node 20. Newer runtimes use native stripping;
+ * Node 20 uses the repository's bounded TypeScript loader. A supported runtime therefore executes
+ * the same selected files instead of silently reporting a smaller green suite.
  */
 const [major, minor] = process.versions.node.split('.').map(Number);
 const canStripTypes = major > 22 || (major === 22 && minor >= 6);
+const failOnSkippedFiles = process.env.SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES === '1';
 
 const files = (await readdir(path.join(root, 'test')))
   .filter((name) => name.endsWith('.test.mjs'))
@@ -46,7 +48,6 @@ function needsTypeStripping(source) {
 }
 
 const selected = [];
-const skipped = [];
 let needsStripping = false;
 for (const name of files) {
   const relative = path.posix.join('test', name);
@@ -57,24 +58,25 @@ for (const name of files) {
    * Asked of every selected file, whatever suite it is in.
    *
    * This was `if (kind === 'vscode')`, which is how the flag came to depend on the bucket.
-   */
+  */
   const stripping = needsTypeStripping(source);
-  if (stripping && !canStripTypes) { skipped.push(relative); continue; }
   if (stripping) needsStripping = true;
   selected.push(relative);
 }
 
-if (skipped.length) {
-  // Reported rather than silently dropped: a suite that quietly covers less than it claims is how a
-  // regression ships green.
-  console.warn(`Skipping ${skipped.length} VS Code test file(s) on Node ${process.versions.node}; type stripping needs Node 22.6 or newer: ${skipped.join(', ')}`);
-}
 if (!selected.length) {
-  if (skipped.length) process.exit(0);
   throw new Error(`No ${suite} tests were discovered.`);
 }
 
-const flags = needsStripping ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning'] : [];
+const flags = !needsStripping ? [] : canStripTypes
+  ? ['--experimental-strip-types', '--no-warnings=ExperimentalWarning']
+  : ['--experimental-loader', path.join(root, 'scripts', 'typescript-test-loader.mjs')];
+if (needsStripping && !canStripTypes) {
+  console.warn(`Node ${process.versions.node} will execute TypeScript-dependent tests through the bounded repository loader.`);
+}
+const releaseReporterFlags = failOnSkippedFiles
+  ? ['--test-reporter', path.join(root, 'scripts', 'release-test-reporter.mjs')]
+  : [];
 
 /**
  * Test files are processes, and many of those processes spawn several CLI, Git, model-provider, and
@@ -129,7 +131,7 @@ delete isolated.FORCE_COLOR;
 delete isolated.SINGULARITY_FLOW_COLOR;
 
 try {
-  const result = spawnSync(process.execPath, [...flags, concurrencyFlag, '--test', ...selected], {
+  const result = spawnSync(process.execPath, [...releaseReporterFlags, ...flags, concurrencyFlag, '--test', ...selected], {
     cwd: root,
     stdio: 'inherit',
     env: isolated

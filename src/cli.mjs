@@ -64,7 +64,10 @@ import {
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
 import { invokeModel, listModelInvocations, resolveModelProvider } from './model-runner.mjs';
-import { assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact, normalizeAuthorshipOptions, phasePublicationCommand } from './manual-authorship.mjs';
+import {
+  assertProducerAllowed, buildGenerationAuthorship, importManualArtifact, inspectInPlaceArtifact,
+  normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationCommandForProducer
+} from './manual-authorship.mjs';
 import { assertPlannedClaimsReady, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
@@ -86,7 +89,13 @@ import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, remoteOutputConflicts, syncAgent } from './agents.mjs';
-import { attestMcpHost, mcpDoctor, mcpStatus, recordMcpEvidence, scaffoldFigmaMcp, smokeMcpHost, warmMcpHost, scaffoldPlaywrightMcp } from './mcp.mjs';
+import {
+  attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus,
+  playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile,
+  previewPlaywrightAuthImport, probeMcpHost,
+  recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp,
+  scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost
+} from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -2762,7 +2771,11 @@ async function nextCommand(options) {
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
         console.log(`Run: ${readiness.command}`);
         if (materialization.reason) console.log(`Configured policy did not build it: ${materialization.reason}.`);
-        console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
+        const modelFreeProducer = phase.generationPolicy?.allowedProducers?.find((producer) =>
+          ['human', 'deterministic', 'external-tool'].includes(producer));
+        console.log(modelFreeProducer
+          ? `Model-free publication route: ${phasePublicationCommandForProducer(phase, modelFreeProducer)}`
+          : 'No model-free publication producer is configured for this phase.');
         return;
       } else {
         console.warn(`Grounding warning: ${readiness.reason}`);
@@ -2793,7 +2806,10 @@ async function nextCommand(options) {
   console.log(`Next step prepared: generate '${phase.id}' using ${artifact}.`);
   console.log('\nAfter authoring and validation, publish the generation:');
   console.log(`  Run (configured producer): ${phasePublicationCommand(phase)}`);
-  console.log(`  Manual alternative (authored by you): singularity-flow phase publish ${phase.id} --authored human`);
+  if (phase.generationPolicy?.defaultProducer !== 'human'
+      && phase.generationPolicy?.allowedProducers?.includes('human')) {
+    console.log(`  Manual alternative (authored by you): ${phasePublicationCommandForProducer(phase, 'human')}`);
+  }
   console.log(`  In Copilot: ${generationSkillForPhase(phase)} ${phase.id}`);
 }
 
@@ -2977,6 +2993,8 @@ async function prepareCommand(positionals, options) {
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config);
   const phase = positionals[1] ?? workflow.currentPhase;
+  const phaseContract = workflow.phases[phase];
+  if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`);
   const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase}`, async () => {
     const prepared = await preparePhase(root, config, workflow, positionals[1]);
     await saveStoryDraft(root, config, workflow);
@@ -2993,7 +3011,7 @@ async function prepareCommand(positionals, options) {
       narrationAction({
         id: 'prepare.author',
         label: 'Fill the artifact in, then publish this generation of it',
-        command: `singularity-flow phase publish ${phase} --authored human`
+        command: phasePublicationCommand(phaseContract)
       }),
       narrationAction({
         id: 'prepare.inputs',
@@ -3573,10 +3591,103 @@ async function mcpCommand(positionals, options) {
       local: optionBoolean(options, 'local'),
       replaceServer: optionBoolean(options, 'replace-server') || optionBoolean(options, 'replace')
     });
-    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then trust/start the server from VS Code or Copilot CLI.`);
+    console.log(`${result.changed ? 'Updated' : 'Verified'} ${result.path} (${result.sha256.slice(0, 12)}). Review and commit it, then run 'singularity-flow mcp warm ${server} --network' before trusting or starting the server in VS Code or Copilot CLI. The managed host entry invokes the global singularity-flow launcher; a VSIX-only installation cannot serve it.`);
     return;
   }
   const config = await loadConfig(root);
+  if (subcommand === 'probe') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const result = await probeMcpHost(root, config, server, {
+      network: optionBoolean(options, 'network')
+    });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`MCP ${server} network probe: ${result.network.status}. No readiness receipt was written.`);
+    return;
+  }
+  if (subcommand === 'verify-offline') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    const result = await verifyMcpHostOffline(root, config, server);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`MCP ${server} exact local package passed npm-offline start verification. Receipt: ${result.path}`);
+    console.log('This proves local npm resolution and MCP startup; it does not place the server in a network sandbox.');
+    return;
+  }
+  if (subcommand === 'serve') {
+    const server = requirePositional(positionals, 2, 'MCP server');
+    await serveMcpHost(root, config, server);
+    return;
+  }
+  if (subcommand === 'auth') {
+    const action = positionals[2] ?? 'status';
+    const server = positionals[3] ?? 'playwright';
+    if (server !== 'playwright') {
+      throw new SingularityFlowError(`No managed MCP authentication profile is available for '${server}'. Supported: playwright.`, {
+        code: 'MCP_AUTH_SERVER_UNSUPPORTED'
+      });
+    }
+    if (action === 'status') {
+      const result = await playwrightAuthProfileStatus(root);
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      if (result.status === 'configured') {
+        console.log(`Playwright authentication profile '${result.profileId}' is configured (${result.storageStateSha256}).`);
+      } else if (result.status === 'none') console.log('No managed Playwright authentication profile is configured.');
+      else console.log(`Managed Playwright authentication profile is invalid (${result.reason}).`);
+      return;
+    }
+    if (action === 'import') {
+      const profileId = optionString(options, 'profile');
+      const storageState = optionString(options, 'storage-state');
+      const confirmation = optionString(options, 'confirm');
+      if (!confirmation) {
+        const preview = await previewPlaywrightAuthImport(root, { storageState, profileId });
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+        console.log(`Playwright authentication profile '${preview.profileId}' is ready to ${preview.status}.`);
+        console.log(`Storage-state digest: ${preview.storageStateSha256}`);
+        console.log(`Review the local source, then repeat the same command with --confirm ${preview.confirmation}. No state was changed.`);
+        return;
+      }
+      const result = await importPlaywrightAuthProfile(root, {
+        storageState, profileId, confirmation
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(`Playwright authentication profile '${result.profileId}' is ${result.status} (${result.storageStateSha256}).`);
+      console.log('The copied state is Git-local and private. Re-attest and re-warm Playwright before relying on previous readiness evidence.');
+      return;
+    }
+    if (action === 'remove') {
+      const result = await removePlaywrightAuthProfile(root, {
+        profileId: optionString(options, 'profile'),
+        confirmation: optionString(options, 'confirm')
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(result.status === 'none'
+        ? 'No managed Playwright authentication profile was configured.'
+        : `Removed Playwright authentication profile '${result.profileId}'. Prior readiness evidence is now stale.`);
+      return;
+    }
+    if (action === 'clear') {
+      const confirmation = optionString(options, 'confirm');
+      if (!confirmation) {
+        const preview = await previewClearPlaywrightAuthProfile(root);
+        if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+        if (preview.status === 'none') console.log('No managed Playwright authentication state was found.');
+        else {
+          console.log(`Managed Playwright authentication recovery will remove ${preview.stateFileCount} private state file(s).`);
+          console.log(`Repeat with --confirm ${preview.confirmation}. No state was changed.`);
+        }
+        return;
+      }
+      const result = await clearPlaywrightAuthProfile(root, { confirmation });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+      console.log(result.status === 'none'
+        ? 'No managed Playwright authentication state was found.'
+        : `Cleared managed Playwright authentication state (${result.removedStateFiles} private state file(s)).`);
+      return;
+    }
+    throw new SingularityFlowError(`Unknown mcp auth action: ${action}. Available: clear, import, remove, status.`, {
+      code: 'UNKNOWN_SUBCOMMAND'
+    });
+  }
   if (subcommand === 'attest') {
     const server = requirePositional(positionals, 2, 'MCP server');
     const receipt = await attestMcpHost(root, config, server, { confirmation: optionString(options, 'confirm') });
@@ -3596,6 +3707,9 @@ async function mcpCommand(positionals, options) {
     for (const server of servers) {
       server.reasons.forEach((reason) => console.log(`  ${server.id}: ${reason}`));
       console.log(`MCP ${server.id}: ${server.readiness}`);
+      if (server.warm?.status && server.warm.status !== 'not-applicable') {
+        console.log(`  Exact package warm: ${server.warm.status}${server.warm.reason ? ` — ${server.warm.reason}` : ''}`);
+      }
     }
     if (servers.some((server) => server.readiness === 'misconfigured' || (server.policy.required && server.readiness !== 'ready'))) {
       throw new SingularityFlowError('MCP diagnostics found blocking readiness errors.', { code: 'MCP_HOST_CONFIG_INVALID' });
@@ -3632,7 +3746,11 @@ async function mcpCommand(positionals, options) {
     const server = requirePositional(positionals, 2, 'MCP server');
     const result = await warmMcpHost(root, config, server, { network: optionBoolean(options, 'network') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`MCP ${server} network warm-up: ${result.network.status}. Receipt: ${result.path}`);
+    if (result.receiptKind === 'package-warm') {
+      console.log(`MCP ${server} exact package ${result.acquisition.status}; offline start ${result.offlineStart.status}. Receipt: ${result.path}`);
+    } else {
+      console.log(`MCP ${server} network warm-up: ${result.network.status}. Receipt: ${result.path}`);
+    }
     return;
   }
   if (['list', 'status'].includes(subcommand)) {
@@ -6529,7 +6647,12 @@ async function runCommand(positionals, options) {
     console.log(`In Copilot: /sf-phase ${phase.id}`);
     return;
   }
-  const submit = optionBoolean(options, 'yes') || await confirmYesNo(`Generation ${phase.generation} is published. Submit '${phase.id}' for approval?`);
+  const noApproval = phase.approvalPolicy?.mode === 'none';
+  const submit = optionBoolean(options, 'yes') || await confirmYesNo(
+    `Generation ${phase.generation} is published. ${noApproval
+      ? `Run checks, complete '${phase.id}', and advance?`
+      : `Submit '${phase.id}' for approval?`}`
+  );
   if (!submit) {
     console.log('No state changed.');
     console.log(`Run: singularity-flow submit ${phase.id}`);
@@ -6537,8 +6660,16 @@ async function runCommand(positionals, options) {
     return;
   }
   await submitCommand(['submit', phase.id], options);
-  console.log(`Run: singularity-flow review ${phase.id}`);
-  console.log(`Guided run stopped at the approval boundary. In Copilot: /sf-review ${phase.id}`);
+  const afterSubmission = await loadStoryAggregate(root, config);
+  const submittedPhase = afterSubmission.phases[phase.id];
+  if (submittedPhase?.status === 'awaiting_approval') {
+    console.log(`Run: singularity-flow review ${phase.id}`);
+    console.log(`Guided run stopped at the approval boundary. In Copilot: /sf-review ${phase.id}`);
+  } else {
+    const active = currentPhase(afterSubmission);
+    if (active) console.log(`Guided run advanced to '${active.id}'. Follow the NEXT actions above.`);
+    else console.log('Guided run completed the workflow. No approval action is required.');
+  }
 }
 
 async function cockpitCommand() {

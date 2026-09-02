@@ -39,8 +39,11 @@ async function repository() {
   return root;
 }
 
-function workflow(id = 'STORY-AST') {
-  return { workItem: { id }, resolution: {} };
+function workflow(id = 'STORY-AST', intelligence = undefined) {
+  return {
+    workItem: { id },
+    resolution: intelligence ? { intelligence } : {}
+  };
 }
 
 test('Story-start warming schedules the configured source scope and the worker reuses its cache', async () => {
@@ -105,6 +108,34 @@ test('Story-start warming is skipped when AST is off and never throws when local
   assert.equal(failed.status, 'failed');
   assert.equal(failed.blocking, false);
   assert.match(failed.message, /ENOTDIR|not a directory/i);
+});
+
+test('a workflow-pinned AST-off Story skips before Git, status, cache, or worker activity', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-ast-off-nonrepo-'));
+  const definition = {
+    ast: {
+      mode: 'auto',
+      warmOnStoryStart: { mode: 'background', scope: 'repository' }
+    }
+  };
+  let launched = false;
+  const disabledWorkflow = workflow('STORY-WORKFLOW-OFF', {
+    worldModel: 'off', ast: 'off', agentBriefs: 'off'
+  });
+  const plan = await storyStartAstWarmPlan(root, definition, disabledWorkflow);
+  assert.deepEqual(plan, {
+    workId: 'STORY-WORKFLOW-OFF', mode: 'background', scope: 'repository', options: null,
+    repositoryRevision: null, enabled: false, disabledReason: 'workflow-ast-off'
+  });
+  const skipped = await scheduleStoryStartAstWarm(root, definition, disabledWorkflow, {
+    launcher: () => { launched = true; }
+  });
+  assert.deepEqual(skipped, {
+    mode: 'background', scope: 'repository', status: 'skipped',
+    reason: 'workflow-ast-off', blocking: false
+  });
+  assert.equal(launched, false);
+  assert.deepEqual(await readdir(root), [], 'AST-off scheduling must not create local status or cache files');
 });
 
 test('a background worker refuses to warm a different repository revision', async () => {

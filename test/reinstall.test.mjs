@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   applyLocalReinstall,
+  assertReinstallNodeVersion,
   normalizeReinstallRegistry,
   prepareLocalReinstall,
   reinstallPlanText,
@@ -13,6 +14,13 @@ import {
 
 const VERSION = '9.8.7';
 const MANAGED = '<!-- managed-by: singularity-flow direct-skill-alias -->';
+
+test('reinstall requires a valid Node 20 or newer runtime', () => {
+  assert.deepEqual(assertReinstallNodeVersion('v20.0.0'), { version: '20.0.0', major: 20 });
+  assert.deepEqual(assertReinstallNodeVersion('22.14.0'), { version: '22.14.0', major: 22 });
+  assert.throws(() => assertReinstallNodeVersion('v18.20.8'), /Node\.js 20 or newer is required/);
+  assert.throws(() => assertReinstallNodeVersion('unknown'), /Could not determine/);
+});
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-reinstall-test-'));
@@ -256,7 +264,9 @@ test('all validation and packaging finishes before removal and failures print a 
     return true;
   });
   assert.equal(events[0], 'bundle-validated');
-  assert.ok(events.findIndex((event) => event.startsWith('npm:uninstall --global')) > 0);
+  assert.equal(events.some((event) => event.startsWith('npm:uninstall --global')), false,
+    'npm install must replace the package without first removing the working CLI');
+  assert.ok(events.findIndex((event) => event.startsWith('npm:install --global')) > 0);
   assert.equal(events.some((event) => event.startsWith('git:')), false);
 });
 

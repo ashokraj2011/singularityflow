@@ -101,15 +101,15 @@ uses the exact package `@playwright/mcp@0.0.79` and the deterministic POC profil
 - isolated, headless browser;
 - `1440x900` viewport;
 - 10-second action and 30-second navigation timeouts;
-- output under `.git/singularity-flow/mcp/playwright-output`;
+- output under the repository's Git common-directory private sidecar (including linked worktrees);
 - 5 MiB maximum output size.
 
 If a `playwright` entry already exists and differs, the command refuses to overwrite it. Review the
 existing entry first. Use `--replace-server` only when the generated entry is intentionally the
 approved replacement.
 
-In VS Code, run **MCP: List Servers**, review the command and arguments, accept the trust prompt,
-and start `playwright`.
+Do not start the entry yet. Acquire and verify its exact package in step 3, optionally import login
+state in step 4, and then review, trust, and start it in step 5.
 
 ### Copilot CLI
 
@@ -125,7 +125,8 @@ If no entry exists, add the same pinned deterministic profile:
 
 ```bash
 copilot mcp add playwright -- \
-  npx -y @playwright/mcp@0.0.79 \
+  singularity-flow mcp serve playwright \
+  --package @playwright/mcp@0.0.79 \
   --isolated \
   --headless \
   --output-dir .git/singularity-flow/mcp/playwright-output \
@@ -136,7 +137,9 @@ copilot mcp add playwright -- \
 ```
 
 Do not silently remove or replace a contributor's existing host entry. Compare it with the profile
-above and resolve the difference explicitly.
+above and resolve the difference explicitly. The `mcp serve` wrapper is intentional: it starts only
+the verified Git-local package, supports linked worktrees, and binds managed auth only in memory.
+A raw `npx` host bypasses those guarantees.
 
 ## 3. Prepare corporate npm or Artifactory access
 
@@ -158,13 +161,96 @@ company setup does not configure it globally:
 NPM_CONFIG_REGISTRY=https://artifactory.company.example/api/npm/npm-virtual/ code .
 ```
 
-Pre-warm the exact dependency while network access is known to work:
+Check registry reachability without installing anything or writing a readiness receipt:
+
+```bash
+singularity-flow mcp probe playwright --network --json
+```
+
+Then pre-warm the exact dependency while network access is known to work:
 
 ```bash
 singularity-flow mcp warm playwright --network
 ```
 
-## 4. Diagnose, review, and attest the host
+This is an acquisition step, not another registry probe. It installs the exact release-managed
+package beneath `.git/singularity-flow/mcp/packages`, retains the npm lock integrity, hashes the
+bounded production dependency closure and resolved entry point, and completes a bounded MCP
+initialization/tool-catalog handshake from that local entry point with npm offline. This disables
+npm fetching; it is not a firewall for the MCP process. The closure is
+rechecked before serving or live smoke, so a changed transitive file makes the proof stale. The
+receipt is machine-local; no tracked file, host
+configuration, credential, or browser authorization is changed. A later `mcp doctor` reports the
+warm state separately as `not-warmed`, `valid`, or `stale`. Every phase that requires Playwright
+requires a valid warm proof. To renew the proof later without any registry or endpoint access, run:
+
+```bash
+singularity-flow mcp verify-offline playwright
+```
+
+Live smoke starts only this verified local executable with npm offline; it never falls back to
+`npx` or downloads a package.
+
+## 4. Import an authenticated browser profile when required
+
+Playwright storage state can contain cookies and local-storage values that impersonate the test
+account. Never commit it, paste it into Copilot, or add its absolute path to `.vscode/mcp.json`.
+Export it through an approved Playwright login setup, then preview a machine-local import:
+
+```bash
+singularity-flow mcp auth import playwright \
+  --storage-state /secure/local/path/storage-state.json \
+  --profile poc-test-account
+```
+
+The preview validates the bounded Playwright JSON shape, prints only the profile ID and a SHA-256,
+and changes nothing. After reviewing the exact local source, repeat the same command with the exact
+digest it printed:
+
+```bash
+singularity-flow mcp auth import playwright \
+  --storage-state /secure/local/path/storage-state.json \
+  --profile poc-test-account \
+  --confirm sha256:<64-hex-digest>
+```
+
+The copied state is stored with private permissions under
+`.git/singularity-flow/mcp/auth/playwright/`. SFlow derives that path and adds `--storage-state`
+only to the in-memory Playwright launch; repository host files, receipts, logs, and status expose
+only `poc-test-account` and its digest. The original export is not managed by SFlow and should be
+removed through the organization's approved secure-file procedure after import.
+
+Inspect or remove the active copy without exposing its contents:
+
+```bash
+singularity-flow mcp auth status playwright --json
+singularity-flow mcp auth remove playwright \
+  --profile poc-test-account \
+  --confirm sha256:<active-storage-state-digest>
+```
+
+Importing different bytes or removing the active profile deliberately makes all prior host, warm,
+and smoke receipts stale. Re-attest, re-warm, and rerun smoke. The same-origin redirect check remains
+mandatory; an authentication profile never authorizes another origin.
+
+On Windows, SFlow removes ACL inheritance and grants only the current user full control, then reads
+the ACL back and fails closed if any inherited or additional principal remains. If Windows cannot
+apply or verify that user-only ACL, use the organization's host-managed authentication instead. If
+corrupt state prevents normal removal, preview and confirm the exact recovery inventory with `mcp
+auth clear playwright`. After any profile change, renew the package proof before starting the host:
+
+```bash
+singularity-flow mcp auth clear playwright
+singularity-flow mcp auth clear playwright --confirm sha256:<preview-digest>
+singularity-flow mcp verify-offline playwright
+```
+
+## 5. Start, diagnose, review, and attest the host
+
+Only after steps 3 and 4, open **MCP: List Servers** in VS Code, review the managed command, accept
+the trust prompt, and start `playwright`. For Copilot CLI, inspect it with `copilot mcp get
+playwright`, then start Copilot from this repository. Starting earlier fails closed because the
+managed wrapper has no valid warm proof yet.
 
 Static diagnosis does not contact the network or start the server:
 
@@ -173,12 +259,16 @@ singularity-flow mcp status
 singularity-flow mcp doctor --server playwright --json
 ```
 
-Expected readiness progresses from `needs-host-setup` to `ready` after the host entry has been
-reviewed, trusted, and started. To include an explicit connectivity check, opt in with:
+Expected readiness progresses from `needs-host-setup` to `ready` only after the exact package is
+warmed and the host entry has been reviewed, trusted, started, and attested. To include an explicit
+connectivity check, opt in with:
 
 ```bash
 singularity-flow mcp doctor --server playwright --network --json
 ```
+
+The network doctor only checks registry reachability for the exact pin. It does not acquire or
+start the package; use `mcp warm` for that separately auditable operation.
 
 After reviewing the exact host entry and governed policy, record the machine-local acknowledgement:
 
@@ -191,7 +281,7 @@ changes. It proves what the developer reviewed; it does not replace the host's t
 
 In Copilot, `/sf-mcp` presents the same readiness and guarded setup flow.
 
-## 5. Start a POC Story with explicit boundaries
+## 6. Start a POC Story with explicit boundaries
 
 New Stories require an explicitly selected remote base branch and the exact authorized browser
 target. Neither value is inferred or preselected:
@@ -214,7 +304,7 @@ It never pushes to the selected base branch.
 In Copilot, use `/sf-start` or `/sf-story-start`. The skill must show every branch and workflow
 choice, ask for the target URL, and pass the selected values explicitly.
 
-## 6. Prove live browser readiness
+## 7. Prove live browser readiness
 
 Run a live smoke test before browser evidence is required:
 
@@ -233,7 +323,7 @@ Run smoke again for every generation that collects browser evidence, including
 `poc-ui-exploration` and `poc-validation`. A redirect to another origin fails. A manual claim that
 `browser_navigate` ran cannot replace the live host receipt.
 
-## 7. Capture governed evidence
+## 8. Capture governed evidence
 
 Use only the tools allowed for the active agent and phase. The POC workflow expects:
 
@@ -259,7 +349,7 @@ checks that its origin matches the Story authorization. Recorded outputs are cop
 Never publish passwords, session cookies, authorization headers, customer data, or unreviewed
 third-party content. MCP output is untrusted until a human reviews it.
 
-## 8. Day-of-demo checklist
+## 9. Day-of-demo checklist
 
 Run this checklist from the target repository, not the Singularity Flow product checkout:
 
@@ -271,6 +361,7 @@ Run this checklist from the target repository, not the Singularity Flow product 
 - [ ] `copilot mcp list` or VS Code **MCP: List Servers** shows `playwright`.
 - [ ] `singularity-flow mcp doctor --server playwright --json` reports `ready`.
 - [ ] The host/policy acknowledgement is current.
+- [ ] For an authenticated target, `mcp auth status playwright --json` reports the intended profile digest.
 - [ ] The authorized target is reachable with the approved test account and test data.
 - [ ] `mcp smoke` succeeds against the exact authorized origin.
 - [ ] Local TypeScript compilation and the smallest Playwright test pass with `npx --no-install`.
@@ -320,9 +411,10 @@ configuration. A VS Code `.vscode/mcp.json` entry alone is not a Copilot CLI ent
 
 ### The target redirects to a login or another domain
 
-Use an approved URL whose complete browser journey remains inside the authorized origin, or restart
-the Story with the correctly authorized environment. Do not weaken origin validation to make a
-redirect pass.
+Import an approved Playwright storage state with `mcp auth import playwright`, then re-attest,
+re-warm, and rerun smoke. If the authenticated journey still finishes at another origin, use the
+correctly authorized environment or restart the Story with the right origin. Do not weaken origin
+validation to make a redirect pass.
 
 ## Related documentation
 

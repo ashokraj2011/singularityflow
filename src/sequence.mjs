@@ -57,7 +57,9 @@ export function sequenceGuidance(workflow) {
     ]
   };
   if (phase.status === 'in_progress') return {
-    summary: `Submit published phase '${phase.id}' for approval.`,
+    summary: phase.approvalPolicy?.mode === 'none'
+      ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
+      : `Submit published phase '${phase.id}' for approval.`,
     actions: [copilotAction({ skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}` })]
   };
   return {

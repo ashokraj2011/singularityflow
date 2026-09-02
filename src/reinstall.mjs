@@ -21,9 +21,26 @@ export const REINSTALL_SURFACES = Object.freeze({
 const CONFIRMATION_PREFIX = 'REINSTALL SINGULARITY FLOW ';
 const PLAN_SCHEMA_VERSION = currentSchemaVersion('reinstall-plan');
 const MANAGED_TELEMETRY_MARKER = '# Managed by the Singularity Flow installer.';
+const MINIMUM_NODE_MAJOR = 20;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/** Refuse an unsupported runtime before the isolated reinstall build starts. */
+export function assertReinstallNodeVersion(version = process.versions.node) {
+  const normalized = String(version ?? '').trim();
+  const match = normalized.match(/^v?(\d+)\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
+  const major = match ? Number(match[1]) : null;
+  if (!Number.isInteger(major)) {
+    throw new SingularityFlowError(`Could not determine the Node.js version from '${normalized || 'unknown'}'.`);
+  }
+  if (major < MINIMUM_NODE_MAJOR) {
+    throw new SingularityFlowError(
+      `Node.js ${MINIMUM_NODE_MAJOR} or newer is required; found ${normalized}.`
+    );
+  }
+  return { version: normalized.replace(/^v/, ''), major };
 }
 
 export function normalizeReinstallRegistry(value) {
@@ -332,6 +349,7 @@ export async function prepareLocalReinstall({
   build = buildReinstallBundle,
   log = console.log
 }) {
+  assertReinstallNodeVersion();
   const validated = await validateReinstallCheckout(requestedCheckout);
   if (!exists('npm') || !exists('node')) throw new SingularityFlowError('Reinstall requires the existing node and npm commands on PATH.');
   if (!cliOnly && !exists('copilot')) {
@@ -371,7 +389,7 @@ export async function prepareLocalReinstall({
       vsix: bundle.vsix ? path.basename(bundle.vsix) : null, vsixSha256
     },
     remove: [
-      'global npm package singularity-flow and only its npm-created command shims',
+      'global npm package singularity-flow in place, including its npm-created command shims',
       ...(cliOnly ? [] : [
         `Copilot plugin identities: ${REINSTALL_SURFACES.copilotPlugins.join(', ')}`,
         'managed direct /sf-* skills carrying the Singularity Flow ownership marker',
@@ -517,7 +535,6 @@ export async function applyLocalReinstall(plan, {
       }
       await replaceTelemetryWrapper({ homeDirectory, enabled: false });
     }
-    execute('npm', ['uninstall', '--global', REINSTALL_SURFACES.npmPackage], { allowFailure: true, env });
     executeOrThrow(execute, 'npm', ['install', '--global', plan.bundle.tarball, `--registry=${plan.registry}`], { env, stdio: 'inherit' });
     const cliVersion = executeOrThrow(execute, 'singularity-flow', ['--version'], { env }).stdout.trim();
     if (cliVersion !== plan.version) throw new SingularityFlowError(`Installed CLI reports ${cliVersion || 'no version'}, expected ${plan.version}.`);

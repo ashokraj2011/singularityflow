@@ -605,6 +605,16 @@ test('every test that loads TypeScript runs with type stripping, whatever suite 
     'and asks it of every selected file');
   assert.doesNotMatch(runner, /if \(kind === 'vscode'\) needsStripping = true;/,
     'the flag must not depend on which suite a file was sorted into');
+  assert.match(runner, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES/,
+    'release verification must opt into refusing non-executed tests');
+  assert.match(runner, /release-test-reporter\.mjs/,
+    'release mode must inspect actual Node test outcomes rather than compare file counters');
+  assert.doesNotMatch(runner, /selected\.length !== eligibleFiles/,
+    'release enforcement must not be a tautological selected-file count');
+  assert.match(runner, /typescript-test-loader\.mjs/,
+    'supported Node 20 must execute TypeScript-dependent tests through the bounded loader');
+  assert.doesNotMatch(runner, /skipped\.push\(relative\)/,
+    'supported Node 20 must not silently remove TypeScript-dependent files from the suite');
 });
 
 test('the suite bounds file concurrency so child processes keep their timeout budgets', async () => {

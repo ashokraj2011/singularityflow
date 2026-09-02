@@ -67,6 +67,23 @@ const PROCESS_TERMINATION_DEADLINE_MS = 2_000;
 const PROCESS_TERMINATION_GRACE_MS = 250;
 const TASKKILL_ATTEMPT_MS = 750;
 
+function windowsSystemTool(name: string): string {
+  if (!/^[a-z0-9][a-z0-9.-]*$/i.test(name)) throw new TypeError('Unsafe Windows system-tool name.');
+  const root = process.env.SystemRoot || process.env.SYSTEMROOT || process.env.WINDIR;
+  // `path.win32.isAbsolute` also accepts root-relative, UNC, and device paths. System tools are a
+  // machine trust boundary, so accept only an explicit local drive identity such as C:\\Windows.
+  if (root && /^[a-z]:[\\/]/i.test(root)) {
+    const target = path.win32.join(root, 'System32', name);
+    const comSpec = process.env.ComSpec || process.env.COMSPEC;
+    if (comSpec && (name.toLowerCase() === 'cmd.exe')
+        && path.win32.normalize(comSpec).toLowerCase() !== target.toLowerCase()) {
+      throw new TypeError('Windows ComSpec does not identify SystemRoot\\System32\\cmd.exe.');
+    }
+    return target;
+  }
+  throw new TypeError(`Windows cannot resolve trusted ${name} without SystemRoot or WINDIR.`);
+}
+
 function waitForChildClose(child: ChildProcess, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false;
@@ -99,7 +116,7 @@ function runTaskkill(pid: number, force: boolean, timeoutMs: number): Promise<bo
       finish(false);
     }, Math.max(1, timeoutMs));
     try {
-      killer = spawn('taskkill.exe', ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])], {
+      killer = spawn(windowsSystemTool('taskkill.exe'), ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])], {
         windowsHide: true, stdio: 'ignore'
       });
     } catch {

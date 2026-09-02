@@ -4,11 +4,21 @@ import { readFile } from 'node:fs/promises';
 import { exists, SingularityFlowError } from './util.mjs';
 import { MCP_WORKSPACE_PATH } from './mcp-host.mjs';
 export {
-  MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, figmaHostEntry, playwrightHostEntry, scaffoldFigmaMcp,
+  MCP_SCAFFOLD_VERSIONS, MCP_WORKSPACE_PATH, PLAYWRIGHT_MCP_HOST_ARGUMENTS,
+  figmaHostEntry, playwrightHostEntry, scaffoldFigmaMcp,
   scaffoldMcpServer, scaffoldPlaywrightMcp
 } from './mcp-host.mjs';
 export { listMcpEvidence, recordMcpEvidence, verifyMcpEvidence, verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
-export { assertMcpPhaseReadiness, attestMcpHost, inspectMcpHostEntries, mcpDoctor, smokeMcpHost, warmMcpHost } from './mcp-readiness.mjs';
+export {
+  assertMcpPhaseReadiness, attestMcpHost, inspectMcpHostEntries, mcpDoctor,
+  probeMcpHost, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost
+} from './mcp-readiness.mjs';
+export {
+  clearPlaywrightAuthProfile, currentPlaywrightAuthBinding, importPlaywrightAuthProfile,
+  playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport,
+  removePlaywrightAuthProfile, resolvePlaywrightAuthRuntime, secureWindowsAuthAcl,
+  validatePlaywrightStorageState
+} from './mcp-auth-profile.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOOL = /^[A-Za-z0-9_.-]+(?:\/(?:\*|[A-Za-z0-9_.-]+))?$/;

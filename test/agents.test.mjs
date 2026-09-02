@@ -324,9 +324,22 @@ test('agent sync can select the governed agent while preserving work scope', asy
 test('CLI first trust fails non-interactively unless exact test confirmation is supplied', async () => {
   const root = await rootWithAgent(`---\nname: local-agent\ndescription: Local only\ntools: ["bash"]\n---\n\nNo dependencies.\n`);
   assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: root }).status, 0);
-  const denied = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  // A developer machine may have another workspace selected globally. This test owns a temporary
+  // repository and must not inherit that unrelated selection, otherwise the CLI correctly routes
+  // to the selected workspace and the assertion tests its agents rather than this fixture's agent.
+  const environment = {
+    ...process.env,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.test-workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-active-workspace.json')
+  };
+  const denied = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: environment });
   assert.notEqual(denied.status, 0); assert.match(denied.stderr, /requires an interactive terminal/);
-  const accepted = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' } });
+  const accepted = spawnSync(process.execPath, [bin, 'agents', 'lock', 'local-agent'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...environment, SINGULARITY_FLOW_TEST_AGENT_CONFIRM: 'local-agent' }
+  });
   assert.equal(accepted.status, 0, accepted.stderr); assert.match(accepted.stdout, /Locked 'local-agent'/);
 });
 

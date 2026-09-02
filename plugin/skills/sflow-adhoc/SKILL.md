@@ -9,7 +9,7 @@ argument-hint: "[start|status|land|intent|claim|preview|publish|promote]"
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow adhoc status --json`. If no session exists and the contributor wants to inspect existing work, run `singularity-flow land --json`.
 2. Show every observed resource and the exact change-set digest. The candidate objective is advisory and must never be described as pre-existing intent.

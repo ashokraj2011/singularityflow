@@ -2,7 +2,7 @@
 
 ## Governed MCP and visual assurance
 
-MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; use `sflow mcp doctor --network` only for an explicit connectivity check, `sflow mcp warm <SERVER> --network` to pre-warm a pinned host dependency, and `sflow mcp smoke playwright --url <AUTHORIZED-URL>` for a live browser/tool smoke receipt. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.
+MCP remains host-managed: Singularity Flow records which agent, phase, and tool may use it. `sflow mcp doctor` is offline by default; `sflow mcp doctor --network` only probes registry or endpoint reachability and does not cache a package. `sflow mcp warm playwright --network` installs the exact reviewed package under Git-local machine state, verifies its registry integrity, and starts the resolved local executable with npm offline before writing a warm receipt. Use `sflow mcp smoke playwright --url <AUTHORIZED-URL>` for a live browser/tool smoke receipt. Capture local output with `sflow mcp record`; remote output requires an explicit public HTTPS `--output-url` and is copied, size-limited, hashed, and committed as evidence.
 
 Mobile visual verification is configured per work type under `verification.profiles`. Evidence must name a profile, screen, and state. Use `sflow visual status` to check coverage and `sflow visual compare --expected <record-or-path> --actual <record-or-path> --profile <id>` for a deterministic RGBA8 PNG comparison. Unsupported formats and dimension mismatches are reported honestly; comparison never silently resizes images.
 
@@ -1154,7 +1154,7 @@ Start always asks for:
 
 1. A remote base branch published by every required repository; no default is inferred.
 2. Jira story or manual intake.
-3. Workflow template, such as feature, bugfix, chore, Figma export to mobile app, or POC workflow.
+3. Workflow template, such as feature, bugfix, chore, Figma export to mobile app, POC Lite, or the enterprise Playwright POC.
 
 The workflow and governed-agent pickers are deliberately human-driven. There are no public `--type` or `--agent` bypass flags. Non-interactive start fails rather than silently choosing defaults unless `/sf-start` supplies a valid one-time receipt containing the contributor's explicit Copilot choices.
 
@@ -1393,7 +1393,8 @@ Starter work types are:
 | Figma export to mobile app | design-intake → design-inventory → component-mapping → mobile-spec → implementation → visual-verification → conformance |
 | Benchmark A — governed intelligence | intake → design → implementation → testing → conformance |
 | Benchmark B — generic context | intake → design → implementation → testing → conformance |
-| POC workflow | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
+| POC Lite — local governed change | PLAN → ACT → VERIFY → FINALIZE |
+| POC workflow — enterprise Playwright | POC intent → impact analysis → UI exploration → Playwright generation → bounded validation/repair → publication review |
 
 Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implementation items. Bugfix work uses a smaller fix specification but retains the same traceability model. Verification links tests and source evidence. Conformance compares approved requirements and specifications with exact code/test evidence.
 
@@ -1406,7 +1407,15 @@ silently acquires world-model context from a capability policy. Missing AST neve
 ordinary repository file access remains available. Choose the profile during normal
 Story intake. Existing Stories retain their selected arm.
 
-`poc-workflow` is the packaged UI-regression demonstration flow. It requires an explicitly selected
+`poc-lite` is the smallest packaged demonstration. Its four phase records are deterministic, its
+intelligence policy disables World Model, AST, and agent briefs, and it requires no MCP, tracker, or
+hosted service. After its baseline is opened, ACT requires the bounded product change plus a changed
+or newly added executable test, then discovers and executes the repository's existing structured test command;
+FINALIZE is the only phase with a human approval. Run it with
+`sflow --no-model start <WORK-ID> --from-branch <BRANCH> --work-type poc-lite`. The normal Story Git
+transport still applies, but a self-contained harness can satisfy it with a local bare remote.
+
+`poc-workflow` retains the existing ID as the packaged enterprise Playwright UI-regression flow. It requires an explicitly selected
 remote base branch and an isolated Story branch, captures an authorized target environment and test
 intent, traces changed code to regression scenarios, records confirmed Playwright MCP observations,
 generates repository-native TypeScript tests/Page Objects, and executes hash-bound TypeScript and
@@ -2328,6 +2337,10 @@ singularity-flow mcp scaffold playwright
 singularity-flow mcp scaffold figma
 singularity-flow mcp status
 singularity-flow mcp doctor
+singularity-flow mcp probe playwright --network
+singularity-flow mcp warm playwright --network
+singularity-flow mcp verify-offline playwright
+singularity-flow mcp auth status playwright
 singularity-flow mcp attest figma --confirm figma
 singularity-flow mcp smoke playwright --url https://staging.example.test/health
 singularity-flow mcp record playwright --tool browser_snapshot --phase verification
@@ -2341,18 +2354,31 @@ unrelated servers, and requires `--replace-server` when the same server name dif
 Playwright uses a release-managed exact package version rather than `latest`.
 It inherits the corporate npm registry, proxy, CA, and authentication configuration;
 no secret is stored in workflow YAML.
+For a login-protected Playwright target, `mcp auth import playwright --storage-state
+<FILE> --profile <LOWER-KEBAB>` first prints a content digest and changes nothing. Repeat it with
+`--confirm sha256:...` to copy the validated state under the Git common directory with private
+permissions. Repository files, status, diagnostics, and receipts contain only the profile ID and
+digest. SFlow adds the derived machine-local `--storage-state` path only to the in-memory Playwright
+launch. Replacing or removing the profile makes prior host, warm, and smoke receipts stale.
 The VS Code extension exposes a full governed policy editor, host-readiness status,
 and the same safe scaffold under **Configuration → MCP tools**. Human Git identities
 and approval groups have their own **People & approvals** screen; they are never
 treated as AI agents. See [docs/CONFIGURATION-CENTER.md](docs/CONFIGURATION-CENTER.md).
 `/sf-mcp` provides the Copilot command surface.
 
-`mcp doctor` is offline and read-only. It reports `needs-host-setup` until the user
-reviews, trusts, starts, and authenticates the server in the host and records that
-fact with `mcp attest`. The receipt lives under `.git/singularity-flow/mcp/readiness/`
-and becomes stale when the host entry or governed policy changes. It is an
+`mcp doctor` is offline and read-only. For Playwright, it reports `needs-host-setup` until the exact
+package and bounded dependency closure have a valid warm proof and the user reviews, trusts,
+starts, and authenticates the server in the host and records that fact with `mcp attest`. The
+receipt lives under `.git/singularity-flow/mcp/readiness/`
+and becomes stale when the host entry, governed policy, or managed authentication profile changes. It is an
 attestation, not proof of live connectivity. A phase with `mcp.requireSmoke: true`
 also requires a current machine-local smoke receipt bound to the same host entry and policy.
+Use `mcp probe <SERVER> --network` when only reachability is needed. It writes no receipt and exits
+with a failure when the endpoint or exact registry package cannot be reached. `mcp warm` is the
+separate acquisition plus npm-offline local-start proof. `mcp verify-offline playwright` renews that proof
+from the already acquired package with no registry or endpoint access. Required Playwright phases
+need a valid warm proof, and live smoke starts only the verified local package with npm offline.
+That prevents npm fetching; it does not place the MCP process in a network sandbox.
 
 When an MCP result matters to a decision, pass `--output`. Flow copies it into the
 active work item's managed MCP context and later verifies its size and SHA-256. This is a
@@ -2495,6 +2521,33 @@ For a company Artifactory or registry:
 ./install.sh --registry https://artifacts.company.com/artifactory/api/npm/npm-virtual/
 ```
 
+The source installer requires Node.js 20 or newer. Its bounded modes are:
+
+```bash
+./install.sh --no-update       # exact clean checkout; no fetch or pull
+./install.sh --skip-copilot    # CLI + VSIX; no standalone Copilot assets or telemetry
+./install.sh --vscode-only     # build, install, and verify only the VSIX
+./install.sh --cli-only        # global CLI only
+./install.sh --from-staged-artifacts # resume an interrupted exact-artifact activation
+```
+
+`--vscode-only` requires the `code` command and skips the global CLI, standalone Copilot assets,
+telemetry, and workspace configuration refresh. It cannot be combined with `--cli-only`,
+`--skip-vscode`, or `--skip-copilot`. `--no-update` does not allow a dirty checkout; it only avoids
+the network update. The normal installer verifies and executes the packaged CLI in a
+digest-addressed isolated prefix before any product mutation. It then installs and verifies the VSIX,
+Copilot plugin, and telemetry files before replacing and verifying the globally callable npm CLI last.
+An activation journal supplies `--from-staged-artifacts` if a later surface fails. Before activation,
+both validated archives and the exact prior rollback artifacts are retained under
+`~/.singularity-flow/installations/versions/sha256/<digest>/`; the journal binds those paths instead
+of mutable checkout artifacts. Recovery revalidates their exact bytes, package identities, paths,
+and non-symlink storage boundary and performs no Git pull, dependency install, test, build, or
+package step. Any failure before the installation receipt commits restores and verifies every touched
+surface. Recovery completes an interrupted rollback before retrying the exact candidate. If restoration
+cannot be verified, the journal records `rollback-failed` and blocks a new activation; it never treats
+a prior version label as restorable bytes. Workspace configuration refresh remains a separate Git
+operation after product activation.
+
 To replace only installed product tooling from this checkout—without `git pull` or
 any repository/workspace mutation—use:
 
@@ -2506,7 +2559,7 @@ any repository/workspace mutation—use:
 
 Or set `SINGULARITY_FLOW_NPM_REGISTRY`. Authentication remains in `.npmrc`; do not embed credentials or tokens in the URL. The installer rejects dirty checkouts and never resets, rebases, or force-pushes.
 
-To skip installing the optional `sflow_copilot` convenience helper:
+To skip only the optional `sflow_copilot` convenience helper while retaining Copilot assets:
 
 ```bash
 ./install.sh --no-copilot-telemetry
@@ -2988,8 +3041,15 @@ singularity-flow agents status [PACK]
 singularity-flow agents refresh-output <RESOURCE-ID> [--replace]
 singularity-flow mcp list|status|doctor [--json]
 singularity-flow mcp scaffold playwright|figma [--local] [--replace-server]
+singularity-flow mcp probe <SERVER> --network [--json]
 singularity-flow mcp attest <SERVER> --confirm <SERVER>
 singularity-flow mcp warm <SERVER> --network [--json]
+singularity-flow mcp verify-offline <SERVER> [--json]
+singularity-flow mcp serve playwright
+singularity-flow mcp auth status playwright [--json]
+singularity-flow mcp auth import playwright --storage-state FILE --profile LOWER-KEBAB [--confirm SHA256] [--json]
+singularity-flow mcp auth remove playwright --profile LOWER-KEBAB --confirm SHA256 [--json]
+singularity-flow mcp auth clear playwright [--confirm SHA256] [--json]
 singularity-flow mcp smoke playwright --url <AUTHORIZED-URL> [--json]
 singularity-flow mcp record <SERVER> --tool TOOL [--phase PHASE] [--output PATH] [--note TEXT]
 singularity-flow mcp design-sources status [--json]

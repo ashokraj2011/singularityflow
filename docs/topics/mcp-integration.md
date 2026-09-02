@@ -1,7 +1,7 @@
 ---
 id: mcp-integration
 title: MCP integration
-version: 4
+version: 6
 aliases:
   - mcp
   - playwright
@@ -42,6 +42,22 @@ For an origin-bound Story, run `sflow mcp smoke playwright --url <AUTHORIZED-URL
 generation that collects browser evidence. The live MCP host's observed final URL becomes the
 navigation receipt. Manual `browser_navigate` declarations are refused, and a saved
 `browser_snapshot` is accepted only when its reported `Page URL` remains on the authorized origin.
+
+For a login-protected target, export Playwright storage state to a local file, then run
+`sflow mcp auth import playwright --storage-state <FILE> --profile <LOWER-KEBAB>`. The first run is
+a non-mutating preview. Repeat it with the exact displayed `--confirm sha256:...` value. The state
+is copied with private permissions beneath the Git common directory; tracked configuration and
+receipts expose only the profile ID and digest. Replacing or removing it invalidates earlier host,
+warm, and smoke receipts. The final-origin check is unchanged.
+
+Use `sflow mcp probe <SERVER> --network` for a read-only reachability check. It does not install a
+package or write a receipt. Use `mcp warm` separately to acquire the exact Playwright MCP package
+and prove that its resolved entry point starts with npm offline. Later,
+`mcp verify-offline playwright` renews that proof without registry or endpoint access. This proves
+local npm resolution and MCP startup, not network sandboxing of the server itself. Required Playwright phases block
+when the proof is absent or stale. The scaffolded VS Code entry calls the internal `mcp serve`
+stdio wrapper, which starts only this verified local executable and adds any managed storage-state
+path in memory; the tracked host file never contains that path.
 
 ## State and safety
 

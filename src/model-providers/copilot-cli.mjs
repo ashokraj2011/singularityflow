@@ -13,6 +13,7 @@ import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { VERSION } from '../version.mjs';
 import { resolveModelProviderLaunch } from '../model-provider-launch.mjs';
+import { tryWindowsTaskkill } from '../platform-process.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 const TERMINATION_GRACE_MS = 250;
@@ -573,10 +574,10 @@ function terminateAcpProcess(child, force = false, runtimeOverrides = {}) {
   const runtime = providerRuntime(runtimeOverrides);
   if (!child.pid || child.exitCode != null || child.signalCode != null) return true;
   if (runtime.platform === 'win32') {
-    const result = runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], {
-      stdio: 'ignore', windowsHide: true, timeout: 5000
+    return tryWindowsTaskkill(child.pid, {
+      force, environment: runtime.environment, spawnSyncCommand: runtime.spawnSyncImpl,
+      timeoutMs: 5_000
     });
-    return !result?.error && result?.status === 0;
   }
   try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); return true; }
   catch { return child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
@@ -1195,8 +1196,10 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
       cleanup();
       let signalled = false;
       if (child.pid && runtime.platform === 'win32') {
-        const killed = runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
-        signalled = !killed.error && killed.status === 0;
+        signalled = tryWindowsTaskkill(child.pid, {
+          environment: runtime.environment, spawnSyncCommand: runtime.spawnSyncImpl,
+          timeoutMs: 5_000
+        });
       } else if (child.pid) {
         try { process.kill(-child.pid, 'SIGTERM'); signalled = true; } catch { signalled = child.kill('SIGTERM'); }
       }
@@ -1208,7 +1211,10 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
       terminationTimer = setTimeout(() => {
         if (child.exitCode != null || child.signalCode != null) return;
         if (child.pid && runtime.platform === 'win32') {
-          runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
+          if (!tryWindowsTaskkill(child.pid, {
+            force: true, environment: runtime.environment,
+            spawnSyncCommand: runtime.spawnSyncImpl, timeoutMs: 5_000
+          })) child.kill('SIGKILL');
         } else if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }

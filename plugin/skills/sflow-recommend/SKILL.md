@@ -8,13 +8,14 @@ description: Show one grounded next step from the active SFlow workspace.
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 Use the durable workspace, work-item, evidence, and repository records. Never infer lifecycle state from chat history.
 
 ## Workflow
 
-1. Run `singularity-flow recommend --json` in the governed repository.
+1. Run `singularity-flow recommend --json` from machine context. Trust only the workspace,
+   repository, and Story paths returned by that command; do not search for missing context.
 2. Read `data.guidance` from the returned envelope.
 3. Address the developer by `data.personalization.replyName` when present.
 4. Present the answer under these short headings:

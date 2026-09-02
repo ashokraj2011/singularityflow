@@ -16,6 +16,7 @@ import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/init
 import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import {
   ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
   MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
@@ -672,6 +673,7 @@ const baselineSchemaFiles = [
   'schemas/design-source-provenance.schema.json',
   'schemas/mcp-readiness-attestation.schema.json',
   'schemas/mcp-preflight.schema.json',
+  'schemas/release-platform-evidence.schema.json',
   'schemas/reference-envelope.schema.json',
   'schemas/reference-record.schema.json',
   'schemas/harness-event.schema.json',
@@ -712,6 +714,11 @@ for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchem
   if (schemaFile === 'schemas/auto-authorization.schema.json') {
     validateAutoAuthorizationSchema(schema, schemaFile);
   }
+  if (schemaFile === 'schemas/release-platform-evidence.schema.json'
+      && schema.properties?.checks?.properties?.exactPackageLocalStart
+        ?.properties?.packageVersion?.const !== MCP_SCAFFOLD_VERSIONS.playwright) {
+    fail(`${schemaFile} must pin the packaged Playwright MCP version ${MCP_SCAFFOLD_VERSIONS.playwright}.`);
+  }
   if (schemaFile.startsWith('schemas/world-model-')) {
     validateWorldModelContractSchema(schema, schemaFile);
   }
@@ -721,6 +728,18 @@ for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchem
 const qualityExample = validateDefinition(YAML.parse(await readFile(path.join(root, 'examples', 'workflow-with-quality-gates.yml'), 'utf8')));
 if (!qualityExample.workTypes?.feature || qualityExample.phases?.implementation?.qualityCommands?.length < 2) fail('quality-gate YAML example is incomplete');
 checked.push('examples/workflow-with-quality-gates.yml');
+
+const releaseEvidenceTemplatePath = 'examples/release-platform-evidence.template.json';
+const releaseEvidenceTemplateText = await readFile(path.join(root, releaseEvidenceTemplatePath), 'utf8');
+const releaseEvidenceTemplate = JSON.parse(releaseEvidenceTemplateText);
+if (releaseEvidenceTemplate.checks?.exactPackageLocalStart?.packageVersion
+    !== MCP_SCAFFOLD_VERSIONS.playwright) {
+  fail(`${releaseEvidenceTemplatePath} must pin Playwright MCP ${MCP_SCAFFOLD_VERSIONS.playwright}.`);
+}
+if (!releaseEvidenceTemplateText.includes('REPLACE_WITH_')) {
+  fail(`${releaseEvidenceTemplatePath} must remain an intentionally non-signable operator template.`);
+}
+checked.push(releaseEvidenceTemplatePath);
 
 const workflowTemplate = validateDefinition(YAML.parse(await readFile(path.join(root, 'templates', 'workflow.yml'), 'utf8')));
 if (!workflowTemplate.workTypes?.feature || !workflowTemplate.workTypes?.bugfix) fail('workflow template must include feature and bugfix profiles');

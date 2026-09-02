@@ -9,7 +9,7 @@ disable-model-invocation: true
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 1. Run `singularity-flow workspace list --json`.
 2. If no workspaces are saved, first check `singularity-flow workspace bootstrap status --json`. If an unfinished session exists, offer `/sf-workspace-bootstrap <BOOTSTRAP-ID>` instead of creating a duplicate. Otherwise offer two explicit paths: prepare from a remote with `singularity-flow workspace prepare <LEAD-URL> --id <ID> --capability <ID> [--lead-capability <ID>] --base <DIRECTORY> --initialize`, or inspect a clone the contributor already selected with `singularity-flow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Do not invent a directory, capability, repository URL, dirty confirmation, or selection.

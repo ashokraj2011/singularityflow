@@ -23,8 +23,14 @@ function nextActions(workflow, phase) {
   if (regenerate) return [
     copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` })
   ];
+  const noApproval = phase.approvalPolicy?.mode === 'none';
   return [
-    copilotAction({ skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`, reason: `Run configured checks and submit ${phase.id} for approval.` })
+    copilotAction({
+      skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`,
+      reason: noApproval
+        ? `Run configured checks, complete ${phase.id} without approval, and advance to the next phase.`
+        : `Run configured checks and submit ${phase.id} for approval.`
+    })
   ];
 }
 

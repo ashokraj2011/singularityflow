@@ -619,6 +619,7 @@ test('process-tree signalling uses POSIX groups and observes Windows descendant-
   const taskkill = new EventEmitter();
   const windowsSignal = signalProcessTree(child, 'SIGKILL', {
     platform: 'win32',
+    environment: { SystemRoot: 'C:\\Windows' },
     spawnCommand: (command, args, options) => {
       taskkillCalls.push({ command, args, options });
       return taskkill;
@@ -626,7 +627,7 @@ test('process-tree signalling uses POSIX groups and observes Windows descendant-
   });
   queueMicrotask(() => taskkill.emit('close', 0, null));
   assert.equal(await windowsSignal, true);
-  assert.equal(taskkillCalls[0].command, 'taskkill.exe');
+  assert.equal(taskkillCalls[0].command, 'C:\\Windows\\System32\\taskkill.exe');
   assert.deepEqual(taskkillCalls[0].args, ['/PID', '321', '/T', '/F']);
   assert.equal(taskkillCalls[0].options.shell, false);
   assert.equal(taskkillCalls[0].options.stdio, 'ignore');
@@ -645,9 +646,10 @@ test('Windows process-tree signalling falls back safely when taskkill fails or h
     killer.kill = (signal) => { killerSignals.push(signal); return true; };
     const pending = signalProcessTree(child, 'SIGKILL', {
       platform: 'win32',
+      environment: { SystemRoot: 'C:\\Windows' },
       timeoutMs: 15,
       spawnCommand(command, args, options) {
-        assert.equal(command, 'taskkill.exe');
+        assert.equal(command, 'C:\\Windows\\System32\\taskkill.exe');
         assert.deepEqual(args, ['/PID', '654', '/T', '/F']);
         assert.equal(options.stdio, 'ignore');
         return killer;

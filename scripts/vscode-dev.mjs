@@ -26,6 +26,7 @@ import { cp, mkdtemp, mkdir, readdir, readFile, rename, rm, stat, writeFile } fr
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolvePlatformProcess } from '../src/platform-process.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -582,11 +583,14 @@ export async function resolveVsce({ refresh = undefined } = {}) {
   await mkdir(staging, { recursive: true });
   try {
     await writeFile(path.join(staging, 'package.json'), `${JSON.stringify(vsceToolManifest(), null, 2)}\n`);
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    // --prefer-offline: a cold cache key still reuses npm's content cache for tarballs it has.
-    const install = spawnSync(npm, [
+    const npm = 'npm';
+    const launch = resolvePlatformProcess(npm, [
       'install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--prefer-offline'
-    ], { cwd: staging, stdio: 'inherit' });
+    ]);
+    // --prefer-offline: a cold cache key still reuses npm's content cache for tarballs it has.
+    const install = spawnSync(launch.executable, launch.arguments, {
+      cwd: staging, stdio: 'inherit', ...launch.spawnOptions
+    });
     if (install.status !== 0) {
       throw new Error(`npm could not install the pinned VSCE toolchain${install.error ? `: ${install.error.message}` : ''}`);
     }

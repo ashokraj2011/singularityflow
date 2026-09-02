@@ -30,8 +30,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { releaseChannelManifest } from '../src/release-channel.mjs';
 import {
-  REQUIRED_RELEASE_PLATFORM_MATRIX, verifyVerificationReceipt
+  assertReleaseCheckoutClean, REQUIRED_RELEASE_PLATFORM_MATRIX, verifyVerificationReceipt
 } from '../src/verification-receipt.mjs';
+import { resolvePlatformProcess } from '../src/platform-process.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extension = path.join(root, 'apps', 'vscode');
@@ -45,14 +46,21 @@ function option(name) {
 }
 const verificationReceiptPath = option('--verification-receipt');
 const verificationKeyPath = option('--verification-key');
+const releaseTestEnvironment = {
+  ...process.env,
+  SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'
+};
 
 function step(message) { console.log(`\n• ${message}`); }
 
-function must(command, args, { cwd = root, json = false } = {}) {
-  const result = spawnSync(command, args, {
+function must(command, args, { cwd = root, json = false, environment = process.env } = {}) {
+  const launch = resolvePlatformProcess(command, args, { environment });
+  const result = spawnSync(launch.executable, launch.arguments, {
     cwd,
+    env: environment,
     encoding: 'utf8',
-    stdio: json ? ['inherit', 'pipe', 'inherit'] : 'inherit'
+    stdio: json ? ['inherit', 'pipe', 'inherit'] : 'inherit',
+    ...launch.spawnOptions
   });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed with status ${result.status}.`);
@@ -67,12 +75,8 @@ async function sha256(file) {
 async function main() {
   // A release has to be reproducible from a commit, and a dirty tree means the artefact contains
   // something no one can point at.
-  const dirty = spawnSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-  if (dirty) {
-    throw new Error(`The working tree is not clean, so this release would not be reproducible:\n${dirty}`);
-  }
-  const commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-  const tree = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const baseline = assertReleaseCheckoutClean(root, { label: 'Release start' });
+  const { commit, tree } = baseline;
   let verificationReceipt = null;
   let trustedVerificationKey = null;
   if (!dryRun) {
@@ -105,19 +109,27 @@ async function main() {
   if (skipTests) console.warn('  Local tests skipped; the exact-commit signed verification receipt remains the release authority.');
   else {
     step('Running the test suite');
-    must('npm', ['test']);
+    must('npm', ['test'], { environment: releaseTestEnvironment });
     step('Proving model-independent operation and lifecycle paths');
     must('npm', ['run', 'test:no-model']);
     step('Proving manual authorship and import paths');
     must('npm', ['run', 'test:manual-authorship']);
+    step('Running the complete packaged POC release gate');
+    must('npm', ['run', 'poc:release-gate'], { environment: releaseTestEnvironment });
   }
 
   const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const extensionManifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
   const { version } = manifest;
+  assertReleaseCheckoutClean(root, {
+    expectedCommit: commit, expectedTree: tree, label: 'Release pre-pack check'
+  });
   step(`Packing the CLI and Copilot plugin (${version})`);
   const packed = JSON.parse(must('npm', ['pack', '--json'], { json: true }));
   const tarball = path.join(root, packed[0].filename);
+  assertReleaseCheckoutClean(root, {
+    expectedCommit: commit, expectedTree: tree, label: 'Release npm-package check'
+  });
   if (!dryRun) {
     verifyVerificationReceipt(verificationReceipt, {
       trustedPublicKeyPem: trustedVerificationKey,
@@ -136,6 +148,9 @@ async function main() {
   // with no engine inside it, which installs cleanly and then fails to do anything.
   if (dryRun || !existsSync(vsix)) must('node', [path.join(root, 'scripts', 'vscode-dev.mjs'), '--package']);
   if (!existsSync(vsix)) throw new Error(`The extension package was not produced at ${vsix}.`);
+  assertReleaseCheckoutClean(root, {
+    expectedCommit: commit, expectedTree: tree, label: 'Release VSIX-package check'
+  });
   if (!dryRun) {
     verifyVerificationReceipt(verificationReceipt, {
       trustedPublicKeyPem: trustedVerificationKey,

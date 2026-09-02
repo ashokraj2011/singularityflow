@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
+import { resolvePlatformProcess, tryWindowsTaskkill } from './platform-process.mjs';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
 
@@ -57,7 +58,12 @@ export function runQualityCommand(command, args = [], {
   stdoutFile = null,
   input = null,
   signal = null,
-  killTree = true
+  killTree = true,
+  platform = process.platform,
+  spawnCommand = spawn,
+  platformLookupCommand = spawnSync,
+  platformLstatCommand = undefined,
+  platformRealpathCommand = undefined
 } = {}) {
   return new Promise((resolve) => {
     const stdout = boundedCapture(captureBytes);
@@ -74,16 +80,13 @@ export function runQualityCommand(command, args = [], {
     let child;
     const terminate = (terminationSignal) => {
       if (!child?.pid) return;
-      if (killTree && process.platform === 'win32') {
-        const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
-        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...force], {
-          stdio: 'ignore',
-          windowsHide: true,
-          timeout: 5_000
-        });
-        if (!killed.error && killed.status === 0) return;
+      if (killTree && platform === 'win32') {
+        if (tryWindowsTaskkill(child.pid, {
+          force: terminationSignal === 'SIGKILL', environment: env,
+          spawnSyncCommand: spawnSync, timeoutMs: 5_000
+        })) return;
       }
-      if (killTree && process.platform !== 'win32') {
+      if (killTree && platform !== 'win32') {
         try { process.kill(-child.pid, terminationSignal); return; } catch { /* child may already be gone */ }
       }
       child.kill(terminationSignal);
@@ -99,9 +102,19 @@ export function runQualityCommand(command, args = [], {
         error ??= caught;
         terminate('SIGTERM');
       });
-      child = spawn(command, args, {
-        cwd, env, shell,
-        detached: killTree && process.platform !== 'win32',
+      // Legacy string commands deliberately retain their explicit shell contract. Argv-form
+      // commands stay shell-free; only the known Windows npm/npx batch shims receive the narrow,
+      // escaped ComSpec launch adapter.
+      const launch = shell
+        ? { executable: command, arguments: args, spawnOptions: { shell: true } }
+        : resolvePlatformProcess(command, args, {
+          platform, environment: env, spawnSyncCommand: platformLookupCommand, cwd,
+          lstatSyncCommand: platformLstatCommand,
+          realpathSyncCommand: platformRealpathCommand
+        });
+      child = spawnCommand(launch.executable, launch.arguments, {
+        cwd, env, ...launch.spawnOptions,
+        detached: killTree && platform !== 'win32',
         stdio: [input == null ? 'ignore' : 'pipe', 'pipe', 'pipe']
       });
     } catch (caught) {

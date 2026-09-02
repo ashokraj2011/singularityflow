@@ -6,6 +6,15 @@ import {
 
 export const MCP_WORKSPACE_PATH = '.vscode/mcp.json';
 export const MCP_SCAFFOLD_VERSIONS = Object.freeze({ playwright: '0.0.79' });
+export const PLAYWRIGHT_MCP_HOST_ARGUMENTS = Object.freeze([
+  '--isolated',
+  '--headless',
+  '--output-dir', '.git/singularity-flow/mcp/playwright-output',
+  '--output-max-size', '5242880',
+  '--viewport-size', '1440x900',
+  '--timeout-action', '10000',
+  '--timeout-navigation', '30000'
+]);
 
 function plainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -41,16 +50,13 @@ export function playwrightHostEntry({ packageVersion = MCP_SCAFFOLD_VERSIONS.pla
   }
   return {
     type: 'stdio',
-    command: 'npx',
+    // The repository host never receives a machine-local storage-state path. This transparent
+    // SFlow launcher resolves the exact warmed executable and optional private auth profile only
+    // after the host starts it in the verified repository cwd.
+    command: 'singularity-flow',
     args: [
-      '-y', `@playwright/mcp@${packageVersion}`,
-      '--isolated',
-      '--headless',
-      '--output-dir', '.git/singularity-flow/mcp/playwright-output',
-      '--output-max-size', '5242880',
-      '--viewport-size', '1440x900',
-      '--timeout-action', '10000',
-      '--timeout-navigation', '30000'
+      'mcp', 'serve', 'playwright', '--package', `@playwright/mcp@${packageVersion}`,
+      ...PLAYWRIGHT_MCP_HOST_ARGUMENTS
     ]
   };
 }

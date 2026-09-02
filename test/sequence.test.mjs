@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { acquireSubjectLock, releaseSubjectLock } from '../src/subject-lock.mjs';
-import { enforceSequenceGate, withConfirmationPort } from '../src/sequence.mjs';
+import { enforceSequenceGate, sequenceGuidance, withConfirmationPort } from '../src/sequence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -88,6 +88,22 @@ function assertSequenceFailure(result, ...patterns) {
   }
   for (const pattern of patterns) assert.match(result.stderr, pattern);
 }
+
+test('sequence guidance describes a no-approval submission as completion and advancement', () => {
+  const guidance = sequenceGuidance({
+    workItem: { id: 'NO-APPROVAL-1' },
+    currentPhase: 'plan',
+    phases: {
+      plan: {
+        id: 'plan', status: 'in_progress', generation: 1,
+        generationPolicy: { requirement: 'required' }, approvalPolicy: { mode: 'none' }
+      }
+    }
+  });
+  assert.equal(guidance.actions[0].command, 'singularity-flow submit plan');
+  assert.match(guidance.summary, /complete it, and advance/);
+  assert.doesNotMatch(guidance.summary, /for approval/);
+});
 
 test('out-of-sequence commands exit before changing workflow, session, or Git state', async () => {
   const root = await repository();

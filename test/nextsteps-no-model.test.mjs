@@ -23,3 +23,13 @@ test('nextsteps explains a model-only generation block instead of returning no a
   assert.equal(actions[0].availability, 'blocked');
   assert.match(actions[0].reason, /no configured model-free producer/);
 });
+
+test('nextsteps gives deterministic phases their exact model-free publication command', () => {
+  const state = workflow(['deterministic']);
+  state.phases.design.generationPolicy.defaultProducer = 'deterministic';
+  const actions = workflowNextSteps(state, { modelMode: { enabled: false } });
+  const publication = actions.find((item) => item.command.startsWith('singularity-flow phase publish'));
+  assert.equal(publication.command,
+    'singularity-flow phase publish design --authored deterministic --channel kernel-generator');
+  assert.equal(actions.some((item) => item.command.includes('--authored human')), false);
+});

@@ -10,9 +10,9 @@ argument-hint: "<WORK-ID> [--jira | manual story details] [documents and URLs]"
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Require a work ID. Run `singularity-flow workspace current --json`; use its verified `repositoryPath` as every command's cwd. Run `singularity-flow version` and `git status --short`; on missing CLI or dirty tree, stop without installing or discarding.
+1. Require a work ID. In an opened repository, run `git rev-parse --show-toplevel` only there; otherwise use `workspace current --json`'s `repositoryPath`. Refuse if neither resolves; never search home/parents. In that cwd run `singularity-flow version` and `git status --short`; stop on missing CLI or dirt.
 2. Run `singularity-flow session candidates --json`. If the ID exists, route to `/sf-session` or `singularity-flow resume <WORK-ID>`; never start it again.
 3. If `singularity/workflow.yml` is absent, run `singularity-flow init --work-id <WORK-ID> --base <BASE> --fetch`. It creates/reuses the Work-ID branch so protected `main` stays untouched. Stop for review and publication.
 4. Run `singularity-flow workspace branches --json`. Require one branch published by every repository. Never infer or preselect it. Stop if a remote is unreachable.

@@ -12,7 +12,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 7
+version: 8
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -99,10 +99,47 @@ For a deliberately short, low-risk workflow with no specification phase, use
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
-## Packaged POC workflow
+## POC Lite
 
-`POC workflow` (`poc-workflow`) is a seeded Story workflow for a governed UI-regression proof of
-concept. It appears in CLI, Copilot, and VS Code workflow selection and runs this contract:
+`POC Lite — local governed change` (`poc-lite`) is the smallest packaged demonstration of the
+ordinary Story lifecycle:
+
+`PLAN → ACT → VERIFY → FINALIZE`
+
+All four phase records are assembled deterministically by the kernel. The profile pins World Model,
+AST, agent briefs, and MCP off, adds no tracker or hosted-service integration, and can run with
+global `--no-model`. ACT uses the normal code-delivery boundary: it discovers the existing
+repository-native executable test command for the changed module, requires structured passing
+evidence from a changed or newly added executable test, and also runs `git diff --check`. Begin ACT
+before editing so the exact baseline is recorded. PLAN, ACT, and VERIFY have no approval; FINALIZE has one
+explicit human quality-review decision. A generated FINALIZE record is not that decision.
+
+The normal Story transport contract still applies. In a configured team repository this means its
+configured Git remote; a self-contained demo harness may supply a local bare Git remote, so the
+profile itself does not require GitHub, Jira, Playwright, MCP, or another network service.
+
+```bash
+sflow workflow install poc-lite
+sflow --no-model start POC-LITE-101 \
+  --title "Demonstrate one bounded change" \
+  --from-branch main \
+  --work-type poc-lite
+```
+
+In ACT, change the one bounded product path and its executable test, rerun `sflow prepare` for ACT
+so the deterministic record captures the final paths, then publish using the
+producer-aware command printed by this build.
+
+Existing repositories receive POC Lite's four templates and dedicated phase-agent metadata during
+catalog installation or approved configuration refresh. Those agent entries keep phase routing
+unambiguous; the deterministic generation policy means the lifecycle never invokes them or a model
+to author a POC Lite record.
+
+## Enterprise Playwright POC workflow
+
+`POC workflow — enterprise Playwright` (`poc-workflow`) retains the existing workflow ID and is the
+seeded Story workflow for a governed UI-regression proof of concept. It appears in CLI, Copilot,
+and VS Code workflow selection and runs this contract:
 
 `POC intent and environment → Regression impact analysis → Governed UI exploration → Playwright test generation → Playwright validation and bounded repair → Publication and PR review`
 

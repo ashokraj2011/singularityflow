@@ -70,28 +70,59 @@ servers. If an entry with the same ID has different content, Flow refuses to
 overwrite it until it is reviewed; use `--replace-server` only after comparing the
 existing and proposed entries.
 
+The managed Playwright entry invokes `singularity-flow mcp serve`, so the global CLI must be on the
+MCP host's `PATH`. The VSIX-bundled engine runs extension features but is not a stable external host
+launcher. On a blank machine that needs managed MCP, install with `--skip-copilot` rather than
+`--vscode-only`.
+
 A conceptual Playwright host entry looks like this:
 
 ```json
 {
   "servers": {
     "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@<approved-version>", "--isolated", "--headless"]
+      "command": "singularity-flow",
+      "args": ["mcp", "serve", "playwright", "--package", "@playwright/mcp@<approved-version>", "--isolated", "--headless"]
     }
   }
 }
 ```
 
-Use the release-managed version produced by `mcp scaffold` instead of copying the
-placeholder above. The scaffold also supplies a machine-local output directory, bounded output,
-fixed viewport, and action/navigation timeouts for deterministic runs. In VS Code, run **MCP: List Servers** to review, trust and start
-the entry. For Copilot CLI, configure the same server using its MCP configuration
-command and inspect it with:
+Use the release-managed version produced by `mcp scaffold` instead of copying the placeholder
+above. Its `mcp serve` wrapper launches only the exact warmed Git-local package after rechecking its
+bounded production dependency-closure digest, rewrites the output directory for linked worktrees,
+and binds optional auth only in memory. The scaffold also supplies
+bounded output, fixed viewport, and action/navigation timeouts. Run `mcp warm playwright
+--network`, optionally import auth and run `mcp verify-offline playwright`, and only then review,
+trust, and start the entry in VS Code or Copilot.
 
 ```bash
 copilot mcp list
 ```
+
+For login-protected Playwright targets, import a reviewed storage-state export without changing the
+repository host file:
+
+```bash
+singularity-flow mcp auth import playwright \
+  --storage-state /secure/local/path/storage-state.json \
+  --profile poc-test-account
+# Review the displayed digest, then repeat with:
+singularity-flow mcp auth import playwright \
+  --storage-state /secure/local/path/storage-state.json \
+  --profile poc-test-account \
+  --confirm sha256:<64-hex-digest>
+```
+
+The copy lives only under `.git/singularity-flow/mcp/auth/` with private permissions. Status and
+receipts expose only its lower-kebab profile ID and SHA-256. SFlow resolves the file path in memory
+when launching Playwright. A replacement or removal invalidates prior host, warm, and smoke
+receipts; the authorized final-origin check is never relaxed.
+
+On Windows, SFlow removes ACL inheritance, grants the current user full control, and verifies that
+no inherited or additional principal remains. Import fails closed when that user-only ACL cannot be
+applied or verified. `mcp auth clear playwright` provides an exact inventory-bound recovery
+confirmation when corrupt private state prevents normal digest removal.
 
 ### 3. Declare the governed policy
 
@@ -189,6 +220,7 @@ browser launch, authorized navigation, accessibility snapshot, and browser close
 target before preparing that phase:
 
 ```bash
+singularity-flow mcp warm playwright --network
 singularity-flow mcp smoke playwright --url https://staging.example.test/health
 ```
 
@@ -199,6 +231,18 @@ phase that requires browser evidence, the same live call creates a generation-bo
 navigation records are refused. It is
 machine-local, expires when either configuration changes, and does not replace host trust or
 authentication. Redirects outside the requested origin fail the smoke test.
+
+`singularity-flow mcp probe <SERVER> --network` is the explicit, read-only connectivity check. It
+writes no receipt and fails when the exact registry package or endpoint cannot be reached. It is
+separate from `mcp warm`, which acquires and verifies the exact local package.
+
+After acquisition, `singularity-flow mcp verify-offline playwright` starts that exact Git-local
+package with npm offline and renews its hash-bound warm proof without registry or endpoint access.
+This proves that npm does not fetch and the local MCP handshake succeeds. It does not firewall or
+sandbox direct network access by the server or its dependencies; release evidence that claims a
+network-denied run must name and bind a separately reviewed isolation mechanism.
+Every phase that requires Playwright requires this proof to remain valid; a live smoke never falls
+back to `npx` and never downloads a package.
 
 ## Using MCP during governed work
 

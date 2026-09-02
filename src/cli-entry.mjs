@@ -23,7 +23,7 @@ const LOCAL_STATE_RESET_COMMANDS = new Set(['factory-reset', 'reset-all', 'local
 // repository-scoped and may safely use the repository explicitly selected by `workspace use` when
 // Copilot or another host starts the CLI outside a Git checkout.
 export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
-  'about', 'help', 'explain', 'guide', 'show', 'quickstart',
+  'about', 'help', 'explain', 'guide', 'show', 'quickstart', 'home',
   'init', 'bootstrap',
   'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall',
   'workspace', 'session', 'plugin', 'goal', 'journal', 'push'

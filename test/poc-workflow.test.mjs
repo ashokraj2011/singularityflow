@@ -30,7 +30,7 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
   validateDefinition(definition);
 
   const profile = definition.workTypes['poc-workflow'];
-  assert.equal(profile.label, 'POC workflow');
+  assert.equal(profile.label, 'POC workflow — enterprise Playwright');
   assert.deepEqual(profile.phases, PHASES);
 
   for (const [id, other] of Object.entries(definition.workTypes)) {

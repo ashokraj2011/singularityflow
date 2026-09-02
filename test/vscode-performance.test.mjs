@@ -121,8 +121,12 @@ test('nothing on the activation path stops the extension host with a synchronous
   const runner = codeOnly(runnerRaw);
   assert.doesNotMatch(runner, /\bspawnSync\b/,
     'repository validation or CLI cancellation still blocks the extension host synchronously');
-  assert.match(runner, /spawn\('taskkill\.exe'/,
+  assert.match(runner, /spawn\(windowsSystemTool\('taskkill\.exe'\)/,
     'Windows process-tree termination no longer uses the asynchronous supervisor');
+  assert.match(runner, /\^\[a-z\]:\[\\\\\/\]\/i\.test\(root\)/,
+    'VS Code system tools do not require a fully qualified local drive root');
+  assert.doesNotMatch(runner, /path\.win32\.isAbsolute\(root\)/,
+    'VS Code system tools still accept root-relative, UNC, or device paths');
   assert.match(runner, /killer\.once\('close', \(code\) => finish\(code === 0\)\)/,
     'Windows taskkill is assumed successful without observing its exit status');
   assert.match(runner, /if \(killed\) return true;[\s\S]*?child\.kill\(signal\)/,

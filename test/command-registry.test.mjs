@@ -68,6 +68,24 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(classify('spec', ['spec', 'acceptance']), 'mutation');
   assert.equal(classify('visual', ['visual', 'status']), 'read');
   assert.equal(classify('visual', ['visual', 'compare']), 'mutation');
+  assert.equal(classify('mcp', ['mcp', 'probe', 'playwright'], { network: true }), 'read');
+  assert.equal(classify('mcp', ['mcp', 'serve', 'playwright']), 'read');
+  assert.equal(classify('mcp', ['mcp', 'verify-offline', 'playwright']), 'mutation');
+  assert.equal(classify('mcp', ['mcp', 'auth', 'status', 'playwright']), 'read');
+  assert.equal(resolveOperation({
+    requestedCommand: 'mcp', positionals: ['mcp', 'auth', 'import', 'playwright'], options: {}
+  }).id, 'mcp.auth.import.preview');
+  assert.equal(resolveOperation({
+    requestedCommand: 'mcp', positionals: ['mcp', 'auth', 'import', 'playwright'],
+    options: { confirm: `sha256:${'a'.repeat(64)}` }
+  }).id, 'mcp.auth.import');
+  assert.equal(resolveOperation({
+    requestedCommand: 'mcp', positionals: ['mcp', 'auth', 'clear', 'playwright'], options: {}
+  }).id, 'mcp.auth.clear.preview');
+  assert.equal(resolveOperation({
+    requestedCommand: 'mcp', positionals: ['mcp', 'auth', 'clear', 'playwright'],
+    options: { confirm: `sha256:${'b'.repeat(64)}` }
+  }).id, 'mcp.auth.clear');
   assert.equal(classify('review', ['review', 'intake']), 'read');
   assert.equal(classify('review', ['review', 'intake'], { out: 'review.md' }), 'mutation');
   assert.equal(classify('session', ['session', 'current']), 'read');

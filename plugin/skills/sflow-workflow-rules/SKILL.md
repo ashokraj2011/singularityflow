@@ -9,7 +9,7 @@ user-invocable: false
 <!-- sflow-output-contract: guided-actions -->
 **Output contract:** Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 `/sf-session` is setup only: stop after its report. Do not inspect artifacts/source or infer delivery work from an ID.
 
@@ -22,7 +22,7 @@ user-invocable: false
 5. Register generated and modified files with `singularity-flow artifact add` or `singularity-flow artifact scan`.
 6. Never run `singularity-flow approve` unless the user explicitly invokes the approval skill or directly asks to approve.
 7. Never edit `workflow.json`, `STATUS.md`, or approval snapshots by hand.
-8. Never store Jira credentials, API tokens, passwords, or secrets in the repository.
+8. Never store secrets in the repository.
 9. Treat approved artifacts as durable inputs; document deviations in the active artifact.
 10. End generation with the exact configured-producer `phase publish` command returned by the engine; it is incomplete until pushed. Never substitute authorship or channel. Run `phase show <phase> --json` and visibly reproduce full text documents. Shell output and summaries do not count.
 11. Run `singularity-flow gate` before requesting review. A merge-ready pull request must pass `singularity-flow gate --terminal`.

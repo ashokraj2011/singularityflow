@@ -88,6 +88,51 @@ test('a failed durable launch record keeps Copilot available but reports capture
     'an unattributed SFlow telemetry stream is not launched');
 });
 
+test('a Windows host session resolves Copilot from PATH without consulting the repository cwd', async () => {
+  const root = await repository('sflow-telemetry-windows-launch-');
+  const base = await acceptedEnvironment(root);
+  const prepared = await prepareTelemetryLaunch({
+    root,
+    baseEnv: {
+      ...base,
+      SystemRoot: 'C:\\Windows',
+      ComSpec: 'C:\\Windows\\System32\\cmd.exe'
+    }
+  });
+  const lookups = [];
+  let started = null;
+  await withOperationContext({
+    operation: { id: 'test.host-session.windows', command: 'test', modelPolicy: 'optional' },
+    modelMode: { enabled: true }, root, argvSha256: 'test', argvHash: 'test', command: 'test'
+  }, () => launchHostSession({
+    cwd: root,
+    args: ['--help'],
+    preparedTelemetry: prepared,
+    execution: {
+      platform: 'win32',
+      recordTelemetryLaunch: async () => {},
+      platformLookup(command, args, options) {
+        lookups.push({ command, args, options });
+        if (args[0] === '$PATH:copilot.*') {
+          return { status: 0, stdout: '.\\copilot.cmd\r\nC:\\Tools\\copilot.cmd\r\n' };
+        }
+        return { status: 1, stdout: '' };
+      },
+      spawnSync: (command, args, options) => {
+        started = { command, args, options };
+        return { status: 0, signal: null, error: null };
+      }
+    }
+  }));
+  assert.ok(lookups.length >= 1);
+  assert.ok(lookups.every((call) => call.command === 'C:\\Windows\\System32\\where.exe'));
+  assert.ok(lookups.every((call) => call.options.cwd === 'C:\\Windows\\System32'));
+  assert.equal(started.command, 'C:\\Windows\\System32\\cmd.exe');
+  assert.match(started.args[4], /C:\\Tools\\copilot\.cmd.*--help/);
+  assert.equal(started.options.shell, false);
+  assert.equal(started.options.windowsVerbatimArguments, true);
+});
+
 test('existing exporter configuration and forced content capture are preserved and never disclosed', async () => {
   const root = await repository();
   const env = await acceptedEnvironment(root);

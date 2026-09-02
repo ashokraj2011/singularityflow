@@ -1,9 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
+import {
+  isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
+  resolveWindowsSystemTool
+} from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 
 export class SingularityFlowError extends Error {
@@ -404,6 +408,7 @@ export function networkDisabled(env = process.env) {
  */
 export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
   platform = process.platform,
+  environment = process.env,
   spawnCommand = spawn,
   killProcess = process.kill,
   timeoutMs = 1_000
@@ -419,7 +424,7 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
     const force = terminationSignal === 'SIGKILL' ? ['/F'] : [];
     let killer;
     try {
-      killer = spawnCommand('taskkill.exe', [
+      killer = spawnCommand(resolveWindowsSystemTool(environment, 'taskkill.exe'), [
         '/PID', String(pid), '/T', ...force
       ], {
         shell: false,
@@ -479,6 +484,11 @@ export function run(command, args = [], {
   stdio = 'pipe',
   timeoutMs = defaultTimeoutFor(command),
   killSignal = 'SIGTERM',
+  platform = process.platform,
+  spawnSyncCommand = spawnSync,
+  platformLookupCommand = spawnSync,
+  platformLstatCommand = undefined,
+  platformRealpathCommand = undefined,
   /** The output ceiling. Defaults to `SUBPROCESS_MAX_BUFFER_BYTES`, not Node's 1 MiB. */
   maxBuffer = SUBPROCESS_MAX_BUFFER_BYTES,
   /**
@@ -514,8 +524,24 @@ export function run(command, args = [], {
     return { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, blocked: true };
   }
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
-  const result = spawnSync(command, args, {
-    cwd, env, encoding, shell, stdio, timeout: timeoutMs, killSignal,
+  let launch;
+  try {
+    launch = shell
+      ? { executable: command, arguments: args, spawnOptions: { shell } }
+      : resolvePlatformProcess(command, args, {
+        platform, environment: env, spawnSyncCommand: platformLookupCommand, cwd,
+        lstatSyncCommand: platformLstatCommand,
+        realpathSyncCommand: platformRealpathCommand
+      });
+  } catch (error) {
+    if (!allowFailure) throw new SingularityFlowError(`Unable to resolve ${command}: ${error.message}`, {
+      code: 'SUBPROCESS_UNAVAILABLE', cause: error
+    });
+    return { status: 1, stdout: '', stderr: '', error, signal: null, timedOut: false, blocked: false };
+  }
+  const result = spawnSyncCommand(launch.executable, launch.arguments, {
+    cwd, env, encoding, stdio, timeout: timeoutMs, killSignal,
+    ...launch.spawnOptions,
     ...(maxBuffer === undefined ? {} : { maxBuffer }),
     /**
      * Always bytes.
@@ -585,16 +611,32 @@ export function run(command, args = [], {
  * build failed there with a spawn error rather than anything explaining why. `cmd.exe` is the
  * equivalent, and `/c` is its `-c`.
  */
-export function platformShell() {
-  return process.platform === 'win32'
-    ? { command: process.env.ComSpec || 'cmd.exe', flag: '/c' }
+export function platformShell({ platform = process.platform, environment = process.env } = {}) {
+  return platform === 'win32'
+    ? { command: resolveWindowsSystemTool(environment, 'cmd.exe'), flag: '/c' }
     : { command: 'bash', flag: '-c' };
 }
 
-export function commandExists(command) {
-  const result = process.platform === 'win32'
-    ? run('where', [command], { allowFailure: true })
-    : run('sh', ['-lc', `command -v ${JSON.stringify(command)}`], { allowFailure: true });
+export function commandExists(command, {
+  platform = process.platform,
+  environment = process.env,
+  spawnSyncCommand = spawnSync,
+  existsFile = existsSync
+} = {}) {
+  if (platform === 'win32') {
+    try {
+      if (isFullyQualifiedWindowsPath(command)) return existsFile(command);
+      if (path.win32.isAbsolute(command) || /^[a-z]:(?:$|[^\\/])/i.test(command)) return false;
+      return resolveWindowsPathExecutable(command, {
+        environment, spawnSyncCommand
+      }) != null;
+    } catch {
+      return false;
+    }
+  }
+  const result = run('sh', ['-lc', `command -v ${JSON.stringify(command)}`], {
+    allowFailure: true
+  });
   return result.status === 0;
 }
 

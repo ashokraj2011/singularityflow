@@ -39,8 +39,9 @@ test('nextsteps works before initialization and without an active work item', ()
 
 test('active generation plan includes current, subsequent, alternative, and following-phase actions', () => {
   const steps = workflowNextSteps(workflow());
-  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
-  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'alternative', 'alternative', 'then']);
+  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-phase', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
+  assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'then', 'alternative', 'alternative', 'then']);
+  assert.equal(steps[1].command, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
   assert.match(steps.at(-1).reason, /Requirements/);
 });
 
@@ -84,6 +85,25 @@ test('rejection, pending publication, and completion produce safe action plans',
   assert.deepEqual(workflowNextSteps(cancelled).map((item) => item.skill), ['/sf-documents', '/sf-report']);
 });
 
+test('a no-approval phase never offers review actions and post-submit state targets the new phase', () => {
+  const beforeSubmit = workflow({ generation: 1 });
+  beforeSubmit.phases.intake.approvalPolicy.mode = 'none';
+  const beforeActions = workflowNextSteps(beforeSubmit);
+  assert.equal(beforeActions[0].command, 'singularity-flow submit intake');
+  assert.equal(beforeActions.some((item) => /singularity-flow (?:approve|reject) intake/.test(item.command)), false);
+  assert.match(beforeActions.at(-1).reason, /submission completes its no-approval phase/);
+
+  const afterSubmit = workflow({ generation: 1, currentPhase: 'requirements' });
+  afterSubmit.phases.intake.status = 'approved';
+  afterSubmit.phases.intake.approvalPolicy.mode = 'none';
+  afterSubmit.phases.requirements.status = 'in_progress';
+  afterSubmit.phases.requirements.approvalPolicy.mode = 'none';
+  const afterActions = workflowNextSteps(afterSubmit);
+  assert.ok(afterActions.some((item) => item.command === 'singularity-flow prepare requirements'));
+  assert.equal(afterActions.some((item) => /singularity-flow (?:approve|reject)/.test(item.command)), false);
+  assert.equal(afterActions.some((item) => /(?:prepare|submit|phase publish) intake/.test(item.command)), false);
+});
+
 test('nextsteps text leads with the command and preserves timing, reason, and skill', () => {
   // The command is what someone reading a terminal is going to run, so it is the headline. This read
   // the other way round — the Copilot skill first, the command beneath it as a "CLI equivalent" —
@@ -92,6 +112,7 @@ test('nextsteps text leads with the command and preserves timing, reason, and sk
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
   assert.match(text, /NOW — singularity-flow prepare intake/);
+  assert.match(text, /THEN — singularity-flow phase publish intake --authored governed-agent --channel copilot-host/);
   assert.match(text, /THEN — singularity-flow submit intake/);
   assert.match(text, /ALTERNATIVE — singularity-flow reject/);
   assert.match(text, /In Copilot: \/sf-phase/);

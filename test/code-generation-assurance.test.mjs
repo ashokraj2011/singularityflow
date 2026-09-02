@@ -619,7 +619,7 @@ test('configured roots prefer the nearest override and Windows selects command w
     }
   });
   assert.equal(module.root, 'services/orders');
-  assert.deepEqual((await inferModuleTestCommand(root, module, { platform: 'win32' })).argv, ['mvnw.cmd', 'test']);
+  assert.deepEqual((await inferModuleTestCommand(root, module, { platform: 'win32' })).argv, ['.\\mvnw.cmd', 'test']);
 });
 
 test('inferred commands follow monorepo package managers and platform-native runners', async () => {

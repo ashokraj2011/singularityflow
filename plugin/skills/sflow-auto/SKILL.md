@@ -10,9 +10,9 @@ argument-hint: "<requirement> | --goal <GOAL-ID> | plan <requirement> | adopt --
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow workspace current --json` → verified `repositoryPath`, cwd=`repositoryPath`; never `$HOME`; no active Story is required.
+**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Use the verified workspace cwd. Never search `$HOME` or infer a repository from chat. With no argument, show the forms and change nothing.
+1. Use the verified repository cwd from the Boundary. Never search `$HOME` or infer a repository from chat. With no argument, show the forms and change nothing.
 2. Plan with `singularity-flow auto plan "<REQUIREMENT>" --json`, its shorthand, or `singularity-flow auto --goal <GOL-ID|GEX-ID> --json`. Goal input stays exact and needs separate ratification. Planning creates no Story or authority. Show the complete Plan and complete ratification-packet SHA-256.
 3. Read with `singularity-flow auto show-plan <PLAN-ID> --json`, `auto list --json`, `auto status|report|needs-you <FLIGHT-ID> --json`, or `auto continue <STORY-ID> --json`. Continue only proposes. `auto adopt --from-adhoc <AHS-ID> --json` stays non-startable and retains `pre-auto-adhoc`/`discovered-at-landing` provenance.
 4. Start only after the user types the full packet hash: `singularity-flow auto start --plan <PLAN-ID> --confirm <PACKET-SHA256> --json`. Never extract or prefill confirmation.

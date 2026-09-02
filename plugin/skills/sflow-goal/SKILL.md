@@ -10,7 +10,7 @@ argument-hint: "[personal|propose|govern|inspect|impact|plan|approve-plan|run-ne
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
+**Boundary:** machine-local; no repository or Story required. Use explicit arguments or SFlow-returned paths; never search `$HOME` or infer a repository.
 
 A Goal has two modes. `GOL-*` is personal advisory state. `GEX-*` is repository-owned governed
 execution. Neither replaces a linked Story or Initiative lifecycle.

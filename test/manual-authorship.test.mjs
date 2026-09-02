@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand
+  buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand,
+  phasePublicationCommandForProducer
 } from '../src/manual-authorship.mjs';
 
 test('human authorship records exact provenance without pretending a kernel model ran', () => {
@@ -50,4 +51,15 @@ test('publication guidance derives producer and channel from the phase contract'
   assert.equal(phasePublicationCommand({
     id: 'convergence', generationPolicy: { defaultProducer: 'deterministic' }
   }), 'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator');
+  assert.equal(phasePublicationCommandForProducer({
+    id: 'design',
+    generationPolicy: {
+      defaultProducer: 'governed-agent', allowedProducers: ['governed-agent', 'human']
+    }
+  }, 'human', { source: '<FILE>', noModel: true }),
+  'singularity-flow phase publish design --authored human --channel manual-import --from <FILE> --no-model');
+  assert.throws(() => phasePublicationCommandForProducer({
+    id: 'convergence',
+    generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
+  }, 'human'), /does not permit 'human'/);
 });

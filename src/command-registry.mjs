@@ -5,7 +5,7 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -196,6 +196,10 @@ const HELP_METRICS_READ_SUBCOMMANDS = Object.freeze(['status']);
 const HELP_METRICS_MUTATION_SUBCOMMANDS = Object.freeze(['on', 'off', 'clear']);
 const HELP_METRICS_SUBCOMMANDS = Object.freeze([...HELP_METRICS_READ_SUBCOMMANDS, ...HELP_METRICS_MUTATION_SUBCOMMANDS]);
 const VISUAL_SUBCOMMANDS = Object.freeze(['status', 'compare']);
+const MCP_SUBCOMMANDS = Object.freeze([
+  'attest', 'auth', 'design-sources', 'doctor', 'list', 'probe', 'record', 'scaffold', 'serve',
+  'smoke', 'status', 'verify-offline', 'warm'
+]);
 const CLARIFICATION_SUBCOMMANDS = Object.freeze(['status', 'record']);
 const FAULT_SUBCOMMANDS = Object.freeze(['report', 'list', 'show']);
 const REPAIR_SUBCOMMANDS = Object.freeze(['list', 'status', 'authorize', 'attempt', 'cancel']);
@@ -295,6 +299,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
   telemetry: TELEMETRY_SUBCOMMANDS,
   visual: VISUAL_SUBCOMMANDS,
+  mcp: MCP_SUBCOMMANDS,
   clarification: CLARIFICATION_SUBCOMMANDS,
   fault: FAULT_SUBCOMMANDS,
   repair: REPAIR_SUBCOMMANDS,
@@ -443,6 +448,36 @@ function resolveVisualOperation(definition, positionals) {
   if (subcommand === 'status') return never('visual.status', definition, 'read');
   if (subcommand === 'compare') return never('visual.compare', definition, 'mutation');
   return unknownSubcommand('visual', subcommand, VISUAL_SUBCOMMANDS);
+}
+
+function resolveMcpOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? 'status';
+  if (!MCP_SUBCOMMANDS.includes(subcommand)) {
+    return unknownSubcommand('mcp', subcommand, MCP_SUBCOMMANDS);
+  }
+  if (['list', 'status', 'doctor', 'probe', 'serve'].includes(subcommand)) {
+    return never(`mcp.${subcommand}`, definition, 'read');
+  }
+  if (subcommand === 'auth') {
+    const action = positionals[2] ?? 'status';
+    if (!['clear', 'import', 'remove', 'status'].includes(action)) {
+      return unknownSubcommand('mcp auth', action, ['clear', 'import', 'remove', 'status'], 'action');
+    }
+    if (action === 'status') return never('mcp.auth.status', definition, 'read');
+    return never(
+      `mcp.auth.${action}${optionString(options, 'confirm') == null ? '.preview' : ''}`,
+      definition,
+      optionString(options, 'confirm') == null ? 'read' : 'mutation'
+    );
+  }
+  if (subcommand === 'design-sources') {
+    const action = positionals[2] ?? 'status';
+    if (!['promote', 'status'].includes(action)) {
+      return unknownSubcommand('mcp design-sources', action, ['promote', 'status'], 'action');
+    }
+    return never(`mcp.design-sources.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+  }
+  return never(`mcp.${subcommand}`, definition, 'mutation');
 }
 
 /**
@@ -911,6 +946,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'spec') return resolveSpecOperation(definition, positionals, options);
   if (definition.name === 'comprehension') return resolveComprehensionOperation(definition, positionals);
   if (definition.name === 'visual') return resolveVisualOperation(definition, positionals);
+  if (definition.name === 'mcp') return resolveMcpOperation(definition, positionals, options);
   if (definition.name === 'clarification') return resolveClarificationOperation(definition, positionals);
   if (definition.name === 'fault') return resolveFaultOperation(definition, positionals);
   if (definition.name === 'fix') return resolveFixOperation(definition, options);
@@ -1006,6 +1042,7 @@ export function operationCatalog() {
   const capabilityDefinition = commandDefinition('capability');
   const constitutionDefinition = commandDefinition('constitution');
   const visualDefinition = commandDefinition('visual');
+  const mcpDefinition = commandDefinition('mcp');
   const clarificationDefinition = commandDefinition('clarification');
   const faultDefinition = commandDefinition('fault');
   const fixDefinition = commandDefinition('fix');
@@ -1092,6 +1129,17 @@ export function operationCatalog() {
     ...COMPREHENSION_SUBCOMMANDS.map((name) => never(`comprehension.${name}`, comprehensionDefinition, 'read')),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
+    ...['list', 'status', 'doctor', 'probe', 'serve'].map((name) => never(`mcp.${name}`, mcpDefinition, 'read')),
+    ...['attest', 'record', 'scaffold', 'smoke', 'verify-offline', 'warm'].map((name) => never(`mcp.${name}`, mcpDefinition, 'mutation')),
+    never('mcp.auth.status', mcpDefinition, 'read'),
+    never('mcp.auth.clear.preview', mcpDefinition, 'read'),
+    never('mcp.auth.clear', mcpDefinition, 'mutation'),
+    never('mcp.auth.import.preview', mcpDefinition, 'read'),
+    never('mcp.auth.import', mcpDefinition, 'mutation'),
+    never('mcp.auth.remove.preview', mcpDefinition, 'read'),
+    never('mcp.auth.remove', mcpDefinition, 'mutation'),
+    never('mcp.design-sources.status', mcpDefinition, 'read'),
+    never('mcp.design-sources.promote', mcpDefinition, 'mutation'),
     never('clarification.status', clarificationDefinition, 'read'),
     never('clarification.record', clarificationDefinition, 'mutation'),
     never('fault.list', faultDefinition, 'read'),

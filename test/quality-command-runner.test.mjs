@@ -3,8 +3,94 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
+
+test('argv quality commands use the safe Windows npm shim without enabling shell mode', async () => {
+  const calls = [];
+  const args = ['test', '--', 'argument with spaces'];
+  const environment = {
+    ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    SystemRoot: 'C:\\Windows'
+  };
+  const result = await runQualityCommand('npm', args, {
+    platform: 'win32',
+    env: environment,
+    platformLookupCommand(command, lookupArgs, options) {
+      assert.equal(command, 'C:\\Windows\\System32\\where.exe');
+      assert.deepEqual(lookupArgs, ['$PATH:npm.cmd']);
+      assert.equal(options.shell, false);
+      return {
+        status: 0,
+        stdout: '.\\npm.cmd\r\nC:\\Program Files\\nodejs\\npm.cmd\r\n',
+        stderr: ''
+      };
+    },
+    timeoutMs: 5_000,
+    killTree: false,
+    spawnCommand(command, physicalArgs, options) {
+      calls.push({ command, args: physicalArgs, options });
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.killed = false;
+      child.kill = () => { child.killed = true; return true; };
+      setImmediate(() => {
+        child.stdout.end();
+        child.stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    }
+  });
+  assert.equal(result.status, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, environment.ComSpec);
+  assert.deepEqual(calls[0].args.slice(0, 4), ['/d', '/s', '/v:off', '/c']);
+  assert.match(calls[0].args[4], /Program\^ Files.*npm\.cmd/);
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.windowsVerbatimArguments, true);
+  assert.deepEqual(args, ['test', '--', 'argument with spaces']);
+});
+
+test('Windows quality commands execute only explicit regular repository-local wrappers', async () => {
+  const calls = [];
+  const environment = {
+    ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+    SystemRoot: 'C:\\Windows'
+  };
+  const result = await runQualityCommand('.\\mvnw.cmd', ['test'], {
+    platform: 'win32', cwd: 'C:\\workspace', env: environment,
+    platformLstatCommand(candidate) {
+      assert.equal(candidate, 'C:\\workspace\\mvnw.cmd');
+      return { isFile: () => true, isSymbolicLink: () => false };
+    },
+    platformRealpathCommand: (candidate) => candidate,
+    timeoutMs: 5_000,
+    killTree: false,
+    spawnCommand(command, args, options) {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.stdin = new PassThrough();
+      child.kill = () => true;
+      setImmediate(() => {
+        child.stdout.end(); child.stderr.end();
+        child.emit('close', 0, null);
+      });
+      return child;
+    }
+  });
+  assert.equal(result.status, 0);
+  assert.equal(calls[0].command, environment.ComSpec);
+  assert.match(calls[0].args[4], /C:\\workspace\\mvnw\.cmd.*test/);
+  assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.windowsVerbatimArguments, true);
+});
 
 test('bounded diagnostics preserve UTF-8 at every retained boundary', async () => {
   const result = await runQualityCommand(process.execPath, [

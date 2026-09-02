@@ -37,6 +37,18 @@ export const SGOS_BUILTIN_OPERATION_MANIFESTS = Object.freeze(
   Object.fromEntries(Object.entries(MANIFESTS).map(([id, manifest]) => [id, withDigest(manifest)]))
 );
 
+/**
+ * Exact verifier relationships installed by this runtime profile.
+ *
+ * A verifier is not interchangeable merely because it is registered and has `kind: verifier`.
+ * Publishing the pairing beside the manifests lets deterministic authoring surfaces offer only a
+ * verifier that understands the selected operation's result and Candidate Snapshot.
+ */
+export const SGOS_BUILTIN_OPERATION_VERIFIERS = Object.freeze({
+  'sflow.story.inspect': 'sflow.story.inspect.verify',
+  'sflow.repository.assert-clean': 'sflow.repository.assert-clean.verify'
+});
+
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
 }

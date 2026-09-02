@@ -190,6 +190,7 @@ skills:
   sflow-review: { class: review }
   sflow-run: { class: mutation, kernelModelPolicy: conditional }
   sflow-secrets: { class: mutation }
+  sflow-sgos-create: { class: interactive }
   sflow-session: { class: interactive }
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }

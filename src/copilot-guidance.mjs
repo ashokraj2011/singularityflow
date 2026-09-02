@@ -18,6 +18,9 @@ export function copilotSkillForCommand(command, fallback = '/sf-next') {
   if (!match) return fallback;
   const [, first, second] = match;
   if (first === 'phase' || first === 'prepare') return '/sf-phase';
+  if (first === 'intent' && (second === 'workflow-guide' || second === 'workflow-create')) {
+    return '/sf-sgos-create';
+  }
   if (first === 'initiative') {
     const mapped = {
       approve: 'approve', checklist: 'checklist', documents: 'documents', evidence: 'evidence',

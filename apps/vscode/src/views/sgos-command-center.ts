@@ -91,6 +91,7 @@ export class SgosCommandCenterPanel {
     this.client = client;
     const router = registerMessageRouter('singularityFlow.commandCenter', {
       refresh: () => void this.refresh(),
+      createWorkflow: () => void vscode.commands.executeCommand('singularityFlow.createSgosWorkflow'),
       select: (message) => {
         const processId = stringField(message, 'processId');
         if (!processId || !this.currentProcess(processId)) return;

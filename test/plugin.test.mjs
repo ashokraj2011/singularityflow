@@ -18,6 +18,20 @@ test('plugin manifest publishes collision-safe skills, a workflow agent, and the
   assert.equal(manifest.hooks, 'hooks.json');
 });
 
+test('SGOS creation is an explicit proposal-only Copilot journey', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-sgos-create', 'SKILL.md'), 'utf8');
+  assert.match(content, /name: sflow-sgos-create/);
+  assert.match(content, /disable-model-invocation:\s*true/);
+  assert.match(content, /singularity-flow workspace current --json/);
+  assert.match(content, /intent workflow-guide <INTENT-IR> --registry <FILE> --json/);
+  assert.match(content, /intent workflow-create <INTENT-IR>[\s\S]*--verification-operation <EXACT-ID>/);
+  assert.match(content, /ask_user/);
+  assert.match(content, /Invocation of this skill is not that confirmation/);
+  assert.match(content, /unratified proposals/);
+  assert.match(content, /Never run `intent ratify`, `intent compile`, `program approve`, `process start`/);
+  assert.match(content, /Never claim[\s\S]*granted authority/);
+});
+
 test('session and progress skills ground every follow-up command in the resolved repository', async () => {
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');

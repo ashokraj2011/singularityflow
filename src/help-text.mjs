@@ -270,6 +270,13 @@ Usage:
   singularity-flow intent packet <ENVELOPE> --answers <FILE> [--out FILE] [--json]
   singularity-flow intent confirm <ENVELOPE> --answers <FILE> --confirm <PACKET-SHA256>
     --confirmed-at <RFC3339> [--out FILE] [--json]
+  singularity-flow intent workflow-guide <INTENT-IR> --registry <FILE> [--json]
+  singularity-flow intent workflow-create <INTENT-IR> --policy <FILE> --registry <FILE>
+    --storage-profile-sha256 <SHA256> --id <LOWER-KEBAB> --operation <ID>
+    --verification-operation <ID> --declaration-out <NEW-FILE> --out <NEW-FILE>
+    [--title <TEXT>] [--maximum-attempts <N>] [--output-ref <REF>] [--json]
+    creates only an uncommitted, unratified core candidate; does not invoke a model, ratify,
+    compile, approve, commit, or run
   singularity-flow intent workflow <INTENT-IR> --policy <FILE> --declaration <FILE> [--out FILE] [--json]
   singularity-flow intent ratification-packet <INTENT-IR> --workflow <FILE> --policy <FILE>
     --registry <FILE> --storage-profile-sha256 <SHA256> [--coverage <FILE>] [--out FILE] [--json]

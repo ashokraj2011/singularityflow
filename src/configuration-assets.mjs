@@ -8,6 +8,7 @@ const DEFAULT_RUNTIME_ROOTS = Object.freeze([
   'singularity/knowledge',
   'singularity/pins',
   'singularity/identity-reservations',
+  'singularity/sgos-drafts',
   'singularity/telemetry',
   'singularity/.product'
 ]);

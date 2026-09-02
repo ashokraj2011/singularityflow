@@ -29,6 +29,12 @@ export const SGOS_CLI_OPTIONS = Object.freeze({
     packet: optionSet('answers', 'out'),
     confirm: optionSet('answers', 'confirm', 'confirmed-at', 'out'),
     workflow: optionSet('policy', 'declaration', 'out'),
+    'workflow-guide': optionSet('registry'),
+    'workflow-create': optionSet(
+      'policy', 'registry', 'storage-profile-sha256', 'id', 'operation',
+      'verification-operation', 'declaration-out', 'out', 'title',
+      'maximum-attempts', 'output-ref'
+    ),
     'ratification-packet': optionSet(
       'workflow', 'policy', 'registry', 'storage-profile-sha256', 'coverage', 'out'
     ),
@@ -187,7 +193,8 @@ export function validateSgosCliOptions(command, action, options = {}) {
     });
   }
   const supportsOutput = (command === 'intent' && [
-    'capture', 'packet', 'confirm', 'workflow', 'ratification-packet', 'ratify', 'compile'
+    'capture', 'packet', 'confirm', 'workflow', 'workflow-create',
+    'ratification-packet', 'ratify', 'compile'
   ].includes(action)) || (command === 'evidence' && action === 'export')
     || (command === 'authority-store' && action === 'export');
   if (Object.hasOwn(options, 'out') && !supportsOutput) {

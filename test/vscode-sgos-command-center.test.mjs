@@ -124,7 +124,7 @@ test('Command Center groups only authoritative states and renders staged capabil
   assert.deepEqual(model.lanes.map((lane) => lane.label), ['Needs you']);
   assert.equal(model.selected.processSha256, hash('a'));
   const html = sgosCommandCenterBody(model);
-  assert.match(html, /Projection-only view/);
+  assert.match(html, /Exact SGOS Process projection with proposal-only Workflow authoring/);
   assert.match(html, /Approve UI output/);
   assert.match(html, /role · reviewer/);
   assert.match(html, /Why this needs you/);

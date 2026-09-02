@@ -14,6 +14,9 @@ test('user-facing skills always use the direct sf namespace', () => {
 });
 
 test('CLI lifecycle commands map to installed direct Copilot skills', () => {
+  assert.equal(copilotSkillForCommand('singularity-flow intent workflow-guide intent-ir.json'), '/sf-sgos-create');
+  assert.equal(copilotSkillForCommand('singularity-flow intent workflow-create intent-ir.json'), '/sf-sgos-create');
+  assert.equal(copilotSkillForCommand('singularity-flow intent ratify intent-ir.json'), '/sf-workflows');
   assert.equal(copilotSkillForCommand('singularity-flow prepare intake'), '/sf-phase');
   assert.equal(copilotSkillForCommand('singularity-flow submit intake'), '/sf-submit');
   assert.equal(copilotSkillForCommand('singularity-flow epic create-stories'), '/sf-epic-publish');

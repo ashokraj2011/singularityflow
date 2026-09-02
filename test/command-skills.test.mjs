@@ -43,6 +43,8 @@ test('the Help Center crosswalk is generated from the checked catalog', async ()
 });
 
 test('journey mappings keep low-level plumbing behind the guided skill', () => {
+  assert.equal(primarySkillForCommand('intent'), 'sf-workflows');
+  assert.ok(skillsForCommand('intent').includes('sf-sgos-create'));
   assert.equal(primarySkillForCommand('auto'), 'sf-auto');
   assert.equal(primarySkillForCommand('prepare'), 'sf-phase');
   assert.ok(skillsForCommand('prepare').includes('sf-converge'));

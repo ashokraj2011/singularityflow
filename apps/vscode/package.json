@@ -499,6 +499,11 @@
         "icon": "$(server-process)"
       },
       {
+        "command": "singularityFlow.createSgosWorkflow",
+        "title": "Singularity Flow: Create SGOS Workflow...",
+        "icon": "$(add)"
+      },
+      {
         "command": "singularityFlow.openReconciliation",
         "title": "Singularity Flow: Open Reconciliation",
         "icon": "$(git-compare)"

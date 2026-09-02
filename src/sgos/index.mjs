@@ -1,6 +1,7 @@
 /** Public model-free SGOS foundation surface. */
 export * from './contracts.mjs';
 export * from './authoring.mjs';
+export * from './workflow-generator.mjs';
 export * from './compiler.mjs';
 export * from './capability-pack-authority.mjs';
 export * from './evidence.mjs';
@@ -46,7 +47,9 @@ export {
   stepSgosProcess,
   stopSgosProcess
 } from './public-runtime.mjs';
-export { SGOS_BUILTIN_OPERATION_MANIFESTS } from './builtin-adapters.mjs';
+export {
+  SGOS_BUILTIN_OPERATION_MANIFESTS, SGOS_BUILTIN_OPERATION_VERIFIERS
+} from './builtin-adapters.mjs';
 // Storage writers and CAS primitives are interpreter internals. Durable read APIs remain public
 // for diagnostics, projections, and recovery tooling; callers cannot use this barrel to construct
 // or mutate a Process around the runtime's authority gates.

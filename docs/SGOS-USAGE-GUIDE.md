@@ -144,11 +144,53 @@ The confirming identity comes from current Git identity and approved product aut
 group is `product-approvers`; approved platform-authority policy may replace it. An identity flag
 cannot grant permission.
 
-### 2. Create and ratify a finite workflow
+### 2. Create a finite Workflow Candidate; ratify it separately
 
-Prepare the strict repository files `policy.json`, `workflow-declaration.json`, and `registry.json`.
+For the bounded core single-operation profile, inspect the confirmed Intent and pinned registry
+before choosing anything:
+
+```bash
+singularity-flow intent workflow-guide intent-ir.json \
+  --registry registry.json \
+  --json
+```
+
+Resolve every reported blocker, then explicitly choose two different eligible core operations: one
+to perform the work and one to verify it independently. Create the proposal with the reviewed
+policy, registry, storage-profile digest, and output paths:
+
+```bash
+singularity-flow intent workflow-create intent-ir.json \
+  --policy policy.json \
+  --registry registry.json \
+  --storage-profile-sha256 sha256:<STORAGE-PROFILE-DIGEST> \
+  --id verified-migration-report \
+  --operation <EXACT-OPERATION-ID> \
+  --verification-operation <EXACT-VERIFIER-ID> \
+  --declaration-out singularity/sgos-drafts/verified-migration-report/workflow-declaration.json \
+  --out singularity/sgos-drafts/verified-migration-report/workflow-ir.json \
+  --title "Verified migration report" \
+  --maximum-attempts 1 \
+  --output-ref artifact:result \
+  --json
+```
+
+The creator deterministically writes two new repository files: an explicit declaration and its
+validated Workflow IR. They remain uncommitted, unratified proposals. The command invokes no model
+and does not ratify, compile, approve, commit, or run anything; it only returns the next
+`intent ratification-packet` command for separate review. These drafts must remain under the
+dedicated `singularity/sgos-drafts/` runtime root; the creator refuses nested `.git`, protected
+configuration, and every other output root, and never
+overwrites an existing different file.
+
+The Copilot command `/sf-sgos-create` and VS Code command **Singularity Flow: Create SGOS
+Workflow...** guide the same explicit selections and show a final confirmation before invoking that
+creator. Neither surface grants authority or runs the returned next command.
+
+For a multi-task graph, non-core operation, signed Capability Pack, or other advanced shape, prepare
+the strict repository files `policy.json`, `workflow-declaration.json`, and `registry.json` yourself.
 The declaration must define finite tasks, dependencies, resources, evidence, verification, human
-authority, and recovery policy.
+authority, and recovery policy, then use the general deterministic authoring command:
 
 ```bash
 singularity-flow intent workflow intent-ir.json \

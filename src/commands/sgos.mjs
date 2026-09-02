@@ -81,6 +81,7 @@ function validatedProgramInput(value) {
 
 const MUTATION_OPERATIONS = new Set([
   'intent.capture', 'intent.packet', 'intent.confirm', 'intent.workflow',
+  'intent.workflow-create',
   'intent.ratification-packet', 'intent.ratify', 'intent.compile',
   'program.approve',
   'process.start', 'process.step', 'process.step.model', 'process.run', 'process.run.model',

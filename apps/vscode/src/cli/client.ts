@@ -158,7 +158,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action === 'preference') return (args[3] ?? 'show') === 'show' ? 'read' : 'mutation';
     return 'mutation';
   }
-  if (args[0] === 'intent') return ['show', 'validate'].includes(args[1] ?? 'show') ? 'read' : 'mutation';
+  if (args[0] === 'intent') {
+    return ['show', 'validate', 'workflow-guide'].includes(args[1] ?? 'show')
+      ? 'read' : 'mutation';
+  }
   if (args[0] === 'program') return ['show', 'validate', 'simulate', 'explain'].includes(args[1] ?? 'show') ? 'read' : 'mutation';
   if (args[0] === 'process') {
     const action = args[1] ?? 'list';

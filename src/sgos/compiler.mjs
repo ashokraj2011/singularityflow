@@ -342,6 +342,11 @@ function extractConfirmedClauses(intentIr) {
   return clauses.sort((a, b) => codePointCompare(a.clauseId, b.clauseId));
 }
 
+/** Canonical compiler preflight reused by proposal-only authoring surfaces. */
+export function confirmedSgosIntentClauses(intentValue) {
+  return deepFreeze(extractConfirmedClauses(validateIntentIr(intentValue)));
+}
+
 function rawTaskEntries(workflow) {
   const raw = workflow.spec?.tasks;
   if (Array.isArray(raw)) {

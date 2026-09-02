@@ -61,7 +61,7 @@ const entries = {
   auto: ['sf-auto'],
   adhoc: ['sf-adhoc'],
   land: ['sf-adhoc'],
-  intent: ['sf-workflows'],
+  intent: ['sf-workflows', 'sf-sgos-create'],
   program: ['sf-workflows'],
   process: ['sf-workflows'],
   policy: ['sf-workflows'],

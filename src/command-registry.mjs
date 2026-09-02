@@ -258,9 +258,10 @@ const CAPABILITY_SUBCOMMANDS = Object.freeze([
 ]);
 const SGOS_SUBCOMMANDS = Object.freeze({
   intent: Object.freeze({
-    read: ['show', 'validate'],
+    read: ['show', 'validate', 'workflow-guide'],
     mutation: [
-      'capture', 'packet', 'confirm', 'workflow', 'ratification-packet', 'ratify', 'compile'
+      'capture', 'packet', 'confirm', 'workflow', 'workflow-create',
+      'ratification-packet', 'ratify', 'compile'
     ]
   }),
   program: Object.freeze({

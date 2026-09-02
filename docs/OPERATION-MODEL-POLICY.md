@@ -215,6 +215,8 @@ Every public operation is classified before its implementation module is importe
 | intent.show | read | never | — | — |
 | intent.validate | read | never | — | — |
 | intent.workflow | mutation | never | — | — |
+| intent.workflow-create | mutation | never | — | — |
+| intent.workflow-guide | read | never | — | — |
 | jira | mutation | never | — | — |
 | journal.delete | mutation | never | — | — |
 | journal.doctor | read | never | — | — |

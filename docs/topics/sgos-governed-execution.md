@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 16
+version: 17
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -79,15 +79,24 @@ SFlow never invents Candidate verification for them.
 
 ## Use it from each surface
 
-- **Shell:** use `singularity-flow intent`, `program`, `process`, `policy`, `task`, and `request` for the
-  execution core. The bounded extension profile exposes `candidate`, `execution-unit`, `device`,
-  `authority-store`, `pack`, `learn`, `memory`, and `meta-tool`; run each command with `--help`
-  before a mutation.
-- **Copilot:** ask `@sflow /how` for the reviewed SGOS topic, then prepare the exact CLI command in
-  the repository terminal. Help does not execute it for you.
-- **VS Code:** run **Singularity Flow: Open Command Center** for the projection-only Process board,
-  graph, evidence links, unavailable-Process diagnostics, and Human Request forms. Actions pass only
-  exact identifiers back to reviewed commands; the webview is not a second execution engine.
+- **Shell:** run `intent workflow-guide <INTENT-IR> --registry <FILE> --json` to inspect the bounded
+  core choices, then `intent workflow-create` with the exact selected operation, different
+  verification operation, reviewed policy and registry, storage-profile digest, and two new output
+  paths. Continue through `program`, `process`, `policy`, `task`, and `request` in their separate
+  later ceremonies. The bounded extension profile also exposes `candidate`, `execution-unit`,
+  `device`, `authority-store`, `pack`, `learn`, `memory`, and `meta-tool`; run each command with
+  `--help` before a mutation.
+- **Copilot:** invoke `/sf-sgos-create`. It shows the guide, collects every exact choice, and asks for
+  confirmation immediately before the same `intent workflow-create` command; it does not infer an
+  operation or run the returned ratification command. Ask `@sflow /how` for the reviewed SGOS topic;
+  help does not execute it for you.
+- **VS Code:** run **Singularity Flow: Create SGOS Workflow...** for the native version of the same
+  guided creator. Use **Singularity Flow: Open Command Center** later for the projection-only Process
+  board, graph, evidence links, unavailable-Process diagnostics, and Human Request forms.
+
+All three creator surfaces produce only an uncommitted, unratified declaration and Workflow IR.
+Creation is deterministic and invokes no model; it does not ratify, compile, approve, commit, or run
+the Workflow and grants no authority.
 
 ### Guided learning missions
 
@@ -144,10 +153,19 @@ digest. The host re-reads those values after confirmation; sensitive or typed in
    printed `--confirm` digest and an explicit `--confirmed-at` timestamp. Confirmation preserves
    field provenance and derives the human from approved product authority; no identity flag can
    grant it.
-2. Build a finite Workflow Candidate with `intent workflow <INTENT-IR> --policy <FILE>
-   --declaration <FILE>`. Preview the complete policy/registry/storage/coverage binding through
+2. For the installed core single-operation shape, run `intent workflow-guide <INTENT-IR> --registry
+   <FILE> --json`, resolve its blockers, and explicitly select a registered operation plus a
+   different registered verifier. After reviewing all inputs and output paths, run `intent
+   workflow-create` with `--policy`, `--registry`, `--storage-profile-sha256`, `--id`, `--operation`,
+   `--verification-operation`, `--declaration-out`, and `--out`. Optional `--title`,
+   `--maximum-attempts`, and `--output-ref` refine the bounded candidate. The result is two new,
+   uncommitted and unratified proposal files under the required `singularity/sgos-drafts/`
+   runtime root; other roots, protected configuration, and nested Git-administration outputs are refused. The creator invokes no model and never ratifies,
+   compiles, approves, commits, or runs them. For an advanced or non-core graph, author the finite
+   declaration explicitly and use `intent workflow <INTENT-IR> --policy <FILE> --declaration <FILE>`.
+   In either path, separately preview the complete policy/registry/storage/coverage binding through
    `intent ratification-packet`, then ratify only that exact packet using `intent ratify --confirm
-   <PACKET-SHA256> --decided-at <RFC3339>`. These commands consume explicit JSON and run no model.
+   <PACKET-SHA256> --decided-at <RFC3339>`.
 3. Validate the exact records, then compile with `singularity-flow intent compile <INTENT-IR> --workflow <FILE> --ratification
    <FILE> --policy <FILE> --registry <FILE> --out <PROGRAM>`.
 4. Inspect with `singularity-flow program validate|explain|simulate <PROGRAM>`; simulation performs
@@ -442,6 +460,9 @@ use the portable v2 identifier contract; Windows does not open a nonportable leg
 
 ## Troubleshooting
 
+- If `workflow-guide` reports a blocker, resolve required unknowns or contradictions in the Intent,
+  or supply a pinned registry with an eligible core KERNEL operation. The bounded creator never
+  guesses through either condition; use an explicit declaration for advanced or non-core shapes.
 - A digest mismatch means the reviewed input moved. Revalidate and recompile; do not copy the new
   digest into an old confirmation blindly.
 - An unsupported opcode or adapter stays visible in explain/simulate but will not run until a

@@ -113,6 +113,12 @@ test('Intent and Program help expose exact authoring and configuration-review ce
   const intent = renderCommandHelp('intent');
   assert.match(intent, /intent packet <ENVELOPE> --answers <FILE>/);
   assert.match(intent, /intent confirm <ENVELOPE> --answers <FILE> --confirm <PACKET-SHA256>/);
+  assert.match(intent, /intent workflow-guide <INTENT-IR> --registry <FILE>/);
+  assert.match(intent, /intent workflow-create <INTENT-IR> --policy <FILE> --registry <FILE>/);
+  assert.match(intent, /--verification-operation <ID> --declaration-out <NEW-FILE> --out <NEW-FILE>/);
+  assert.match(intent, /new declaration and validated Workflow IR/);
+  assert.match(intent, /remain uncommitted, unratified proposals/);
+  assert.match(intent, /does not ratify, compile, approve, commit, or run anything/);
   assert.match(intent, /intent workflow <INTENT-IR> --policy <FILE> --declaration <FILE>/);
   assert.match(intent, /intent ratification-packet <INTENT-IR>/);
   assert.match(intent, /intent ratify <INTENT-IR>/);

@@ -773,7 +773,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.continueSafely',
     'singularityFlow.prepareStoryPhase', 'singularityFlow.publishStoryPhase',
     'singularityFlow.submitStoryPhase',
-    'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter', 'singularityFlow.openReconciliation',
+    'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
+    'singularityFlow.createSgosWorkflow', 'singularityFlow.openReconciliation',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner',
     'singularityFlow.publishConfiguration',
@@ -4114,6 +4115,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await reconcileActiveWorkspaceSelection();
       const { SgosCommandCenterPanel } = await import('./views/sgos-command-center.ts');
       return SgosCommandCenterPanel.show(context, store, client);
+    },
+    'singularityFlow.createSgosWorkflow': async () => {
+      await reconcileActiveWorkspaceSelection();
+      const { showSgosWorkflowCreator } = await import('./sgos-workflow-create.ts');
+      return showSgosWorkflowCreator(client);
     },
     'singularityFlow.openReconciliation': async () => {
       const { ReconciliationPanel } = await import('./views/reconciliation.ts');

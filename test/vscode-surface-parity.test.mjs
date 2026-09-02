@@ -74,6 +74,8 @@ test('new CLI reads are classified as reads and mutations remain mutations', () 
   assert.equal(commandClass(['wm', 'ast', 'cache', 'clear']), 'mutation');
   assert.equal(commandClass(['wm', 'ast', 'preference', 'show']), 'read');
   assert.equal(commandClass(['wm', 'ast', 'preference', 'set', 'off']), 'mutation');
+  assert.equal(commandClass(['intent', 'workflow-guide', 'intent.json', '--json']), 'read');
+  assert.equal(commandClass(['intent', 'workflow-create', 'intent.json', '--json']), 'mutation');
   assert.equal(commandClass(['process', 'replay', 'PROC-123456', '--from', 'sha256:checkpoint']), 'mutation');
   assert.equal(commandClass(['process', 'replay', 'PROC-123456', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['candidate', 'publish', 'CAN-123456']), 'mutation');

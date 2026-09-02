@@ -250,9 +250,10 @@ export function sgosCommandCenterBody(view: SgosCommandCenterView): string {
       <small>${escape(capability.status)} · ${escape(capability.reason)}</small>
       ${capability.status === 'available' ? '' : '<button type="button" disabled aria-disabled="true">Not installed</button>'}</article>`).join('')}</div>`;
   return `${brandLockup()}<header><span class="eyebrow">Governed execution</span><h1>${icon('workflow')}Command Center</h1>
-    <p class="meta">Projection-only view of exact SGOS Process state. The UI cannot bypass runtime authority.</p></header>
+    <p class="meta">Exact SGOS Process projection with proposal-only Workflow authoring. The UI cannot bypass runtime authority.</p></header>
     <div class="sgos-toolbar"><p class="meta">${summary} Process record${summary === 1 ? '' : 's'} · ${escape(view.profileId ?? 'loading runtime profile')}</p>
-      <button type="button" class="secondary" data-refresh>${icon('refresh')}Refresh</button></div>
+      <div class="card-foot"><button type="button" data-create-workflow>${icon('add')}Create Workflow…</button>
+      <button type="button" class="secondary" data-refresh>${icon('refresh')}Refresh</button></div></div>
     <div aria-live="polite">${view.loading ? '<p>Refreshing Command Center…</p>' : ''}</div>${stale}${error}
     <section><h2>Processes</h2>${lanes}</section>
     <section><h2>Needs you <span class="count-badge">${view.needsYou.length}</span></h2>${needsYou(view)}</section>
@@ -265,6 +266,7 @@ export const SGOS_COMMAND_CENTER_SCRIPT = `
     const target = event.target.closest('button');
     if (!target) return;
     if (target.hasAttribute('data-refresh')) window.__sfVscode.postMessage({ type:'refresh' });
+    else if (target.hasAttribute('data-create-workflow')) window.__sfVscode.postMessage({ type:'createWorkflow' });
     else if (target.dataset.selectProcess) window.__sfVscode.postMessage({ type:'select', processId:target.dataset.selectProcess });
     else if (target.dataset.graph) window.__sfVscode.postMessage({ type:'graph', processId:target.dataset.graph });
     else if (target.dataset.integrity) window.__sfVscode.postMessage({ type:'integrity', processId:target.dataset.integrity });

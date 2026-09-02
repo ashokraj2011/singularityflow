@@ -1,9 +1,8 @@
 # AUT v2 implementation roadmap
 
-Status: the dependency-free Story profile implements the AUT v2 P0/P1 boundary described below.
-Release validation for the current source tree is still in progress; do not infer a release commit or
-test result from this roadmap. The optional SGOS profile and enforcement of optional CMP policy are
-separate work and are not claimed complete here.
+Status: the dependency-free Story profile implements and release-validates the AUT v2 P0/P1
+boundary described below at commit `64cf7ddaf5e5b1296f610509da3db44fdb93a32b`. The optional SGOS profile and enforcement of
+optional CMP policy are separate work and are not claimed complete here.
 
 ## Architecture decisions
 
@@ -137,14 +136,14 @@ checkpoints, and reconstructible after clone or loss of disposable sidecars.
 
 ## Release evidence
 
-To be filled from the final integrated source tree by the release owner after all implementation
-changes settle:
+Evidence below was collected from the exact implementation tree at
+`64cf7ddaf5e5b1296f610509da3db44fdb93a32b`:
 
-- Release commit: _pending_
-- Focused Auto tests: _pending_
-- Full `npm test`: _pending_
-- `npm run check`: _pending_
-- VS Code typecheck/build and focused UI tests: _pending_
-- Operation-catalog, package, migration, and conformance checks: _pending_
-
-Do not replace these placeholders with results from an earlier commit or a partial concurrent run.
+- Release implementation commit: `64cf7ddaf5e5b1296f610509da3db44fdb93a32b`
+- Full `npm test`: 4,245 passed; 0 failed, cancelled, skipped, or todo
+- `npm run check`: 1,252 checks passed across 136 skills, 2 agents, and 1 extension
+- VS Code: typecheck and production build passed; focused UI suite passed 253/253
+- Auto security, contract, migration, Candidate, recovery, repair, and report tests passed, including
+  the 128-iteration portable pause/halt lock-race test
+- Operation-model catalog check passed
+- Package dry run passed with 1,043 entries and the new runtime schemas/modules included

@@ -34,6 +34,8 @@ export const PLATFORM_MUTATION_AUTHORITIES = Object.freeze({
   'authority-store.export': 'architecture-reviewers',
   'authority-store.import': 'architecture-reviewers',
   'authority-store.rollback': 'architecture-reviewers',
+  'authority-store.publish': 'architecture-reviewers',
+  'authority-store.sync': 'architecture-reviewers',
   'memory.register': 'engineering-reviewers',
   'memory.promote': 'architecture-reviewers',
   'meta-tool.propose': 'engineering-reviewers',

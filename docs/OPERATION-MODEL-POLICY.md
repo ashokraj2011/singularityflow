@@ -41,12 +41,17 @@ Every public operation is classified before its implementation module is importe
 | authority-store.import.plan | read | never | — | — |
 | authority-store.init | mutation | never | — | — |
 | authority-store.inspect | read | never | — | — |
+| authority-store.publish | mutation | never | — | — |
+| authority-store.publish.plan | read | never | — | — |
 | authority-store.recover | mutation | never | — | — |
 | authority-store.recover.plan | read | never | — | — |
 | authority-store.rollback | mutation | never | — | — |
 | authority-store.rollback.plan | read | never | — | — |
 | authority-store.signer-create | mutation | never | — | — |
 | authority-store.status | read | never | — | — |
+| authority-store.sync | mutation | never | — | — |
+| authority-store.sync.plan | read | never | — | — |
+| authority-store.trust-scaffold | read | never | — | — |
 | authority-store.verify | read | never | — | — |
 | auto.adopt | read | never | — | — |
 | auto.continue | read | never | — | — |

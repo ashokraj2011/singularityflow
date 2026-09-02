@@ -7,10 +7,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { resolveOperation } from '../src/command-registry.mjs';
+import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import {
   loadApprovedSgosCapabilityPackTransportTrust, SGOS_CAPABILITY_PACK_TRUST_FORMAT,
-  SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2, SGOS_CAPABILITY_PACK_TRUST_PATH
+  SGOS_CAPABILITY_PACK_TRUST_FORMAT_V2, SGOS_CAPABILITY_PACK_TRUST_FORMAT_V3,
+  SGOS_CAPABILITY_PACK_TRUST_PATH
 } from '../src/sgos/capability-pack-authority.mjs';
 import {
   authorityTransportEntryValidator, serializeAuthorityTransport
@@ -122,6 +123,77 @@ async function repository(t) {
   return root;
 }
 
+async function gitTrustedRepository(t) {
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-extension-git-trusted-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const remote = path.join(parent, 'remote.git');
+  const root = path.join(parent, 'source');
+  await mkdir(root);
+  git(parent, 'init', '--bare', remote);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Extension CLI Tester');
+  git(root, 'config', 'user.email', 'extension.cli@example.test');
+  git(root, 'remote', 'add', 'origin', remote);
+  await mkdir(path.join(root, 'singularity'), { recursive: true });
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'), [
+    'version: 2',
+    'approvalAuthorities:',
+    '  architecture-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    '  engineering-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    '  quality-reviewers:',
+    '    members: [{ email: extension.cli.tester@example.com }]',
+    'ledger:',
+    '  enabled: true',
+    '  remote: origin',
+    '  branch: state',
+    ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'README.md'), 'git-trusted extension fixture\n');
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'fixture Git authority');
+  git(root, 'branch', 'sflow/config');
+  git(root, 'push', 'origin', 'main', 'sflow/config');
+  const stateCommit = git(root, 'commit-tree', git(root, 'rev-parse', 'HEAD^{tree}'),
+    '-m', 'initialize state authority');
+  git(root, 'update-ref', 'refs/heads/state', stateCommit);
+  git(root, 'push', 'origin', 'refs/heads/state:refs/heads/state');
+  return { parent, remote, root };
+}
+
+async function approveGitTrustedScaffold(fixture, storeId = 'repository-platform') {
+  const scaffoldEnvelope = flow(fixture.root, 'authority-store', 'trust-scaffold',
+    '--mode', 'git-trusted', '--store', storeId);
+  const scaffold = state(scaffoldEnvelope);
+  assert.equal(scaffoldEnvelope.operation.id, 'authority-store.trust-scaffold');
+  assert.equal(scaffoldEnvelope.operation.classification, 'read');
+  assert.deepEqual(scaffoldEnvelope.effects, {
+    stateChanged: false,
+    filesChanged: false,
+    publicationCreated: false,
+    externalSystemsChanged: false
+  });
+  assert.equal(scaffold.mode, 'git-trusted');
+  assert.equal(scaffold.storeId, storeId);
+  assert.equal(scaffold.stateAuthority.remote, 'origin');
+  assert.equal(scaffold.stateAuthority.branch, 'state');
+  assert.equal(scaffold.trustScaffold.format, SGOS_CAPABILITY_PACK_TRUST_FORMAT_V3);
+  assert.equal(scaffold.trustScaffold.transport.mode, 'git-trusted');
+  assert.equal(scaffold.trustScaffold.transport.minimumAuthority, null);
+  assert.equal(Object.hasOwn(scaffold.trustScaffold.transport, 'exporters'), false);
+
+  const trustFile = path.join(fixture.root, SGOS_CAPABILITY_PACK_TRUST_PATH);
+  await mkdir(path.dirname(trustFile), { recursive: true });
+  await writeFile(trustFile, `${JSON.stringify(scaffold.trustScaffold)}\n`);
+  git(fixture.root, 'add', SGOS_CAPABILITY_PACK_TRUST_PATH);
+  git(fixture.root, 'commit', '-m', 'approve key-free Git-trusted transport');
+  git(fixture.root, 'branch', '-f', 'sflow/config', 'HEAD');
+  git(fixture.root, 'push', 'origin', 'main');
+  git(fixture.root, 'push', 'origin', 'sflow/config');
+  return scaffold;
+}
+
 function state(envelope) {
   return envelope.data.result;
 }
@@ -145,6 +217,137 @@ test('Authority Store recovery preview and apply resolve to different operation 
   });
   assert.equal(apply.id, 'authority-store.recover');
   assert.equal(apply.classification, 'mutation');
+});
+
+test('Git-trusted Authority Store preview and confirmation resolve to truthful operation classes', () => {
+  const catalog = new Map(operationCatalog().map((entry) => [entry.id, entry]));
+  for (const action of ['publish', 'sync']) {
+    const preview = resolveOperation({
+      requestedCommand: 'authority-store',
+      positionals: ['authority-store', action], options: {}
+    });
+    assert.equal(preview.id, `authority-store.${action}.plan`);
+    assert.equal(preview.classification, 'read');
+    assert.equal(preview.modelPolicy, 'never');
+    const apply = resolveOperation({
+      requestedCommand: 'authority-store',
+      positionals: ['authority-store', action],
+      options: { confirm: digest(`${action}-plan`) }
+    });
+    assert.equal(apply.id, `authority-store.${action}`);
+    assert.equal(apply.classification, 'mutation');
+    assert.equal(apply.modelPolicy, 'never');
+    assert.equal(catalog.get(`authority-store.${action}.plan`)?.classification, 'read');
+    assert.equal(catalog.get(`authority-store.${action}`)?.classification, 'mutation');
+    assert.equal(catalog.get(`authority-store.${action}.plan`)?.modelPolicy, 'never');
+    assert.equal(catalog.get(`authority-store.${action}`)?.modelPolicy, 'never');
+  }
+  const scaffold = resolveOperation({
+    requestedCommand: 'authority-store',
+    positionals: ['authority-store', 'trust-scaffold'],
+    options: { mode: 'git-trusted' }
+  });
+  assert.equal(scaffold.id, 'authority-store.trust-scaffold');
+  assert.equal(scaffold.classification, 'read');
+  assert.equal(scaffold.modelPolicy, 'never');
+  assert.equal(catalog.get('authority-store.trust-scaffold')?.classification, 'read');
+  assert.equal(catalog.get('authority-store.trust-scaffold')?.modelPolicy, 'never');
+});
+
+test('Authority Store CLI publishes and synchronizes key-free Git trust through previewed plans', async (t) => {
+  const fixture = await gitTrustedRepository(t);
+  const storeId = 'team-authority';
+  await approveGitTrustedScaffold(fixture, storeId);
+  const initialized = flow(fixture.root, 'authority-store', 'init', '--store', storeId);
+  assert.equal(state(initialized).revision, 0);
+
+  const applicationHead = git(fixture.root, 'rev-parse', 'HEAD');
+  const publishPreview = flow(fixture.root, 'authority-store', 'publish', '--store', storeId);
+  assert.equal(publishPreview.operation.id, 'authority-store.publish.plan');
+  assert.equal(publishPreview.operation.classification, 'read');
+  assert.equal(state(publishPreview).changed, true);
+  assert.match(state(publishPreview).plan.confirmationSha256, /^sha256:[a-f0-9]{64}$/u);
+  assert.equal(git(fixture.root, 'rev-parse', 'HEAD'), applicationHead);
+
+  const published = flow(fixture.root, 'authority-store', 'publish', '--store', storeId,
+    '--confirm', state(publishPreview).plan.confirmationSha256);
+  assert.equal(published.operation.id, 'authority-store.publish');
+  assert.equal(published.operation.classification, 'mutation');
+  assert.equal(state(published).changed, true);
+  assert.equal(state(published).revision, 0);
+  assert.equal(git(fixture.root, 'rev-parse', 'HEAD'), applicationHead);
+
+  const clone = path.join(fixture.parent, 'fresh-clone');
+  git(fixture.parent, 'clone', '--branch', 'main', fixture.remote, clone);
+  git(clone, 'config', 'user.name', 'Extension CLI Tester');
+  git(clone, 'config', 'user.email', 'extension.cli@example.test');
+  const cloneHead = git(clone, 'rev-parse', 'HEAD');
+  const cloneStoreFile = path.join(
+    path.resolve(clone, git(clone, 'rev-parse', '--git-common-dir')),
+    'singularity-flow', 'sgos', 'platform-authority', storeId, 'state.json'
+  );
+  await assert.rejects(lstat(cloneStoreFile), (error) => error?.code === 'ENOENT');
+
+  const syncPreview = flow(clone, 'authority-store', 'sync', '--store', storeId);
+  assert.equal(syncPreview.operation.id, 'authority-store.sync.plan');
+  assert.equal(syncPreview.operation.classification, 'read');
+  assert.equal(state(syncPreview).importMode, 'install');
+  assert.equal(state(syncPreview).changed, true);
+  await assert.rejects(lstat(cloneStoreFile), (error) => error?.code === 'ENOENT');
+
+  const synchronized = flow(clone, 'authority-store', 'sync', '--store', storeId,
+    '--confirm', state(syncPreview).plan.confirmationSha256);
+  assert.equal(synchronized.operation.id, 'authority-store.sync');
+  assert.equal(synchronized.operation.classification, 'mutation');
+  assert.equal(state(synchronized).importMode, 'install');
+  assert.equal(state(synchronized).changed, true);
+  assert.equal(git(clone, 'rev-parse', 'HEAD'), cloneHead);
+  assert.equal(JSON.parse(await readFile(cloneStoreFile, 'utf8')).record.revision, 0);
+});
+
+test('Git-trusted Authority Store mode refuses signed transport and mixed CLI options', async (t) => {
+  const fixture = await gitTrustedRepository(t);
+  const storeId = 'team-authority';
+  await approveGitTrustedScaffold(fixture, storeId);
+  await mkdir(path.join(fixture.root, '.sflow', 'authority'), { recursive: true });
+  await writeFile(path.join(fixture.root, '.sflow', 'authority', 'signed.json'), '{}');
+
+  const stateBeforeWrongStore = git(
+    fixture.root, 'ls-remote', 'origin', 'refs/heads/state'
+  );
+  const wrongStore = run(fixture.root, 'authority-store', 'publish',
+    '--store', 'another-authority', '--json');
+  assert.notEqual(wrongStore.status, 0);
+  assert.match(wrongStore.stderr, /does not equal approved git-trusted policy/u);
+  assert.equal(git(fixture.root, 'ls-remote', 'origin', 'refs/heads/state'),
+    stateBeforeWrongStore, 'a mismatched --store is refused before publication');
+
+  const exportResult = run(fixture.root, 'authority-store', 'export', '--store', storeId,
+    '--signer', 'legacy-signer', '--out', '.sflow/authority/export.json', '--json');
+  assert.notEqual(exportResult.status, 0);
+  assert.match(exportResult.stderr, /requires signed v2 transport|does not use an export signer/u);
+  assert.match(exportResult.stderr, /authority-store publish/u);
+
+  const importResult = run(fixture.root, 'authority-store', 'import',
+    '.sflow/authority/signed.json', '--store', storeId, '--json');
+  assert.notEqual(importResult.status, 0);
+  assert.match(importResult.stderr, /requires signed v2 transport/u);
+  assert.match(importResult.stderr, /authority-store sync/u);
+
+  const invalidMode = run(fixture.root, 'authority-store', 'trust-scaffold',
+    '--mode', 'signed', '--store', storeId, '--json');
+  assert.notEqual(invalidMode.status, 0);
+  assert.match(invalidMode.stderr, /--mode must be 'git-trusted'/u);
+
+  for (const args of [
+    ['authority-store', 'trust-scaffold', '--mode', 'git-trusted', '--signer', 'mixed'],
+    ['authority-store', 'publish', '--mode', 'git-trusted'],
+    ['authority-store', 'sync', '--out', '.sflow/authority/unexpected.json']
+  ]) {
+    const result = run(fixture.root, ...args, '--json');
+    assert.notEqual(result.status, 0, args.join(' '));
+    assert.match(result.stderr, /Unknown option|--out is not supported/u, args.join(' '));
+  }
 });
 
 test('Authority Store CLI refuses non-portable directory identifiers before creating state', async (t) => {

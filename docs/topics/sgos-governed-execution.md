@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 13
+version: 15
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -252,13 +252,73 @@ explicit gaps rather than being upgraded into proof.
 
 ## Move Authority Store and Capability Packs to another laptop
 
-Authority transport is one signed Store operation, not a separate Pack copy. The current portable
+Authority transport is one complete Store operation, not a separate Pack copy. The portable
 profile accepts a Pack-only Store lineage, so every event must be an exact authorized Pack proposal,
 review, activation, or revocation and a Pack arrives with its complete history. Mixed legacy,
 Memory, Meta-tool, Secret Broker, or unknown Store namespaces are refused as unportable rather than
 copied without a schema-specific verifier. The bundle contains no repository path, hostname, remote
 URL, credential, or private signing key, and it can be imported only into another clone whose raw
 repository identity is admitted by refreshed approved configuration.
+
+### Key-free Git-trusted mode
+
+Generate the v3 scaffold, place its `trustScaffold` value at
+`singularity/sgos/capability-pack-trust.json`, retain the approved Pack publisher public keys, and
+publish that configuration through `sflow/config`. This mode requires an approved reachable Git
+remote and configured state branch. It cannot use an offline root-commit binding; that fallback is
+available only to signed v2. The Git identity that confirms synchronization must belong to the
+approved `architecture-reviewers` group because sync makes an audited local Store cutover:
+
+```sh
+singularity-flow authority-store trust-scaffold \
+  --mode git-trusted --store repository-platform --json
+```
+
+Publish the complete local Store to the configured state branch using preview and exact confirm:
+
+```sh
+singularity-flow authority-store publish --json
+singularity-flow authority-store publish --confirm sha256:<PUBLISH-PLAN> --json
+```
+
+On another laptop, clone the same repository, refresh approved configuration, then preview and
+confirm synchronization. No bundle file or transport key is copied:
+
+```sh
+singularity-flow authority-store sync --json
+singularity-flow authority-store sync --confirm sha256:<SYNC-PLAN> --json
+singularity-flow authority-store verify --json
+```
+
+Ordinary compilation, Process admission, and Pack lookup read Pack lineage only from the installed
+Store under the repository's Git-common sidecar. They never fetch the state branch or auto-sync
+Store authority. The surrounding command may independently refresh approved `sflow/config` policy;
+that is not a Pack-history import. Freshness is deliberate: each `authority-store sync` preview
+freshly observes approved configuration and the exact remote state commit; confirmation re-observes
+and refuses if that plan changed. A Pack update on laptop A is visible on laptop B only after A
+publishes and B explicitly previews and confirms sync.
+
+Sync accepts only install, exact no-op, or a strict lineage fast-forward. It refuses a missing,
+unreachable, changed, malformed, older, divergent, or wrong-repository state projection before
+cutover. A retained cutover may be rolled back only when its target is not below the approved v3
+minimum revision/state/projection checkpoint; neither rollback nor sync has an override that can
+cross `minimumAuthority`. The checkpoint may be null only while bootstrapping; after a successful
+first publish, advance it in approved configuration as defense in depth. The projection has no
+outer Authority transport signer, signature, or private key, but it does carry every signed Pack
+record and its publisher signature. The application checkout and branch are not changed. A new
+laptop deliberately trusts the current Git state-branch authority; unlike signed v2, this profile
+cannot independently detect a malicious Git administrator who rewrites both branch history and the
+approved checkpoint.
+
+The `publishers` map contains public Pack-signing verification keys, not Authority transport keys.
+Adding a key through approved `sflow/config` permits future Pack signatures from that publisher to
+verify, but creates no Pack and changes no activation. Removing a key makes every historical Pack
+record signed by it unverifiable; runtime and sync fail closed and neither deletes nor re-signs the
+record. To stop using a publisher's Pack, revoke or supersede it while retaining the public key for
+historical verification. The current format does not distinguish “verify old history” from “admit
+new Pack proposals” for one publisher key.
+
+### Signed mode
 
 An administrator performs the signer bootstrap once on the source machine:
 

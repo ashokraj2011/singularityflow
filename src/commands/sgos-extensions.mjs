@@ -36,12 +36,19 @@ import {
   serializeAuthorityTransport, SGOS_AUTHORITY_TRANSPORT_MAXIMUM_BYTES
 } from '../sgos/authority-transport.mjs';
 import {
+  planGitTrustedAuthorityPublish, planGitTrustedAuthoritySync,
+  publishGitTrustedAuthority, syncGitTrustedAuthority
+} from '../sgos/authority-git-transport.mjs';
+import {
   ensureSecureRepositoryDirectory, SingularityFlowError, optionBoolean, optionNumber,
   optionString, secureRepositoryPath
 } from '../util.mjs';
 import {
+  createSgosCapabilityPackGitTrustedTrustScaffold,
   createSgosCapabilityPackTransportTrustScaffold,
-  loadApprovedSgosCapabilityPackLocalTrust, SGOS_CAPABILITY_PACK_TRUST_FORMAT,
+  loadApprovedSgosCapabilityPackLocalTrust, loadApprovedSgosStateAuthority,
+  SGOS_CAPABILITY_PACK_TRANSPORT_MODE_GIT_TRUSTED,
+  SGOS_CAPABILITY_PACK_TRANSPORT_MODE_SIGNED, SGOS_CAPABILITY_PACK_TRUST_FORMAT,
   sgosCapabilityPackTransportRepositoryBinding
 } from '../sgos/capability-pack-authority.mjs';
 import { validateSgosCliOptions } from '../sgos/cli-options.mjs';
@@ -61,6 +68,7 @@ const MUTATIONS = new Set([
   'device.invoke', 'device.recover', 'device.revoke',
   'authority-store.init', 'authority-store.recover', 'authority-store.signer-create',
   'authority-store.export', 'authority-store.import', 'authority-store.rollback',
+  'authority-store.publish', 'authority-store.sync',
   'pack.propose', 'pack.review', 'pack.activate', 'pack.revoke',
   'memory.register', 'memory.promote',
   'meta-tool.propose', 'meta-tool.evaluation', 'meta-tool.promote'
@@ -506,6 +514,47 @@ async function deviceCommand(root, positionals, options) {
 
 async function authorityStoreCommand(root, positionals, options) {
   const action = positionals[1] ?? 'status';
+  if (action === 'trust-scaffold') {
+    if (positionals.length !== 2) {
+      fail('authority-store trust-scaffold accepts no positional arguments.', 'SGOS_POSITIONAL_INVALID');
+    }
+    const mode = requiredString(options, 'mode');
+    if (mode !== SGOS_CAPABILITY_PACK_TRANSPORT_MODE_GIT_TRUSTED) {
+      fail("--mode must be 'git-trusted'. Signed mode is bootstrapped with signer-create.",
+        'SGOS_AUTHORITY_TRANSPORT_MODE_INVALID');
+    }
+    const storeId = portableStoreId(options);
+    const stateAuthority = await loadApprovedSgosStateAuthority(root, { refreshAuthority: true });
+    const trustScaffold = createSgosCapabilityPackGitTrustedTrustScaffold({
+      root, storeId, stateRemote: stateAuthority.remote
+    });
+    return emit({ mode, storeId, stateAuthority, trustScaffold }, options,
+      'authority-store.trust-scaffold',
+      `Prepared key-free git-trusted Authority Store policy for ${stateAuthority.remote}/${stateAuthority.branch}. Review it through sflow/config before publishing.`);
+  }
+
+  if (['publish', 'sync'].includes(action)) {
+    if (positionals.length !== 2) {
+      fail(`authority-store ${action} accepts no positional arguments.`, 'SGOS_POSITIONAL_INVALID');
+    }
+    const confirmationSha256 = optionString(options, 'confirm');
+    const requestedStoreId = Object.hasOwn(options, 'store') ? portableStoreId(options) : null;
+    const result = action === 'publish'
+      ? confirmationSha256
+        ? await publishGitTrustedAuthority(root, { confirmationSha256, expectedStoreId: requestedStoreId })
+        : await planGitTrustedAuthorityPublish(root, { expectedStoreId: requestedStoreId })
+      : confirmationSha256
+        ? await syncGitTrustedAuthority(root, { confirmationSha256, expectedStoreId: requestedStoreId })
+        : await planGitTrustedAuthoritySync(root, { expectedStoreId: requestedStoreId });
+    const applied = Boolean(confirmationSha256);
+    return emit(result, options,
+      applied ? `authority-store.${action}` : `authority-store.${action}.plan`,
+      applied
+        ? `${result.changed ? action === 'publish' ? 'Published' : 'Synchronized' : 'Confirmed current'} Authority Store ${result.storeId} revision ${result.revision} ${action === 'publish' ? 'on' : 'from'} ${result.remote}/${result.branch}.`
+        : `Review the exact git-trusted ${action} plan, then repeat with --confirm ${result.plan.confirmationSha256}.`,
+      { changed: applied && result.changed });
+  }
+
   if (action === 'signer-create') {
     if (positionals.length !== 2) {
       fail('authority-store signer-create accepts no positional arguments.', 'SGOS_POSITIONAL_INVALID');
@@ -556,6 +605,11 @@ async function authorityStoreCommand(root, positionals, options) {
     const context = await authorityTransportContext(root, mutation, {
       signer: action === 'export' ? requiredString(options, 'signer') : null
     });
+    if (action !== 'rollback'
+        && context.trust.mode !== SGOS_CAPABILITY_PACK_TRANSPORT_MODE_SIGNED) {
+      fail(`authority-store ${action} requires signed v2 transport; approved configuration selects git-trusted v3. Use authority-store ${action === 'export' ? 'publish' : 'sync'} instead.`,
+        'SGOS_AUTHORITY_TRANSPORT_MODE_MISMATCH');
+    }
     const trustedStoreId = context.trust.storeId;
     if (requestedStoreId != null && requestedStoreId !== trustedStoreId) {
       fail('Requested Authority Store does not equal approved transport trust.',
@@ -572,7 +626,10 @@ async function authorityStoreCommand(root, positionals, options) {
     };
 
     if (action !== 'export' && context.trust.minimumAuthority == null) {
-      fail('Approved transport trust has no anti-rollback checkpoint. Export the current store, review its revision/state/export digests into capability-pack-trust.json v2, publish sflow/config, and retry.',
+      const remedy = context.trust.mode === SGOS_CAPABILITY_PACK_TRANSPORT_MODE_GIT_TRUSTED
+        ? 'Publish the current Store, review its revision/state/projection digests into capability-pack-trust.json v3, publish sflow/config, and retry.'
+        : 'Export the current Store, review its revision/state/export digests into capability-pack-trust.json v2, publish sflow/config, and retry.';
+      fail(`Approved transport trust has no anti-rollback checkpoint. ${remedy}`,
         'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
     }
 
@@ -613,11 +670,16 @@ async function authorityStoreCommand(root, positionals, options) {
       const store = await authorityStore(root, { ...options, store: trustedStoreId });
       const cutoverSha256 = exactHash(options, 'receipt', '--receipt');
       const confirmationSha256 = optionString(options, 'confirm');
+      const rollbackMinimumAuthority = context.trust.mode
+          === SGOS_CAPABILITY_PACK_TRANSPORT_MODE_GIT_TRUSTED
+        ? context.trust.minimumAuthority
+        : null;
       if (!confirmationSha256) {
         const result = await store.planRollback({
           cutoverSha256,
           validateRollback: context.validateRollback,
-          authorityContextSha256: context.trust.authorityContextSha256
+          authorityContextSha256: context.trust.authorityContextSha256,
+          minimumAuthority: rollbackMinimumAuthority
         });
         return emit(result, options, 'authority-store.rollback.plan',
           `Review the exact Authority rollback plan, then repeat with --confirm ${result.plan.confirmationSha256}.`);
@@ -626,7 +688,8 @@ async function authorityStoreCommand(root, positionals, options) {
         cutoverSha256, confirmationSha256,
         authorization: context.authorization,
         validateRollback: context.validateRollback,
-        authorityContextSha256: context.trust.authorityContextSha256
+        authorityContextSha256: context.trust.authorityContextSha256,
+        minimumAuthority: rollbackMinimumAuthority
       });
       return emit(result, options, 'authority-store.rollback',
         `Rolled Authority Store ${trustedStoreId} back to revision ${result.current.revision}.`,

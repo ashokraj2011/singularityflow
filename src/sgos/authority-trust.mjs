@@ -1,6 +1,6 @@
 /** SGOS-only trust policy for approved configuration references. */
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
-import { configuredRemoteAuthority } from '../git-remote-diagnostics.mjs';
+import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from '../workspace-context.mjs';
@@ -162,9 +162,18 @@ export async function withTrustedSgosConfigurationRead(root, fn, {
   const ordinaryRemote = remotes.includes('origin')
     ? 'origin'
     : remotes.length === 1 ? remotes[0] : null;
-  const ordinaryRemoteUrl = ordinaryRemote
-    ? configuredRemoteAuthority(root, ordinaryRemote, { direction: 'fetch' }).url
-    : null;
+  let ordinaryRemoteUrl = null;
+  if (ordinaryRemote) {
+    const identity = configuredRemoteIdentity(root, ordinaryRemote, { direction: 'fetch' });
+    if (!identity.configured || identity.ambiguous || !identity.url) {
+      fail('SGOS canonical configuration remote does not have one exact raw fetch identity.', {
+        remote: ordinaryRemote,
+        configured: identity.configured,
+        ambiguous: identity.ambiguous
+      });
+    }
+    ordinaryRemoteUrl = identity.url;
+  }
   const externalWorkspaceAuthority = workspaceAuthority
     && workspaceAuthority.remote !== ordinaryRemoteUrl
     ? workspaceAuthority

@@ -616,6 +616,12 @@ test('non-selected members, linked worktrees, and SGOS use the external workspac
     };
     await writeFile(registry, `${JSON.stringify(workspaceRegistry, null, 2)}\n`);
 
+    // A machine-local cache rewrite makes member origin B appear to select authority A through
+    // `git remote get-url`. Workspace classification and historical SGOS reads must compare the raw
+    // reviewed member identity, then keep using explicit authority A through the frozen transport.
+    git(member, 'config', '--local', `url.${leadRemote}.insteadOf`, memberRemote);
+    assert.equal(git(member, 'remote', 'get-url', 'origin'), leadRemote);
+
     await withMachineFiles(selection, registry, async () => {
       const newWorkRead = await withApprovedConfigurationRead(member, async (authority) => {
         const configurationSnapshot = configurationReadSnapshot(member);

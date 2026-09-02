@@ -8,6 +8,7 @@ export const SGOS_PLATFORM_VERSION = 1;
 export const PLATFORM_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 export const PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION =
   'full-authority-store-snapshot';
+export const PLATFORM_AUTHORITY_GIT_PROJECTION_PROFILE = 'git-trusted-state-v1';
 
 export const MEMORY_CLASSES = Object.freeze([
   'input', 'shared-artifact', 'evidence', 'derived', 'approved-guidance', 'cache'
@@ -157,7 +158,9 @@ export function validatePlatformRecord(record, expectedKind = null) {
     'platform-authority-transaction': createAuthorityTransactionEvent,
     'platform-authority-export': createAuthorityPortableExport,
     'platform-authority-transport': createAuthorityTransport,
+    'platform-authority-git-projection': createAuthorityGitProjection,
     'platform-authority-cutover': createAuthorityCutover,
+    'platform-authority-git-cutover': createAuthorityGitCutover,
     'platform-authority-rollback': createAuthorityRollback,
     'platform-mutation-authorization': createPlatformMutationAuthorization,
     'platform-memory-ref': createMemoryRef,
@@ -409,6 +412,59 @@ export function createAuthorityTransport(input) {
   });
 }
 
+/**
+ * Deterministic, repository-bound Authority Store projection for a Git-attested state ref.
+ *
+ * Git provenance deliberately does not live in this record: a projection must exist before the
+ * commit that contains it, so embedding that commit would create an impossible hash cycle. The
+ * importer binds the exact fetched commit and configured state branch in its plan and cutover
+ * receipt instead. Unlike the signed transport profile, this record makes no signer claim.
+ */
+export function createAuthorityGitProjection(input) {
+  return createRecord('platform-authority-git-projection', input, {
+    allowed: [
+      'projectionProfile', 'repositoryBindingSha256', 'policySha256', 'storeId', 'head',
+      'events', 'eventCount'
+    ],
+    required: [
+      'projectionProfile', 'repositoryBindingSha256', 'policySha256', 'storeId', 'head',
+      'events', 'eventCount'
+    ],
+    validate(value) {
+      if (value.projectionProfile !== PLATFORM_AUTHORITY_GIT_PROJECTION_PROFILE) {
+        fail('Authority Git projection profile is unsupported.');
+      }
+      digest(value.repositoryBindingSha256, 'authority Git projection.repositoryBindingSha256');
+      digest(value.policySha256, 'authority Git projection.policySha256');
+      portableStoreIdentifier(value.storeId, 'authority Git projection.storeId');
+      validatePlatformRecord(value.head, 'platform-authority-state');
+      if (value.head.storeId !== value.storeId) {
+        fail('Authority Git projection head belongs to another store.');
+      }
+      integer(value.eventCount, 'authority Git projection.eventCount');
+      if (!Array.isArray(value.events) || value.events.length !== value.head.revision
+          || value.eventCount !== value.events.length) {
+        fail('Authority Git projection must contain exactly one event per committed revision.');
+      }
+      let priorEventSha256 = null;
+      for (const [index, event] of value.events.entries()) {
+        validatePlatformRecord(event, 'platform-authority-transaction');
+        if (event.storeId !== value.storeId || event.revision !== index + 1
+            || event.priorEventSha256 !== priorEventSha256) {
+          fail('Authority Git projection event lineage is invalid.');
+        }
+        if (event.authorization == null) {
+          fail('Authority Git projection refuses an event without exact approved mutation authorization.');
+        }
+        priorEventSha256 = event.recordSha256;
+      }
+      if (priorEventSha256 !== value.head.eventSha256) {
+        fail('Authority Git projection events do not reach the projected head.');
+      }
+    }
+  });
+}
+
 /** Immutable receipt for one exact staged store cutover. */
 export function createAuthorityCutover(input) {
   return createRecord('platform-authority-cutover', input, {
@@ -455,6 +511,66 @@ export function createAuthorityCutover(input) {
         fail('Authority cutover authorization does not permit import.');
       }
       timestamp(value.committedAt, 'authority cutover.committedAt');
+    }
+  });
+}
+
+/** Immutable receipt for one exact Git-attested Authority Store projection cutover. */
+export function createAuthorityGitCutover(input) {
+  return createRecord('platform-authority-git-cutover', input, {
+    allowed: [
+      'repositoryBindingSha256', 'policySha256', 'storeId', 'projectionSha256',
+      'stateBranch', 'stateCommit', 'beforeHead', 'afterHead', 'importedEventSha256s',
+      'authorization', 'committedAt'
+    ],
+    required: [
+      'repositoryBindingSha256', 'policySha256', 'storeId', 'projectionSha256',
+      'stateBranch', 'stateCommit', 'beforeHead', 'afterHead', 'importedEventSha256s',
+      'authorization', 'committedAt'
+    ],
+    validate(value) {
+      digest(value.repositoryBindingSha256, 'authority Git cutover.repositoryBindingSha256');
+      digest(value.policySha256, 'authority Git cutover.policySha256');
+      portableStoreIdentifier(value.storeId, 'authority Git cutover.storeId');
+      digest(value.projectionSha256, 'authority Git cutover.projectionSha256');
+      string(value.stateBranch, 'authority Git cutover.stateBranch');
+      if (value.stateBranch.length > 255 || /[\u0000-\u0020~^:?*[\\]/u.test(value.stateBranch)
+          || value.stateBranch.includes('..') || value.stateBranch.includes('@{')
+          || value.stateBranch.startsWith('/') || value.stateBranch.endsWith('/')
+          || value.stateBranch.endsWith('.') || value.stateBranch.includes('//')
+          || value.stateBranch === '@'
+          || value.stateBranch.split('/').some((component) =>
+            component.startsWith('.') || component.endsWith('.lock'))) {
+        fail('authority Git cutover.stateBranch is not a safe canonical Git branch name.');
+      }
+      string(value.stateCommit, 'authority Git cutover.stateCommit', /^[a-f0-9]{40,64}$/);
+      const before = validatePlatformRecord(value.beforeHead, 'platform-authority-state');
+      const after = validatePlatformRecord(value.afterHead, 'platform-authority-state');
+      if (before.storeId !== value.storeId || after.storeId !== value.storeId
+          || after.revision < before.revision) {
+        fail('Authority Git cutover heads are inconsistent.');
+      }
+      if (!Array.isArray(value.importedEventSha256s)) {
+        fail('authority Git cutover.importedEventSha256s must be an array.');
+      }
+      const seen = new Set();
+      for (const [index, eventSha256] of value.importedEventSha256s.entries()) {
+        digest(eventSha256, `authority Git cutover.importedEventSha256s[${index}]`);
+        if (seen.has(eventSha256)) {
+          fail('authority Git cutover.importedEventSha256s must be unique.');
+        }
+        seen.add(eventSha256);
+      }
+      if (value.importedEventSha256s.length !== after.revision - before.revision) {
+        fail('Authority Git cutover event suffix does not match its revision interval.');
+      }
+      const authorization = validatePlatformRecord(
+        value.authorization, 'platform-mutation-authorization'
+      );
+      if (authorization.operation !== 'authority-store.sync') {
+        fail('Authority Git cutover authorization does not permit state synchronization.');
+      }
+      timestamp(value.committedAt, 'authority Git cutover.committedAt');
     }
   });
 }

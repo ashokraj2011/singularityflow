@@ -10,7 +10,9 @@ import {
 import {
   configurationAssetPolicy, configurationAssetSearchRoots
 } from './configuration-assets.mjs';
-import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import {
+  configuredRemoteIdentity, frozenRemoteTransport
+} from './git-remote-diagnostics.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 
@@ -142,7 +144,19 @@ function remoteNameForAuthorityRef(ref) {
 function remoteIdentityForAuthorityRef(root, ref) {
   const remote = remoteNameForAuthorityRef(ref);
   if (!remote) return null;
-  return configuredRemoteAuthority(root, remote, { direction: 'fetch' }).url;
+  const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+  if (!identity.configured || identity.ambiguous || !identity.url) {
+    throw new SingularityFlowError(
+      `Approved configuration remote '${remote}' does not have one exact raw fetch identity.`,
+      {
+        code: 'APPROVED_CONFIGURATION_REMOTE_UNAVAILABLE',
+        details: {
+          remote, configured: identity.configured, ambiguous: identity.ambiguous
+        }
+      }
+    );
+  }
+  return identity.url;
 }
 
 function approvedConfigurationAuthority(root, {
@@ -192,10 +206,29 @@ function refreshApprovedConfigurationAuthority(root, {
     .sort((left, right) => (left === 'origin' ? -1 : 0) - (right === 'origin' ? -1 : 0)
       || left.localeCompare(right));
   for (const remote of remotes) {
+    const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
+    if (!identity.configured || identity.ambiguous || !identity.url) {
+      if (canonicalRemote === remote) {
+        throw new SingularityFlowError(
+          `Approved configuration remote '${remote}' does not have one exact raw fetch identity.`,
+          {
+            code: 'APPROVED_CONFIGURATION_REMOTE_UNAVAILABLE',
+            details: {
+              remote, configured: identity.configured, ambiguous: identity.ambiguous
+            }
+          }
+        );
+      }
+      continue;
+    }
+    // Both advertisement and fetch address the same reviewed raw URL through a one-pass alias.
+    // The checkout's remote-tracking namespace keeps its ordinary name, but mutable ambient
+    // insteadOf/pushInsteadOf rules can never substitute configuration bytes behind that name.
+    const transport = frozenRemoteTransport(identity.url);
     const advertised = runRemoteGit([
-      'ls-remote', '--heads', '--', remote,
+      'ls-remote', '--heads', '--', transport.remote,
       `refs/heads/${CONFIGURATION_BRANCH}`, `refs/heads/${STATE_BRANCH}`
-    ], { cwd: root, operation: 'remote-probe' });
+    ], { cwd: root, operation: 'remote-probe', env: transport.env });
     if (advertised.status !== 0) continue;
     const branches = new Map(advertised.stdout.split(/\r?\n/).map((line) => {
       const [commit, ref] = line.trim().split(/\s+/);
@@ -213,9 +246,9 @@ function refreshApprovedConfigurationAuthority(root, {
       }).stdout.trim();
       if (localCommit !== advertisedCommit) {
         const fetched = runRemoteGit([
-          'fetch', '--quiet', '--no-tags', '--force', '--', remote,
+          'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
           `+${source}:${destination}`
-        ], { cwd: root, operation: 'remote-configuration' });
+        ], { cwd: root, operation: 'remote-configuration', env: transport.env });
         if (fetched.status !== 0) continue;
         const fetchedCommit = run('git', ['rev-parse', '--verify', `${destination}^{commit}`], {
           cwd: root, allowFailure: true

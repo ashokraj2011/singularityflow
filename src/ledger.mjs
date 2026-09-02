@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -31,7 +31,10 @@ export const LEDGER_EVENT_TYPES = Object.freeze([
 const HEAD_PATH = 'ledger/head.json';
 const README_PATH = 'README.md';
 
-function git(root, args, { allowFailure = false, stdio = 'pipe', env = process.env } = {}) {
+function git(root, args, {
+  allowFailure = false, stdio = 'pipe', env = process.env,
+  encoding = 'utf8', input = undefined, maxBuffer = undefined
+} = {}) {
   if (['fetch', 'push', 'pull', 'ls-remote', 'clone'].includes(args[0])) {
     return runRemoteGit(args, {
       cwd: root,
@@ -40,7 +43,9 @@ function git(root, args, { allowFailure = false, stdio = 'pipe', env = process.e
       env
     });
   }
-  return run('git', args, { cwd: root, allowFailure, stdio, env });
+  return run('git', args, {
+    cwd: root, allowFailure, stdio, env, encoding, input, maxBuffer
+  });
 }
 
 function canonicalValue(value) {
@@ -154,6 +159,51 @@ function localStateConcurrencyError(config, expectedLocalSha, observedLocalSha) 
   return error;
 }
 
+async function safeStateWorktreeTarget(worktree, relative, { createDirectories = false } = {}) {
+  const root = await realpath(worktree);
+  const segments = relative.split('/');
+  let cursor = root;
+  for (const segment of segments.slice(0, -1)) {
+    cursor = path.join(cursor, segment);
+    let info = await lstat(cursor).catch((error) => {
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+      throw error;
+    });
+    if (info == null && createDirectories) {
+      await mkdir(cursor, { mode: 0o700 });
+      info = await lstat(cursor);
+    }
+    if (info == null) continue;
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new SingularityFlowError(
+        `State-branch path '${relative}' has a non-directory or symbolic-link ancestor.`,
+        { code: 'state_branch.path_unsafe', details: { path: relative } }
+      );
+    }
+    const rebound = await realpath(cursor);
+    const relation = path.relative(root, rebound);
+    if (relation === '..' || relation.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relation)) {
+      throw new SingularityFlowError(
+        `State-branch path '${relative}' escapes its isolated worktree.`,
+        { code: 'state_branch.path_unsafe', details: { path: relative } }
+      );
+    }
+  }
+  const target = path.join(root, ...segments);
+  const targetInfo = await lstat(target).catch((error) => {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  if (targetInfo?.isSymbolicLink() || targetInfo?.isDirectory()) {
+    throw new SingularityFlowError(
+      `State-branch path '${relative}' is not a safe regular-file target.`,
+      { code: 'state_branch.path_unsafe', details: { path: relative } }
+    );
+  }
+  return target;
+}
+
 function hasRemoteInEnvironment(root, remote, env = process.env) {
   return git(root, ['config', '--get', `remote.${remote}.url`], { allowFailure: true, env }).status === 0;
 }
@@ -260,7 +310,7 @@ export function materializeStateBranchPublicationAuthority(root, rawConfig, {
   const before = observeRemoteBranch(root, config, { env, transportRemote });
   if (before.status !== 'observed') {
     throw new SingularityFlowError(
-      `Unable to verify the ${config.branch} branch before materializing the reviewed publication: ${before.detail}`,
+      `Unable to verify the ${config.branch} branch before materializing the reviewed publication. ${before.detail}`,
       {
         code: 'state_branch.publication_observation_unavailable',
         details: { branch: config.branch, expectedRemoteSha }
@@ -407,7 +457,12 @@ async function temporaryWorktree(root, ref, callback, { env = process.env } = {}
   const added = git(root, args, { allowFailure: true, env });
   if (added.status !== 0) {
     await rm(parent, { recursive: true, force: true });
-    throw new SingularityFlowError(`Unable to create the isolated ledger worktree: ${(added.stderr || added.stdout).trim()}`);
+    throw new SingularityFlowError(
+      `Unable to create the isolated ledger worktree. ${safeGitDiagnosticReference(
+        added, 'State worktree creation failed'
+      )}`,
+      { code: 'state_branch.worktree_unavailable' }
+    );
   }
   try {
     return await callback(worktree);
@@ -487,7 +542,9 @@ function observeGuardedRemoteRefs(worktree, config, guards, {
   if (observed.status !== 0) {
     return {
       status: 'unavailable', refs: new Map(),
-      detail: (observed.stderr || observed.stdout).trim()
+      detail: safeGitDiagnosticReference(
+        observed, 'State source-authority observation failed'
+      )
     };
   }
   const advertised = new Map();
@@ -541,7 +598,12 @@ function observeRemoteBranch(worktree, config, {
   const observed = git(worktree, [
     'ls-remote', '--heads', frozen?.remote ?? config.remote, `refs/heads/${config.branch}`
   ], { allowFailure: true, env: frozen?.env ?? env });
-  if (observed.status !== 0) return { status: 'unavailable', detail: (observed.stderr || observed.stdout).trim() };
+  if (observed.status !== 0) {
+    return {
+      status: 'unavailable',
+      detail: safeGitDiagnosticReference(observed, 'State branch observation failed')
+    };
+  }
   const line = observed.stdout.split(/\r?\n/).map((item) => item.trim()).find(Boolean);
   return { status: 'observed', commit: line ? line.split(/\s+/)[0] : null };
 }
@@ -1154,12 +1216,14 @@ export async function appendLedgerIntent(root, rawConfig, intent, publishedCommi
  * @param options.replaceRoots optional state-branch-relative directories whose tracked contents are
  * authoritative mirrors of `files`. Files previously tracked beneath those roots but absent from
  * `files` are removed. `removePaths` names additional exact managed files to retire. No path outside
- * an explicitly named replacement root or exact removal is ever pruned.
+ * an explicitly named replacement root or exact removal is ever pruned. `exactBlobSha256` maps
+ * authority-bearing paths to their reviewed SHA-256; those bytes bypass worktree filters and are
+ * verified in the temporary index and commit before any push.
  */
 export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
-  env = process.env, transportRemote = undefined
+  env = process.env, transportRemote = undefined, exactBlobSha256 = {}
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const sourceGuards = normalizedGuardedRemoteRefs(root, guardedRemoteRefs, { env });
@@ -1182,6 +1246,30 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   }
   const replacementRoots = [...new Set((replaceRoots ?? []).map(safePath))].sort();
   const exactRemovals = [...new Set((removePaths ?? []).map(safePath))].sort();
+  if (!exactBlobSha256 || typeof exactBlobSha256 !== 'object'
+      || Array.isArray(exactBlobSha256)) {
+    throw new SingularityFlowError('Exact state-branch blob expectations must be an object.');
+  }
+  const exactBlobs = new Map(Object.entries(exactBlobSha256).map(([file, expected]) => {
+    const normalized = safePath(file);
+    if (!/^sha256:[a-f0-9]{64}$/.test(String(expected ?? ''))) {
+      throw new SingularityFlowError(
+        `Exact state-branch blob digest for '${normalized}' is invalid.`
+      );
+    }
+    return [normalized, expected];
+  }));
+  if (exactBlobs.size !== Object.keys(exactBlobSha256).length) {
+    throw new SingularityFlowError('State-branch publication contains duplicate exact blob paths.');
+  }
+  const entryPaths = new Set(entries.map(([file]) => file));
+  for (const file of exactBlobs.keys()) {
+    if (!entryPaths.has(file)) {
+      throw new SingularityFlowError(
+        `Exact state-branch blob '${file}' has no matching publication entry.`
+      );
+    }
+  }
   if (!entries.length && !replacementRoots.length && !exactRemovals.length) {
     return { branch: config.branch, commit: null, changed: false, published: [], removed: [] };
   }
@@ -1238,12 +1326,45 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
     }
     const removedFiles = [...removed].sort();
     if (removedFiles.length) git(worktree, ['rm', '-f', '--ignore-unmatch', '--', ...removedFiles], { env });
-    for (const [file, contents] of entries) {
-      const target = path.join(worktree, file);
-      await ensureDir(path.dirname(target));
+    const ordinaryEntries = entries.filter(([file]) => !exactBlobs.has(file));
+    for (const [file, contents] of ordinaryEntries) {
+      const target = await safeStateWorktreeTarget(worktree, file, {
+        createDirectories: true
+      });
       await writeAtomic(target, contents);
     }
-    if (entries.length) git(worktree, ['add', '--', ...entries.map(([file]) => file)], { env });
+    if (ordinaryEntries.length) {
+      git(worktree, ['add', '--', ...ordinaryEntries.map(([file]) => file)], { env });
+    }
+    // Authority-bearing projections must not traverse a checked-out symlink or run a repository
+    // clean filter after the person confirmed their bytes. Write the exact bytes as an ordinary
+    // Git blob and update only the temporary index; no application/state worktree path is opened.
+    for (const [file, contents] of entries.filter(([candidate]) => exactBlobs.has(candidate))) {
+      await safeStateWorktreeTarget(worktree, file);
+      const bytes = Buffer.isBuffer(contents) ? contents : Buffer.from(String(contents), 'utf8');
+      const expected = exactBlobs.get(file);
+      if (`sha256:${sha256(bytes)}` !== expected) {
+        throw new SingularityFlowError(
+          `Exact state-branch blob '${file}' does not match its reviewed digest.`,
+          { code: 'state_branch.projection_bytes_changed', details: { path: file } }
+        );
+      }
+      const blob = git(worktree, ['hash-object', '-w', '--no-filters', '--stdin'], {
+        env, input: bytes
+      }).stdout.trim();
+      git(worktree, ['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`], {
+        env
+      });
+      const staged = git(worktree, ['cat-file', 'blob', blob], {
+        env, encoding: 'buffer', maxBuffer: bytes.length + 1024
+      }).stdout;
+      if (!Buffer.isBuffer(staged) || !staged.equals(bytes)) {
+        throw new SingularityFlowError(
+          `Exact state-branch blob '${file}' changed while it was staged.`,
+          { code: 'state_branch.projection_bytes_changed', details: { path: file } }
+        );
+      }
+    }
     // Publishing the same bytes twice is a no-op rather than an empty commit: this runs on every
     // capability edit, and most edits change one file out of several.
     if (!git(worktree, ['diff', '--cached', '--name-only'], { env }).stdout.trim()) {
@@ -1251,7 +1372,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
         const observed = observeRemoteBranch(worktree, config, { env, transportRemote });
         if (observed.status !== 'observed') {
           throw new SingularityFlowError(
-            `Unable to verify the ${config.branch} branch before completing a no-op publication: ${observed.detail}`,
+            `Unable to verify the ${config.branch} branch before completing a no-op publication. ${observed.detail}`,
             { code: 'state_branch.publication_observation_unavailable', details: { branch: config.branch, expectedRemoteSha } }
           );
         }
@@ -1291,18 +1412,33 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       '-c', `user.email=${actor.email || 'unknown@invalid'}`,
       ...commitArgs(config, message)], { env });
     const commit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    for (const [file, expected] of exactBlobs) {
+      const committed = git(worktree, ['show', `${commit}:${file}`], {
+        env, encoding: 'buffer'
+      }).stdout;
+      if (!Buffer.isBuffer(committed) || `sha256:${sha256(committed)}` !== expected) {
+        throw new SingularityFlowError(
+          `Exact state-branch blob '${file}' changed before publication.`,
+          { code: 'state_branch.projection_bytes_changed', details: { path: file } }
+        );
+      }
+    }
     if (hasRemoteInEnvironment(root, config.remote, env)) {
       const pushed = pushLedger(worktree, config, expectedRemoteSha, { env, transportRemote });
       if (pushed.status !== 0) {
         const detail = (pushed.stderr || pushed.stdout).trim();
         const concurrent = isStateBranchConcurrencyFailure(detail);
+        const diagnostic = safeGitDiagnosticReference(
+          pushed, 'State branch publication was refused'
+        );
         const error = new SingularityFlowError(
-          `Unable to publish to the ${config.branch} branch: ${detail}`,
+          `Unable to publish to the ${config.branch} branch. ${diagnostic}`,
           {
             code: concurrent ? 'state_branch.concurrent_publication' : 'state_branch.publication_failed',
             details: {
               branch: config.branch, expectedRemoteSha,
-              guardedRefs: Object.keys(guardedRemoteRefs)
+              guardedRefs: Object.keys(guardedRemoteRefs),
+              diagnostic
             }
           });
         // Callers that can deterministically rebase an immutable payload may retry. Lifecycle

@@ -344,11 +344,20 @@ Usage:
     invoke and recovery read the complete typed request from --request <REPOSITORY-JSON-FILE>
     installed profiles are read-only filesystem-read and Git-common fixture-only sandbox-cas
   singularity-flow authority-store init|status|verify|recover [--store ID] [--confirm <RECOVERY-PLAN-SHA256>] [--json]
+  singularity-flow authority-store trust-scaffold --mode git-trusted [--store ID] [--json]
+  singularity-flow authority-store publish [--store ID] [--confirm <PUBLISH-PLAN-SHA256>] [--json]
+  singularity-flow authority-store sync [--store ID] [--confirm <SYNC-PLAN-SHA256>] [--json]
   singularity-flow authority-store signer-create --signer <KEY-ID> [--store ID] [--json]
   singularity-flow authority-store export --out <REPOSITORY-FILE> --signer <KEY-ID> [--store ID] [--json]
   singularity-flow authority-store inspect|import <REPOSITORY-FILE> [--store ID] [--confirm <IMPORT-PLAN-SHA256>] [--json]
   singularity-flow authority-store rollback --receipt <CUTOVER-SHA256> [--store ID] [--confirm <ROLLBACK-PLAN-SHA256>] [--json]
-    transport trust comes only from approved singularity/sgos/capability-pack-trust.json v2
+    transport trust comes only from approved singularity/sgos/capability-pack-trust.json
+    v3 git-trusted publishes/syncs through the exact configured state branch without a transport key
+    v3 requires an approved reachable remote/state branch and architecture-reviewers identity for sync
+    offline root binding is signed-v2 only; v3 sync/rollback cannot cross minimumAuthority
+    runtime reads Pack lineage locally and never auto-syncs state; only explicit sync refreshes the Store
+    retain Pack publisher public keys for history; revoke/supersede Packs instead of removing keys
+    v2 signed transport remains available when Git-host compromise must not be trusted
     import and rollback preview first; no command merges or silently rewinds Authority Store history
   singularity-flow pack list|active|show|propose|review|activate|revoke ... --trust <PUBLIC-TRUST-JSON> [--json]
   singularity-flow learn list|show ... --role <ROLE> [--pack <PACK-ID>] --trust <PUBLIC-TRUST-JSON> [--json]

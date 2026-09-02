@@ -14,6 +14,7 @@ The lifecycle branch owns operational state; local context selects it; the state
 | Publication transaction journal | `.git/singularity-flow/publication-journal/<kind>--<ID>.json` | Machine-local write-ahead record containing the expected HEAD, live owner, event, and integrity-bound governed preimage | No | Blocks concurrent mutation while active or recoverable | Never roll back a live owner; after a dead pre-commit owner, rescue partial bytes and restore only the recorded governed roots; after HEAD advances, retain the commit and resume publication |
 | Pending publication | `.git/singularity-flow/pending-publication/<kind>--<ID>.json` | Local recovery record for a commit that exists but did not reach its remote | No | Blocks new mutations until synchronized | Retry the recorded fast-forward push; never rewrite or amend the retained commit |
 | Capability state branch / ledger | Configured orphan state branch | Append-only proof, binding, and the preferred organisation capability-map read mirror | Read-only mirror only | No | Reproject from approved `sflow/config`; ledger-only lifecycle subjects remain read-only until their lifecycle branch is available |
+| Git-trusted SGOS Authority Store projection | `singularity/sgos/authority-stores/<store-id>/current.json` on the configured state branch | Deterministic team transport of the complete Pack authority lineage | No | No; import still requires exact approved authority and confirmation | Read only from the exact freshly observed remote state commit; install, no-op, or strict fast-forward; never fall back to local/cached state or merge divergence |
 | Human and audit projections | `STATUS.md`, managed artifact metadata, approval summaries, review packets, ledger intents, reports, capability dashboard, Inbox, and revisioned VS Code snapshots | Derived presentation or exact reproducible audit material | No | No | Regenerate from authoritative lifecycle state and immutable records at one captured revision |
 | Remote systems | Jira, CI, storage providers, GitHub observations | Timestamped evidence and external receipts | By explicit identity/reference | No, unless an exact reviewed write plan says otherwise | Refresh observations and record drift; never silently overwrite Git-owned state |
 | Governed references | Committed `context/references/<sha256>.json` beside Story or Initiative state | Revision-bound address of approved artifact bytes | No | No | Verify the exact Git object, raw hash, renderer version, and bounded preview; an opaque handle never grants arbitrary path access |
@@ -44,6 +45,30 @@ full proposal commit, performs a dry-run of the exact normal push to `sflow/conf
 requires an explicit acknowledgement when that direct update is permitted, and
 appends an activation ledger event after the target is established. Local capability
 authoring commands do not publish the map or move the state branch.
+
+SGOS `git-trusted` transport uses the state branch as a distribution authority, not as an
+alternative mutable Store. `authority-store publish` verifies the complete local Store and Pack
+graph, previews an exact compare-and-swap, and writes only the selected Store projection through an
+isolated state worktree. `authority-store sync` reads only the exact current remote commit in an
+isolated object store and performs an atomic local cutover after confirmation. The projection is
+path-neutral and has no outer Authority transport signer, signature, or private key; it still
+carries signed Pack records and their mandatory publisher signatures. A new clone
+therefore trusts the Git host and branch controls against rollback, while an existing Store also
+refuses older or divergent lineages. This profile requires an approved reachable remote and state
+branch; offline root-commit repository binding is supported only by signed-v2 transport. The Git
+identity confirming sync must belong to `architecture-reviewers`, and an approved v3
+`minimumAuthority` checkpoint prevents both sync and rollback from moving below that exact
+revision/state/projection. The checkpoint is optional only for bootstrap and should be advanced in
+approved configuration after the first successful publish as defense in depth.
+
+Runtime Pack and Process admission reads Pack lineage only from the installed Git-common Store; it
+never fetches the state branch or auto-syncs Store authority. The surrounding command may still
+refresh approved `sflow/config` policy under its normal configuration-authority rules. Store
+freshness changes only through explicit `authority-store sync`: preview freshly reads the approved
+remote state commit and confirmation rechecks the plan before local cutover.
+Adding an approved Pack publisher key changes signature verification authority but imports no Pack;
+removing a key makes all historical Pack records signed by it unverifiable. Revoke or supersede
+those Packs to stop their use while retaining the public key needed to verify immutable history.
 
 ## Publication contract
 

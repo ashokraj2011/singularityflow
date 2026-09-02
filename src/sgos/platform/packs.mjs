@@ -564,8 +564,16 @@ export function createCapabilityPackRegistry({ authorityStore, trustedPublishers
      * The caller still decides whether its trust anchors came from approved configuration; this
      * registry only proves those anchors against the Authority Store's verified event lineage.
      */
-    async resolveActiveSelection(domain, expectedPackSha256) {
-      const state = await store.read();
+    async resolveActiveSelection(domain, expectedPackSha256, { minimumAuthority = null } = {}) {
+      if (minimumAuthority !== null && typeof store.readAtMinimum !== 'function') {
+        fail('Capability Pack resolution requires an Authority Store that can verify the approved minimum checkpoint.',
+          'SGOS_AUTHORITY_PROFILE_UNSUPPORTED');
+      }
+      // The selected Pack and the anti-rollback decision come from one verified snapshot. Keeping
+      // this as one Store read prevents a concurrent cutover from separating the check from use.
+      const state = minimumAuthority === null
+        ? await store.read()
+        : await store.readAtMinimum(minimumAuthority);
       const resolved = readActiveSelection(state.entries, domain, expectedPackSha256);
       return Object.freeze({
         profile: 'signed-declarative-local-v1',

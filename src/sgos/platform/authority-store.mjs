@@ -10,9 +10,11 @@ import { canonicalJson } from '../../records.mjs';
 import { scanText } from '../../secrets.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {
-  clonePlatformJson, createAuthorityCutover, createAuthorityPortableExport, createAuthorityRollback,
+  clonePlatformJson, createAuthorityCutover, createAuthorityGitCutover,
+  createAuthorityGitProjection, createAuthorityPortableExport, createAuthorityRollback,
   createAuthorityState, createAuthorityTransactionEvent, createAuthorityTransport,
   createPlatformEnvelope, isPlainPlatformObject, PLATFORM_AUTHORITY_TRANSPORT_ATTESTATION,
+  PLATFORM_AUTHORITY_GIT_PROJECTION_PROFILE,
   platformSha256, validatePlatformEnvelope, validatePlatformRecord
 } from './contracts.mjs';
 import { signPlatformRecord, verifySignedPlatformRecord } from './signatures.mjs';
@@ -60,6 +62,27 @@ function exactObject(value, allowed, label) {
   if (!isPlainPlatformObject(value)) fail(`${label} must be an object.`);
   const accepted = new Set(allowed);
   for (const key of Object.keys(value)) if (!accepted.has(key)) fail(`${label} contains unknown field '${key}'.`);
+}
+
+function canonicalStateBranch(value, label = 'stateBranch') {
+  if (typeof value !== 'string' || !value.length || value.length > 255
+      || /[\u0000-\u0020~^:?*[\\]/u.test(value)
+      || value.includes('..') || value.includes('@{') || value.includes('//')
+      || value.startsWith('/') || value.endsWith('/') || value.endsWith('.')
+      || value === '@' || value.split('/').some((component) =>
+        component.startsWith('.') || component.endsWith('.lock'))) {
+    fail(`${label} must be a safe canonical Git branch name.`,
+      'SGOS_AUTHORITY_GIT_PROVENANCE_INVALID');
+  }
+  return value;
+}
+
+function exactGitCommit(value, label = 'stateCommit') {
+  if (typeof value !== 'string' || !/^[a-f0-9]{40,64}$/u.test(value)) {
+    fail(`${label} must be an exact lower-case Git object ID.`,
+      'SGOS_AUTHORITY_GIT_PROVENANCE_INVALID');
+  }
+  return value;
 }
 
 function assertPortableTransportContent(value, location = '$') {
@@ -384,8 +407,6 @@ async function verifyStoreDirectoryAt(directory, storeId, expectedStateSha256, {
   if (operation === null) {
     return includeEvents ? Object.freeze({ head, events: Object.freeze(events) }) : head;
   }
-  const receiptKind = operation === 'import'
-    ? 'platform-authority-cutover' : 'platform-authority-rollback';
   const receiptDirectory = operation === 'import' ? 'receipts' : 'rollbacks';
   const transportRoot = path.join(directory, 'transport');
   await assertNotSymlink(transportRoot, 'Authority recovery transport root', { directory: true });
@@ -402,7 +423,14 @@ async function verifyStoreDirectoryAt(directory, storeId, expectedStateSha256, {
   }
   const receiptEnvelope = validatePlatformEnvelope(await safeReadJson(
     receiptFile, 'Recovered Authority transport receipt'
-  ), receiptKind);
+  ));
+  const allowedReceiptKinds = operation === 'import'
+    ? new Set(['platform-authority-cutover', 'platform-authority-git-cutover'])
+    : new Set(['platform-authority-rollback']);
+  if (!allowedReceiptKinds.has(receiptEnvelope.family)) {
+    fail('Recovered Authority transport receipt has the wrong kind.',
+      'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
+  }
   if (receiptEnvelope.record.recordSha256 !== receiptSha256
       || receiptEnvelope.record.storeId !== storeId) {
     fail('Recovered Authority transport receipt does not match the cutover journal.',
@@ -413,24 +441,48 @@ async function verifyStoreDirectoryAt(directory, storeId, expectedStateSha256, {
       fail('Recovered Authority import receipt does not bind the installed head.',
         'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
     }
-    const importsRoot = path.join(transportRoot, 'imports');
-    await assertNotSymlink(importsRoot, 'Authority recovery import directory', {
-      directory: true
-    });
-    const proofFile = path.join(
-      importsRoot, `${receiptEnvelope.record.signedTransportSha256.slice(7)}.json`
-    );
-    await assertNotSymlink(proofFile, 'Recovered signed Authority transport');
-    const proof = await safeReadJson(
-      proofFile, 'Recovered signed Authority transport', {
-        maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+    if (receiptEnvelope.family === 'platform-authority-cutover') {
+      const importsRoot = path.join(transportRoot, 'imports');
+      await assertNotSymlink(importsRoot, 'Authority recovery import directory', {
+        directory: true
+      });
+      const proofFile = path.join(
+        importsRoot, `${receiptEnvelope.record.signedTransportSha256.slice(7)}.json`
+      );
+      await assertNotSymlink(proofFile, 'Recovered signed Authority transport');
+      const proof = await safeReadJson(
+        proofFile, 'Recovered signed Authority transport', {
+          maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+        }
+      );
+      if (platformSha256(proof) !== receiptEnvelope.record.signedTransportSha256
+          || proof?.record?.recordSha256 !== receiptEnvelope.record.exportSha256
+          || proof?.signature?.keyId !== receiptEnvelope.record.signerKeyId) {
+        fail('Recovered signed Authority transport does not match its receipt.',
+          'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
       }
-    );
-    if (platformSha256(proof) !== receiptEnvelope.record.signedTransportSha256
-        || proof?.record?.recordSha256 !== receiptEnvelope.record.exportSha256
-        || proof?.signature?.keyId !== receiptEnvelope.record.signerKeyId) {
-      fail('Recovered signed Authority transport does not match its receipt.',
-        'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
+    } else {
+      const projectionsRoot = path.join(transportRoot, 'git-projections');
+      await assertNotSymlink(projectionsRoot, 'Authority recovery Git projection directory', {
+        directory: true
+      });
+      const proofFile = path.join(
+        projectionsRoot, `${receiptEnvelope.record.projectionSha256.slice(7)}.json`
+      );
+      await assertNotSymlink(proofFile, 'Recovered Authority Git projection');
+      const proof = validatePlatformRecord(await safeReadJson(
+        proofFile, 'Recovered Authority Git projection', {
+          maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+        }
+      ), 'platform-authority-git-projection');
+      if (proof.recordSha256 !== receiptEnvelope.record.projectionSha256
+          || proof.repositoryBindingSha256
+            !== receiptEnvelope.record.repositoryBindingSha256
+          || proof.policySha256 !== receiptEnvelope.record.policySha256
+          || proof.head.recordSha256 !== receiptEnvelope.record.afterHead.recordSha256) {
+        fail('Recovered Authority Git projection does not match its receipt.',
+          'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
+      }
     }
   } else if (receiptEnvelope.record.afterStateSha256 !== expectedStateSha256) {
     fail('Recovered Authority rollback receipt does not bind the restored head.',
@@ -1029,21 +1081,39 @@ function authorityStateAt(storeId, events, revision) {
   });
 }
 
-/** Verify one public transport without trusting any key or repository claim carried by it. */
-export async function verifyPortableAuthorityTransport(signedTransport, {
-  trustedPublicKeyPem,
-  expectedKeyId,
+function assertMinimumAuthorityCheckpoint(head, events, minimumAuthority) {
+  if (!isPlainPlatformObject(minimumAuthority)
+      || !Number.isSafeInteger(minimumAuthority.revision)
+      || minimumAuthority.revision < 0
+      || !/^sha256:[a-f0-9]{64}$/.test(String(minimumAuthority.stateSha256 ?? ''))) {
+    fail('Approved Authority Store minimum checkpoint is invalid.',
+      'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
+  }
+  if (head.revision < minimumAuthority.revision) {
+    fail('Authority Store predates the approved anti-rollback checkpoint.',
+      'SGOS_AUTHORITY_TRANSPORT_STALE', {
+        currentRevision: head.revision,
+        minimumRevision: minimumAuthority.revision
+      });
+  }
+  const checkpoint = authorityStateAt(head.storeId, events, minimumAuthority.revision);
+  if (checkpoint.recordSha256 !== minimumAuthority.stateSha256) {
+    fail('Authority Store does not contain the approved anti-rollback checkpoint.',
+      'SGOS_AUTHORITY_TRANSPORT_STALE', {
+        minimumRevision: minimumAuthority.revision,
+        minimumStateSha256: minimumAuthority.stateSha256
+      });
+  }
+}
+
+async function verifyAuthoritySnapshot(record, {
   expectedStoreId = null,
   expectedRepositoryBindingSha256,
   expectedPolicySha256,
   minimumAuthority = null,
+  minimumArtifactField,
   validateEntries
 }) {
-  const record = verifySignedPlatformRecord(signedTransport, {
-    trustedPublicKeyPem,
-    expectedKeyId,
-    expectedKind: 'platform-authority-transport'
-  });
   assertPortableTransportContent(record);
   if (expectedStoreId !== null && record.storeId !== expectedStoreId) {
     fail('Authority transport belongs to another store.',
@@ -1064,7 +1134,9 @@ export async function verifyPortableAuthorityTransport(signedTransport, {
     if (!isPlainPlatformObject(minimumAuthority)
         || !Number.isSafeInteger(minimumAuthority.revision) || minimumAuthority.revision < 0
         || !/^sha256:[a-f0-9]{64}$/.test(String(minimumAuthority.stateSha256 ?? ''))
-        || !/^sha256:[a-f0-9]{64}$/.test(String(minimumAuthority.exportSha256 ?? ''))) {
+        || !/^sha256:[a-f0-9]{64}$/.test(
+          String(minimumAuthority[minimumArtifactField] ?? '')
+        )) {
       fail('Approved Authority transport checkpoint is invalid.',
         'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
     }
@@ -1075,7 +1147,7 @@ export async function verifyPortableAuthorityTransport(signedTransport, {
     const checkpoint = authorityStateAt(record.storeId, record.events, minimumAuthority.revision);
     if (checkpoint.recordSha256 !== minimumAuthority.stateSha256
         || (record.head.revision === minimumAuthority.revision
-          && record.recordSha256 !== minimumAuthority.exportSha256)) {
+          && record.recordSha256 !== minimumAuthority[minimumArtifactField])) {
       fail('Authority transport does not contain the approved anti-rollback checkpoint.',
         'SGOS_AUTHORITY_TRANSPORT_STALE');
     }
@@ -1087,6 +1159,32 @@ export async function verifyPortableAuthorityTransport(signedTransport, {
   const semantic = await validateEntries(
     clonePlatformJson(entries), clonePlatformJson(record.events)
   );
+  return clonePlatformJson(semantic ?? {});
+}
+
+/** Verify one public transport without trusting any key or repository claim carried by it. */
+export async function verifyPortableAuthorityTransport(signedTransport, {
+  trustedPublicKeyPem,
+  expectedKeyId,
+  expectedStoreId = null,
+  expectedRepositoryBindingSha256,
+  expectedPolicySha256,
+  minimumAuthority = null,
+  validateEntries
+}) {
+  const record = verifySignedPlatformRecord(signedTransport, {
+    trustedPublicKeyPem,
+    expectedKeyId,
+    expectedKind: 'platform-authority-transport'
+  });
+  const semantic = await verifyAuthoritySnapshot(record, {
+    expectedStoreId,
+    expectedRepositoryBindingSha256,
+    expectedPolicySha256,
+    minimumAuthority,
+    minimumArtifactField: 'exportSha256',
+    validateEntries
+  });
   return Object.freeze({
     valid: true,
     record,
@@ -1097,19 +1195,67 @@ export async function verifyPortableAuthorityTransport(signedTransport, {
     exportSha256: record.recordSha256,
     signedTransportSha256: platformSha256(signedTransport),
     signerKeyId: signedTransport.signature.keyId,
-    semantic: clonePlatformJson(semantic ?? {})
+    semantic
   });
 }
 
-export function planPortableAuthorityImport(currentHead, currentEvents, transport, {
-  authorityContextSha256 = null
-} = {}) {
-  if (authorityContextSha256 !== null
-      && !/^sha256:[a-f0-9]{64}$/.test(String(authorityContextSha256))) {
-    fail('Authority import context digest is invalid.',
-      'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
+/**
+ * Verify one deterministic projection and bind the Git provenance observed by the caller.
+ *
+ * This function does not claim to inspect Git. Its caller must supply the exact commit from which
+ * it read `projection` and the configured branch it resolved. The returned immutable provenance
+ * is carried into the import plan and durable cutover receipt.
+ */
+export async function verifyAuthorityGitProjection(projection, {
+  expectedStoreId = null,
+  expectedRepositoryBindingSha256,
+  expectedPolicySha256,
+  expectedStateBranch,
+  stateBranch,
+  stateCommit,
+  minimumAuthority = null,
+  validateEntries
+}) {
+  const record = validatePlatformRecord(
+    projection, 'platform-authority-git-projection'
+  );
+  const expectedBranch = canonicalStateBranch(
+    expectedStateBranch, 'expectedStateBranch'
+  );
+  const observedBranch = canonicalStateBranch(stateBranch);
+  if (observedBranch !== expectedBranch) {
+    fail('Authority Git projection was read from a different state branch.',
+      'SGOS_AUTHORITY_GIT_PROVENANCE_MISMATCH', {
+        expectedStateBranch: expectedBranch,
+        observedStateBranch: observedBranch
+      });
   }
-  const imported = transport.record;
+  const observedCommit = exactGitCommit(stateCommit);
+  const semantic = await verifyAuthoritySnapshot(record, {
+    expectedStoreId,
+    expectedRepositoryBindingSha256,
+    expectedPolicySha256,
+    minimumAuthority,
+    minimumArtifactField: 'projectionSha256',
+    validateEntries
+  });
+  return Object.freeze({
+    valid: true,
+    record,
+    storeId: record.storeId,
+    revision: record.head.revision,
+    stateSha256: record.head.recordSha256,
+    eventSha256: record.head.eventSha256,
+    projectionSha256: record.recordSha256,
+    gitProvenance: Object.freeze({
+      stateBranch: observedBranch,
+      stateCommit: observedCommit
+    }),
+    semantic
+  });
+}
+
+function authorityImportDelta(currentHead, currentEvents, imported) {
   if (currentHead.storeId !== imported.storeId) {
     fail('Authority transport and destination Store IDs differ.',
       'SGOS_AUTHORITY_TRANSPORT_STORE_MISMATCH');
@@ -1134,6 +1280,26 @@ export function planPortableAuthorityImport(currentHead, currentEvents, transpor
     ? 'noop' : currentHead.revision === 0 ? 'install' : 'fast-forward';
   const importedEventSha256s = imported.events.slice(currentHead.revision)
     .map((event) => event.recordSha256);
+  return Object.freeze({ mode, importedEventSha256s });
+}
+
+function authorityImportContext(authorityContextSha256) {
+  if (authorityContextSha256 !== null
+      && !/^sha256:[a-f0-9]{64}$/.test(String(authorityContextSha256))) {
+    fail('Authority import context digest is invalid.',
+      'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
+  }
+  return authorityContextSha256;
+}
+
+export function planPortableAuthorityImport(currentHead, currentEvents, transport, {
+  authorityContextSha256 = null
+} = {}) {
+  authorityImportContext(authorityContextSha256);
+  const imported = transport.record;
+  const { mode, importedEventSha256s } = authorityImportDelta(
+    currentHead, currentEvents, imported
+  );
   const core = {
     kind: 'platform-authority-import-plan',
     transportProfile: AUTHORITY_TRANSPORT_PROFILE,
@@ -1142,6 +1308,41 @@ export function planPortableAuthorityImport(currentHead, currentEvents, transpor
     authorityContextSha256,
     storeId: imported.storeId,
     exportSha256: imported.recordSha256,
+    beforeRevision: currentHead.revision,
+    beforeStateSha256: currentHead.recordSha256,
+    afterRevision: imported.head.revision,
+    afterStateSha256: imported.head.recordSha256,
+    mode,
+    importedEventSha256s
+  };
+  return Object.freeze({ ...core, confirmationSha256: platformSha256(core) });
+}
+
+export function planAuthorityGitProjectionImport(currentHead, currentEvents, projection, {
+  authorityContextSha256 = null, forceInstall = false
+} = {}) {
+  authorityImportContext(authorityContextSha256);
+  if (typeof forceInstall !== 'boolean') {
+    fail('Authority Git projection installation intent is invalid.',
+      'SGOS_AUTHORITY_TRANSPORT_CONFIGURATION_STALE');
+  }
+  const imported = projection.record;
+  const delta = authorityImportDelta(
+    currentHead, currentEvents, imported
+  );
+  const mode = forceInstall && delta.mode === 'noop' && currentHead.revision === 0
+    ? 'install' : delta.mode;
+  const importedEventSha256s = delta.importedEventSha256s;
+  const core = {
+    kind: 'platform-authority-git-import-plan',
+    projectionProfile: PLATFORM_AUTHORITY_GIT_PROJECTION_PROFILE,
+    repositoryBindingSha256: imported.repositoryBindingSha256,
+    policySha256: imported.policySha256,
+    authorityContextSha256,
+    storeId: imported.storeId,
+    projectionSha256: imported.recordSha256,
+    stateBranch: projection.gitProvenance.stateBranch,
+    stateCommit: projection.gitProvenance.stateCommit,
     beforeRevision: currentHead.revision,
     beforeStateSha256: currentHead.recordSha256,
     afterRevision: imported.head.revision,
@@ -1533,6 +1734,62 @@ export async function openFilesystemAuthorityStore({
     }
   }
 
+  async function stageGitProjectionStore(directory, projection, receipt, owner) {
+    const record = validatePlatformRecord(
+      projection, 'platform-authority-git-projection'
+    );
+    if (record.recordSha256 !== receipt.projectionSha256
+        || record.repositoryBindingSha256 !== receipt.repositoryBindingSha256
+        || record.policySha256 !== receipt.policySha256
+        || record.head.recordSha256 !== receipt.afterHead.recordSha256) {
+      fail('Staged Authority Git projection does not match its cutover receipt.',
+        'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
+    }
+    await mkdir(directory, { mode: 0o700 });
+    const stagedEvents = path.join(directory, 'events');
+    await mkdir(stagedEvents, { mode: 0o700 });
+    for (const event of record.events) {
+      await writeExclusive(
+        path.join(stagedEvents, eventFilename(event.recordSha256)),
+        createPlatformEnvelope(event)
+      );
+    }
+    await writeExclusive(path.join(directory, 'state.json'), createPlatformEnvelope(record.head));
+    const receipts = path.join(directory, 'transport', 'receipts');
+    await mkdir(receipts, { recursive: true, mode: 0o700 });
+    await writeExclusive(
+      path.join(receipts, `${receipt.recordSha256.slice(7)}.json`),
+      createPlatformEnvelope(receipt)
+    );
+    const projections = path.join(directory, 'transport', 'git-projections');
+    await mkdir(projections, { recursive: true, mode: 0o700 });
+    await writeExclusive(
+      path.join(projections, `${record.recordSha256.slice(7)}.json`), record
+    );
+    await writeLockReplica(directory, owner);
+    await fsyncDirectory(stagedEvents);
+    await fsyncDirectory(directory);
+    const stagedState = validatePlatformEnvelope(
+      await safeReadJson(path.join(directory, 'state.json'), 'Staged Authority Store state'),
+      'platform-authority-state'
+    ).record;
+    const stagedRecords = [];
+    for (const event of record.events) {
+      stagedRecords.push(validatePlatformEnvelope(
+        await safeReadJson(
+          path.join(stagedEvents, eventFilename(event.recordSha256)),
+          'Staged Authority Store event'
+        ),
+        'platform-authority-transaction'
+      ).record);
+    }
+    await verifyEventSequence(storeId, stagedState, stagedRecords);
+    if (stagedState.recordSha256 !== record.head.recordSha256) {
+      fail('Staged Authority Store does not equal the verified Git projection head.',
+        'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
+    }
+  }
+
   async function transportInput(options) {
     return verifyPortableAuthorityTransport(options.signedTransport, {
       trustedPublicKeyPem: options.trustedPublicKeyPem,
@@ -1540,6 +1797,19 @@ export async function openFilesystemAuthorityStore({
       expectedStoreId: storeId,
       expectedRepositoryBindingSha256: options.expectedRepositoryBindingSha256,
       expectedPolicySha256: options.expectedPolicySha256,
+      minimumAuthority: options.minimumAuthority ?? null,
+      validateEntries: options.validateEntries
+    });
+  }
+
+  async function gitProjectionInput(options) {
+    return verifyAuthorityGitProjection(options.projection, {
+      expectedStoreId: storeId,
+      expectedRepositoryBindingSha256: options.expectedRepositoryBindingSha256,
+      expectedPolicySha256: options.expectedPolicySha256,
+      expectedStateBranch: options.expectedStateBranch,
+      stateBranch: options.stateBranch,
+      stateCommit: options.stateCommit,
       minimumAuthority: options.minimumAuthority ?? null,
       validateEntries: options.validateEntries
     });
@@ -1559,37 +1829,63 @@ export async function openFilesystemAuthorityStore({
     const file = path.join(transportReceiptsDirectory, `${cutoverSha256.slice(7)}.json`);
     await assertNotSymlink(file, 'Authority transport cutover receipt');
     const envelope = validatePlatformEnvelope(
-      await safeReadJson(file, 'Authority transport cutover receipt'),
-      'platform-authority-cutover'
+      await safeReadJson(file, 'Authority transport cutover receipt')
     );
+    if (!['platform-authority-cutover', 'platform-authority-git-cutover']
+      .includes(envelope.family)) {
+      fail('Authority transport cutover receipt has an unsupported kind.',
+        'SGOS_AUTHORITY_TRANSPORT_ROLLBACK_REFUSED');
+    }
     if (envelope.record.recordSha256 !== cutoverSha256
         || envelope.record.storeId !== storeId) {
       fail('Authority transport cutover receipt does not bind this store.',
         'SGOS_AUTHORITY_TRANSPORT_ROLLBACK_REFUSED');
     }
-    const proofFile = path.join(
-      transportDirectory, 'imports', `${envelope.record.signedTransportSha256.slice(7)}.json`
-    );
-    await assertNotSymlink(path.join(transportDirectory, 'imports'),
-      'Authority retained import directory', { directory: true });
-    await assertNotSymlink(proofFile, 'Retained signed Authority transport');
-    const signedTransport = await safeReadJson(
-      proofFile, 'Retained signed Authority transport', {
-        maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+    if (envelope.family === 'platform-authority-cutover') {
+      const proofFile = path.join(
+        transportDirectory, 'imports', `${envelope.record.signedTransportSha256.slice(7)}.json`
+      );
+      await assertNotSymlink(path.join(transportDirectory, 'imports'),
+        'Authority retained import directory', { directory: true });
+      await assertNotSymlink(proofFile, 'Retained signed Authority transport');
+      const signedTransport = await safeReadJson(
+        proofFile, 'Retained signed Authority transport', {
+          maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+        }
+      );
+      if (platformSha256(signedTransport) !== envelope.record.signedTransportSha256
+          || signedTransport?.record?.recordSha256 !== envelope.record.exportSha256
+          || signedTransport?.signature?.keyId !== envelope.record.signerKeyId) {
+        fail('Retained signed Authority transport does not match its cutover receipt.',
+          'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
       }
-    );
-    if (platformSha256(signedTransport) !== envelope.record.signedTransportSha256
-        || signedTransport?.record?.recordSha256 !== envelope.record.exportSha256
-        || signedTransport?.signature?.keyId !== envelope.record.signerKeyId) {
-      fail('Retained signed Authority transport does not match its cutover receipt.',
-        'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
+      validatePlatformRecord(signedTransport.record, 'platform-authority-transport');
+    } else {
+      const projectionFile = path.join(
+        transportDirectory, 'git-projections',
+        `${envelope.record.projectionSha256.slice(7)}.json`
+      );
+      await assertNotSymlink(path.join(transportDirectory, 'git-projections'),
+        'Authority retained Git projection directory', { directory: true });
+      await assertNotSymlink(projectionFile, 'Retained Authority Git projection');
+      const projection = validatePlatformRecord(await safeReadJson(
+        projectionFile, 'Retained Authority Git projection', {
+          maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+        }
+      ), 'platform-authority-git-projection');
+      if (projection.recordSha256 !== envelope.record.projectionSha256
+          || projection.repositoryBindingSha256 !== envelope.record.repositoryBindingSha256
+          || projection.policySha256 !== envelope.record.policySha256
+          || projection.head.recordSha256 !== envelope.record.afterHead.recordSha256) {
+        fail('Retained Authority Git projection does not match its cutover receipt.',
+          'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
+      }
     }
-    validatePlatformRecord(signedTransport.record, 'platform-authority-transport');
     return envelope.record;
   }
 
   async function rollbackPlanFor(cutoverSha256, {
-    validateRollback, authorityContextSha256 = null
+    validateRollback, authorityContextSha256 = null, minimumAuthority = null
   }) {
     if (authorityContextSha256 !== null
         && !/^sha256:[a-f0-9]{64}$/.test(String(authorityContextSha256))) {
@@ -1623,6 +1919,22 @@ export async function openFilesystemAuthorityStore({
       backupRoot, storeId, cutover.beforeHead.recordSha256, { includeEvents: true }
     );
     const before = backupSnapshot.head;
+    if (minimumAuthority !== null) {
+      try {
+        // A rollback target above the floor must still contain the exact approved checkpoint; a
+        // revision comparison alone cannot distinguish a different authority lineage.
+        assertMinimumAuthorityCheckpoint(before, backupSnapshot.events, minimumAuthority);
+      } catch (error) {
+        if (error?.code !== 'SGOS_AUTHORITY_TRANSPORT_STALE') throw error;
+        fail('Authority rollback target does not contain the approved anti-rollback checkpoint.',
+          'SGOS_AUTHORITY_TRANSPORT_ROLLBACK_REFUSED', {
+            rollbackRevision: before.revision,
+            rollbackStateSha256: before.recordSha256,
+            minimumRevision: minimumAuthority.revision,
+            minimumStateSha256: minimumAuthority.stateSha256
+          });
+      }
+    }
     if (typeof validateRollback !== 'function') {
       fail('Authority rollback requires a semantic safety validator.',
         'SGOS_AUTHORITY_TRANSPORT_ROLLBACK_REFUSED');
@@ -1640,7 +1952,9 @@ export async function openFilesystemAuthorityStore({
       storeId,
       cutoverSha256,
       beforeStateSha256: current.head.recordSha256,
-      afterStateSha256: before.recordSha256
+      afterStateSha256: before.recordSha256,
+      minimumRevision: minimumAuthority?.revision ?? null,
+      minimumStateSha256: minimumAuthority?.stateSha256 ?? null
     };
     return Object.freeze({
       ...core,
@@ -1668,6 +1982,13 @@ export async function openFilesystemAuthorityStore({
 
     async read() {
       const { head } = await verifiedSnapshot();
+      return clonePlatformJson(head);
+    },
+
+    /** Read one verified snapshot only when its immutable lineage contains the approved floor. */
+    async readAtMinimum(minimumAuthority) {
+      const { head, events } = await verifiedSnapshot();
+      assertMinimumAuthorityCheckpoint(head, events, minimumAuthority);
       return clonePlatformJson(head);
     },
 
@@ -1822,6 +2143,31 @@ export async function openFilesystemAuthorityStore({
       });
     },
 
+    async exportGitProjection({
+      repositoryBindingSha256, policySha256, validateEntries
+    }) {
+      assertPortableAuthorityStoreId(storeId);
+      return withLock(async () => {
+        const { head, events } = await verifiedSnapshot();
+        if (typeof validateEntries !== 'function') {
+          fail('Authority Git projection export requires a semantic entry validator.',
+            'SGOS_AUTHORITY_TRANSPORT_ACTIVE_PACK_INVALID');
+        }
+        await validateEntries(clonePlatformJson(head.entries), clonePlatformJson(events));
+        const record = createAuthorityGitProjection({
+          projectionProfile: PLATFORM_AUTHORITY_GIT_PROJECTION_PROFILE,
+          repositoryBindingSha256,
+          policySha256,
+          storeId,
+          head,
+          events,
+          eventCount: events.length
+        });
+        assertPortableTransportContent(record);
+        return record;
+      });
+    },
+
     async planImport(options) {
       assertPortableAuthorityStoreId(storeId);
       const transport = await transportInput(options);
@@ -1832,6 +2178,89 @@ export async function openFilesystemAuthorityStore({
           authorityContextSha256: options.authorityContextSha256 ?? null
         })
       });
+    },
+
+    async planGitProjectionImport(options) {
+      assertPortableAuthorityStoreId(storeId);
+      const projection = await gitProjectionInput(options);
+      const current = await verifiedSnapshot();
+      return Object.freeze({
+        projection,
+        plan: planAuthorityGitProjectionImport(current.head, current.events, projection, {
+          authorityContextSha256: options.authorityContextSha256 ?? null,
+          forceInstall: options.forceInstall === true
+        })
+      });
+    },
+
+    /**
+     * Prove that one exact Git projection completed its atomic local cutover.
+     *
+     * A revision-zero projection has the same Authority head as a newly opened empty Store. The
+     * retained projection and its cutover receipt are therefore the durable distinction between a
+     * completed genesis synchronization and a process that stopped after merely creating genesis.
+     */
+    async hasGitProjectionCutover({ projectionSha256, stateBranch, stateCommit }) {
+      assertPortableAuthorityStoreId(storeId);
+      if (!/^sha256:[a-f0-9]{64}$/u.test(String(projectionSha256 ?? ''))) {
+        fail('Authority Git cutover lookup requires an exact projection digest.',
+          'SGOS_AUTHORITY_GIT_PROVENANCE_INVALID');
+      }
+      const branch = canonicalStateBranch(stateBranch);
+      const commit = exactGitCommit(stateCommit);
+      const current = await verifiedSnapshot();
+      if (!await assertNotSymlink(transportDirectory, 'Authority transport directory', {
+        optional: true, directory: true
+      })) return false;
+      const projectionDirectory = path.join(transportDirectory, 'git-projections');
+      if (!await assertNotSymlink(projectionDirectory,
+        'Authority retained Git projection directory', { optional: true, directory: true })) {
+        return false;
+      }
+      const projectionFile = path.join(
+        projectionDirectory, `${projectionSha256.slice(7)}.json`
+      );
+      if (!await assertNotSymlink(projectionFile, 'Retained Authority Git projection', {
+        optional: true
+      })) return false;
+      const projection = validatePlatformRecord(await safeReadJson(
+        projectionFile, 'Retained Authority Git projection', {
+          maximumBytes: MAX_AUTHORITY_TRANSPORT_BYTES
+        }
+      ), 'platform-authority-git-projection');
+      if (projection.recordSha256 !== projectionSha256
+          || projection.storeId !== storeId
+          || projection.head.recordSha256 !== current.head.recordSha256) {
+        fail('Retained Authority Git projection does not bind the current Store.',
+          'SGOS_AUTHORITY_TRANSPORT_PARTIAL_COPY');
+      }
+      if (!await assertNotSymlink(transportReceiptsDirectory,
+        'Authority transport receipt directory', { optional: true, directory: true })) {
+        return false;
+      }
+      const names = await readdir(transportReceiptsDirectory);
+      if (names.length > MAX_AUTHORITY_EVENTS
+          || names.some((name) => !/^[a-f0-9]{64}\.json$/u.test(name))) {
+        fail('Authority transport receipt directory is not a bounded canonical set.',
+          'SGOS_AUTHORITY_STORE_CORRUPT');
+      }
+      for (const name of names.sort()) {
+        const file = path.join(transportReceiptsDirectory, name);
+        await assertNotSymlink(file, 'Authority transport cutover receipt');
+        const envelope = validatePlatformEnvelope(await safeReadJson(
+          file, 'Authority transport cutover receipt'
+        ));
+        if (envelope.family !== 'platform-authority-git-cutover') continue;
+        const receipt = envelope.record;
+        if (receipt.storeId === storeId
+            && receipt.projectionSha256 === projectionSha256
+            && receipt.stateBranch === branch
+            && receipt.stateCommit === commit
+            && receipt.afterHead.recordSha256 === projection.head.recordSha256) {
+          return true;
+        }
+      }
+      return false;
     },
 
     async importTransport(options) {
@@ -1942,10 +2371,126 @@ export async function openFilesystemAuthorityStore({
       return result;
     },
 
-    async planRollback({ cutoverSha256, validateRollback, authorityContextSha256 = null }) {
+    async importGitProjection(options) {
+      assertPortableAuthorityStoreId(storeId);
+      if (!/^sha256:[a-f0-9]{64}$/.test(String(options.confirmationSha256 ?? ''))) {
+        fail('Authority Git projection import requires the exact current plan confirmation digest.',
+          'SGOS_AUTHORITY_TRANSPORT_PLAN_STALE');
+      }
+      let backupRoot = null;
+      const result = await withStableCutoverLock(parentRoot, storeId, async () => {
+        const applied = await withLock(async (owner) => {
+          const projection = await gitProjectionInput(options);
+          const current = await verifiedSnapshot();
+          const plan = planAuthorityGitProjectionImport(
+            current.head, current.events, projection, {
+              authorityContextSha256: options.authorityContextSha256 ?? null,
+              forceInstall: options.forceInstall === true
+            }
+          );
+          if (plan.confirmationSha256 !== options.confirmationSha256) {
+            fail('Authority Git projection import confirmation does not match the exact current plan.',
+              'SGOS_AUTHORITY_TRANSPORT_PLAN_STALE', {
+                requiredConfirmationSha256: plan.confirmationSha256
+              });
+          }
+          if (plan.mode === 'noop') {
+            return Object.freeze({
+              status: 'already-current', changed: false, mode: 'noop', storeId,
+              projectionSha256: projection.projectionSha256,
+              gitProvenance: projection.gitProvenance,
+              planSha256: plan.confirmationSha256,
+              previous: authorityHeadSummary(current.head),
+              current: authorityHeadSummary(current.head),
+              importedEventCount: 0,
+              cutoverSha256: null,
+              semantic: projection.semantic
+            });
+          }
+          const authorization = validatePlatformRecord(
+            options.authorization, 'platform-mutation-authorization'
+          );
+          if (authorization.operation !== 'authority-store.sync') {
+            fail('Authority Git projection import authorization is invalid.',
+              'SGOS_PLATFORM_AUTHORIZATION_TAMPERED');
+          }
+          const cutover = createAuthorityGitCutover({
+            repositoryBindingSha256: projection.record.repositoryBindingSha256,
+            policySha256: projection.record.policySha256,
+            storeId,
+            projectionSha256: projection.projectionSha256,
+            stateBranch: projection.gitProvenance.stateBranch,
+            stateCommit: projection.gitProvenance.stateCommit,
+            beforeHead: current.head,
+            afterHead: projection.record.head,
+            importedEventSha256s: plan.importedEventSha256s,
+            authorization,
+            committedAt: new Date().toISOString()
+          });
+          const parent = path.dirname(canonicalRoot);
+          const stageName = `.authority-import-${storeId}-${randomUUID()}`;
+          const backupName = `.authority-backup-${storeId}-${cutover.recordSha256.slice(7)}`;
+          const stageRoot = path.join(parent, stageName);
+          backupRoot = path.join(parent, backupName);
+          const journalFile = path.join(parent, `.authority-cutover-${storeId}.json`);
+          if (await lstat(backupRoot).catch((error) =>
+            error?.code === 'ENOENT' ? null : Promise.reject(error))) {
+            fail('Authority Git projection import backup destination already exists.',
+              'SGOS_AUTHORITY_TRANSPORT_IMPORT_INTERRUPTED');
+          }
+          let journalWritten = false;
+          try {
+            await stageGitProjectionStore(stageRoot, projection.record, cutover, owner);
+            const journal = await createTransportJournal(parent, {
+              operation: 'import', storeId, stageName, backupName,
+              beforeStateSha256: current.head.recordSha256,
+              afterStateSha256: projection.record.head.recordSha256,
+              receiptSha256: cutover.recordSha256
+            });
+            await writeAtomic(journalFile, journal);
+            journalWritten = true;
+            await rename(canonicalRoot, backupRoot);
+            await fsyncDirectory(parent);
+            await rename(stageRoot, canonicalRoot);
+            await fsyncDirectory(parent);
+          } catch (error) {
+            if (!journalWritten) {
+              await rm(stageRoot, { recursive: true, force: true }).catch(() => {});
+              await fsyncDirectory(parent).catch(() => {});
+            }
+            throw error;
+          }
+          return Object.freeze({
+            status: 'imported', changed: true, mode: plan.mode, storeId,
+            projectionSha256: projection.projectionSha256,
+            gitProvenance: projection.gitProvenance,
+            planSha256: plan.confirmationSha256,
+            previous: authorityHeadSummary(current.head),
+            current: authorityHeadSummary(projection.record.head),
+            importedEventCount: plan.importedEventSha256s.length,
+            cutoverSha256: cutover.recordSha256,
+            semantic: projection.semantic
+          });
+        });
+        if (backupRoot) {
+          await rm(path.join(backupRoot, '.transaction-lock'), { recursive: true, force: true });
+          await fsyncDirectory(backupRoot);
+        }
+        await recoverInterruptedTransportCutover(canonicalRoot, storeId);
+        return applied;
+      });
+      return result;
+    },
+
+    async planRollback({
+      cutoverSha256, validateRollback, authorityContextSha256 = null,
+      minimumAuthority = null
+    }) {
       assertPortableAuthorityStoreId(storeId);
       const plan = await withStableCutoverLock(parentRoot, storeId, () =>
-        rollbackPlanFor(cutoverSha256, { validateRollback, authorityContextSha256 }));
+        rollbackPlanFor(cutoverSha256, {
+          validateRollback, authorityContextSha256, minimumAuthority
+        }));
       const { backupName, currentHead, rollbackHead, ...portable } = plan;
       return Object.freeze({
         plan: portable,
@@ -1956,7 +2501,7 @@ export async function openFilesystemAuthorityStore({
 
     async rollbackTransport({
       cutoverSha256, confirmationSha256, authorization, validateRollback,
-      authorityContextSha256 = null
+      authorityContextSha256 = null, minimumAuthority = null
     }) {
       assertPortableAuthorityStoreId(storeId);
       if (!/^sha256:[a-f0-9]{64}$/.test(String(confirmationSha256 ?? ''))) {
@@ -1967,7 +2512,7 @@ export async function openFilesystemAuthorityStore({
       const result = await withStableCutoverLock(parentRoot, storeId, async () => {
         const applied = await withLock(async (owner) => {
         const calculated = await rollbackPlanFor(cutoverSha256, {
-          validateRollback, authorityContextSha256
+          validateRollback, authorityContextSha256, minimumAuthority
         });
         if (calculated.confirmationSha256 !== confirmationSha256) {
           fail('Authority rollback confirmation does not match the exact current plan.',

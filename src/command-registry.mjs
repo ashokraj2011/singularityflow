@@ -278,8 +278,8 @@ const SGOS_SUBCOMMANDS = Object.freeze({
   'execution-unit': Object.freeze({ read: ['list', 'doctor'], mutation: [] }),
   device: Object.freeze({ read: ['list', 'doctor', 'intent', 'result'], mutation: ['invoke', 'recover', 'revoke'] }),
   'authority-store': Object.freeze({
-    read: ['status', 'verify', 'inspect'],
-    mutation: ['init', 'recover', 'signer-create', 'export', 'import', 'rollback']
+    read: ['status', 'verify', 'inspect', 'trust-scaffold'],
+    mutation: ['init', 'recover', 'signer-create', 'export', 'import', 'rollback', 'publish', 'sync']
   }),
   pack: Object.freeze({ read: ['list', 'active', 'show'], mutation: ['propose', 'review', 'activate', 'revoke'] }),
   learn: Object.freeze({
@@ -882,6 +882,10 @@ function resolveSgosOperation(definition, positionals, options) {
       && optionString(options, 'confirm') == null) {
     return never(`authority-store.${subcommand}.plan`, definition, 'read');
   }
+  if (definition.name === 'authority-store' && ['publish', 'sync'].includes(subcommand)
+      && optionString(options, 'confirm') == null) {
+    return never(`authority-store.${subcommand}.plan`, definition, 'read');
+  }
   return never(
     `${definition.name}.${subcommand}`,
     definition,
@@ -1041,6 +1045,8 @@ export function operationCatalog() {
   sgos.push(never('authority-store.recover.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.import.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.rollback.plan', commandDefinition('authority-store'), 'read'));
+  sgos.push(never('authority-store.publish.plan', commandDefinition('authority-store'), 'read'));
+  sgos.push(never('authority-store.sync.plan', commandDefinition('authority-store'), 'read'));
   const modelFreeMixed = [
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),

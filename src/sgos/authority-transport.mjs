@@ -12,7 +12,8 @@ import { canonicalJson } from '../records.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import {
-  loadApprovedSgosCapabilityPackTransportTrust
+  loadApprovedSgosCapabilityPackTransportTrust,
+  SGOS_CAPABILITY_PACK_TRANSPORT_MODE_SIGNED
 } from './capability-pack-authority.mjs';
 import {
   loadApprovedPlatformMutationAuthority
@@ -326,6 +327,10 @@ export async function authorityTransportContext(root, operation, { signer = null
   }
   let localSigner = null;
   if (signer !== null) {
+    if (trust.mode !== SGOS_CAPABILITY_PACK_TRANSPORT_MODE_SIGNED) {
+      fail('Approved Authority Store transport is git-trusted and does not use an export signer. Use authority-store publish.',
+        'SGOS_AUTHORITY_TRANSPORT_MODE_MISMATCH');
+    }
     localSigner = await loadLocalAuthorityTransportSigner(root, signer);
     const approved = trust.exporters[localSigner.keyId];
     if (!approved || approved.trim() !== localSigner.publicKeyPem.trim()) {

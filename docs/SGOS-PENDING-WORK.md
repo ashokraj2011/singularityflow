@@ -83,8 +83,10 @@ Depends on: shipped typed memory, working-set composition, and Secret Broker API
 Move approved Authority Store and signed Capability Pack state between machines without trusting
 ambient local paths or rebuilding authority by hand.
 
-The implementation on `main` now provides approved trust v2, a local non-exported Ed25519 signer on
-supported POSIX hosts, signed repository-bound canonical bundles, secret/path admission, exact
+The implementation on `main` now provides key-free approved trust v3 with deterministic
+state-branch publish/sync on Windows, macOS, and Linux, plus approved trust v2 and a local
+non-exported Ed25519 signer on supported POSIX hosts, signed repository-bound canonical bundles,
+secret/path admission, exact
 Pack-graph replay, inspect/import plan-and-confirm, stable-lock and tamper-evident journaled
 cutover, strict lineage fast-forward, retained signed import proof, durable cutover receipts, and
 explicit history-preserving rollback. Legacy trust v1 remains valid for machine-local Pack use but
@@ -95,6 +97,9 @@ or other Authority Store namespaces fail closed until they have their own semant
 Transport v2 makes its trust boundary explicit: approved exporters are complete Store-snapshot
 attestors, not low-privilege byte couriers. Their signed envelope vouches for historical decisions;
 deterministic semantic replay separately refuses illegal Pack histories.
+Git-trusted v3 explicitly delegates outer transport authenticity and new-clone rollback protection
+to the configured Git remote and its branch controls; Capability Pack publisher signatures and
+semantic replay remain mandatory.
 
 Acceptance gates:
 

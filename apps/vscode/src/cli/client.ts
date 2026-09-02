@@ -182,9 +182,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'authority-store') {
     const action = args[1] ?? 'status';
-    if (['status', 'verify', 'inspect'].includes(action)) return 'read';
+    if (['status', 'verify', 'inspect', 'trust-scaffold'].includes(action)) return 'read';
     if (action === 'recover' && !hasOption(args, 'confirm')) return 'read';
-    if (['import', 'rollback'].includes(action) && !hasOption(args, 'confirm')) return 'read';
+    if (['import', 'rollback', 'publish', 'sync'].includes(action) && !hasOption(args, 'confirm')) return 'read';
     return 'mutation';
   }
   if (args[0] === 'learn') return 'read';

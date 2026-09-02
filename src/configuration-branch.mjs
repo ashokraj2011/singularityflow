@@ -28,7 +28,7 @@ import {
 } from './workspace-context.mjs';
 import { removeTemporaryTree, SingularityFlowError, run } from './util.mjs';
 import {
-  assertCredentialFreeRemote, frozenRemoteTransport, sanitizeRemote
+  assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import {
@@ -1026,27 +1026,19 @@ function configuredStoryRemote(root, remoteName) {
   }
   const remotes = listed.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
   if (!remotes.includes(remoteName)) return { configured: false, url: null };
-  // `git remote get-url NAME` prints NAME itself when a remote section exists without a URL. Read
-  // the underlying setting first so that Git's fallback cannot be mistaken for a usable authority.
-  const configured = run('git', ['config', '--get-all', `remote.${remoteName}.url`], {
-    cwd: root, allowFailure: true
-  });
-  if (configured.status !== 0 || !configured.stdout.trim()) {
+  // Resolve authority from the raw checkout-local setting. `git remote get-url` applies ambient
+  // url.*.insteadOf rules and must never be used as the identity or input to the frozen authority
+  // transport: doing so would turn a machine-local rewrite into configuration authority.
+  const identity = configuredRemoteIdentity(root, remoteName, { direction: 'fetch' });
+  if (!identity.configured || identity.ambiguous || !identity.url) {
     throw new SingularityFlowError(
-      `Configured Story authority remote '${remoteName}' has no readable fetch URL.`,
+      identity.ambiguous
+        ? `Configured Story authority remote '${remoteName}' has more than one fetch URL.`
+        : `Configured Story authority remote '${remoteName}' has no readable fetch URL.`,
       { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
     );
   }
-  const resolved = run('git', ['remote', 'get-url', remoteName], {
-    cwd: root, allowFailure: true
-  });
-  if (resolved.status === 0 && resolved.stdout.trim()) {
-    return { configured: true, url: resolved.stdout.trim() };
-  }
-  throw new SingularityFlowError(
-    `Configured Story authority remote '${remoteName}' has no readable fetch URL.`,
-    { code: 'STORY_CONFIGURATION_AUTHORITY_UNAVAILABLE' }
-  );
+  return { configured: true, url: identity.url };
 }
 
 /** Find a Story-readable authority in this repository or its active workspace lead. */

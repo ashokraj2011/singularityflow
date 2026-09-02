@@ -349,32 +349,69 @@ remains staged so callers cannot mistake a convenience command for a second auth
 
 ## Portable Authority Store and Capability Packs
 
-The `authority-store` surface can now create a local Ed25519 transport signer on supported POSIX
-hosts, export one canonical repository-bound Store bundle, inspect it against freshly approved
-trust, import it through an exact plan/confirm boundary, and explicitly roll back the resulting
-cutover receipt. Windows can inspect and import a reviewed bundle, but signer creation and export
-fail closed until an owner-only operating-system credential backend and signed platform proof are
-available. Pack state is not copied independently: the complete portable Store event lineage
+The `authority-store` surface supports two explicit transport profiles. The recommended team
+profile is key-free `git-trusted` v3: it requires an approved, reachable Git remote and configured
+state branch, publishes one deterministic Store projection there, and lets another laptop install
+or strictly fast-forward it through an exact preview/confirm sync. It works on Windows, macOS, and
+Linux and never creates or transfers an Authority transport key. Git remote permissions, branch
+controls, and current branch history are the transport root of trust. The Git identity confirming
+sync must be a member of the approved `architecture-reviewers` authority because the command makes
+an audited local Authority Store cutover.
+
+Normal compiler and Process admission read Pack lineage only from the installed Store in the
+repository's Git-common sidecar. They never fetch the state branch or auto-sync Store authority.
+A command may separately refresh approved `sflow/config` policy under the existing configuration
+authority rules; that check does not import Pack history. Store network freshness is an explicit
+operator action: every `authority-store sync` preview freshly observes approved configuration and
+the exact remote state commit, and confirmation rechecks the same plan before installing it.
+Another laptop therefore sees a local Pack change only after the source publishes it and that
+laptop explicitly previews and confirms sync.
+
+The stronger signed v2 profile creates a local Ed25519 transport signer on supported POSIX hosts,
+exports a canonical repository-bound bundle, and imports it through the same guarded boundary. It
+remains appropriate when authority must survive a compromised or force-rewritten Git host. Pack
+state is not copied independently: the complete portable Store event lineage
 carries every signed Pack, review, activation, revocation, and supersession record and revalidates
 them with current approved publisher keys before cutover.
 
-Transport trust is format v2 of
-`singularity/sgos/capability-pack-trust.json`. It separates Pack publishers from Authority export
-signers, admits a path-neutral set of raw credential-free repository fingerprints (or an offline
-root binding), and requires a minimum revision/state/export checkpoint before import. Private keys
-remain in the source clone's owner-only Git-common sidecar and are never placed in argv, tracked
-repository content, the bundle, or diagnostics. Import accepts install, exact no-op, or strict
+Git-trusted mode removes only the outer Authority Store transport signer. Capability Pack publisher
+signatures remain: the projection carries the signed Pack records and their publisher signatures,
+which prove Pack bytes and provenance independently of how the Store travels. The projection
+contains no remote URL, credential, machine path, private key, or outer Authority transport signer
+or signature. Its exact blob, remote state commit, repository binding, policy digest, and local
+Store head are bound into the sync plan and durable Git cutover receipt. An unavailable or missing
+configured state branch never falls through to a local or cached branch, and an explicit local
+rollback cannot cross the approved v3 minimum revision/state checkpoint.
+
+Transport trust is explicit format v3 (`git-trusted`) or v2 (`signed`) in
+`singularity/sgos/capability-pack-trust.json`. Both separate Pack publishers from the outer Store
+transport authority. Git-trusted v3 binds the raw credential-free fingerprint of the approved
+configured state remote and does not support an offline-root substitute; offline root-commit
+binding belongs only to signed v2. Signed v2 requires its minimum revision/state/export checkpoint
+before import. A v3 policy may bootstrap with no minimum; after the first successful publish, advance
+the approved minimum revision/state/projection as defense in depth. Once that checkpoint exists,
+neither sync nor rollback can cross below it.
+Signed-v2 private keys remain in the source clone's owner-only Git-common sidecar and are never
+placed in argv, tracked repository content, the bundle, or diagnostics. Import accepts install, exact no-op, or strict
 fast-forward only. It stages and verifies a complete sibling Store before a stable-lock,
 tamper-evident journaled directory cutover; stale, divergent, cross-repository, counterfeit,
 secret-bearing, partial, revoked, or superseded authority fails closed. The imported signed proof
 and exact cutover receipt are retained for verification and guarded rollback.
+
+Pack publisher keys are reviewed verification anchors, not transport credentials. Adding a public
+publisher key through `sflow/config` authorizes SFlow to verify future Packs signed by that key; it
+does not add a Pack, change an activation, or mutate the Store. Removing a publisher key makes every
+historical Pack record signed by that key unverifiable, so runtime and transport validation fail
+closed without deleting or re-signing any bytes. To stop a publisher's Pack from being selected,
+revoke or supersede the Pack and retain its public key for historical verification. The current
+trust map has no separate “may verify history but may not publish new Packs” publisher state.
 
 The current portable profile is intentionally limited to fully authorized Capability Pack events.
 Legacy or mixed Memory, Meta-tool, Secret Broker, and unknown Authority Store namespaces are
 reported as unportable instead of being copied without a schema-specific semantic verifier. The
 public status, verify, recovery, and Pack-maintenance paths can still open an existing nonportable
 Store ID on POSIX only when refreshed approved v1 trust names that exact local Store; new Store
-creation and every v2 transport action continue to require a portable ID. The
+creation and every v2/v3 transport action continue to require a portable ID. The
 v2 policy must explicitly grant each approved exporter `full-authority-store-snapshot` authority:
 the outer signature attests the complete historical Store lineage, while deterministic replay
 proves that lineage is a legal Pack proposal/review/activation/revocation sequence. Exporter keys

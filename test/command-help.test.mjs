@@ -143,9 +143,28 @@ test('learn help exposes only digest-bound descriptor missions and non-authorita
   assert.match(page, /not semantic understanding or certification/);
 });
 
-test('Authority Store and Pack help expose the signed portable boundary without overclaiming it', () => {
+test('Authority Store and Pack help expose Git-trusted and signed portable boundaries without overclaiming them', () => {
   const authority = renderCommandHelp('authority-store');
-  assert.match(authority, /minimum revision\/state\/export checkpoint/);
+  assert.match(authority, /v3 git-trusted/);
+  assert.match(authority, /without a transport key/);
+  assert.match(authority, /Git branch permissions and history controls are\s+the root of transport trust/);
+  assert.match(authority, /Pack publisher signatures remain independently verified/);
+  assert.match(authority, /requires an approved reachable remote and state branch/);
+  assert.match(authority, /cannot substitute\s+an offline root binding/);
+  assert.match(authority, /identity confirming sync must belong to architecture-reviewers/);
+  assert.match(authority, /cannot cross v3 minimumAuthority/);
+  assert.match(authority, /no outer Authority signer, signature, or private key/);
+  assert.match(authority, /signed Pack records and their publisher signatures/);
+  assert.match(authority, /null v3 minimum is bootstrap-only/);
+  assert.match(authority, /runtime and Pack reads take Pack lineage only from the installed Git-common Store/);
+  assert.match(authority, /never fetch the state branch or auto-sync it/);
+  assert.match(authority, /may separately refresh approved\s+sflow\/config policy/);
+  assert.match(authority, /preview freshly observes the remote state commit/);
+  assert.match(authority, /confirmation rechecks that exact plan before installing Store history/);
+  assert.match(authority, /Adding a Pack publisher public key permits future signatures to verify but imports no Pack/);
+  assert.match(authority, /Removing one makes its historical signed Pack records unverifiable/);
+  assert.match(authority, /Revoke or supersede the\s+Pack.*retaining the public key/s);
+  assert.match(authority, /minimum\s+revision\/state\/export checkpoint/);
   assert.match(authority, /strictly fast-forward/);
   assert.match(authority, /Capability Pack proposal, review,\s+activation, and revocation history/);
   assert.match(authority, /Windows supports inspect and import/);

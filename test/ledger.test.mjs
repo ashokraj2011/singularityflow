@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  chmod, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -17,6 +19,7 @@ import {
   ledgerLog,
   ledgerShow,
   ledgerStatus,
+  materializeStateBranchPublicationAuthority,
   persistLedgerIntent,
   publishToStateBranch,
   reconcileLedger,
@@ -325,6 +328,83 @@ test('first ledger publication is deadline-supervised and returns no hook diagno
   assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/);
   assert.equal(eventLoopAdvanced, true, 'ledger publication blocked the event loop');
   assert.ok(performance.now() - startedAt < 1_000, 'ledger publication escaped its deadline and grace');
+});
+
+test('state projection push failures expose only a digest of hook diagnostics', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { root, remote } = await repository();
+  await initializeLedger(root, enabled);
+  const secret = 'state-hook-secret-must-not-leak';
+  const hook = path.join(remote, 'hooks/pre-receive');
+  await writeFile(hook, `#!/bin/sh\necho '${secret}' >&2\nexit 1\n`);
+  await chmod(hook, 0o755);
+
+  let refusal;
+  try {
+    await publishToStateBranch(root, enabled, {
+      'singularity/sgos/authority-stores/example/current.json': '{"safe":true}\n'
+    }, 'Publish exact state projection');
+  } catch (error) {
+    refusal = error;
+  }
+  assert.equal(refusal?.code, 'state_branch.publication_failed');
+  assert.doesNotMatch(JSON.stringify({
+    message: refusal?.message, details: refusal?.details
+  }), new RegExp(secret));
+  assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/u);
+});
+
+test('state authority observation failures never expose remote diagnostics', async () => {
+  const { root, parent } = await repository();
+  const secret = 'office-remote-token-must-not-leak';
+  const unavailable = path.join(parent, secret, 'missing.git');
+  git(root, ['remote', 'set-url', 'origin', unavailable]);
+  let refusal;
+  try {
+    materializeStateBranchPublicationAuthority(root, enabled, {
+      expectedRemoteSha: '0'.repeat(40), transportRemote: unavailable
+    });
+  } catch (error) {
+    refusal = error;
+  }
+  assert.equal(refusal?.code, 'state_branch.publication_observation_unavailable');
+  assert.doesNotMatch(JSON.stringify({
+    message: refusal?.message, details: refusal?.details
+  }), new RegExp(secret));
+  assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/u);
+});
+
+test('state worktree creation failures never expose checkout filter diagnostics', {
+  skip: process.platform === 'win32'
+}, async () => {
+  const { root, parent } = await repository();
+  await initializeLedger(root, enabled);
+  await publishToStateBranch(root, enabled, {
+    '.gitattributes': 'filtered.txt filter=sflow-secret-filter\n',
+    'filtered.txt': 'checked-in bytes\n'
+  }, 'Install adversarial state filter fixture');
+  const secret = 'office-filter-token-must-not-leak';
+  const filter = path.join(parent, 'secret-filter.sh');
+  await writeFile(filter, `#!/bin/sh\necho '${secret}' >&2\nexit 1\n`);
+  await chmod(filter, 0o755);
+  git(root, ['config', 'filter.sflow-secret-filter.required', 'true']);
+  git(root, ['config', 'filter.sflow-secret-filter.smudge', filter]);
+  git(root, ['config', 'filter.sflow-secret-filter.clean', 'cat']);
+
+  let refusal;
+  try {
+    await publishToStateBranch(root, enabled, {
+      'unrelated.txt': 'new bytes\n'
+    }, 'Trigger guarded state worktree creation');
+  } catch (error) {
+    refusal = error;
+  }
+  assert.equal(refusal?.code, 'state_branch.worktree_unavailable');
+  assert.doesNotMatch(JSON.stringify({
+    message: refusal?.message, details: refusal?.details
+  }), new RegExp(secret));
+  assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/u);
 });
 
 test('durable work-branch intents reconcile from Git without relying on the local outbox', async () => {
@@ -712,6 +792,32 @@ test('a state-branch path that climbs out of the branch is refused', async () =>
   await assert.rejects(
     () => publishToStateBranch(root, enabled, {}, 'Escape', { removePaths: ['../outside'] }),
     /must stay inside the branch/);
+});
+
+test('ordinary state publication refuses a symbolic-link ancestor without writing through it', async () => {
+  const { parent, root } = await repository();
+  await initializeLedger(root, enabled);
+  await publishToStateBranch(root, enabled, {
+    'singularity/initial.yml': 'initial: true\n'
+  }, 'Initialize managed state');
+  const outside = path.join(parent, 'outside');
+  const worktree = path.join(parent, 'adversarial-state');
+  await mkdir(outside);
+  git(root, ['worktree', 'add', '--detach', worktree, 'state']);
+  await rm(path.join(worktree, 'singularity'), { recursive: true, force: true });
+  await symlink(outside, path.join(worktree, 'singularity'));
+  git(worktree, ['add', '-A']);
+  git(worktree, ['commit', '-m', 'Adversarial state symlink']);
+  git(worktree, ['push', '--force', 'origin', 'HEAD:refs/heads/state']);
+
+  await assert.rejects(
+    () => publishToStateBranch(root, enabled, {
+      'singularity/escaped.yml': 'must-not-escape: true\n'
+    }, 'Refuse symlink traversal'),
+    (error) => error.code === 'state_branch.path_unsafe'
+  );
+  assert.equal(await lstat(path.join(outside, 'escaped.yml')).catch((error) =>
+    error.code === 'ENOENT' ? null : Promise.reject(error)), null);
 });
 
 test('publishing nothing does nothing', async () => {

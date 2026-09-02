@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { hasRemote } from '../git.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
 import { canonicalJson, sha256 } from './canonicalize.mjs';
@@ -247,6 +248,8 @@ function candidateRefs(root, { stateBranch, remote }) {
     'HEAD'
   ].filter((value, index, values) => values.indexOf(value) === index && commitAt(root, value));
 }
+
+const AUTHORITY_COMMIT = /^[a-f0-9]{40,64}$/;
 
 function recordFailure(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -646,24 +649,36 @@ export function readPublishedWorldModelV4(root, {
   outputDir = 'singularity/world-model',
   expectedReusableIdentity = null
 } = {}) {
+  // A remote-tracking or local branch is mutable. Resolve it exactly once before reading any
+  // projection byte, then use only that immutable object ID for the complete validation walk.
+  // Otherwise a concurrent fetch can make the manifest come from one state commit and a view or
+  // receipt from another—and, even worse, make the returned `commit` name bytes that were never
+  // actually validated together.
+  const authorityRef = ref;
+  const authorityCommit = commitAt(root, authorityRef);
+  if (!authorityCommit) {
+    recordFailure('The registered WMB v4 authority ref does not resolve to a commit.',
+      'WMB_MANIFEST_MISSING', { ref: authorityRef, outputDir });
+  }
+  const readRef = authorityCommit;
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
-  const manifest = readWorldModelV4Manifest(readAt(root, ref, manifestPath));
-  const sourceSnapshot = validateSourceSnapshot(jsonAt(root, ref, path.posix.join(target, 'source/source-snapshot.json')));
-  const scopeManifest = validateScopeManifest(jsonAt(root, ref, path.posix.join(target, 'scope/scope-manifest.json')));
+  const manifest = readWorldModelV4Manifest(readAt(root, readRef, manifestPath));
+  const sourceSnapshot = validateSourceSnapshot(jsonAt(root, readRef, path.posix.join(target, 'source/source-snapshot.json')));
+  const scopeManifest = validateScopeManifest(jsonAt(root, readRef, path.posix.join(target, 'scope/scope-manifest.json')));
   const viewRegistry = assertInstalledViewRegistry(
-    jsonAt(root, ref, path.posix.join(target, 'registries/views.json'))
+    jsonAt(root, readRef, path.posix.join(target, 'registries/views.json'))
   );
   const extractorRegistry = assertInstalledExtractorRegistry(
-    jsonAt(root, ref, path.posix.join(target, 'registries/extractors.json'))
+    jsonAt(root, readRef, path.posix.join(target, 'registries/extractors.json'))
   );
   const evidenceCatalog = validateEvidenceCatalog(
-    jsonAt(root, ref, path.posix.join(target, 'catalogs/evidence.json')),
+    jsonAt(root, readRef, path.posix.join(target, 'catalogs/evidence.json')),
     { sourceSnapshot, scopeManifest }
   );
-  const derivationRaw = jsonAt(root, ref, path.posix.join(target, 'catalogs/derivations.json'));
+  const derivationRaw = jsonAt(root, readRef, path.posix.join(target, 'catalogs/derivations.json'));
   const factLedger = validateFactLedger(
-    jsonAt(root, ref, path.posix.join(target, 'catalogs/facts.json')),
+    jsonAt(root, readRef, path.posix.join(target, 'catalogs/facts.json')),
     {
       sourceSnapshot, scopeManifest, extractorRegistry, evidenceCatalog,
       derivationIds: new Set((derivationRaw?.derivations ?? []).map((entry) => entry.id))
@@ -686,11 +701,11 @@ export function readPublishedWorldModelV4(root, {
     if (entry.status === 'unavailable') return structuredClone(entry);
     return {
       ...structuredClone(entry),
-      markdown: readAt(root, ref, path.posix.join(target, entry.path)),
-      candidate: jsonAt(root, ref, path.posix.join(target, `candidates/${entry.viewId}.json`)),
-      validationReceipt: jsonAt(root, ref, path.posix.join(target, `receipts/validation/${entry.viewId}.json`)),
-      execution: jsonAt(root, ref, path.posix.join(target, `receipts/execution/${entry.viewId}.json`)),
-      usageObservation: jsonAt(root, ref, path.posix.join(target, `usage/${entry.viewId}.json`))
+      markdown: readAt(root, readRef, path.posix.join(target, entry.path)),
+      candidate: jsonAt(root, readRef, path.posix.join(target, `candidates/${entry.viewId}.json`)),
+      validationReceipt: jsonAt(root, readRef, path.posix.join(target, `receipts/validation/${entry.viewId}.json`)),
+      execution: jsonAt(root, readRef, path.posix.join(target, `receipts/execution/${entry.viewId}.json`)),
+      usageObservation: jsonAt(root, readRef, path.posix.join(target, `usage/${entry.viewId}.json`))
     };
   });
   const verified = verifyWorldModelManifest(manifest, {
@@ -698,9 +713,9 @@ export function readPublishedWorldModelV4(root, {
     views,
     allowUnavailableOptionalViews: manifest.completeness.unavailableOptionalViews > 0
   });
-  const allowlist = exactProjectionAllowlist(root, ref, target, manifest, viewRegistry);
+  const allowlist = exactProjectionAllowlist(root, readRef, target, manifest, viewRegistry);
   const records = loadProjectionRecords(
-    root, ref, target, manifest.views, viewRegistry, allowlist.migrationPaths
+    root, readRef, target, manifest.views, viewRegistry, allowlist.migrationPaths
   );
   assertOptionalRecords(records, manifest, {
     views: verified.views, viewRegistry, extractorRegistry, factLedger, scopeManifest,
@@ -771,8 +786,8 @@ export function readPublishedWorldModelV4(root, {
   });
   const stalenessReceipts = conservativeStalenessReceipts(manifest, records, freshness);
   return Object.freeze({
-    ref,
-    commit: commitAt(root, ref),
+    ref: authorityRef,
+    commit: authorityCommit,
     outputDir: target,
     manifest: verified.manifest,
     dependencies,
@@ -790,6 +805,63 @@ export function readPublishedWorldModelV4(root, {
   });
 }
 
+/**
+ * Resolve a registered projection only from one already reviewed authority commit.
+ *
+ * Publication preservation must not use the ordinary remote/local/HEAD fallback search: a stale
+ * remote-tracking ref can otherwise contribute the old view set while the eventual state commit
+ * is parented on a newer remote tip. The resulting projection is internally valid but silently
+ * erases views introduced by the newer authority. This reader deliberately accepts only a full
+ * immutable object ID captured by the publication review.
+ */
+export function resolvePublishedWorldModelV4Authority(root, {
+  authorityCommit,
+  outputDir = 'singularity/world-model',
+  required = true,
+  expectedReusableIdentity = null
+} = {}) {
+  const target = safeOutputDirectory(outputDir);
+  const manifestPath = path.posix.join(target, 'manifest.json');
+  if (authorityCommit == null) {
+    if (!required) return null;
+    throw new SingularityFlowError(
+      `No registered WMB v4 authority commit was available for ${manifestPath}.`,
+      {
+        code: 'WMB_MANIFEST_MISSING',
+        details: { outputDir: target, authorityCommit: null, nextAction: 'world-model build' }
+      }
+    );
+  }
+  const normalized = String(authorityCommit);
+  if (!AUTHORITY_COMMIT.test(normalized) || commitAt(root, normalized) !== normalized) {
+    throw new SingularityFlowError(
+      'The reviewed registered world-model authority commit is not materialized exactly.',
+      {
+        code: 'WMB_GATEWAY_PUBLICATION_AUTHORITY_UNAVAILABLE',
+        details: { outputDir: target, authorityCommit: normalized }
+      }
+    );
+  }
+  const raw = readAt(root, normalized, manifestPath, { optional: true });
+  if (raw == null) {
+    if (!required) return null;
+    throw new SingularityFlowError(
+      `No registered WMB v4 manifest was found at ${manifestPath} in authority ${normalized}.`,
+      {
+        code: 'WMB_MANIFEST_MISSING',
+        details: { outputDir: target, authorityCommit: normalized, nextAction: 'world-model build' }
+      }
+    );
+  }
+  const classification = classifyWorldModelInput(raw);
+  if (classification.classification !== 'registered-v4-manifest') {
+    throw worldModelMigrationRequired(raw);
+  }
+  return readPublishedWorldModelV4(root, {
+    ref: normalized, outputDir: target, expectedReusableIdentity
+  });
+}
+
 /** Locate the current authority without silently falling through a legacy manifest. */
 export function resolvePublishedWorldModelV4(root, {
   outputDir = 'singularity/world-model',
@@ -800,7 +872,84 @@ export function resolvePublishedWorldModelV4(root, {
 } = {}) {
   const target = safeOutputDirectory(outputDir);
   const manifestPath = path.posix.join(target, 'manifest.json');
+  const remoteRef = `refs/remotes/${remote}/${stateBranch}`;
+  const localRef = `refs/heads/${stateBranch}`;
+  const remoteConfigured = hasRemote(root, remote);
+  if (commitAt(root, remoteRef)) {
+    const raw = readAt(root, remoteRef, manifestPath, { optional: true });
+    if (raw == null) {
+      // `required: false` is used by an explicit first build to ask whether there is an existing
+      // projection worth preserving. An existing state branch with no World Model is a legitimate
+      // empty starting point. Return that absence without falling through to a local branch or
+      // application commit; required reads still refuse the authoritative remote removal below.
+      if (!required) return null;
+      throw new SingularityFlowError(
+        `The current remote state authority ${remoteRef} has no registered WMB v4 manifest at ${manifestPath}. A local or application projection will not override that removal.`,
+        {
+          code: 'WMB_MANIFEST_MISSING',
+          details: {
+            outputDir: target, stateBranch, remote,
+            remoteBranchPresent: true, remoteModelAtTip: false,
+            nextAction: 'world-model build'
+          }
+        }
+      );
+    }
+    const classification = classifyWorldModelInput(raw);
+    if (classification.classification !== 'registered-v4-manifest') {
+      throw worldModelMigrationRequired(raw);
+    }
+    return readPublishedWorldModelV4(root, {
+      ref: remoteRef, outputDir: target, expectedReusableIdentity
+    });
+  }
+  // A configured remote is the approved state authority even when its tracking ref has not yet
+  // been materialized. Falling through to a local branch or HEAD in that state can resurrect an
+  // unpublished projection, including one deliberately removed from the remote. Only the explicit
+  // refresh mutation may materialize that authority; genuinely local-only repositories retain the
+  // local/HEAD compatibility path below.
+  if (remoteConfigured) {
+    if (!required) return null;
+    throw new SingularityFlowError(
+      `The configured registered WMB v4 authority ${remote}/${stateBranch} is not materialized locally. Refresh the exact state authority before reading ${manifestPath}.`,
+      {
+        code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+        details: {
+          outputDir: target, stateBranch, remote,
+          command: 'singularity-flow wm refresh-authority --format registered-v4'
+        }
+      }
+    );
+  }
+  if (commitAt(root, localRef)) {
+    const raw = readAt(root, localRef, manifestPath, { optional: true });
+    if (raw == null) {
+      // When no remote authority is materialized, the local state branch is the authority. Its
+      // deliberate removal must not be undone by falling through to a stale projection committed
+      // on the application branch. This mirrors the remote-tip no-fallback rule above.
+      if (!required) return null;
+      throw new SingularityFlowError(
+        `The current local state authority ${localRef} has no registered WMB v4 manifest at ${manifestPath}. The application projection will not override that removal.`,
+        {
+          code: 'WMB_MANIFEST_MISSING',
+          details: {
+            outputDir: target, stateBranch, remote,
+            localBranchPresent: true, localModelAtTip: false,
+            nextAction: 'world-model build'
+          }
+        }
+      );
+    }
+    const classification = classifyWorldModelInput(raw);
+    if (classification.classification !== 'registered-v4-manifest') {
+      throw worldModelMigrationRequired(raw);
+    }
+    return readPublishedWorldModelV4(root, {
+      ref: localRef, outputDir: target, expectedReusableIdentity
+    });
+  }
   for (const ref of candidateRefs(root, { stateBranch, remote })) {
+    if (ref === remoteRef || ref === localRef) continue;
     const raw = readAt(root, ref, manifestPath, { optional: true });
     if (raw == null) continue;
     const classification = classifyWorldModelInput(raw);

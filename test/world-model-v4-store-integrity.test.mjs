@@ -120,6 +120,50 @@ test('fresh-export verification rejects every file outside the exact projection 
   );
 });
 
+test('an authoritative state branch without a World Model is an empty first-build base', async (t) => {
+  const { parent, root } = await repository(t);
+  await rewriteState(root, parent, async (worktree) => {
+    await rm(path.join(worktree, 'singularity', 'world-model'), { recursive: true });
+  });
+
+  assert.equal(resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin', required: false
+  }), null);
+  assert.throws(
+    () => resolve(root),
+    (error) => error.code === 'WMB_MANIFEST_MISSING'
+      && error.details?.remoteModelAtTip === false
+  );
+});
+
+test('a local-only state authority removal never falls through to an old model on HEAD', async (t) => {
+  const { parent, root } = await repository(t);
+  // Deliberately retain an old projection on the application branch to prove it cannot revive a
+  // model removed at the authoritative local state tip.
+  git(root, 'checkout', 'state', '--', 'singularity/world-model');
+  git(root, 'add', 'singularity/world-model');
+  git(root, 'commit', '-m', 'retain stale application projection for fallback regression');
+
+  const worktree = path.join(parent, `local-state-removal-${randomUUID()}`);
+  git(root, 'worktree', 'add', '-q', worktree, 'state');
+  await rm(path.join(worktree, 'singularity', 'world-model'), { recursive: true });
+  git(worktree, 'add', '-A');
+  git(worktree, 'commit', '-m', 'intentionally remove local state model');
+  git(root, 'remote', 'remove', 'origin');
+
+  assert.equal(resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin', required: false
+  }), null);
+  assert.throws(
+    () => resolvePublishedWorldModelV4(root, {
+      outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+    }),
+    (error) => error.code === 'WMB_MANIFEST_MISSING'
+      && error.details?.localBranchPresent === true
+      && error.details?.localModelAtTip === false
+  );
+});
+
 test('published store rejects usage tampering before accepting economic observations', async (t) => {
   const { parent, root } = await repository(t);
   await rewriteState(root, parent, async (worktree) => {

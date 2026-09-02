@@ -153,9 +153,13 @@ declare module '*/state-stores.mjs' {
 }
 
 declare module '*/world-model/commands.mjs' {
+  export function configuredWorldModelV4ViewSelections(
+    config: any, options?: Record<string, unknown>, phase?: string | null
+  ): ReadonlyArray<Readonly<{ viewId: string; version: number; reference: string }>>;
   export function configuredWorldModelV4ViewIds(
     config: any, options?: Record<string, unknown>, phase?: string | null
   ): string[];
+  export function isWorldModelV4(config: any, options?: Record<string, unknown>): boolean;
   export function worldModelV4GatewayDefaults(root: string, config: any): Readonly<Record<string, any>>;
 }
 
@@ -241,6 +245,30 @@ declare module '*/help-errors.mjs' {
 
 declare module '*/package-root.mjs' {
   export const PACKAGE_ROOT: string;
+}
+
+declare module '*/worldmodel.mjs' {
+  export function loadWorldModelConfig(root: string, options?: {
+    agent?: string | null; workId?: string | null; capabilityId?: string | null;
+  }): Promise<Record<string, any>>;
+}
+
+declare module '*/world-model/registry/views.mjs' {
+  export const BUILTIN_VIEW_IDS: readonly string[];
+  export const BUILTIN_VIEW_REFERENCES: readonly string[];
+  export function normalizeBuiltInViewReference(reference: string): Readonly<{
+    viewId: string; version: number; reference: string; contract: Record<string, any>;
+  }>;
+}
+
+declare module '*/world-model-views.mjs' {
+  export function worldModelViewIdentity(definition: any, value: string): Readonly<{
+    id: string; reference: string; version: number | null;
+  }> | null;
+  export function worldModelViewCatalog(definition: any, promptViews?: string[]): string[];
+  export function worldModelViewContractCatalog(definition: any, promptViews?: string[]): Array<Readonly<{
+    id: string; reference: string; version: number | null;
+  }>>;
 }
 
 /**

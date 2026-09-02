@@ -96,6 +96,16 @@ Build only the requested registered views:
 sflow world-model build --views dev.impact,arch.contracts
 ```
 
+If a storyless repository is mapped to more than one approved capability, select the scope
+explicitly instead of allowing the checkout name to become a new identity:
+
+```bash
+sflow wm build --format registered-v4 --capability payments-api --views all
+```
+
+The native VS Code build flow presents the same approved capability choices. A state-authority
+refresh and retry retains that exact choice; it never reopens under a different capability.
+
 An ordinary exact build still refuses dirty in-scope bytes. When those bytes are intentionally the
 source under review, capture them explicitly and pass only the returned content address:
 
@@ -140,10 +150,27 @@ sflow world-model verify-cache
 sflow world-model doctor
 ```
 
-Every command supports `--json`. Reads resolve the locally available remote-tracking state ref first,
-then the local state branch, then the current revision. A read does not fetch the network, so refresh
-the configured remote explicitly when the latest remote publication is required. A legacy manifest
-on an authoritative ref is never silently treated as v4.
+Every command supports `--json`. State reads use one authority definition everywhere: the ledger
+remote, then an explicit World-Model remote, then the application Git remote. They resolve the
+locally available remote-tracking state ref first, then the local state branch, then the current
+revision only when neither state authority exists. An authoritative state tip that deliberately
+removed the model never falls through to an older application-branch copy. Ordinary reads do not
+fetch or mutate refs. Refresh the exact configured authority explicitly when required:
+
+The branch is selected from explicit `worldModel.stateBranch`, then `ledger.branch`, then `state`.
+Remote and branch fallback precedence is resolved before defaults are normalized, preserving the
+difference between an authored endpoint and an implicit default.
+
+```bash
+sflow wm refresh-authority --format registered-v4
+# Add --capability ID for a storyless multi-capability repository.
+```
+
+The refresh removes only a stale tracking ref when the reachable remote proves that its state branch
+is absent, uses compare-and-swap deletion, and fails closed on authentication, TLS, ambiguous remote,
+or malformed advertisement errors. An offline read may use an already verified remote-tracking
+projection; an authoring boundary cannot substitute an unpublished local rewrite for remote
+authority. A legacy manifest on an authoritative ref is never silently treated as v4.
 
 ## Trust boundary
 
@@ -201,6 +228,12 @@ smallest view or the complete current configured view set explicitly:
 sflow world-model regenerate dev.impact
 sflow world-model regenerate --stale
 ```
+
+View identity is exact. Configuration may use a stable logical ID such as `dev.impact`, but planning,
+checkpoints, prompts, execution receipts, and manifests pin the installed contract such as
+`dev.impact@4`. When `worldModel.views` is omitted under registered v4, the active installed catalog
+is the approved selection; `all` is expanded before worker names, checkpoints, diagnostics, or
+manifests are created and the literal sentinel is never persisted.
 
 An optional L2 Derived-Memory directory can share exact validated view bundles between checkouts:
 
@@ -261,6 +294,25 @@ and stable remote tip. Unrelated advances and same-byte impostor commits remain 
 is removed only after exact reconciliation/publication succeeds; a cleanup failure leaves an
 idempotent marker for the next attempt.
 
+## Lifecycle grounding
+
+Phase preparation, manual `next`, Developer Auto, Story planning, Initiative composition, capability
+context, and evidence packets all use the same format-aware resolver. A fresh repository model is
+shared across Stories; Story metadata is not part of its source identity. A phase that needs an
+additional registered view can extend a valid same-source projection without changing the existing
+view bytes. Automatic extension is permitted only by an approved `on-demand` + `automatic` +
+`light` policy with the deterministic composer; v4 maps that policy to `quick`, makes zero model
+calls, and still publishes through the exact state transaction. Stale, corrupt, source-mismatched,
+or intentionally removed authority is never auto-repaired. The unattended action carries the exact
+inspected state commit and manifest digest into the child build; an advance, deletion, or replacement
+before execution refuses prior to extraction or composition.
+
+Grounding mode controls the failure boundary. `enforce` stops before authoring when the exact model
+is unavailable. `warn` continues with ordinary bounded repository access and writes a versioned
+prompt-injection receipt whose `groundingAvailability` contains only a stable reason code—never a
+path, provider diagnostic, or invented manifest identity. Older receipts migrate as
+`legacy-unverified`; migration does not retroactively claim that missing grounding was approved.
+
 ## Migration from v3
 
 V1-v3 prose is unregistered narrative. It must be rebuilt or migrated explicitly. Migration is a
@@ -316,6 +368,12 @@ short-lived writable gateway only for the confirmed run. Cancelling the modal cr
 performs no mutation. The activation-long gateway and ordinary Copilot/IDE reads remain read-only;
 no surface adds an approval bypass or broadens the five-tool catalog.
 
+On Windows the Copilot provider is launched through the shared platform-safe command resolver and
+ACP stdio session boundary. Arguments are passed as an argv vector rather than shell text, prompts
+do not enter process arguments or environment variables, and cancellation/timeout terminates the
+process tree. The same launcher is used by discovery and composition, avoiding a VS Code-only or
+shell-only transport path.
+
 ## Release matrix
 
 Ordinary development remains a one-machine workflow. Release promotion is stricter: it requires
@@ -358,6 +416,9 @@ require it.
 - `WMB_CACHE_ENTRY_CORRUPT`: rebuild the affected view; the corrupt cache entry cannot publish.
 - `WMB_REQUIRED_VIEW_UNAVAILABLE`: inspect the refusal and its smallest next action. Valid sibling
   views and registered facts remain preserved.
+- `WMB_STATE_AUTHORITY_REFRESH_REQUIRED`: run
+  `sflow wm refresh-authority --format registered-v4`, preserving `--capability ID` when shown, then
+  review a new exact Plan. Do not fetch or rewrite refs manually to bypass the comparison.
 
 Use `sflow world-model doctor --json` to distinguish missing, legacy, stale, corrupt, and current
 state before changing anything.

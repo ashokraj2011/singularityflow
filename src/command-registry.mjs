@@ -134,7 +134,7 @@ const WMB_V4_READ_OPERATIONS = new Set([
   'view-contract', 'extractors', 'doctor', 'context'
 ]);
 const WMB_V4_EXECUTION_OPERATIONS = new Set(['build', 'regenerate', 'migrate']);
-const WMB_V4_MODEL_FREE_MUTATIONS = new Set(['snapshot']);
+const WMB_V4_MODEL_FREE_MUTATIONS = new Set(['snapshot', 'refresh-authority']);
 const WMB_V4_OPERATIONS = new Set([
   ...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS, ...WMB_V4_MODEL_FREE_MUTATIONS
 ]);

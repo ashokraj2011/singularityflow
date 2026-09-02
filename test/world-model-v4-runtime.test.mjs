@@ -394,6 +394,50 @@ test('deterministic views publish atomically, reuse exact cache, and survive sel
   assert.equal(cachedImpact.markdown, first.runtime.availableViews[0].markdown);
 });
 
+test('concurrent clones preserve every independently published state view from the exact remote authority', async (t) => {
+  const { root: firstClone, remote } = await repository(t);
+  const first = await buildAndPublishWorldModelV4(firstClone, buildOptions({
+    views: ['dev.impact'], generatedAt: '2026-09-01T00:02:30.000Z'
+  }));
+  assert.deepEqual(first.manifest.views.map((entry) => entry.viewId), ['dev.impact']);
+
+  const secondClone = path.join(path.dirname(remote), 'clone-b', 'repo');
+  await mkdir(path.dirname(secondClone), { recursive: true });
+  run('git', ['clone', '-q', '--branch', 'main', remote, secondClone]);
+  git(secondClone, 'config', 'user.name', 'WMB Runtime Tests B');
+  git(secondClone, 'config', 'user.email', 'wmb-runtime-b@example.invalid');
+  const second = await buildAndPublishWorldModelV4(secondClone, buildOptions({
+    views: ['biz.rules'], generatedAt: '2026-09-01T00:02:31.000Z'
+  }));
+  assert.equal(second.status, 'completed', JSON.stringify(second.refusals));
+  assert.deepEqual(second.manifest.views.map((entry) => entry.viewId), [
+    'biz.rules', 'dev.impact'
+  ]);
+
+  const staleTrackingTip = git(firstClone, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  const remoteTipAfterSecond = git(
+    firstClone, 'ls-remote', '--heads', 'origin', 'refs/heads/state'
+  ).stdout.trim().split(/\s+/)[0];
+  assert.notEqual(staleTrackingTip, remoteTipAfterSecond,
+    'the first clone must reproduce a stale remote-tracking state ref');
+
+  const third = await buildAndPublishWorldModelV4(firstClone, buildOptions({
+    views: ['arch.contracts'], generatedAt: '2026-09-01T00:02:32.000Z'
+  }));
+  assert.equal(third.preservationAuthority.commit, remoteTipAfterSecond);
+  assert.equal(third.preservationAuthority.manifestSha256, second.manifestSha256);
+  assert.deepEqual(third.manifest.views.map((entry) => entry.viewId), [
+    'arch.contracts', 'biz.rules', 'dev.impact'
+  ]);
+
+  const remoteManifest = JSON.parse(run('git', [
+    `--git-dir=${remote}`, 'show', 'refs/heads/state:singularity/world-model/manifest.json'
+  ]).stdout);
+  assert.deepEqual(remoteManifest.views.map((entry) => entry.viewId), [
+    'arch.contracts', 'biz.rules', 'dev.impact'
+  ]);
+});
+
 test('an exact-key cache race never attributes the losing execution to the winning bytes', async (t) => {
   const { root } = await repository(t);
   const [left, right] = await Promise.all([
@@ -465,6 +509,139 @@ test('regenerate replaces only the selected cache entry and preserves a missing 
     selectedBefore.record.recordSha256,
     'the selected regenerate must replace its exact cache authority'
   );
+});
+
+test('a zero-model extension preserves optional authority bytes through semantic cache corruption', async (t) => {
+  const { root } = await repository(t);
+  const first = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: [{ viewId: 'dev.impact', required: false }],
+    generatedAt: '2026-09-01T00:15:00.000Z'
+  }));
+  assert.equal(first.status, 'completed');
+  const publishedA = first.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
+  assert.ok(publishedA);
+  assert.equal(publishedA.required, false);
+
+  const cacheA = (await inspectWorldModelViewCache(root)).entries.find(
+    (entry) => entry.components.viewId === 'dev.impact'
+  );
+  assert.ok(cacheA?.hit);
+  const forgedCandidate = {
+    ...structuredClone(cacheA.candidate),
+    usedFactIds: [...cacheA.candidate.usedFactIds, `FACT-${'f'.repeat(16)}`].sort()
+  };
+  const receiptCore = {
+    ...structuredClone(cacheA.validationReceipt),
+    candidateSha256: sha256(forgedCandidate)
+  };
+  delete receiptCore.receiptSha256;
+  const forgedReceipt = { ...receiptCore, receiptSha256: sha256(receiptCore) };
+  await writeWorldModelViewCache(root, cacheA.components, {
+    view: publishedA.markdown,
+    candidate: forgedCandidate,
+    validationReceipt: forgedReceipt,
+    createdAt: '2026-09-01T00:15:30.000Z',
+    replaceExisting: true,
+    expectedRecordSha256: cacheA.record.recordSha256
+  });
+
+  // The entry remains structurally readable, but current semantic revalidation rejects it. The
+  // immutable published authority must be revalidated and retained before independent B is added.
+  const extended = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['arch.contracts'],
+    generatedAt: '2026-09-01T00:16:00.000Z'
+  }));
+
+  assert.equal(extended.status, 'completed', JSON.stringify(extended.refusals));
+  assert.deepEqual(extended.manifest.views.map((entry) => entry.viewId), [
+    'arch.contracts', 'dev.impact'
+  ]);
+  assert.equal(extended.manifest.completeness.unavailableOptionalViews, 0);
+  const retainedA = extended.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
+  const addedB = extended.runtime.availableViews.find((entry) => entry.viewId === 'arch.contracts');
+  assert.ok(retainedA);
+  assert.ok(addedB);
+  assert.equal(retainedA.required, false);
+  assert.equal(retainedA.cacheLevel, 'l1');
+  assert.equal(retainedA.markdown, publishedA.markdown, 'published A bytes must remain exact');
+  assert.equal(retainedA.viewSha256, publishedA.viewSha256);
+  assert.equal(addedB.route, 'deterministic');
+  assert.equal(addedB.cache, 'miss');
+  assert.ok(extended.runtime.cacheDiagnostics.some((entry) => (
+    entry.viewId === 'dev.impact' && entry.operation === 'revalidate' && entry.status === 'corrupt'
+  )));
+  assert.ok(extended.runtime.availableViews.every((entry) => (
+    entry.route === 'deterministic'
+      && entry.usageObservation.promptBytes === 0
+      && entry.usageObservation.providerInputTokens === null
+      && entry.usageObservation.providerOutputTokens === null
+  )), 'the A-preservation/B-extension path must invoke no model');
+
+  const stored = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  const storedA = stored.views.find((entry) => entry.viewId === 'dev.impact');
+  assert.equal(storedA.status, 'available');
+  assert.equal(storedA.markdown, publishedA.markdown);
+  assert.equal(storedA.viewSha256, publishedA.viewSha256);
+});
+
+test('a zero-model extension preserves optional authority when corrupt cache cannot be rewritten', async (t) => {
+  const { root } = await repository(t);
+  const first = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: [{ viewId: 'dev.impact', required: false }],
+    generatedAt: '2026-09-01T00:17:00.000Z'
+  }));
+  assert.equal(first.status, 'completed');
+  const publishedA = first.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
+  const cacheA = (await inspectWorldModelViewCache(root)).entries.find(
+    (entry) => entry.components.viewId === 'dev.impact'
+  );
+  assert.ok(publishedA);
+  assert.ok(cacheA?.hit);
+
+  // Replace only A's exact cache-key directory with a regular file. This is a deterministic unsafe
+  // and unwritable cache topology on macOS, Linux, and Windows; B uses a different content key.
+  const cacheARecordDirectory = path.dirname(cacheA.recordPath);
+  await rm(cacheARecordDirectory, { recursive: true, force: true });
+  await writeFile(cacheARecordDirectory, 'derived-cache-path-is-not-a-directory\n');
+
+  const extended = await buildAndPublishWorldModelV4(root, buildOptions({
+    views: ['arch.contracts'],
+    generatedAt: '2026-09-01T00:18:00.000Z'
+  }));
+  assert.equal(extended.status, 'completed', JSON.stringify(extended.refusals));
+  assert.deepEqual(extended.manifest.views.map((entry) => entry.viewId), [
+    'arch.contracts', 'dev.impact'
+  ]);
+  assert.equal(extended.manifest.completeness.unavailableOptionalViews, 0);
+  const retainedA = extended.runtime.availableViews.find((entry) => entry.viewId === 'dev.impact');
+  const addedB = extended.runtime.availableViews.find((entry) => entry.viewId === 'arch.contracts');
+  assert.equal(retainedA.cacheLevel, 'published-authority');
+  assert.equal(retainedA.markdown, publishedA.markdown, 'published A bytes must remain exact');
+  assert.equal(retainedA.viewSha256, publishedA.viewSha256);
+  assert.equal(addedB.route, 'deterministic');
+  assert.equal(addedB.cache, 'miss');
+  assert.ok(extended.runtime.cacheDiagnostics.some((entry) => (
+    entry.viewId === 'dev.impact' && entry.operation === 'read' && entry.status === 'corrupt'
+  )));
+  assert.ok(extended.runtime.cacheDiagnostics.some((entry) => (
+    entry.viewId === 'dev.impact' && entry.operation === 'publish' && entry.status === 'unavailable'
+  )));
+  assert.ok(extended.runtime.availableViews.every((entry) => (
+    entry.route === 'deterministic'
+      && entry.usageObservation.promptBytes === 0
+      && entry.usageObservation.providerInputTokens === null
+      && entry.usageObservation.providerOutputTokens === null
+  )), 'the A-preservation/B-extension path must invoke no model');
+
+  const stored = resolvePublishedWorldModelV4(root, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin'
+  });
+  const storedA = stored.views.find((entry) => entry.viewId === 'dev.impact');
+  assert.equal(storedA.status, 'available');
+  assert.equal(storedA.markdown, publishedA.markdown);
+  assert.equal(storedA.viewSha256, publishedA.viewSha256);
 });
 
 test('a coherently rehashed cache candidate is independently refused against current facts', async (t) => {

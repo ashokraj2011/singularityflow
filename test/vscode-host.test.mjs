@@ -363,7 +363,7 @@ function loadExtension(api) {
 }
 
 /** A real repository with an enterprise-delivery Epic, generated artifacts, and Stories. */
-async function demoRepository() {
+async function demoRepository({ registeredWorldModel = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-'));
   const child = async (name) => {
     const dir = path.join(base, name);
@@ -392,12 +392,43 @@ async function demoRepository() {
     mobile: { url: mobile, defaultBranch: 'main', required: true, lead: true },
     api: { url: api, defaultBranch: 'main', required: true }
   };
+  if (registeredWorldModel) {
+    for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
+      if (phase.worldModelViews?.length) phase.worldModelViews = ['dev.impact'];
+    }
+  }
   portfolio.git = { ...(portfolio.git ?? {}), publish: 'off' };
   await writeFile(portfolioFile, YAML.stringify(portfolio));
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.worldModel.grounding = 'off';
+  if (registeredWorldModel) {
+    workflow.worldModel.format = 'registered-v4';
+    workflow.worldModel.promptSource = 'builtin';
+    workflow.worldModel.views = ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'];
+    workflow.worldModel.sourceRoots = ['README.md'];
+    workflow.worldModel.sharedRoots = [];
+    workflow.worldModel.generation.parallel = false;
+    workflow.worldModel.generation.maxWorkers = 7;
+    workflow.worldModel.v4 = {
+      composer: 'deterministic', consumer: 'architect', cachePolicy: 'reuse-valid',
+      totalMaximumOutputTokens: 5600
+    };
+    for (const phase of Object.values(workflow.phases)) {
+      if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
+    }
+    const agentsRoot = path.join(root, '.github', 'agents');
+    for (const name of await readdir(agentsRoot)) {
+      if (!name.endsWith('.agent.md')) continue;
+      const agentPath = path.join(agentsRoot, name);
+      const agent = await readFile(agentPath, 'utf8');
+      await writeFile(agentPath, agent.replace(
+        /sflow-world-model-views: "[^"]*"/,
+        'sflow-world-model-views: "dev.impact"'
+      ));
+    }
+  }
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   run('git', ['add', '.'], { cwd: root });
@@ -1220,8 +1251,8 @@ test('packaged agents open from the active CLI without weakening the repository 
 });
 
 /** Activate against a repo and hand back everything a test needs to drive it. */
-async function activated() {
-  const root = await demoRepository();
+async function activated(options = {}) {
+  const root = await demoRepository(options);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const extension = loadExtension(api);
@@ -1267,7 +1298,7 @@ test('Auto card controls only prefill the exact selected command and never execu
 
 test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
   if (!requireBundle(t)) return;
-  const { root, registered } = await activated();
+  const { root, registered } = await activated({ registeredWorldModel: true });
   const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
   const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
   const beforeStateRefs = run('git', [
@@ -1287,6 +1318,11 @@ test('Configuration Center prepares world-model generation for review and never 
   assert.deepEqual(registered.quickPicks.slice(-3).map((entry) => entry.options.title), [
     'World Model · exact governed build', 'World Model depth', 'World Model composer'
   ]);
+  assert.deepEqual(
+    registered.quickPicks.at(-3).items.map((entry) => entry.label),
+    ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
+    'the editor reviews exact installed contract versions rather than lossy display IDs'
+  );
   const reviewIndex = registered.warnings.findIndex((message) => (
     message === 'Run this exact World Model build and atomically publish it to the governed state branch?'
   ));
@@ -1302,6 +1338,17 @@ test('Configuration Center prepares world-model generation for review and never 
     'refs/heads/state', 'refs/remotes/origin/state'
   ], { cwd: root }).stdout, beforeStateRefs,
   'cancelling exact review creates or advances no local/tracking state authority');
+});
+
+test('World Model build refuses legacy-v3 instead of silently running registered-v4 defaults', async (t) => {
+  if (!requireBundle(t)) return;
+  const { registered } = await activated();
+  await registered.commands.get('singularityFlow.buildWorldModel')();
+  assert.equal(registered.quickPicks.length, 0, 'legacy configuration never enters the v4 picker');
+  const refusal = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(refusal, 'the format transition is shown as a governed refusal');
+  assert.match(refusal.webview.html, /legacy-v3 World Model/);
+  assert.match(refusal.webview.html, /Configuration Center/);
 });
 
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {

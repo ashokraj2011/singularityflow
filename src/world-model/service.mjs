@@ -18,7 +18,9 @@ import {
   buildWorldModelV4,
   retryFailedWorldModelV4View as retryFailedWorldModelV4ViewRuntime
 } from './runtime.mjs';
-import { resolvePublishedWorldModelV4 } from './store.mjs';
+import {
+  resolvePublishedWorldModelV4, resolvePublishedWorldModelV4Authority
+} from './store.mjs';
 
 function manifestView(runtime, entry) {
   if (!entry.markdown) {
@@ -123,22 +125,103 @@ function currentRequestViews(requested, existing) {
   return values;
 }
 
+function preservationAuthority(review, existing) {
+  if (!review) return null;
+  return Object.freeze({
+    commit: review.publicationBase ?? null,
+    manifestSha256: existing?.manifest?.manifestSha256 ?? null
+  });
+}
+
+function assertExpectedPreservationAuthority(expected, actual) {
+  if (expected == null) return;
+  if (!expected || typeof expected !== 'object' || Array.isArray(expected)
+      || !/^[a-f0-9]{40,64}$/.test(String(expected.commit ?? ''))
+      || !/^sha256:[a-f0-9]{64}$/.test(String(expected.manifestSha256 ?? ''))) {
+    throw new SingularityFlowError(
+      'The automatic World-Model extension authority binding is malformed.',
+      { code: 'WMB_AUTOMATIC_EXTENSION_AUTHORITY_INVALID' }
+    );
+  }
+  if (actual?.commit !== expected.commit
+      || actual?.manifestSha256 !== expected.manifestSha256) {
+    throw new SingularityFlowError(
+      'The registered World-Model authority changed after automatic extension was authorized. No view was generated or published.',
+      {
+        code: 'WMB_AUTOMATIC_EXTENSION_BASE_CHANGED',
+        details: {
+          expectedCommit: expected.commit,
+          currentCommit: actual?.commit ?? null,
+          expectedManifestSha256: expected.manifestSha256,
+          currentManifestSha256: actual?.manifestSha256 ?? null
+        }
+      }
+    );
+  }
+}
+
+function exactPreservationStore(root, review, outputDir) {
+  try {
+    return resolvePublishedWorldModelV4Authority(root, {
+      authorityCommit: review.publicationBase,
+      outputDir,
+      required: false
+    });
+  } catch (error) {
+    // An explicit registered-v4 build may replace a legacy projection, but it still remains bound
+    // to that legacy projection's immutable authority commit throughout execution.
+    if (error?.code === 'WMB_MIGRATION_REQUIRED') return null;
+    throw error;
+  }
+}
+
+function assertPreservationAuthority(root, review, expected, {
+  outputDir, ledgerConfig, publicationOptions
+}) {
+  const currentReview = assertWorldModelPublicationReview(root, review, {
+    outputDir, ledgerConfig, publicationOptions
+  });
+  const current = exactPreservationStore(root, currentReview, outputDir);
+  const actual = preservationAuthority(currentReview, current);
+  if (actual.commit !== expected.commit
+      || actual.manifestSha256 !== expected.manifestSha256) {
+    throw new SingularityFlowError(
+      'The registered world-model preservation authority changed during the build.',
+      {
+        code: 'WMB_GATEWAY_PLAN_DRIFTED',
+        details: {
+          expectedAuthorityCommit: expected.commit,
+          currentAuthorityCommit: actual.commit,
+          expectedManifestSha256: expected.manifestSha256,
+          currentManifestSha256: actual.manifestSha256
+        }
+      }
+    );
+  }
+  return currentReview;
+}
+
 /** Resolve the exact complete view set a preserving build will plan before any composition starts. */
 export function resolveWorldModelV4BuildViews(root, {
   views,
   outputDir = 'singularity/world-model',
   ledgerConfig = {},
-  preserveIndependentViews = true
+  preserveIndependentViews = true,
+  authorityCommit = undefined
 } = {}) {
   if (!preserveIndependentViews) return Object.freeze([...(views ?? [])]);
   let existing = null;
   try {
-    existing = resolvePublishedWorldModelV4(root, {
-      outputDir,
-      stateBranch: ledgerConfig.branch ?? 'state',
-      remote: ledgerConfig.remote ?? 'origin',
-      required: false
-    });
+    existing = authorityCommit !== undefined
+      ? resolvePublishedWorldModelV4Authority(root, {
+          authorityCommit, outputDir, required: false
+        })
+      : resolvePublishedWorldModelV4(root, {
+          outputDir,
+          stateBranch: ledgerConfig.branch ?? 'state',
+          remote: ledgerConfig.remote ?? 'origin',
+          required: false
+        });
   } catch (error) {
     if (error?.code !== 'WMB_MIGRATION_REQUIRED') throw error;
   }
@@ -191,6 +274,7 @@ export async function buildAndPublishWorldModelV4(root, {
   preserveIndependentViews = true,
   expectedBuildIdentity = null,
   expectedPublication = null,
+  expectedPreservationAuthority = null,
   ...buildOptions
 } = {}) {
   if (publish && buildOptions.candidateSnapshot?.authority?.kind === 'candidate-snapshot') {
@@ -204,19 +288,30 @@ export async function buildAndPublishWorldModelV4(root, {
       }
     );
   }
-  let confirmedPublication = expectedPublication
-    ? assertWorldModelPublicationReview(root, expectedPublication, {
-        outputDir, ledgerConfig, publicationOptions
-      })
-    : null;
+  // Bind preservation to the exact current state authority before planning or composition. Direct
+  // CLI builds capture it here; gateway builds recheck the already confirmed review. Materializing
+  // that exact commit refreshes the tracking ref without allowing a newer or older base to slip in.
+  let confirmedPublication = null;
+  if (publish) {
+    confirmedPublication = expectedPublication
+      ? assertWorldModelPublicationReview(root, expectedPublication, {
+          outputDir, ledgerConfig, publicationOptions
+        })
+      : captureWorldModelPublicationReview(root, {
+          outputDir, ledgerConfig, publicationOptions
+        });
+    confirmedPublication = materializeWorldModelPublicationReview(
+      root, confirmedPublication, { publicationOptions }
+    );
+  }
   let existing = null;
   let preservationWarning = null;
-  if (preserveIndependentViews) {
+  let exactAuthority = null;
+  if (publish) {
     try {
-      existing = resolvePublishedWorldModelV4(root, {
+      exactAuthority = resolvePublishedWorldModelV4Authority(root, {
+        authorityCommit: confirmedPublication.publicationBase,
         outputDir,
-        stateBranch: ledgerConfig.branch ?? 'state',
-        remote: ledgerConfig.remote ?? 'origin',
         required: false
       });
     } catch (error) {
@@ -226,6 +321,31 @@ export async function buildAndPublishWorldModelV4(root, {
       preservationWarning = 'Legacy v3 output was not imported; this explicit WMB v4 rebuild replaces it without trusting legacy claims.';
     }
   }
+  if (preserveIndependentViews) {
+    existing = exactAuthority;
+    if (!publish) {
+      try {
+        existing = resolvePublishedWorldModelV4(root, {
+          outputDir,
+          stateBranch: ledgerConfig.branch ?? 'state',
+          remote: ledgerConfig.remote ?? 'origin',
+          required: false
+        });
+      } catch (error) {
+        if (error?.code !== 'WMB_MIGRATION_REQUIRED') throw error;
+        preservationWarning = 'Legacy v3 output was not imported; this explicit WMB v4 rebuild replaces it without trusting legacy claims.';
+      }
+    }
+  }
+  const boundPreservationAuthority = preservationAuthority(
+    confirmedPublication, publish ? exactAuthority : existing
+  );
+  // An unattended progressive build is authorized against one exact verified state projection.
+  // Bind before registration/composition so a concurrent deletion, replacement, or state advance
+  // cannot turn that narrow authorization into an implicit first build or replacement.
+  assertExpectedPreservationAuthority(
+    expectedPreservationAuthority, boundPreservationAuthority
+  );
   const explicitlyRequested = Array.isArray(buildOptions.views) ? buildOptions.views : [];
   const explicitlyRequestedIds = [...new Set(explicitlyRequested.map(viewId))];
   const runtimeViews = preserveIndependentViews
@@ -244,10 +364,11 @@ export async function buildAndPublishWorldModelV4(root, {
   });
   // A model-backed build can be long-running. Recheck the exact endpoint and CAS authority before
   // retaining any post-build receipt, recovery marker, or publication state.
-  if (expectedPublication) {
-    confirmedPublication = assertWorldModelPublicationReview(root, expectedPublication, {
-      outputDir, ledgerConfig, publicationOptions
-    });
+  if (publish) {
+    confirmedPublication = assertPreservationAuthority(
+      root, confirmedPublication, boundPreservationAuthority,
+      { outputDir, ledgerConfig, publicationOptions }
+    );
   }
   const retainedStaleness = await retainExplicitRegenerationReceipts(
     root, existing, explicitlyRequestedIds, buildOptions.cachePolicy
@@ -311,10 +432,10 @@ export async function buildAndPublishWorldModelV4(root, {
     // Persist the exact, fully validated projection before the state-branch CAS. A provider result
     // must never be lost merely because Git transport failed after composition completed, and a
     // retry must not spend again or reconstruct a subtly different projection from mutable inputs.
-    const publicationReview = confirmedPublication ?? captureWorldModelPublicationReview(root, {
-      outputDir, ledgerConfig, publicationOptions
-    });
-    materializeWorldModelPublicationReview(root, publicationReview, { publicationOptions });
+    const publicationReview = assertPreservationAuthority(
+      root, confirmedPublication, boundPreservationAuthority,
+      { outputDir, ledgerConfig, publicationOptions }
+    );
     const exactPublicationOptions = publicationReview.options;
     publicationRecovery = await prepareWorldModelPublicationRecovery(
       root, publicationReview.ledger, staged, { publicationOptions: exactPublicationOptions }
@@ -377,6 +498,7 @@ export async function buildAndPublishWorldModelV4(root, {
     queryIndex,
     staged,
     publication,
+    preservationAuthority: boundPreservationAuthority,
     publicationRecovery: publicationRecovery
       ? Object.freeze({ id: publicationRecovery.id, retained: publicationRecoveryRetained }) : null
   });

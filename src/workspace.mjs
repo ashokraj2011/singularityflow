@@ -2024,16 +2024,19 @@ async function repositoryWorldModelStatus(root) {
     // ungrounded; workspace status is read-only, so it uses already-fetched refs and never triggers
     // a network request or a rebuild.
     try {
-      const [{ loadDefinition }, grounding] = await Promise.all([
-        import('./config.mjs'), import('./grounding.mjs')
+      const [{ loadDefinition }, grounding, authorityConfig] = await Promise.all([
+        import('./config.mjs'),
+        import('./grounding.mjs'),
+        import('./world-model/authority-config.mjs')
       ]);
       const definition = await loadDefinition(root);
+      const state = authorityConfig.worldModelStateAuthority(definition);
       const source = await grounding.worldModelSourceSnapshot(root, definition);
       const located = await grounding.resolveWorldModelSource(root, {
         ...(definition.worldModel ?? {}),
         outputDir: normalizedOutput,
-        stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
-        remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+        stateBranch: state.branch,
+        remote: state.remote,
         ledger: definition.ledger,
         definition
       }, { refreshRemote: false, sourceTreeSha256: source.sha256 });

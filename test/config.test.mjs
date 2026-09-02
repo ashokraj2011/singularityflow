@@ -31,6 +31,7 @@ import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
+import { WORLD_MODEL_VIEW_REFERENCE } from '../src/world-model-views.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);
@@ -92,6 +93,36 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   assert.deepEqual(
     schema.properties.models.properties.providers.additionalProperties.properties.promptTransport,
     { enum: ['auto', 'acp-stdio', 'attachment'], default: 'auto' }
+  );
+  const worldModelViewPattern = schema.properties.worldModel.properties.views.items.pattern;
+  assert.equal(worldModelViewPattern, WORLD_MODEL_VIEW_REFERENCE.source);
+  assert.match('dev.impact@4', new RegExp(worldModelViewPattern));
+  assert.doesNotMatch('dev.impact@0', new RegExp(worldModelViewPattern));
+  const exactRegisteredView = structuredClone(template);
+  exactRegisteredView.worldModel.format = 'registered-v4';
+  exactRegisteredView.worldModel.views = ['dev.impact@4'];
+  for (const phase of Object.values(exactRegisteredView.phases ?? {})) {
+    if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
+  }
+  for (const agent of Object.values(exactRegisteredView.agents ?? {})) {
+    if (agent.worldModelViews?.length) agent.worldModelViews = ['dev.impact'];
+  }
+  for (const workType of Object.values(exactRegisteredView.workTypes ?? {})) {
+    for (const override of Object.values(workType.phaseOverrides ?? {})) {
+      if (override.worldModel?.views?.length) override.worldModel.views = ['dev.impact'];
+    }
+  }
+  for (const rule of exactRegisteredView.worldModel.injection?.rules ?? []) {
+    rule.include = (rule.include ?? []).map((entry) => (
+      String(entry).startsWith('views/') ? 'views/dev.impact.md' : entry
+    ));
+  }
+  assert.doesNotThrow(() => validateDefinition(exactRegisteredView));
+  const invalidRegisteredView = structuredClone(exactRegisteredView);
+  invalidRegisteredView.worldModel.views = ['dev.impact@0'];
+  assert.throws(
+    () => validateDefinition(invalidRegisteredView),
+    /dev\.impact@0/
   );
   assert.equal(
     schema.properties.workTypes.additionalProperties.properties.plannedClaims.$ref,

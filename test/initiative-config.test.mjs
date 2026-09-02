@@ -194,6 +194,11 @@ test('initiative world-model views must be declared by the repository workflow',
     () => validatePortfolioWorldModelViews(portfolio, definition),
     /define:undeclared-view/
   );
+  assert.doesNotThrow(() => validatePortfolioWorldModelViews({
+    initiativePhases: { define: { worldModelViews: ['dev.impact'] } }
+  }, {
+    worldModel: { format: 'registered-v4', views: ['dev.impact@4'] }
+  }), 'portfolio logical IDs join exact registered repository contracts');
 });
 
 test('initiative creation snapshots the profile and prepares phase-specific outputs', async () => {

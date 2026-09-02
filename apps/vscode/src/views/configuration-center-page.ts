@@ -4,6 +4,9 @@ import {
 import type { IconName } from './webview.ts';
 import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServerView } from './configuration-center-model.ts';
 import { PROFILE_PERSONAS } from './profile-personas.ts';
+import {
+  BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES
+} from '../../../../src/world-model/registry/views.mjs';
 
 function csv(values: string[]): string { return escape(values.join(', ')); }
 
@@ -207,7 +210,7 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   };
 
   const catalogRows = status.views.map((entry) => `<tr>
-    <td><strong>${escape(entry.id)}</strong></td>
+    <td><strong>${escape(entry.id)}</strong>${entry.reference !== entry.id ? `<small><code>${escape(entry.reference)}</code></small>` : ''}</td>
     <td><span class="wm-state ${entry.generated ? 'ready' : 'missing'}">${entry.generated ? 'Available' : 'Declared'}</span>${entry.required ? '<small>required</small>' : ''}</td>
     <td>${entry.counts ? `<strong>${entry.counts.total}</strong><small>${entry.counts.available} ready · ${entry.counts.partial} partial</small>` : '<span class="muted">—</span>'}</td>
     <td>${entry.counts ? `<strong>${entry.counts.unavailable}</strong><small>${entry.counts.contradicted} contradiction${entry.counts.contradicted === 1 ? '' : 's'}</small>` : '<span class="muted">—</span>'}</td>
@@ -299,7 +302,7 @@ function worldModel(view: ConfigurationCenterView): string {
         <h2>${icon('worldModel')}Builder format</h2>
         <p class="muted">Registered v4 uses closed extractors, registered facts, independently validated views, and exact cache reuse. These controls govern future builds; they do not build or migrate anything while saving.</p>
         <div class="form-grid">
-          <label><span>Format</span><select name="format">${option('legacy-v3', model.format, 'Legacy v3 — compatibility')}${option('registered-v4', model.format, 'Registered v4 — governed facts')}</select></label>
+          <label><span>Format</span><select name="format" id="world-model-format">${option('legacy-v3', model.format, 'Legacy v3 — compatibility')}${option('registered-v4', model.format, 'Registered v4 — governed facts')}</select></label>
           <label><span>v4 composer</span><select name="v4Composer">${option('deterministic', model.v4.composer, 'Deterministic — zero model calls')}${option('model-optional', model.v4.composer, 'Model optional — deterministic when sufficient')}${option('model-required', model.v4.composer, 'Model required — invoke governed provider')}</select></label>
           <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
           <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
@@ -311,7 +314,7 @@ function worldModel(view: ConfigurationCenterView): string {
       <div class="editor-card">
         <h2>${icon('document')}Content and storage</h2>
         <div class="form-grid">
-          <label class="span-2"><span>Declared views</span><input name="views" type="text" value="${csv(model.views)}" placeholder="dev.impact, arch.contracts"><small>Comma-separated lower-case IDs; registered-v4 namespaces may use dots. Saving is refused if a phase or agent references a view you removed.</small></label>
+          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active. Change phase and agent assignments before switching a legacy repository; saving is refused instead of silently carrying legacy IDs into v4.</small></label>
           <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to model the whole application tree.</small></label>
           <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
           <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
@@ -434,6 +437,9 @@ export function configurationCenterHtml(view: ConfigurationCenterView, tab: Conf
 
 export const CONFIGURATION_CENTER_SCRIPT = `
   const vscode = window.__sfVscode;
+  const registeredWorldModelReferences = ${JSON.stringify(BUILTIN_VIEW_REFERENCES)};
+  const registeredWorldModelIds = ${JSON.stringify(BUILTIN_VIEW_IDS)};
+  const registeredWorldModelReferenceDisplay = ${JSON.stringify(BUILTIN_VIEW_REFERENCES.join(', '))};
   const csv = (value) => String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
   const members = (value) => String(value || '').split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const [name = '', email = '', githubLogin = ''] = line.split('|').map((part) => part.trim()); return { name, email, githubLogin };
@@ -488,5 +494,14 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (event.target?.id === 'wm-workflow-filter' || event.target?.id === 'wm-view-filter') applyWorldModelFilters();
     if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
       const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
+    }
+    if (event.target && event.target.id === 'world-model-format' && event.target.value === 'registered-v4') {
+      const views = document.getElementById('world-model-views');
+      const selected = csv(views?.value);
+      const registered = new Set([...registeredWorldModelReferences, ...registeredWorldModelIds]);
+      if (views && (!selected.length || selected.some((view) => !registered.has(view)))) {
+        views.value = registeredWorldModelReferences.join(', ');
+        showRuntime('Registered-v4 selected. Declared views were staged as the active installed exact contracts: ' + registeredWorldModelReferenceDisplay + '. Review phase and agent view assignments before saving; invalid legacy references will be refused.', false);
+      }
     }
   });`;

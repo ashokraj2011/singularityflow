@@ -239,8 +239,12 @@ export function createGatewayKernel({
         context: context ?? {}
       });
     } catch (error) {
+      const nextAction = typeof error?.details?.nextAction === 'string'
+        ? error.details.nextAction.slice(0, 2048)
+        : null;
       return refuse(operation.id, 'gateway.plan-invalid', 'deterministic', {
-        code: String(error?.code ?? 'PLAN_INVALID').slice(0, 128)
+        code: String(error?.code ?? 'PLAN_INVALID').slice(0, 128),
+        ...(nextAction ? { nextAction } : {})
       }, 'blocked', operation.classification);
     }
     const { reference, planHash } = handles.issuePlan({

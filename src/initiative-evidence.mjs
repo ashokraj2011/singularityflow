@@ -32,6 +32,11 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import { resolveWorldModelV4Grounding } from './world-model/commands.mjs';
+import {
+  cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
+} from './world-model/authority-refresh.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 
 export { canonicalJson, recordSha256 };
 
@@ -680,28 +685,78 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
       await loadDefinition(root),
       initiative.resolution?.worldModelSourceScope ?? null
     );
-    const source = await worldModelSourceSnapshot(root, definition);
     const ledger = initiative.resolution?.ledger ?? definition.ledger ?? {};
-    const located = await resolveWorldModelSource(root, {
-      ...(definition.worldModel ?? {}),
-      outputDir,
-      stateBranch: ledger.branch ?? definition.worldModel?.stateBranch ?? null,
-      remote: ledger.remote ?? definition.git?.remote ?? 'origin',
-      ledger,
-      definition
-    }, { sourceTreeSha256: source.sha256 });
-    const candidate = path.join(located.directory, 'manifest.json');
-    const validated = await validateWorldModelDirectory(located.directory, {
-      integrity: 'full',
-      sourceLabel: located.source === 'state-branch'
-        ? `governed state-branch world model '${located.branch}'`
-        : 'application-projection world model'
+    const stateAuthority = worldModelStateAuthority({
+      ...definition,
+      ledger: {
+        ...(definition.ledger ?? {}),
+        ...ledger
+      }
     });
-    const freshness = await worldModelFreshness(root, definition, validated.manifest);
-    if (!freshness.fresh || freshness.built !== source.sha256) {
-      modelDiagnostic = `the preserved world model at ${candidate} describes ${freshness.built ?? 'an unknown source'}, not the current scoped source ${source.sha256}`;
+    if (definition.worldModel?.format === 'registered-v4') {
+      const config = {
+        definition,
+        ...(initiative.resolution?.capability
+          ? { workflow: { resolution: { capability: initiative.resolution.capability } } }
+          : {}),
+        outputDir,
+        stateBranch: stateAuthority.branch,
+        remote: stateAuthority.remote,
+        staleness: 'warn',
+        phases: {
+          'initiative-impact': {
+            views: definition.worldModel?.views ?? [],
+            declaredViews: definition.worldModel?.views ?? [],
+            depth: 'standard',
+            evidence: false
+          }
+        }
+      };
+      const authority = refreshWorldModelV4Authority(root, config, { refreshRemote: true });
+      if (authority.status === 'remote-absent') {
+        throw new SingularityFlowError(
+          'The configured remote state branch has no registered World-Model projection.',
+          { code: 'WMB_MANIFEST_MISSING', details: { refresh: authority.status } }
+        );
+      }
+      if (['offline-cached', 'timeout-cached'].includes(authority.status)
+          && !cachedWorldModelV4AuthorityPresent(root, config)) {
+        throw new SingularityFlowError(
+          'The registered World-Model authority could not be refreshed and has no verified cache.',
+          { code: 'WMB_STATE_AUTHORITY_UNAVAILABLE', details: { refresh: authority.status } }
+        );
+      }
+      const resolved = resolveWorldModelV4Grounding(root, config, {
+        phase: 'initiative-impact'
+      });
+      if (!resolved.freshness.fresh) {
+        modelDiagnostic = `the preserved registered World Model is stale (${resolved.freshness.reason ?? 'source changed'})`;
+      } else {
+        manifest = resolved.manifest;
+      }
     } else {
-      manifest = validated.manifest;
+      const source = await worldModelSourceSnapshot(root, definition);
+      const located = await resolveWorldModelSource(root, {
+        ...(definition.worldModel ?? {}),
+        outputDir,
+        stateBranch: stateAuthority.branch,
+        remote: stateAuthority.remote,
+        ledger,
+        definition
+      }, { sourceTreeSha256: source.sha256 });
+      const candidate = path.join(located.directory, 'manifest.json');
+      const validated = await validateWorldModelDirectory(located.directory, {
+        integrity: 'full',
+        sourceLabel: located.source === 'state-branch'
+          ? `governed state-branch world model '${located.branch}'`
+          : 'application-projection world model'
+      });
+      const freshness = await worldModelFreshness(root, definition, validated.manifest);
+      if (!freshness.fresh || freshness.built !== source.sha256) {
+        modelDiagnostic = `the preserved world model at ${candidate} describes ${freshness.built ?? 'an unknown source'}, not the current scoped source ${source.sha256}`;
+      } else {
+        manifest = validated.manifest;
+      }
     }
   } catch (error) {
     modelDiagnostic = error.message;

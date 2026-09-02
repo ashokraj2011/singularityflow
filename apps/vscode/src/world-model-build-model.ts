@@ -32,14 +32,111 @@ export type ExactWorldModelBuildOutcome = {
   readonly status: 'cancelled' | 'refused' | 'completed';
   readonly planned: GatewayResult | null;
   readonly result: GatewayResult | null;
+  readonly capabilityId?: string | null;
 };
+
+export type ScopedWorldModelBuildConfig<T> = {
+  readonly config: T;
+  readonly capabilityId: string | null;
+};
+
+const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_CAPABILITY_CHOICES = 256;
+
+function field(value: unknown, key: string): unknown {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+/**
+ * Load the canonical build configuration without guessing repository ownership.
+ *
+ * A storyless repository can legitimately deliver more than one capability. The engine returns
+ * the exact approved IDs in a structured refusal; the native host may present only that bounded
+ * set, then it must reload through the same canonical loader with the selected ID. Cancelling the
+ * picker performs no second read and cannot reach planning, confirmation, or execution.
+ */
+export async function loadScopedWorldModelBuildConfig<T>(
+  load: (capabilityId: string | null) => Promise<T>,
+  chooseCapability: (capabilityIds: readonly string[]) => Promise<string | null | undefined>,
+  preferredCapabilityId: string | null = null
+): Promise<ScopedWorldModelBuildConfig<T> | null> {
+  if (preferredCapabilityId != null) {
+    if (!CAPABILITY_ID.test(preferredCapabilityId)) {
+      throw Object.assign(new Error('The requested World Model capability ID is invalid.'), {
+        code: 'WMB_CAPABILITY_SELECTION_INVALID',
+        details: { capabilityId: preferredCapabilityId }
+      });
+    }
+    const config = await load(preferredCapabilityId);
+    const resolved = field(field(config, 'repositoryCapability'), 'id');
+    if (resolved !== preferredCapabilityId) {
+      throw Object.assign(new Error('The World Model configuration did not retain the requested capability scope.'), {
+        code: 'WMB_CAPABILITY_SELECTION_MISMATCH',
+        details: { capabilityId: preferredCapabilityId, resolvedCapabilityId: resolved ?? null }
+      });
+    }
+    return { config, capabilityId: preferredCapabilityId };
+  }
+  try {
+    const config = await load(null);
+    const resolved = field(field(config, 'repositoryCapability'), 'id');
+    return { config, capabilityId: typeof resolved === 'string' && CAPABILITY_ID.test(resolved) ? resolved : null };
+  } catch (error) {
+    if (field(error, 'code') !== 'WMB_CAPABILITY_SELECTION_REQUIRED') throw error;
+    const raw = field(field(error, 'details'), 'capabilityIds');
+    if (!Array.isArray(raw)) throw error;
+    const capabilityIds = [...new Set(raw)].filter((entry): entry is string => (
+      typeof entry === 'string' && CAPABILITY_ID.test(entry)
+    )).sort();
+    // Do not turn malformed or unexpectedly large diagnostic data into an editor choice. The
+    // engine validated map remains the authority; a changed contract must be repaired there.
+    if (capabilityIds.length !== raw.length || capabilityIds.length < 2
+        || capabilityIds.length > MAX_CAPABILITY_CHOICES) throw error;
+    const selected = await chooseCapability(Object.freeze(capabilityIds));
+    if (selected == null) return null;
+    if (!capabilityIds.includes(selected)) {
+      throw Object.assign(new Error('The selected World Model capability is not in the approved capability set.'), {
+        code: 'WMB_CAPABILITY_SELECTION_INVALID',
+        details: { capabilityId: selected }
+      });
+    }
+    const config = await load(selected);
+    const resolved = field(field(config, 'repositoryCapability'), 'id');
+    if (resolved !== selected) {
+      throw Object.assign(new Error('The World Model configuration did not retain the selected capability scope.'), {
+        code: 'WMB_CAPABILITY_SELECTION_MISMATCH',
+        details: { capabilityId: selected, resolvedCapabilityId: resolved ?? null }
+      });
+    }
+    return { config, capabilityId: selected };
+  }
+}
+
+/** Exact argv for the explicit authority refresh used by the native retry flow. */
+export function worldModelAuthorityRefreshArguments(
+  capabilityId: string | null = null
+): readonly string[] {
+  const args = ['wm', 'refresh-authority', '--format', 'registered-v4'];
+  if (capabilityId != null) {
+    if (!CAPABILITY_ID.test(capabilityId)) {
+      throw Object.assign(new Error('The World Model capability retry scope is invalid.'), {
+        code: 'WMB_CAPABILITY_SELECTION_INVALID', details: { capabilityId }
+      });
+    }
+    args.push('--capability', capabilityId);
+  }
+  return Object.freeze(args);
+}
 
 function stringField(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length ? value : fallback;
 }
 
 /** Content shown before the host issues the out-of-band confirmation receipt. */
-export function exactWorldModelPlanDetail(review: Readonly<Record<string, any>>): string {
+export function exactWorldModelPlanDetail(
+  review: Readonly<Record<string, any>>,
+  { capabilityId = null }: { capabilityId?: string | null } = {}
+): string {
   const publication = review.publication && typeof review.publication === 'object'
     ? review.publication as Readonly<Record<string, unknown>> : {};
   const remote = stringField(publication.remote, 'configured remote');
@@ -48,7 +145,7 @@ export function exactWorldModelPlanDetail(review: Readonly<Record<string, any>>)
     `Request: ${stringField(review.requestSha256, 'unavailable')}`,
     `Plan: ${stringField(review.planSha256, 'unavailable')}`,
     `Source: ${stringField(review.sourceManifestSha256, 'unavailable')}`,
-    `Scope: ${stringField(review.scopeManifestSha256, 'unavailable')}`,
+    `Scope: ${capabilityId ? `${capabilityId} · ` : ''}${stringField(review.scopeManifestSha256, 'unavailable')}`,
     `Views: ${Array.isArray(review.effectiveViews) ? review.effectiveViews.join(', ') : 'unavailable'}`,
     `Depth / composer: ${stringField(review.depth, 'unavailable')} / ${stringField(review.composer, 'unavailable')}`,
     `Publish target: ${remote}/${branch} · ${stringField(publication.outputDir, 'singularity/world-model')}`

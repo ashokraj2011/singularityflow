@@ -28,6 +28,13 @@ import {
   worldModelSelectionEntry,
   worldModelSourceSnapshot
 } from './grounding.mjs';
+import {
+  isWorldModelV4, resolveWorldModelV4Grounding
+} from './world-model/commands.mjs';
+import {
+  cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
+} from './world-model/authority-refresh.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { ledgerLog } from './ledger.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import {
@@ -255,7 +262,8 @@ export async function resolveLifecycleCapability(root, {
   capabilityId = null,
   required = false,
   offline = false,
-  expectedMapSha256 = null
+  expectedMapSha256 = null,
+  refuseAmbiguous = false
 } = {}) {
   const source = await sourceForRepository(root);
   const applicationRoot = path.resolve(root);
@@ -322,6 +330,18 @@ export async function resolveLifecycleCapability(root, {
     );
   }
   if (!selected) {
+    const deliveries = Object.entries(definition.capabilities ?? {})
+      .filter(([, capability]) => capability.kind === 'delivery')
+      .map(([id]) => id);
+    if (refuseAmbiguous && deliveries.length > 1) {
+      throw new SingularityFlowError(
+        `This repository can resolve to more than one capability (${deliveries.join(', ')}). Pass --capability <id> before building reusable repository grounding.`,
+        {
+          code: 'WMB_CAPABILITY_SELECTION_REQUIRED',
+          details: { capabilityIds: deliveries, option: '--capability <id>' }
+        }
+      );
+    }
     if (required) throw new SingularityFlowError('This repository maps to more than one capability. Pass --capability <id>.');
     return null;
   }
@@ -553,23 +573,91 @@ function modelFiles(manifest, views) {
 /** Resolve a sibling model against that repository's current capability-scoped source identity. */
 export async function resolveCapabilityWorldModelCandidate(repositoryRoot, definition, {
   sourceScope = null,
-  views = []
+  views = [],
+  capabilityId = null
 } = {}) {
   const groundingDefinition = withWorldModelSourceScope(definition ?? {}, sourceScope);
   const worldModel = groundingDefinition.worldModel ?? { outputDir: 'singularity/world-model' };
   const outputDir = worldModel.outputDir ?? 'singularity/world-model';
+  const stateAuthority = worldModelStateAuthority(groundingDefinition);
   const requiredSelections = [
     { kind: 'core', tier: 'full' },
     ...unique(views).map((view) => ({ kind: 'view', view, tier: 'full' }))
   ];
-  const sourceState = await worldModelSourceSnapshot(repositoryRoot, groundingDefinition);
   const worldModelConfig = {
     ...worldModel,
     ledger: groundingDefinition.ledger,
-    stateBranch: worldModel.stateBranch ?? groundingDefinition.ledger?.branch ?? null,
-    remote: worldModel.remote ?? groundingDefinition.git?.remote ?? 'origin',
+    stateBranch: stateAuthority.branch,
+    remote: stateAuthority.remote,
     definition: groundingDefinition
   };
+  if (isWorldModelV4(worldModelConfig)) {
+    const phase = 'capability-context';
+    const declaredViews = unique(views).length
+      ? unique(views)
+      : unique(groundingDefinition.worldModel?.views ?? []);
+    const config = {
+      ...worldModelConfig,
+      ...(capabilityId ? { repositoryCapability: { id: capabilityId } } : {}),
+      staleness: 'fail',
+      phases: {
+        [phase]: {
+          views: declaredViews,
+          declaredViews,
+          depth: 'standard',
+          evidence: false
+        }
+      }
+    };
+    const authority = refreshWorldModelV4Authority(repositoryRoot, config, {
+      refreshRemote: true
+    });
+    if (authority.status === 'remote-absent') {
+      throw new SingularityFlowError(
+        'The capability repository remote state branch has no registered World-Model projection.',
+        { code: 'world_model.capability_authority_conflict', details: { refresh: authority.status } }
+      );
+    }
+    if (['offline-cached', 'timeout-cached'].includes(authority.status)
+        && !cachedWorldModelV4AuthorityPresent(repositoryRoot, config)) {
+      throw new SingularityFlowError(
+        'The capability repository registered World-Model authority could not be refreshed and has no verified cache.',
+        { code: 'world_model.capability_authority_conflict', details: { refresh: authority.status } }
+      );
+    }
+    const resolved = resolveWorldModelV4Grounding(repositoryRoot, config, {
+      phase,
+      options: declaredViews.length ? { views: declaredViews.join(',') } : {}
+    });
+    if (!resolved.freshness.fresh) {
+      throw new SingularityFlowError(
+        'The capability repository registered World Model does not match its current scoped source snapshot.',
+        {
+          code: 'world_model.capability_stale',
+          details: {
+            sourceManifestSha256: resolved.sourceManifestSha256,
+            reason: resolved.freshness.reason ?? null
+          }
+        }
+      );
+    }
+    return {
+      format: 'registered-v4',
+      outputDir,
+      requiredSelections: resolved.selections,
+      sourceState: {
+        format: 'registered-v4',
+        sha256: resolved.sourceManifestSha256,
+        commit: resolved.store.sourceSnapshot.revision.commit
+      },
+      located: resolved.located,
+      manifestPath: null,
+      manifest: resolved.manifest,
+      normalizedManifest: null,
+      resolved
+    };
+  }
+  const sourceState = await worldModelSourceSnapshot(repositoryRoot, groundingDefinition);
   const located = await resolveWorldModelSource(repositoryRoot, worldModelConfig, {
     sourceTreeSha256: sourceState.sha256,
     requiredSelections
@@ -608,6 +696,7 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
     });
   }
   return {
+    format: 'legacy-v3',
     outputDir,
     requiredSelections,
     sourceState,
@@ -663,7 +752,8 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
     try {
       resolved = await resolveCapabilityWorldModelCandidate(repositoryRoot, repositoryDefinition, {
         sourceScope: capability.sourceScope ?? null,
-        views
+        views,
+        capabilityId: capability.id
       });
     }
     catch (error) {
@@ -679,16 +769,30 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       continue;
     }
     const {
-      outputDir, sourceState, located, manifestPath, manifest, normalizedManifest
+      format, outputDir, sourceState, located, manifestPath, manifest, normalizedManifest
     } = resolved;
-    const manifestInfo = await snapshot(manifestPath);
-    const commit = manifest.repository_commit ?? manifest.repository?.commit
-      ?? run('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, allowFailure: true }).stdout.trim();
+    const manifestInfo = format === 'registered-v4'
+      ? { sha256: resolved.resolved.manifestContentSha256 }
+      : await snapshot(manifestPath);
+    const commit = format === 'registered-v4'
+      ? resolved.resolved.store.sourceSnapshot.revision.commit
+      : manifest.repository_commit ?? manifest.repository?.commit
+        ?? run('git', ['rev-parse', 'HEAD'], { cwd: repositoryRoot, allowFailure: true }).stdout.trim();
     const selected = [];
-    for (const selection of modelFiles(normalizedManifest, views)) {
+    const selections = format === 'registered-v4'
+      ? resolved.resolved.selected.map((entry) => ({
+          relative: entry.relative,
+          views: [entry.viewId],
+          content: entry.body,
+          bytes: entry.size
+        }))
+      : modelFiles(normalizedManifest, views);
+    for (const selection of selections) {
       const { relative } = selection;
-      const absolute = path.join(located.directory, relative);
-      const info = await snapshot(absolute);
+      const absolute = located.directory ? path.join(located.directory, relative) : null;
+      const info = selection.content == null ? await snapshot(absolute) : {
+        exists: true, size: selection.bytes
+      };
       if (!info.exists) {
         warnings.push(`Capability repository '${repositoryId}' is missing world-model file '${relative}'.`);
         continue;
@@ -700,7 +804,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       const targetRelative = posix(path.join('context', 'capability-world-model', repositoryId, relative));
       const target = path.join(itemDirectory, targetRelative);
       await mkdir(path.dirname(target), { recursive: true });
-      await writeText(target, await readFile(absolute, 'utf8'));
+      await writeText(target, selection.content ?? await readFile(absolute, 'utf8'));
       const copied = await snapshot(target);
       used += copied.size;
       const entry = {
@@ -721,8 +825,13 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       branch: configured.defaultBranch,
       commit,
       manifestSha256: manifestInfo.sha256,
-      sourceTreeSha256: manifest.source_tree_sha256 ?? null,
-      requestedSourceTreeSha256: sourceState.sha256,
+      sourceTreeSha256: format === 'registered-v4'
+        ? resolved.resolved.sourceManifestSha256
+        : manifest.source_tree_sha256 ?? null,
+      requestedSourceTreeSha256: format === 'registered-v4'
+        ? resolved.resolved.sourceManifestSha256
+        : sourceState.sha256,
+      format,
       source: located.source,
       files: selected
     });
@@ -748,7 +857,7 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
   return { path: relative, sha256: info.sha256, bytes: info.size, warnings };
 }
 
-export async function renderCapabilityWorldModelPack(root, capability, { views = [] } = {}) {
+async function renderCapabilityWorldModelPackStrict(root, capability, { views = [] } = {}) {
   if (!capability?.context?.path) return { text: '', files: [], warnings: [] };
   const recordInfo = await snapshot(path.join(root, capability.context.path));
   if (!recordInfo.exists || recordInfo.sha256 !== capability.context.sha256) {
@@ -777,6 +886,23 @@ export async function renderCapabilityWorldModelPack(root, capability, { views =
     file.content.trim()
   ].join('\n')).join('\n\n');
   return { text, files: files.map(({ content, ...file }) => file), warnings: record.warnings ?? [] };
+}
+
+export async function renderCapabilityWorldModelPack(root, capability, {
+  views = [], grounding = capability?.policy?.worldModelGrounding ?? 'off'
+} = {}) {
+  try {
+    return await renderCapabilityWorldModelPackStrict(root, capability, { views });
+  } catch (error) {
+    if (grounding !== 'warn') throw error;
+    // Capability context is additional world-model intelligence. Advisory repository grounding
+    // must retain ordinary governed inputs when that snapshot is unavailable or changed, while
+    // enforce mode above remains fail-closed.
+    return {
+      text: '', files: [],
+      warnings: [`Capability world-model grounding unavailable: ${error.message}`]
+    };
+  }
 }
 
 export function capabilityResolutionSha256(capability) {

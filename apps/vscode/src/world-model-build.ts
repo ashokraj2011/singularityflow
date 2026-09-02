@@ -10,20 +10,22 @@ import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
 
 import { createHostGateway } from '../../../src/gateway/host.mjs';
-import { loadConfig } from '../../../src/state-stores.mjs';
 import {
-  configuredWorldModelV4ViewIds, worldModelV4GatewayDefaults
+  configuredWorldModelV4ViewSelections, isWorldModelV4, worldModelV4GatewayDefaults
 } from '../../../src/world-model/commands.mjs';
+import { loadWorldModelConfig } from '../../../src/worldmodel.mjs';
 import { worldModelGatewayCapabilities } from '../../../src/gateway/planners/world-model-run.mjs';
 import { DEFAULT_GATEWAY_POLICY } from '../../../src/gateway/policy.mjs';
 import { editorPlanners, type ActiveRepositoryContext } from './gateway-session.ts';
 import {
-  exactWorldModelPlanDetail, runExactWorldModelBuild,
+  exactWorldModelPlanDetail, loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
+  worldModelAuthorityRefreshArguments,
   type ExactBuildKernel, type ExactWorldModelBuildOutcome, type WorldModelBuildArguments
 } from './world-model-build-model.ts';
 
 export {
-  exactWorldModelPlanDetail, runExactWorldModelBuild,
+  exactWorldModelPlanDetail, loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
+  worldModelAuthorityRefreshArguments,
   type ExactWorldModelBuildOutcome, type WorldModelBuildArguments
 } from './world-model-build-model.ts';
 
@@ -32,9 +34,13 @@ function firstChoice<T extends string>(configured: T, values: readonly T[]): rea
 }
 
 async function collectArguments(config: any, defaults: Readonly<Record<string, any>>): Promise<WorldModelBuildArguments | null> {
-  const configuredViews = configuredWorldModelV4ViewIds(config);
+  const configuredViews = configuredWorldModelV4ViewSelections(config);
   const selectedViews = await vscode.window.showQuickPick(
-    configuredViews.map((view) => ({ label: view, picked: true })),
+    configuredViews.map((view) => ({
+      label: view.reference,
+      description: `Installed registered contract · ${view.viewId}`,
+      picked: true
+    })),
     {
       title: 'World Model · exact governed build',
       placeHolder: 'Choose the approved registered views to build and publish',
@@ -73,14 +79,50 @@ async function collectArguments(config: any, defaults: Readonly<Record<string, a
 /** Open the complete native UI flow for the currently validated repository. */
 export async function showGovernedWorldModelBuild(
   active: ActiveRepositoryContext,
-  { modelRouting = 'enabled' }: { modelRouting?: 'enabled' | 'disabled' } = {}
+  {
+    modelRouting = 'enabled', capabilityId: preferredCapabilityId = null
+  }: { modelRouting?: 'enabled' | 'disabled'; capabilityId?: string | null } = {}
 ): Promise<ExactWorldModelBuildOutcome> {
-  // loadConfig resolves the approved configuration overlay/state authority for this exact root; it
-  // never searches HOME or borrows repository context from a previous editor conversation.
-  const config = await loadConfig(active.root);
+  // The canonical loader resolves the approved configuration overlay/state authority for this
+  // exact root; it never searches HOME or borrows context from a previous editor conversation.
+  const scoped = await loadScopedWorldModelBuildConfig(
+    (capabilityId) => loadWorldModelConfig(active.root, capabilityId ? { capabilityId } : undefined),
+    async (capabilityIds) => {
+      const selected = await vscode.window.showQuickPick(
+        capabilityIds.map((id) => ({
+          label: id,
+          description: 'Approved delivery capability',
+          id
+        })),
+        {
+          title: 'World Model capability scope',
+          placeHolder: 'Choose the capability this reusable repository model represents',
+          canPickMany: false,
+          ignoreFocusOut: true
+        }
+      );
+      return selected?.id ?? null;
+    },
+    preferredCapabilityId
+  );
+  if (!scoped) return { status: 'cancelled', planned: null, result: null };
+  const { config, capabilityId } = scoped;
+  if (!isWorldModelV4(config)) {
+    throw Object.assign(new Error(
+      'This repository still uses the legacy-v3 World Model. Open Configuration Center → World model, '
+      + 'review a registered-v4 view migration, publish the configuration, and then run Build / refresh again. '
+      + 'For a legacy build, use the reviewed `singularity-flow wm build` CLI flow.'
+    ), {
+      code: 'WMB_FORMAT_MIGRATION_REQUIRED',
+      details: {
+        configuredFormat: config.definition?.worldModel?.format ?? 'legacy-v3',
+        nextAction: 'open-world-model-settings'
+      }
+    });
+  }
   const defaults = worldModelV4GatewayDefaults(active.root, config);
   const args = await collectArguments(config, defaults);
-  if (!args) return { status: 'cancelled', planned: null, result: null };
+  if (!args) return { status: 'cancelled', planned: null, result: null, capabilityId };
 
   const capabilities = worldModelGatewayCapabilities({ defaults });
   const host = createHostGateway({
@@ -98,11 +140,11 @@ export async function showGovernedWorldModelBuild(
     } : {})
   });
 
-  return runExactWorldModelBuild(host.kernel as ExactBuildKernel, args, async (review) => {
+  const outcome = await runExactWorldModelBuild(host.kernel as ExactBuildKernel, args, async (review) => {
     const action = 'Build & publish exact Plan';
     const accepted = await vscode.window.showWarningMessage(
       'Run this exact World Model build and atomically publish it to the governed state branch?',
-      { modal: true, detail: exactWorldModelPlanDetail(review) },
+      { modal: true, detail: exactWorldModelPlanDetail(review, { capabilityId }) },
       action
     );
     return accepted === action;
@@ -111,4 +153,5 @@ export async function showGovernedWorldModelBuild(
     title: 'Building and publishing the exact World Model Plan',
     cancellable: false
   }, operation));
+  return { ...outcome, capabilityId };
 }

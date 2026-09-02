@@ -10,6 +10,7 @@ import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import { BUILTIN_VIEW_IDS } from './world-model/registry/views.mjs';
 
 export const AGENT_LOCK_PATH = 'singularity/agents.lock.yml';
 export const AGENT_MAPPING_PATH = 'singularity/agent-mappings.yml';
@@ -296,7 +297,13 @@ export async function discoverAgents(root) {
 export function validateAgentCatalog(agents, definition) {
   if (!agents.length) throw new SingularityFlowError('No governed Agent Markdown files were found in .github/agents or the bundled plugin.');
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
-  const viewIds = new Set(definition.worldModel?.views ?? []);
+  const declaredViews = definition.worldModel?.format === 'registered-v4'
+    && definition.worldModel?.views == null
+    ? BUILTIN_VIEW_IDS
+    : definition.worldModel?.views ?? [];
+  const viewIds = new Set(declaredViews.map((view) => (
+    definition.worldModel?.format === 'registered-v4' ? view.replace(/@[1-9][0-9]*$/, '') : view
+  )));
   for (const agent of agents) {
     // Repository agents are part of this repository's contract, so a misspelled or removed phase
     // must fail validation. Packaged agents are a catalog shared by every valid workflow-v2

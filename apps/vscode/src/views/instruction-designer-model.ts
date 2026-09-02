@@ -1,5 +1,6 @@
 /** Pure read/write model for the visual agent, prompt, skill and prompt-pack designer. */
 import path from 'node:path';
+import { worldModelViewCatalog } from '../../../../src/world-model-views.mjs';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 
 export type InstructionTab = 'agents' | 'delivery' | 'prompts' | 'skills' | 'packs';
@@ -173,11 +174,11 @@ export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCat
       repositoryPath: skill.repositoryPath ?? `.github/skills/${skill.id ?? skill.name}/SKILL.md`
     })).sort((left, right) => left.name.localeCompare(right.name)),
     phases,
-    worldModelViews: [...new Set([
-      ...(definition?.worldModel?.views ?? []),
-      ...Object.values(definition?.phases ?? {}).flatMap((phase) => phase.worldModel?.views ?? []),
-      ...(snapshot.worldModel?.views ?? []).map((view) => view.id)
-    ])].sort(),
+    // Agent frontmatter accepts logical IDs only. Registered configuration retains `@version`, but
+    // offering that exact reference here would create Markdown the agent parser correctly rejects.
+    worldModelViews: worldModelViewCatalog(
+      definition ?? {}, (snapshot.worldModel?.views ?? []).map((view) => view.id)
+    ),
     promptUsage,
     mappings: snapshot.agentMappings?.rows ?? [],
     mappingPath: snapshot.agentMappings?.path ?? 'singularity/agent-mappings.yml',

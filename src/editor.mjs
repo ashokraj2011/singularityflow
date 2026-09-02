@@ -49,6 +49,7 @@ import {
 import {
   structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
 } from './world-model-views.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
@@ -250,12 +251,13 @@ async function textFiles(root, relativeRoot, { extensions = null } = {}) {
 
 async function editorWorldModelStatus(root, definition, modelRoot) {
   try {
+    const state = worldModelStateAuthority(definition);
     const source = await worldModelSourceSnapshot(root, definition);
     const located = await resolveWorldModelSource(root, {
       outputDir: modelRoot,
-      stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
+      stateBranch: state.branch,
       ledger: definition.ledger,
-      remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+      remote: state.remote,
       definition
     }, { refreshRemote: false, sourceTreeSha256: source.sha256 });
     const manifestPath = path.join(located.directory, 'manifest.json');
@@ -304,9 +306,18 @@ async function editorWorldModelStatus(root, definition, modelRoot) {
 }
 
 /** Read explorer files from the resolved immutable model, not whichever projection is checked out. */
-async function editorWorldModelFiles(root, modelRoot, located) {
+async function editorWorldModelFiles(root, modelRoot, located, inspected = null) {
   const extensions = ['.md', '.json', '.jsonl', '.yml', '.yaml'];
+  if (inspected?.format === 'registered-v4' && inspected.resolved) {
+    return inspected.resolved.selected.map((file) => ({
+      path: posix(path.join(modelRoot, file.relative)),
+      name: file.relative,
+      content: file.body,
+      bytes: file.size
+    })).sort((left, right) => left.name.localeCompare(right.name));
+  }
   if (located?.source !== 'state-branch') return textFiles(root, modelRoot, { extensions });
+  if (!located.directory) return [];
   const files = await textFiles(located.directory, '.', { extensions });
   return files.map((file) => ({
     ...file,
@@ -620,6 +631,22 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     } catch (error) {
       worldModelReadiness = { reason: `The pinned phase grounding plan could not be inspected: ${error.message}` };
     }
+  } else if (definition.worldModel?.format === 'registered-v4') {
+    try {
+      const {
+        inspectConfiguredGrounding, loadWorldModelConfig
+      } = await import('./worldmodel.mjs');
+      worldModelReadiness = await inspectConfiguredGrounding(
+        root,
+        await loadWorldModelConfig(root),
+        null,
+        { refreshRemote: false }
+      );
+    } catch (error) {
+      worldModelReadiness = {
+        reason: `The registered repository World Model could not be inspected: ${error.message}`
+      };
+    }
   }
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
@@ -772,7 +799,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
         ]
       })),
       workflows: worldModelWorkflowViewUsage(definition),
-      files: await editorWorldModelFiles(root, modelRoot, locatedWorldModel)
+      files: await editorWorldModelFiles(root, modelRoot, locatedWorldModel, worldModelReadiness)
     },
     agents: agents.map((agent) => ({
       id: agent.id,
@@ -1215,6 +1242,7 @@ async function sgosSlice(root) {
  */
 async function worldModelSlice(root) {
   const definition = await loadDefinition(root);
+  const state = worldModelStateAuthority(definition);
   const outputDir = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
   if (definition.worldModel?.format !== 'registered-v4') {
     return {
@@ -1235,8 +1263,8 @@ async function worldModelSlice(root) {
   const { loadWorldModelIdeSlice } = await import('./world-model/ide/slice.mjs');
   const slice = loadWorldModelIdeSlice(root, {
     outputDir,
-    stateBranch: definition.ledger?.branch ?? 'state',
-    remote: definition.git?.remote ?? 'origin'
+    stateBranch: state.branch,
+    remote: state.remote
   });
   return {
     ...slice,

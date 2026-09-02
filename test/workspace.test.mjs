@@ -35,21 +35,48 @@ const cli = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 test('repository commands can route through the explicitly selected workspace', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-selected-command-root-'));
   const repository = path.join(root, 'repository');
+  const workspace = path.join(root, 'workspace');
   const selection = path.join(root, 'active-workspace.json');
   const registry = path.join(root, 'workspaces.json');
+  const remote = path.join(root, 'payments-api.git');
+  run('git', ['init', '--bare', remote], { cwd: root });
   await mkdir(repository);
   run('git', ['init', '-b', 'main'], { cwd: repository });
   run('git', ['config', 'user.name', 'Workspace Router'], { cwd: repository });
   run('git', ['config', 'user.email', 'router@example.com'], { cwd: repository });
   const initialized = spawnSync(process.execPath, [cli, 'init'], { cwd: repository, encoding: 'utf8' });
   assert.equal(initialized.status, 0, initialized.stderr);
+  run('git', ['remote', 'add', 'origin', remote], { cwd: repository });
   run('git', ['add', '-A'], { cwd: repository });
   run('git', ['commit', '-m', 'initialize'], { cwd: repository });
+  await mkdir(workspace);
+  await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
+    version: 1,
+    id: 'payments',
+    name: 'Payments',
+    anchor: { provider: 'workspace', key: 'payments', title: 'Payments' },
+    leadRepository: 'api',
+    capabilities: [],
+    repositories: {
+      api: {
+        url: remote,
+        defaultBranch: 'main',
+        path: 'repos/api',
+        capabilities: [],
+        adoption: {
+          mode: 'existing-clone',
+          canonicalPath: repository,
+          proofHash: `sha256:${'0'.repeat(64)}`,
+          reviewedAt: '2026-08-15T00:00:00.000Z'
+        }
+      }
+    }
+  }, null, 2)}\n`);
   await writeFile(selection, `${JSON.stringify({
     schemaVersion: 1,
     workspaceId: 'payments',
     workspaceName: 'Payments',
-    workspacePath: path.join(root, 'workspace'),
+    workspacePath: workspace,
     repositoryId: 'api',
     repositoryPath: repository,
     repositoryState: 'ready',
@@ -88,7 +115,12 @@ test('repository commands can route through the explicitly selected workspace', 
     encoding: 'utf8'
   });
   assert.equal(routed.status, 0, routed.stderr);
-  assert.equal(JSON.parse(routed.stdout).status, 'missing',
+  const worldModelStatus = JSON.parse(routed.stdout);
+  assert.equal(worldModelStatus.status, 'conflict',
+    'a configured remote without a state branch remains an explicit authority conflict');
+  assert.equal(worldModelStatus.conflicts[0].code, 'world_model.state_branch_absent');
+  assert.equal(worldModelStatus.candidates[0].directory,
+    path.join(await realpath(repository), 'singularity/world-model'),
     'the repository-scoped command ran against the selected workspace repository');
 });
 

@@ -4452,7 +4452,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
-    'singularityFlow.buildWorldModel': async () => {
+    'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string }) => {
       const active = activeRepositoryContext();
       if (!active) {
         void vscode.window.showWarningMessage(
@@ -4461,20 +4461,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       try {
-        const { showGovernedWorldModelBuild } = await import('./world-model-build.ts');
+        const {
+          showGovernedWorldModelBuild, worldModelAuthorityRefreshArguments
+        } = await import('./world-model-build.ts');
         const modelMode = vscode.workspace.getConfiguration('singularityFlow')
           .get<string>('modelMode', 'auto');
         const outcome = await showGovernedWorldModelBuild(active, {
-          modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled'
+          modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled',
+          capabilityId: request?.capabilityId ?? null
         });
         if (outcome.status === 'cancelled') return;
         if (outcome.status === 'refused') {
           const reason = outcome.result?.why?.[0];
           const code = reason?.code ?? 'world-model build refused';
           const engineCode = reason?.slots?.code;
-          void vscode.window.showWarningMessage(
-            `World Model build was not run: ${code}${engineCode ? ` (${String(engineCode)})` : ''}. Review the current repository state and try again.`
+          const refreshRequired = engineCode === 'WMB_GATEWAY_STATE_AUTHORITY_REFRESH_REQUIRED';
+          const refreshAction = 'Refresh state & retry';
+          const choice = await vscode.window.showWarningMessage(
+            `World Model build was not run: ${code}${engineCode ? ` (${String(engineCode)})` : ''}. ${refreshRequired
+              ? 'The remote state authority must be materialized before an exact preserving Plan can be reviewed.'
+              : 'Review the current repository state and try again.'}`,
+            ...(refreshRequired ? [refreshAction] : [])
           );
+          if (refreshRequired && choice === refreshAction) {
+            const refreshArgs = worldModelAuthorityRefreshArguments(outcome.capabilityId ?? null);
+            output.appendLine(`\n$ singularity-flow ${refreshArgs.join(' ')}`);
+            await client.runText([...refreshArgs]);
+            await refreshAfterSurfaceMutation();
+            await vscode.commands.executeCommand(
+              'singularityFlow.buildWorldModel',
+              outcome.capabilityId ? { capabilityId: outcome.capabilityId } : undefined
+            );
+          }
           return;
         }
         const manifest = outcome.result?.data?.manifestSha256;

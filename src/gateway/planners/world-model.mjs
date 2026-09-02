@@ -3,6 +3,7 @@ import {
   projectWorldModelIdeSlice, readWorldModelIdeExpansion, worldModelSourceExpansionReference
 } from '../../world-model/ide/slice.mjs';
 import { resolvePublishedWorldModelV4 } from '../../world-model/store.mjs';
+import { worldModelStateAuthority } from '../../world-model/authority-config.mjs';
 import { noEffects, preservedAll, sflowResult } from '../result.mjs';
 
 const MAX_CLAIM_BYTES = 4_096;
@@ -33,10 +34,11 @@ function boundedText(value, maximumBytes = MAX_CLAIM_BYTES) {
 
 async function authority(root) {
   const definition = await loadDefinition(root);
+  const state = worldModelStateAuthority(definition);
   return resolvePublishedWorldModelV4(root, {
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
-    stateBranch: definition.ledger?.branch ?? 'state',
-    remote: definition.git?.remote ?? 'origin'
+    stateBranch: state.branch,
+    remote: state.remote
   });
 }
 

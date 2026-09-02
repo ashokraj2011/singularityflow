@@ -16,8 +16,17 @@ const EFFECTS = Object.freeze(effects({
   publicationCreated: true,
   externalSystemsChanged: true
 }));
+const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-function normalizedOptions(root, args, defaults = {}, { forPlanning = false } = {}) {
+function scopedRecoveryCommand(defaults, command) {
+  const capabilityId = defaults.selectedCapabilityId;
+  return `${command}${typeof capabilityId === 'string' && CAPABILITY_ID.test(capabilityId)
+    ? ` --capability ${capabilityId}` : ''}`;
+}
+
+function normalizedOptions(root, args, defaults = {}, {
+  forPlanning = false, publication = null
+} = {}) {
   const requestedViews = [...args.views];
   const outputDir = defaults.outputDir ?? 'singularity/world-model';
   const ledgerConfig = Object.freeze({
@@ -27,7 +36,11 @@ function normalizedOptions(root, args, defaults = {}, { forPlanning = false } = 
   });
   const effectiveViews = forPlanning
     ? resolveWorldModelV4BuildViews(root, {
-        views: requestedViews, outputDir, ledgerConfig, preserveIndependentViews: true
+        views: requestedViews,
+        outputDir,
+        ledgerConfig,
+        preserveIndependentViews: true,
+        ...(publication ? { authorityCommit: publication.publicationBase } : {})
       })
     : requestedViews;
   return {
@@ -50,7 +63,29 @@ export function worldModelBuildPlanDescriptor({ root, arguments: args, defaults 
       code: 'WMB_GATEWAY_REPOSITORY_REQUIRED'
     });
   }
-  const options = normalizedOptions(root, args, defaults, { forPlanning: true });
+  const requestedOptions = normalizedOptions(root, args, defaults);
+  const publication = captureWorldModelPublicationReview(root, requestedOptions);
+  let options;
+  try {
+    options = normalizedOptions(root, args, defaults, { forPlanning: true, publication });
+  } catch (error) {
+    if (error?.code !== 'WMB_GATEWAY_PUBLICATION_AUTHORITY_UNAVAILABLE') throw error;
+    throw new SingularityFlowError(
+      'The current remote state authority is not materialized locally, so a complete preserving world-model Plan cannot be reviewed yet. Refresh the exact state authority and retry.',
+      {
+        code: 'WMB_GATEWAY_STATE_AUTHORITY_REFRESH_REQUIRED',
+        details: {
+          remote: publication.remote,
+          branch: publication.branch,
+          authorityCommit: publication.publicationBase,
+          nextAction: scopedRecoveryCommand(
+            defaults, 'singularity-flow wm refresh-authority --format registered-v4'
+          )
+        },
+        cause: error
+      }
+    );
+  }
   const planned = planWorldModelV4(root, options);
   const requiresModel = options.composer === 'model'
     || planned.requestedViews.some((entry) => entry.contract.model.mode === 'required');
@@ -70,7 +105,7 @@ export function worldModelBuildPlanDescriptor({ root, arguments: args, defaults 
     consumer: options.consumer,
     composer: options.composer,
     cachePolicy: options.cachePolicy,
-    publication: captureWorldModelPublicationReview(root, options)
+    publication
   });
   const operationSha256 = sha256({
     kind: 'wmb-v4-gateway-operation',

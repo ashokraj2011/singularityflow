@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const {
-  exactWorldModelPlanDetail, runExactWorldModelBuild
+  exactWorldModelPlanDetail, loadScopedWorldModelBuildConfig, runExactWorldModelBuild,
+  worldModelAuthorityRefreshArguments
 } = await import(path.join(root, 'apps', 'vscode', 'src', 'world-model-build-model.ts'));
 
 const args = Object.freeze({
@@ -38,12 +39,81 @@ function planned() {
 }
 
 test('native World Model review renders exact digests and the state CAS target', () => {
-  const detail = exactWorldModelPlanDetail(planned().data.plan.review);
+  const detail = exactWorldModelPlanDetail(planned().data.plan.review, { capabilityId: 'payments-api' });
   assert.match(detail, /Request: sha256:1{64}/);
   assert.match(detail, /Plan: sha256:2{64}/);
   assert.match(detail, /Publish target: origin\/state · singularity\/world-model/);
   assert.match(detail, /Expected target head: branch absent/);
+  assert.match(detail, /Scope: payments-api · sha256:4{64}/);
   assert.match(detail, /No provider, Git ref, or repository file has been changed/);
+});
+
+function capabilityChoiceRequired(ids = ['orders-api', 'payments-api']) {
+  return Object.assign(new Error('choose capability'), {
+    code: 'WMB_CAPABILITY_SELECTION_REQUIRED', details: { capabilityIds: ids }
+  });
+}
+
+test('native World Model config reloads with only the approved storyless capability choice', async () => {
+  const loads = [];
+  const choices = [];
+  const result = await loadScopedWorldModelBuildConfig(async (capabilityId) => {
+    loads.push(capabilityId);
+    if (!capabilityId) throw capabilityChoiceRequired(['payments-api', 'orders-api']);
+    return { repositoryCapability: { id: capabilityId }, definition: {} };
+  }, async (ids) => {
+    choices.push([...ids]);
+    return 'payments-api';
+  });
+  assert.deepEqual(loads, [null, 'payments-api']);
+  assert.deepEqual(choices, [['orders-api', 'payments-api']], 'choices are deterministic and bounded to approved IDs');
+  assert.equal(result.capabilityId, 'payments-api');
+  assert.equal(result.config.repositoryCapability.id, 'payments-api');
+});
+
+test('cancelling the storyless capability picker performs no reload or build-side action', async () => {
+  const calls = [];
+  const result = await loadScopedWorldModelBuildConfig(async (capabilityId) => {
+    calls.push(`load:${capabilityId}`);
+    throw capabilityChoiceRequired();
+  }, async (ids) => {
+    calls.push(`choose:${ids.join(',')}`);
+    return null;
+  });
+  assert.equal(result, null);
+  assert.deepEqual(calls, ['load:null', 'choose:orders-api,payments-api']);
+});
+
+test('native World Model capability selection refuses values outside the approved diagnostic set', async () => {
+  let reloads = 0;
+  await assert.rejects(() => loadScopedWorldModelBuildConfig(async (capabilityId) => {
+    if (!capabilityId) throw capabilityChoiceRequired();
+    reloads += 1;
+    return { repositoryCapability: { id: capabilityId } };
+  }, async () => 'unreviewed-api'), (error) => error.code === 'WMB_CAPABILITY_SELECTION_INVALID');
+  assert.equal(reloads, 0);
+});
+
+test('native World Model authority refresh and retry preserve the exact approved capability', async () => {
+  const loads = [];
+  const scoped = await loadScopedWorldModelBuildConfig(async (capabilityId) => {
+    loads.push(capabilityId);
+    return { repositoryCapability: { id: capabilityId } };
+  }, async () => {
+    throw new Error('a preserved retry must not reopen the capability picker');
+  }, 'payments-api');
+  assert.equal(scoped.capabilityId, 'payments-api');
+  assert.deepEqual(loads, ['payments-api']);
+  assert.deepEqual(worldModelAuthorityRefreshArguments(scoped.capabilityId), [
+    'wm', 'refresh-authority', '--format', 'registered-v4', '--capability', 'payments-api'
+  ]);
+  assert.deepEqual(worldModelAuthorityRefreshArguments(), [
+    'wm', 'refresh-authority', '--format', 'registered-v4'
+  ]);
+  assert.throws(
+    () => worldModelAuthorityRefreshArguments('payments api'),
+    (error) => error.code === 'WMB_CAPABILITY_SELECTION_INVALID'
+  );
 });
 
 test('cancelling native review never creates or redeems a confirmation receipt', async () => {

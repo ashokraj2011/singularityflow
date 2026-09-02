@@ -15,6 +15,7 @@ import { loadDefinition } from './config.mjs';
 import {
   resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { contextPacketTelemetryForWork } from './context-packet-telemetry.mjs';
 import { gitCommonDir } from './git.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
@@ -159,12 +160,13 @@ async function resolvedFlightWorldModel(root, revision) {
     };
   }
   try {
+    const state = worldModelStateAuthority(definition);
     const source = await worldModelSourceSnapshot(root, definition);
     const located = await resolveWorldModelSource(root, {
       ...(definition.worldModel ?? {}),
       outputDir,
-      stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
-      remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+      stateBranch: state.branch,
+      remote: state.remote,
       ledger: definition.ledger,
       definition
     }, { sourceTreeSha256: source.sha256 });

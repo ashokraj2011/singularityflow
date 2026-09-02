@@ -202,6 +202,24 @@ test('capability world-model rendering is phase scoped and hash verified', async
     assert.match(rendered.text, /API security/);
     assert.doesNotMatch(rendered.text, /API tests/);
     assert.equal(rendered.files.length, 2);
+
+    await writeFile(security, '# changed after pinning\n');
+    const advisory = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api', policy: {}, context: {
+        path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
+      }
+    }, { views: ['security'], grounding: 'warn' });
+    assert.equal(advisory.text, '');
+    assert.deepEqual(advisory.files, []);
+    assert.match(advisory.warnings.join('\n'), /Capability world-model grounding unavailable/);
+    await assert.rejects(
+      () => renderCapabilityWorldModelPack(root, {
+        id: 'payments-api', policy: {}, context: {
+          path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
+        }
+      }, { views: ['security'], grounding: 'enforce' }),
+      /Capability world-model snapshot changed/
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -10,12 +10,11 @@ import { readFile } from 'node:fs/promises';
 import { astContext } from './ast-intelligence.mjs';
 import { compileEvidencePacket, EVIDENCE_PACKET_SLICES, expandEvidencePacketHandle } from './evidence-packet.mjs';
 import { head } from './git.mjs';
-import { resolveWorldModelContext } from './grounding.mjs';
 import { recordSha256 } from './records.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { inspectWorkflowGrounding } from './worldmodel.mjs';
+import { inspectWorkflowGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted
 export const LEGACY_CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'world-model', 'ast', 'evidence']);
@@ -86,10 +85,7 @@ async function worldModelSlice(root, workflow, phaseId, budget) {
     if (!inspected.availability?.ready) {
       return { status: 'unavailable', reason: inspected.reason, selections: [], bytes: 0 };
     }
-    const resolved = await resolveWorldModelContext(root, inspected.config, phaseId, {
-      plan: inspected.plan,
-      located: inspected.availability.located
-    });
+    const resolved = await resolveInspectedGrounding(root, inspected, phaseId);
     const selections = [];
     let remaining = budget;
     for (const selected of resolved.selected) {
@@ -104,7 +100,7 @@ async function worldModelSlice(root, workflow, phaseId, budget) {
         selections.push({ ...metadata, content: null, omission: 'budget' });
         continue;
       }
-      const content = await readFile(selected.absolute, 'utf8');
+      const content = selected.body ?? await readFile(selected.absolute, 'utf8');
       const bounded = utf8Prefix(content, remaining);
       remaining -= bounded.bytes;
       selections.push({ ...metadata, content: bounded.text, bytes: bounded.bytes, truncated: bounded.truncated });

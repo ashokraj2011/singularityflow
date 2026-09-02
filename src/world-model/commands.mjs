@@ -14,7 +14,7 @@ import {
 } from './plan.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from './registry/extractors.mjs';
 import {
-  BUILTIN_VIEW_REGISTRY, resolveBuiltInViewContract
+  BUILTIN_VIEW_REGISTRY, normalizeBuiltInViewReference, resolveBuiltInViewContract
 } from './registry/views.mjs';
 import {
   WMB_V4_CANDIDATE_SCHEMA_SHA256, WMB_V4_DETERMINISTIC_EXECUTION_SHA256,
@@ -29,61 +29,118 @@ import {
 import {
   publishWorldModelTransaction, stageWorldModelMigrationPublication
 } from './publish/transaction.mjs';
-import { createScopeManifest } from './scope/manifest.mjs';
+import { createScopeManifest, normalizeScopePattern } from './scope/manifest.mjs';
 import {
   captureCandidateSourceSnapshot, loadCandidateSourceSnapshot
 } from './source/snapshot.mjs';
+import {
+  inspectWorldModelV4Authority, refreshWorldModelV4Authority
+} from './authority-refresh.mjs';
+import { worldModelStateAuthority } from './authority-config.mjs';
 
 const DEFAULT_EXCLUDED_ROOTS = Object.freeze([
   '.git/**', '.sflow/**', '.singularity-flow/**', 'singularity/**', '.github/agents/**'
 ]);
+const CAPABILITY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export function configuredWorldModelV4ViewIds(config, options = {}, phase = null) {
+/** Capability identity that must survive a storyless multi-capability recovery round trip. */
+export function configuredWorldModelV4CapabilityId(config) {
+  const candidate = config.workflow?.resolution?.capability?.id
+    ?? config.workflow?.resolution?.capabilityId
+    ?? config.repositoryCapability?.id
+    ?? null;
+  return typeof candidate === 'string' && CAPABILITY_ID.test(candidate) ? candidate : null;
+}
+
+/** Append the selected capability to a copy/paste-safe registered-v4 CLI command. */
+export function scopedWorldModelV4Command(config, command) {
+  const capabilityId = configuredWorldModelV4CapabilityId(config);
+  return `${command}${capabilityId ? ` --capability ${capabilityId}` : ''}`;
+}
+
+export function configuredWorldModelV4ViewSelections(config, options = {}, phase = null) {
   const explicit = optionString(options, 'views') ?? optionString(options, 'view');
   const activeContracts = BUILTIN_VIEW_REGISTRY.contracts.filter(
     (contract) => contract.validity.status === 'active'
   );
-  const all = activeContracts.map((contract) => contract.id);
-  const normalize = (entries, label) => {
+  const all = activeContracts.map((contract) => Object.freeze({
+    viewId: contract.id,
+    version: contract.version,
+    reference: `${contract.id}@${contract.version}`
+  }));
+  const normalize = (entries, label, pinnedById = new Map()) => {
     const raw = entries.map((entry) => String(entry).trim()).filter(Boolean);
     if (raw.includes('all')) {
       if (raw.length !== 1) throw new SingularityFlowError(`WMB v4 ${label} cannot combine 'all' with named views.`, { code: 'WMB_VIEW_UNKNOWN' });
-      return all;
+      return all.map((entry) => pinnedById.get(entry.viewId) ?? entry);
     }
     const selected = [];
-    const unknown = [];
+    const failures = [];
     for (const entry of raw) {
-      const parsed = /^(?<id>[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+)(?:@(?<version>[1-9][0-9]*))?$/.exec(entry)?.groups;
-      const contract = parsed && activeContracts.find((candidate) =>
-        candidate.id === parsed.id
-        && (parsed.version == null || candidate.version === Number(parsed.version)));
-      if (contract) selected.push(entry);
-      else unknown.push(entry);
+      try {
+        const normalized = normalizeBuiltInViewReference(entry);
+        const exact = Object.freeze({
+          viewId: normalized.viewId,
+          version: normalized.version,
+          reference: normalized.reference
+        });
+        const pinned = pinnedById.get(exact.viewId);
+        if (pinned && entry.includes('@') && pinned.reference !== exact.reference) {
+          const error = new SingularityFlowError(
+            `WMB v4 ${label} selects '${exact.reference}', but repository configuration pins '${pinned.reference}'.`,
+            { code: 'WMB_VIEW_VERSION_UNSUPPORTED' }
+          );
+          failures.push({ entry, error });
+        } else {
+          // A phase/agent uses the stable logical ID. Its exact execution contract comes from the
+          // repository catalog so a future active version cannot silently bypass an approved pin.
+          selected.push(pinned ?? exact);
+        }
+      } catch (error) {
+        failures.push({ entry, error });
+      }
     }
-    if (unknown.length) {
-      throw new SingularityFlowError(`Unknown or inactive configured WMB v4 view(s): ${unknown.join(', ')}.`, {
-        code: 'WMB_VIEW_UNKNOWN', details: { views: unknown, registeredViews: all }
-      });
+    if (failures.length) {
+      const code = failures.length === 1 && failures[0].error?.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
+        ? 'WMB_VIEW_VERSION_UNSUPPORTED' : 'WMB_VIEW_UNKNOWN';
+      throw new SingularityFlowError(
+        `Unknown, inactive, or version-mismatched configured WMB v4 view(s): ${failures.map(({ entry }) => entry).join(', ')}.`,
+        {
+          code,
+          details: {
+            views: failures.map(({ entry }) => entry),
+            registeredViews: all.map((entry) => `${entry.viewId}@${entry.version}`)
+          }
+        }
+      );
     }
-    return selected;
+    return [...new Map(selected.map((entry) => [entry.viewId, entry])).values()];
   };
-  if (explicit) return [...new Set(normalize(
-    String(explicit).split(','), 'CLI selection'
-  ))].sort();
-  const phaseRaw = phase && config.phases?.[phase]?.declaredViews?.length
-    ? config.phases[phase].declaredViews : [];
-  const phaseViews = normalize(phaseRaw, `phase '${phase}'`);
   const configuredRaw = config.definition?.worldModel?.views ?? [];
   const configured = normalize(configuredRaw, 'configuration');
+  const configuredById = new Map(configured.map((entry) => [entry.viewId, entry]));
+  if (explicit) return normalize(String(explicit).split(','), 'CLI selection', configuredById)
+    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+  const phaseRaw = phase && config.phases?.[phase]?.declaredViews?.length
+    ? config.phases[phase].declaredViews : [];
+  const phaseViews = normalize(phaseRaw, `phase '${phase}'`, configuredById);
   let values = phaseViews.length ? phaseViews : configured;
   if (!values.length && (phaseRaw.length || configuredRaw.length)) {
     throw new SingularityFlowError(
       'The approved World-Model configuration contains no registered WMB v4 view.',
-      { code: 'WMB_VIEW_UNKNOWN', details: { registeredViews: all } }
+      { code: 'WMB_VIEW_UNKNOWN', details: {
+        registeredViews: all.map((entry) => entry.viewId)
+      } }
     );
   }
   if (!values.length) values = all;
-  return [...new Set(values)].sort();
+  return [...new Map(values.map((entry) => [entry.viewId, entry])).values()]
+    .sort((left, right) => left.viewId.localeCompare(right.viewId));
+}
+
+/** Resolve validated registered-view references to their canonical manifest IDs. */
+export function configuredWorldModelV4ViewIds(config, options = {}, phase = null) {
+  return configuredWorldModelV4ViewSelections(config, options, phase).map((entry) => entry.viewId);
 }
 
 function composer(config, options) {
@@ -99,34 +156,55 @@ function depth(config, options) {
 }
 
 function ledgerConfig(config) {
+  const authority = worldModelStateAuthority(config.definition ?? {}, {
+    branch: config.stateBranch,
+    remote: config.remote
+  });
   return {
     ...(config.definition?.ledger ?? {}),
-    branch: config.definition?.ledger?.branch ?? config.stateBranch ?? 'state',
-    remote: config.definition?.git?.remote ?? config.remote ?? 'origin'
+    branch: authority.branch,
+    remote: authority.remote
   };
 }
 
 function scopeOptions(root, config) {
   const policy = config.definition?.worldModel ?? {};
-  const activeCapability = config.workflow?.resolution?.capability?.id
-    ?? config.workflow?.resolution?.capabilityId
+  const activeCapability = configuredWorldModelV4CapabilityId(config)
     ?? path.basename(root);
-  const excluded = [...new Set([
+  const canonicalPatterns = (values, label) => [...new Set(values.map(
+    (value, index) => normalizeScopePattern(value, `${label}[${index}]`)
+  ))].sort();
+  const excluded = canonicalPatterns([
     ...DEFAULT_EXCLUDED_ROOTS,
     ...(policy.excludedRoots ?? [])
-  ])].sort();
+  ], 'World-model excluded roots');
+  const allowedPaths = policy.sourceRoots?.length
+    ? canonicalPatterns(policy.sourceRoots, 'World-model source roots') : ['**'];
+  const sharedPaths = canonicalPatterns(policy.sharedRoots ?? [], 'World-model shared roots');
+  const allowedSubjects = policy.allowedSubjects?.length
+    ? [...new Set(policy.allowedSubjects)].sort() : null;
+  const maximumTraversalDepth = policy.maximumTraversalDepth ?? 8;
+  // Only approved source/scope policy participates in the reusable scope identity. Read behavior,
+  // staleness handling, UI injection, worker parallelism, and materialization confirmation cannot
+  // change which source bytes or subjects are admissible and must not make an unchanged model stale.
   const policySnapshotSha256 = sha256({
+    id: 'sflow-wmb-v4-scope-policy',
+    version: 1,
     format: 'registered-v4',
-    worldModel: policy,
-    capabilityId: activeCapability
+    capabilityId: activeCapability,
+    allowedPaths,
+    sharedPaths,
+    excludedPaths: excluded,
+    allowedSubjects,
+    maximumTraversalDepth
   });
   return {
     capabilityId: activeCapability,
-    allowedPaths: policy.sourceRoots?.length ? policy.sourceRoots : ['**'],
-    sharedPaths: policy.sharedRoots ?? [],
+    allowedPaths,
+    sharedPaths,
     excludedPaths: excluded,
-    ...(policy.allowedSubjects?.length ? { allowedSubjects: policy.allowedSubjects } : {}),
-    maximumTraversalDepth: policy.maximumTraversalDepth ?? 8,
+    ...(allowedSubjects ? { allowedSubjects } : {}),
+    maximumTraversalDepth,
     policySnapshotSha256,
     policySourceSha256: policySnapshotSha256
   };
@@ -145,7 +223,9 @@ export function configuredWorldModelV4MaximumWorkers(config, options = {}) {
 
 function commonBuildOptions(root, config, options, { views = null, cachePolicy = null } = {}) {
   return {
-    views: views ?? configuredWorldModelV4ViewIds(config, options, optionString(options, 'phase')),
+    views: views ?? configuredWorldModelV4ViewSelections(
+      config, options, optionString(options, 'phase')
+    ).map((entry) => entry.reference),
     consumer: optionString(
       options, 'consumer', config.definition?.worldModel?.v4?.consumer ?? 'developer'
     ),
@@ -184,6 +264,9 @@ export function worldModelV4GatewayDefaults(root, config) {
     }),
     outputDir: config.outputDir,
     ledgerConfig: ledgerConfig(config),
+    // This is deliberately distinct from the scope-manifest capability fallback. Only an approved
+    // selected capability can be replayed as a CLI option after a gateway refusal.
+    selectedCapabilityId: configuredWorldModelV4CapabilityId(config),
     sharedCacheDirectory: process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE ?? null,
     allowUnavailableOptionalViews: true
   });
@@ -210,11 +293,11 @@ async function resolvedBuildOptions(root, config, options, overrides = {}) {
   };
 }
 
-function storeOptions(root, config) {
+function storeOptions(root, config, { views = null, options = {} } = {}) {
   const ledger = ledgerConfig(config);
   const expectedReusableIdentity = resolveWorldModelV4ReusableIdentity(
-    commonBuildOptions(root, config, {}, {
-      views: configuredWorldModelV4ViewIds(config)
+    commonBuildOptions(root, config, options, {
+      views: views ?? configuredWorldModelV4ViewIds(config)
     })
   ).identity;
   return {
@@ -257,6 +340,16 @@ export async function buildWorldModelV4Command(root, config, options, {
   views = null, rebuild = false, silent = false, preserveIndependentViews = true,
   legacyMigration = null
 } = {}) {
+  const expectedAuthorityCommit = optionString(options, 'expected-preservation-commit');
+  const expectedAuthorityManifest = optionString(
+    options, 'expected-preservation-manifest-sha256'
+  );
+  if (Boolean(expectedAuthorityCommit) !== Boolean(expectedAuthorityManifest)) {
+    throw new SingularityFlowError(
+      'Automatic registered-v4 extension requires both expected preservation authority fields.',
+      { code: 'WMB_AUTOMATIC_EXTENSION_AUTHORITY_INVALID' }
+    );
+  }
   const result = await buildAndPublishWorldModelV4(root, {
     ...await resolvedBuildOptions(root, config, options, {
       views,
@@ -271,6 +364,10 @@ export async function buildWorldModelV4Command(root, config, options, {
     publicationOptions: {},
     allowUnavailableOptionalViews: true,
     preserveIndependentViews,
+    expectedPreservationAuthority: expectedAuthorityCommit ? {
+      commit: expectedAuthorityCommit,
+      manifestSha256: expectedAuthorityManifest
+    } : null,
     ...(legacyMigration ? { legacyMigration } : {})
   });
   if (!silent && optionBoolean(options, 'json')) console.log(JSON.stringify({
@@ -315,7 +412,10 @@ async function captureCandidateSnapshotCommand(root, config, options) {
     sourceSnapshot,
     baseRevision: sourceSnapshot.authority.baseRevision,
     files: sourceSnapshot.files.length,
-    next: `singularity-flow wm build --candidate-snapshot ${sourceSnapshot.sourceManifestSha256} --local`
+    next: scopedWorldModelV4Command(
+      config,
+      `singularity-flow wm build --candidate-snapshot ${sourceSnapshot.sourceManifestSha256} --local`
+    )
   });
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
   else {
@@ -331,10 +431,20 @@ function currentStore(root, config) {
 }
 
 function selectedStoreView(store, viewId) {
-  const view = store.views.find((entry) => entry.viewId === viewId);
+  const selection = typeof viewId === 'string'
+    ? { viewId: viewId.replace(/@\d+$/, ''), version: /@(\d+)$/.exec(viewId)?.[1] ?? null }
+    : viewId;
+  const view = store.views.find((entry) => entry.viewId === selection.viewId);
   if (!view) {
-    const error = new Error(`WMB v4 view '${viewId}' is not present in the current manifest.`);
-    error.code = 'WMB_VIEW_UNKNOWN';
+    const error = new Error(`WMB v4 view '${selection.viewId}' is not present in the current manifest.`);
+    error.code = 'WMB_VIEW_UNAVAILABLE';
+    throw error;
+  }
+  if (selection.version != null && Number(selection.version) !== Number(view.viewVersion)) {
+    const error = new Error(
+      `WMB v4 view '${selection.viewId}@${selection.version}' cannot use published version ${view.viewVersion}.`
+    );
+    error.code = 'WMB_VIEW_VERSION_UNSUPPORTED';
     throw error;
   }
   return view;
@@ -366,29 +476,90 @@ export function resolveWorldModelV4Grounding(root, config, {
   required = true,
   store: suppliedStore = null
 } = {}) {
+  const requestedSelections = configuredWorldModelV4ViewSelections(config, options, phase);
   const store = suppliedStore
-    ?? resolvePublishedWorldModelV4(root, { ...storeOptions(root, config), required });
+    ?? resolvePublishedWorldModelV4(root, {
+      ...storeOptions(root, config, {
+        views: requestedSelections.map((selection) => selection.reference),
+        options
+      }),
+      required
+    });
   if (!store) return null;
-  const viewIds = configuredWorldModelV4ViewIds(config, options, phase);
-  const views = viewIds.map((viewId) => selectedStoreView(store, viewId));
+  // The published build request and aggregate output budget describe the invocation that created
+  // the projection. They do not invalidate an independently verified phase view merely because a
+  // later consumer asks for a subset (or because this projection was built for a phase subset of a
+  // larger repository catalog). Source, scope, policy, registry and composer changes still stale
+  // the view. This keeps `wm build --phase X` from making its own output immediately unusable.
+  const requestOnlyIdentityFields = new Set(['requestedViews', 'outputBudgetSha256']);
+  const groundingChanges = (store.freshness?.changes ?? []).filter(
+    (change) => !requestOnlyIdentityFields.has(change.field)
+  );
+  const primaryGroundingChange = groundingChanges[0] ?? null;
+  const groundingFreshness = Object.freeze({
+    ...structuredClone(store.freshness),
+    fresh: groundingChanges.length === 0,
+    built: primaryGroundingChange?.previousSha256
+      ?? store.sourceSnapshot.sourceManifestSha256,
+    current: primaryGroundingChange?.currentSha256
+      ?? store.sourceSnapshot.sourceManifestSha256,
+    reason: primaryGroundingChange?.reason ?? null,
+    changes: Object.freeze(groundingChanges.map((change) => Object.freeze({ ...change })))
+  });
+  const views = requestedSelections.map((selection) => {
+    try {
+      return selectedStoreView(store, selection);
+    } catch (error) {
+      if (error?.code !== 'WMB_VIEW_UNAVAILABLE') throw error;
+      return Object.freeze({
+        viewId: selection.viewId,
+        viewVersion: selection.version,
+        status: 'missing',
+        required: true
+      });
+    }
+  });
   const unavailable = views.filter((entry) => entry.status !== 'available');
   if (unavailable.length) {
+    const recoveryCommand = scopedWorldModelV4Command(
+      config,
+      `singularity-flow wm build --format registered-v4 --views ${unavailable.map((entry) => entry.viewId).join(',')}`
+    );
+    // A fully verified projection for the exact current source and reusable execution identity is a
+    // safe progressive-build base. Expose only its immutable authority identity: the registered-v4
+    // builder resolves and revalidates that authority itself before retaining the existing bytes.
+    // Stale projections receive no extension identity; corrupt, version-mismatched, and removed
+    // projections fail before one can be created.
+    const extensionBase = groundingFreshness.fresh ? Object.freeze({
+      format: 'registered-v4',
+      source: 'state-branch',
+      ref: store.ref,
+      commit: store.commit,
+      manifestSha256: store.manifest.manifestSha256,
+      sourceManifestSha256: store.sourceSnapshot.sourceManifestSha256
+    }) : null;
     throw new SingularityFlowError(
       `Registered WMB v4 grounding is unavailable for: ${unavailable.map((entry) => entry.viewId).join(', ')}. `
-      + 'Run an explicit singularity-flow wm build --format registered-v4 for those views.',
+      + `Run: ${recoveryCommand}.`,
       {
         code: 'WMB_VIEW_UNAVAILABLE',
-        details: { phase, views: unavailable.map((entry) => entry.viewId), implicitRebuild: false }
+        details: {
+          phase,
+          views: unavailable.map((entry) => entry.viewId),
+          implicitRebuild: false,
+          command: recoveryCommand,
+          extensionBase
+        }
       }
     );
   }
-  if (!store.freshness.fresh && config.staleness === 'fail') {
+  if (!groundingFreshness.fresh && config.staleness === 'fail') {
     throw new SingularityFlowError(
-      `Registered WMB v4 grounding is stale (${store.freshness.reason}). `
+      `Registered WMB v4 grounding is stale (${groundingFreshness.reason}). `
       + 'Review the source change and run an explicit WMB v4 build; phase composition will not rebuild it.',
       {
         code: 'WMB_SOURCE_SNAPSHOT_STALE',
-        details: { ...store.freshness, implicitRebuild: false }
+        details: { ...groundingFreshness, implicitRebuild: false }
       }
     );
   }
@@ -430,7 +601,7 @@ export function resolveWorldModelV4Grounding(root, config, {
     manifestSha256: store.manifest.manifestSha256,
     manifestContentSha256: contentSha256(canonicalJson(store.manifest)),
     sourceManifestSha256: store.sourceSnapshot.sourceManifestSha256,
-    freshness: structuredClone(store.freshness)
+    freshness: structuredClone(groundingFreshness)
   });
 }
 
@@ -512,7 +683,7 @@ function registryViewsCommand(options) {
 }
 
 function viewContractCommand(options, viewId) {
-  const contract = resolveBuiltInViewContract(viewId.includes('@') ? viewId : `${viewId}@4`);
+  const contract = normalizeBuiltInViewReference(viewId).contract;
   if (optionBoolean(options, 'json')) console.log(JSON.stringify(contract, null, 2));
   else process.stdout.write(canonicalJson(contract));
   return contract;
@@ -656,8 +827,78 @@ export async function handleWorldModelV4Command(root, config, command, positiona
   if (command === 'snapshot') return captureCandidateSnapshotCommand(root, config, options);
   if (command === 'build') return buildWorldModelV4Command(root, config, options);
   if (command === 'status' || command === 'availability') return statusWorldModelV4Command(root, config, options);
+  if (command === 'refresh-authority') {
+    const refreshed = refreshWorldModelV4Authority(root, config);
+    if (['offline-cached', 'timeout-cached', 'unavailable'].includes(refreshed.status)) {
+      throw new SingularityFlowError(
+        'The registered World-Model state authority was not refreshed. Restore remote access and retry the same command.',
+        {
+          code: 'WMB_STATE_AUTHORITY_UNAVAILABLE',
+          details: {
+            status: refreshed.status,
+            classification: refreshed.failure ?? null,
+            command: scopedWorldModelV4Command(
+              config, 'singularity-flow wm refresh-authority --format registered-v4'
+            )
+          }
+        }
+      );
+    }
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(refreshed, null, 2));
+    else if (refreshed.status === 'refreshed') {
+      console.log(`World-Model state authority refreshed at ${refreshed.commit ?? 'an empty state branch'}.`);
+    } else if (refreshed.status === 'remote-absent') {
+      console.log('The remote state branch has no World Model; any stale tracking projection was cleared.');
+    } else {
+      console.log('No remote World-Model state authority is configured; local authority is unchanged.');
+    }
+    return refreshed;
+  }
   if (command === 'ensure') {
     const phase = positionals[2] ?? optionString(options, 'phase');
+    const authority = inspectWorldModelV4Authority(root, config);
+    if (authority.status === 'stale') {
+      throw new SingularityFlowError(
+        'The cached registered World-Model authority is behind the configured remote state branch.',
+        {
+          code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+          details: {
+            cachedCommit: authority.cachedCommit,
+            remoteCommit: authority.remoteCommit,
+            command: scopedWorldModelV4Command(
+              config, 'singularity-flow wm refresh-authority --format registered-v4'
+            )
+          }
+        }
+      );
+    }
+    if (authority.status === 'remote-absent') {
+      throw new SingularityFlowError(
+        'The configured remote state branch has no registered World Model. Cached or local projections cannot override that authority.',
+        {
+          code: 'WMB_MANIFEST_MISSING',
+          details: {
+            command: scopedWorldModelV4Command(
+              config, 'singularity-flow wm build --format registered-v4'
+            ),
+            remoteModelRemoved: true
+          }
+        }
+      );
+    }
+    if (authority.status === 'unavailable') {
+      throw new SingularityFlowError(
+        'The registered World-Model authority is unavailable and no verified cached projection can be used.',
+        {
+          code: 'WMB_STATE_AUTHORITY_UNAVAILABLE',
+          details: {
+            command: scopedWorldModelV4Command(
+              config, 'singularity-flow wm refresh-authority --format registered-v4'
+            )
+          }
+        }
+      );
+    }
     const resolved = resolveWorldModelV4Grounding(root, config, { phase, options });
     const result = {
       status: 'ready',
@@ -762,7 +1003,7 @@ export async function handleWorldModelV4Command(root, config, command, positiona
 }
 
 export const WORLD_MODEL_V4_COMMANDS = Object.freeze(new Set([
-  'plan', 'snapshot', 'build', 'status', 'availability', 'ensure', 'manifest', 'show', 'facts', 'evidence',
+  'plan', 'snapshot', 'build', 'status', 'availability', 'ensure', 'refresh-authority', 'manifest', 'show', 'facts', 'evidence',
   'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'regenerate',
   'views', 'view-contract', 'extractors', 'doctor', 'context', 'migrate'
 ]));

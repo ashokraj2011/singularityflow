@@ -12,6 +12,7 @@ import { COPILOT_MINIMUM_AI_CREDITS } from '../model-limits.mjs';
 import { redactDiagnosticText } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { VERSION } from '../version.mjs';
+import { resolveModelProviderLaunch } from '../model-provider-launch.mjs';
 
 const DEFAULT_OUTPUT_LIMIT = 8 * 1024 * 1024;
 const TERMINATION_GRACE_MS = 250;
@@ -504,7 +505,18 @@ async function precreateAcpEditTarget(request, decision) {
   return true;
 }
 
-function providerIdentity(request) {
+function providerRuntime(overrides = {}) {
+  return Object.freeze({
+    platform: overrides.platform ?? process.platform,
+    environment: overrides.environment ?? process.env,
+    spawnImpl: overrides.spawnImpl ?? spawn,
+    spawnSyncImpl: overrides.spawnSyncImpl ?? spawnSync,
+    resolvedExecutable: overrides.resolvedExecutable ?? null
+  });
+}
+
+function providerIdentity(request, runtimeOverrides = {}) {
+  const runtime = providerRuntime(runtimeOverrides);
   const configured = request.providerConfig ?? {};
   const executable = configured.executable ?? 'copilot';
   if (typeof executable !== 'string' || !executable.trim() || /[\r\n\0]/.test(executable)) {
@@ -519,12 +531,18 @@ function providerIdentity(request) {
       code: 'MODEL_REQUEST_INVALID', details: { option: conflict }
     });
   }
-  const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
-  const configuredExecutable = configured.executable != null && command !== 'copilot' && command !== 'copilot.cmd';
+  const launch = resolveModelProviderLaunch(executable, {
+    platform: runtime.platform,
+    environment: runtime.environment,
+    spawnSyncImpl: runtime.spawnSyncImpl,
+    resolvedExecutable: runtime.resolvedExecutable
+  });
+  const command = launch.target ?? executable;
+  const configuredExecutable = configured.executable != null && executable !== 'copilot' && executable !== 'copilot.cmd';
   const providerLabel = request.provider === 'copilot-cli'
     ? (configuredExecutable ? `Model provider '${command}'` : 'Copilot CLI')
     : `Model provider '${request.provider}'`;
-  return { configured, command, providerLabel };
+  return { configured, command, launch, providerLabel, runtime };
 }
 
 async function verifiedStagedPrompt(request, transport) {
@@ -551,20 +569,21 @@ async function verifiedStagedPrompt(request, transport) {
   return bytes.toString('utf8');
 }
 
-function terminateAcpProcess(child, force = false) {
-  if (!child.pid || child.exitCode != null || child.signalCode != null) return;
-  if (process.platform === 'win32') {
-    spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], {
+function terminateAcpProcess(child, force = false, runtimeOverrides = {}) {
+  const runtime = providerRuntime(runtimeOverrides);
+  if (!child.pid || child.exitCode != null || child.signalCode != null) return true;
+  if (runtime.platform === 'win32') {
+    const result = runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T', ...(force ? ['/F'] : [])], {
       stdio: 'ignore', windowsHide: true, timeout: 5000
     });
-    return;
+    return !result?.error && result?.status === 0;
   }
-  try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
-  catch { child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
+  try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); return true; }
+  catch { return child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
 }
 
-async function invokeCopilotAcp(request) {
-  const { configured, command, providerLabel } = providerIdentity(request);
+async function invokeCopilotAcp(request, runtimeOverrides = {}) {
+  const { configured, launch, providerLabel, runtime } = providerIdentity(request, runtimeOverrides);
   if (request.promptTransport !== 'acp-stdio') {
     throw new SingularityFlowError('Copilot ACP adapter received the wrong prompt transport.', { code: 'MODEL_REQUEST_INVALID' });
   }
@@ -586,11 +605,11 @@ async function invokeCopilotAcp(request) {
   const protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
 
-  const child = spawn(command, args, {
+  const child = runtime.spawnImpl(launch.command, launch.arguments(args), {
     cwd: request.cwd,
     env: providerEnvironment(request.env, request.telemetry),
-    shell: false,
-    detached: process.platform !== 'win32',
+    ...launch.spawnOptions,
+    detached: runtime.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true
   });
@@ -608,7 +627,11 @@ async function invokeCopilotAcp(request) {
     stderrBytes += chunk.length;
     if (stderrBytes <= outputLimit) stderr += stderrDecoder.write(chunk);
   });
-  const exit = new Promise((resolve) => child.once('close', (status, signal) => resolve({ status, signal })));
+  let closeObserved = false;
+  const exit = new Promise((resolve) => child.once('close', (status, signal) => {
+    closeObserved = true;
+    resolve({ status, signal });
+  }));
   const processFailure = new Promise((resolve, reject) => {
     child.once('error', (error) => reject(new SingularityFlowError(`Unable to start ${providerLabel} (${error.code ?? 'unknown startup error'}).`, {
       code: modelProviderStartErrorCode(error.code),
@@ -883,6 +906,7 @@ async function invokeCopilotAcp(request) {
   }), stream);
   let timer;
   let abortListener;
+  let primaryFailure = null;
   const timeout = new Promise((resolve, reject) => {
     timer = setTimeout(() => reject(new SingularityFlowError(`${providerLabel} invocation exceeded ${request.limits.timeoutMs}ms.`, {
       code: 'MODEL_TIMEOUT'
@@ -952,21 +976,24 @@ async function invokeCopilotAcp(request) {
     }
   } catch (error) {
     if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
-    if (error instanceof SingularityFlowError) throw error;
-    const diagnostic = boundedDiagnostic(stderr);
-    throw new SingularityFlowError(
-      diagnostic ? `${providerLabel} ACP prompt transport failed: ${diagnostic}` : `${providerLabel} ACP prompt transport failed.`,
-      { code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { transport: 'acp-stdio', diagnostic: diagnostic || null } }
-    );
+    if (error instanceof SingularityFlowError) primaryFailure = error;
+    else {
+      const diagnostic = boundedDiagnostic(stderr);
+      primaryFailure = new SingularityFlowError(
+        diagnostic ? `${providerLabel} ACP prompt transport failed: ${diagnostic}` : `${providerLabel} ACP prompt transport failed.`,
+        { code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { transport: 'acp-stdio', diagnostic: diagnostic || null } }
+      );
+    }
+    throw primaryFailure;
   } finally {
     clearTimeout(timer);
     request.signal?.removeEventListener('abort', abortListener);
     expectedExit = true;
     child.stdin?.end();
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
-    terminateAcpProcess(child, false);
+    const softSignalled = terminateAcpProcess(child, false, runtime);
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
-    terminateAcpProcess(child, true);
+    const forceSignalled = terminateAcpProcess(child, true, runtime);
     const ended = await Promise.race([exit, new Promise((resolve) => setTimeout(() => resolve({ status: null, signal: 'SIGKILL' }), 1000))]);
     // Flush a trailing split UTF-8 diagnostic in the ordinary successful-exit path too. The
     // unexpected-exit handler already does this; StringDecoder.end() is safe to call again.
@@ -974,6 +1001,29 @@ async function invokeCopilotAcp(request) {
     if (request.telemetry) await recordTelemetryLaunch(request.telemetry, {
       state: 'finished', exitCode: ended.status, signal: ended.signal
     }).catch(() => {});
+    if (!closeObserved) {
+      const cleanupFailure = new SingularityFlowError(
+        `${providerLabel} ACP process did not terminate after bounded graceful and forced cleanup.`,
+        {
+          code: 'MODEL_PROVIDER_TERMINATION_FAILED',
+          details: {
+            transport: 'acp-stdio', platform: runtime.platform,
+            softSignalled, forceSignalled, pid: child.pid ?? null
+          }
+        }
+      );
+      // Cancellation remains cancellation to callers, while recording that process quiescence was
+      // not proven. A successful or otherwise failed invocation cannot silently return with a live
+      // provider child.
+      if (primaryFailure?.code === 'MODEL_CANCELLED') {
+        primaryFailure.details = {
+          ...(primaryFailure.details ?? {}), cleanup: cleanupFailure.details,
+          cleanupCode: cleanupFailure.code
+        };
+      } else {
+        throw cleanupFailure;
+      }
+    }
   }
 
   const telemetry = await acpTelemetryObservation(request);
@@ -1050,7 +1100,7 @@ async function invokeCopilotAcp(request) {
   };
 }
 
-async function invokeCopilotAttachment(request) {
+async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
   if (request.tools?.scope && request.tools.mode !== 'none') {
     throw new SingularityFlowError(
       'Copilot attachment transport cannot enforce path-scoped tools before filesystem effects. Use ACP stdio.',
@@ -1087,7 +1137,14 @@ async function invokeCopilotAttachment(request) {
   if (request.signal?.aborted) {
     throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }
-  const command = process.platform === 'win32' && executable === 'copilot' ? 'copilot.cmd' : executable;
+  const runtime = providerRuntime(runtimeOverrides);
+  const launch = resolveModelProviderLaunch(executable, {
+    platform: runtime.platform,
+    environment: runtime.environment,
+    spawnSyncImpl: runtime.spawnSyncImpl,
+    resolvedExecutable: runtime.resolvedExecutable
+  });
+  const command = launch.target ?? executable;
   /**
    * The label names what actually ran, not what the provider ID suggests.
    *
@@ -1117,11 +1174,11 @@ async function invokeCopilotAttachment(request) {
   // governed model operation from running.
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = runtime.spawnImpl(launch.command, launch.arguments(args), {
       cwd: request.cwd,
       env: providerEnvironment(request.env, request.telemetry),
-      shell: false,
-      detached: process.platform !== 'win32',
+      ...launch.spawnOptions,
+      detached: runtime.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let stdout = ''; let stderr = ''; let outputBytes = 0; let finished = false; let failure = null; let timer; let terminationTimer;
@@ -1137,8 +1194,8 @@ async function invokeCopilotAttachment(request) {
       failure = error;
       cleanup();
       let signalled = false;
-      if (child.pid && process.platform === 'win32') {
-        const killed = spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
+      if (child.pid && runtime.platform === 'win32') {
+        const killed = runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
         signalled = !killed.error && killed.status === 0;
       } else if (child.pid) {
         try { process.kill(-child.pid, 'SIGTERM'); signalled = true; } catch { signalled = child.kill('SIGTERM'); }
@@ -1150,8 +1207,8 @@ async function invokeCopilotAttachment(request) {
       }
       terminationTimer = setTimeout(() => {
         if (child.exitCode != null || child.signalCode != null) return;
-        if (child.pid && process.platform === 'win32') {
-          spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
+        if (child.pid && runtime.platform === 'win32') {
+          runtime.spawnSyncImpl('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 5_000 });
         } else if (child.pid) {
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
         }
@@ -1223,9 +1280,9 @@ async function invokeCopilotAttachment(request) {
   });
 }
 
-export async function invokeCopilotCli(request) {
-  if (request.promptTransport === 'acp-stdio') return invokeCopilotAcp(request);
-  if (request.promptTransport === 'attachment') return invokeCopilotAttachment(request);
+export async function invokeCopilotCli(request, runtimeOverrides = {}) {
+  if (request.promptTransport === 'acp-stdio') return invokeCopilotAcp(request, runtimeOverrides);
+  if (request.promptTransport === 'attachment') return invokeCopilotAttachment(request, runtimeOverrides);
   throw new SingularityFlowError(`Copilot CLI does not support prompt transport '${request.promptTransport ?? 'unset'}'.`, {
     code: 'MODEL_REQUEST_INVALID'
   });

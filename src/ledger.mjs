@@ -91,6 +91,69 @@ function refExistsInEnvironment(root, ref, env = process.env) {
   return git(root, ['show-ref', '--verify', '--quiet', ref], { allowFailure: true, env }).status === 0;
 }
 
+function synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env = process.env) {
+  const ref = remoteRef(config);
+  const current = refExistsInEnvironment(root, ref, env)
+    ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`], { env }).stdout.trim()
+    : null;
+  if (current === commit) return;
+
+  // A fetch may have observed a publication made after ours while `git push` was returning. Never
+  // move that authority cache backwards. A stale tracking ref is replaceable only when it is the
+  // exact pre-push value (or one of its ancestors); update-ref's old-value lease closes the race
+  // between this inspection and the write.
+  if (current && git(root, ['merge-base', '--is-ancestor', commit, current], {
+    allowFailure: true, env
+  }).status === 0) return;
+  const currentPrecedesPublishedCommit = Boolean(current) && git(root, [
+    'merge-base', '--is-ancestor', current, commit
+  ], { allowFailure: true, env }).status === 0;
+  const replaceable = current === null || currentPrecedesPublishedCommit || Boolean(expectedRemoteSha && (
+    current === expectedRemoteSha
+    || git(root, ['merge-base', '--is-ancestor', current, expectedRemoteSha], {
+      allowFailure: true, env
+    }).status === 0
+  ));
+  if (!replaceable) return;
+  git(root, [
+    'update-ref', ref, commit, current ?? '0'.repeat(commit.length)
+  ], { allowFailure: true, env });
+}
+
+function synchronizeLocalStateRefAfterRemotePush(root, config, commit, env = process.env) {
+  const ref = localRef(config);
+  const current = refExistsInEnvironment(root, ref, env)
+    ? git(root, ['rev-parse', '--verify', `${ref}^{commit}`], { env }).stdout.trim()
+    : null;
+  if (current === commit) return;
+  if (current && git(root, ['merge-base', '--is-ancestor', commit, current], {
+    allowFailure: true, env
+  }).status === 0) return;
+  const replaceable = current === null || git(root, [
+    'merge-base', '--is-ancestor', current, commit
+  ], { allowFailure: true, env }).status === 0;
+  if (!replaceable) return;
+  git(root, [
+    'update-ref', ref, commit, current ?? '0'.repeat(commit.length)
+  ], { allowFailure: true, env });
+}
+
+function localStateConcurrencyError(config, expectedLocalSha, observedLocalSha) {
+  const error = new SingularityFlowError(
+    `Concurrent publication changed the local ${config.branch} branch before the candidate could be applied.`,
+    {
+      code: 'state_branch.concurrent_publication',
+      details: {
+        branch: config.branch,
+        expectedLocalSha,
+        observedLocalSha
+      }
+    }
+  );
+  error.concurrent = true;
+  return error;
+}
+
 function hasRemoteInEnvironment(root, remote, env = process.env) {
   return git(root, ['config', '--get', `remote.${remote}.url`], { allowFailure: true, env }).status === 0;
 }
@@ -558,7 +621,7 @@ export async function initializeLedger(root, rawConfig = {}, {
       }
       // The successful CAS is an exact observation of the new remote tip. Keep the normal tracking
       // ref current so the caller can append immediately without fetching the commit it just pushed.
-      git(root, ['update-ref', remoteRef(config), sha], { allowFailure: true, env });
+      synchronizeRemoteTrackingRefAfterPush(root, config, sha, null, env);
     }
     return { created: true, branch: config.branch, commit: sha, orphan: true, refspecInstalled };
   }, { env });
@@ -1159,6 +1222,9 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       details: { branch: config.branch, expectedRemoteSha }
     });
   }
+  const publicationBaseCommit = git(root, ['rev-parse', '--verify', `${publicationBase}^{commit}`], {
+    env
+  }).stdout.trim();
 
   return temporaryWorktree(root, publicationBase, async (worktree) => {
     const desired = new Set(entries.map(([file]) => file));
@@ -1204,6 +1270,13 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
             env, transportRemote
           }
         );
+      } else {
+        const observedLocalSha = refExistsInEnvironment(root, localRef(config), env)
+          ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
+          : null;
+        if (observedLocalSha !== publicationBaseCommit) {
+          throw localStateConcurrencyError(config, publicationBaseCommit, observedLocalSha);
+        }
       }
       return {
         branch: config.branch,
@@ -1243,16 +1316,25 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       assertGuardedRemoteRefsCurrent(
         worktree, config, sourceGuards, 'during state publication', { env, transportRemote }
       );
+      // The successful compare-and-swap push is an exact observation of the new remote tip. Keep
+      // the tracking ref aligned immediately; otherwise authority-first readers can see the
+      // initialization commit while the local convenience ref already contains the projection.
+      synchronizeRemoteTrackingRefAfterPush(root, config, commit, expectedRemoteSha, env);
       // The local branch follows what was just published. Readers name the branch plainly —
       // `git rev-parse state:singularity/world-model` — so a push that left the local ref behind
       // means the machine that did the publishing is the one that cannot see it. Allowed to fail:
       // if the branch is checked out somewhere, the remote ref still answers.
-      git(root, ['update-ref', localRef(config), commit], { allowFailure: true, env });
+      synchronizeLocalStateRefAfterRemotePush(root, config, commit, env);
     } else {
-      git(root, [
-        'update-ref', localRef(config), commit,
-        git(root, ['rev-parse', ref], { env }).stdout.trim()
-      ], { env });
+      const advanced = git(root, [
+        'update-ref', localRef(config), commit, publicationBaseCommit
+      ], { allowFailure: true, env });
+      if (advanced.status !== 0) {
+        const observedLocalSha = refExistsInEnvironment(root, localRef(config), env)
+          ? git(root, ['rev-parse', '--verify', `${localRef(config)}^{commit}`], { env }).stdout.trim()
+          : null;
+        throw localStateConcurrencyError(config, publicationBaseCommit, observedLocalSha);
+      }
     }
     return {
       branch: config.branch,

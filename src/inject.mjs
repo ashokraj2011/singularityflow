@@ -126,6 +126,20 @@ function utf8Prefix(buffer, maxBytes) {
   return buffer.subarray(0, end).toString('utf8');
 }
 
+function durableGroundingAvailability(injection) {
+  const supplied = injection.groundingAvailability;
+  const status = supplied?.status ?? (injection.modelCommit ? 'available' : 'unavailable');
+  if (!['available', 'unavailable'].includes(status)) {
+    throw new SingularityFlowError(`Prompt grounding availability status '${String(status)}' cannot be recorded.`);
+  }
+  if (status === 'available') return { status, reasonCode: null };
+  const reasonCode = supplied?.reasonCode ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE';
+  if (typeof reasonCode !== 'string' || !/^[A-Z][A-Z0-9_.-]{0,95}$/.test(reasonCode)) {
+    throw new SingularityFlowError('Prompt grounding unavailability must use a stable reason code.');
+  }
+  return { status, reasonCode };
+}
+
 export async function renderInjection(root, definition, signals = {}, { modelDirectory = null } = {}) {
   const resolution = resolveInjection(definition, signals);
   if (resolution.mode === 'off' || !resolution.includes.length) return { ...resolution, sections: [], text: '' };
@@ -193,6 +207,7 @@ export async function injectAgentPrompt(root, definition, agentId, signals = {},
 
 export async function recordInjection(root, workflow, phase, injection, { workDir }) {
   const generation = phase.generation + 1;
+  const groundingAvailability = durableGroundingAvailability(injection);
   const promptFile = path.join(workDir, 'context', 'prompts', `${phase.id}-gen${generation}.md`);
   if (injection.renderedText != null) await writeText(promptFile, injection.renderedText);
   const record = {
@@ -207,6 +222,7 @@ export async function recordInjection(root, workflow, phase, injection, { workDi
     applied: injection.applied ?? false,
     depth: injection.depth,
     evidence: injection.evidence,
+    groundingAvailability,
     requiredViews: injection.requiredViews ?? [],
     requiredSelections: injection.requiredSelections ?? [],
     task: injection.task ?? null,

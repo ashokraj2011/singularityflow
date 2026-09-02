@@ -741,6 +741,21 @@ function promptInjectionV2ToV3(source) {
   return { ...source, schemaVersion: 3, structuralContext };
 }
 
+function promptInjectionV3ToV4(source) {
+  // Older receipts did not distinguish an intentionally advisory absence from an incomplete or
+  // corrupted world-model receipt. A migration must not invent that authority decision. Keep the
+  // historical verifier contract explicit so only newly authored v4 receipts can claim that
+  // grounding was deliberately unavailable.
+  return {
+    ...source,
+    schemaVersion: 4,
+    groundingAvailability: {
+      status: 'legacy-unverified',
+      reasonCode: null
+    }
+  };
+}
+
 function agentContextAuditV1ToV2(source) {
   return {
     ...source,
@@ -1559,8 +1574,12 @@ const families = [
   family({ id: 'work-item-telemetry', currentVersion: 1 }),
   family({ id: 'artifact-authorship', currentVersion: 1 }),
   family({
-    id: 'prompt-injection', currentVersion: 3,
-    steps: [migration(1, 2, promptInjectionV1ToV2), migration(2, 3, promptInjectionV2ToV3)],
+    id: 'prompt-injection', currentVersion: 4,
+    steps: [
+      migration(1, 2, promptInjectionV1ToV2),
+      migration(2, 3, promptInjectionV2ToV3),
+      migration(3, 4, promptInjectionV3ToV4)
+    ],
     paths: [/^singularity\/work-items\/[^/]+\/context\/(?!(?:agents-|remote-output-))[^/]+-gen\d+\.json$/]
   }),
   family({

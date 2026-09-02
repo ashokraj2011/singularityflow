@@ -15,6 +15,7 @@ import { loadDefinition } from './config.mjs';
 import {
   resolveWorldModelSource, validateWorldModelDirectory, worldModelFreshness, worldModelSourceSnapshot
 } from './grounding.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 
 export const WORKSPACE_IMPACT_SCHEMA_VERSION = currentSchemaVersion('workspace-impact-report');
 const MAX_COPILOT_OUTPUT_BYTES = 8 * 1024 * 1024;
@@ -74,12 +75,13 @@ async function resolvedRepositoryWorldModel(root, commit, dirty) {
         };
   }
   try {
+    const state = worldModelStateAuthority(definition);
     const source = await worldModelSourceSnapshot(root, definition);
     const located = await resolveWorldModelSource(root, {
       ...(definition.worldModel ?? {}),
       outputDir,
-      stateBranch: definition.worldModel?.stateBranch ?? definition.ledger?.branch ?? null,
-      remote: definition.worldModel?.remote ?? definition.git?.remote ?? 'origin',
+      stateBranch: state.branch,
+      remote: state.remote,
       ledger: definition.ledger,
       definition
     }, { sourceTreeSha256: source.sha256 });

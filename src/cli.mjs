@@ -54,7 +54,9 @@ import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
 import { installPlugin, listPlugins, pluginPath, uninstallPlugin } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
-import { inspectWorkflowGrounding, worldModelCommand } from './worldmodel.mjs';
+import {
+  inspectWorkflowGrounding, workflowGroundingMaterializationPlan, worldModelCommand
+} from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import {
   automaticMaterializationDecision, effectiveMaterializationPolicy
@@ -2644,9 +2646,24 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
     }
   }
 
-  const deterministic = policy.depth === 'light' || operationContext()?.modelMode.enabled === false;
+  const buildPlan = workflowGroundingMaterializationPlan(readiness, {
+    phaseId: phase.id,
+    automatic: policy.confirmation === 'automatic',
+    publication: policy.publish
+  });
+  if (!buildPlan.allowed) {
+    return {
+      materialized: false, policy, preservation: buildPlan,
+      reason: buildPlan.reason
+    };
+  }
+  const deterministic = buildPlan.format === 'registered-v4'
+    ? buildPlan.modelFree
+    : policy.depth === 'light' || operationContext()?.modelMode.enabled === false;
   const description = deterministic
-    ? `the deterministic light world model for phase '${phase.id}' (zero model tokens${policy.depth === 'phase' ? '; --no-model fallback' : ''})`
+    ? buildPlan.format === 'registered-v4'
+      ? `the deterministic world model for phase '${phase.id}' (zero model tokens)`
+      : `the deterministic light world model for phase '${phase.id}' (zero model tokens${policy.depth === 'phase' ? '; --no-model fallback' : ''})`
     : `the configured phase-depth world model for phase '${phase.id}' (may invoke the configured model provider)`;
   const authorized = policy.confirmation === 'automatic'
     || optionBoolean(options, 'yes')
@@ -2654,13 +2671,14 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
   if (!authorized) return { materialized: false, policy, declined: true, reason: 'the user declined materialization' };
 
   console.log(`${policy.confirmation === 'automatic' ? 'Automatically building' : 'Building'} ${description}...`);
-  const ensureOperation = operationById('wm.ensure');
-  if (!ensureOperation) throw new SingularityFlowError("Registered operation 'wm.ensure' is unavailable.");
-  const ensurePhase = (phaseId) => runOperation(ensureOperation, () => worldModelCommand(root, ['wm', 'ensure'], {
-    phase: phaseId,
-    automaticLifecycle: policy.confirmation === 'automatic'
-  }));
-  await ensurePhase(phase.id);
+  const operation = operationById(buildPlan.operationId);
+  if (!operation) throw new SingularityFlowError(`Registered operation '${buildPlan.operationId}' is unavailable.`);
+  const materializePhase = (phaseId) => runOperation(operation, () => worldModelCommand(
+    root,
+    buildPlan.positionals,
+    { ...buildPlan.options, phase: phaseId }
+  ));
+  await materializePhase(phase.id);
 
   let lookahead = null;
   if (policy.lookahead === 'next-phase') {
@@ -2668,7 +2686,7 @@ async function materializeWorldModelForNext(root, config, workflow, phase, optio
     const nextPhaseId = index >= 0 ? workflow.phaseOrder?.[index + 1] ?? null : null;
     if (nextPhaseId && workflow.phases?.[nextPhaseId]) {
       console.log(`Preparing configured next-phase grounding for '${nextPhaseId}'...`);
-      await ensurePhase(nextPhaseId);
+      await materializePhase(nextPhaseId);
       lookahead = { phase: nextPhaseId, materialized: true };
     }
   }
@@ -2722,7 +2740,10 @@ async function nextCommand(options) {
   const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
   if (grounding !== 'off') {
     const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {
-      agent: (await loadSession(root, { required: false }))?.agent ?? null
+      agent: (await loadSession(root, { required: false }))?.agent ?? null,
+      // `next` is an authoring orchestrator, unlike the read-only nextsteps/status surfaces. Refresh
+      // the state authority here before any materialization or prompt composition decision.
+      refreshRemote: true
     });
     if (!readiness.availability.ready) {
       const materialization = await materializeWorldModelForNext(root, config, workflow, phase, options, readiness);
@@ -2731,7 +2752,7 @@ async function nextCommand(options) {
           await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
         } catch (error) {
           if (materialization.policy.depth === 'light') {
-            throw new SingularityFlowError(`The configured automatic light world model did not satisfy phase '${phase.id}': ${error.message}\nUse depth: phase with confirmation: prompt, or run singularity-flow wm ensure --phase ${phase.id}.`);
+            throw new SingularityFlowError(`The configured automatic model-free world model did not satisfy phase '${phase.id}': ${error.message}\nUse confirmation: prompt with an approved composer, or run ${readiness.command}.`);
           }
           throw error;
         }
@@ -2739,7 +2760,7 @@ async function nextCommand(options) {
         console.log(`Next step prerequisite: ${readiness.reason}`);
         console.log('No model was started. Build explicitly, then continue:');
         console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`Run: singularity-flow wm ensure --phase ${phase.id}`);
+        console.log(`Run: ${readiness.command}`);
         if (materialization.reason) console.log(`Configured policy did not build it: ${materialization.reason}.`);
         console.log('Model-free alternative: author the prepared artifact manually and publish with --authored human.');
         return;
@@ -3749,7 +3770,7 @@ async function wmCommand(positionals, options) {
   if (positionals[1] !== 'design-inventory') {
     const root = repoRoot();
     const readsApprovedPolicy = new Set([
-      'ast', 'facts', 'prompt', 'build', 'light', 'availability', 'status', 'ensure',
+      'ast', 'facts', 'prompt', 'build', 'light', 'availability', 'status', 'ensure', 'refresh-authority',
       'context', 'budget', 'check', 'show-prompt'
     ]).has(positionals[1]);
     return readsApprovedPolicy

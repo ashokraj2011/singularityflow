@@ -13,7 +13,12 @@ import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { composePhasePrompt } from '../worldmodel.mjs';
+import {
+  composePhasePrompt, inspectWorkflowGrounding, workflowGroundingMaterializationPlan
+} from '../worldmodel.mjs';
+import {
+  automaticMaterializationDecision, effectiveMaterializationPolicy
+} from '../world-model-materialization.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
@@ -53,7 +58,7 @@ function tokenObservation(usage) {
 
 function autoWorldModelReference(grounding) {
   const record = grounding?.record;
-  if (!record) return null;
+  if (!record?.worldModelCommit || !record?.manifestSha256) return null;
   return Object.freeze({
     protocol: 'auto-world-model-reference-v1',
     path: grounding.path,
@@ -808,6 +813,58 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     const repairAttempt = state.position === 'repair-authorized';
     let attemptConsumed = false;
     try {
+      const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
+      if (groundingMode !== 'off') {
+        let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
+          agent: phase.defaultAgent,
+          refreshRemote: true
+        });
+        if (!readiness.availability.ready) {
+          let materializationError = null;
+          let materializationRefusal = null;
+          const policy = effectiveMaterializationPolicy(readiness.config, workflow);
+          const preservation = automaticMaterializationDecision(readiness.availability);
+          const materialization = workflowGroundingMaterializationPlan(readiness, {
+            phaseId: phase.id,
+            automatic: true,
+            publication: policy.publish
+          });
+          if (policy.mode === 'on-demand' && policy.confirmation === 'automatic'
+              && preservation.allowed && materialization.allowed) {
+            try {
+              await runLifecycle(worktree, materialization.argv);
+              readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
+                agent: phase.defaultAgent,
+                refreshRemote: true
+              });
+            } catch (error) {
+              materializationError = error;
+              // Advisory grounding remains optional even when an automatic deterministic warm-up
+              // cannot complete. Prompt composition records the absence and ordinary repository
+              // authoring continues without a model-derived context block.
+            }
+          } else if (!materialization.allowed) {
+            materializationRefusal = materialization.reason;
+          }
+          if (!readiness.availability.ready && groundingMode === 'enforce') {
+            const groundingFailure = materializationError?.message
+              ?? materializationRefusal
+              ?? readiness.reason;
+            return stopActive(
+              'waiting-human',
+              'world-model-grounding-required',
+              `${groundingFailure} Run: ${readiness.command}`,
+              {
+                lastError: {
+                  code: materializationError?.code
+                    ?? readiness.availability.error?.code ?? 'AUTO_GROUNDING_UNAVAILABLE',
+                  message: groundingFailure
+                }
+              }
+            );
+          }
+        }
+      }
       if (!repairAttempt) {
         await runLifecycle(worktree, ['prepare', phase.id]);
         await assertActive(root, flightId, state.checkpointSha256);

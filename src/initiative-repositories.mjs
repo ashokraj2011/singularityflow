@@ -200,6 +200,9 @@ export function validateInitiativeBreakdown(value, portfolio) {
 // those references must exist whenever a manifest is available.
 export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = 'warn' } = {}) {
   const problems = [];
+  const declaredViews = new Set(Array.isArray(manifest?.views)
+    ? manifest.views.map((entry) => entry?.viewId).filter(Boolean)
+    : Object.keys(manifest?.views ?? {}));
   const repositories = repositoryMap?.repositories ?? {};
   if (repositories && typeof repositories === 'object' && !Array.isArray(repositories)) {
     for (const [id, entry] of Object.entries(repositories)) {
@@ -207,7 +210,7 @@ export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = '
       const views = entry?.worldModelViews ?? entry?.views ?? [];
       if (!Array.isArray(views)) { problems.push(`impact map repository '${id}' views must be a list`); continue; }
       for (const view of views) {
-        if (!manifest?.views?.[view]) problems.push(`impact map repository '${id}' references undeclared world-model view '${view}'`);
+        if (!declaredViews.has(view)) problems.push(`impact map repository '${id}' references undeclared world-model view '${view}'`);
       }
     }
   } else if (repositories !== undefined && Object.keys(repositories ?? {}).length) {

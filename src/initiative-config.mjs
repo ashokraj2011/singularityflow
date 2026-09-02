@@ -7,6 +7,7 @@ import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
+import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 
 export const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 export const INITIATIVE_REQUIREMENTS = new Set(['must', 'optional', 'conditional']);
@@ -666,10 +667,14 @@ export async function loadPortfolio(root, { required = true } = {}) {
 }
 
 export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) {
-  const declared = new Set(workflowDefinition.worldModel?.views ?? []);
+  const registered = workflowDefinition.worldModel?.format === 'registered-v4';
+  const logical = (view) => registered ? normalizeBuiltInViewReference(view).viewId : view;
+  const configured = registered && workflowDefinition.worldModel?.views == null
+    ? BUILTIN_VIEW_IDS : workflowDefinition.worldModel?.views ?? [];
+  const declared = new Set(configured.map(logical));
   const unknown = [];
   for (const [phaseId, phase] of Object.entries(portfolio.initiativePhases ?? {})) {
-    for (const view of phase.worldModelViews ?? []) if (!declared.has(view)) unknown.push(`${phaseId}:${view}`);
+    for (const view of phase.worldModelViews ?? []) if (!declared.has(logical(view))) unknown.push(`${phaseId}:${view}`);
   }
   if (unknown.length) throw new SingularityFlowError(`Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`);
   return true;

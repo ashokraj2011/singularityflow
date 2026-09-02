@@ -412,6 +412,133 @@ test('a governed file can be published to the state branch, and republishing the
   assert.notEqual(changed.commit, first.commit);
 });
 
+test('state publication never moves a concurrently refreshed remote-tracking authority backwards', async () => {
+  const { parent, remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const stateBefore = git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+  const tree = git(root, ['rev-parse', `${stateBefore}^{tree}`]).stdout.trim();
+  const concurrent = git(root, [
+    'commit-tree', tree, '-p', stateBefore, '-m', 'Concurrent state authority'
+  ]).stdout.trim();
+  git(root, ['push', '-q', 'origin', `${concurrent}:refs/heads/concurrent-state-object`]);
+
+  // Interpose at the exact boundary after push has returned (and Git has updated its normal
+  // tracking ref) but before the publisher synchronizes its authority cache. This is the same
+  // window as a concurrent fetch observing a later publication.
+  const shimDirectory = path.join(parent, 'git-shim');
+  await mkdir(shimDirectory);
+  const shim = path.join(shimDirectory, 'git');
+  const realGit = run('which', ['git']).stdout.trim();
+  await writeFile(shim, `#!/bin/sh
+"$SFLOW_REAL_GIT" "$@"
+status=$?
+if [ "$status" -eq 0 ] && [ "$1" = "push" ]; then
+  case " $* " in
+    *refs/heads/state*)
+      observed=$("$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_REMOTE" rev-parse refs/heads/state) || exit 1
+      "$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_REMOTE" update-ref refs/heads/state "$SFLOW_TEST_CONCURRENT" "$observed" || exit 1
+      "$SFLOW_REAL_GIT" --git-dir="$SFLOW_TEST_ROOT/.git" update-ref refs/remotes/origin/state "$SFLOW_TEST_CONCURRENT" || exit 1
+      ;;
+  esac
+fi
+exit "$status"
+`);
+  await chmod(shim, 0o755);
+  const env = {
+    ...process.env,
+    PATH: `${shimDirectory}${path.delimiter}${process.env.PATH ?? ''}`,
+    SFLOW_REAL_GIT: realGit,
+    SFLOW_TEST_REMOTE: remote,
+    SFLOW_TEST_ROOT: root,
+    SFLOW_TEST_CONCURRENT: concurrent
+  };
+
+  const published = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Publish World Model projection', { expectedRemoteSha: stateBefore, env });
+  assert.equal(published.changed, true);
+  assert.notEqual(published.commit, concurrent);
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), concurrent,
+    'the local authority cache must retain the concurrently observed remote tip');
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), concurrent,
+    'the remote must retain the concurrent publication');
+});
+
+test('absent-lease recreation advances an older cached tracking ref with an exact CAS', async () => {
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const removed = git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+  run('git', ['--git-dir', remote, 'update-ref', '-d', 'refs/heads/state']);
+
+  const published = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Recreate removed World Model authority', {
+    expectedRemoteSha: null,
+    baseRef: removed,
+    refreshRemote: false
+  });
+  assert.equal(published.changed, true);
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), published.commit);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), published.commit);
+});
+
+test('remote publication preserves a divergent unpublished local state branch', async () => {
+  const { remote, root } = await repository();
+  await initializeLedger(root, enabled);
+  const remoteBase = git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim();
+  const tree = git(root, ['rev-parse', `${remoteBase}^{tree}`]).stdout.trim();
+  const unpublished = git(root, [
+    'commit-tree', tree, '-p', remoteBase, '-m', 'Unpublished local state'
+  ]).stdout.trim();
+  git(root, ['update-ref', 'refs/heads/state', unpublished, remoteBase]);
+
+  const published = await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Publish remote World Model without hiding local history', {
+    expectedRemoteSha: remoteBase,
+    baseRef: remoteBase,
+    refreshRemote: false
+  });
+  assert.equal(published.changed, true);
+  assert.equal(git(root, ['rev-parse', 'refs/heads/state']).stdout.trim(), unpublished,
+    'unique unpublished local history must remain reachable');
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']).stdout.trim(), published.commit);
+  assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/state']).stdout.trim(), published.commit);
+});
+
+test('local-only state publication refuses changed and no-op candidates built from an obsolete base', async () => {
+  const { root } = await repository();
+  git(root, ['remote', 'remove', 'origin']);
+  await initializeLedger(root, enabled);
+  await publishToStateBranch(root, enabled, {
+    'singularity/world-model/manifest.json': '{"format":"registered-v4"}\n'
+  }, 'Publish initial local World Model');
+  const reviewedBase = git(root, ['rev-parse', 'refs/heads/state']).stdout.trim();
+  const tree = git(root, ['rev-parse', `${reviewedBase}^{tree}`]).stdout.trim();
+  const concurrent = git(root, [
+    'commit-tree', tree, '-p', reviewedBase, '-m', 'Advance local state concurrently'
+  ]).stdout.trim();
+  git(root, ['update-ref', 'refs/heads/state', concurrent, reviewedBase]);
+
+  for (const contents of [
+    '{"format":"registered-v4"}\n',
+    '{"format":"registered-v4","revision":2}\n'
+  ]) {
+    await assert.rejects(
+      () => publishToStateBranch(root, enabled, {
+        'singularity/world-model/manifest.json': contents
+      }, 'Publish obsolete local candidate', {
+        baseRef: reviewedBase,
+        refreshRemote: false
+      }),
+      (error) => error?.code === 'state_branch.concurrent_publication'
+        && error?.details?.expectedLocalSha === reviewedBase
+        && error?.details?.observedLocalSha === concurrent
+    );
+    assert.equal(git(root, ['rev-parse', 'refs/heads/state']).stdout.trim(), concurrent);
+  }
+});
+
 test('a state projection is not reported current when its source authority already moved', async () => {
   const { parent, remote, root } = await repository();
   await initializeLedger(root, enabled);

@@ -387,6 +387,16 @@ function sharedCacheDiagnostic(viewId, operation, status, details = {}) {
   });
 }
 
+function localCacheDiagnostic(viewId, operation, status, details = {}) {
+  return Object.freeze({
+    viewId,
+    level: 'l1',
+    operation,
+    status,
+    ...details
+  });
+}
+
 async function tryHydrateSharedCache(root, directory, cacheKey, viewId) {
   if (!directory) return Object.freeze({ cached: null, diagnostics: Object.freeze([]) });
   try {
@@ -501,6 +511,27 @@ async function executeOneView(root, context, requested, options) {
       && (context.planned.request.cachePolicy === 'reuse-valid' || cacheOnly)) {
     let cached = await readWorldModelViewCache(root, cacheKey);
     let cacheLevel = 'l1';
+    const preserved = options.preservedViews.get(contract.id);
+    const canPreserve = cacheOnly && preserved?.status === 'available'
+      && preserved.viewVersion === contract.version;
+    let invalidCachedRecordSha256 = null;
+    const revalidationOptions = {
+      contract,
+      viewFactLedger,
+      evidenceCatalog: context.registration.evidenceCatalog,
+      derivationCatalog: context.registration.derivationCatalog,
+      scopeManifest: context.planned.scopeManifest,
+      sourceSnapshot: context.planned.sourceSnapshot,
+      outputBudget: viewOutputBudget,
+      contextManifest: assembled.contextManifest,
+      route
+    };
+    if (cached.status === 'corrupt') {
+      cacheDiagnostics.push(localCacheDiagnostic(contract.id, 'read', 'corrupt', {
+        code: cached.code ?? 'WMB_CACHE_ENTRY_CORRUPT',
+        reason: cached.reason ?? null
+      }));
+    }
     if (!cached.hit) {
       const shared = await tryHydrateSharedCache(
         root, options.sharedCacheDirectory, cacheKey, contract.id
@@ -512,52 +543,80 @@ async function executeOneView(root, context, requested, options) {
       }
     }
     if (cached.hit) {
-      const verified = revalidateCachedArtifact(cached, {
-        contract,
-        viewFactLedger,
-        evidenceCatalog: context.registration.evidenceCatalog,
-        derivationCatalog: context.registration.derivationCatalog,
-        scopeManifest: context.planned.scopeManifest,
-        sourceSnapshot: context.planned.sourceSnapshot,
-        outputBudget: viewOutputBudget,
-        contextManifest: assembled.contextManifest,
-        route
-      });
-      if (cacheLevel === 'l1') cacheDiagnostics.push(...await tryWarmSharedCache(
-        root, options.sharedCacheDirectory, cacheKey, contract.id
-      ));
-      return cachedExecutionResult({
-        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
-        cacheLevel, cacheDiagnostics
-      });
+      try {
+        const verified = revalidateCachedArtifact(cached, revalidationOptions);
+        if (cacheLevel === 'l1') cacheDiagnostics.push(...await tryWarmSharedCache(
+          root, options.sharedCacheDirectory, cacheKey, contract.id
+        ));
+        return cachedExecutionResult({
+          cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
+          cacheLevel, cacheDiagnostics
+        });
+      } catch (error) {
+        // Cache objects are derived memory, not publication authority. A retained view must fall
+        // back to its exact, independently verified state projection when a structurally coherent
+        // cache entry fails current semantic validation. Views without preserved authority retain
+        // the fail-closed behavior.
+        if (!canPreserve) throw error;
+        invalidCachedRecordSha256 = cached.record?.recordSha256 ?? null;
+        const diagnostic = cacheLevel === 'l2' ? sharedCacheDiagnostic : localCacheDiagnostic;
+        cacheDiagnostics.push(diagnostic(contract.id, 'revalidate', 'corrupt', {
+          code: error?.code ?? 'WMB_CACHE_REVALIDATION_FAILED',
+          reason: error?.message ?? String(error)
+        }));
+      }
     }
-    const preserved = options.preservedViews.get(contract.id);
-    if (cacheOnly && preserved?.status === 'available'
-        && preserved.viewVersion === contract.version) {
-      const verified = revalidateCachedArtifact(preserved, {
-        contract,
-        viewFactLedger,
-        evidenceCatalog: context.registration.evidenceCatalog,
-        derivationCatalog: context.registration.derivationCatalog,
-        scopeManifest: context.planned.scopeManifest,
-        sourceSnapshot: context.planned.sourceSnapshot,
-        outputBudget: viewOutputBudget,
-        contextManifest: assembled.contextManifest,
-        route
-      });
-      cached = await writeWorldModelViewCache(root, cacheKey, {
-        view: verified.markdown,
-        candidate: verified.candidate,
-        validationReceipt: verified.validationReceipt,
-        createdAt: verified.generatedAt
-      });
-      cacheDiagnostics.push(...await tryWarmSharedCache(
-        root, options.sharedCacheDirectory, cacheKey, contract.id
-      ));
-      return cachedExecutionResult({
-        cached, verified, context, requested, contract, viewFactLedger, route, options, assembled,
-        cacheLevel: 'l1', cacheDiagnostics
-      });
+    if (canPreserve) {
+      // Re-run the current validator/materializer over the published authority before using it. A
+      // failure here aborts the complete extension because there is then no valid A to preserve.
+      const verified = revalidateCachedArtifact(preserved, revalidationOptions);
+      try {
+        cached = await writeWorldModelViewCache(root, cacheKey, {
+          view: verified.markdown,
+          candidate: verified.candidate,
+          validationReceipt: verified.validationReceipt,
+          createdAt: verified.generatedAt,
+          ...(invalidCachedRecordSha256 ? {
+            replaceExisting: true,
+            expectedRecordSha256: invalidCachedRecordSha256
+          } : {})
+        });
+        const repaired = revalidateCachedArtifact(cached, revalidationOptions);
+        if (repaired.viewSha256 !== verified.viewSha256
+            || repaired.markdown !== verified.markdown) {
+          throw new SingularityFlowError(
+            `World-model cache repair for '${contract.id}' selected bytes other than the published authority.`,
+            { code: 'WMB_CACHE_REPAIR_CONFLICT' }
+          );
+        }
+        cacheDiagnostics.push(...await tryWarmSharedCache(
+          root, options.sharedCacheDirectory, cacheKey, contract.id
+        ));
+        return cachedExecutionResult({
+          cached, verified: repaired, context, requested, contract, viewFactLedger, route, options,
+          assembled, cacheLevel: 'l1', cacheDiagnostics
+        });
+      } catch (error) {
+        // Cache retention is best-effort. Returning the fully revalidated immutable state view keeps
+        // optional A available while B is added, without laundering the cache failure as authority.
+        cacheDiagnostics.push(localCacheDiagnostic(contract.id, 'publish', 'unavailable', {
+          code: error?.code ?? 'WMB_CACHE_WRITE_UNAVAILABLE',
+          reason: error?.message ?? String(error)
+        }));
+        return cachedExecutionResult({
+          cached: preserved,
+          verified,
+          context,
+          requested,
+          contract,
+          viewFactLedger,
+          route,
+          options,
+          assembled,
+          cacheLevel: 'published-authority',
+          cacheDiagnostics
+        });
+      }
     }
     if (cacheOnly) {
       throw new SingularityFlowError(

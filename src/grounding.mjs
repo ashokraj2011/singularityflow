@@ -1055,6 +1055,13 @@ const GROUNDING_FILE_CATEGORIES = new Set([
   'required', 'rule', 'capability', 'reference', 'supporting-evidence',
   'design-source-provenance', 'design-inventory'
 ]);
+const GROUNDING_AVAILABILITY_STATUSES = new Set([
+  'available', 'unavailable', 'legacy-unverified'
+]);
+
+function stableGroundingReasonCode(value) {
+  return typeof value === 'string' && /^[A-Z][A-Z0-9_.-]{0,95}$/.test(value);
+}
 
 function safeGroundingPath(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -1124,17 +1131,38 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const problems = [];
   const stalenessProblems = [];
+  const groundingAvailability = record.groundingAvailability ?? {
+    status: 'legacy-unverified', reasonCode: null
+  };
+  const groundingStatus = groundingAvailability?.status;
+  const groundingUnavailable = groundingStatus === 'unavailable';
+  if (!GROUNDING_AVAILABILITY_STATUSES.has(groundingStatus)) {
+    problems.push(`grounding composition has an invalid availability status: ${relative}`);
+  } else if (groundingUnavailable) {
+    if (!stableGroundingReasonCode(groundingAvailability.reasonCode)) {
+      problems.push(`grounding composition has no stable unavailability reason code: ${relative}`);
+    } else {
+      problems.push(
+        `repository world-model grounding was unavailable when this prompt was composed (${groundingAvailability.reasonCode})`
+      );
+    }
+  } else if (groundingAvailability.reasonCode != null) {
+    problems.push(`grounding composition has an unexpected availability reason code: ${relative}`);
+  }
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`grounding composition identity mismatch: ${relative}`);
   if (!record.agent) problems.push(`grounding composition has no agent: ${relative}`);
   else if (!definition.agents?.[record.agent]) problems.push(`grounding composition uses unknown agent '${record.agent}': ${relative}`);
   if (agent && record.agent !== agent) problems.push(`grounding composition agent '${record.agent}' differs from active agent '${agent}'`);
-  if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
-  for (const field of ['manifestSha256', 'renderedSha256']) if (!/^[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
-  for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
-  if (record.fresh !== true) stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
-  if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
-  if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
-  if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
+  if (!groundingUnavailable) {
+    if (!/^[0-9a-f]{40}$/.test(record.worldModelCommit ?? '')) problems.push(`grounding composition has no committed world-model revision: ${relative}`);
+    if (!/^[0-9a-f]{64}$/.test(record.manifestSha256 ?? '')) problems.push(`grounding composition has invalid manifestSha256: ${relative}`);
+    for (const field of ['modelSourceTreeSha256', 'composedSourceTreeSha256']) if (!/^sha256:[0-9a-f]{64}$/.test(record[field] ?? '')) problems.push(`grounding composition has invalid ${field}: ${relative}`);
+    if (record.fresh !== true) stalenessProblems.push(`grounding composition was created from a stale world model: ${relative}`);
+    if (record.modelSourceTreeSha256 && record.composedSourceTreeSha256 && record.modelSourceTreeSha256 !== record.composedSourceTreeSha256) problems.push(`grounding composition source hash does not match its world model: ${relative}`);
+    if (record.stale === true) stalenessProblems.push(`grounding composition is stale: ${relative}`);
+    if (!Array.isArray(record.files) || !record.files.length) problems.push(`grounding composition contains no world-model files: ${relative}`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(record.renderedSha256 ?? '')) problems.push(`grounding composition has invalid renderedSha256: ${relative}`);
   if (!record.promptPath) problems.push(`grounding composition has no committed prompt snapshot: ${relative}`);
   else {
     const promptRelative = posix(record.promptPath);
@@ -1197,13 +1225,13 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
         problems.push(`grounding composition requiredViews omits recorded registered-v4 view '${view}' for ${phase.id}`);
       }
     }
-  } else if (Array.isArray(record.requiredSelections)) {
+  } else if (!groundingUnavailable && Array.isArray(record.requiredSelections)) {
     const recorded = new Set(record.requiredSelections.map(selectionId));
     for (const selection of requiredSelections) {
       const id = selectionId(selection);
       if (!recorded.has(id)) problems.push(`grounding composition omitted required selection '${id}' for ${phase.id}`);
     }
-  } else {
+  } else if (!groundingUnavailable) {
     // Historical v1 receipts predate exact tier identities. Preserve their verification contract.
     for (const view of requiredViews) if (!(record.requiredViews ?? []).includes(view)) problems.push(`grounding composition omitted required view '${view}' for ${phase.id}`);
   }
@@ -1221,6 +1249,9 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const referencePolicy = workflow.resolution?.harnessImports ?? definition.harnessImports ?? {};
   const seen = new Set();
+  if (groundingUnavailable && (record.files ?? []).some((file) => ['required', 'rule'].includes(file.category))) {
+    problems.push(`grounding composition marked unavailable but contains repository world-model files: ${relative}`);
+  }
   for (const file of record.files ?? []) {
     const recordedPath = currentGroundingPath(definition, workflow, file);
     const identity = `${file.category ?? 'unknown'}:${recordedPath ?? file.path}`;

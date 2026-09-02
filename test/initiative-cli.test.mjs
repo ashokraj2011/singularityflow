@@ -19,6 +19,7 @@ function execute(root, args, { allowFailure = false, confirm = null, profile = '
     SINGULARITY_FLOW_TEST_IDENTITY: actor,
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent: 'product-owner' }),
     SINGULARITY_FLOW_TEST_INITIATIVE_SELECTION: JSON.stringify({ profile }),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.test-no-active-workspace.json'),
     ...(confirm ? { SINGULARITY_FLOW_TEST_INITIATIVE_CONFIRM: confirm } : {})
   };
   const result = spawnSync(process.execPath, [bin, ...args], { cwd: root, encoding: 'utf8', env });

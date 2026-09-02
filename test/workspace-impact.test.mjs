@@ -32,7 +32,7 @@ async function repository(base, id) {
   return bare;
 }
 
-async function stateRepository(base, id) {
+async function stateRepository(base, id, { ledgerRemote = 'origin' } = {}) {
   const source = path.join(base, `${id}-state-source`);
   const bare = path.join(base, `${id}-state.git`);
   run('git', ['init', '-b', 'main', source], { cwd: base });
@@ -43,6 +43,8 @@ async function stateRepository(base, id) {
   const workflowPath = path.join(source, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
   definition.worldModel.outputDir = 'governed/repository-model';
+  definition.ledger ??= {};
+  definition.ledger.remote = ledgerRemote;
   await writeFile(workflowPath, YAML.stringify(definition));
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-m', 'initialize state model source'], { cwd: source });
@@ -182,9 +184,9 @@ test('workspace impact analyzes immutable repository copies without a Work ID or
     'impact/impact-passkeys/summary.md'), 'utf8'), '# Impact summary\n\n## Executive summary\nPasskeys affect API and web.\n');
 });
 
-test('workspace impact reuses a custom-output governed-state model in its detached sandbox', async () => {
+test('workspace impact reuses a custom-output governed-state model from the ledger remote', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-impact-state-'));
-  const api = await stateRepository(root, 'api');
+  const api = await stateRepository(root, 'api', { ledgerRemote: 'authority' });
   const web = await repository(root, 'web');
   await approveImpactCapabilities(root, api, web);
   const created = await createWorkspaceConfiguration({
@@ -194,6 +196,13 @@ test('workspace impact reuses a custom-output governed-state model in its detach
       api: { url: api, defaultBranch: 'main', capabilities: ['checkout-api'] }
     }
   }, { confirmation: 'state-impact', clone: true });
+  const apiPath = path.join(created.workspace.path, created.workspace.repositories.api.path);
+  run('git', ['remote', 'set-url', 'origin', web], { cwd: apiPath });
+  run('git', ['update-ref', '-d', 'refs/remotes/origin/state'], { cwd: apiPath, allowFailure: true });
+  run('git', ['remote', 'add', 'authority', api], { cwd: apiPath });
+  run('git', [
+    'fetch', '-q', 'authority', '+refs/heads/state:refs/remotes/authority/state'
+  ], { cwd: apiPath });
   const report = await analyzeWorkspaceImpact(created.workspace.path, {
     id: 'impact-state-model', description: 'Assess the API using shared repository grounding.',
     repositories: ['api']

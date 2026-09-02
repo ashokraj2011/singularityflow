@@ -6,12 +6,12 @@ import { renderAgentSkills } from './agents.mjs';
 import { jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
 import {
-  resolveWorldModelContext,
   groundingMode
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
-import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
+import { materializationPolicy } from './world-model-materialization.mjs';
 import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
   loadInitiative,
@@ -23,6 +23,7 @@ import { readKnowledge, recallKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -214,7 +215,10 @@ async function knowledgeSections(root, definition, initiative) {
   return { included, total: all.length, matched: ordered.length, truncated, text };
 }
 
-async function repositoryGrounding(root, definition, phase, agent, mode, profilePhases = [], staleness = null) {
+async function repositoryGrounding(
+  root, definition, phase, agent, mode, profilePhases = [], staleness = null,
+  capability = null
+) {
   const warnings = [];
   // Epic planning deliberately runs before repository-specific Story branches exist.
   // In that lifecycle, `off` means "deferred to Story intake", not a degraded prompt,
@@ -232,20 +236,34 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
     context: definition.worldModel?.context ?? {}
   });
   const requiredViews = plan.views.map((entry) => entry.view);
+  const stateAuthority = worldModelStateAuthority(definition);
   const config = {
     definition,
+    ...(capability ? { workflow: { resolution: { capability } } } : {}),
     outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     materialization: materializationPolicy(definition),
-    stateBranch: definition.ledger?.branch ?? null,
-    remote: definition.git?.remote ?? 'origin',
+    stateBranch: stateAuthority.branch,
+    remote: stateAuthority.remote,
     grounding: mode,
     staleness: staleness ?? definition.worldModel?.staleness ?? 'warn',
     context: definition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: false },
-    phases: { [phase.id]: { views: requiredViews, depth: 'standard', evidence: false } }
+    phases: { [phase.id]: {
+      views: requiredViews, declaredViews: requiredViews, depth: 'standard', evidence: false
+    } }
   };
   try {
-    const ensured = await ensureGrounding(root, config, plan, { authorized: false });
-    const resolved = await resolveWorldModelContext(root, config, phase.id, { plan, located: ensured.located });
+    const inspected = await inspectConfiguredGrounding(root, config, phase.id, {
+      plan, refreshRemote: true
+    });
+    if (!inspected.availability.ready) {
+      throw new SingularityFlowError(
+        `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
+          code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE',
+          details: { command: inspected.command, availability: inspected.availability }
+        }
+      );
+    }
+    const resolved = await resolveInspectedGrounding(root, inspected, phase.id);
     const commit = resolved.located?.commit ?? null;
     const changes = resolved.located?.source === 'worktree'
       ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
@@ -259,9 +277,11 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
     if (stalenessDecision.warns) warnings.push(stalenessDecision.message);
     const files = [];
     for (const item of resolved.selected) {
-      const content = await readFile(item.absolute, 'utf8');
+      const content = item.body ?? await readFile(item.absolute, 'utf8');
       files.push({
-        path: posix(path.relative(root, item.absolute)),
+        path: item.absolute
+          ? posix(path.relative(root, item.absolute))
+          : posix(path.join(config.outputDir, item.relative)),
         sha256: item.sha256,
         bytes: item.size,
         reason: item.reason,
@@ -283,10 +303,12 @@ async function repositoryGrounding(root, definition, phase, agent, mode, profile
         mode,
         available: true,
         commit,
-        sourceTreeSha256: resolved.manifest.source_tree_sha256 ?? null,
+        format: inspected.format,
+        sourceTreeSha256: resolved.sourceManifestSha256
+          ?? resolved.manifest.source_tree_sha256 ?? null,
         fresh: resolved.freshness.fresh,
         requiredViews,
-        requiredSelections: plan.selections
+        requiredSelections: inspected.plan.selections
       }
     };
   } catch (error) {
@@ -364,9 +386,10 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   );
   const grounding = await repositoryGrounding(root, groundingDefinition, phase, selectedAgent, mode,
     Object.values(initiative.resolution?.phases ?? {}),
-    initiative.resolution?.worldModelStaleness);
+    initiative.resolution?.worldModelStaleness,
+    initiative.resolution?.capability ?? null);
   const capability = await renderCapabilityWorldModelPack(root, initiative.resolution?.capability, {
-    views: phase.worldModelViews ?? []
+    views: phase.worldModelViews ?? [], grounding: mode
   });
   const pseudoWorkflow = {
     workItem: { id: initiativeId, workType: `initiative:${initiative.initiative.profile}` },

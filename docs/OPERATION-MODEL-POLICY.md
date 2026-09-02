@@ -447,6 +447,7 @@ Every public operation is classified before its implementation module is importe
 | wm.recovery.inspect | read | never | — | — |
 | wm.recovery.list | read | never | — | — |
 | wm.recovery.publish | mutation | never | — | — |
+| wm.refresh-authority | mutation | never | — | — |
 | wm.regenerate | mutation | required | — | copilot-cli |
 | wm.regenerate.deterministic | mutation | never | — | — |
 | wm.show | read | never | — | — |

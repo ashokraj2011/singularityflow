@@ -12,6 +12,7 @@ import {
   removeWorldModelView,
   structuredWorldModelViewReferences,
   worldModelViewCatalog,
+  worldModelViewContractCatalog,
   worldModelWorkflowViewUsage
 } from '../src/world-model-views.mjs';
 import { resolveWorldModelViewIds } from '../src/worldmodel.mjs';
@@ -34,7 +35,7 @@ test('world-model view registry catalogs structured prompt dependencies', async 
   assert.ok(references.get('architecture').includes("agent 'architect' prompt"));
   assert.ok(references.get('testing').includes("agent 'qa' prompt"));
   assert.deepEqual(worldModelViewCatalog(workflow), workflow.worldModel.views);
-  assert.deepEqual(markdownWorldModelViews('Use views/security.md and `views/data-governance.md`; ignore https://example.test/view.md.'), ['data-governance', 'security']);
+  assert.deepEqual(markdownWorldModelViews('Use views/security.md, `views/data-governance.md`, and views/dev.impact.md; ignore https://example.test/view.md.'), ['data-governance', 'dev.impact', 'security']);
 });
 
 test('world-model view designer adds unused views and protects referenced views', async () => {
@@ -45,6 +46,45 @@ test('world-model view designer adds unused views and protects referenced views'
   assert.deepEqual(removeWorldModelView(added, 'data-governance').worldModel.views, workflow.worldModel.views);
   assert.throws(() => removeWorldModelView(workflow, 'architecture'), /still used by/);
   assert.throws(() => removeWorldModelView(added, 'data-governance', ["Markdown 'singularity/prompts/worldmodel-builder.md'"]), /Markdown/);
+});
+
+test('registered-v4 joins exact repository contracts to bare phase and agent IDs', () => {
+  const workflow = {
+    // Advanced injection paths are logical artifact names and therefore remain unversioned.
+    worldModel: {
+      format: 'registered-v4', views: ['dev.impact@4'],
+      injection: { rules: [{ include: ['views/dev.impact.md'] }] }
+    },
+    phases: { implementation: { worldModel: { views: ['dev.impact'] } } },
+    agents: { developer: { worldModelViews: ['dev.impact'] } },
+    workTypes: { feature: { phases: ['implementation'] } }
+  };
+  assert.deepEqual(worldModelViewCatalog(workflow), ['dev.impact']);
+  assert.deepEqual(worldModelViewContractCatalog(workflow), [
+    { id: 'dev.impact', reference: 'dev.impact@4', version: 4 }
+  ]);
+  assert.deepEqual(structuredWorldModelViewReferences(workflow).get('dev.impact'), [
+    "phase 'implementation'", "agent 'developer' prompt", 'world-model injection rule 1'
+  ]);
+  assert.deepEqual(worldModelWorkflowViewUsage(workflow)[0].phases[0].views, ['dev.impact']);
+  assert.throws(() => addWorldModelView(workflow, 'dev.impact'), /already exists/);
+  const added = addWorldModelView(workflow, 'arch.contracts');
+  assert.deepEqual(added.worldModel.views, ['dev.impact@4', 'arch.contracts@4']);
+  const unreferenced = {
+    ...workflow, phases: {}, agents: {}, workTypes: {},
+    worldModel: { ...workflow.worldModel, injection: { rules: [] } }
+  };
+  assert.deepEqual(removeWorldModelView(unreferenced, 'dev.impact').worldModel.views, []);
+});
+
+test('registered-v4 omission expands to every installed active exact contract', () => {
+  const definition = { worldModel: { format: 'registered-v4' }, phases: {} };
+  assert.deepEqual(worldModelViewCatalog(definition), [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  assert.deepEqual(worldModelViewContractCatalog(definition).map((entry) => entry.reference), [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
 });
 
 test('world-model workflow usage resolves inherited, overridden, empty, and disabled view routes', () => {

@@ -12,6 +12,7 @@ import {
   ruleMatches,
   validateInjectionDefinition
 } from '../src/inject.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { readJson } from '../src/util.mjs';
 
 async function fixtureRoot({ placeholder = true } = {}) {
@@ -176,6 +177,10 @@ test('recordInjection writes an auditable generation context record', async () =
   assert.equal(written.files.length, 1);
   assert.match(written.files[0].sha256, /^[0-9a-f]{64}$/);
   assert.equal(written.modelCommit, 'a'.repeat(40));
+  assert.equal(written.schemaVersion, currentSchemaVersion('prompt-injection'));
+  assert.deepEqual(written.groundingAvailability, {
+    status: 'available', reasonCode: null
+  });
 });
 
 test('recordInjection preserves prompt-study, agent, and remote-skill provenance', async () => {
@@ -207,4 +212,24 @@ test('recordInjection preserves prompt-study, agent, and remote-skill provenance
   assert.deepEqual(record.promptStudy, promptStudy);
   assert.deepEqual(record.promptDefinition, promptDefinition);
   assert.deepEqual(record.remoteSkills, remoteSkills);
+});
+
+test('recordInjection refuses diagnostic prose and paths in durable grounding reasons', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  await assert.rejects(
+    () => recordInjection(root, { workItem: { id: 'ENG-11' } }, {
+      id: 'design', generation: 0
+    }, {
+      ...rendered,
+      agent: 'architect',
+      groundingAvailability: {
+        status: 'unavailable',
+        reasonCode: 'missing at /Users/example/private/repository'
+      }
+    }, { workDir: path.join(root, 'singularity/work-items/ENG-11') }),
+    /stable reason code/
+  );
 });

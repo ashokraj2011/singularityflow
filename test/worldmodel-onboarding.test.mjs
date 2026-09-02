@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +39,19 @@ async function stripWorldModel(root) {
   await writeFile(file, `# hand-authored config\n${YAML.stringify(definition)}`);
 }
 
+async function pinRepositoryAgentsToRegisteredView(root, view = 'dev.impact') {
+  const directory = path.join(root, '.github/agents');
+  for (const name of await readdir(directory)) {
+    if (!name.endsWith('.agent.md')) continue;
+    const file = path.join(directory, name);
+    const text = await readFile(file, 'utf8');
+    await writeFile(file, text.replace(
+      /sflow-world-model-views:\s*"[^"]*"/,
+      `sflow-world-model-views: "${view}"`
+    ));
+  }
+}
+
 test('portfolioWorldModelViews returns the sorted union of initiative-phase views', async () => {
   const portfolio = validatePortfolio(YAML.parse(await readFile(path.join(packageRoot, 'templates/portfolio.yml'), 'utf8')));
   const views = portfolioWorldModelViews(portfolio);
@@ -66,6 +79,41 @@ test('ensureRepositoryWorldModelViews declares missing views, preserves comments
   // Idempotent: already covered → no rewrite, returns the current declared set.
   const again = await ensureRepositoryWorldModelViews(root, ['business']);
   assert.deepEqual(again, declared);
+});
+
+test('registered-v4 onboarding preserves exact refs and pins newly required logical views', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  await writeFile(file, YAML.stringify({
+    version: 2,
+    worldModel: { format: 'registered-v4', views: ['dev.impact@4'] },
+    phases: { implementation: { worldModel: { views: ['dev.impact'] } } },
+    workTypes: {}
+  }));
+  await pinRepositoryAgentsToRegisteredView(root);
+
+  const declared = await ensureRepositoryWorldModelViews(root, ['dev.impact', 'arch.contracts']);
+  assert.deepEqual(declared, ['dev.impact@4', 'arch.contracts@4']);
+  assert.deepEqual(await ensureRepositoryWorldModelViews(root, ['arch.contracts']), declared);
+  assert.deepEqual(YAML.parse(await readFile(file, 'utf8')).worldModel.views, declared);
+});
+
+test('registered-v4 onboarding keeps an omitted all-active catalog implicit', async () => {
+  const root = await repository();
+  const file = path.join(root, 'singularity/workflow.yml');
+  await writeFile(file, YAML.stringify({
+    version: 2,
+    worldModel: { format: 'registered-v4' },
+    phases: { implementation: { worldModel: { views: ['dev.impact'] } } },
+    workTypes: {}
+  }));
+  await pinRepositoryAgentsToRegisteredView(root);
+  const effective = await ensureRepositoryWorldModelViews(root, ['arch.contracts']);
+  assert.deepEqual(effective, [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  assert.equal(YAML.parse(await readFile(file, 'utf8')).worldModel.views, undefined,
+    'self-heal must not narrow omitted all-active semantics');
 });
 
 test('portfolio bootstrap self-heals a repo with no worldModel block instead of failing', async () => {

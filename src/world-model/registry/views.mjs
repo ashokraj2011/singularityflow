@@ -248,6 +248,48 @@ export function resolveViewContract(registryValue, reference, { requireActive = 
 
 export const BUILTIN_VIEW_REGISTRY = deepFreeze(createViewRegistry(BUILTINS));
 export const BUILTIN_VIEW_REFERENCES = Object.freeze(BUILTIN_VIEW_REGISTRY.contracts.map((item) => `${item.id}@${item.version}`));
+export const BUILTIN_VIEW_IDS = Object.freeze(BUILTIN_VIEW_REGISTRY.contracts
+  .filter((item) => item.validity.status === 'active')
+  .map((item) => item.id));
+
+/** Normalize an optional-version configured reference to one exact installed contract. */
+export function normalizeBuiltInViewReference(reference, { requireActive = true } = {}) {
+  const parsed = /^(?<id>[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+)(?:@(?<version>[1-9][0-9]*))?$/
+    .exec(String(reference ?? '').trim())?.groups;
+  if (!parsed) {
+    contractFailure(
+      `Configured WMB v4 view '${reference}' must be a dotted id with an optional exact version.`,
+      'WMB_VIEW_UNKNOWN', { view: reference }
+    );
+  }
+  const requestedVersion = parsed.version == null ? null : Number(parsed.version);
+  const matchingId = BUILTIN_VIEW_REGISTRY.contracts.filter((item) => item.id === parsed.id);
+  if (!matchingId.length) {
+    contractFailure(`Configured WMB v4 view '${parsed.id}' is not registered.`, 'WMB_VIEW_UNKNOWN', {
+      view: reference, registeredViews: [...BUILTIN_VIEW_IDS]
+    });
+  }
+  const contract = requestedVersion == null
+    ? matchingId.find((item) => !requireActive || item.validity.status === 'active')
+    : matchingId.find((item) => item.version === requestedVersion);
+  if (!contract) {
+    contractFailure(
+      `Configured WMB v4 view '${parsed.id}@${requestedVersion}' does not match an installed exact version.`,
+      'WMB_VIEW_VERSION_UNSUPPORTED', {
+        view: reference, installedVersions: matchingId.map((item) => item.version)
+      }
+    );
+  }
+  if (requireActive && contract.validity.status !== 'active') {
+    contractFailure(`Configured WMB v4 view '${contract.id}@${contract.version}' is not active.`, 'WMB_VIEW_NOT_ACTIVE');
+  }
+  return Object.freeze({
+    viewId: contract.id,
+    version: contract.version,
+    reference: `${contract.id}@${contract.version}`,
+    contract
+  });
+}
 
 /**
  * A self-hash proves only that a registry is internally consistent. Governed WMB v4 execution

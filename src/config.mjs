@@ -25,7 +25,10 @@ import {
   parseAgentTemplateReference,
   validateAgentCatalog
 } from './agents.mjs';
-import { markdownWorldModelViews, structuredWorldModelViewReferences, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import {
+  markdownWorldModelViews, structuredWorldModelViewReferences,
+  WORLD_MODEL_VIEW_ID, WORLD_MODEL_VIEW_REFERENCE
+} from './world-model-views.mjs';
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
@@ -63,6 +66,8 @@ import { normalizeTokenEconomy } from './token-economy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
 import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
+import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -702,7 +707,18 @@ export function validateDefinition(definition) {
     phases: Object.keys(definition.phases)
   });
   validateMcpAgentTools(definition);
-  definition.ledger = normalizeLedgerConfig(definition.ledger ?? {});
+  // Preserve the difference between an explicitly configured ledger endpoint and the ledger
+  // normalizer's defaults. Once `normalizeLedgerConfig` stamps `origin`, a later authority join can
+  // no longer tell whether `worldModel.remote` or `git.remote` was supposed to supply the fallback.
+  // Resolve that precedence from the authored document, then stamp the one canonical state target
+  // into the normalized ledger used by publication and every registered-v4 reader.
+  const authoredLedger = definition.ledger ?? {};
+  const stateAuthority = worldModelStateAuthority({ ...definition, ledger: authoredLedger });
+  definition.ledger = normalizeLedgerConfig({
+    ...authoredLedger,
+    branch: stateAuthority.branch,
+    remote: stateAuthority.remote
+  });
   definition.spec = normalizeSpecPolicy(definition.spec ?? {});
   definition.faultRepair = normalizeFaultRepairPolicy(definition.faultRepair ?? {});
   definition.ast = normalizeAstPolicy(definition.ast ?? {});
@@ -710,6 +726,14 @@ export function validateDefinition(definition) {
   definition.approvalAuthorities = normalizeApprovalAuthorities(definition.approvalAuthorities, definition.approvalSecurity);
   groundingMode(definition);
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
+  for (const [field, label] of [
+    ['stateBranch', 'worldModel.stateBranch'], ['remote', 'worldModel.remote']
+  ]) {
+    const value = definition.worldModel?.[field];
+    if (value != null && (typeof value !== 'string' || !value.trim())) {
+      throw new SingularityFlowError(`${label} must be a non-empty string.`);
+    }
+  }
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.promptSource && definition.worldModel.promptSource !== 'builtin') assertRelative(definition.worldModel.promptSource, 'worldModel.promptSource');
   if (definition.worldModel?.stateFetchTimeoutMs != null
@@ -721,12 +745,53 @@ export function validateDefinition(definition) {
   if (definition.worldModel?.views != null) {
     if (!Array.isArray(definition.worldModel.views) || !definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must be a non-empty array when configured.');
     if (new Set(definition.worldModel.views).size !== definition.worldModel.views.length) throw new SingularityFlowError('worldModel.views must not contain duplicates.');
-    for (const view of definition.worldModel.views) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`);
+    const referencePattern = definition.worldModel.format === 'registered-v4'
+      ? WORLD_MODEL_VIEW_REFERENCE : WORLD_MODEL_VIEW_ID;
+    for (const view of definition.worldModel.views) if (!referencePattern.test(view)) throw new SingularityFlowError(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID${definition.worldModel.format === 'registered-v4' ? ' with an optional exact @version' : ''}.`);
   }
   if (definition.worldModel != null) {
     const worldModel = definition.worldModel;
     if (worldModel.format != null && !['legacy-v3', 'registered-v4'].includes(worldModel.format)) {
       throw new SingularityFlowError("worldModel.format must be 'legacy-v3' or 'registered-v4'.");
+    }
+    if (worldModel.format === 'registered-v4') {
+      const configured = worldModel.views ?? [];
+      const referenced = [...structuredWorldModelViewReferences(definition).keys()];
+      const normalizedConfigured = [];
+      for (const view of configured) {
+        try {
+          const normalized = normalizeBuiltInViewReference(view);
+          normalizedConfigured.push(normalized.reference);
+        } catch (error) {
+          throw new SingularityFlowError(
+            `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
+            + `update the configuration and phase/agent view assignments before changing format. Unsupported: ${view}.`,
+            {
+              code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
+              details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
+            }
+          );
+        }
+      }
+      for (const view of referenced) {
+        try { normalizeBuiltInViewReference(view); }
+        catch (error) {
+          throw new SingularityFlowError(
+            `Registered-v4 World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
+            + `update the configuration and phase/agent view assignments before changing format. Unsupported: ${view}.`,
+            {
+              code: error?.code ?? 'WMB_VIEW_UNKNOWN', cause: error,
+              details: { views: [view], registeredViews: [...BUILTIN_VIEW_IDS] }
+            }
+          );
+        }
+      }
+      if (new Set(normalizedConfigured).size !== normalizedConfigured.length) {
+        throw new SingularityFlowError(
+          'worldModel.views must not declare the same registered contract both with and without its exact version.',
+          { code: 'WMB_VIEW_DUPLICATE' }
+        );
+      }
     }
     worldModelSourceScope(definition);
     normalizeSourceRoots(worldModel.excludedRoots, 'worldModel.excludedRoots');
@@ -972,9 +1037,12 @@ export function validateDefinition(definition) {
     }
   }
   if (definition.worldModel?.views) {
-    const configuredViews = new Set(definition.worldModel.views);
+    const normalizeView = definition.worldModel.format === 'registered-v4'
+      ? (view) => normalizeBuiltInViewReference(view).viewId
+      : (view) => view;
+    const configuredViews = new Set(definition.worldModel.views.map(normalizeView));
     for (const [view, references] of structuredWorldModelViewReferences(definition)) {
-      if (!configuredViews.has(view)) throw new SingularityFlowError(`World-model view '${view}' is used by ${references.join(', ')} but is not declared in worldModel.views.`);
+      if (!configuredViews.has(normalizeView(view))) throw new SingularityFlowError(`World-model view '${view}' is used by ${references.join(', ')} but is not declared in worldModel.views.`);
     }
   }
   return definition;
@@ -1032,11 +1100,16 @@ export async function worldModelPromptViewReferences(root, definition) {
 }
 
 export async function validateWorldModelPromptViewReferences(root, definition) {
-  if (!definition.worldModel?.views) return new Map();
-  const configured = new Set(definition.worldModel.views);
+  if (!definition.worldModel?.views && definition.worldModel?.format !== 'registered-v4') return new Map();
+  const normalizeView = definition.worldModel.format === 'registered-v4'
+    ? (view) => normalizeBuiltInViewReference(view).viewId
+    : (view) => view;
+  const declared = definition.worldModel.views
+    ?? BUILTIN_VIEW_IDS;
+  const configured = new Set(declared.map(normalizeView));
   const references = await worldModelPromptViewReferences(root, definition);
   for (const [view, files] of references) {
-    if (!configured.has(view)) throw new SingularityFlowError(`World-model view '${view}' is referenced by ${files.join(', ')} but is not declared in worldModel.views.`);
+    if (!configured.has(normalizeView(view))) throw new SingularityFlowError(`World-model view '${view}' is referenced by ${files.join(', ')} but is not declared in worldModel.views.`);
   }
   return references;
 }
@@ -1182,11 +1255,31 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
   const referenced = [...structuredWorldModelViewReferences(definition)].map(([view]) => view);
   const wanted = [...new Set([...requiredViews.map(String), ...referenced].filter(Boolean))];
   if (!wanted.length) return null;
-  const declared = (doc.getIn(['worldModel', 'views'])?.toJSON?.() ?? doc.getIn(['worldModel', 'views']) ?? []);
-  const declaredSet = new Set(Array.isArray(declared) ? declared.map(String) : []);
-  const missing = wanted.filter((view) => !declaredSet.has(view));
-  if (!missing.length) return [...declaredSet].sort();
-  const merged = [...new Set([...declaredSet, ...wanted])].sort();
+  const registered = definition.worldModel?.format === 'registered-v4';
+  const declaredNode = doc.getIn(['worldModel', 'views']);
+  const declared = declaredNode?.toJSON?.() ?? declaredNode ?? [];
+  // Omitted registered-v4 views means every installed active contract. Treat that as an effective
+  // catalog without materializing a narrowing explicit list during onboarding.
+  const declaredValues = declaredNode == null && registered
+    ? BUILTIN_VIEW_IDS.map((view) => normalizeBuiltInViewReference(view).reference)
+    : Array.isArray(declared) ? declared.map(String) : [];
+  const identity = (view) => registered
+    ? normalizeBuiltInViewReference(view)
+    : { viewId: String(view), reference: String(view) };
+  const declaredById = new Map(declaredValues.map((view) => {
+    const normalized = identity(view);
+    return [normalized.viewId, view];
+  }));
+  const missing = wanted.map(identity).filter((view) => !declaredById.has(view.viewId));
+  if (!missing.length) return [...declaredValues];
+  // Preserve every approved exact reference already present. New registered-v4 declarations are
+  // pinned to the installed exact contract so an onboarding repair cannot append `dev.impact`
+  // beside `dev.impact@4` and create a semantic duplicate on the next load.
+  const merged = [
+    ...declaredValues,
+    ...missing.sort((left, right) => left.viewId.localeCompare(right.viewId))
+      .map((view) => view.reference)
+  ];
   doc.setIn(['worldModel', 'views'], merged);
   await writeFile(file.absolute, doc.toString());
   return merged;

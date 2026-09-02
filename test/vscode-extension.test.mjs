@@ -4330,7 +4330,23 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.equal(catalog.prompts.length, 1);
   assert.equal(catalog.skills.length, 1);
   assert.equal(catalog.packs.length, 1);
-  assert.deepEqual(catalog.worldModelViews, ['architecture', 'development', 'security']);
+  assert.deepEqual(catalog.worldModelViews, ['architecture', 'security', 'development'],
+    'approved repository order is retained before inferred generated views');
+  const registeredCatalog = instructionCatalog({
+    ...instructionSnapshot,
+    definition: {
+      ...instructionSnapshot.definition,
+      worldModel: {
+        ...instructionSnapshot.definition.worldModel,
+        format: 'registered-v4', views: ['dev.impact@4']
+      },
+      phases: { design: { label: 'Design', worldModel: { views: ['dev.impact'] } } }
+    },
+    worldModel: { views: [{ id: 'dev.impact', references: [] }] }
+  });
+  assert.deepEqual(registeredCatalog.worldModelViews, ['dev.impact']);
+  assert.ok(!registeredCatalog.worldModelViews.some((view) => view.includes('@')),
+    'the agent Markdown designer must never offer exact contract references');
   assert.deepEqual(catalog.promptUsage['singularity/prompts/planning.md'], ['Copilot planning']);
 
   const parsed = parseAgent(catalog.agents[0].content, 'architect');

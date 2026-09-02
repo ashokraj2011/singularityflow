@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import {
   acpPermissionOutcome, COPILOT_ATTACHMENT_BOOTSTRAP_PROMPT,
@@ -250,6 +253,121 @@ test('the Copilot provider sends verified prompt bytes over ACP stdio without ar
     status: 'exact', assurance: 'provider-reported', totalTokens: 12,
     inputTokens: 8, outputTokens: 4, reasoningTokens: 2
   });
+});
+
+test('Windows cmd-shim ACP invocation uses the shared launch descriptor, streams stdio, and exits cleanly', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-win32-'));
+  const fixture = path.join(root, 'fake-acp-win32.mjs');
+  await writeFile(fixture, fakeAcpSource);
+  const prompt = 'private Windows ACP prompt';
+  const staged = await stageModelPrompt({ text: prompt }, { tempRoot: root });
+  let launchCall = null;
+  let childClosed = false;
+  const spawnImpl = (command, args, options) => {
+    launchCall = { command, args, options };
+    // The host running this test need not be Windows. Substitute the deterministic ACP fixture
+    // only after recording the exact Windows command/argv/options passed to child_process.spawn.
+    const child = nodeSpawn(process.execPath, [fixture], {
+      ...options, windowsVerbatimArguments: false, detached: false
+    });
+    child.once('close', () => { childClosed = true; });
+    return child;
+  };
+  try {
+    const result = await invokeCopilotCli({
+      provider: 'copilot-cli',
+      providerConfig: { executable: 'copilot' },
+      cwd: root,
+      prompt: {
+        file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
+        encoding: staged.encoding, staged: true
+      },
+      promptTransport: 'acp-stdio', tools: { mode: 'none', names: [] },
+      limits: { timeoutMs: 2000, outputBytes: 64 * 1024 }
+    }, {
+      platform: 'win32',
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      resolvedExecutable: 'C:\\Program Files\\GitHub Copilot\\copilot.cmd',
+      spawnImpl
+    });
+    const observed = JSON.parse(result.output);
+    assert.equal(observed.sha256, createHash('sha256').update(prompt).digest('hex'));
+    assert.equal(result.promptProtocolVersion, 1);
+    assert.equal(launchCall.command, 'C:\\Windows\\System32\\cmd.exe');
+    assert.deepEqual(launchCall.args.slice(0, 3), ['/d', '/s', '/c']);
+    assert.match(launchCall.args[3], /copilot\.cmd/);
+    assert.match(launchCall.args[3], /--acp/);
+    assert.doesNotMatch(launchCall.args[3], /private Windows ACP prompt/);
+    assert.equal(launchCall.options.shell, false);
+    assert.equal(launchCall.options.windowsVerbatimArguments, true);
+    assert.equal(launchCall.options.detached, false);
+    assert.equal(childClosed, true, 'ACP child must be quiescent before invocation resolves');
+  } finally {
+    await staged.cleanup();
+  }
+});
+
+test('Windows ACP cleanup fails closed when taskkill cannot prove a live child stopped', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-win32-live-'));
+  const staged = await stageModelPrompt({ text: 'private cleanup prompt' }, { tempRoot: root });
+  const child = Object.assign(new EventEmitter(), {
+    pid: 424242, exitCode: null, signalCode: null,
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    kill: () => false
+  });
+  try {
+    await assert.rejects(() => invokeCopilotCli({
+      provider: 'copilot-cli', providerConfig: { executable: 'copilot' }, cwd: root,
+      prompt: {
+        file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
+        encoding: staged.encoding, staged: true
+      },
+      promptTransport: 'acp-stdio', tools: { mode: 'none', names: [] },
+      limits: { timeoutMs: 10, outputBytes: 1024 }
+    }, {
+      platform: 'win32', resolvedExecutable: 'C:\\bin\\copilot.cmd',
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      spawnImpl: () => child,
+      spawnSyncImpl: () => ({ status: 1, error: new Error('taskkill denied') })
+    }), (error) => error.code === 'MODEL_PROVIDER_TERMINATION_FAILED'
+      && error.details?.softSignalled === false
+      && error.details?.forceSignalled === false);
+  } finally {
+    child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+    await staged.cleanup();
+  }
+});
+
+test('Windows ACP cancellation retains cancellation taxonomy when cleanup cannot prove quiescence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-provider-acp-win32-cancel-'));
+  const staged = await stageModelPrompt({ text: 'private cancellation prompt' }, { tempRoot: root });
+  const child = Object.assign(new EventEmitter(), {
+    pid: 424243, exitCode: null, signalCode: null,
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    kill: () => false
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 10);
+  try {
+    await assert.rejects(() => invokeCopilotCli({
+      provider: 'copilot-cli', providerConfig: { executable: 'copilot' }, cwd: root,
+      prompt: {
+        file: staged.file, sha256: staged.sha256, bytes: staged.bytes,
+        encoding: staged.encoding, staged: true
+      },
+      promptTransport: 'acp-stdio', tools: { mode: 'none', names: [] }, signal: controller.signal,
+      limits: { timeoutMs: 2000, outputBytes: 1024 }
+    }, {
+      platform: 'win32', resolvedExecutable: 'C:\\bin\\copilot.cmd',
+      environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      spawnImpl: () => child,
+      spawnSyncImpl: () => ({ status: 1 })
+    }), (error) => error.code === 'MODEL_CANCELLED'
+      && error.details?.cleanupCode === 'MODEL_PROVIDER_TERMINATION_FAILED');
+  } finally {
+    child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+    await staged.cleanup();
+  }
 });
 
 test('the Copilot provider enforces its current minimum AI-credit limit before process start', async () => {

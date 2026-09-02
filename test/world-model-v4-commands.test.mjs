@@ -8,18 +8,30 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
+import { resolveCapabilityWorldModelCandidate } from '../src/capability-context.mjs';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { composeContextBrief } from '../src/context-broker.mjs';
+import { compileEvidencePacket } from '../src/evidence-packet.mjs';
 import { verifyGroundingRecord } from '../src/grounding.mjs';
+import { repositorySnapshot } from '../src/editor.mjs';
+import { composeInitiativeContext } from '../src/initiative-context.mjs';
+import { createInitiative } from '../src/initiative-state.mjs';
+import { createPlanningContext } from '../src/planning.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
-import { worldModelCommand } from '../src/worldmodel.mjs';
+import {
+  composePhasePrompt, inspectConfiguredGrounding, inspectWorkflowGrounding, loadWorldModelConfig,
+  workflowGroundingMaterializationPlan, worldModelCommand
+} from '../src/worldmodel.mjs';
 import {
   configuredWorldModelV4MaximumWorkers, configuredWorldModelV4ViewIds,
-  WORLD_MODEL_V4_COMMANDS
+  configuredWorldModelV4ViewSelections,
+  resolveWorldModelV4Grounding, worldModelV4GatewayDefaults, WORLD_MODEL_V4_COMMANDS
 } from '../src/world-model/commands.mjs';
 import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
+import { automaticMaterializationDecision } from '../src/world-model-materialization.mjs';
 
 const executable = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -89,6 +101,54 @@ test('every public registered-v4 command is admitted and deterministic execution
   }).modelPolicy, 'required');
 });
 
+test('registered-v4 lifecycle materialization builds explicitly and automatic absence is preserved', () => {
+  const readiness = {
+    format: 'registered-v4',
+    config: {
+      definition: { worldModel: { v4: { composer: 'deterministic' } } },
+      repositoryCapability: { id: 'payments-api' }
+    },
+    plan: { phase: 'intake' },
+    availability: { status: 'unavailable' },
+    command: 'singularity-flow wm build --format registered-v4 --phase intake'
+  };
+  const confirmed = workflowGroundingMaterializationPlan(readiness, {
+    phaseId: 'intake', automatic: false
+  });
+  assert.equal(confirmed.operationId, 'wm.build.deterministic');
+  assert.deepEqual(confirmed.positionals, ['wm', 'build']);
+  assert.match(confirmed.command, /wm build --format registered-v4 --phase intake/);
+  assert.match(confirmed.command, /--capability payments-api/);
+  assert.equal(confirmed.options.capability, 'payments-api');
+  assert.deepEqual(confirmed.argv.slice(-2), ['--capability', 'payments-api']);
+  assert.doesNotMatch(confirmed.command, /wm ensure/);
+
+  const missing = workflowGroundingMaterializationPlan({
+    ...readiness, availability: { status: 'missing' }
+  }, { phaseId: 'intake', automatic: true });
+  assert.equal(missing.allowed, false);
+  assert.match(missing.reason, /intentionally removed|unavailable offline/);
+
+  const modelComposer = workflowGroundingMaterializationPlan({
+    ...readiness,
+    config: { definition: { worldModel: { v4: { composer: 'model-required' } } } }
+  }, { phaseId: 'intake', automatic: true });
+  assert.equal(modelComposer.allowed, false);
+  assert.match(modelComposer.reason, /may invoke a model/);
+
+  const localOnly = workflowGroundingMaterializationPlan(readiness, {
+    phaseId: 'intake', automatic: true, publication: 'local'
+  });
+  assert.deepEqual({
+    allowed: localOnly.allowed,
+    modelFree: localOnly.modelFree,
+    publication: localOnly.publication
+  }, { allowed: false, modelFree: true, publication: 'local' });
+  assert.match(localOnly.reason, /reusable governed publication/);
+  assert.match(localOnly.reason, /local rehearsal only/);
+  assert.equal(localOnly.argv, undefined, 'a local-only policy must not produce executable lifecycle argv');
+});
+
 test('registered-v4 view configuration fails closed instead of broadening an unknown name to all views', () => {
   assert.throws(
     () => configuredWorldModelV4ViewIds({
@@ -115,12 +175,80 @@ test('registered-v4 view configuration fails closed instead of broadening an unk
       definition: { worldModel: { views: ['dev.impact'] } },
       phases: { implementation: { declaredViews: ['dev.impact', 'arch.contracts@3'] } }
     }, {}, 'implementation'),
-    (error) => error.code === 'WMB_VIEW_UNKNOWN'
+    (error) => error.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
       && error.details.views.includes('arch.contracts@3')
   );
   assert.deepEqual(configuredWorldModelV4ViewIds({ definition: { worldModel: {} }, phases: {} }, {
     views: 'all'
   }), ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact']);
+  assert.deepEqual(configuredWorldModelV4ViewIds({
+    definition: { worldModel: { views: ['dev.impact'] } }, phases: {}
+  }, { views: 'dev.impact@4' }), ['dev.impact']);
+});
+
+test('version-qualified configured views resolve the exact published manifest entry', () => {
+  const config = { definition: { worldModel: { views: ['dev.impact'] } }, phases: {}, staleness: 'warn' };
+  const resolved = resolveWorldModelV4Grounding('/unused', config, {
+    options: { views: 'dev.impact@4' },
+    store: {
+      ref: 'refs/heads/state', commit: 'a'.repeat(40),
+      sourceSnapshot: { sourceManifestSha256: `sha256:${'b'.repeat(64)}` },
+      freshness: { fresh: true },
+      manifest: { manifestSha256: `sha256:${'a'.repeat(64)}` },
+      views: [{
+        viewId: 'dev.impact', viewVersion: 4, status: 'available',
+        path: 'singularity/world-model/views/dev.impact.md', markdown: '# Impact\n'
+      }]
+    }
+  });
+  assert.deepEqual(resolved.selections.map((entry) => `${entry.view}@${entry.version}`), ['dev.impact@4']);
+  assert.throws(() => resolveWorldModelV4Grounding('/unused', config, {
+    options: { views: 'dev.impact@4' },
+    store: {
+      ref: 'refs/heads/state', commit: 'a'.repeat(40),
+      sourceSnapshot: { sourceManifestSha256: `sha256:${'b'.repeat(64)}` },
+      freshness: { fresh: true }, manifest: {},
+      views: [{ viewId: 'dev.impact', viewVersion: 5, status: 'available', path: 'x', markdown: 'x' }]
+    }
+  }), (error) => error.code === 'WMB_VIEW_VERSION_UNSUPPORTED');
+});
+
+test('the canonical configuration loader accepts and normalizes exact @4 view references', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact@4'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const config = await loadWorldModelConfig(root);
+  assert.deepEqual(configuredWorldModelV4ViewSelections(config).map(({ viewId, version, reference }) => ({
+    viewId, version, reference
+  })), [{ viewId: 'dev.impact', version: 4, reference: 'dev.impact@4' }]);
+  assert.deepEqual(configuredWorldModelV4ViewIds(config), ['dev.impact']);
+  assert.deepEqual(worldModelV4GatewayDefaults(root, config).views, ['dev.impact']);
+});
+
+test('omitted registered-v4 catalog means every active contract across canonical loading and prompt validation', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  delete workflow.worldModel.views;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const config = await loadWorldModelConfig(root);
+  assert.deepEqual(configuredWorldModelV4ViewSelections(config).map((entry) => entry.reference), [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+
+  const promptDirectory = path.join(root, 'singularity', 'prompts');
+  await mkdir(promptDirectory, { recursive: true });
+  await writeFile(path.join(promptDirectory, 'invalid-v4.md'), [
+    '# Invalid registered view', '', 'Load views/not.registered.md before authoring.', ''
+  ].join('\n'));
+  workflow.worldModel.promptSource = 'singularity/prompts/invalid-v4.md';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  await assert.rejects(
+    () => loadWorldModelConfig(root),
+    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /not\.registered/.test(error.message)
+  );
 });
 
 async function registeredRepository(t, { staleness = 'warn' } = {}) {
@@ -164,6 +292,174 @@ async function registeredRepository(t, { staleness = 'warn' } = {}) {
   git(root, ['commit', '-q', '-m', 'initialize registered WMB v4 fixture']);
   return root;
 }
+
+test('the canonical World-Model config loader preserves every CLI and VS Code build input', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.sourceRoots = ['src'];
+  workflow.worldModel.sharedRoots = ['shared'];
+  workflow.worldModel.excludedRoots = ['generated'];
+  workflow.worldModel.allowedSubjects = ['symbol', 'file'];
+  workflow.worldModel.maximumTraversalDepth = 5;
+  workflow.worldModel.outputDir = 'singularity/custom-world-model';
+  workflow.worldModel.generation = { ...workflow.worldModel.generation, parallel: false, maxWorkers: 7 };
+  workflow.worldModel.v4 = {
+    composer: 'model-required', consumer: 'architect', cachePolicy: 'rebuild',
+    totalMaximumOutputTokens: 1400
+  };
+  workflow.models.providers['copilot-cli'] = {
+    ...workflow.models.providers['copilot-cli'], promptTransport: 'acp-stdio', arguments: ['--log-level=error']
+  };
+  workflow.ledger.branch = 'wm-state';
+  workflow.ledger.remote = 'state-authority';
+  workflow.git.remote = 'upstream';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'configure exact world model inputs']);
+
+  const config = await loadWorldModelConfig(root);
+  const pinned = {
+    ...config,
+    workflow: { resolution: { capability: { id: 'payments-capability' } } }
+  };
+  const defaults = worldModelV4GatewayDefaults(root, pinned);
+  assert.deepEqual(defaults.views, ['dev.impact']);
+  assert.deepEqual(defaults.allowedPaths, ['src']);
+  assert.deepEqual(defaults.sharedPaths, ['shared']);
+  assert.ok(defaults.excludedPaths.includes('generated'));
+  assert.deepEqual(defaults.allowedSubjects, ['file', 'symbol']);
+  assert.equal(defaults.maximumTraversalDepth, 5);
+  assert.equal(defaults.capabilityId, 'payments-capability');
+  assert.equal(defaults.composer, 'model');
+  assert.equal(defaults.consumer, 'architect');
+  assert.equal(defaults.cachePolicy, 'rebuild');
+  assert.equal(defaults.totalMaximumOutputTokens, 1400);
+  assert.equal(defaults.provider, 'copilot-cli');
+  assert.equal(defaults.providerConfig.promptTransport, 'acp-stdio');
+  assert.deepEqual(defaults.providerConfig.arguments, ['--log-level=error']);
+  assert.equal(defaults.maximumWorkers, 1, 'disabled parallelism overrides the configured worker count');
+  assert.equal(defaults.outputDir, 'singularity/custom-world-model');
+  assert.equal(defaults.ledgerConfig.branch, 'wm-state');
+  assert.equal(defaults.ledgerConfig.remote, 'state-authority',
+    'state publication follows ledger.remote rather than the application Git remote');
+});
+
+test('semantically equivalent source-scope spellings keep one reusable policy identity', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.sourceRoots = ['./src/'];
+  workflow.worldModel.sharedRoots = ['./shared/'];
+  workflow.worldModel.excludedRoots = ['./generated/'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const first = worldModelV4GatewayDefaults(root, await loadWorldModelConfig(root));
+
+  workflow.worldModel.sourceRoots = ['src'];
+  workflow.worldModel.sharedRoots = ['shared'];
+  workflow.worldModel.excludedRoots = ['generated'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  const second = worldModelV4GatewayDefaults(root, await loadWorldModelConfig(root));
+  assert.equal(second.policySnapshotSha256, first.policySnapshotSha256);
+  assert.deepEqual(second.allowedPaths, first.allowedPaths);
+  assert.deepEqual(second.sharedPaths, first.sharedPaths);
+  assert.deepEqual(second.excludedPaths, first.excludedPaths);
+});
+
+test('a storyless registered build reuses the repository capability scope in a later Story', async (t) => {
+  const root = await registeredRepository(t);
+  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    '  mapped-payments: { name: Mapped Payments, kind: delivery, parent: null, repository: app }',
+    ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'singularity', 'portfolio.yml'), [
+    'version: 1',
+    'repositories:',
+    '  app: { url: "https://example.invalid/payments.git", defaultBranch: main }',
+    ''
+  ].join('\n'));
+  git(root, ['add', 'singularity/capabilities.yml', 'singularity/portfolio.yml']);
+  git(root, ['commit', '-q', '-m', 'map repository capability']);
+
+  const storyless = await loadWorldModelConfig(root);
+  assert.equal(storyless.repositoryCapability.id, 'mapped-payments');
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  const story = {
+    ...storyless,
+    workflow: { resolution: { capability: { id: 'mapped-payments' } } }
+  };
+  const consumed = resolveWorldModelV4Grounding(root, story, {
+    options: { views: 'dev.impact' }
+  });
+  assert.equal(consumed.freshness.fresh, true);
+  assert.equal(consumed.views[0].viewId, 'dev.impact');
+});
+
+test('a storyless registered build requires an explicit capability when repository ownership is ambiguous', async (t) => {
+  const root = await registeredRepository(t);
+  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), [
+    'version: 1', 'capabilities:',
+    '  alpha: { kind: delivery, parent: null, repository: alpha-repo }',
+    '  beta: { kind: delivery, parent: null, repository: beta-repo }', ''
+  ].join('\n'));
+  await writeFile(path.join(root, 'singularity', 'portfolio.yml'), [
+    'version: 1', 'repositories:',
+    '  alpha-repo: { url: "https://example.invalid/alpha.git", defaultBranch: main }',
+    '  beta-repo: { url: "https://example.invalid/beta.git", defaultBranch: main }', ''
+  ].join('\n'));
+  await assert.rejects(() => loadWorldModelConfig(root),
+    (error) => error.code === 'WMB_CAPABILITY_SELECTION_REQUIRED'
+      && error.details?.option === '--capability <id>');
+  const selected = await loadWorldModelConfig(root, { capabilityId: 'alpha' });
+  assert.equal(selected.repositoryCapability.id, 'alpha');
+});
+
+test('registered-v4 configuration refuses legacy view IDs during format transition', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-transition-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, ['init', '-q', '-b', 'main']);
+  git(root, ['config', 'user.name', 'WMB Test']);
+  git(root, ['config', 'user.email', 'wmb@example.invalid']);
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.format = 'registered-v4';
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  await assert.rejects(
+    () => loadWorldModelConfig(root),
+    (error) => error.code === 'WMB_VIEW_UNKNOWN' && /business/.test(error.message)
+  );
+});
+
+test('non-scope World-Model controls do not invalidate an unchanged registered-v4 projection', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact'
+  }));
+  const before = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(before.fresh, true);
+
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.grounding = 'enforce';
+  workflow.worldModel.staleness = 'ignore';
+  workflow.worldModel.stateFetchTimeoutMs = 1250;
+  workflow.worldModel.materialization.confirmation = 'automatic';
+  workflow.worldModel.materialization.depth = 'light';
+  workflow.worldModel.injection.maxBytes += 1024;
+  workflow.worldModel.generation.parallel = false;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'change read and execution controls only']);
+
+  const after = await quiet(() => worldModelCommand(root, ['wm', 'status'], { json: true }));
+  assert.equal(after.fresh, true);
+  assert.deepEqual(after.freshness.changes, []);
+});
 
 test('production monorepo scope admits canonical trusted inputs but excludes Story state', async (t) => {
   const root = await registeredRepository(t);
@@ -285,6 +581,257 @@ test('registered-v4 CLI plans, publishes, verifies, and reuses state without inv
   assert.equal(cache[0].executionProfileSha256, null);
 });
 
+test('automatic light materialization extends an exact registered-v4 projection without changing existing view bytes', async (t) => {
+  const root = await registeredRepository(t, { staleness: 'fail' });
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.worldModel.v4.totalMaximumOutputTokens = 2800;
+  workflow.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none',
+    depth: 'light', confirmation: 'automatic'
+  };
+  workflow.phases.intake.worldModel.views = ['biz.rules'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'configure progressive registered grounding']);
+
+  const first = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', depth: 'quick'
+  }));
+  assert.equal(first.runtime.availableViews[0].usageObservation.providerInputTokens, null);
+  const config = await loadWorldModelConfig(root);
+  const before = resolveWorldModelV4Grounding(root, config, {
+    options: { views: 'dev.impact', depth: 'quick' }
+  });
+  const developmentBytes = before.views[0].markdown;
+
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.availability.error.code, 'WMB_VIEW_UNAVAILABLE');
+  assert.equal(readiness.availability.extensionBase.commit, git(root, ['rev-parse', 'state']));
+  assert.equal(
+    readiness.availability.extensionBase.sourceManifestSha256,
+    before.store.sourceSnapshot.sourceManifestSha256
+  );
+  assert.equal(automaticMaterializationDecision(readiness.availability).mode,
+    'same-source-extension');
+
+  const materialization = workflowGroundingMaterializationPlan(readiness, {
+    phaseId: 'intake', automatic: true
+  });
+  assert.equal(materialization.allowed, true);
+  assert.equal(materialization.modelFree, true);
+  assert.equal(materialization.options.depth, 'quick');
+  assert.equal(materialization.argv[materialization.argv.indexOf('--depth') + 1], 'quick');
+  assert.equal(
+    materialization.options['expected-preservation-commit'],
+    readiness.availability.extensionBase.commit
+  );
+
+  const extended = await quiet(() => worldModelCommand(
+    root, materialization.positionals, materialization.options
+  ));
+  assert.equal(extended.status, 'completed');
+  assert.equal(extended.runtime.planned.consumerProfile.depth, 'quick');
+  assert.ok(extended.runtime.availableViews.every((entry) => (
+    entry.usageObservation.providerInputTokens == null
+      && entry.usageObservation.providerOutputTokens == null
+  )), 'deterministic automatic extension must consume zero provider tokens');
+
+  const after = resolveWorldModelV4Grounding(root, config, {
+    options: { views: 'dev.impact,biz.rules', depth: 'quick' }
+  });
+  assert.deepEqual(after.views.map((entry) => entry.viewId).sort(), ['biz.rules', 'dev.impact']);
+  assert.equal(after.views.find((entry) => entry.viewId === 'dev.impact').markdown,
+    developmentBytes, 'the previously published view bytes must be retained exactly');
+});
+
+test('automatic registered-v4 extension refuses an authority removal after readiness', async (t) => {
+  const root = await registeredRepository(t, { staleness: 'fail' });
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.worldModel.v4.totalMaximumOutputTokens = 2800;
+  workflow.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none',
+    depth: 'light', confirmation: 'automatic'
+  };
+  workflow.phases.intake.worldModel.views = ['biz.rules'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'configure authority-bound automatic extension']);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic', depth: 'quick'
+  }));
+
+  const config = await loadWorldModelConfig(root);
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  const materialization = workflowGroundingMaterializationPlan(readiness, {
+    phaseId: 'intake', automatic: true
+  });
+  assert.equal(materialization.allowed, true);
+
+  const worktree = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-remove-race-'));
+  t.after(async () => {
+    run('git', ['worktree', 'remove', '--force', worktree], { cwd: root, allowFailure: true });
+    await rm(worktree, { recursive: true, force: true });
+  });
+  git(root, ['worktree', 'add', '-q', '--detach', worktree, 'state']);
+  await rm(path.join(worktree, 'singularity', 'world-model'), { recursive: true });
+  git(worktree, ['add', '-A']);
+  git(worktree, ['commit', '-q', '-m', 'remove projection after automatic readiness']);
+  const removedCommit = git(worktree, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/heads/state', removedCommit]);
+
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(
+      root, materialization.positionals, materialization.options
+    )),
+    (error) => error.code === 'WMB_AUTOMATIC_EXTENSION_BASE_CHANGED'
+      && error.details?.expectedCommit === readiness.availability.extensionBase.commit
+      && error.details?.currentCommit === removedCommit
+      && error.details?.currentManifestSha256 === null
+  );
+  assert.equal(git(root, ['rev-parse', 'state']), removedCommit);
+  assert.notEqual(run('git', [
+    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
+  ], { cwd: root, allowFailure: true }).status, 0,
+  'the removed state projection must remain removed after the automatic race refusal');
+});
+
+test('a corrupt registered-v4 projection is never exposed as an automatic extension base', async (t) => {
+  const root = await registeredRepository(t, { staleness: 'fail' });
+  const built = await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  assert.equal(built.status, 'completed');
+  const relative = resolveWorldModelV4Grounding(root, await loadWorldModelConfig(root), {
+    options: { views: 'dev.impact' }
+  }).views[0].path;
+  const worktree = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-corrupt-state-'));
+  t.after(async () => {
+    run('git', ['worktree', 'remove', '--force', worktree], { cwd: root, allowFailure: true });
+    await rm(worktree, { recursive: true, force: true });
+  });
+  git(root, ['worktree', 'add', '-q', '--detach', worktree, 'state']);
+  await writeFile(path.join(worktree, 'singularity', 'world-model', relative),
+    '# corrupt view bytes\n');
+  git(worktree, ['add', '.']);
+  git(worktree, ['commit', '-q', '-m', 'corrupt registered view']);
+  const corruptCommit = git(worktree, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/heads/state', corruptCommit]);
+
+  const readiness = await inspectConfiguredGrounding(
+    root, await loadWorldModelConfig(root), 'intake', { refreshRemote: false }
+  );
+  assert.equal(readiness.availability.ready, false);
+  assert.equal(readiness.availability.extensionBase ?? null, null);
+  assert.equal(automaticMaterializationDecision(readiness.availability).allowed, false);
+});
+
+test('registered-v4 ensure detects stale remote authority without changing refs and explicit refresh recovers it', async (t) => {
+  const root = await registeredRepository(t);
+  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-authority-'));
+  t.after(() => rm(transport, { recursive: true, force: true }));
+  const remote = path.join(transport, 'remote.git');
+  run('git', ['init', '--bare', '-q', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-q', '-u', 'origin', 'main']);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.v4.totalMaximumOutputTokens = 5600;
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'raise exact multi-view output budget']);
+  git(root, ['push', '-q', 'origin', 'main']);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    views: 'dev.impact', json: true
+  }));
+
+  const clone = path.join(transport, 'clone');
+  run('git', ['clone', '-q', '--branch', 'main', remote, clone]);
+  git(clone, ['config', 'user.name', 'WMB Authority Reader']);
+  git(clone, ['config', 'user.email', 'reader@example.invalid']);
+  const cachedBefore = git(clone, ['rev-parse', 'refs/remotes/origin/state']);
+
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    views: 'biz.rules', json: true
+  }));
+  const remoteAfter = git(root, ['ls-remote', '--heads', 'origin', 'refs/heads/state'])
+    .split(/\s+/)[0];
+  assert.notEqual(cachedBefore, remoteAfter);
+  const refsBeforeEnsure = git(clone, ['for-each-ref', '--format=%(refname) %(objectname)']);
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(clone, ['wm', 'ensure', 'intake'], { json: true })),
+    (error) => error.code === 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED'
+      && error.details?.command === 'singularity-flow wm refresh-authority --format registered-v4'
+  );
+  assert.equal(git(clone, ['for-each-ref', '--format=%(refname) %(objectname)']), refsBeforeEnsure,
+    'read-only ensure may probe but must not advance a tracking ref');
+
+  const refreshed = await quiet(() => worldModelCommand(
+    clone, ['wm', 'refresh-authority'], { format: 'registered-v4', json: true }
+  ));
+  assert.equal(refreshed.status, 'refreshed');
+  assert.equal(git(clone, ['rev-parse', 'refs/remotes/origin/state']), remoteAfter);
+  const ensured = await quiet(() => worldModelCommand(
+    clone, ['wm', 'ensure', 'intake'], { json: true }
+  ));
+  assert.equal(ensured.status, 'ready');
+
+  git(root, ['push', '-q', 'origin', ':refs/heads/state']);
+  const absent = await quiet(() => worldModelCommand(
+    clone, ['wm', 'refresh-authority'], { format: 'registered-v4', json: true }
+  ));
+  assert.equal(absent.status, 'remote-absent');
+  assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'], {
+    cwd: clone, allowFailure: true
+  }).status, 1, 'authoritative removal clears only the stale state tracking ref');
+  await assert.rejects(
+    () => quiet(() => worldModelCommand(clone, ['wm', 'ensure', 'intake'], { json: true })),
+    (error) => error.code === 'WMB_MANIFEST_MISSING'
+      && error.details?.remoteModelRemoved === true
+  );
+});
+
+test('a configured remote without a materialized state ref never falls through to local registered-v4 state', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    views: 'dev.impact', json: true
+  }));
+  const localState = git(root, ['rev-parse', 'refs/heads/state']);
+  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-unmaterialized-authority-'));
+  t.after(() => rm(transport, { recursive: true, force: true }));
+  const remote = path.join(transport, 'remote.git');
+  run('git', ['init', '--bare', '-q', remote]);
+  git(root, ['remote', 'add', 'origin', remote]);
+  git(root, ['push', '-q', 'origin', 'main']);
+  assert.equal(run('git', [
+    'show-ref', '--verify', '--quiet', 'refs/remotes/origin/state'
+  ], { cwd: root, allowFailure: true }).status, 1);
+
+  const config = await loadWorldModelConfig(root);
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.availability.ready, false);
+  assert.equal(readiness.availability.refresh, 'refresh-required');
+  assert.equal(readiness.availability.error.code, 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED');
+  assert.match(readiness.command, /wm refresh-authority/);
+  assert.throws(
+    () => resolveWorldModelV4Grounding(root, config, {
+      options: { views: 'dev.impact' }
+    }),
+    (error) => error.code === 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED'
+  );
+  assert.equal(git(root, ['rev-parse', 'refs/heads/state']), localState,
+    'the unpublished local state remains reachable but is not selected as remote authority');
+});
+
 test('registered-v4 CLI captures and explicitly builds one immutable dirty Candidate Snapshot', async (t) => {
   const root = await registeredRepository(t);
   await writeFile(path.join(root, 'payments.mjs'), [
@@ -351,6 +898,18 @@ test('the public CLI loads approved registered-v4 policy before enforcing --no-m
 
 test('registered-v4 ensure refuses a missing store without starting or publishing a build', async (t) => {
   const root = await registeredRepository(t);
+  const config = {
+    ...await loadWorldModelConfig(root), repositoryCapability: { id: 'orders-api' }
+  };
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.format, 'registered-v4');
+  assert.equal(readiness.availability.status, 'missing');
+  assert.equal(readiness.availability.ready, false);
+  assert.match(readiness.command, /wm build --format registered-v4 --phase intake/);
+  assert.match(readiness.command, /--capability orders-api$/);
+  assert.doesNotMatch(readiness.reason, /schema_version must be/);
   await assert.rejects(
     () => quiet(() => worldModelCommand(root, ['wm', 'ensure', 'intake'], { json: true })),
     (error) => error.code === 'WMB_MANIFEST_MISSING'
@@ -359,6 +918,182 @@ test('registered-v4 ensure refuses a missing store without starting or publishin
     cwd: root, allowFailure: true
   }).status, 1);
   assert.equal(git(root, ['status', '--short']), '');
+});
+
+test('registered-v4 lifecycle reports a runnable diagnosis for legacy migration', async (t) => {
+  const root = await registeredRepository(t);
+  const modelRoot = path.join(root, 'singularity', 'world-model');
+  await mkdir(modelRoot, { recursive: true });
+  await writeFile(path.join(modelRoot, 'manifest.json'), `${JSON.stringify({
+    schema_version: '3.0', source_tree_sha256: `sha256:${'a'.repeat(64)}`,
+    core: { tiers: {} }, views: {}
+  }, null, 2)}\n`);
+  git(root, ['add', 'singularity/world-model/manifest.json']);
+  git(root, ['commit', '-q', '-m', 'retain legacy model for explicit migration']);
+
+  const config = {
+    ...await loadWorldModelConfig(root), repositoryCapability: { id: 'payments-api' }
+  };
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.availability.ready, false);
+  assert.equal(readiness.availability.error.code, 'WMB_MIGRATION_REQUIRED');
+  assert.equal(
+    readiness.command,
+    'singularity-flow wm doctor --format registered-v4 --capability payments-api'
+  );
+  assert.doesNotMatch(readiness.command, /wm migrate/,
+    'the lifecycle must not emit migrate without its required legacy and target view arguments');
+  assert.match(
+    readiness.reason,
+    /wm migrate <legacy-view\.md> --view <registered-view> --capability payments-api/
+  );
+});
+
+test('registered-v4 lifecycle refreshes remote state and honors an intentional remote removal', async (t) => {
+  const source = await registeredRepository(t);
+  const transportRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-v4-remote-'));
+  t.after(() => rm(transportRoot, { recursive: true, force: true }));
+  const remote = path.join(transportRoot, 'repository.git');
+  const consumer = path.join(transportRoot, 'consumer');
+  run('git', ['init', '--bare', '-q', '-b', 'main', remote], { cwd: transportRoot });
+  git(source, ['remote', 'add', 'origin', remote]);
+  git(source, ['push', '-q', '-u', 'origin', 'main']);
+  run('git', ['clone', '-q', '--single-branch', '--branch', 'main', remote, consumer], {
+    cwd: transportRoot
+  });
+  git(consumer, ['config', 'user.name', 'WMB Consumer']);
+  git(consumer, ['config', 'user.email', 'consumer@example.invalid']);
+  const consumerConfig = await loadWorldModelConfig(consumer);
+  const before = await inspectConfiguredGrounding(consumer, consumerConfig, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(before.availability.ready, false);
+  assert.equal(before.availability.refresh, 'refresh-required');
+  assert.equal(before.availability.error.code, 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED');
+
+  await quiet(() => worldModelCommand(source, ['wm', 'build'], {
+    format: 'registered-v4', phase: 'intake', composer: 'deterministic'
+  }));
+  const refreshed = await inspectConfiguredGrounding(consumer, consumerConfig, 'intake', {
+    refreshRemote: true
+  });
+  assert.equal(refreshed.availability.ready, true);
+  assert.equal(refreshed.availability.refresh, 'refreshed');
+  assert.equal(refreshed.availability.source, 'state-branch');
+  git(consumer, ['branch', 'state', 'refs/remotes/origin/state']);
+
+  git(source, ['push', '-q', 'origin', '--delete', 'state']);
+  assert.equal(run('git', [
+    'cat-file', '-e', 'refs/remotes/origin/state:singularity/world-model/manifest.json'
+  ], { cwd: consumer, allowFailure: true }).status, 0,
+  'the consumer retains a stale remote-tracking cache before the authoritative refresh');
+  const removed = await inspectConfiguredGrounding(consumer, consumerConfig, 'intake', {
+    refreshRemote: true
+  });
+  assert.equal(removed.availability.ready, false);
+  assert.equal(removed.availability.status, 'missing');
+  assert.equal(removed.availability.refresh, 'remote-absent');
+  assert.equal(removed.availability.extensionBase ?? null, null);
+  assert.equal(workflowGroundingMaterializationPlan(removed, {
+    phaseId: 'intake', automatic: true
+  }).allowed, false, 'an intentionally removed authority must not be recreated automatically');
+  assert.match(removed.reason, /cached copy will not override that authority/);
+  const cachedRead = await inspectConfiguredGrounding(consumer, consumerConfig, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(cachedRead.availability.ready, false);
+  assert.equal(cachedRead.availability.refresh, 'refresh-required');
+  assert.equal(cachedRead.availability.error.code, 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED');
+  assert.equal(run('git', [
+    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
+  ], { cwd: consumer, allowFailure: true }).status, 0,
+  'the old local projection remains present and must still not override the removed remote model');
+});
+
+test('a repository with no configured remote continues to use its local registered-v4 authority', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    views: 'dev.impact', json: true
+  }));
+  const config = await loadWorldModelConfig(root);
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.availability.ready, true);
+  assert.equal(readiness.availability.refresh, 'no-remote');
+  assert.equal(readiness.availability.located.ref, 'refs/heads/state');
+  assert.equal(readiness.availability.located.commit, git(root, ['rev-parse', 'state']));
+});
+
+test('registered-v4 authority refresh fails closed for non-network Git failures', async (t) => {
+  const root = await registeredRepository(t);
+  const invalidRemote = path.join(root, 'not-a-git-repository');
+  await writeFile(invalidRemote, 'not a repository\n');
+  git(root, ['remote', 'add', 'origin', invalidRemote]);
+  const config = await loadWorldModelConfig(root);
+
+  const malformed = structuredClone(config);
+  malformed.phases.intake.views = ['dev.imapct'];
+  malformed.phases.intake.declaredViews = ['dev.imapct'];
+  const malformedReadiness = await inspectConfiguredGrounding(root, malformed, 'intake', {
+    refreshRemote: true
+  });
+  assert.equal(malformedReadiness.availability.error.code, 'WMB_VIEW_UNKNOWN',
+    'approved local view policy is validated before a remote refresh is attempted');
+
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: true
+  });
+  assert.equal(readiness.availability.ready, false);
+  assert.equal(readiness.availability.status, 'unavailable');
+  assert.equal(readiness.availability.error.code, 'WMB_STATE_AUTHORITY_REFRESH_FAILED');
+  assert.match(readiness.reason, /could not be (?:observed|refreshed) safely/);
+  assert.doesNotMatch(readiness.reason, /not-a-git-repository/,
+    'provider diagnostics and repository paths must not escape the refresh boundary');
+});
+
+test('confirmed on-demand next uses registered-v4 build rather than the read-only ensure command', async (t) => {
+  const root = await registeredRepository(t);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.worldModel.grounding = 'enforce';
+  definition.worldModel.materialization = {
+    mode: 'on-demand', publish: 'governed', lookahead: 'none',
+    depth: 'phase', confirmation: 'prompt'
+  };
+  await writeFile(workflowPath, YAML.stringify(definition));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'enable confirmed v4 lifecycle build']);
+  git(root, ['switch', '-q', '-c', 'WMB-V4-ON-DEMAND']);
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', 'WMB-V4-ON-DEMAND', { phaseId: 'intake', source: 'test' });
+  await createWorkflow(root, config, {
+    id: 'WMB-V4-ON-DEMAND', title: 'Build registered grounding on demand',
+    source: {
+      type: 'manual', key: 'WMB-V4-ON-DEMAND', title: 'Build registered grounding on demand',
+      description: 'A confirmed lifecycle action must invoke the registered builder, not ensure.',
+      acceptanceCriteria: ['The explicit build publishes a reusable exact state projection.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+
+  const next = spawnSync(process.execPath, [executable, '--no-model', 'next', '--yes'], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WMB Test' }
+  });
+  assert.equal(next.status, 0, next.stderr);
+  assert.match(next.stdout, /Building the deterministic world model/);
+  assert.match(next.stdout, /Next step prepared: generate 'intake'/);
+  assert.doesNotMatch(next.stderr, /wm ensure.*read-only|WMB_MANIFEST_MISSING/);
+  assert.equal(run('git', [
+    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
+  ], { cwd: root, allowFailure: true }).status, 0);
 });
 
 test('registered-v4 fail staleness policy blocks reuse without replacing state', async (t) => {
@@ -374,12 +1109,113 @@ test('registered-v4 fail staleness policy blocks reuse without replacing state',
   git(root, ['add', 'payments.mjs']);
   git(root, ['commit', '-q', '-m', 'change registered source']);
 
+  const config = await loadWorldModelConfig(root);
+  const readiness = await inspectConfiguredGrounding(root, config, 'intake', {
+    refreshRemote: false
+  });
+  assert.equal(readiness.availability.status, 'stale');
+  assert.equal(readiness.availability.ready, false);
+  assert.equal(readiness.availability.staleness.blocks, true);
+  assert.equal(readiness.availability.extensionBase ?? null, null);
+  assert.equal(automaticMaterializationDecision(readiness.availability).allowed, false,
+    'a stale registered projection must never become an automatic extension base');
+  assert.match(readiness.command, /wm build --format registered-v4 --phase intake/);
+
   await assert.rejects(
     () => quiet(() => worldModelCommand(root, ['wm', 'ensure', 'intake'], { json: true })),
     (error) => error.code === 'WMB_SOURCE_SNAPSHOT_STALE'
       && error.details?.implicitRebuild === false
   );
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
+});
+
+test('a phase-scoped registered-v4 build remains exact for that phase when the repository catalog is broader', async (t) => {
+  const root = await registeredRepository(t, { staleness: 'fail' });
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
+  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
+  workflow.phases.intake.worldModel.views = ['dev.impact'];
+  await writeFile(workflowPath, YAML.stringify(workflow));
+  git(root, ['add', 'singularity/workflow.yml']);
+  git(root, ['commit', '-q', '-m', 'configure broader registered view catalog']);
+
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', phase: 'intake'
+  }));
+  const config = await loadWorldModelConfig(root);
+  const resolved = resolveWorldModelV4Grounding(root, config, { phase: 'intake' });
+  assert.equal(resolved.freshness.fresh, true);
+  assert.deepEqual(resolved.views.map((entry) => entry.viewId), ['dev.impact']);
+});
+
+test('Initiative composition consumes the exact registered-v4 state projection', async (t) => {
+  const root = await registeredRepository(t);
+  const portfolioPath = path.join(root, 'singularity', 'portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
+  for (const authority of Object.values(portfolio.approvalAuthorities ?? {})) {
+    authority.members = [{ name: 'WMB Test', email: 'wmb@example.invalid' }];
+  }
+  for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
+    if (phase.worldModelViews?.length) phase.worldModelViews = ['dev.impact'];
+  }
+  await writeFile(portfolioPath, YAML.stringify(portfolio));
+  git(root, ['add', 'singularity/portfolio.yml']);
+  git(root, ['commit', '-q', '-m', 'configure registered views for Initiatives']);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+
+  git(root, ['switch', '-q', '-c', 'WMB-V4-INIT']);
+  await createInitiative(root, {
+    id: 'WMB-V4-INIT', title: 'Consume exact Initiative grounding',
+    profile: 'initiative-lite', agent: 'product-owner'
+  });
+  const composed = await composeInitiativeContext(root, 'WMB-V4-INIT', 'define', {
+    agent: 'product-owner'
+  });
+  assert.equal(composed.record.worldModel.available, true);
+  assert.equal(composed.record.worldModel.format, 'registered-v4');
+  assert.match(composed.rendered, /SFlow World-Model View/);
+  assert.deepEqual(
+    composed.record.worldModelFiles.map((entry) => entry.path),
+    ['singularity/world-model/views/dev.impact.md']
+  );
+});
+
+test('Capability context resolves exact registered-v4 sibling views without legacy parsing', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  const config = await loadWorldModelConfig(root);
+  const resolved = await resolveCapabilityWorldModelCandidate(root, config.definition, {
+    views: ['dev.impact']
+  });
+  assert.equal(resolved.format, 'registered-v4');
+  assert.equal(resolved.located.source, 'state-branch');
+  assert.equal(resolved.resolved.selected.length, 1);
+  assert.match(resolved.resolved.selected[0].body, /SFlow World-Model View/);
+  assert.equal(resolved.manifestPath, null);
+  assert.equal(resolved.sourceState.commit, git(root, ['rev-parse', 'HEAD']),
+    'capability provenance binds the application source commit, not the state publication commit');
+  assert.notEqual(resolved.sourceState.commit, resolved.located.commit);
+});
+
+test('the editor visualizes registered-v4 state even when no Story is active', async (t) => {
+  const root = await registeredRepository(t);
+  await quiet(() => worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', composer: 'deterministic'
+  }));
+  const snapshot = await repositorySnapshot(root);
+  assert.deepEqual(
+    { ready: snapshot.worldModel.readiness.ready, source: snapshot.worldModel.readiness.source },
+    { ready: true, source: 'state-branch' }
+  );
+  const view = snapshot.worldModel.files.find((entry) => (
+    entry.path === 'singularity/world-model/views/dev.impact.md'
+  ));
+  assert.ok(view);
+  assert.match(view.content, /SFlow World-Model View/);
 });
 
 test('registered-v4 approved identity changes stale the store and --stale rebuilds the current policy', async (t) => {
@@ -453,18 +1289,73 @@ test('phase composition reads exact state-backed registered views and never rebu
     resolved: resolveWorkType(config, 'feature')
   });
 
-  const prompt = await quiet(() => worldModelCommand(root, ['wm', 'compose'], {
-    phase: 'intake', agent: 'product-owner', 'return-only': true
-  }));
-  assert.match(prompt, /required repository world-model grounding/i);
-  assert.match(prompt, /Repository grounding: singularity\/world-model\/views\/dev\.impact\.md/);
-  assert.match(prompt, /SFlow World-Model View/);
+  const readiness = await inspectWorkflowGrounding(root, workflow, 'intake', {
+    agent: 'product-owner', refreshRemote: false
+  });
+  assert.equal(readiness.format, 'registered-v4');
+  assert.equal(readiness.availability.ready, true);
+  assert.equal(readiness.availability.source, 'state-branch');
+  assert.equal(readiness.availability.selected.manifest.format, 'wmb-v4');
+
+  const nextsteps = spawnSync(process.execPath, [
+    executable, 'nextsteps', 'WMB-V4-STORY', '--json'
+  ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.equal(nextsteps.status, 0, nextsteps.stderr);
+  assert.doesNotMatch(nextsteps.stderr, /schema_version must be/);
+  assert.equal(JSON.parse(nextsteps.stdout).actions.some((action) => (
+    action.command.includes('wm build') && action.timing === 'now'
+  )), false, 'exact registered-v4 state is not reported as a missing legacy model');
+
+  const editor = await repositorySnapshot(root, 'WMB-V4-STORY');
+  assert.deepEqual(
+    { ready: editor.worldModel.readiness.ready, source: editor.worldModel.readiness.source },
+    { ready: true, source: 'state-branch' }
+  );
+  const editorView = editor.worldModel.files.find((entry) => (
+    entry.path === 'singularity/world-model/views/dev.impact.md'
+  ));
+  assert.ok(editorView, 'the UI snapshot keeps an exact clickable registered-view path');
+  assert.match(editorView.content, /SFlow World-Model View/);
+
+  const planning = await createPlanningContext(root, {
+    scope: 'work-item', id: 'WMB-V4-STORY', phase: 'intake',
+    agent: 'product-owner', target: 'artifact'
+  });
+  assert.match(planning.context, /SFlow World-Model View/);
+  assert.ok(planning.manifest.sources.some((entry) => (
+    entry.kind === 'world-model'
+      && entry.path === 'singularity/world-model/views/dev.impact.md'
+  )), 'Plan mode consumes the exact registered view instead of parsing a legacy manifest');
+
+  const brief = await composeContextBrief(root, {
+    workId: 'WMB-V4-STORY', slice: 'world-model', maxOutputBytes: 24 * 1024
+  });
+  assert.equal(brief.payload.status, 'exact');
+  assert.match(brief.payload.selections[0].content, /SFlow World-Model View/);
+  const packet = await compileEvidencePacket(root, {
+    workId: 'WMB-V4-STORY', phase: 'intake', requestedSlices: ['world-model'],
+    maxOutputBytes: 24 * 1024
+  });
+  assert.match(JSON.stringify(packet), /SFlow World-Model View/);
+  assert.doesNotMatch(JSON.stringify(packet), /schema_version must be/);
+
+  const next = spawnSync(process.execPath, [executable, '--no-model', 'next'], {
+    cwd: root, encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WMB Test' }
+  });
+  assert.equal(next.status, 0, next.stderr);
+  assert.match(next.stdout, /Next step prepared: generate 'intake'/);
+  assert.doesNotMatch(next.stderr, /schema_version must be/);
   const verified = await verifyGroundingRecord(
     root, config, workflow, workflow.phases.intake,
     { generation: 1, agent: 'product-owner' }
   );
   assert.deepEqual(verified.errors, []);
   assert.deepEqual(verified.warnings, []);
+  const prompt = await readFile(path.join(root, verified.record.promptPath), 'utf8');
+  assert.match(prompt, /required repository world-model grounding/i);
+  assert.match(prompt, /Repository grounding: singularity\/world-model\/views\/dev\.impact\.md/);
+  assert.match(prompt, /SFlow World-Model View/);
   await t.test('grounding verification uses recorded exact selections after current view policy changes', async () => {
     const changedDefinition = structuredClone(config);
     changedDefinition.worldModel.views = ['biz.rules'];
@@ -483,6 +1374,82 @@ test('phase composition reads exact state-backed registered views and never rebu
   });
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);
   assert.equal(git(root, ['ls-tree', '-r', '--name-only', 'HEAD', 'singularity/world-model']).trim(), '');
+});
+
+test('advisory registered-v4 absence records a verifiable prompt without inventing world-model authority', async (t) => {
+  const root = await registeredRepository(t);
+  git(root, ['switch', '-q', '-c', 'WMB-V4-WARN']);
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  await setAgentSession(root, config, {
+    name: 'WMB Test', email: 'wmb@example.invalid', login: null
+  }, 'product-owner', 'WMB-V4-WARN', { phaseId: 'intake', source: 'test' });
+  const workflow = await createWorkflow(root, config, {
+    id: 'WMB-V4-WARN', title: 'Continue with advisory grounding absent',
+    source: {
+      type: 'manual', key: 'WMB-V4-WARN', title: 'Continue with advisory grounding absent',
+      description: 'Prove advisory WMB absence remains verifiable without fabricating model evidence.',
+      acceptanceCriteria: ['The governed prompt records an explicit advisory grounding absence.']
+    },
+    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
+    resolved: resolveWorkType(config, 'feature')
+  });
+
+  const composed = await composePhasePrompt(root, {
+    workId: 'WMB-V4-WARN', phase: 'intake', agent: 'product-owner'
+  });
+  assert.match(composed, /Active Story phase contract/);
+
+  const verified = await verifyGroundingRecord(
+    root, config, workflow, workflow.phases.intake,
+    { generation: 1, agent: 'product-owner' }
+  );
+  assert.deepEqual(verified.errors, []);
+  assert.match(verified.warnings.join('\n'), /repository world-model grounding was unavailable/);
+  assert.doesNotMatch(
+    verified.warnings.join('\n'),
+    /no committed world-model revision|invalid manifestSha256|contains no world-model files/
+  );
+  assert.deepEqual(verified.record.groundingAvailability, {
+    status: 'unavailable', reasonCode: 'WMB_MANIFEST_MISSING'
+  });
+  assert.deepEqual(verified.record.requiredViews, ['dev.impact']);
+  assert.deepEqual(
+    verified.record.requiredSelections.map((entry) => `${entry.view}@${entry.version}`),
+    ['dev.impact@4']
+  );
+  assert.equal(verified.record.worldModelCommit, null);
+  assert.equal(verified.record.manifestSha256, null);
+  assert.deepEqual(
+    verified.record.files.filter((entry) => ['required', 'rule'].includes(entry.category)),
+    []
+  );
+
+  const promptPath = path.join(root, verified.record.promptPath);
+  await writeFile(promptPath, 'tampered governed prompt\n');
+  const tampered = await verifyGroundingRecord(
+    root, config, workflow, workflow.phases.intake,
+    { generation: 1, agent: 'product-owner' }
+  );
+  assert.match(tampered.warnings.join('\n'), /prompt snapshot hash differs/);
+
+  await writeFile(
+    path.join(root, 'singularity/work-items/WMB-V4-WARN/source.json'),
+    '{"changed":true}\n'
+  );
+  const sourceTampered = await verifyGroundingRecord(
+    root, config, workflow, workflow.phases.intake,
+    { generation: 1, agent: 'product-owner' }
+  );
+  assert.match(sourceTampered.warnings.join('\n'), /not bound to the current pinned Story source/);
+
+  const enforcedWorkflow = structuredClone(workflow);
+  enforcedWorkflow.resolution.worldModelGrounding = 'enforce';
+  const enforced = await verifyGroundingRecord(
+    root, config, enforcedWorkflow, enforcedWorkflow.phases.intake,
+    { generation: 1, agent: 'product-owner' }
+  );
+  assert.match(enforced.errors.join('\n'), /repository world-model grounding was unavailable/);
 });
 
 test('v3 migration publishes the target projection and receipt in one state commit', async (t) => {

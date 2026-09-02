@@ -1,5 +1,11 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
+import {
+  BUILTIN_VIEW_IDS, normalizeBuiltInViewReference
+} from '../../../../src/world-model/registry/views.mjs';
+import {
+  worldModelViewContractCatalog, worldModelViewIdentity
+} from '../../../../src/world-model-views.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 
 /**
@@ -132,7 +138,7 @@ export interface ConfigurationCenterView {
     /** Content-addressed, inert drill-downs into the verified state-backed WMB store. */
     expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     views: Array<{
-      id: string; path: string; references: string[]; generated: boolean;
+      id: string; reference: string; path: string; references: string[]; generated: boolean;
       workflowCount: number; phaseCount: number;
       status: string | null; required: boolean; cache: string | null;
       counts: { total: number; available: number; partial: number; unavailable: number; contradicted: number; stale: number } | null;
@@ -318,14 +324,20 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     ? approvalSecurityProfile : 'team';
   const approvalSecurityDefault = normalizedApprovalSecurityProfile !== 'regulated';
   const workflowUsage = worldModelWorkflowUsage(snapshot);
+  const defaultWorldModelViews = worldModel.format === 'registered-v4'
+    ? BUILTIN_VIEW_IDS.map((id) => normalizeBuiltInViewReference(id).reference)
+    : ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'];
   const built = Boolean(snapshot.worldModel?.generatedAt || snapshot.worldModel?.readiness?.ready);
   const modelRoot = snapshot.worldModel?.root ?? 'singularity/world-model';
-  const catalog = [
-    ...(worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security']),
+  const catalog = worldModelViewContractCatalog(definition, [
+    ...(worldModel.views ?? defaultWorldModelViews),
     ...(snapshot.worldModel?.views ?? []).map((view) => view.id),
     ...workflowUsage.flatMap((workflow) => workflow.phases.flatMap((phase) => phase.views))
-  ].filter((id, index, all) => all.indexOf(id) === index);
-  const snapshotViews = new Map((snapshot.worldModel?.views ?? []).map((view) => [view.id, view]));
+  ]);
+  const snapshotViews = new Map((snapshot.worldModel?.views ?? []).flatMap((view) => {
+    const identity = worldModelViewIdentity(definition, view.id);
+    return identity ? [[identity.id, view] as const] : [];
+  }));
   const fileInventory = snapshot.worldModel?.files;
   const generatedPaths = new Set((fileInventory ?? []).map((file) => file.path));
   return {
@@ -352,7 +364,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       format: snapshot.worldModel?.format ?? null,
       summary: snapshot.worldModel?.summary ?? null,
       expansion: [...(snapshot.worldModel?.expansion ?? [])],
-      views: catalog.map((id) => {
+      views: catalog.map(({ id, reference }) => {
         const snapshotView = snapshotViews.get(id);
         const path = snapshotView?.path ?? `${modelRoot}/views/${id}.md`;
         const workflowMatches = workflowUsage.filter((workflow) =>
@@ -360,7 +372,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         const phaseCount = workflowMatches.reduce((count, workflow) =>
           count + workflow.phases.filter((phase) => phase.views.includes(id)).length, 0);
         return {
-          id, path,
+          id, reference, path,
           references: [...(snapshotView?.references ?? [])],
           generated: snapshotView?.status
             ? snapshotView.status === 'available'
@@ -410,7 +422,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     modelRouting: snapshot.modelRouting ?? null,
     worldModel: {
       format: worldModel.format === 'registered-v4' ? 'registered-v4' : 'legacy-v3',
-      views: worldModel.views ?? ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'],
+      views: worldModel.views ?? defaultWorldModelViews,
       sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
       sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : [],
       outputDir: worldModel.outputDir ?? 'singularity/world-model',
@@ -457,6 +469,22 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
     totalMaximumOutputTokens: draft.v4?.totalMaximumOutputTokens ?? 5600
   };
   if (!WORLD_MODEL_FORMATS.has(format)) errors.push(`Unknown world-model format '${format}'.`);
+  if (format === 'registered-v4') {
+    const normalized: string[] = [];
+    const unsupported: string[] = [];
+    for (const view of draft.views) {
+      try { normalized.push(normalizeBuiltInViewReference(view).reference); }
+      catch { unsupported.push(view); }
+    }
+    if (unsupported.length) {
+      errors.push(
+        `Registered-v4 views must use installed active contracts (${BUILTIN_VIEW_IDS.join(', ')}); unsupported: ${unsupported.join(', ')}.`
+      );
+    }
+    if (new Set(normalized).size !== normalized.length) {
+      errors.push('Registered-v4 views must not repeat one contract with and without its exact version.');
+    }
+  }
   if (!WORLD_MODEL_V4_COMPOSERS.has(v4.composer)) errors.push(`Unknown registered-v4 composer '${v4.composer}'.`);
   if (!WORLD_MODEL_V4_CONSUMERS.has(v4.consumer)) errors.push(`Unknown registered-v4 consumer '${v4.consumer}'.`);
   if (!WORLD_MODEL_V4_CACHE_POLICIES.has(v4.cachePolicy)) errors.push(`Unknown registered-v4 cache policy '${v4.cachePolicy}'.`);
@@ -466,7 +494,9 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   }
   if (!draft.views.length) errors.push('Declare at least one world-model view.');
   if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
-  draft.views.forEach((view) => { if (!WORLD_MODEL_VIEW_ID.test(view)) errors.push(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`); });
+  if (format !== 'registered-v4') {
+    draft.views.forEach((view) => { if (!WORLD_MODEL_VIEW_ID.test(view)) errors.push(`World-model view '${view}' must be a lower-case kebab-case or namespaced dot ID.`); });
+  }
   for (const [label, roots] of [
     ['Source roots', draft.sourceRoots ?? []], ['Shared roots', draft.sharedRoots ?? []]
   ] as const) {

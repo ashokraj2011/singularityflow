@@ -18,7 +18,6 @@ import {
 } from './context-packet-telemetry.mjs';
 import { rankContextCandidates, selectContextCandidates } from './context-ranking.mjs';
 import { head } from './git.mjs';
-import { resolveWorldModelContext } from './grounding.mjs';
 import { readKnowledge } from './knowledge.mjs';
 import { projectKnowledge } from './knowledge-projection.mjs';
 import { readRawObservation } from './observation-compiler.mjs';
@@ -33,7 +32,7 @@ import {
   loadConfig, loadStoryAggregate, storyWelEnrollmentStatus
 } from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
-import { inspectWorkflowGrounding } from './worldmodel.mjs';
+import { inspectWorkflowGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
   'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'knowledge', 'observation'
@@ -338,12 +337,12 @@ async function worldModelCandidates(root, workflow, unavailable) {
   try {
     const inspected = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, { refreshRemote: false });
     if (!inspected.availability?.ready) throw Object.assign(new Error(inspected.reason ?? 'World model is unavailable.'), { code: 'EPC_WORLD_MODEL_UNAVAILABLE' });
-    const resolved = await resolveWorldModelContext(root, inspected.config, workflow.currentPhase, {
-      plan: inspected.plan, located: inspected.availability.located
-    });
+    const resolved = await resolveInspectedGrounding(root, inspected, workflow.currentPhase);
     const candidates = [];
     for (const selection of resolved.selected.slice(0, 12)) {
-      const content = boundedText(await readFile(selection.absolute, 'utf8'), 2048);
+      const content = boundedText(
+        selection.body ?? await readFile(selection.absolute, 'utf8'), 2048
+      );
       candidates.push({
         kind: 'world-model-context', subject: selection.relative,
         classification: 'proven', representation: 'bounded-source', content,

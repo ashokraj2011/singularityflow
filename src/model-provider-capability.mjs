@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
 import { commandExists, SingularityFlowError } from './util.mjs';
+import { resolveModelProviderLaunch } from './model-provider-launch.mjs';
 
 const TRANSPORTS = new Set(['auto', 'acp-stdio', 'attachment']);
 const probeCache = new Map();
@@ -22,8 +23,12 @@ function blocked(executable, code, requested, reason) {
  */
 export function probeModelPromptTransport({
   type = 'copilot-cli',
-  executable = process.platform === 'win32' ? 'copilot.cmd' : 'copilot',
-  promptTransport = 'auto'
+  executable = 'copilot',
+  promptTransport = 'auto',
+  platform = process.platform,
+  environment = process.env,
+  spawnSyncImpl = spawnSync,
+  resolvedExecutable = null
 } = {}) {
   if (type !== 'copilot-cli') return Object.freeze({
     state: 'not-applicable', code: null, capability: 'model-prompt-transport',
@@ -32,7 +37,11 @@ export function probeModelPromptTransport({
   if (!TRANSPORTS.has(promptTransport)) {
     return blocked(executable, 'MODEL_REQUEST_INVALID', promptTransport, 'unsupported-transport');
   }
-  if (!commandExists(executable)) {
+  const launch = resolveModelProviderLaunch(executable, {
+    platform, environment, spawnSyncImpl, resolvedExecutable
+  });
+  const available = platform === 'win32' ? launch.available : commandExists(executable);
+  if (!available) {
     return blocked(executable, 'MODEL_PROVIDER_UNAVAILABLE', promptTransport, 'executable-unavailable');
   }
   // Explicit attachment is a compatibility assertion made by the provider owner. Do not pretend
@@ -52,8 +61,8 @@ export function probeModelPromptTransport({
 
   const key = `${type}\0${executable}\0${promptTransport}`;
   if (probeCache.has(key)) return probeCache.get(key);
-  const probe = spawnSync(executable, ['--help'], {
-    encoding: 'utf8', windowsHide: true, timeout: 5000, shell: false
+  const probe = spawnSyncImpl(launch.command, launch.arguments(['--help']), {
+    encoding: 'utf8', windowsHide: true, timeout: 5000, ...launch.spawnOptions
   });
   const output = `${probe.stdout ?? ''}\n${probe.stderr ?? ''}`;
   const supported = probe.status === 0 && /(^|\s)--acp(?:\s|=|<|\[|$)/m.test(output);
@@ -68,8 +77,7 @@ export function probeModelPromptTransport({
 }
 
 export function resolveModelPromptTransport(providerConfig = {}, type = 'copilot-cli') {
-  const executable = providerConfig.executable
-    ?? (process.platform === 'win32' ? 'copilot.cmd' : 'copilot');
+  const executable = providerConfig.executable ?? 'copilot';
   const result = probeModelPromptTransport({
     type, executable, promptTransport: providerConfig.promptTransport ?? 'auto'
   });

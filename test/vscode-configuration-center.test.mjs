@@ -152,6 +152,69 @@ test('configuration center exposes guided world-model policy, generation, and in
   assert.match(CONFIGURATION_CENTER_SCRIPT, /totalMaximumOutputTokens: Number\(data\.get\('v4TotalMaximumOutputTokens'\)\)/);
 });
 
+test('configuration center refuses a format-only transition that carries legacy views into registered-v4', () => {
+  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
+  const draft = {
+    ...view.worldModel,
+    format: 'registered-v4'
+  };
+  const errors = validateWorldModelDraft(draft);
+  assert.ok(errors.some((entry) => /installed active contracts/.test(entry)));
+  assert.throws(
+    () => updateWorldModelYaml('version: 2\nworldModel:\n  views: [business, architecture]\n', draft),
+    /unsupported: business, architecture/
+  );
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /Registered-v4 accepts the installed contracts/);
+  assert.match(html, /silently carrying legacy IDs into v4/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /world-model-format/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /arch\.contracts@4, biz\.rules@4, dev\.hotspots@4, dev\.impact@4/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /Review phase and agent view assignments before saving/);
+});
+
+test('configuration center joins exact registered contracts to logical phase and generated views', () => {
+  const definition = {
+    ...snapshot.definition,
+    worldModel: { ...snapshot.definition.worldModel, format: 'registered-v4', views: ['dev.impact@4'] },
+    phases: { implementation: { label: 'Implementation', worldModel: { views: ['dev.impact'] } } },
+    workTypes: { feature: { label: 'Feature', phases: ['implementation'] } }
+  };
+  const view = configurationCenterView({
+    ...snapshot,
+    definition,
+    worldModel: {
+      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z',
+      views: [{ id: 'dev.impact', references: ["phase 'implementation'"] }],
+      workflows: worldModelWorkflowViewUsage(definition)
+    }
+  }, { name: 'Ashok', role: 'architect' });
+  assert.equal(view.worldModelStatus.views.length, 1);
+  assert.deepEqual(view.worldModelStatus.views[0], {
+    ...view.worldModelStatus.views[0], id: 'dev.impact', reference: 'dev.impact@4',
+    workflowCount: 1, phaseCount: 1
+  });
+  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
+  assert.match(html, /dev\.impact@4/);
+});
+
+test('configuration center uses active exact contracts when registered-v4 omits a view list', () => {
+  const view = configurationCenterView({
+    ...snapshot,
+    definition: {
+      ...snapshot.definition,
+      worldModel: { format: 'registered-v4', grounding: 'warn', staleness: 'warn' }
+    }
+  }, { name: 'Ashok', role: 'architect' });
+  assert.deepEqual(view.worldModel.views, [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ]);
+  assert.deepEqual(view.worldModelStatus.views.map((entry) => entry.id), [
+    'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
+  ]);
+  assert.doesNotMatch(configurationCenterHtml(view, 'world-model', null, null, null, []),
+    /value="business, architecture/);
+});
+
 test('world-model explorer joins views to phases across workflows and respects overrides and off mode', () => {
   const scopedDefinition = {
     ...snapshot.definition,
@@ -258,7 +321,7 @@ test('world-model editor accepts dotted registered views and persists every v4 c
       composer: 'model-optional', consumer: 'tester', cachePolicy: 'reuse-valid',
       totalMaximumOutputTokens: 4200
     },
-    views: ['dev.impact', 'arch.contracts'], sourceRoots: ['src'], sharedRoots: ['packages/contracts'],
+    views: ['dev.impact@4', 'arch.contracts'], sourceRoots: ['src'], sharedRoots: ['packages/contracts'],
     outputDir: 'singularity/world-model', promptSource: 'builtin', stateFetchTimeoutMs: 10000,
     generation: { parallel: false, maxWorkers: 4, strategy: 'view' },
     materialization: { mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt' },
@@ -268,7 +331,7 @@ test('world-model editor accepts dotted registered views and persists every v4 c
   assert.deepEqual(validateWorldModelDraft(draft), []);
   const parsed = YAML.parse(updateWorldModelYaml('version: 2\nworldModel: {}\n', draft));
   assert.equal(parsed.worldModel.format, 'registered-v4');
-  assert.deepEqual(parsed.worldModel.views, ['dev.impact', 'arch.contracts']);
+  assert.deepEqual(parsed.worldModel.views, ['dev.impact@4', 'arch.contracts']);
   assert.deepEqual(parsed.worldModel.v4, draft.v4);
   assert.equal(parsed.worldModel.generation.parallel, false);
 });

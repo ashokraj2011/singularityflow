@@ -157,7 +157,7 @@
   "mcp-authorization": [{ "schemaVersion": 1 }],
   "work-item-telemetry": [{ "schemaVersion": 1 }],
   "artifact-authorship": [{ "schemaVersion": 1 }],
-  "prompt-injection": [{ "schemaVersion": 1, "requiredViews": ["overview"] }, { "schemaVersion": 2, "requiredSelections": [] }, { "schemaVersion": 3, "requiredSelections": [], "structuralContext": null }],
+  "prompt-injection": [{ "schemaVersion": 1, "requiredViews": ["overview"] }, { "schemaVersion": 2, "requiredSelections": [] }, { "schemaVersion": 3, "requiredSelections": [], "structuralContext": null }, { "schemaVersion": 4, "requiredSelections": [], "structuralContext": null, "groundingAvailability": { "status": "legacy-unverified", "reasonCode": null } }],
   "agent-context-audit": [{ "schemaVersion": 1, "agent": "developer", "persona": "legacy-copilot", "files": [] }, { "schemaVersion": 2, "agent": "developer", "nativeCopilotAgent": "developer", "files": [] }],
   "remote-agent-output": [{ "schemaVersion": 1 }],
   "mcp-evidence": [{ "schemaVersion": 1, "generation": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3 }],

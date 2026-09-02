@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 18
+version: 19
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -44,6 +44,23 @@ a read-only readiness check: a missing or stale required view is refused rather 
 replace v4 bytes only through an explicit `wm build`, `wm regenerate`, or `wm migrate`; exact valid
 cache entries are reused without another model call.
 
+All state-backed surfaces use the same approved authority: `ledger.remote`, then
+`worldModel.remote`, then `git.remote`. Read-only status, Help, gateway, and VS Code views never
+fetch. If the remote is newer, run `sflow wm refresh-authority --format registered-v4`; a
+storyless multi-capability repository must retain the displayed `--capability ID`. A remote or local
+authoritative state tip that removed the model cannot fall through to an older application-branch
+copy.
+
+The state branch is `worldModel.stateBranch` when that compatibility override is authored;
+otherwise it is `ledger.branch` (default `state`). Canonical configuration resolves these fallbacks
+before ledger defaults are applied, so an implicit `origin` cannot hide an explicit World-Model or
+application remote.
+
+Registered-view execution is version exact. Stable configuration IDs resolve to installed contract
+references such as `dev.impact@4`, and omitted `worldModel.views` means the complete active installed
+catalog. The `all` selector is expanded before plans, checkpoints, workers, diagnostics, or manifests
+are created.
+
 Registered v4 always uses its repository-local exact cache. Set
 `SINGULARITY_FLOW_WMB_SHARED_CACHE` to an approved absolute directory, or pass `--shared-cache`, to
 automatically warm and reuse validated L2 bundles across checkouts. Shared bytes still pass the full
@@ -53,6 +70,16 @@ Freshness compares the current approved scope, policy, view contracts/selection,
 registry, consumer profile, and output budget as well as source bytes. `wm regenerate --stale`
 therefore rebuilds the complete current configured view set instead of preserving views removed by
 new policy.
+
+With `materialization.mode: on-demand`, `confirmation: automatic`, `depth: light`, and a
+deterministic v4 composer, lifecycle authoring may add a missing phase view to a valid same-source
+projection without invoking a model; v4 maps light to its `quick` depth and preserves existing views
+byte-for-byte. Stale, invalid, source-mismatched, or intentionally removed models still require a
+reviewed action. The automatic child build is bound to the inspected state commit and manifest, so
+authority movement before execution cannot widen an extension into a replacement. In advisory
+grounding mode, a failed deterministic warm-up does not block normal
+file-based authoring: the prompt receipt records `groundingAvailability: unavailable` with a stable
+reason code. Enforced grounding remains fail-closed.
 
 The optional registered runtime and human-confirmed inputs live only at
 `world-model-inputs/runtime-observations.json` and
@@ -101,7 +128,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. Read operations remain bounded and model-free. A registered-v4 build uses the existing five-tool gateway: it creates an exact Plan, requires a separate host confirmation, then runs only the opaque one-time Plan handle.
-- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered-v4 format, composer, consumer, cache, and total-token controls. Dotted registered view IDs such as `dev.impact` are accepted. Use **Build / refresh** to select approved views and review the exact request, source, scope, and state-branch CAS target before a native build. Cancelling performs no mutation. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
+- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered-v4 format, composer, consumer, cache, and total-token controls. Dotted registered view IDs such as `dev.impact` are accepted. Use **Build / refresh** to select an approved capability (when needed), exact installed views, and review the request, source, scope, and state-branch CAS target before a native build. Cancelling performs no mutation. If authority refresh is required, **Refresh state & retry** preserves the capability selection. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI. Both settings surfaces save the same YAML used by the CLI.
 
 ## Guided workflow
 

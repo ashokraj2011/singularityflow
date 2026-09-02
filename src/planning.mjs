@@ -14,12 +14,12 @@ import {
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
 import { gitDir, branch, head, identity } from './git.mjs';
 import {
-  groundingMode,
-  resolveWorldModelContext
+  groundingMode
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
-import { ensureGrounding, materializationPolicy } from './world-model-materialization.mjs';
+import { materializationPolicy } from './world-model-materialization.mjs';
 import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
@@ -58,6 +58,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
@@ -393,27 +394,47 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     context: scopedDefinition.worldModel?.context ?? {}
   });
   const requiredViews = plan.views.map((entry) => entry.view);
+  const stateAuthority = worldModelStateAuthority(scopedDefinition);
   const config = {
     definition: scopedDefinition,
+    // Preserve the Story's pinned capability identity at every alternate composition boundary.
+    // Without it, registered-v4 scope fell back to the checkout basename and rejected the exact
+    // storyless model that the same repository had already published.
+    workflow,
     outputDir: scopedDefinition.worldModel?.outputDir ?? 'singularity/world-model',
     materialization: materializationPolicy(scopedDefinition),
-    stateBranch: scopedDefinition.ledger?.branch ?? null,
-    remote: scopedDefinition.git?.remote ?? 'origin',
+    stateBranch: stateAuthority.branch,
+    remote: stateAuthority.remote,
     grounding: mode,
     staleness: workflow.resolution?.worldModelStaleness ?? scopedDefinition.worldModel?.staleness ?? 'warn',
     context: scopedDefinition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
-    phases: { [phase.id]: { views: requiredViews, depth: phase.worldModel?.depth ?? 'standard', evidence: phase.worldModel?.evidence ?? false } }
+    phases: { [phase.id]: {
+      views: requiredViews,
+      declaredViews: requiredViews,
+      depth: phase.worldModel?.depth ?? 'standard',
+      evidence: phase.worldModel?.evidence ?? false
+    } }
   };
   try {
-    const ensured = await ensureGrounding(root, config, plan, { authorized: false });
-    const resolved = await resolveWorldModelContext(root, config, phase.id, {
-      plan, located: ensured.located, evidence: phase.worldModel?.evidence ?? false
+    const inspected = await inspectConfiguredGrounding(root, config, phase.id, {
+      plan, refreshRemote: true
+    });
+    if (!inspected.availability.ready) {
+      throw new SingularityFlowError(`${inspected.reason} Run: ${inspected.command}`, {
+        code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+      });
+    }
+    const resolved = await resolveInspectedGrounding(root, inspected, phase.id, {
+      evidence: phase.worldModel?.evidence ?? false
     });
     const staleness = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
     const files = [];
     for (const item of resolved.selected) {
-      const content = await readFile(item.absolute, 'utf8');
-      files.push({ path: posix(path.relative(root, item.absolute)), sha256: item.sha256, bytes: item.size, reason: item.reason, content });
+      const content = item.body ?? await readFile(item.absolute, 'utf8');
+      const itemPath = item.absolute
+        ? posix(path.relative(root, item.absolute))
+        : posix(path.join(config.outputDir, item.relative));
+      files.push({ path: itemPath, sha256: item.sha256, bytes: item.size, reason: item.reason, content });
     }
     return {
       text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
@@ -423,7 +444,8 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       record: {
         mode, available: true, fresh: resolved.freshness.fresh,
         commit: resolved.located?.commit ?? null,
-        requiredViews, requiredSelections: plan.selections
+        format: inspected.format,
+        requiredViews, requiredSelections: inspected.plan.selections
       }
     };
   } catch (error) {
@@ -464,13 +486,14 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     // A resolver failure is an explicit authority decision, not permission to fall back to whatever
     // happens to exist in the application worktree. Warn mode may continue without grounding, but
     // it must continue with zero world-model injection.
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow) || !world.record.available,
+    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
+      || !world.record.available || world.record.format === 'registered-v4',
     modelDirectory: world.directory
   });
   const capability = worldModelDisabledForWorkflow(workflow)
     ? { text: '', files: [], warnings: [] }
     : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
-      views: phase.worldModel?.views ?? []
+      views: phase.worldModel?.views ?? [], grounding: world.record.mode
     });
   const structural = await requiredStructuralPromptContext(root, workflow);
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });

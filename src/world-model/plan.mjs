@@ -28,15 +28,39 @@ function normalizedViews(viewRegistry, values, { required = true } = {}) {
       code: 'WMB_VIEW_UNKNOWN'
     });
   }
-  const requested = values.map((entry) => typeof entry === 'string'
-    ? { viewId: entry.replace(/@\d+$/, ''), reference: entry.includes('@') ? entry : `${entry}@4`, required }
-    : {
-        viewId: String(entry?.viewId ?? '').replace(/@\d+$/, ''),
-        reference: entry?.version
-          ? `${String(entry.viewId).replace(/@\d+$/, '')}@${entry.version}`
-          : String(entry?.viewId ?? '').includes('@') ? String(entry.viewId) : `${entry?.viewId}@4`,
-        required: entry?.required !== false
-      });
+  const exactReference = (rawId, suppliedVersion = null) => {
+    const value = String(rawId ?? '').trim();
+    const explicit = /^(?<id>.+)@(?<version>[1-9][0-9]*)$/.exec(value)?.groups;
+    const viewId = explicit?.id ?? value;
+    if (suppliedVersion != null) return {
+      viewId, reference: `${viewId}@${suppliedVersion}`
+    };
+    if (explicit) return { viewId, reference: value };
+    const active = viewRegistry.contracts.filter(
+      (contract) => contract.id === viewId && contract.validity.status === 'active'
+    );
+    if (active.length !== 1) {
+      throw new SingularityFlowError(
+        active.length
+          ? `View '${viewId}' has more than one active installed version; select one exact version.`
+          : `View '${viewId}' has no active installed version.`,
+        {
+          code: active.length ? 'WMB_VIEW_VERSION_UNSUPPORTED' : 'WMB_VIEW_UNKNOWN',
+          details: { view: viewId, activeVersions: active.map((contract) => contract.version) }
+        }
+      );
+    }
+    return { viewId, reference: `${viewId}@${active[0].version}` };
+  };
+  const requested = values.map((entry) => {
+    const normalized = typeof entry === 'string'
+      ? exactReference(entry)
+      : exactReference(entry?.viewId, entry?.version ?? null);
+    return {
+      ...normalized,
+      required: typeof entry === 'string' ? required : entry?.required !== false
+    };
+  });
   const unique = new Map();
   for (const entry of requested) {
     let contract;

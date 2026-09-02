@@ -12,6 +12,8 @@ import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
 import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
+import { refreshWorldModelV4Authority } from '../src/world-model/authority-refresh.mjs';
 
 const LEDGER = Object.freeze({
   enabled: true,
@@ -46,7 +48,7 @@ async function repository(t) {
   return root;
 }
 
-function capabilities(root) {
+function capabilities(root, { selectedCapabilityId = null } = {}) {
   return worldModelGatewayCapabilities({
     defaults: {
       outputDir: 'singularity/world-model',
@@ -55,9 +57,24 @@ function capabilities(root) {
       allowedPaths: ['src/**'],
       excludedPaths: ['singularity/**', '.sflow/**', '.singularity-flow/**'],
       policySnapshotSha256: sha256({ fixture: 'wmb-gateway-policy' }),
+      selectedCapabilityId,
       generatedAt: '2026-09-01T00:00:00.000Z'
     }
   });
+}
+
+function buildOptions(overrides = {}) {
+  return {
+    outputDir: 'singularity/world-model',
+    ledgerConfig: LEDGER,
+    capabilityId: 'gateway-fixture',
+    allowedPaths: ['src/**'],
+    excludedPaths: ['singularity/**', '.sflow/**', '.singularity-flow/**'],
+    policySnapshotSha256: sha256({ fixture: 'wmb-gateway-policy' }),
+    generatedAt: '2026-09-01T00:00:00.000Z',
+    composer: 'deterministic',
+    ...overrides
+  };
 }
 
 test('the five-tool surface keeps WMB run handle-only and validates closed build arguments', () => {
@@ -230,6 +247,112 @@ test('confirmed WMB target and state CAS authority cannot be redirected or advan
     ),
     (error) => error.code === 'WMB_GATEWAY_PLAN_DRIFTED'
   );
+});
+
+test('gateway planning refuses an unmaterialized remote view set and preserves it after explicit refresh', async (t) => {
+  const firstClone = await repository(t);
+  const remote = git(firstClone, 'remote', 'get-url', 'origin').stdout.trim();
+  await buildAndPublishWorldModelV4(firstClone, buildOptions({
+    views: ['dev.impact'], generatedAt: '2026-09-01T00:10:00.000Z'
+  }));
+
+  const secondClone = path.join(path.dirname(remote), 'clone-b', 'repo');
+  await mkdir(path.dirname(secondClone), { recursive: true });
+  run('git', ['clone', '-q', '--branch', 'main', remote, secondClone]);
+  git(secondClone, 'config', 'user.name', 'WMB Gateway Tests B');
+  git(secondClone, 'config', 'user.email', 'wmb-gateway-b@example.invalid');
+  await buildAndPublishWorldModelV4(secondClone, buildOptions({
+    views: ['biz.rules'], generatedAt: '2026-09-01T00:10:01.000Z'
+  }));
+
+  const staleTip = git(firstClone, 'rev-parse', 'refs/remotes/origin/state').stdout.trim();
+  const remoteTip = git(
+    firstClone, 'ls-remote', '--heads', 'origin', 'refs/heads/state'
+  ).stdout.trim().split(/\s+/)[0];
+  assert.notEqual(staleTip, remoteTip);
+  const refsBefore = git(
+    firstClone, 'for-each-ref', '--format=%(refname) %(objectname)'
+  ).stdout;
+
+  // Model both choices from a two-capability repository. The gateway receives only the approved
+  // selection, and a retry command must retain that exact selection without leaking the other.
+  for (const capabilityId of ['payments-api', 'orders-api']) {
+    const selected = capabilities(firstClone, { selectedCapabilityId: capabilityId });
+    const { kernel: selectedKernel } = createHostGateway({
+      root: firstClone,
+      hostSessionId: `wmb-stale-authority-${capabilityId}`,
+      planners: gatewayPlanners(),
+      readOnly: false,
+      ...selected
+    });
+    const selectedRefusal = await selectedKernel.resolve({
+      utterance: 'build and publish registered world model',
+      arguments: { views: ['arch.contracts'], composer: 'deterministic' }
+    });
+    assert.equal(selectedRefusal.kind, 'refusal');
+    assert.equal(
+      selectedRefusal.why[0].slots.nextAction,
+      `singularity-flow wm refresh-authority --format registered-v4 --capability ${capabilityId}`
+    );
+  }
+
+  const wired = capabilities(firstClone, { selectedCapabilityId: 'payments-api' });
+  const { kernel } = createHostGateway({
+    root: firstClone,
+    hostSessionId: 'wmb-stale-authority-session',
+    planners: gatewayPlanners(),
+    readOnly: false,
+    ...wired
+  });
+  const refused = await kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: { views: ['arch.contracts'], composer: 'deterministic' }
+  });
+  assert.equal(refused.kind, 'refusal');
+  assert.equal(refused.why[0].code, 'gateway.plan-invalid');
+  assert.equal(refused.why[0].slots.code, 'WMB_GATEWAY_STATE_AUTHORITY_REFRESH_REQUIRED');
+  assert.equal(
+    refused.why[0].slots.nextAction,
+    'singularity-flow wm refresh-authority --format registered-v4 --capability payments-api'
+  );
+  assert.equal(git(
+    firstClone, 'for-each-ref', '--format=%(refname) %(objectname)'
+  ).stdout, refsBefore, 'read-only planning must not fetch or mutate refs');
+
+  const refreshed = refreshWorldModelV4Authority(firstClone, {
+    outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin',
+    definition: { ledger: LEDGER }
+  });
+  assert.equal(refreshed.status, 'refreshed');
+  const planned = kernel.resolve({
+    utterance: 'build and publish registered world model',
+    arguments: { views: ['arch.contracts'], composer: 'deterministic' }
+  });
+  assert.equal(planned.kind, 'plan', JSON.stringify(planned, null, 2));
+  assert.deepEqual(planned.data.plan.review.effectiveViews
+    .map((entry) => entry.replace(/@\d+$/, '')), [
+    'arch.contracts', 'biz.rules', 'dev.impact'
+  ]);
+  const confirmation = kernel.confirmPlan({
+    planId: planned.next[0].handle,
+    requestSha256: planned.data.plan.review.requestSha256,
+    planSha256: planned.data.plan.review.planSha256
+  });
+  const completed = await kernel.run(
+    { planId: planned.next[0].handle },
+    {
+      confirmationReceiptId: confirmation.receiptId,
+      confirmationValue: confirmation.value
+    }
+  );
+  assert.equal(completed.outcome.status, 'succeeded');
+
+  const manifest = JSON.parse(run('git', [
+    `--git-dir=${remote}`, 'show', 'refs/heads/state:singularity/world-model/manifest.json'
+  ]).stdout);
+  assert.deepEqual(manifest.views.map((entry) => entry.viewId), [
+    'arch.contracts', 'biz.rules', 'dev.impact'
+  ]);
 });
 
 test('source drift after confirmation refuses the Plan before execution', async (t) => {

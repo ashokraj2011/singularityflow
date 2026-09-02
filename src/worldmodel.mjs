@@ -41,9 +41,11 @@ import {
   ensureGrounding, groundingEnsureCommand, inspectGroundingAvailability, isMinimalModel, materializationPolicy, materializeSelections,
   mergeWorldModelSnapshot, writeV3Manifest
 } from './world-model-materialization.mjs';
-import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { assertWorldModelStaleness, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { operationContext } from './operation-context.mjs';
-import { renderCapabilityWorldModelPack } from './capability-context.mjs';
+import {
+  renderCapabilityWorldModelPack, resolveLifecycleCapability
+} from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
@@ -72,9 +74,14 @@ import { compilePromptSections } from './prompt-budget.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { compileWorldModelSynthesisPrompt } from './world-model-synthesis-budget.mjs';
 import {
-  configuredWorldModelV4ViewIds, handleWorldModelV4Command, isWorldModelV4,
-  resolveWorldModelV4Grounding, WORLD_MODEL_V4_COMMANDS
+  configuredWorldModelV4CapabilityId, configuredWorldModelV4ViewSelections,
+  handleWorldModelV4Command, isWorldModelV4, resolveWorldModelV4Grounding,
+  scopedWorldModelV4Command, WORLD_MODEL_V4_COMMANDS
 } from './world-model/commands.mjs';
+import {
+  cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
+} from './world-model/authority-refresh.mjs';
+import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import {
   inspectWorldModelPublicationRecovery, listWorldModelPublicationRecoveries,
   resumeWorldModelPublication
@@ -479,7 +486,18 @@ function requireText(file) {
   catch (error) { throw new SingularityFlowError(`Unable to read ${file}: ${error.message}`); }
 }
 
-async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
+/**
+ * Load the one normalized World-Model command configuration shared by CLI and native hosts.
+ *
+ * `loadDefinition()` returns the governed YAML document. World-Model commands need more than that:
+ * the active Story's pinned source scope and phase policies, resolved provider, state publication
+ * target, and normalized generation/materialization settings. Keeping this boundary public prevents
+ * an IDE from handing command helpers the raw YAML shape and silently falling back to unrelated
+ * defaults.
+ */
+export async function loadWorldModelConfig(root, {
+  agent: selectedAgent = null, workId = null, capabilityId = null
+} = {}) {
   if (existsSync(path.join(configurationReadRoot(root), WORKFLOW_PATH))) {
     const configuredDefinition = await loadDefinition(root);
     const session = await loadSession(root, { required: false });
@@ -488,10 +506,24 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
     const activeState = existsSync(activeStatePath)
       ? readRecord('story-workflow', await readFile(activeStatePath)).record
       : null;
+    // Resolve repository ownership even before a Story exists. A storyless build previously used
+    // the checkout basename as its scope capability, then the first Story used its mapped
+    // capability ID and made the just-published model stale. This offline lookup reads the same
+    // approved map as Story start and performs no ledger/network work.
+    const repositoryCapability = activeState ? null : await resolveLifecycleCapability(root, {
+      capabilityId,
+      required: Boolean(capabilityId),
+      offline: true,
+      refuseAmbiguous: configuredDefinition.worldModel?.format === 'registered-v4'
+    });
     const definition = withWorldModelSourceScope(
       configuredDefinition,
-      activeState?.resolution?.worldModelSourceScope ?? activeState?.resolution?.capability?.sourceScope ?? null
+      activeState?.resolution?.worldModelSourceScope
+        ?? activeState?.resolution?.capability?.sourceScope
+        ?? repositoryCapability?.sourceScope
+        ?? null
     );
+    const stateAuthority = worldModelStateAuthority(definition);
     const phaseEntries = activeState?.resolution?.phases?.length
       ? activeState.resolution.phases.map((phase) => [phase.id, phase])
       : Object.entries(definition.phases);
@@ -520,6 +552,7 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
     return {
       definition,
       workflow: activeState,
+      repositoryCapability,
       workItemRoot: definition.workItemRoot ?? 'singularity/work-items',
       outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
       promptSource: definition.worldModel?.promptSource ?? 'singularity/prompts/worldmodel-builder.md',
@@ -539,8 +572,8 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
       materialization: activeState?.resolution?.worldModelMaterialization
         ? materializationPolicy({ worldModel: { materialization: activeState.resolution.worldModelMaterialization } })
         : materializationPolicy(definition),
-      stateBranch: definition.ledger?.branch ?? null,
-      remote: definition.git?.remote ?? 'origin',
+      stateBranch: stateAuthority.branch,
+      remote: stateAuthority.remote,
       grounding: groundingMode(definition, activeState),
       staleness: activeState?.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn', phases,
       // `always` was the literal 'core/summary.md' here and at two other call sites, so no
@@ -565,6 +598,9 @@ async function load(root, { agent: selectedAgent = null, workId = null } = {}) {
     context: { ...base.context, ...(user.context ?? {}) }
   };
 }
+
+// Internal command paths use the same exported normalization boundary as IDE hosts.
+const load = loadWorldModelConfig;
 
 function groundingPlan(config, options, requestedPhase = null) {
   const phase = requestedPhase ?? optionString(options, 'phase');
@@ -666,24 +702,348 @@ function lifecycleCatalogWarmAllowed(plan, options) {
 export async function inspectWorkflowGrounding(root, workflow, phaseId, {
   agent = null,
   task = null,
-  refreshRemote = true
+  refreshRemote = false
 } = {}) {
   const config = await load(root, { agent, workId: workflow?.workItem?.id ?? null });
   const options = {
     ...(task ? { task } : {}),
     evidence: workflow?.phases?.[phaseId]?.worldModel?.evidence === true
   };
-  const plan = groundingPlan(config, options, phaseId);
+  return inspectConfiguredGrounding(root, config, phaseId, { options, refreshRemote });
+}
+
+function registeredV4BuildCommand(config, phaseId) {
+  return scopedWorldModelV4Command(
+    config,
+    `singularity-flow wm build --format registered-v4${phaseId ? ` --phase ${phaseId}` : ''}`
+  );
+}
+
+function registeredV4RecoveryAction(config, error, phaseId) {
+  const code = String(error?.code ?? 'WMB_GROUNDING_UNAVAILABLE');
+  if (code === 'WMB_VIEW_UNKNOWN' || code === 'WMB_VIEW_VERSION_UNSUPPORTED') {
+    return {
+      command: scopedWorldModelV4Command(config, 'singularity-flow wm views'),
+      reason: `${error.message} Review the approved registered-view catalog and phase selection.`
+    };
+  }
+  if (code === 'WMB_MIGRATION_REQUIRED') {
+    const migrationCommand = scopedWorldModelV4Command(
+      config,
+      'singularity-flow wm migrate <legacy-view.md> --view <registered-view>'
+    );
+    return {
+      command: scopedWorldModelV4Command(
+        config, 'singularity-flow wm doctor --format registered-v4'
+      ),
+      reason: `${error.message} Inspect the legacy projection, then run ${migrationCommand}.`
+    };
+  }
+  if ([
+    'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+    'WMB_STATE_AUTHORITY_REFRESH_FAILED',
+    'WMB_STATE_AUTHORITY_UNAVAILABLE'
+  ].includes(code)) {
+    return {
+      command: scopedWorldModelV4Command(
+        config, 'singularity-flow wm refresh-authority --format registered-v4'
+      ),
+      reason: `${error.message} Refresh the exact configured state authority, then retry.`
+    };
+  }
+  if (['WMB_MANIFEST_MISSING', 'WMB_VIEW_UNAVAILABLE', 'WMB_SOURCE_SNAPSHOT_STALE'].includes(code)) {
+    return { command: registeredV4BuildCommand(config, phaseId), reason: error.message };
+  }
+  return {
+    command: scopedWorldModelV4Command(
+      config, 'singularity-flow wm doctor --format registered-v4'
+    ),
+    reason: `${error.message} Inspect the exact state projection before rebuilding it.`
+  };
+}
+
+function registeredV4Composer(config) {
+  const value = config.definition?.worldModel?.v4?.composer ?? 'deterministic';
+  if (value === 'model-required') return 'model';
+  if (value === 'model-optional') return 'auto';
+  return value;
+}
+
+function durableGroundingReasonCode(value, fallback = 'WORLD_MODEL_GROUNDING_UNAVAILABLE') {
+  const candidate = String(value ?? '').trim();
+  // Durable receipts retain only the stable diagnostic identifier. Provider messages, repository
+  // paths, refs, and recovery prose stay in the transient diagnostic surface.
+  return /^[A-Z][A-Z0-9_.-]{0,95}$/.test(candidate) ? candidate : fallback;
+}
+
+/**
+ * Read one phase's repository grounding without assuming a legacy manifest format.
+ *
+ * Every lifecycle surface uses this contract. In particular, registered-v4 never flows through
+ * `normalizeWorldModelManifest`, and this read boundary never builds or repairs a projection.
+ */
+export async function inspectConfiguredGrounding(root, config, phaseId, {
+  options = {},
+  plan: suppliedPlan = null,
+  refreshRemote = false
+} = {}) {
+  if (isWorldModelV4(config, options)) {
+    const lifecycleOptions = optionString(options, 'depth') == null
+        && config.materialization?.depth === 'light'
+      ? { ...options, depth: 'quick' }
+      : options;
+    let plan = {
+      phase: phaseId,
+      depth: optionString(
+        lifecycleOptions, 'depth', config.phases?.[phaseId]?.depth ?? 'standard'
+      ),
+      includeEvidence: false,
+      views: [],
+      selections: []
+    };
+    let authorityRefresh = { status: refreshRemote ? 'unavailable' : 'cached', configured: false };
+    try {
+      // Validate the local, approved view policy before performing any network operation. A
+      // malformed phase must fail deterministically and must not refresh mutable authority as a
+      // side effect of discovering that local configuration is invalid.
+      const configuredSelections = configuredWorldModelV4ViewSelections(
+        config, lifecycleOptions, phaseId
+      );
+      plan = {
+        ...plan,
+        views: configuredSelections.map(({ viewId: view }) => ({ view })),
+        selections: configuredSelections.map(({ viewId: view, version }) => ({
+          kind: 'view', view, version, tier: 'registered-v4'
+        }))
+      };
+      authorityRefresh = refreshWorldModelV4Authority(root, config, { refreshRemote });
+      if (authorityRefresh.status === 'refresh-required') {
+        throw new SingularityFlowError(
+          'The configured registered WMB v4 state authority has not been materialized locally. Refresh it explicitly before using repository grounding.',
+          {
+            code: 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+            details: { refresh: authorityRefresh.status }
+          }
+        );
+      }
+      if (authorityRefresh.status === 'remote-absent') {
+        throw new SingularityFlowError(
+          'The configured remote state branch has no registered WMB v4 projection. A cached copy will not override that authority.',
+          { code: 'WMB_MANIFEST_MISSING', details: { refresh: authorityRefresh.status } }
+        );
+      }
+      if (['offline-cached', 'timeout-cached'].includes(authorityRefresh.status)
+          && !cachedWorldModelV4AuthorityPresent(root, config)) {
+        throw new SingularityFlowError(
+          'The registered WMB v4 state authority could not be refreshed and no verified cached projection is available.',
+          { code: 'WMB_STATE_AUTHORITY_UNAVAILABLE', details: { refresh: authorityRefresh.status } }
+        );
+      }
+      const resolved = resolveWorldModelV4Grounding(root, config, {
+        phase: phaseId, options: lifecycleOptions, required: true
+      });
+      const staleMessage = resolved.freshness.fresh
+        ? null
+        : `Registered WMB v4 grounding is stale (${resolved.freshness.reason ?? 'identity changed'}).`;
+      const staleness = worldModelStalenessDecision(
+        config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn',
+        resolved.freshness.fresh,
+        staleMessage ?? 'Registered WMB v4 grounding is stale.'
+      );
+      const availability = {
+        format: 'registered-v4',
+        status: staleness.blocks ? 'stale' : 'ready',
+        ready: !staleness.blocks,
+        source: resolved.located.source,
+        located: resolved.located,
+        selected: {
+          source: resolved.located.source,
+          ref: resolved.located.ref,
+          commit: resolved.located.commit,
+          directory: null,
+          manifest: resolved.manifest,
+          fresh: resolved.freshness.fresh,
+          historical: false
+        },
+        candidates: [{ present: true, source: resolved.located.source }],
+        missing: [],
+        refresh: authorityRefresh.status,
+        staleness,
+        action: staleness.blocks ? {
+          command: registeredV4BuildCommand(config, phaseId), reason: staleMessage
+        } : null
+      };
+      return {
+        format: 'registered-v4', config,
+        plan: { ...plan, selections: resolved.selections },
+        availability, resolved,
+        command: availability.action?.command
+          ?? scopedWorldModelV4Command(
+            config, `singularity-flow wm ensure${phaseId ? ` --phase ${phaseId}` : ''}`
+          ),
+        reason: staleness.warns ? staleness.message : null
+      };
+    } catch (error) {
+      const action = registeredV4RecoveryAction(config, error, phaseId);
+      const stale = error?.code === 'WMB_SOURCE_SNAPSHOT_STALE';
+      const present = error?.code !== 'WMB_MANIFEST_MISSING';
+      const staleness = stale
+        ? worldModelStalenessDecision('fail', false, error.message)
+        : worldModelStalenessDecision(
+          config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn', true
+        );
+      return {
+        format: 'registered-v4', config, plan,
+        availability: {
+          format: 'registered-v4',
+          status: stale ? 'stale' : error?.code === 'WMB_MANIFEST_MISSING' ? 'missing' : 'unavailable',
+          ready: false,
+          source: 'state-branch',
+          selected: null,
+          candidates: present ? [{ present: true, source: 'state-branch' }] : [],
+          extensionBase: error?.code === 'WMB_VIEW_UNAVAILABLE'
+            ? error?.details?.extensionBase ?? null : null,
+          missing: plan.views,
+          refresh: error?.details?.refresh ?? authorityRefresh.status,
+          staleness,
+          error: { code: error?.code ?? 'WMB_GROUNDING_UNAVAILABLE', message: error.message },
+          action
+        },
+        resolved: null,
+        command: action.command,
+        reason: action.reason
+      };
+    }
+  }
+  const plan = suppliedPlan ?? groundingPlan(config, options, phaseId);
   const availability = await inspectGroundingAvailability(root, config, plan, { refreshRemote });
   const reason = availability.ready
     ? availability.staleness?.warns ? availability.staleness.message : null
     : availability.action?.reason ?? 'No governed world model satisfies the pinned phase plan.';
   return {
-    config,
+    format: 'legacy-v3', config,
     plan,
     availability,
     command: availability.action?.command ?? groundingEnsureCommand(plan),
     reason
+  };
+}
+
+/** Resolve the exact content selected by a successful format-aware readiness inspection. */
+export async function resolveInspectedGrounding(root, inspected, phaseId, {
+  task = null,
+  evidence = false,
+  includeAgentPrompt = false
+} = {}) {
+  if (inspected.format === 'registered-v4') {
+    if (!inspected.resolved || !inspected.availability?.ready) {
+      throw new SingularityFlowError(
+        `Registered WMB v4 grounding is not ready. Run: ${inspected.command}`, {
+          code: inspected.availability?.error?.code ?? 'WMB_GROUNDING_UNAVAILABLE',
+          details: { command: inspected.command }
+        }
+      );
+    }
+    return inspected.resolved;
+  }
+  return resolveWorldModelContext(root, inspected.config, phaseId, {
+    plan: inspected.plan,
+    located: inspected.availability.located,
+    task,
+    evidence,
+    includeAgentPrompt
+  });
+}
+
+/**
+ * Describe the only authorized mutation that can satisfy a failed readiness result.
+ * Automatic callers are admitted only to deterministic, model-free work.
+ */
+export function workflowGroundingMaterializationPlan(readiness, {
+  phaseId = readiness?.plan?.phase,
+  automatic = false,
+  publication = null
+} = {}) {
+  if (readiness?.format === 'registered-v4') {
+    const composer = registeredV4Composer(readiness.config);
+    const modelFree = composer === 'deterministic';
+    const publicationPolicy = publication
+      ?? readiness.config?.materialization?.publish
+      ?? readiness.config?.definition?.worldModel?.materialization?.publish
+      ?? 'governed';
+    // Lifecycle grounding must resolve from reusable governed authority. A local-only build is a
+    // rehearsal and cannot satisfy that boundary. In particular, never let unattended Auto turn
+    // an explicitly local publication policy into a state-ref mutation.
+    if (publicationPolicy !== 'governed') {
+      return {
+        allowed: false, modelFree, composer, publication: publicationPolicy,
+        reason: `registered-v4 lifecycle grounding requires reusable governed publication; materialization.publish '${publicationPolicy}' permits local rehearsal only`
+      };
+    }
+    if (automatic && readiness.availability?.status === 'missing') {
+      return {
+        allowed: false, modelFree, composer,
+        reason: 'registered-v4 authority absence is not proven; the state projection may have been intentionally removed or may be unavailable offline'
+      };
+    }
+    if (automatic && !modelFree) {
+      return {
+        allowed: false, modelFree, composer,
+        reason: `approved registered-v4 composer '${composer}' may invoke a model`
+      };
+    }
+    const materializationDepth = readiness.config?.materialization?.depth
+      ?? readiness.config?.definition?.worldModel?.materialization?.depth
+      ?? 'phase';
+    // Registered-v4 calls its deterministic bounded tier `quick`; the lifecycle materialization
+    // policy calls the same zero-model tier `light`. Keep one mapping at the shared plan boundary so
+    // Auto's argv and the interactive `next` options cannot accidentally select the configured
+    // model-backed phase default.
+    const buildDepth = materializationDepth === 'light'
+      ? 'quick'
+      : readiness.plan?.depth ?? readiness.config?.phases?.[phaseId]?.depth ?? 'standard';
+    const extensionBase = automatic ? readiness.availability?.extensionBase ?? null : null;
+    const capabilityId = configuredWorldModelV4CapabilityId(readiness.config);
+    const capabilityArguments = capabilityId ? ['--capability', capabilityId] : [];
+    const authorityArguments = extensionBase ? [
+      '--expected-preservation-commit', extensionBase.commit,
+      '--expected-preservation-manifest-sha256', extensionBase.manifestSha256
+    ] : [];
+    const options = {
+      format: 'registered-v4', phase: phaseId, composer, depth: buildDepth,
+      ...(capabilityId ? { capability: capabilityId } : {}),
+      ...(extensionBase ? {
+        'expected-preservation-commit': extensionBase.commit,
+        'expected-preservation-manifest-sha256': extensionBase.manifestSha256
+      } : {})
+    };
+    return {
+      allowed: true,
+      format: 'registered-v4',
+      modelFree,
+      composer,
+      operationId: modelFree ? 'wm.build.deterministic' : 'wm.build',
+      positionals: ['wm', 'build'],
+      options,
+      argv: [
+        'wm', 'build', '--format', 'registered-v4', '--phase', phaseId,
+        '--composer', composer, '--depth', buildDepth,
+        ...capabilityArguments, ...authorityArguments
+      ],
+      command: `${registeredV4BuildCommand(readiness.config, phaseId)} --composer ${composer} --depth ${buildDepth}`
+        + (authorityArguments.length ? ` ${authorityArguments.join(' ')}` : '')
+    };
+  }
+  return {
+    allowed: true,
+    format: 'legacy-v3',
+    modelFree: false,
+    composer: null,
+    operationId: 'wm.ensure',
+    positionals: ['wm', 'ensure'],
+    options: { phase: phaseId, automaticLifecycle: automatic },
+    argv: ['wm', 'ensure', '--phase', phaseId, ...(automatic ? ['--automatic-lifecycle'] : [])],
+    command: readiness?.command ?? `singularity-flow wm ensure --phase ${phaseId}`
   };
 }
 
@@ -1648,10 +2008,14 @@ async function publishWorldModelToStateBranch(root, config, sourceHash, phase, {
       }
     }
   };
+  const stateAuthority = worldModelStateAuthority(config.definition ?? {}, {
+    branch: config.stateBranch,
+    remote: config.remote
+  });
   const stateConfig = {
     ...(ledger ?? {}),
-    branch: ledger?.branch ?? config.stateBranch ?? 'state',
-    remote: ledger?.remote ?? config.remote ?? config.definition?.git?.remote ?? 'origin'
+    branch: stateAuthority.branch,
+    remote: stateAuthority.remote
   };
   const source = sourceHash.replace(/^sha256:/, '').slice(0, 12);
   let candidateDirectory = directory;
@@ -3266,12 +3630,19 @@ async function manifest(root, config, directory = path.join(root, config.outputD
 }
 
 async function context(root, config, phase, options) {
-  const plan = groundingPlan(config, options, phase);
-  const availability = await ensureGrounding(root, config, plan, { authorized: false });
-  const resolved = await resolveWorldModelContext(root, config, phase, {
-    plan,
-    located: availability.located,
-    task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence'), includeAgentPrompt: optionBoolean(options, 'agent', true)
+  const plan = isWorldModelV4(config, options) ? null : groundingPlan(config, options, phase);
+  const inspected = await inspectConfiguredGrounding(root, config, phase, {
+    options, plan, refreshRemote: false
+  });
+  if (!inspected.availability.ready) {
+    throw new SingularityFlowError(`${inspected.reason} Run: ${inspected.command}`, {
+      code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+    });
+  }
+  const resolved = await resolveInspectedGrounding(root, inspected, phase, {
+    task: optionString(options, 'task'),
+    evidence: optionBoolean(options, 'evidence'),
+    includeAgentPrompt: optionBoolean(options, 'agent', true)
   });
   const state = resolved.freshness;
   const staleMessage = `World model is stale (${String(state.built).slice(0, 10)} != ${state.current.slice(0, 10)}).`;
@@ -3284,7 +3655,8 @@ async function context(root, config, phase, options) {
   if (optionBoolean(options, 'concat')) {
     for (const item of selected) {
       console.log(`\n<!-- L${item.level} ${item.relative}: ${item.reason} -->\n`);
-      process.stdout.write(await readFile(item.absolute ?? path.join(root, config.outputDir, item.relative), 'utf8'));
+      process.stdout.write(item.body
+        ?? await readFile(item.absolute ?? path.join(root, config.outputDir, item.relative), 'utf8'));
     }
   } else {
     console.log(`# World-model context: phase=${phase} commit=${String(state.built).slice(0, 10)}${state.fresh ? '' : ' STALE'}`);
@@ -3310,6 +3682,9 @@ async function context(root, config, phase, options) {
  * than a claim in a commit message.
  */
 async function fullTierBytes(resolved, phaseConfig, files) {
+  if (resolved.format === 'registered-v4') {
+    return files.reduce((total, file) => total + file.bytes, 0);
+  }
   const directory = resolved.directory;
   const paths = [
     corePath(resolved.normalizedManifest ?? resolved.manifest, 'full'),
@@ -3331,12 +3706,15 @@ async function budget(root, config, requestedPhase, options) {
   const rows = [];
   for (const phase of phases) {
     if (!config.phases?.[phase]) throw new SingularityFlowError(`Unknown world-model phase: ${phase}`);
-    const plan = groundingPlan(config, options, phase);
-    const availability = await ensureGrounding(root, config, plan, { authorized: false })
-      .catch((error) => ({ error: error.message }));
-    const resolved = availability.error ? availability : await resolveWorldModelContext(root, config, phase, {
-      plan, located: availability.located, evidence: optionBoolean(options, 'evidence')
+    const plan = isWorldModelV4(config, options) ? null : groundingPlan(config, options, phase);
+    const inspected = await inspectConfiguredGrounding(root, config, phase, {
+      options, plan, refreshRemote: false
     }).catch((error) => ({ error: error.message }));
+    const resolved = inspected.error || !inspected.availability?.ready
+      ? { error: inspected.error ?? inspected.reason }
+      : await resolveInspectedGrounding(root, inspected, phase, {
+        evidence: optionBoolean(options, 'evidence')
+      }).catch((error) => ({ error: error.message }));
     if (resolved.error) {
       rows.push({ phase, error: resolved.error });
       continue;
@@ -3350,11 +3728,13 @@ async function budget(root, config, requestedPhase, options) {
     const full = await fullTierBytes(resolved, phaseConfig, files);
     rows.push({
       phase,
-      depth: plan.depth,
-      views: plan.views.map((entry) => entry.view),
-      selections: plan.selections.map((entry) => ({
+      depth: inspected.plan.depth,
+      views: inspected.plan.views.map((entry) => entry.view),
+      selections: inspected.plan.selections.map((entry) => ({
         ...entry,
-        id: entry.kind === 'core' ? `core/${entry.tier}` : `${entry.view}/${entry.tier}`
+        id: entry.kind === 'core' ? `core/${entry.tier}`
+          : entry.tier === 'registered-v4' ? `${entry.view}@${entry.version}`
+            : `${entry.view}/${entry.tier}`
       })),
       // Where each view came from is the part that was impossible to see.
       viewOrigin: phaseConfig.viewOrigin ?? {},
@@ -3737,32 +4117,54 @@ async function compose(root, options) {
         phase: signals.phase,
         depth: config.phases?.[signals.phase]?.depth ?? 'standard',
         includeEvidence: false,
-        views: configuredWorldModelV4ViewIds(config, options, signals.phase)
-          .map((view) => ({ view })),
+        views: [],
         selections: []
       }
     : groundingPlan(config, options, signals.phase);
   const worldModelEnabled = config.grounding !== 'off';
-  const required = worldModelEnabled
-    ? registeredV4
-      ? resolveWorldModelV4Grounding(root, config, {
-          phase: signals.phase,
-          options
-        })
-      : await (async () => {
-      const availability = await ensureGrounding(root, config, plan, { authorized: false });
-      return resolveWorldModelContext(root, config, signals.phase, {
-        plan,
-        located: availability.located,
+  let groundingAvailable = false;
+  let groundingAvailability = {
+    status: 'unavailable',
+    reasonCode: worldModelEnabled
+      ? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+      : 'WORLD_MODEL_GROUNDING_DISABLED'
+  };
+  let required = {
+    selected: [], located: null, directory: null, manifest: {}, views: [],
+    manifestContentSha256: null, sourceManifestSha256: null,
+    freshness: { fresh: true, built: null, current: null }
+  };
+  if (worldModelEnabled) {
+    const inspected = await inspectConfiguredGrounding(root, config, signals.phase, {
+      options, plan, refreshRemote: true
+    });
+    plan = inspected.plan;
+    if (inspected.availability.ready) {
+      required = await resolveInspectedGrounding(root, inspected, signals.phase, {
         task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
       });
-    })()
-    : {
-      selected: [], located: null, directory: null, manifest: {},
-      freshness: { fresh: true, built: null, current: null }
-    };
-  if (registeredV4 && worldModelEnabled) plan = { ...plan, selections: required.selections };
-  if (worldModelEnabled && !required.freshness.fresh) {
+      groundingAvailable = true;
+      groundingAvailability = { status: 'available', reasonCode: null };
+    } else if (config.grounding === 'warn') {
+      // Advisory grounding must never turn missing/stale intelligence into a lifecycle blocker.
+      // The prompt and receipt still record the absence, while authoring proceeds with ordinary
+      // repository access and the governed phase inputs.
+      console.error(`Grounding warning: ${inspected.reason}`);
+      console.error(`Grounding recovery: ${inspected.command}`);
+      groundingAvailability = {
+        status: 'unavailable',
+        reasonCode: durableGroundingReasonCode(inspected.availability?.error?.code)
+      };
+    } else {
+      throw new SingularityFlowError(
+        `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
+          code: inspected.availability.error?.code ?? 'world_model.materialization_required',
+          details: { command: inspected.command, availability: inspected.availability }
+        }
+      );
+    }
+  }
+  if (groundingAvailable && !required.freshness.fresh) {
     const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
     if (staleness.warns) console.error(`Warning: ${message}`);
@@ -3779,7 +4181,7 @@ async function compose(root, options) {
     // walks a mutable repository directory and would silently mix a second representation into
     // the same prompt, so it is disabled only for this format.
     disableWorldModelInjection: worldModelDisabledForWorkflow(workflow) || registeredV4,
-    modelDirectory: worldModelEnabled ? required.directory : null
+    modelDirectory: groundingAvailable ? required.directory : null
   });
   const phase = workflow?.phases?.[signals.phase] ?? null;
   if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
@@ -3820,7 +4222,7 @@ async function compose(root, options) {
     : { markdown: '', files: [], warnings: [] };
   const capability = workflow && !worldModelDisabledForWorkflow(workflow)
     ? await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
-      views: phase?.worldModel?.views ?? []
+      views: phase?.worldModel?.views ?? [], grounding: config.grounding
     })
     : { text: '', files: [], warnings: [] };
   const structural = workflow
@@ -3911,15 +4313,15 @@ async function compose(root, options) {
       }
     : null;
   remote.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
-  const manifestInfo = worldModelEnabled
+  const manifestInfo = groundingAvailable
     ? registeredV4
       ? { sha256: required.manifestContentSha256 }
       : await snapshot(path.join(required.directory, 'manifest.json'))
     : { sha256: null };
-  const modelCommit = worldModelEnabled
+  const modelCommit = groundingAvailable
     ? required.located?.commit ?? worldModelCommit(root, config.outputDir)
     : null;
-  const modelChanges = worldModelEnabled && !registeredV4 && required.located?.source === 'worktree'
+  const modelChanges = groundingAvailable && !registeredV4 && required.located?.source === 'worktree'
     ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
     : '';
   if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
@@ -3974,7 +4376,8 @@ async function compose(root, options) {
     task: optionString(options, 'task') ?? null,
     modelCommit,
     manifestSha256: manifestInfo.sha256,
-    requiredSelections: worldModelEnabled ? plan.selections : [],
+    groundingAvailability,
+    requiredSelections: plan.selections,
     workSource: workSource.record,
     structuralContext: structural.record,
     clarification: clarificationPolicy,
@@ -4024,19 +4427,20 @@ async function compose(root, options) {
       } : null,
       remoteSkills: remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
       manifestSha256: manifestInfo.sha256,
-      modelSourceTreeSha256: registeredV4
+      modelSourceTreeSha256: registeredV4 && groundingAvailable
         ? required.sourceManifestSha256
-        : required.manifest.source_tree_sha256 ?? null,
+        : required.manifest?.source_tree_sha256 ?? null,
       composedSourceTreeSha256: required.freshness.current,
       fresh: required.freshness.fresh,
       renderedSha256,
       renderedText: composedText,
-      requiredViews: worldModelEnabled
+      groundingAvailability,
+      requiredViews: groundingAvailable
         ? registeredV4
           ? required.views.map((view) => view.viewId)
           : config.phases[signals.phase]?.views ?? []
-        : [],
-      requiredSelections: worldModelEnabled ? plan.selections : [],
+        : plan.views.map((entry) => entry.view).filter(Boolean),
+      requiredSelections: plan.selections,
       task: optionString(options, 'task') ?? null,
       supportingEvidence: governed.evidenceEntries,
       references: approvedReferences.previews.map((preview) => ({
@@ -4173,7 +4577,7 @@ async function showPrompt(root, options) {
 export async function worldModelCommand(root, positionals, options) {
   const command = positionals[1];
   const v4OnlyCommands = new Set([
-    'plan', 'snapshot', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
+    'plan', 'snapshot', 'refresh-authority', 'manifest', 'show', 'evidence', 'derivation', 'validate', 'validate-view',
     'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors', 'doctor', 'migrate'
   ]);
   const versionedCommands = new Set([
@@ -4228,12 +4632,12 @@ export async function worldModelCommand(root, positionals, options) {
   ]);
   if (!legacyCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
     throw new SingularityFlowError(
-      'Usage: singularity-flow wm init|plan|snapshot|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
+      'Usage: singularity-flow wm init|plan|snapshot|refresh-authority|build|light|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|prompt|budget|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear'
     );
   }
   if (command === 'build' || command === 'light') await cleanupStaleWorldModelWorktrees(root);
   return withTargetBranch(root, options, async (targetRoot) => {
-    const config = await load(targetRoot);
+    const config = await load(targetRoot, { capabilityId: optionString(options, 'capability') });
     const registeredV4 = isWorldModelV4(config, options);
     if (v4OnlyCommands.has(command) || (versionedCommands.has(command) && registeredV4)) {
       return handleWorldModelV4Command(targetRoot, config, command, positionals, options);

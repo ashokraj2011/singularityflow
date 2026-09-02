@@ -62,6 +62,7 @@ Every public operation is classified before its implementation module is importe
 | auto.needs-you | read | never | — | — |
 | auto.pause | mutation | never | — | — |
 | auto.plan | mutation | required | — | copilot-cli |
+| auto.plan.story | read | never | — | — |
 | auto.recover | mutation | never | — | — |
 | auto.repair | mutation | required | — | copilot-cli |
 | auto.repair.plan | read | never | — | — |

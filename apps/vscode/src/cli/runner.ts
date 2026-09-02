@@ -12,7 +12,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, realpath } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
@@ -877,6 +877,74 @@ export async function validateRepositoryDirectory(
     throw new UninitializedRepositoryError(canonical);
   }
   return canonical;
+}
+
+/**
+ * Resolve the repository-wide Git directory shared by a checkout and all of its linked worktrees.
+ *
+ * The caller supplies a repository root that has already passed `validateRepositoryDirectory`.
+ * Resolve this through Git rather than parsing the worktree's `.git` file in the extension host:
+ * the latter points at a worktree-private administrative directory, while Auto records deliberately
+ * live in the common directory. Both returned directories are canonicalized and their relationship
+ * is checked before the path is used as a watcher authority. There is deliberately no fallback to
+ * the process directory, home directory, or an adjacent repository.
+ */
+export async function validatedRepositoryGitCommonDirectory(
+  repository: string,
+  options: { localRunner?: LocalGitRunner; signal?: AbortSignal } = {}
+): Promise<string> {
+  if (!repository || !path.isAbsolute(repository)) {
+    throw new Error('An explicit absolute repository root is required to resolve its Git common directory.');
+  }
+  const canonicalRepository = await realpath(repository).catch(() => null);
+  if (!canonicalRepository) throw new Error('The selected repository cannot resolve its Git common directory.');
+  const runLocal = options.localRunner ?? localGit;
+  const probe = await runLocal(['rev-parse', '--absolute-git-dir', '--git-common-dir'], {
+    cwd: canonicalRepository, timeout: LOCAL_GIT_TIMEOUT_MS, signal: options.signal
+  });
+  const lines = probe.stdout.toString('utf8').split(/\r?\n/).filter((line) => line.length > 0);
+  if (probe.status !== 0 || lines.length !== 2 || lines.some((line) => line.includes('\0'))) {
+    throw new Error(`The selected repository cannot resolve its Git common directory: ${canonicalRepository}`);
+  }
+  const gitDirectoryCandidate = path.resolve(canonicalRepository, lines[0]!);
+  const commonDirectoryCandidate = path.resolve(canonicalRepository, lines[1]!);
+  const metadataPath = path.join(canonicalRepository, '.git');
+  const [metadataStat, gitDirectoryStat, commonDirectoryStat] = await Promise.all([
+    lstat(metadataPath).catch(() => null),
+    lstat(gitDirectoryCandidate).catch(() => null),
+    lstat(commonDirectoryCandidate).catch(() => null)
+  ]);
+  if (!metadataStat || metadataStat.isSymbolicLink()
+      || !gitDirectoryStat?.isDirectory() || gitDirectoryStat.isSymbolicLink()
+      || !commonDirectoryStat?.isDirectory() || commonDirectoryStat.isSymbolicLink()) {
+    throw new Error(`The selected repository has unsafe Git common-directory metadata: ${canonicalRepository}`);
+  }
+  const [gitDirectory, commonDirectory] = await Promise.all([
+    realpath(gitDirectoryCandidate), realpath(commonDirectoryCandidate)
+  ]);
+  let declaredGitDirectory: string | null = null;
+  if (metadataStat.isDirectory()) {
+    declaredGitDirectory = await realpath(metadataPath).catch(() => null);
+  } else if (metadataStat.isFile() && metadataStat.size <= 4_096) {
+    const declaration = await readFile(metadataPath, 'utf8').catch(() => '');
+    const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(declaration);
+    declaredGitDirectory = match
+      ? await realpath(path.resolve(canonicalRepository, match[1]!)).catch(() => null)
+      : null;
+  }
+  if (declaredGitDirectory !== gitDirectory) {
+    throw new Error(`The selected repository returned an unrelated Git directory: ${canonicalRepository}`);
+  }
+  const worktreesDirectory = path.join(commonDirectory, 'worktrees');
+  const relativeWorktreeDirectory = path.relative(worktreesDirectory, gitDirectory);
+  const isLinkedWorktreeDirectory = relativeWorktreeDirectory.length > 0
+    && relativeWorktreeDirectory !== '..'
+    && !relativeWorktreeDirectory.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativeWorktreeDirectory);
+  if (gitDirectory !== commonDirectory && !isLinkedWorktreeDirectory) {
+    throw new Error(`The selected repository returned an unrelated Git common directory: ${canonicalRepository}`);
+  }
+  return commonDirectory;
 }
 
 /**

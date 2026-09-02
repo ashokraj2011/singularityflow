@@ -13,6 +13,7 @@ import { changedSnapshotSlices } from './state.ts';
 
 export type GovernedWatcherEvent = Readonly<{
   sequence: number;
+  origin: 'governed' | 'auto-private';
   relativePath: string | null;
   candidateSlices: readonly SnapshotSlice[];
 }>;
@@ -63,13 +64,17 @@ export class RevisionSliceWatcherFence {
 
   constructor(repositoryRoot: () => string) { this.repositoryRoot = repositoryRoot; }
 
-  observe(changedPath?: string | null): GovernedWatcherEvent {
+  observe(
+    changedPath?: string | null,
+    origin: GovernedWatcherEvent['origin'] = 'governed'
+  ): GovernedWatcherEvent {
     const root = this.repositoryRoot();
     const relative = changedPath
       ? path.relative(path.resolve(root), path.resolve(changedPath)).replaceAll('\\', '/')
       : null;
     const event = Object.freeze({
       sequence: ++this.sequence,
+      origin,
       relativePath: relative,
       candidateSlices: governedPathCandidateSlices(root, changedPath)
     });
@@ -108,6 +113,10 @@ export class RevisionSliceWatcherFence {
     after: RepositorySnapshot | null
   ): boolean {
     if (!batch.events.length || !before || !after) return false;
+    // Auto records are deliberately outside Git's tracked working tree. A simultaneous governed
+    // change may move the repository slice, but that cannot prove the private bytes were included;
+    // suppressing such an event would leave My Work on the previous flight/request checkpoint.
+    if (batch.events.some((event) => event.origin === 'auto-private')) return false;
     const beforeSubject = before.revision?.subjectRevision;
     const afterSubject = after.revision?.subjectRevision;
     if (!beforeSubject || !afterSubject || beforeSubject === afterSubject) return false;
@@ -168,6 +177,8 @@ export class RevisionSliceWatcherFence {
   ): Promise<boolean> {
     const expected = this.delayed;
     if (!expected || !batch.events.length) return false;
+    // A repository-only probe has no visibility into Git-common private Auto records.
+    if (batch.events.some((event) => event.origin === 'auto-private')) return false;
     const expectedSlices = expected.revision.slices ?? {};
     const sliceMatches = batch.events.every((event) => {
       const authoritativeSlice = event.candidateSlices.find((slice) =>

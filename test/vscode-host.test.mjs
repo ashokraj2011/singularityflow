@@ -326,13 +326,14 @@ function stubVscode() {
     // a real message through it is what proves the button on the page reaches the engine.
     let handler = null;
     const panel = {
-      id, title, options,
+      id, title, options, visible: true,
       webview: {
         html: '', cspSource: 'vscode-resource:',
         onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; }
       },
       post: async (message) => { await handler?.(message); },
-      reveal() {}, onDidDispose: () => ({ dispose() {} }), dispose() {}
+      reveal() { this.visible = true; }, onDidDispose: () => ({ dispose() {} }),
+      dispose() { this.visible = false; }
     };
     registered.panels.push(panel);
     return panel;
@@ -4067,18 +4068,28 @@ test('a future reset marker refuses safely and preserves extension-owned state',
   assert.ok(registered.output.some((line) => String(line).includes('written by a newer sflow')));
 });
 
-test('terminal lifecycle writes refresh every VS Code view through one watched snapshot', async (t) => {
+test('terminal lifecycle and Git-common Auto writes refresh VS Code through bounded watchers', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
-  assert.equal(registered.watchers.length, 2,
-    'the governed repository and the machine-wide active Story selection are each watched once');
+  assert.equal(registered.watchers.length, 3,
+    'governed state, repository-private Auto state, and active Story selection are each watched once');
   const repositoryWatcher = registered.watchers.find((watcher) =>
     watcher.pattern.pattern === 'singularity/**/*');
+  const autoWatcher = registered.watchers.find((watcher) =>
+    watcher.pattern.pattern
+      === 'singularity-flow/{auto-plans/*.json,auto-authorizations/*.json,auto-flights/**/*.json}');
   const selectionWatcher = registered.watchers.find((watcher) =>
     watcher.pattern.pattern === path.basename(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE));
   assert.ok(repositoryWatcher, 'the governed repository watcher is registered');
+  assert.ok(autoWatcher, 'the repository-private Auto watcher is registered');
   assert.ok(selectionWatcher, 'the active Story selection watcher is registered');
   assert.equal(await realpath(repositoryWatcher.pattern.base.fsPath), await realpath(root));
+  const commonDirectory = path.resolve(
+    root, run('git', ['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim()
+  );
+  assert.equal(await realpath(autoWatcher.pattern.base.fsPath), await realpath(commonDirectory));
+  assert.doesNotMatch(autoWatcher.pattern.pattern, /auto-worktrees/,
+    'application/build churn in Auto worktrees is outside the private-record watcher');
   assert.equal(path.resolve(selectionWatcher.pattern.base.fsPath),
     path.dirname(process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE));
 
@@ -4091,6 +4102,59 @@ test('terminal lifecycle writes refresh every VS Code view through one watched s
   const provider = section(registered, 'lifecycle');
   await until(() => provider.getChildren().find((node) => node.kind === 'initiative')?.description === 'Changed from Copilot CLI');
   assert.equal(provider.getChildren().find((node) => node.kind === 'initiative')?.description, 'Changed from Copilot CLI');
+
+  // My Work is an in-process projection over private Auto records. Those bytes intentionally do
+  // not enter the Git snapshot revision, so the same bounded watcher burst must invalidate and
+  // reread the current Home instead of treating it as an ordinary tracked-file echo.
+  await registered.commands.get('singularityFlow.myWork')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.result');
+  assert.ok(panel, 'My Work is current before the external Auto mutation');
+  const flightId = `AFL-${'F'.repeat(26)}`;
+  await createAutoFlightState(root, {
+    flightId, planId: `APL-${'E'.repeat(26)}`,
+    planSha256: `sha256:${'e'.repeat(64)}`, status: 'running',
+    story: { workId: 'AUTO-WATCH', branch: 'AUTO-WATCH', phase: 'implementation' },
+    worktree: root, execution: { ceilings: {} }
+  });
+  const privateState = path.join(
+    commonDirectory, 'singularity-flow', 'auto-flights', flightId, 'state.json'
+  );
+  const snapshotCount = () => registered.output.filter((line) =>
+    String(line).includes('[Singularity Flow timing]')
+      && String(line).includes('"command":"snapshot"')).length;
+  const beforeAutoBurst = snapshotCount();
+  autoWatcher.create.fire({ fsPath: privateState });
+  autoWatcher.change.fire({ fsPath: privateState });
+  autoWatcher.change.fire({ fsPath: privateState });
+
+  await until(() => panel.webview.html.includes(`Auto flight · AUTO-WATCH`) ? true : null,
+    { what: 'My Work to reread the Git-common Auto flight after its watcher burst' });
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  assert.equal(snapshotCount(), beforeAutoBurst + 1,
+    'one logical private-record write burst purchases one coalesced snapshot refresh');
+
+  panel.visible = false;
+  const homeDispatches = () => registered.executedCommands.filter((entry) =>
+    entry.id === 'singularityFlow.myWork').length;
+  const beforeHiddenMutation = { snapshots: snapshotCount(), home: homeDispatches() };
+  const hiddenFlightId = `AFL-${'D'.repeat(26)}`;
+  await createAutoFlightState(root, {
+    flightId: hiddenFlightId, planId: `APL-${'C'.repeat(26)}`,
+    planSha256: `sha256:${'c'.repeat(64)}`, status: 'running',
+    story: { workId: 'AUTO-HIDDEN', branch: 'AUTO-HIDDEN', phase: 'planning' },
+    worktree: root, execution: { ceilings: {} }
+  });
+  autoWatcher.create.fire({
+    fsPath: path.join(commonDirectory, 'singularity-flow', 'auto-flights', hiddenFlightId, 'state.json')
+  });
+  await until(() => snapshotCount() === beforeHiddenMutation.snapshots + 1 ? true : null,
+    { what: 'the hidden Home Auto mutation to refresh repository state once' });
+  await until(() => panel.webview.html.includes('AUTO-HIDDEN') ? true : null,
+    { what: 'the retained hidden Home to receive its private Auto update' });
+  assert.equal(homeDispatches(), beforeHiddenMutation.home + 1,
+    'a hidden retained Home receives one bounded background reread');
+  assert.equal(panel.visible, false,
+    'the background reread must not reveal My Work over the document the reader chose');
 });
 
 test('a workspace chosen while the views are already bound re-points them without reloading', async (t) => {

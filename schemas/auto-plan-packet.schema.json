@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-plan-packet.schema.json",
-  "title": "Singularity Flow Auto Plan ratification packet v1",
+  "title": "Singularity Flow Auto Plan ratification packet v2",
   "type": "object",
   "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "validationSha256", "requirement", "story", "workflow", "scope", "execution", "humanStops", "evidence", "budgets", "packetSha256"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "auto-plan-packet" },
     "mode": { "const": "auto" },
     "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
@@ -15,7 +15,19 @@
     "story": { "type": "object" },
     "workflow": { "type": "object" },
     "scope": { "type": "object" },
-    "execution": { "type": "object" },
+    "execution": {
+      "type": "object",
+      "required": ["profile", "executionUnit", "pacing", "until", "repairPolicy", "repairAttemptsPerPhase"],
+      "properties": {
+        "profile": { "enum": ["story", "sgos"] },
+        "executionUnit": { "type": ["string", "null"] },
+        "pacing": { "type": ["string", "null"] },
+        "until": { "type": ["string", "null"] },
+        "repairPolicy": { "enum": ["never", "ask", "auto-on-machine-actionable"] },
+        "repairAttemptsPerPhase": { "type": "integer", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
     "humanStops": { "type": "array" },
     "evidence": { "type": "array" },
     "budgets": { "type": "object" },

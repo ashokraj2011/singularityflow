@@ -691,6 +691,10 @@ export async function invokeModel(request) {
       completedAt,
       outputBytes,
       outputSha256,
+      // Exact staged bytes observed by the trusted transport boundary. Callers that pre-bind a
+      // prompt can compare this receipt before accepting any returned work.
+      promptSha256: staged.sha256,
+      promptBytes: staged.bytes,
       usage: result.usage ?? { status: 'unavailable' },
       toolObservation: result.toolObservation ?? null,
       economics: invocationEconomics(staged.bytes, result.usage)
@@ -719,6 +723,8 @@ export async function invokeModel(request) {
       economics: completedEvent.economics,
       promptTransport: completedEvent.promptTransport,
       promptProtocolVersion: completedEvent.promptProtocolVersion,
+      promptSha256: completedEvent.promptSha256,
+      promptBytes: completedEvent.promptBytes,
       startedAt: event.startedAt,
       completedAt,
       invocation: { id, path: file, provider: providerId, model: resolvedModel }

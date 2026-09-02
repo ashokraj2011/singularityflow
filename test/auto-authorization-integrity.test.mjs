@@ -31,6 +31,12 @@ async function repository(t) {
   run('git', ['config', 'user.name', 'Auto Tester'], root);
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
+  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  capabilities.capabilities['auto-fixture'] = {
+    kind: 'delivery', parent: 'product', repository: 'auto-fixture'
+  };
+  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.git.publish = 'off';

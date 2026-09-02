@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-execution-selection.schema.json",
+  "title": "Singularity Flow Auto Execution Selection v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "selectionId", "flightId", "attemptId", "phase", "executionUnitId", "manifestSha256", "reason", "createdAt", "selectionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "auto-execution-selection" }, "mode": { "const": "auto" },
+    "selectionId": { "type": "string", "pattern": "^AES-[A-F0-9]{26}$" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "attemptId": { "$ref": "#/$defs/attemptId" },
+    "phase": { "$ref": "#/$defs/nonempty" }, "executionUnitId": { "$ref": "#/$defs/nonempty" },
+    "manifestSha256": { "$ref": "#/$defs/hash" }, "reason": { "$ref": "#/$defs/nonempty" },
+    "createdAt": { "type": "string", "format": "date-time" }, "selectionSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nonempty": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

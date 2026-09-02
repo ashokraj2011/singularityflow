@@ -10,6 +10,10 @@ import { subjectLockPath, withSubjectLock } from '../subject-lock.mjs';
 import { nowIso, run, SingularityFlowError } from '../util.mjs';
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import {
+  listAutoContractRecords, mergeAutoExecutionEventRecords,
+  persistAutoExecutionTransitions, validateAutoExecutionEventStreams
+} from './auto-contract-records.mjs';
+import {
   listAutoPrivateRecords, readAutoPrivateRecord, writeAutoPrivateRecord
 } from './auto-private-store.mjs';
 import { snapshotAutoP1Records, validateAutoP1Snapshot } from './auto-p1-records.mjs';
@@ -36,14 +40,16 @@ const AUTO_FLIGHT_FIELDS = new Set([
   'humanRequestDecisions', 'executionUnit', 'executionUnitSwitches'
 ]);
 const AUTO_REPORT_FIELDS = new Set([
-  'schemaVersion', 'kind', 'mode', 'flightId', 'planId', 'planSha256', 'status',
+  'schemaVersion', 'integrityVersion', 'sourceSchemaVersion', 'kind', 'mode', 'flightId',
+  'planId', 'planSha256', 'status',
   'stopReason', 'nextAction', 'position', 'configuration', 'repositories', 'operations',
   'commits', 'evidence', 'candidate', 'phaseContracts', 'boundaryCheckpoints',
   'worldModelReference', 'comprehensionReference',
   'lineage', 'approvalSource',
   'boundaryCheckpoint', 'lastSuccessfulStoryRevision', 'retainedUnpublishedPaths',
   'authorityTarget', 'quality', 'approvals', 'humanIntervention', 'lastError', 'counters',
-  'scope', 'accounting', 'checkpointSha256', 'reportSha256'
+  'story', 'intent', 'executionUnits', 'qualityFloor', 'outcomeMetrics',
+  'scope', 'accounting', 'checkpointSha256', 'reportSha256', 'projectionSha256'
 ]);
 const AUTO_REPORT_LINEAGE_FAMILIES = Object.freeze([
   'auto-phase-run', 'auto-attempt', 'auto-refusal', 'auto-repair-plan',
@@ -216,6 +222,107 @@ async function requestStopMutation(root, id, mutate, timeoutMs = 2_000, expected
   }
 }
 
+function stopRequestAuthority(stopRequested) {
+  if (!stopRequested || !['pause', 'halt', 'takeover'].includes(stopRequested.kind)
+      || typeof stopRequested.requestId !== 'string' || !stopRequested.requestId
+      || Number.isNaN(Date.parse(stopRequested.requestedAt))) return null;
+  return {
+    kind: stopRequested.kind,
+    requestId: stopRequested.requestId,
+    requestedAt: stopRequested.requestedAt
+  };
+}
+
+function stopRequestSha256(stopRequested) {
+  const authority = stopRequestAuthority(stopRequested);
+  return authority ? `sha256:${recordSha256(authority)}` : null;
+}
+
+function eventAuthority(started) {
+  return {
+    flightId: started.flightId,
+    attemptId: started.attemptId,
+    phase: started.phase,
+    executionSelectionSha256: started.executionSelectionSha256,
+    taskContractSha256: started.taskContractSha256
+  };
+}
+
+async function projectAutoExecutionEvents(root, state, records) {
+  if (!records.length) return state;
+  return requestStopMutation(root, state.flightId, (draft) => {
+    draft.evidence = {
+      ...(draft.evidence ?? {}),
+      autoExecutionEvents: mergeAutoExecutionEventRecords(
+        draft.evidence?.autoExecutionEvents ?? [], records
+      )
+    };
+  });
+}
+
+async function recordExecutionStopRequest(root, state) {
+  const requestSha256 = stopRequestSha256(state.stopRequested);
+  if (!requestSha256 || !state.activeAttemptId) return state;
+  const records = await listAutoContractRecords(
+    root, 'auto-execution-event', state.flightId
+  );
+  const stream = records.filter((record) => record.attemptId === state.activeAttemptId);
+  validateAutoExecutionEventStreams(stream);
+  const started = stream.find((record) => record.eventType === 'execution.started');
+  if (!started || stream.some((record) => record.eventType === 'execution.quiesced')) {
+    return projectAutoExecutionEvents(root, state, records);
+  }
+  const updated = await persistAutoExecutionTransitions(root, eventAuthority(started), [{
+    eventType: 'execution.stop-requested', createdAt: state.stopRequested.requestedAt,
+    observation: {
+      status: 'stop-requested', invocationId: null,
+      code: 'AUTO_STOP_REQUESTED', usageSha256: null
+    },
+    rawEvidence: { status: 'hash-linked', sha256: requestSha256, reason: null }
+  }]);
+  return projectAutoExecutionEvents(root, state, updated);
+}
+
+async function reconcileExecutionStop(root, state) {
+  const records = await listAutoContractRecords(
+    root, 'auto-execution-event', state.flightId
+  );
+  let reconciled = await projectAutoExecutionEvents(root, state, records);
+  if (!state.activeAttemptId) return reconciled;
+  const stream = records.filter((record) => record.attemptId === state.activeAttemptId);
+  if (!stream.length) return reconciled;
+  validateAutoExecutionEventStreams(stream);
+  const started = stream.find((record) => record.eventType === 'execution.started');
+  if (!started) return reconciled;
+  const quiesced = stream.find((record) => record.eventType === 'execution.quiesced');
+  const terminal = stream.find((record) => [
+    'execution.stopped', 'execution.failed', 'execution.completed'
+  ].includes(record.eventType));
+  const requestedAt = Date.parse(state.stopRequested?.requestedAt ?? '');
+  const alreadyQuiesced = quiesced && Number.isFinite(requestedAt)
+    && Date.parse(quiesced.createdAt) <= requestedAt;
+  const requestSha256 = stopRequestSha256(state.stopRequested);
+  const exactRequest = requestSha256 && stream.some((record) => (
+    record.eventType === 'execution.stop-requested'
+      && record.rawEvidence.status === 'hash-linked'
+      && record.rawEvidence.sha256 === requestSha256
+  ));
+  if (!terminal || !quiesced || (!alreadyQuiesced && !exactRequest)) {
+    throw new SingularityFlowError(
+      `Auto flight '${state.flightId}' cannot prove that its active Execution Unit quiesced.`, {
+        code: 'AUTO_EXECUTION_QUIESCENCE_UNPROVEN',
+        details: {
+          attemptId: state.activeAttemptId,
+          eventTypes: stream.map((record) => record.eventType)
+        }
+      }
+    );
+  }
+  // Re-read after the commutative projection so subsequent control mutations bind its checkpoint.
+  reconciled = await readAutoFlightState(root, state.flightId);
+  return reconciled;
+}
+
 function terminalControlState(state, id, action) {
   if (!['halted', 'completed', 'discarded'].includes(state.status)) return;
   throw new SingularityFlowError(`Auto flight '${id}' is ${state.status} and cannot ${action}.`, {
@@ -229,12 +336,23 @@ async function requestQuiescentTransition(root, id, {
 }) {
   const requestId = randomUUID();
   const requestedAt = nowIso();
-  await requestStopMutation(root, id, (state) => {
+  let requested = await requestStopMutation(root, id, (state) => {
     terminalControlState(state, id, kind === 'takeover' ? 'enter manual takeover' : kind);
     if (state.status === 'recovery-required') {
       throw new SingularityFlowError(
         `Auto flight '${id}' requires recovery before another control transition.`,
         { code: 'AUTO_RECOVERY_REQUIRED', details: { stopRequested: state.stopRequested ?? null } }
+      );
+    }
+    if (state.stopRequested && !state.stopRequested.quiescedAt) {
+      throw new SingularityFlowError(
+        `Auto flight '${id}' already has an unquiesced '${state.stopRequested.kind}' request.`, {
+          code: 'AUTO_STOP_IN_PROGRESS',
+          details: {
+            requested: kind,
+            active: stopRequestAuthority(state.stopRequested)
+          }
+        }
       );
     }
     // Preserve the established interrupt ordering: make the requested resting state and stop token
@@ -246,6 +364,15 @@ async function requestQuiescentTransition(root, id, {
     state.stopRequested = { kind, requestId, requestedAt };
     state.nextAction = finalNextAction;
   }, 2_000, expectedCheckpoint);
+  // If a provider process is already active, bind the exact durable stop token into its normalized
+  // event stream before waiting for quiescence. The executor may observe the same token at once;
+  // per-attempt event-stream locking makes that replay exact rather than duplicative.
+  await recordExecutionStopRequest(root, requested).then((state) => {
+    requested = state;
+  }).catch(() => {
+    // Continue cancellation even if evidence storage is temporarily unavailable. After the step
+    // lease is released, reconciliation below must prove the complete stream or fail closed.
+  });
   try {
     await waitForExecutionQuiescence(root, id, quiescenceTimeoutMs);
   } catch (error) {
@@ -268,6 +395,30 @@ async function requestQuiescentTransition(root, id, {
       stopRequested: recovery.stopRequested ?? null
     };
     throw error;
+  }
+  try {
+    requested = await reconcileExecutionStop(root, requested);
+  } catch (error) {
+    const recovery = await requestStopMutation(root, id, (state) => {
+      if (state.stopRequested?.requestId !== requestId) return state;
+      state.status = 'recovery-required';
+      state.stopReason = `${kind}-execution-quiescence-unproven`;
+      state.nextAction = 'Inspect and stop the active Execution Unit, then run governed Auto recovery.';
+      state.lastError = {
+        code: error.code ?? 'AUTO_EXECUTION_QUIESCENCE_UNPROVEN', message: error.message
+      };
+    });
+    throw new SingularityFlowError(
+      `Auto flight '${id}' stopped its executor, but Execution Unit quiescence was not proven.`, {
+        code: 'AUTO_EXECUTION_QUIESCENCE_UNPROVEN', cause: error,
+        details: {
+          flightId: id, status: recovery.status,
+          checkpointSha256: recovery.checkpointSha256,
+          stopRequested: recovery.stopRequested ?? null,
+          eventTypes: error.details?.eventTypes ?? []
+        }
+      }
+    );
   }
   let quiesced = await requestStopMutation(root, id, (state) => {
     if (state.stopRequested?.requestId !== requestId || state.status !== finalStatus) {
@@ -393,6 +544,25 @@ export async function resumeAutoFlight(root, id, confirmation) {
     );
   }
   const continuation = await verifyAutoFlightContinuation(root, current);
+  if (continuation.binding.compatibility?.protocol === 'packet-v1-no-repair'
+      && (current.execution?.repair?.policy !== 'never'
+        || current.execution?.repair?.maximumAttempts !== 0)) {
+    // Historical packet-v1 authority can continue only the flight it already created. Persist the
+    // conservative projection before changing the status back to running so no resumed process can
+    // observe or exercise the old repair allowance, even if it crashes before its first step.
+    current = await mutateAutoFlightState(root, id, (state) => {
+      state.execution = {
+        ...state.execution,
+        repair: { policy: 'never', maximumAttempts: 0 }
+      };
+      state.operations = [...(state.operations ?? []), {
+        operation: 'legacy-authority-compatibility',
+        outcome: 'repair-disabled',
+        sourceSchemaVersion: 2,
+        packetSha256: continuation.binding.compatibility.packetSha256
+      }];
+    }, { expectedCheckpoint: current.checkpointSha256 });
+  }
   if (current.status === 'waiting-human' && current.position === 'submitted'
       && !continuation.phaseTransition) {
     throw new SingularityFlowError(
@@ -607,6 +777,7 @@ function validateReportLineage(flightId, value) {
 
 function economicsAccounting(lineage, state) {
   const receipts = lineage['auto-token-economics-receipt'];
+  const attempts = new Map(lineage['auto-attempt'].map((entry) => [entry.attemptId, entry]));
   const sum = (selector) => receipts.reduce((total, receipt) => {
     const value = selector(receipt);
     return Number.isSafeInteger(value) && value >= 0 ? total + value : total;
@@ -625,6 +796,18 @@ function economicsAccounting(lineage, state) {
     ? sum((entry) => entry.input.providerTokens) + sum((entry) => entry.output.providerTokens)
     : null;
   const legacyTokensExact = receipts.length === 0 && state.token?.assurance === 'exact';
+  const receiptAttempts = receipts.map((entry) => attempts.get(entry.attemptId) ?? null);
+  const toolSum = (field) => receiptAttempts.reduce((total, attempt) => {
+    const value = attempt?.budgetImpact?.[field];
+    return Number.isSafeInteger(value) && value >= 0 ? total + value : total;
+  }, 0);
+  const allToolKnown = (field) => receipts.length > 0 && receiptAttempts.every((attempt) => {
+    const value = attempt?.budgetImpact?.[field];
+    return Number.isSafeInteger(value) && value >= 0;
+  });
+  const providerToolOutputTokensKnown = allToolKnown('toolOutputTokens');
+  const estimatedToolOutputTokensKnown = allToolKnown('estimatedToolOutputTokens');
+  const toolOutputBytesKnown = allToolKnown('toolOutputBytes');
   return {
     tokens: {
       assurance: providerTokensKnown || legacyTokensExact ? 'exact' : 'unavailable',
@@ -641,7 +824,15 @@ function economicsAccounting(lineage, state) {
       providerInputTokens: knownSum((entry) => entry.input.providerTokens),
       cachedTokens: knownSum((entry) => entry.input.cachedTokens),
       estimatedOutputTokens: knownSum((entry) => entry.output.estimatedTokens),
-      providerOutputTokens: knownSum((entry) => entry.output.providerTokens)
+      providerOutputTokens: knownSum((entry) => entry.output.providerTokens),
+      toolOutput: {
+        assurance: providerToolOutputTokensKnown ? 'provider-reported'
+          : estimatedToolOutputTokensKnown ? 'estimated-bytes-per-token-4.0' : 'unavailable',
+        observedBytes: toolOutputBytesKnown ? toolSum('toolOutputBytes') : null,
+        estimatedTokens: estimatedToolOutputTokensKnown
+          ? toolSum('estimatedToolOutputTokens') : null,
+        providerTokens: providerToolOutputTokensKnown ? toolSum('toolOutputTokens') : null
+      }
     },
     cost: {
       assurance: providerCostKnown ? 'provider-reported' : 'unavailable',
@@ -649,6 +840,270 @@ function economicsAccounting(lineage, state) {
         ? receipts.reduce((total, entry) => total + entry.cost.amount, 0) : null
     }
   };
+}
+
+function planReportProjection(state, plan) {
+  if (plan && (plan.planId !== state.planId || plan.planSha256 !== state.planSha256
+      || plan.story?.workId !== state.story?.workId
+      || plan.story?.branch !== state.story?.branch)) {
+    throw new SingularityFlowError(
+      `Auto flight '${state.flightId}' is bound to a different Plan or Story identity.`, {
+        code: 'AUTO_FLIGHT_CORRUPT'
+      }
+    );
+  }
+  return {
+    story: {
+      workId: state.story?.workId ?? null,
+      branch: state.story?.branch ?? null,
+      phase: state.story?.phase ?? null,
+      workType: plan?.story?.workType ?? null,
+      phaseRail: structuredClone(plan?.story?.phaseRail ?? [])
+    },
+    intent: plan ? {
+      source: 'exact-auto-plan',
+      requirement: structuredClone(plan.requirement),
+      inferences: {
+        title: plan.proposal?.title ?? null,
+        assumptions: structuredClone(plan.proposal?.assumptions ?? []),
+        unresolvedDecisions: structuredClone(plan.proposal?.unresolvedDecisions ?? []),
+        predictedPaths: structuredClone(plan.proposal?.predictedPaths ?? []),
+        acceptanceCriteria: structuredClone(plan.proposal?.acceptanceCriteria ?? [])
+      }
+    } : {
+      source: 'unavailable',
+      requirement: { text: null, sha256: null },
+      inferences: {
+        title: null, assumptions: [], unresolvedDecisions: [],
+        predictedPaths: [], acceptanceCriteria: []
+      }
+    },
+    executionUnits: {
+      planned: plan?.executionHost?.id ?? null,
+      current: state.executionUnit?.id ?? plan?.executionHost?.id ?? null,
+      currentManifestSha256: state.executionUnit?.manifestSha256 ?? null,
+      switches: structuredClone(state.executionUnitSwitches ?? [])
+    }
+  };
+}
+
+function qualityFloorProjection(lineage) {
+  const receipts = lineage['auto-token-economics-receipt'];
+  const reasons = [];
+  if (!receipts.length) reasons.push('no-economics-receipts');
+  if (receipts.some((entry) => entry.quality.verification === 'pending')) {
+    reasons.push('verification-pending');
+  }
+  if (receipts.some((entry) => entry.quality.verification === 'failed')) {
+    reasons.push('verification-failed');
+  }
+  if (receipts.some((entry) => entry.quality.reviewReturned)) reasons.push('review-returned');
+  if (receipts.some((entry) => entry.quality.missingContextIncident)) {
+    reasons.push('missing-context-incident');
+  }
+  const failed = reasons.some((entry) => [
+    'verification-failed', 'review-returned', 'missing-context-incident'
+  ].includes(entry));
+  const status = !receipts.length ? 'unavailable'
+    : failed ? 'failed'
+      : reasons.includes('verification-pending') ? 'pending' : 'passed';
+  return {
+    status,
+    basis: 'observed-task-outcomes',
+    // AUT can report the observed floor, but it cannot claim a token-saving improvement without a
+    // registered comparison baseline. Keeping that decision explicit prevents "cheaper" from
+    // being presented as "better" and does not score an individual developer.
+    tokenSavingComparison: 'not-evaluated',
+    reasons,
+    firstPassVerified: receipts.filter((entry) => (
+      entry.quality.verification === 'passed' && entry.quality.firstPass
+    )).length,
+    verifiedAfterRepair: receipts.filter((entry) => (
+      entry.quality.verification === 'passed' && !entry.quality.firstPass
+    )).length,
+    reviewReturns: receipts.filter((entry) => entry.quality.reviewReturned).length,
+    missingContextIncidents: receipts.filter((entry) => entry.quality.missingContextIncident).length
+  };
+}
+
+function autoOutcomeMetrics(lineage, state) {
+  const phaseRuns = lineage['auto-phase-run'];
+  const attempts = lineage['auto-attempt'];
+  const receipts = lineage['auto-token-economics-receipt'];
+  const verified = receipts.filter((entry) => entry.quality.verification === 'passed');
+  const firstVerifiedAt = attempts.filter((entry) => (
+    verified.some((receipt) => receipt.attemptId === entry.attemptId)
+  )).map((entry) => Date.parse(entry.updatedAt)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+  const flightStartedAt = Date.parse(state.createdAt);
+  return {
+    protocol: 'auto-outcome-metrics-v1',
+    scope: 'flight',
+    contentFree: true,
+    flightCount: 1,
+    phaseRuns: phaseRuns.length,
+    attempts: attempts.length,
+    repairAttempts: attempts.filter((entry) => entry.attemptKind === 'repair').length,
+    refusals: lineage['auto-refusal'].length,
+    humanRequests: lineage['auto-human-request'].length,
+    executionUnitSwitches: lineage['auto-execution-unit-switch'].length,
+    verifiedOutcomes: verified.length,
+    firstPassVerifiedOutcomes: verified.filter((entry) => entry.quality.firstPass).length,
+    manualTakeover: state.status === 'manual-takeover' || state.stopReason === 'manual-takeover',
+    haltReason: state.stopReason ?? null,
+    latencyToFirstVerifiedOutcomeMilliseconds: Number.isFinite(firstVerifiedAt)
+      && Number.isFinite(flightStartedAt) ? Math.max(0, firstVerifiedAt - flightStartedAt) : null,
+    contextExpansions: attempts.reduce((total, entry) => (
+      total + (Number.isSafeInteger(entry.budgetImpact?.contextExpansions)
+        ? entry.budgetImpact.contextExpansions : 0)
+    ), 0),
+    fullContextFallbacks: attempts.reduce((total, entry) => (
+      total + (Number.isSafeInteger(entry.budgetImpact?.fullContextFallbacks)
+        ? entry.budgetImpact.fullContextFallbacks : 0)
+    ), 0)
+  };
+}
+
+function plainReportObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function reportProjectionHash(report) {
+  const copy = structuredClone(report);
+  delete copy.projectionSha256;
+  return `sha256:${recordSha256(copy)}`;
+}
+
+function reportIdentityHash(report) {
+  const copy = structuredClone(report);
+  delete copy.reportSha256;
+  delete copy.projectionSha256;
+  return `sha256:${recordSha256(copy)}`;
+}
+
+function reportShapeFailure(id, detail) {
+  throw new SingularityFlowError(`Auto flight report '${id}' failed its governed integrity check.`, {
+    code: 'AUTO_FLIGHT_CORRUPT', details: { detail }
+  });
+}
+
+function validNullableCounter(value) {
+  return value == null || (Number.isSafeInteger(value) && value >= 0);
+}
+
+/** Validate the current report projection, including fields derived from its sealed lineage. */
+function validateAutoFlightReportProjection(report, id) {
+  const exactKeys = (value, keys) => plainReportObject(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
+  if (report.integrityVersion !== 3
+      || ![null, 1, 2].includes(report.sourceSchemaVersion)
+      || !CHECKPOINT.test(String(report.reportSha256 ?? ''))
+      || !CHECKPOINT.test(String(report.projectionSha256 ?? ''))
+      || report.projectionSha256 !== reportProjectionHash(report)
+      || (report.sourceSchemaVersion == null && report.reportSha256 !== reportIdentityHash(report))) {
+    reportShapeFailure(id, 'report-seal');
+  }
+  if (!exactKeys(report.story, ['workId', 'branch', 'phase', 'workType', 'phaseRail'])
+      || !Array.isArray(report.story.phaseRail)
+      || !exactKeys(report.intent, ['source', 'requirement', 'inferences'])
+      || !['exact-auto-plan', 'unavailable'].includes(report.intent.source)
+      || !plainReportObject(report.intent.requirement)
+      || !exactKeys(report.intent.inferences, [
+        'title', 'assumptions', 'unresolvedDecisions', 'predictedPaths', 'acceptanceCriteria'
+      ])
+      || !['assumptions', 'unresolvedDecisions', 'predictedPaths', 'acceptanceCriteria']
+        .every((key) => Array.isArray(report.intent.inferences[key]))
+      || !exactKeys(report.executionUnits, [
+        'planned', 'current', 'currentManifestSha256', 'switches'
+      ])
+      || !Array.isArray(report.executionUnits.switches)) {
+    reportShapeFailure(id, 'plan-projection');
+  }
+  const expectedQualityFloor = qualityFloorProjection(report.lineage);
+  if (recordSha256(report.qualityFloor) !== recordSha256(expectedQualityFloor)) {
+    reportShapeFailure(id, 'quality-floor');
+  }
+  if (!plainReportObject(report.outcomeMetrics)
+      || !validNullableCounter(report.outcomeMetrics.latencyToFirstVerifiedOutcomeMilliseconds)) {
+    reportShapeFailure(id, 'outcome-metrics');
+  }
+  const expectedOutcomeMetrics = autoOutcomeMetrics(report.lineage, {
+    status: report.status, stopReason: report.stopReason, createdAt: null
+  });
+  expectedOutcomeMetrics.latencyToFirstVerifiedOutcomeMilliseconds =
+    report.outcomeMetrics.latencyToFirstVerifiedOutcomeMilliseconds;
+  if (recordSha256(report.outcomeMetrics) !== recordSha256(expectedOutcomeMetrics)) {
+    reportShapeFailure(id, 'outcome-metrics');
+  }
+  const accounting = report.accounting;
+  const observations = accounting?.observations;
+  const toolOutput = observations?.toolOutput;
+  if (!exactKeys(accounting, [
+    'tokens', 'observations', 'cost', 'activeMilliseconds', 'elapsedMilliseconds'
+  ]) || !exactKeys(accounting.tokens, ['assurance', 'totalTokens'])
+      || !['exact', 'unavailable'].includes(accounting.tokens.assurance)
+      || !validNullableCounter(accounting.tokens.totalTokens)
+      || !exactKeys(observations, [
+        'receipts', 'pending', 'passed', 'failed', 'promptBytes', 'estimatedInputTokens',
+        'providerInputTokens', 'cachedTokens', 'estimatedOutputTokens',
+        'providerOutputTokens', 'toolOutput'
+      ])
+      || !Object.entries(observations).filter(([key]) => key !== 'toolOutput')
+        .every(([, value]) => validNullableCounter(value))
+      || !exactKeys(toolOutput, [
+        'assurance', 'observedBytes', 'estimatedTokens', 'providerTokens'
+      ])
+      || !['provider-reported', 'estimated-bytes-per-token-4.0', 'unavailable']
+        .includes(toolOutput.assurance)
+      || !validNullableCounter(toolOutput.observedBytes)
+      || !validNullableCounter(toolOutput.estimatedTokens)
+      || !validNullableCounter(toolOutput.providerTokens)
+      || !exactKeys(accounting.cost, ['assurance', 'amount'])
+      || !['provider-reported', 'unavailable'].includes(accounting.cost.assurance)
+      || !(accounting.cost.amount == null
+        || (Number.isFinite(accounting.cost.amount) && accounting.cost.amount >= 0))
+      || !validNullableCounter(accounting.activeMilliseconds)
+      || !validNullableCounter(accounting.elapsedMilliseconds)) {
+    reportShapeFailure(id, 'accounting');
+  }
+  return report;
+}
+
+/**
+ * Validate any readable Auto flight-report generation as the canonical current projection.
+ *
+ * A report's self-hash proves only which bytes were supplied. The quality and outcome fields are
+ * deterministic projections of sealed lineage, so every authority boundary that accepts an
+ * embedded report must also reproduce those projections through this validator.
+ */
+export function validateAutoFlightReportRecord(value, { expectedFlightId = null } = {}) {
+  const id = validateFlightId(expectedFlightId ?? value?.flightId);
+  const report = readRecord('auto-flight-report', value).record;
+  validateReportLineage(id, report.lineage);
+  const unknown = Object.keys(report).filter((field) => !AUTO_REPORT_FIELDS.has(field));
+  if (report.kind !== 'auto-flight-report' || report.mode !== 'auto'
+      || report.flightId !== id || !PLAN_ID.test(String(report.planId ?? ''))
+      || !CHECKPOINT.test(String(report.planSha256 ?? ''))
+      || !['story-authority', 'flight-checkpoint'].includes(report.approvalSource)
+      || !Array.isArray(report.approvals)
+      || unknown.length) {
+    throw new SingularityFlowError(`Auto flight report '${id}' failed its governed integrity check.`, {
+      code: 'AUTO_FLIGHT_CORRUPT', details: { unknown }
+    });
+  }
+  return validateAutoFlightReportProjection(report, id);
+}
+
+async function currentPlanSnapshot(root, state) {
+  try {
+    const { readAutoPlan } = await import('./auto-plan.mjs');
+    return await readAutoPlan(root, state.planId);
+  } catch (error) {
+    // A governed final report remains reconstructible after disposable local Plan storage has been
+    // removed. Make that absence explicit. Corruption or an unsafe Plan must still fail closed.
+    if (['AUTO_PLAN_NOT_FOUND', 'AUTO_PLAN_LEGACY_UNSUPPORTED'].includes(error?.code)) return null;
+    throw error;
+  }
 }
 
 function phaseApprovalSnapshot(workflow) {
@@ -701,7 +1156,8 @@ async function currentApprovalSnapshot(state) {
 export function buildAutoFlightReport(state, {
   lineage: lineageInput = null,
   approvals: approvalsInput = state.approvals ?? [],
-  approvalSource = 'flight-checkpoint'
+  approvalSource = 'flight-checkpoint',
+  plan = null
 } = {}) {
   const lineage = validateReportLineage(state.flightId, lineageInput);
   if (!['story-authority', 'flight-checkpoint'].includes(approvalSource)) {
@@ -710,11 +1166,14 @@ export function buildAutoFlightReport(state, {
     });
   }
   const accounting = economicsAccounting(lineage, state);
+  const planProjection = planReportProjection(state, plan);
   const core = {
-    schemaVersion: currentSchemaVersion('auto-flight-report'), kind: 'auto-flight-report', mode: 'auto',
+    schemaVersion: currentSchemaVersion('auto-flight-report'), integrityVersion: 3,
+    sourceSchemaVersion: null, kind: 'auto-flight-report', mode: 'auto',
     flightId: state.flightId, planId: state.planId, planSha256: state.planSha256,
     status: state.status, stopReason: state.stopReason, nextAction: state.nextAction,
     position: state.position,
+    ...planProjection,
     configuration: structuredClone(state.configuration ?? null),
     repositories: structuredClone(state.repositories ?? []),
     operations: structuredClone(state.operations ?? []),
@@ -736,6 +1195,8 @@ export function buildAutoFlightReport(state, {
     authorityTarget: state.status === 'waiting-human'
       ? structuredClone(state.execution?.until ?? null) : null,
     quality: structuredClone(state.quality ?? []),
+    qualityFloor: qualityFloorProjection(lineage),
+    outcomeMetrics: autoOutcomeMetrics(lineage, state),
     approvals: structuredClone(approvalsInput),
     humanIntervention: state.stopReason?.startsWith('human-')
       || ['waiting-human', 'manual-takeover', 'recovery-required'].includes(state.status)
@@ -757,7 +1218,9 @@ export function buildAutoFlightReport(state, {
     },
     checkpointSha256: state.checkpointSha256
   };
-  return { ...core, reportSha256: `sha256:${recordSha256(core)}` };
+  const identified = { ...core, reportSha256: `sha256:${recordSha256(core)}` };
+  const report = { ...identified, projectionSha256: `sha256:${recordSha256(identified)}` };
+  return validateAutoFlightReportProjection(report, state.flightId);
 }
 
 /** Build a read-only report projection from the exact current flight and its typed local lineage. */
@@ -773,8 +1236,9 @@ export async function projectAutoFlightReport(root, state) {
       }
     );
   }
-  const [lineage, approvalSnapshot] = await Promise.all([
-    snapshotAutoP1Records(root, state.flightId), currentApprovalSnapshot(state)
+  const [lineage, approvalSnapshot, plan] = await Promise.all([
+    snapshotAutoP1Records(root, state.flightId), currentApprovalSnapshot(state),
+    currentPlanSnapshot(root, state)
   ]);
   const after = await readAutoFlightState(root, state.flightId);
   if (after.recordSha256 !== before.recordSha256
@@ -787,7 +1251,7 @@ export async function projectAutoFlightReport(root, state) {
     );
   }
   return buildAutoFlightReport(state, {
-    lineage, approvals: approvalSnapshot.approvals, approvalSource: approvalSnapshot.source
+    lineage, approvals: approvalSnapshot.approvals, approvalSource: approvalSnapshot.source, plan
   });
 }
 
@@ -854,22 +1318,7 @@ export async function persistAutoFlightReport(root, state) {
 /** Restore the exact governed final report into disposable local report storage. */
 export async function restoreAutoFlightReport(root, value) {
   const id = validateFlightId(value?.flightId);
-  const report = readRecord('auto-flight-report', value).record;
-  validateReportLineage(id, report.lineage);
-  const copy = structuredClone(report);
-  delete copy.reportSha256;
-  const unknown = Object.keys(report).filter((field) => !AUTO_REPORT_FIELDS.has(field));
-  if (report.kind !== 'auto-flight-report' || report.mode !== 'auto'
-      || report.flightId !== id || !PLAN_ID.test(String(report.planId ?? ''))
-      || !CHECKPOINT.test(String(report.planSha256 ?? ''))
-      || !['story-authority', 'flight-checkpoint'].includes(report.approvalSource)
-      || !Array.isArray(report.approvals)
-      || unknown.length
-      || report.reportSha256 !== `sha256:${recordSha256(copy)}`) {
-    throw new SingularityFlowError(`Auto flight report '${id}' failed its governed integrity check.`, {
-      code: 'AUTO_FLIGHT_CORRUPT', details: { unknown }
-    });
-  }
+  const report = validateAutoFlightReportRecord(value, { expectedFlightId: id });
   return withSubjectLock(root, { kind: 'auto-flight-report', id }, async () => {
     const raw = await readAutoPrivateRecord(
       root, reportFile(root, id), 'flight-report', { optional: true }
@@ -906,28 +1355,15 @@ export async function readAutoFlightReport(root, value) {
   }
   const storedCore = structuredClone(stored);
   delete storedCore.reportSha256;
-  if (stored.reportSha256 !== `sha256:${recordSha256(storedCore)}`) {
+  const storedIntegrityValid = stored.integrityVersion === 3
+    ? stored.projectionSha256 === reportProjectionHash(stored)
+    : stored.reportSha256 === `sha256:${recordSha256(storedCore)}`;
+  if (!storedIntegrityValid) {
     throw new SingularityFlowError(`Auto flight report '${id}' failed its historical integrity check.`, {
       code: 'AUTO_FLIGHT_CORRUPT'
     });
   }
-  const report = readRecord('auto-flight-report', stored).record;
-  validateReportLineage(id, report.lineage);
-  const copy = structuredClone(report);
-  delete copy.reportSha256;
-  const unknown = Object.keys(report).filter((field) => !AUTO_REPORT_FIELDS.has(field));
-  if (report.kind !== 'auto-flight-report' || report.mode !== 'auto'
-      || report.flightId !== id || !PLAN_ID.test(String(report.planId ?? ''))
-      || !CHECKPOINT.test(String(report.planSha256 ?? ''))
-      || !['story-authority', 'flight-checkpoint'].includes(report.approvalSource)
-      || !Array.isArray(report.approvals)
-      || unknown.length
-      || report.reportSha256 !== `sha256:${recordSha256(copy)}`) {
-    throw new SingularityFlowError(`Auto flight report '${id}' failed its integrity check.`, {
-      code: 'AUTO_FLIGHT_CORRUPT', details: { unknown }
-    });
-  }
-  return report;
+  return validateAutoFlightReportRecord(stored, { expectedFlightId: id });
 }
 
 export function renderAutoFlightReport(state, report = buildAutoFlightReport(state)) {
@@ -935,7 +1371,12 @@ export function renderAutoFlightReport(state, report = buildAutoFlightReport(sta
   return [
     `# Auto flight ${state.flightId}`,
     '', `- Status: **${state.status}**`, `- Plan: ${state.planId}`, `- Plan hash: \`${state.planSha256}\``,
-    `- Story: ${state.story.workId}`, `- Current phase: ${state.story.phase ?? 'unknown'}`,
+    `- Story: ${report.story?.workId ?? state.story.workId}`,
+    `- Branch: ${report.story?.branch ?? state.story.branch ?? 'unavailable'}`,
+    `- Current phase: ${report.story?.phase ?? state.story.phase ?? 'unknown'}`,
+    `- Requirement (${report.intent?.source ?? 'unavailable'}): ${report.intent?.requirement?.text ?? 'unavailable'}`,
+    `- Inferred title: ${report.intent?.inferences?.title ?? 'unavailable'}`,
+    `- Execution Unit: ${report.executionUnits?.current ?? report.executionUnits?.planned ?? 'unavailable'}`,
     `- Checkpoint: \`${state.checkpointSha256}\``, `- Stop reason: ${state.stopReason}`,
     `- Model invocations authorized: ${state.counters.modelInvocations}`,
     `- Phase runs: ${lineage['auto-phase-run'].length}`,
@@ -947,7 +1388,9 @@ export function renderAutoFlightReport(state, report = buildAutoFlightReport(sta
     `- Predicted scope: ${report.scope.predicted.paths.join(', ') || 'none'}`,
     `- Observed scope (${report.scope.observed.status}): ${report.scope.observed.paths.join(', ') || 'none'}`,
     `- Token accounting (${report.accounting.tokens.assurance}): ${report.accounting.tokens.totalTokens ?? 'unavailable'}`,
-    `- Cost accounting (${report.accounting.cost.assurance}): ${report.accounting.cost.amount ?? 'unavailable'}`,
+    `- Tool-output accounting (${report.accounting?.observations?.toolOutput?.assurance ?? 'unavailable'}): ${report.accounting?.observations?.toolOutput?.providerTokens ?? report.accounting?.observations?.toolOutput?.estimatedTokens ?? 'unavailable'} tokens`,
+    `- Cost accounting (${report.accounting?.cost?.assurance ?? 'unavailable'}): ${report.accounting?.cost?.amount ?? 'unavailable'}`,
+    `- Quality floor: ${report.qualityFloor?.status ?? 'unavailable'} (${report.qualityFloor?.basis ?? 'historical-report'}; token-saving comparison ${report.qualityFloor?.tokenSavingComparison ?? 'not-evaluated'})`,
     `- Report hash: \`${report.reportSha256}\``,
     '', '## Next action', '', state.nextAction
   ].join('\n');

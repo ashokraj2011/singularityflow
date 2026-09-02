@@ -91,6 +91,15 @@ export function onAutoResultAction(
   dispatchAutoAction = handler;
 }
 
+/** Whether the retained result document represents My Work rather than a later result. */
+export function resultPanelIsHome({ visibleOnly = true }: { visibleOnly?: boolean } = {}): boolean {
+  return panel !== null && (!visibleOnly || panel.visible) && current !== null
+    && ['home.overview', 'developer.next'].includes(current.details.operation ?? '')
+    && currentRepositoryBinding !== null && repositoryBinding !== null
+    && currentRepositoryBinding.epoch === repositoryBinding.epoch
+    && currentRepositoryBinding.root === repositoryBinding.root;
+}
+
 /** Invalidate every repository-bound card before a workspace/repository selection changes. */
 export function resultPanelRepositoryChanged(repositoryRoot: string): void {
   const nextEpoch = (repositoryBinding?.epoch ?? 0) + 1;
@@ -161,11 +170,13 @@ function render(target: vscode.WebviewPanel, view: ResultCardView, note: string 
 
 /** Show a result card, creating the panel on first use and reusing it after. */
 export function showResultCard(view: ResultCardView,
-  { note = null, origin = 'cli', historyMode = 'reset', helpTopic = null }: {
+  { note = null, origin = 'cli', historyMode = 'reset', helpTopic = null, reveal = true }: {
     note?: string | null;
     origin?: ResultOrigin;
     historyMode?: 'reset' | 'push' | 'replace';
     helpTopic?: string | null;
+    /** Re-render an already retained panel without taking it over from the reader's active tab. */
+    reveal?: boolean;
   } = {}): void {
   if (historyMode === 'push' && current) history.push({
     view: current, origin: currentOrigin, note: currentNote, helpTopic: currentHelpTopic,
@@ -277,7 +288,7 @@ export function showResultCard(view: ResultCardView,
       if (navigation) return void navigateTo(navigation);
       router.route(raw);
     });
-  } else {
+  } else if (reveal) {
     panel.reveal(view.home ? vscode.ViewColumn.One : vscode.ViewColumn.Beside, true);
   }
   render(panel, view, note, currentHelpTopic);

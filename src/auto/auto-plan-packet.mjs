@@ -2,6 +2,8 @@
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 
+export const AUTO_PLAN_CONFIRMATION_PROTOCOL = 'packet-v2';
+
 function digestRecord(value, field) {
   const record = structuredClone(value);
   record[field] = `sha256:${recordSha256(record)}`;
@@ -62,7 +64,8 @@ export function buildAutoPlanPacket(plan, validation = buildAutoPlanValidation(p
       executionUnit: plan.executionHost?.id ?? null,
       pacing: plan.execution?.pace?.source ?? null,
       until: plan.execution?.until?.source ?? null,
-      repairAttemptsPerPhase: 0
+      repairPolicy: plan.execution?.repair?.policy ?? 'ask',
+      repairAttemptsPerPhase: plan.execution?.repair?.maximumAttempts ?? 0
     },
     humanStops: structuredClone(plan.humanBoundaries?.stopPoints ?? []),
     evidence: [...(plan.proposal?.acceptanceCriteria ?? [])],

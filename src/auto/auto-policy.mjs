@@ -3,10 +3,9 @@ import { SingularityFlowError } from '../util.mjs';
 export const AUTO_ELIGIBILITY = Object.freeze(['disabled', 'plan-only', 'bounded']);
 export const AUTO_PACES = Object.freeze(['step', 'continuous', 'phase', 'interval']);
 export const AUTO_PROFILE_SELECTIONS = Object.freeze(['story', 'sgos', 'auto-select']);
-// Automatic repair remains unavailable until deterministic machine-actionability is implemented.
-// Accepting a configuration value without an enforcing classifier would silently turn policy into
-// an unconditional retry, so the installed vocabulary fails closed at human-confirmed repair.
-export const AUTO_REPAIR_POLICIES = Object.freeze(['never', 'ask']);
+export const AUTO_REPAIR_POLICIES = Object.freeze([
+  'never', 'ask', 'auto-on-machine-actionable'
+]);
 export const AUTO_STOP_KINDS = Object.freeze([
   'first-human-boundary', 'published', 'submitted', 'phase-complete', 'story-complete'
 ]);
@@ -133,9 +132,19 @@ export function parseAutoStopSelector(value, phaseIds = [], label = 'Auto stop s
   if (selector === 'first-human-boundary' || selector === 'story-complete') {
     return { kind: selector, phase: null, source: selector };
   }
+  // AUT v2 exposes a phase name as the concise operator syntax. Internally it is normalized to the
+  // same closed lifecycle selector used by checkpoints and the executor. A bare phase is accepted
+  // only after the selected Story rail is known; policy loading must still use the explicit form.
+  if (phaseIds.length && phaseIds.includes(selector)) {
+    return { kind: 'phase-complete', phase: selector, source: selector };
+  }
   const match = /^(published|submitted|phase-complete):([A-Za-z0-9][A-Za-z0-9._-]{0,63})$/.exec(selector);
   if (!match) {
-    throw new SingularityFlowError(`${label} is invalid.`, { code: 'AUTO_PLAN_INVALID', details: { selector } });
+    throw new SingularityFlowError(
+      `${label} is invalid.${phaseIds.length ? ` Use a phase name (${phaseIds.join(', ')})` : ''}`
+      + ' or first-human-boundary, story-complete, published:<phase>, submitted:<phase>, or phase-complete:<phase>.',
+      { code: 'AUTO_PLAN_INVALID', details: { selector, phaseIds } }
+    );
   }
   // Root and capability defaults are validated before a work type has been selected. Validate a
   // named phase as soon as the concrete Story rail is available; until then retain the selector
@@ -304,6 +313,28 @@ export function normalizeAutoPolicy(value = null) {
   if (!Number.isSafeInteger(maximumRepairAttempts) || maximumRepairAttempts < 0 || maximumRepairAttempts > 1) {
     throw new SingularityFlowError('auto.repair.maximumAttempts must be 0 or 1.', { code: 'AUTO_PLAN_INVALID' });
   }
+  const ceilings = normalizeAutoCeilings(value.ceilings ?? {});
+  if (repairPolicy === 'auto-on-machine-actionable') {
+    if (maximumRepairAttempts !== 1) {
+      throw new SingularityFlowError(
+        'auto-on-machine-actionable repair requires exactly one permitted repair attempt.', {
+          code: 'AUTO_PLAN_INVALID'
+        }
+      );
+    }
+    if (ceilings.maximumAuthoringAttemptsPerPhase < 2
+        || ceilings.maximumModelInvocations < 2) {
+      throw new SingularityFlowError(
+        'auto-on-machine-actionable repair requires ceilings for one initial and one repair model attempt.', {
+          code: 'AUTO_PLAN_INVALID',
+          details: {
+            maximumAuthoringAttemptsPerPhase: ceilings.maximumAuthoringAttemptsPerPhase,
+            maximumModelInvocations: ceilings.maximumModelInvocations
+          }
+        }
+      );
+    }
+  }
   return {
     enabled: value.enabled === true,
     profile: normalizeAutoProfile(value.profile),
@@ -324,7 +355,7 @@ export function normalizeAutoPolicy(value = null) {
       allowSequenceOverrides: false,
       allowScopeExpansion: false
     },
-    ceilings: normalizeAutoCeilings(value.ceilings ?? {}),
+    ceilings,
     repair: { policy: repairPolicy, maximumAttempts: maximumRepairAttempts },
     reporting: { checkpoint: reporting.checkpoint ?? 'governed-when-publishing', final: 'required' }
   };

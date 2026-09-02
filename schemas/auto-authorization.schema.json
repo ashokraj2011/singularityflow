@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-authorization.schema.json",
-  "title": "Singularity Flow mutable Auto authorization v2",
+  "title": "Singularity Flow mutable Auto authorization v3",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -24,12 +24,12 @@
     "recordSha256"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "kind": { "const": "auto-plan-ratification" },
     "mode": { "const": "auto" },
     "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
     "planSha256": { "$ref": "#/$defs/hash" },
-    "confirmationProtocol": { "const": "packet-v1" },
+    "confirmationProtocol": { "const": "packet-v2" },
     "confirmedSha256": { "$ref": "#/$defs/hash" },
     "packetSha256": { "$ref": "#/$defs/hash" },
     "validationSha256": { "$ref": "#/$defs/hash" },
@@ -55,11 +55,12 @@
       "pattern": "^AFL-[A-F0-9]{26}$"
     },
     "authorizationSha256": { "$ref": "#/$defs/hash" },
-    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "legacyCompatibility": { "$ref": "#/$defs/legacyCompatibility" }
   },
   "allOf": [
     {
-      "$comment": "For packet-v1, the runtime additionally requires confirmedSha256 to equal packetSha256; JSON Schema draft 2020-12 has no portable cross-property equality keyword."
+      "$comment": "For packet-v2, the runtime additionally requires confirmedSha256 to equal packetSha256; JSON Schema draft 2020-12 has no portable cross-property equality keyword."
     },
     {
       "if": {
@@ -107,6 +108,13 @@
           "claimOwner": { "type": "null" }
         }
       }
+    },
+    {
+      "if": {
+        "properties": { "confirmationProtocol": { "const": "packet-v1" } },
+        "required": ["confirmationProtocol"]
+      },
+      "then": { "required": ["legacyCompatibility"] }
     }
   ],
   "$defs": {
@@ -127,6 +135,20 @@
       "properties": {
         "host": { "type": "string", "minLength": 1 },
         "pid": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "legacyCompatibility": {
+      "type": "object",
+      "required": ["sourceSchemaVersion", "confirmationProtocol", "planSha256", "packetSha256", "validationSha256", "repairPolicy", "repairAttemptsPerPhase"],
+      "properties": {
+        "sourceSchemaVersion": { "const": 2 },
+        "confirmationProtocol": { "const": "packet-v1" },
+        "planSha256": { "$ref": "#/$defs/hash" },
+        "packetSha256": { "$ref": "#/$defs/hash" },
+        "validationSha256": { "$ref": "#/$defs/hash" },
+        "repairPolicy": { "const": "never" },
+        "repairAttemptsPerPhase": { "const": 0 }
       },
       "additionalProperties": false
     }

@@ -45,7 +45,7 @@ function emitAuto(value, {
     operation: { id: operation, classification },
     subject: state?.story?.workId ? { kind: 'story', id: state.story.workId } : null,
     outcome: succeeded(
-      ['auto.plan', 'auto.show-plan'].includes(operation)
+      ['auto.plan', 'auto.plan.story', 'auto.show-plan'].includes(operation)
         ? 'auto.plan-ready'
         : operation === 'auto.list' ? 'auto.flight-list-ready'
         : operation === 'auto.report' ? 'auto.report-ready' : 'auto.flight-reported',
@@ -235,7 +235,8 @@ export async function run(_argv, { positionals, options }) {
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
   const goalId = optionString(options, 'goal');
-  const token = positionals[1] ?? (goalId ? 'plan' : 'status');
+  const storyId = optionString(options, 'story');
+  const token = positionals[1] ?? (goalId || storyId ? 'plan' : 'status');
   const shorthand = !SUBCOMMANDS.has(token);
   const nearest = nearestNames(token, [...SUBCOMMANDS], { limit: 1 })[0] ?? null;
   if (shorthand && nearest && Math.abs(String(token).length - nearest.length) <= 2) {
@@ -249,6 +250,13 @@ export async function run(_argv, { positionals, options }) {
   if (goalId && subcommand !== 'plan') throw new SingularityFlowError(
     '--goal is valid only for Auto Plan creation.', { code: 'AUTO_ARGUMENT_CONFLICT' }
   );
+  if (storyId && subcommand !== 'plan') throw new SingularityFlowError(
+    '--story is valid only with auto plan.', { code: 'AUTO_ARGUMENT_CONFLICT' }
+  );
+  if (goalId && storyId) throw new SingularityFlowError(
+    'Choose either --goal <GOAL-ID> or --story <STORY-ID>; they are different intake authorities.',
+    { code: 'AUTO_ARGUMENT_CONFLICT' }
+  );
   if (options['from-adhoc'] != null && subcommand !== 'adopt') throw new SingularityFlowError(
     '--from-adhoc is valid only with auto adopt.', { code: 'AUTO_ARGUMENT_CONFLICT' }
   );
@@ -261,6 +269,26 @@ export async function run(_argv, { positionals, options }) {
         code: 'APPROVED_CONFIGURATION_UNAVAILABLE'
       });
       const definition = await loadDefinition(root);
+      if (storyId) {
+        const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
+        const conflictingOptions = [
+          'capability', 'work-type', 'work-id', 'from-branch', 'profile', 'pace', 'until'
+        ].filter((name) => optionString(options, name) != null);
+        if (suppliedRequirement || conflictingOptions.length) {
+          throw new SingularityFlowError(
+            '--story reads the exact next segment of an existing Story and cannot be combined with a new requirement or new-Story options.',
+            {
+              code: 'AUTO_ARGUMENT_CONFLICT',
+              details: { storyId, conflictingOptions }
+            }
+          );
+        }
+        const result = await buildAutoContinuationProposal(root, definition, storyId);
+        return emitAuto(result, {
+          operation: 'auto.plan.story', state: result.flight,
+          card: continuationCard(result), json
+        });
+      }
       const goalSeed = goalId ? await resolveAutoGoalSeed(root, goalId, { definition }) : null;
       const suppliedRequirement = String(positionals[shorthand ? 1 : 2] ?? '').trim();
       if (goalSeed && suppliedRequirement) throw new SingularityFlowError(

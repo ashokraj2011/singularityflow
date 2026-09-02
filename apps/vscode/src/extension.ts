@@ -15,7 +15,8 @@ import { access, lstat, readFile, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import {
-  RepositoryAuthorityUnavailableError, validateRepositoryDirectory
+  RepositoryAuthorityUnavailableError, validateRepositoryDirectory,
+  validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
 import type { RepositorySnapshot } from './cli/snapshot.ts';
@@ -59,7 +60,7 @@ import type { EvidenceSourceKind } from './views/evidence-manager.ts';
 import { onFormSubmit, showForm, useDraftStore } from './views/form-panel.ts';
 import {
   onAutoResultAction, onHomeRequest, onResultAction, resultPanelRepositoryChanged,
-  showRefusal, showResultCard
+  resultPanelIsHome, showRefusal, showResultCard
 } from './views/result-panel.ts';
 import { buildResultCard, gateSummary } from './views/result-card-model.ts';
 import {
@@ -429,7 +430,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * read here, handed to the card, and never pushed into the envelope where it would masquerade as
    * something the gateway established.
    */
-  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async () => {
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.myWork', async (
+    options: { reveal?: boolean } = {}
+  ) => {
     const generation = ++homeRequestGeneration;
     const active = activeRepositoryContext();
     try {
@@ -462,7 +465,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const acknowledgement = context.globalState.get<HomeAcknowledgement>(key) ?? null;
       lastHome = { envelope, key, route };
-      showResultCard(buildResultCard(envelope, { acknowledgement }), { origin: 'gateway' });
+      showResultCard(buildResultCard(envelope, { acknowledgement }), {
+        origin: 'gateway', reveal: options.reveal !== false
+      });
     } catch (error) {
       if (generation !== homeRequestGeneration || activeRepositoryContext() !== active) return;
       showRefusal(error, { headline: 'Could not read your work' });
@@ -2469,6 +2474,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // costs a fraction of a second and collapses the whole burst into one refresh.
   const REPOSITORY_REFRESH_DEBOUNCE_MS = 750;
   let repositoryWatcher: vscode.FileSystemWatcher | null = null;
+  let autoPrivateWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
   const armRepositoryRefresh = (): void => {
@@ -2476,15 +2482,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repositoryRefreshTimer = setTimeout(() => {
       repositoryRefreshTimer = null;
       const batch = repositoryWatcherFence.capture();
+      const scope = repositoryEpoch.capture();
       void (async () => {
+        if (!repositoryEpoch.isCurrent(scope)) return;
         if (await repositoryWatcherFence.matchesDelayedEcho(batch, () => client.revisionProbe())) return;
+        if (!repositoryEpoch.isCurrent(scope)) return;
         repositoryWatcherFence.clearDelayedEcho();
+        const autoPrivateChanged = batch.events.some((event) => event.origin === 'auto-private');
+        const refreshCurrentHome = autoPrivateChanged && resultPanelIsHome({ visibleOnly: false });
+        if (refreshCurrentHome) {
+          // Snapshot revisions intentionally describe Git-tracked state and therefore cannot make
+          // private Auto bytes part of an if-revision receipt. Invalidate the in-process gateway so
+          // the current My Work document reopens the Git-common records instead of retaining its
+          // prior handles. A different result stays live and is never navigated away from.
+          homeRequestGeneration += 1;
+          resetGatewaySession();
+          lastHome = null;
+        }
         await store.refresh();
+        if (refreshCurrentHome && repositoryEpoch.isCurrent(scope)) {
+          await vscode.commands.executeCommand('singularityFlow.myWork', { reveal: false });
+        }
       })();
     }, REPOSITORY_REFRESH_DEBOUNCE_MS);
   };
   const scheduleRepositoryRefresh = (uri?: vscode.Uri): void => {
     repositoryWatcherFence.observe(uri?.fsPath);
+    armRepositoryRefresh();
+  };
+  const scheduleAutoPrivateRefresh = (uri?: vscode.Uri): void => {
+    repositoryWatcherFence.observe(uri?.fsPath, 'auto-private');
     armRepositoryRefresh();
   };
 
@@ -2502,30 +2529,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // read. Never let the fence for one mutation consume somebody else's later repository change.
     if (repositoryWatcherFence.hasPending) armRepositoryRefresh();
   };
-  // Deliberately still only `singularity/**`. A disturbance from outside it — an autosave, a build —
-  // is handled where it belongs, by the store retrying a transient failure, and not by watching the
-  // whole tree: a recursive watcher would traverse `node_modules`, and refreshing the entire read
-  // model on every keystroke-adjacent save would spawn a CLI process each time.
-  const watchGovernedRepository = (target: string): void => {
+  // Keep both watches narrow. Tracked lifecycle/configuration changes live under `singularity/**`;
+  // Auto's private plans, authorizations, and flight records live under the repository's verified
+  // Git common directory so a linked Story worktree and its main checkout see the same flight. The
+  // Auto worktrees themselves are deliberately excluded: watching source/build output there would
+  // recreate the whole-repository watcher storm this boundary is intended to avoid.
+  const watchGovernedRepository = (target: string, gitCommonDirectory: string | null): void => {
     repositoryWatcher?.dispose();
+    autoPrivateWatcher?.dispose();
     if (repositoryRefreshTimer) {
       clearTimeout(repositoryRefreshTimer);
       repositoryRefreshTimer = null;
     }
     repositoryWatcherFence.reset();
+    const watcherScope = repositoryEpoch.capture();
+    const scheduleGovernedForCurrentRepository = (uri?: vscode.Uri): void => {
+      if (repositoryEpoch.isCurrent(watcherScope)) scheduleRepositoryRefresh(uri);
+    };
+    const scheduleAutoForCurrentRepository = (uri?: vscode.Uri): void => {
+      if (repositoryEpoch.isCurrent(watcherScope)) scheduleAutoPrivateRefresh(uri);
+    };
     repositoryWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(target), 'singularity/**/*')
     );
     context.subscriptions.push(
-      repositoryWatcher.onDidCreate(scheduleRepositoryRefresh),
-      repositoryWatcher.onDidChange(scheduleRepositoryRefresh),
-      repositoryWatcher.onDidDelete(scheduleRepositoryRefresh)
+      repositoryWatcher.onDidCreate(scheduleGovernedForCurrentRepository),
+      repositoryWatcher.onDidChange(scheduleGovernedForCurrentRepository),
+      repositoryWatcher.onDidDelete(scheduleGovernedForCurrentRepository)
     );
+    autoPrivateWatcher = gitCommonDirectory
+      ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+          vscode.Uri.file(gitCommonDirectory),
+          'singularity-flow/{auto-plans/*.json,auto-authorizations/*.json,auto-flights/**/*.json}'
+        ))
+      : null;
+    if (autoPrivateWatcher) {
+      context.subscriptions.push(
+        autoPrivateWatcher.onDidCreate(scheduleAutoForCurrentRepository),
+        autoPrivateWatcher.onDidChange(scheduleAutoForCurrentRepository),
+        autoPrivateWatcher.onDidDelete(scheduleAutoForCurrentRepository)
+      );
+    }
   };
-  watchGovernedRepository(repository);
+  const initialGitCommonDirectory = await validatedRepositoryGitCommonDirectory(repository, {
+    signal: extensionLifetime.signal
+  }).catch((error) => {
+    output.appendLine(`Auto private-state watcher unavailable: ${(error as Error).message}`);
+    return null;
+  });
+  watchGovernedRepository(repository, initialGitCommonDirectory);
   context.subscriptions.push({
     dispose: () => {
       repositoryWatcher?.dispose();
+      autoPrivateWatcher?.dispose();
       if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
     }
   });
@@ -2777,8 +2833,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   workspaceSelected.push(async (selected) => {
     const target = path.resolve(selected.repositoryPath);
     let canonicalTarget: string;
+    let targetGitCommonDirectory: string | null;
     try {
       canonicalTarget = await validateRepositoryDirectory(target, { signal: extensionLifetime.signal });
+      targetGitCommonDirectory = await validatedRepositoryGitCommonDirectory(canonicalTarget, {
+        signal: extensionLifetime.signal
+      });
     } catch (error) {
       void vscode.window.showWarningMessage(
         `${selected.workspaceName} is recorded as your workspace, but this window is still acting on ${path.basename(repository)}: ${(error as Error).message}`);
@@ -2788,7 +2848,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     repository = canonicalTarget;
     resultPanelRepositoryChanged(canonicalTarget);
     client.useRepository(canonicalTarget);
-    watchGovernedRepository(canonicalTarget);
+    watchGovernedRepository(canonicalTarget, targetGitCommonDirectory);
     workspaceLabel = selected.workspaceName;
     lastHome = null;
     setActiveRepositoryContext({

@@ -1,18 +1,20 @@
 /** Immutable, Git-backed Candidate authority for the core Auto Story profile. */
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 
 import { gitCommonDir } from '../git.mjs';
+import { isAllowedTestAutomationPath, parseTestResult } from '../code-delivery-tests.mjs';
+import { TEST_RESULT_ADAPTERS } from '../external-command-policy.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
 import { canonicalJson } from '../records.mjs';
 import {
   buildRepositoryTreeChangeSet, compareRepositoryIdentity
 } from '../repository-change-set.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { SingularityFlowError, run } from '../util.mjs';
+import { secureRepositoryPath, SingularityFlowError, run } from '../util.mjs';
 import { resolvePlatformProcess, tryWindowsTaskkill } from '../platform-process.mjs';
 import { applicationChangeSetProjection, isApplicationChangePath } from '../work-intervals.mjs';
 import { readAutoPrivateRecord, writeAutoPrivateRecord } from './auto-private-store.mjs';
@@ -32,6 +34,7 @@ const CANDIDATE_ENV = Object.freeze({
 const MAX_VERIFICATION_COMMANDS = 32;
 const MAX_VERIFICATION_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_CANDIDATE_RESOURCES = 20_000;
+const STRUCTURED_TEST_ADAPTERS = new Set(TEST_RESULT_ADAPTERS);
 const PHASE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const RECOVERY_DISPOSITIONS = new Set(['authored', 'preserved-after-failure']);
 
@@ -157,7 +160,7 @@ function temporaryIndexEnvironment(index) {
   };
 }
 
-async function freezeWorktreeTree(root) {
+async function freezeWorktreeTree(root, { excludedPaths = [] } = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-'));
   const env = temporaryIndexEnvironment(path.join(temporary, 'index'));
   try {
@@ -178,6 +181,15 @@ async function freezeWorktreeTree(root) {
     }
     git(root, ['read-tree', 'HEAD'], { env });
     git(root, ['add', '-A', '--', '.'], { env });
+    if (excludedPaths.length) {
+      // Verification result paths are disposable observations, not Candidate content. Restore
+      // only their temporary-index entries to HEAD instead of deleting through a path that
+      // Candidate code could replace between validation and cleanup.
+      git(root, [
+        'reset', '-q', 'HEAD', '--',
+        ...excludedPaths.map((candidate) => `:(literal)${candidate}`)
+      ], { env });
+    }
     const tree = outputText(git(root, ['write-tree'], { env }));
     if (!GIT_OBJECT.test(tree)) fail('Git did not produce a Candidate tree.', 'AUTO_CANDIDATE_GIT_FAILED');
     return { tree, env };
@@ -906,24 +918,56 @@ function normalizeVerificationCommands(commands) {
       fail(`Auto Candidate verification command ${index + 1} has an unsafe evidence output path.`,
         'AUTO_CANDIDATE_VERIFICATION_INVALID');
     }
+    const id = String(command.id ?? `quality-${index + 1}`);
+    if (!id.trim()) {
+      fail(`Auto Candidate verification command ${index + 1} has an empty command ID.`,
+        'AUTO_CANDIDATE_VERIFICATION_INVALID');
+    }
     return {
-      id: String(command.id ?? `quality-${index + 1}`),
+      id,
       argv: [...command.argv],
       workingDirectory,
       resultPath,
+      kind: command.kind ?? null,
+      modelPolicy: command.modelPolicy ?? null,
+      affectedRoots: Array.isArray(command.affectedRoots)
+        ? [...new Set(command.affectedRoots.map((root) => String(root).replaceAll('\\', '/')))]
+        : [],
+      result: command.result == null ? null : structuredClone(command.result),
       timeoutMs: Math.min(30 * 60 * 1000, Math.max(1, Number(command.timeoutMs ?? 10 * 60 * 1000)))
     };
   });
 }
 
+function capturesVerificationStdout(command) {
+  return ['go-test-json', 'node-tap'].includes(command.result?.adapter)
+    || (command.result?.adapter === 'junit-xml'
+      && command.argv.includes('--test-reporter=junit'));
+}
+
+async function secureCandidateVerificationPath(workspace, candidate, {
+  label, mustExist = false, type = null
+} = {}) {
+  try {
+    return await secureRepositoryPath(workspace, candidate, {
+      label, mustExist, type
+    });
+  } catch (error) {
+    throw new SingularityFlowError(
+      `${label ?? 'Candidate verification path'} is not securely contained in the isolated worktree: ${error.message}`,
+      { code: 'AUTO_CANDIDATE_VERIFICATION_INVALID', cause: error }
+    );
+  }
+}
+
 async function runVerificationCommand(command, workspace, signal) {
-  return new Promise((resolve, reject) => {
-    const cwd = path.resolve(workspace, command.workingDirectory);
-    if (cwd !== workspace && !cwd.startsWith(`${workspace}${path.sep}`)) {
-      return reject(new SingularityFlowError('Candidate verifier escaped its isolated worktree.', {
-        code: 'AUTO_CANDIDATE_VERIFICATION_INVALID'
-      }));
+  const securedCwd = await secureCandidateVerificationPath(
+    workspace, command.workingDirectory, {
+      label: 'Candidate verifier working directory', mustExist: true, type: 'directory'
     }
+  );
+  return new Promise((resolve, reject) => {
+    const cwd = securedCwd.absolute;
     const allowedEnvironment = [
       'PATH', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR', 'ComSpec',
       'TMPDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL', 'CI', 'JAVA_HOME', 'M2_HOME'
@@ -943,6 +987,7 @@ async function runVerificationCommand(command, workspace, signal) {
         code: 'AUTO_CANDIDATE_VERIFICATION_INVALID', cause: error
       }));
     }
+    const startedAt = new Date().toISOString();
     const child = spawn(launch.executable, launch.arguments, {
       cwd,
       env: childEnvironment,
@@ -952,6 +997,8 @@ async function runVerificationCommand(command, workspace, signal) {
       windowsHide: true
     });
     const output = [];
+    const stdout = [];
+    let stdoutBytes = 0;
     let bytes = 0;
     let overflow = false;
     let timedOut = false;
@@ -972,7 +1019,12 @@ async function runVerificationCommand(command, workspace, signal) {
       if (bytes > MAX_VERIFICATION_OUTPUT_BYTES) { overflow = true; terminate(); }
       else output.push(value);
     };
-    child.stdout.on('data', append);
+    child.stdout.on('data', (chunk) => {
+      const value = Buffer.from(chunk);
+      stdoutBytes += value.length;
+      if (stdoutBytes <= MAX_VERIFICATION_OUTPUT_BYTES) stdout.push(value);
+      append(value);
+    });
     child.stderr.on('data', append);
     child.once('error', reject);
     const timer = setTimeout(() => { timedOut = true; terminate(); }, command.timeoutMs);
@@ -980,21 +1032,29 @@ async function runVerificationCommand(command, workspace, signal) {
     const abort = () => terminate();
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) terminate();
-    child.once('close', (status, terminationSignal) => {
+    child.once('close', async (status, terminationSignal) => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       const captured = Buffer.concat(output);
-      resolve({
-        id: command.id,
-        argvSha256: digest(command.argv),
-        workingDirectory: command.workingDirectory,
-        status: status ?? 1,
-        signal: terminationSignal ?? null,
-        timedOut,
-        overflow,
-        outputSha256: digest(captured),
-        outputBytes: captured.length
-      });
+      try {
+        resolve({
+          record: {
+            id: command.id,
+            argvSha256: digest(command.argv),
+            workingDirectory: command.workingDirectory,
+            status: status ?? 1,
+            signal: terminationSignal ?? null,
+            timedOut,
+            overflow,
+            outputSha256: digest(captured),
+            outputBytes: captured.length
+          },
+          startedAt,
+          // Stdout-backed adapters are parsed from a private sibling staging directory. Never
+          // write captured provider bytes through a path controlled by the Candidate tree.
+          stdout: Buffer.concat(stdout)
+        });
+      } catch (error) { reject(error); }
     });
   });
 }
@@ -1002,29 +1062,89 @@ async function runVerificationCommand(command, workspace, signal) {
 function verificationCore(record) {
   const core = structuredClone(record);
   delete core.verificationReceiptSha256;
+  // v1 receipts are migrated in memory without changing their externally bound digest. The
+  // integrityVersion marker makes that historical projection explicit while every new v2 receipt
+  // seals repairEvidence as part of its normal content hash.
+  if (record?.integrityVersion === 1) {
+    core.schemaVersion = 1;
+    delete core.integrityVersion;
+    delete core.repairEvidence;
+  }
   return core;
 }
 
+function verificationResultPath(command) {
+  return command.resultPath == null ? null
+    : path.posix.join(command.workingDirectory, command.resultPath);
+}
+
+function pathWithin(candidate, roots) {
+  return roots.some((root) => root === '.' || candidate === root
+    || candidate.startsWith(`${String(root).replace(/\/$/, '')}/`));
+}
+
+function structuredRepairEvidence(command, execution, parsed, candidateTestPaths) {
+  if (execution.record.status === 0 || execution.record.timedOut
+      || execution.record.overflow || execution.record.signal != null
+      || command.kind !== 'test' || command.modelPolicy !== 'never'
+      || !command.result || !command.affectedRoots.length) return null;
+  const tests = parsed?.tests;
+  const counts = ['discovered', 'passed', 'failed', 'skipped']
+    .map((field) => Number(tests?.[field]));
+  if (counts.some((count) => !Number.isSafeInteger(count) || count < 0)
+      || counts[0] !== counts[1] + counts[2] + counts[3]
+      || counts[0] < Number(parsed.minimumDiscovered ?? 1)
+      || counts[2] < 1) return null;
+  const repairScope = candidateTestPaths.filter((candidate) => (
+    pathWithin(candidate, command.affectedRoots)
+  ));
+  // The registered adapters currently provide aggregate test counts, not failed-file identities.
+  // Therefore one command can authorize an automatic edit only when its affected root contains
+  // exactly one changed test path. Multiple candidates remain reviewable, but are never guessed.
+  if (repairScope.length !== 1
+      || !/^[a-f0-9]{64}$/.test(String(parsed.result?.sha256 ?? ''))) {
+    return null;
+  }
+  return Object.freeze({
+    kind: 'structured-test-failure',
+    source: 'registered-verifier',
+    commandId: execution.record.id,
+    commandArgvSha256: execution.record.argvSha256,
+    adapter: parsed.adapter,
+    resultSha256: `sha256:${parsed.result.sha256}`,
+    resultBytes: parsed.result.bytes,
+    tests: {
+      discovered: counts[0], passed: counts[1], failed: counts[2], skipped: counts[3]
+    },
+    repairScope: [...repairScope]
+  });
+}
+
 export function validateAutoCandidateVerification(record) {
-  exactObject(record, [
-    'schemaVersion', 'kind', 'flightId', 'candidateId', 'candidateSha256',
-    'bindingSha256', 'status', 'commands', 'candidateTreeUnchanged', 'verifiedAt',
-    'verificationReceiptSha256'
+  const current = readRecord('auto-candidate-verification', record).record;
+  exactObject(current, [
+    'schemaVersion', 'integrityVersion', 'kind', 'flightId', 'candidateId',
+    'candidateSha256', 'bindingSha256', 'status', 'commands', 'repairEvidence',
+    'candidateTreeUnchanged', 'verifiedAt', 'verificationReceiptSha256'
   ], 'Auto Candidate verification');
-  if (record.kind !== 'auto-candidate-verification'
-      || !FLIGHT_ID.test(String(record.flightId ?? ''))
-      || !CANDIDATE_ID.test(String(record.candidateId ?? ''))
-      || ![record.candidateSha256, record.bindingSha256, record.verificationReceiptSha256]
+  if (![1, 2].includes(current.integrityVersion)
+      || (current.integrityVersion === 1 && current.repairEvidence?.length !== 0)
+      || current.kind !== 'auto-candidate-verification'
+      || !FLIGHT_ID.test(String(current.flightId ?? ''))
+      || !CANDIDATE_ID.test(String(current.candidateId ?? ''))
+      || ![current.candidateSha256, current.bindingSha256, current.verificationReceiptSha256]
         .every((value) => HASH.test(String(value ?? '')))
-      || !['passed', 'failed'].includes(record.status)
-      || !Array.isArray(record.commands)
-      || record.commands.length < 1 || record.commands.length > MAX_VERIFICATION_COMMANDS
-      || typeof record.candidateTreeUnchanged !== 'boolean'
-      || Number.isNaN(Date.parse(record.verifiedAt))
-      || record.verificationReceiptSha256 !== digest(verificationCore(record))) {
+      || !['passed', 'failed'].includes(current.status)
+      || !Array.isArray(current.commands)
+      || current.commands.length < 1 || current.commands.length > MAX_VERIFICATION_COMMANDS
+      || !Array.isArray(current.repairEvidence)
+      || current.repairEvidence.length > current.commands.length
+      || typeof current.candidateTreeUnchanged !== 'boolean'
+      || Number.isNaN(Date.parse(current.verifiedAt))
+      || current.verificationReceiptSha256 !== digest(verificationCore(current))) {
     fail('Auto Candidate verification receipt failed its contract.', 'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
   }
-  for (const [index, command] of record.commands.entries()) {
+  for (const [index, command] of current.commands.entries()) {
     exactObject(command, [
       'id', 'argvSha256', 'workingDirectory', 'status', 'signal', 'timedOut', 'overflow',
       'outputSha256', 'outputBytes'
@@ -1041,14 +1161,58 @@ export function validateAutoCandidateVerification(record) {
         'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
     }
   }
-  const commandsPassed = record.commands.every((result) => (
+  if (new Set(current.commands.map((command) => command.id)).size !== current.commands.length) {
+    fail('Auto Candidate verification receipt contains duplicate command IDs.',
+      'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
+  }
+  const commandsById = new Map(current.commands.map((command) => [command.id, command]));
+  const evidenceCommands = new Set();
+  for (const [index, evidence] of current.repairEvidence.entries()) {
+    exactObject(evidence, [
+      'kind', 'source', 'commandId', 'commandArgvSha256', 'adapter', 'resultSha256',
+      'resultBytes', 'tests', 'repairScope'
+    ], `Auto Candidate repair evidence ${index + 1}`);
+    exactObject(evidence.tests, ['discovered', 'passed', 'failed', 'skipped'],
+      `Auto Candidate repair evidence ${index + 1} test counts`);
+    const command = commandsById.get(evidence.commandId);
+    const counts = ['discovered', 'passed', 'failed', 'skipped']
+      .map((field) => evidence.tests[field]);
+    const canonicalScope = Array.isArray(evidence.repairScope)
+      ? [...new Set(evidence.repairScope)].sort() : [];
+    if (evidence.kind !== 'structured-test-failure'
+        || evidence.source !== 'registered-verifier'
+        || !STRUCTURED_TEST_ADAPTERS.has(evidence.adapter)
+        || !HASH.test(String(evidence.commandArgvSha256 ?? ''))
+        || !HASH.test(String(evidence.resultSha256 ?? ''))
+        || !Number.isSafeInteger(evidence.resultBytes) || evidence.resultBytes < 1
+        || !Array.isArray(evidence.repairScope) || !evidence.repairScope.length
+        || JSON.stringify(evidence.repairScope) !== JSON.stringify(canonicalScope)
+        || evidence.repairScope.some((candidate) => (
+          typeof candidate !== 'string' || !candidate
+            || path.posix.isAbsolute(candidate) || candidate.includes(':')
+            || candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+            || !isAllowedTestAutomationPath(candidate)
+        ))
+        || counts.some((count) => !Number.isSafeInteger(count) || count < 0)
+        || counts[0] !== counts[1] + counts[2] + counts[3]
+        || counts[0] < 1 || counts[2] < 1
+        || !command || command.argvSha256 !== evidence.commandArgvSha256
+        || command.status === 0 || command.timedOut || command.overflow || command.signal != null
+        || evidenceCommands.has(evidence.commandId)) {
+      fail('Auto Candidate structured repair evidence failed its contract.',
+        'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
+    }
+    evidenceCommands.add(evidence.commandId);
+  }
+  const commandsPassed = current.commands.every((result) => (
     result.status === 0 && !result.timedOut && !result.overflow
   ));
-  if ((record.status === 'passed') !== (commandsPassed && record.candidateTreeUnchanged)) {
+  if ((current.status === 'passed') !== (commandsPassed && current.candidateTreeUnchanged)
+      || (current.status === 'passed' && current.repairEvidence.length)) {
     fail('Auto Candidate verification verdict does not reproduce from its observations.',
       'AUTO_CANDIDATE_VERIFICATION_CORRUPT');
   }
-  return Object.freeze(structuredClone(record));
+  return Object.freeze(structuredClone(current));
 }
 
 export async function verifyAutoCandidate(root, binding, {
@@ -1084,9 +1248,24 @@ export async function verifyAutoCandidate(root, binding, {
     if (error?.code !== 'AUTO_CANDIDATE_VERIFICATION_NOT_FOUND') throw error;
   }
   const normalized = normalizeVerificationCommands(commands);
+  if (new Set(normalized.map((command) => command.id)).size !== normalized.length) {
+    fail('Auto Candidate verification commands must use distinct command IDs.',
+      'AUTO_CANDIDATE_VERIFICATION_INVALID');
+  }
+  const resultPaths = [...new Set(normalized.map(verificationResultPath).filter(Boolean))];
+  if (resultPaths.length !== normalized.filter((command) => command.resultPath).length) {
+    fail('Auto Candidate verification commands must use distinct evidence output paths.',
+      'AUTO_CANDIDATE_VERIFICATION_INVALID');
+  }
+  const candidateTestPaths = [...new Set(retained.resourceManifest.entries.flatMap((entry) => (
+    [entry.oldPath, entry.newPath].filter((candidate) => (
+      candidate && isAllowedTestAutomationPath(candidate)
+    ))
+  )))].sort();
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-verify-'));
   const workspace = path.join(temporary, 'worktree');
   const results = [];
+  const repairEvidence = [];
   let candidateTreeUnchanged = false;
   try {
     git(root, ['worktree', 'add', '--detach', '--no-checkout', workspace, retained.repository.candidateCommit]);
@@ -1096,30 +1275,76 @@ export async function verifyAutoCandidate(root, binding, {
       fail('Detached Candidate worktree does not equal its retained tree.',
         'AUTO_CANDIDATE_RETENTION_LOST');
     }
+    // Prove every command boundary before running the first verifier. A later unsafe path must not
+    // permit earlier commands to execute, even though their worktree is disposable.
     for (const command of normalized) {
-      if (signal?.aborted) fail('Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
-      results.push(await runVerificationCommand(command, workspace, signal));
+      await secureCandidateVerificationPath(workspace, command.workingDirectory, {
+        label: 'Candidate verifier working directory', mustExist: true, type: 'directory'
+      });
     }
-    // Remove only exact, predeclared result paths and only when those paths were absent from the
-    // Candidate. Everything else—including configuration, harnesses, tracked governance bytes,
-    // and undeclared build output—remains part of the post-command Git tree comparison.
-    for (const resultPath of [...new Set(normalized.map((command) => command.resultPath)
-      .filter(Boolean))]) {
+    for (const resultPath of resultPaths) {
       const candidateEntry = outputText(git(root, [
-        'ls-tree', '-r', '--name-only', retained.repository.candidateTree, '--', resultPath
+        'ls-tree', '-r', '--name-only', retained.repository.candidateTree, '--',
+        `:(literal)${resultPath}`
       ], { allowFailure: true }));
       if (candidateEntry) {
         fail(`Verification evidence path '${resultPath}' overlaps immutable Candidate bytes.`,
           'AUTO_CANDIDATE_VERIFICATION_INVALID');
       }
-      const absolute = path.resolve(workspace, resultPath);
-      if (absolute !== workspace && !absolute.startsWith(`${workspace}${path.sep}`)) {
-        fail('Candidate verification evidence path escaped its isolated worktree.',
+      const securedResult = await secureCandidateVerificationPath(workspace, resultPath, {
+        label: `Candidate verification evidence path '${resultPath}'`
+      });
+      if (securedResult.exists) {
+        fail(`Verification evidence path '${resultPath}' must be absent before verification.`,
           'AUTO_CANDIDATE_VERIFICATION_INVALID');
       }
-      await rm(absolute, { recursive: true, force: true });
     }
-    const after = await freezeWorktreeTree(workspace);
+    for (const [commandIndex, command] of normalized.entries()) {
+      if (signal?.aborted) fail('Candidate verification was cancelled.', 'AUTO_STOP_REQUESTED');
+      const execution = await runVerificationCommand(command, workspace, signal);
+      results.push(execution.record);
+      if (command.resultPath) {
+        // Re-prove containment after the command. Candidate tests may create the result, but they
+        // may not turn it or an ancestor into a symlink before result parsing or tree comparison.
+        await secureCandidateVerificationPath(workspace, verificationResultPath(command), {
+          label: `Candidate verification evidence path '${verificationResultPath(command)}'`
+        });
+      }
+      if (execution.record.status !== 0 && command.result) {
+        try {
+          let resultRoot = workspace;
+          let resultCommand = command;
+          if (capturesVerificationStdout(command)) {
+            resultRoot = path.join(temporary, 'captured-results', String(commandIndex + 1));
+            await mkdir(resultRoot, { recursive: true, mode: 0o700 });
+            const resultName = 'stdout.result';
+            await writeFile(path.join(resultRoot, resultName), execution.stdout, {
+              flag: 'wx', mode: 0o600
+            });
+            resultCommand = {
+              ...command,
+              workingDirectory: '.',
+              affectedRoots: ['.'],
+              result: { ...command.result, path: resultName }
+            };
+          }
+          const parsed = await parseTestResult(resultRoot, resultCommand, {
+            startedAt: execution.startedAt
+          });
+          const evidence = structuredRepairEvidence(
+            command, execution, parsed, candidateTestPaths
+          );
+          if (evidence) repairEvidence.push(evidence);
+        } catch {
+          // A missing, stale, malformed, or non-test result is deliberately not machine-actionable.
+          // The immutable command receipt still records the failure and the classifier falls back
+          // to human review without interpreting terminal prose.
+        }
+      }
+    }
+    // Ignore only exact, predeclared disposable outputs in a private Git index. No Candidate path
+    // is deleted; every other generated or changed path remains visible to the immutable-tree check.
+    const after = await freezeWorktreeTree(workspace, { excludedPaths: resultPaths });
     candidateTreeUnchanged = after.tree === retained.repository.candidateTree;
   } finally {
     git(root, ['worktree', 'remove', '--force', '--', workspace], { allowFailure: true });
@@ -1129,6 +1354,7 @@ export async function verifyAutoCandidate(root, binding, {
     && results.every((result) => result.status === 0 && !result.timedOut && !result.overflow);
   const core = {
     schemaVersion: currentSchemaVersion('auto-candidate-verification'),
+    integrityVersion: 2,
     kind: 'auto-candidate-verification',
     flightId: retained.flightId,
     candidateId: retained.candidateId,
@@ -1136,6 +1362,7 @@ export async function verifyAutoCandidate(root, binding, {
     bindingSha256: retained.bindingSha256,
     status: passed ? 'passed' : 'failed',
     commands: results,
+    repairEvidence,
     candidateTreeUnchanged,
     verifiedAt
   };

@@ -46,7 +46,26 @@
     "capabilityId": { "type": ["string", "null"] },
     "scopePrediction": { "type": "array", "items": { "type": "string" } },
     "configuration": { "type": ["object", "null"] },
-    "repositories": { "type": "array", "items": { "type": "object" } },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "remote", "baseBranch", "baseCommit"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
+          "remote": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,159}$" },
+          "remoteUrl": { "type": "string", "minLength": 1 },
+          "remoteFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "baseBranch": { "type": "string", "minLength": 1 },
+          "baseCommit": { "type": "string", "minLength": 1 }
+        },
+        "dependentRequired": {
+          "remoteUrl": ["remoteFingerprint"],
+          "remoteFingerprint": ["remoteUrl"]
+        },
+        "additionalProperties": false
+      }
+    },
     "completedOperations": { "type": "array", "items": { "type": "object" } },
     "commits": { "type": "object" },
     "evidence": { "type": "object" },

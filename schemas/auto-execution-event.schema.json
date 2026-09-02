@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-execution-event.schema.json",
+  "title": "Singularity Flow Auto Execution Event v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "eventId", "flightId", "attemptId", "phase", "sequence", "eventType", "executionSelectionSha256", "taskContractSha256", "observation", "rawEvidence", "createdAt", "eventSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "auto-execution-event" }, "mode": { "const": "auto" },
+    "eventId": { "type": "string", "pattern": "^AEV-[A-F0-9]{26}$" },
+    "flightId": { "$ref": "#/$defs/flightId" }, "attemptId": { "$ref": "#/$defs/attemptId" }, "phase": { "$ref": "#/$defs/nonempty" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "eventType": { "enum": ["execution.started", "execution.progress", "execution.message", "execution.file-observed", "execution.tool-intent", "execution.tool-result", "execution.subagent", "execution.budget", "execution.stop-requested", "execution.stopped", "execution.quiesced", "execution.failed", "execution.completed", "provider.unknown"] },
+    "executionSelectionSha256": { "$ref": "#/$defs/hash" }, "taskContractSha256": { "$ref": "#/$defs/hash" },
+    "observation": { "$ref": "#/$defs/observation" }, "rawEvidence": { "$ref": "#/$defs/rawEvidence" },
+    "createdAt": { "type": "string", "format": "date-time" }, "eventSha256": { "$ref": "#/$defs/hash" }
+  },
+  "allOf": [
+    { "if": { "properties": { "eventType": { "const": "execution.started" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "started" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "execution.stop-requested" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "stop-requested" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "execution.stopped" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "stopped" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "execution.quiesced" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "quiesced" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "execution.failed" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "failed" } } } } } },
+    { "if": { "properties": { "eventType": { "const": "execution.completed" } }, "required": ["eventType"] }, "then": { "properties": { "observation": { "properties": { "status": { "const": "completed" } } } } } }
+  ],
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" }, "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nonempty": { "type": "string", "minLength": 1 },
+    "observation": {
+      "type": "object", "required": ["status", "invocationId", "code", "usageSha256"],
+      "properties": { "status": { "$ref": "#/$defs/nonempty" }, "invocationId": { "type": ["string", "null"] }, "code": { "type": ["string", "null"] }, "usageSha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] } },
+      "additionalProperties": false
+    },
+    "rawEvidence": {
+      "type": "object", "required": ["status", "sha256", "reason"],
+      "properties": { "status": { "enum": ["hash-linked", "unavailable"] }, "sha256": { "oneOf": [{ "$ref": "#/$defs/hash" }, { "type": "null" }] }, "reason": { "type": ["string", "null"] } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

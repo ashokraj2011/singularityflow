@@ -54,6 +54,11 @@ function candidateReference(value) {
 
 function summaryCard(projection) {
   const { flight } = projection;
+  const ceilings = flight.execution?.ceilings ?? {};
+  const providerInputTokens = projection.economics.length > 0
+    && projection.economics.every((entry) => Number.isSafeInteger(entry.input?.providerTokens))
+    ? projection.economics.reduce((total, entry) => total + entry.input.providerTokens, 0)
+    : null;
   return {
     kind: flight.status === 'running' ? 'running'
       : flight.status === 'manual-takeover' ? 'takeover' : 'status',
@@ -68,6 +73,23 @@ function summaryCard(projection) {
     },
     checkpointSha256: flight.checkpointSha256,
     executionUnit: flight.executionUnit ?? null,
+    progress: {
+      phasesCompleted: flight.counters?.phasesCompleted ?? 0,
+      maximumPhases: ceilings.maximumPhases ?? null,
+      phaseRuns: projection.phaseRuns.length,
+      currentAttempt: projection.current.attempt?.attemptNumber ?? null,
+      currentAttemptStatus: projection.current.attempt?.status ?? null,
+      maximumAttemptsPerPhase: ceilings.maximumAuthoringAttemptsPerPhase ?? null
+    },
+    budget: {
+      touchedPaths: flight.counters?.touchedPaths ?? 0,
+      maximumTouchedPaths: ceilings.maximumTouchedPaths ?? null,
+      modelInvocations: flight.counters?.modelInvocations ?? 0,
+      maximumModelInvocations: ceilings.maximumModelInvocations ?? null,
+      providerInputTokens,
+      maximumInputTokens: ceilings.tokenBudget?.maximum ?? null,
+      tokenAssurance: providerInputTokens == null ? 'unavailable' : 'provider-reported'
+    },
     candidate: candidateReference(flight.candidate),
     stopReason: flight.stopReason ?? null,
     nextAction: flight.nextAction ?? null,
@@ -110,7 +132,11 @@ async function reportCard(root, flight) {
     return {
       kind: 'report', mode: 'auto', flightId: flight.flightId, planId: report.planId,
       story: flight.story, status: 'available', candidate: candidateReference(report.candidate),
-      reportSha256: report.reportSha256, nextAction: command, command
+      reportSha256: report.reportSha256,
+      qualityFloor: report.qualityFloor ?? null,
+      outcomeMetrics: report.outcomeMetrics ?? null,
+      accounting: report.accounting ?? null,
+      nextAction: command, command
     };
   } catch {
     const workId = flight.story?.workId;

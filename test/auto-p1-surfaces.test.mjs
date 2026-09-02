@@ -102,12 +102,15 @@ test('AUT v2 read-first gateway mappings use the existing five-tool surface', as
 
 test('VS Code Auto cards cover Plan, running, refusal, Needs You, takeover, and report without direct state writes', () => {
   const cards = buildAutoCards({
-    flightId: FLIGHT_ID, story: { workId: 'AUTO-SURFACE', phase: 'implementation' },
+    flightId: FLIGHT_ID,
+    story: { workId: 'AUTO-SURFACE', branch: 'AUTO-SURFACE', phase: 'implementation' },
     checkpointSha256: HASH('c'),
     cards: [
       {
         kind: 'plan', status: 'startable',
         planId: `APL-${'D'.repeat(26)}`, packetSha256: HASH('a'),
+        title: 'Add exact reporting', requirement: 'Add exact reporting to Auto.',
+        inferences: { assumptions: ['Existing storage remains.'], unresolvedDecisions: [] },
         phaseRail: ['intake', 'implementation', 'verification'],
         scope: {
           status: 'predicted', predictedRead: ['src/input.mjs'], predictedWrite: ['src/output.mjs'],
@@ -117,18 +120,48 @@ test('VS Code Auto cards cover Plan, running, refusal, Needs You, takeover, and 
           status: 'ready', commandIds: ['node-test'], acceptanceCriteria: ['AC-001']
         },
         ceilings: { maximumPhases: 3, maximumRepairs: 1 },
+        execution: {
+          profile: 'story', pace: 'phase', until: 'verification', executionUnit: 'copilot-cli'
+        },
         humanStops: ['approval'], capability: { id: 'calculator' },
         repositories: [{ id: 'lead', role: 'lead' }]
       },
-      { kind: 'running', flightId: FLIGHT_ID, status: 'running' },
+      {
+        kind: 'running', flightId: FLIGHT_ID, status: 'running',
+        progress: {
+          phasesCompleted: 1, maximumPhases: 3, currentAttempt: 1,
+          maximumAttemptsPerPhase: 2, currentAttemptStatus: 'running'
+        },
+        budget: {
+          touchedPaths: 2, maximumTouchedPaths: 8,
+          modelInvocations: 1, maximumModelInvocations: 6,
+          providerInputTokens: 1200, maximumInputTokens: 30000,
+          tokenAssurance: 'provider-reported'
+        }
+      },
       { kind: 'refusal', flightId: FLIGHT_ID, status: 'paused',
         refusalId: `ARF-${'E'.repeat(26)}`, repair: { eligibility: 'ask-only' } },
       { kind: 'needs-you', flightId: FLIGHT_ID, requestId: `AHR-${'F'.repeat(26)}`,
         requestSha256: HASH('b'), options: [{ id: 'sql', label: 'SQL' }, { id: 'document' }] },
       { kind: 'takeover', flightId: FLIGHT_ID, status: 'manual-takeover',
         candidateId: `CAN-${'A'.repeat(26)}`, candidateSha256: HASH('d') },
-      { kind: 'report', flightId: FLIGHT_ID,
-        candidateId: `CAN-${'A'.repeat(26)}`, candidateSha256: HASH('d') }
+      {
+        kind: 'report', flightId: FLIGHT_ID,
+        candidateId: `CAN-${'A'.repeat(26)}`, candidateSha256: HASH('d'),
+        qualityFloor: { status: 'passed', tokenSavingComparison: 'not-evaluated' },
+        outcomeMetrics: {
+          contentFree: true, verifiedOutcomes: 2, refusals: 1,
+          repairAttempts: 1, manualTakeover: false
+        },
+        accounting: {
+          observations: {
+            toolOutput: {
+              assurance: 'estimated-bytes-per-token-4.0', observedBytes: 400,
+              estimatedTokens: 100, providerTokens: null
+            }
+          }
+        }
+      }
     ]
   });
   assert.deepEqual(cards.map((card) => card.kind), [
@@ -140,15 +173,35 @@ test('VS Code Auto cards cover Plan, running, refusal, Needs You, takeover, and 
   assert.equal(cards[0].actions.find((action) => action.id.endsWith(':start')).confirmation, HASH('a'));
   assert.deepEqual(Object.fromEntries(cards[0].details.map((entry) => [entry.label, entry.value])), {
     Origin: `Auto · ${FLIGHT_ID}`, Plan: `APL-${'D'.repeat(26)}`,
-    Story: 'AUTO-SURFACE', Phase: 'implementation',
+    Requirement: 'Add exact reporting to Auto.',
+    'Inferred assumptions': 'Existing storage remains.',
+    Story: 'AUTO-SURFACE', Branch: 'AUTO-SURFACE', Phase: 'implementation',
     'Phase rail': 'intake → implementation → verification', Scope: 'predicted',
+    Profile: 'story', Pacing: 'phase', Endpoint: 'verification',
     'Predicted reads': 'src/input.mjs', 'Predicted writes': 'src/output.mjs',
     'Protected paths': 'singularity/workflow.yml', 'Forbidden paths': '.git/config',
     'Evidence readiness': 'ready', 'Verification commands': 'node-test',
     'Acceptance criteria': 'AC-001', Ceilings: 'maximumPhases=3, maximumRepairs=1',
     'Human stops': 'approval', Capability: '{"id":"calculator"}',
+    'Execution Unit': 'copilot-cli',
     Repositories: '{"id":"lead","role":"lead"}'
   });
+  assert.equal(cards[0].title, 'Auto Plan · Add exact reporting');
+  assert.ok(cards[1].details.some((entry) => (
+    entry.label === 'Progress' && entry.value === '1/3 phases · attempt 1/2 · running'
+  )));
+  assert.ok(cards[1].details.some((entry) => (
+    entry.label === 'Budget' && entry.value === '2/8 paths · 1/6 model calls · 1200/30000 input tokens'
+  )));
+  assert.ok(cards[5].details.some((entry) => (
+    entry.label === 'Quality floor' && entry.value === 'passed · token savings not-evaluated'
+  )));
+  assert.ok(cards[5].details.some((entry) => (
+    entry.label === 'Tool output' && entry.value === '100 estimated tokens from 400 bytes'
+  )));
+  assert.ok(cards[5].details.some((entry) => (
+    entry.label === 'Outcomes' && entry.value === '2 verified · 1 refusals · 1 repairs'
+  )));
   assert.deepEqual(cards[1].actions.map((action) => action.label), [
     'Prepare pause', 'Prepare takeover', 'Prepare stop'
   ]);

@@ -72,6 +72,65 @@ function boundedPairs(value: unknown): string | null {
   return boundedList(entries.map(([key, entry]) => `${key}=${boundedValue(entry, 120) ?? 'unavailable'}`));
 }
 
+function progressValue(value: any): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const parts: string[] = [];
+  if (Number.isSafeInteger(value.phasesCompleted)) {
+    parts.push(`${value.phasesCompleted}/${Number.isSafeInteger(value.maximumPhases) ? value.maximumPhases : '?'} phases`);
+  }
+  if (Number.isSafeInteger(value.currentAttempt)) {
+    parts.push(`attempt ${value.currentAttempt}/${Number.isSafeInteger(value.maximumAttemptsPerPhase) ? value.maximumAttemptsPerPhase : '?'}`);
+  }
+  if (text(value.currentAttemptStatus)) parts.push(text(value.currentAttemptStatus)!);
+  return boundedValue(parts.join(' · '));
+}
+
+function budgetValue(value: any): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const parts: string[] = [];
+  if (Number.isSafeInteger(value.touchedPaths)) {
+    parts.push(`${value.touchedPaths}/${Number.isSafeInteger(value.maximumTouchedPaths) ? value.maximumTouchedPaths : '?'} paths`);
+  }
+  if (Number.isSafeInteger(value.modelInvocations)) {
+    parts.push(`${value.modelInvocations}/${Number.isSafeInteger(value.maximumModelInvocations) ? value.maximumModelInvocations : '?'} model calls`);
+  }
+  if (Number.isSafeInteger(value.providerInputTokens)) {
+    parts.push(`${value.providerInputTokens}/${Number.isSafeInteger(value.maximumInputTokens) ? value.maximumInputTokens : '?'} input tokens`);
+  } else if (text(value.tokenAssurance)) parts.push('input tokens unavailable');
+  return boundedValue(parts.join(' · '));
+}
+
+function toolOutputValue(accounting: any): string | null {
+  const tool = accounting?.observations?.toolOutput;
+  if (!tool || typeof tool !== 'object') return null;
+  if (Number.isSafeInteger(tool.providerTokens)) {
+    return `${tool.providerTokens} provider tokens`;
+  }
+  if (Number.isSafeInteger(tool.estimatedTokens)) {
+    const bytes = Number.isSafeInteger(tool.observedBytes) ? ` from ${tool.observedBytes} bytes` : '';
+    return `${tool.estimatedTokens} estimated tokens${bytes}`;
+  }
+  return text(tool.assurance) === 'unavailable' ? 'unavailable' : null;
+}
+
+function outcomeValue(value: any): string | null {
+  if (!value || value.contentFree !== true) return null;
+  const parts = [
+    Number.isSafeInteger(value.verifiedOutcomes) ? `${value.verifiedOutcomes} verified` : null,
+    Number.isSafeInteger(value.refusals) ? `${value.refusals} refusals` : null,
+    Number.isSafeInteger(value.repairAttempts) ? `${value.repairAttempts} repairs` : null,
+    value.manualTakeover === true ? 'manual takeover' : null
+  ].filter((entry): entry is string => entry !== null);
+  return boundedValue(parts.join(' · '));
+}
+
+function qualityFloorValue(value: any): string | null {
+  const status = text(value?.status);
+  if (!status) return null;
+  const comparison = text(value?.tokenSavingComparison);
+  return comparison ? `${status} · token savings ${comparison}` : status;
+}
+
 function detail(label: string, value: unknown) {
   const normalized = boundedValue(value);
   return normalized ? Object.freeze({ label, value: normalized }) : null;
@@ -146,11 +205,17 @@ export function buildAutoCards(auto: any): readonly AutoCardView[] {
     const planId = matching(card.planId ?? report?.planId ?? auto.planId, PLAN_ID);
     const candidate = candidateAuthority(card, auto);
     const story = text(card.story?.workId ?? auto.story?.workId);
+    const branch = text(card.story?.branch ?? auto.story?.branch);
     const phase = text(card.story?.phase ?? auto.story?.phase);
     const details = [
       detail('Origin', flightId ? `Auto · ${flightId}` : 'Auto'),
-      detail('Plan', planId), detail('Story', story), detail('Phase', phase),
+      detail('Plan', planId), detail('Requirement', card.requirement),
+      detail('Inferred assumptions', boundedList(card.inferences?.assumptions)),
+      detail('Open decisions', boundedList(card.inferences?.unresolvedDecisions)),
+      detail('Story', story), detail('Branch', branch), detail('Phase', phase),
       detail('Phase rail', boundedList(card.phaseRail, ' → ')),
+      detail('Profile', card.execution?.profile), detail('Pacing', card.execution?.pace),
+      detail('Endpoint', card.execution?.until),
       detail('Scope', card.scope?.status),
       detail('Predicted reads', boundedList(card.scope?.predictedRead)),
       detail('Predicted writes', boundedList(card.scope?.predictedWrite)),
@@ -164,19 +229,24 @@ export function buildAutoCards(auto: any): readonly AutoCardView[] {
       detail('Capability', boundedValue(card.capability)),
       detail('Repositories', boundedList(card.repositories)),
       detail('Position', card.position), detail('Stopped because', card.stopReason),
-      detail('Attempt', card.attempt), detail('Execution Unit', card.executionUnit?.id ?? card.executionUnit),
+      detail('Attempt', card.attempt),
+      detail('Execution Unit', card.executionUnit?.id ?? card.executionUnit ?? card.execution?.executionUnit),
+      detail('Progress', progressValue(card.progress)), detail('Budget', budgetValue(card.budget)),
       detail('Refusal', card.refusalId), detail('Gate', card.gate), detail('Code', card.code),
       detail('Request', card.requestId), detail('Request type', card.requestType),
       detail('Request hash', card.requestSha256),
       detail('Candidate', candidate.id), detail('Candidate hash', candidate.sha256),
       detail('Report', card.reportSha256 ?? report?.reportSha256),
+      detail('Quality floor', qualityFloorValue(card.qualityFloor ?? report?.qualityFloor)),
+      detail('Tool output', toolOutputValue(card.accounting ?? report?.accounting)),
+      detail('Outcomes', outcomeValue(card.outcomeMetrics ?? report?.outcomeMetrics)),
       detail('Next', card.nextAction)
     ].filter((entry): entry is { label: string; value: string } => entry !== null);
     let title = `Auto flight ${flightId ?? ''}`.trim();
     let actions: readonly AutoCardActionView[] = Object.freeze([]);
 
     if (kind === 'plan') {
-      title = `Auto Plan ${planId ?? ''}`.trim();
+      title = text(card.title) ? `Auto Plan · ${text(card.title)}` : `Auto Plan ${planId ?? ''}`.trim();
       const packet = matching(card.packetSha256, HASH);
       const startable = text(card.status) === 'startable';
       actions = boundedActions([
@@ -186,7 +256,7 @@ export function buildAutoCards(auto: any): readonly AutoCardView[] {
           ? `singularity-flow auto show-plan ${planId}` : null)
       ]);
     } else if (kind === 'running') {
-      title = 'Auto is running';
+      title = story ? `Auto flight · ${story}` : 'Auto is running';
       const checkpoint = matching(card.checkpointSha256 ?? auto?.checkpointSha256, HASH);
       actions = boundedActions([
         action(kind, flightId, 'pause', 'Prepare pause', flightId
@@ -232,7 +302,7 @@ export function buildAutoCards(auto: any): readonly AutoCardView[] {
         ))
       ]);
     } else if (kind === 'takeover' || kind === 'report') {
-      title = kind === 'takeover' ? 'Manual takeover' : 'Auto report';
+      title = kind === 'takeover' ? 'Manual takeover' : story ? `Auto report · ${story}` : 'Auto report';
       actions = boundedActions([
         action(kind, flightId, 'report', 'Open report', flightId
           ? `singularity-flow auto report ${flightId}` : null),

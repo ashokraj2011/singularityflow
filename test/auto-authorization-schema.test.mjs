@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -7,12 +8,36 @@ import { fileURLToPath } from 'node:url';
 import {
   currentSchemaVersion, migrationRegistrySnapshot, readRecord
 } from '../src/schema-migrations.mjs';
+import { readVerifiedAcceptedAutoBinding } from '../src/auto/auto-origin.mjs';
 import { recordSha256 } from '../src/records.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const confirmationFields = [
   'confirmationProtocol', 'confirmedSha256', 'packetSha256', 'validationSha256'
 ];
+
+function resealLegacyAuthority(value) {
+  const record = structuredClone(value);
+  const authority = {
+    schemaVersion: record.schemaVersion,
+    kind: record.kind,
+    mode: record.mode,
+    planId: record.planId,
+    planSha256: record.planSha256,
+    actor: record.actor,
+    identityAssurance: record.identityAssurance,
+    ratifiedAt: record.ratifiedAt,
+    expiresAt: record.expiresAt,
+    confirmationProtocol: record.confirmationProtocol,
+    confirmedSha256: record.confirmedSha256,
+    packetSha256: record.packetSha256,
+    validationSha256: record.validationSha256
+  };
+  record.authorizationSha256 = `sha256:${recordSha256(authority)}`;
+  delete record.recordSha256;
+  record.recordSha256 = recordSha256(record);
+  return record;
+}
 
 async function authorizationSchema() {
   return JSON.parse(await readFile(
@@ -120,12 +145,12 @@ test('the mutable Auto authorization family has one packaged closed schema contr
   }
 });
 
-test('packet confirmation fields are all-or-none and packet-v1 requires the complete set', async () => {
+test('packet confirmation fields are all-or-none and packet-v2 requires the complete set', async () => {
   const schema = await authorizationSchema();
   for (const field of confirmationFields) {
     assert.ok(schema.required.includes(field), `${field} is optional`);
   }
-  assert.equal(schema.properties.confirmationProtocol.const, 'packet-v1');
+  assert.equal(schema.properties.confirmationProtocol.const, 'packet-v2');
   const packetRule = schema.allOf.find((entry) => /cross-property equality/.test(entry.$comment ?? ''));
   assert.ok(packetRule);
   for (const term of ['runtime', 'confirmedSha256', 'packetSha256']) {
@@ -161,7 +186,7 @@ test('claim lifecycle conditions distinguish idle, active, and consumed authoriz
   assert.equal(schema.$defs.claimOwner.additionalProperties, false);
 });
 
-test('pre-packet Auto authority v1 records remain archival and cannot be reinterpreted as v2', async () => {
+test('pre-packet v1 authority remains archival while packet-v1 v2 records migrate read-only', async () => {
   const registry = new Map(migrationRegistrySnapshot().map((entry) => [entry.id, entry]));
   const fixturePath = path.join(
     root, 'test', 'fixtures', 'schema-migrations', 'archived-auto-v1.json'
@@ -170,16 +195,105 @@ test('pre-packet Auto authority v1 records remain archival and cannot be reinter
   const before = Buffer.from(bytes);
   const fixtures = JSON.parse(bytes);
 
-  for (const family of ['auto-plan-ratification', 'auto-authorization']) {
-    assert.equal(registry.get(family)?.currentVersion, 2);
+  for (const family of ['auto-plan', 'auto-plan-packet', 'auto-plan-ratification', 'auto-authorization']) {
+    const currentVersion = family === 'auto-plan-packet' ? 2 : 3;
+    assert.equal(registry.get(family)?.currentVersion, currentVersion);
     assert.equal(registry.get(family)?.minimumReadableVersion, 2);
-    assert.equal((await schema(family)).properties.schemaVersion.const, 2);
+    assert.equal((await schema(family)).properties.schemaVersion.const, currentVersion);
+  }
+  for (const family of ['auto-plan-ratification', 'auto-authorization']) {
     assert.throws(
       () => readRecord(family, fixtures[family]),
       (error) => error.code === 'SCHEMA_VERSION_ARCHIVED'
     );
   }
+  for (const family of [
+    'auto-plan', 'auto-plan-packet', 'auto-plan-ratification', 'auto-authorization'
+  ]) {
+    assert.throws(
+      () => readRecord(family, { schemaVersion: 1 }),
+      (error) => error.code === 'SCHEMA_VERSION_ARCHIVED'
+    );
+  }
+
+  const goldens = JSON.parse(await readFile(
+    path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json'), 'utf8'
+  ));
+  for (const family of ['auto-plan', 'auto-plan-ratification', 'auto-authorization']) {
+    const source = goldens[family].find((record) => record.schemaVersion === 2);
+    const before = structuredClone(source);
+    const migrated = readRecord(family, source);
+    assert.equal(migrated.storedVersion, 2);
+    assert.deepEqual(migrated.migratedThrough, [{ from: 2, to: 3 }]);
+    assert.equal(migrated.record.schemaVersion, 3);
+    assert.equal(migrated.record.legacyCompatibility.sourceSchemaVersion, 2);
+    assert.equal(migrated.record.legacyCompatibility.repairPolicy, 'never');
+    assert.equal(migrated.record.legacyCompatibility.repairAttemptsPerPhase, 0);
+    assert.deepEqual(source, before);
+
+    const tampered = structuredClone(source);
+    if (family === 'auto-plan') tampered.requirement.text = 'Tampered';
+    else tampered.packetSha256 = `sha256:${'f'.repeat(64)}`;
+    assert.throws(
+      () => readRecord(family, tampered),
+      (error) => error.code === 'SCHEMA_MIGRATION_SOURCE_CORRUPT'
+    );
+  }
   assert.deepEqual(await readFile(fixturePath), before);
+});
+
+test('an already-active packet-v1 flight resumes only with its exact no-repair binding', async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v2-binding-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const goldens = JSON.parse(await readFile(
+    path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json'), 'utf8'
+  ));
+  const plan = structuredClone(goldens['auto-plan'].find(
+    (record) => record.schemaVersion === 2
+  ));
+  const ratification = structuredClone(goldens['auto-plan-ratification'].find(
+    (record) => record.schemaVersion === 2
+  ));
+  const workItemRoot = 'singularity/work-items';
+  const autoDirectory = path.join(directory, workItemRoot, plan.story.workId, 'context', 'auto');
+  await mkdir(autoDirectory, { recursive: true });
+  const acceptedPlanPath = `${workItemRoot}/${plan.story.workId}/context/auto/accepted-plan.json`;
+  const ratificationPath = `${workItemRoot}/${plan.story.workId}/context/auto/ratification.json`;
+  await writeFile(path.join(directory, acceptedPlanPath), JSON.stringify(plan));
+  await writeFile(path.join(directory, ratificationPath), JSON.stringify(ratification));
+  const state = {
+    flightId: ratification.flightId,
+    planId: plan.planId,
+    planSha256: plan.planSha256,
+    story: { workId: plan.story.workId }
+  };
+  const workflow = {
+    workItem: { id: plan.story.workId },
+    executionOrigin: {
+      mode: 'auto', flightId: state.flightId,
+      planId: state.planId, planSha256: state.planSha256
+    },
+    auto: { acceptedPlanPath, ratificationPath }
+  };
+  const binding = await readVerifiedAcceptedAutoBinding(
+    directory, { workItemRoot }, workflow, state
+  );
+  assert.equal(binding.compatibility.protocol, 'packet-v1-no-repair');
+  assert.deepEqual(binding.compatibility.repair, { policy: 'never', maximumAttempts: 0 });
+  assert.deepEqual(binding.acceptedPlan.execution.repair, {
+    policy: 'never', maximumAttempts: 0
+  });
+
+  const tampered = resealLegacyAuthority({
+    ...ratification,
+    confirmedSha256: `sha256:${'f'.repeat(64)}`,
+    packetSha256: `sha256:${'f'.repeat(64)}`
+  });
+  await writeFile(path.join(directory, ratificationPath), JSON.stringify(tampered));
+  await assert.rejects(
+    () => readVerifiedAcceptedAutoBinding(directory, { workItemRoot }, workflow, state),
+    (error) => error.code === 'AUTO_FLIGHT_BINDING_MISMATCH'
+  );
 });
 
 test('every legacy Auto flight status migrates to v2 without changing its meaning', async () => {

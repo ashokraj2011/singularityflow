@@ -1,8 +1,8 @@
 ---
 name: sflow-auto
-description: Plan, ratify, and control one bounded Singularity Flow Auto flight.
+description: Plan, ratify, inspect, and control one bounded Singularity Flow Auto flight.
 disable-model-invocation: true
-argument-hint: "<requirement> | --goal <GOAL-ID> | plan <requirement> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>"
+argument-hint: "plan <requirement> [--until <phase>] | plan --story <STORY-ID> | --goal <GOAL-ID> | adopt --from-adhoc <AHS-ID> | start <PLAN-ID> | list | continue <STORY-ID> | status|report|needs-you|repair|respond|switch-unit|pause|stop|takeover|resume|discard <FLIGHT-ID>"
 
 ---
 # Run bounded Auto work
@@ -12,12 +12,12 @@ argument-hint: "<requirement> | --goal <GOAL-ID> | plan <requirement> | adopt --
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Use the verified repository cwd from the Boundary. Never search `$HOME` or infer a repository from chat. With no argument, show the forms and change nothing.
-2. Plan with `singularity-flow auto plan "<REQUIREMENT>" --json`, its shorthand, or `singularity-flow auto --goal <GOL-ID|GEX-ID> --json`. Goal input stays exact and needs separate ratification. Planning creates no Story or authority. Show the complete Plan and complete ratification-packet SHA-256.
-3. Read with `singularity-flow auto show-plan <PLAN-ID> --json`, `auto list --json`, `auto status|report|needs-you <FLIGHT-ID> --json`, or `auto continue <STORY-ID> --json`. Continue only proposes. `auto adopt --from-adhoc <AHS-ID> --json` stays non-startable and retains `pre-auto-adhoc`/`discovered-at-landing` provenance.
-4. Start only after the user types the full packet hash: `singularity-flow auto start --plan <PLAN-ID> --confirm <PACKET-SHA256> --json`. Never extract or prefill confirmation.
-5. Preview repair with `singularity-flow auto repair <FLIGHT-ID> --refusal <REFUSAL-ID> --json`. Show scope, evidence, parent, and hash. Run its confirmed command once only after the user types that hash; a second failure halts.
-6. Show typed requests first. Record exactly one explicit response with `singularity-flow auto respond <FLIGHT-ID> --request <REQUEST-ID> --choice <ID> --confirm <REQUEST-SHA256> --json`; use `--answer <TEXT>` for clarification or `--broker-reference <REFERENCE>` for credentials. Never collect credential values. Responding does not resume.
-7. Preview `auto switch-unit <FLIGHT-ID> --execution-unit <ID> --reason "<TEXT>" --json`; apply only its exact-hash command. It links a new attempt without changing the Task Contract.
-8. Control with `auto pause|takeover|stop <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> --json` only after displaying the complete checkpoint SHA-256. Resume uses `auto resume <FLIGHT-ID> --confirm <CHECKPOINT-SHA256> --json`; open requests block it. Before discard, require the user to type the exact flight ID as confirmation, then run `auto discard <FLIGHT-ID> --confirm <FLIGHT-ID> --json`. `halt` remains a stop alias.
-9. Never invoke `auto flight-step` directly, decide an approval/request, waive policy, expand scope, merge, deploy, or infer a hash. Stop on stale authority or failure. Report references, Git outcome, checkpoint, and exact next command.
+1. Use Boundary cwd. With no argument, show forms; change nothing.
+2. Plan with `singularity-flow auto plan "<REQUIREMENT>" [--until <PHASE>] --json` or `singularity-flow auto --goal <GOL-ID|GEX-ID> --json`. A bare endpoint must be on the selected rail. Require an approved delivery capability: show one eligible result, ask among returned IDs, or relay `CAPABILITY_REGISTRATION_REQUIRED`. Never invent one. Show the complete Plan, four-word Story/branch identity, collision suffix, and complete ratification-packet SHA-256; planning creates no authority.
+3. Inspect model-free with `singularity-flow auto plan --story <STORY-ID> --json`; do not combine new-work inputs. Other reads are `singularity-flow auto show-plan`, `singularity-flow auto list`, `singularity-flow auto status|report|needs-you`, and `singularity-flow auto continue`, with IDs and `--json`. `singularity-flow auto adopt --from-adhoc <AHS-ID>` stays non-startable and retains provenance.
+4. Start after the user types the full packet hash: `singularity-flow auto start --plan <PLAN-ID> --confirm <PACKET-SHA256> --json`. Never extract or prefill confirmation.
+5. Preview `auto repair <FLIGHT-ID> --refusal <REFUSAL-ID> --json`; show objective, scope, evidence, parent, budget, eligibility, and hash. Under default `ask`, confirm only after the user types that hash. Ratified `auto-on-machine-actionable` permits one repair only for an unchanged Candidate with deterministic failed verification. Provider, timeout, scope, protected-path, credential, or judgment failures stop; a second failure halts.
+6. Show each Human Request and its options. Record a response using `auto respond <FLIGHT-ID> --request <REQUEST-ID> --choice <ID> --confirm <REQUEST-SHA256> --json`; use permitted `--answer` text or `--broker-reference` for credentials. Never collect credential values. A response neither approves, waives, nor resumes.
+7. Preview `auto switch-unit <FLIGHT-ID> --execution-unit <ID> --reason "<TEXT>" --json`; apply only its exact-hash command. It links a new attempt, not a new Task Contract.
+8. After showing the complete checkpoint SHA-256, control with `auto pause|takeover|stop <FLIGHT-ID> --confirm <HASH> --json`; resume uses `auto resume <FLIGHT-ID> --confirm <HASH> --json` and open requests block it. Discard requires the user to type the exact flight ID as confirmation; `halt` aliases stop.
+9. Reports show contracts, execution events, Candidate, lineage, quality floor, and separately assured prompt/input/output/tool-output economics. Never invoke `auto flight-step` directly. Never infer tokens, expose prompts, rank people, waive authority, expand scope, merge, deploy, or infer a hash. On failure, report references, Git outcome, checkpoint, and one exact next command.

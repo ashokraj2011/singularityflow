@@ -11,6 +11,7 @@ import {
 } from './auto-p1-records.mjs';
 import { createAutoHumanBoundary } from './auto-p1-control.mjs';
 import { readAutoCandidateVerification } from './auto-candidate.mjs';
+import { classifyAutoRepairEligibility } from './auto-repair-eligibility.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
@@ -33,6 +34,19 @@ function invocationEconomics(invocation) {
   const input = economics.input ?? economics.provider ?? {};
   const output = economics.output ?? economics.provider ?? {};
   const number = (...values) => values.find((value) => Number.isFinite(value) && value >= 0) ?? null;
+  const calls = Array.isArray(invocation?.toolObservation?.calls)
+    ? invocation.toolObservation.calls : [];
+  // ACP reports the exact serialized byte count for every observed tool result. It does not
+  // currently report a provider-token count for those results, so retain the exact bytes and a
+  // plainly named bytes/4 estimate as separate observations. A provider count wins whenever a
+  // future transport supplies one; unavailable is never represented as zero.
+  const observedToolOutputBytes = invocation?.toolObservation?.status === 'exact'
+    && calls.every((call) => Number.isSafeInteger(call?.outputBytes) && call.outputBytes >= 0)
+    ? calls.reduce((total, call) => total + call.outputBytes, 0) : null;
+  const providerToolOutputTokens = number(
+    usage.toolOutputTokens, usage.tool_output_tokens,
+    economics.toolOutput?.providerTokens
+  );
   return {
     input: {
       promptBytes: number(economics.prompt?.finalPromptBytes, invocation?.promptBytes),
@@ -43,6 +57,12 @@ function invocationEconomics(invocation) {
     output: {
       estimatedTokens: number(output.estimatedTokens),
       providerTokens: number(output.outputTokens, usage.outputTokens, usage.output_tokens)
+    },
+    toolOutput: {
+      bytes: observedToolOutputBytes,
+      estimatedTokens: observedToolOutputBytes == null
+        ? null : Math.ceil(observedToolOutputBytes / 4),
+      providerTokens: providerToolOutputTokens
     },
     cost: {
       amount: number(economics.provider?.providerCost, usage.providerCost),
@@ -125,14 +145,58 @@ async function updatePhaseRunRecord(root, flightId, phaseRunId, update) {
   });
 }
 
+function executionUnitSwitchMarker(state, attempt) {
+  if (!attempt || attempt.attemptKind !== 'resume'
+      || attempt.budgetImpact?.modelInvocations !== 0
+      || attempt.budgetImpact?.routeChanges !== 1) return null;
+  const entry = (state.executionUnitSwitches ?? []).find((candidate) => (
+    candidate.attemptId === attempt.attemptId
+      && candidate.parentAttemptId === attempt.parentAttemptId
+      && attempt.reason === `execution-unit-switch:${candidate.switchPlanId}`
+  ));
+  if (!entry || state.executionUnit?.switchPlanId !== entry.switchPlanId) return null;
+  return { entry, attempt };
+}
+
+function switchExecutionReason(switchPlanId) {
+  return `execution-unit-switch-authoring:${switchPlanId}`;
+}
+
+function isExecutionAttempt(attempt) {
+  return attempt.budgetImpact?.modelInvocations === 1;
+}
+
+async function settleExecutionUnitSwitchMarker(root, flightId, lineage) {
+  if (!lineage || !['planned', 'running'].includes(lineage.attempt.status)) return lineage;
+  const attempt = await updateAutoAttempt(root, flightId, lineage.attempt.attemptId, {
+    status: 'completed', result: { status: 'completed' }
+  }, { expectedRecordSha256: lineage.attempt.recordSha256 });
+  return { ...lineage, attempt };
+}
+
 async function beginAutoAttemptLineageLocked(root, flightId, {
   phase, phaseContract
 }) {
   const intentSha256 = generationIntentSha256(phase);
   let state = await readAutoFlightState(root, flightId);
+  let switchLineage = null;
   if (state.activeAttemptId) {
     let current = await readAutoP1Record(root, 'auto-attempt', flightId, state.activeAttemptId)
       .catch(() => null);
+    const activeSwitchLineage = executionUnitSwitchMarker(state, current);
+    if (activeSwitchLineage) {
+      // Switch confirmation records a zero-model lineage marker before the next generation's
+      // exact prompt, context, Task Contract, and route selection exist. It is evidence of the
+      // route decision, not reusable authoring authority. Complete that marker without rebinding
+      // any immutable hash and mint (or recover) one exact contract-bound child below.
+      switchLineage = await settleExecutionUnitSwitchMarker(
+        root, flightId, activeSwitchLineage
+      );
+      state = await mutateAutoFlightState(root, flightId, (draft) => {
+        if (draft.activeAttemptId === current.attemptId) draft.activeAttemptId = null;
+      }, { expectedCheckpoint: state.checkpointSha256 });
+      current = null;
+    }
     if (current && ['planned', 'running'].includes(current.status)) {
       const repairAuthorizationReason = state.activeRepairPlanId
         ? `repair-authorization:${state.activeRepairPlanId}` : null;
@@ -168,6 +232,7 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
       });
       const expectedAuthority = {
         phase: phase.id,
+        ...(phaseContract.attemptId ? { attemptId: phaseContract.attemptId } : {}),
         generationIntentSha256: intentSha256,
         taskContractSha256: phaseContract.taskContractSha256,
         contextManifestSha256: phaseContract.contextContractSha256,
@@ -229,13 +294,37 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
       publishedGenerations: [], requiredHumanRequestIds: [], phaseCheckpointSha256: state.checkpointSha256
     });
   }
-  const existingAttempts = await listAutoP1Records(root, 'auto-attempt', flightId);
+  let existingAttempts = await listAutoP1Records(root, 'auto-attempt', flightId);
+  if (!switchLineage) {
+    // A process can stop after clearing the marker from flight state and before persisting its
+    // executable child. Recover the latest applied switch deterministically. Once that child is
+    // terminal, the switch is consumed and must not influence a later attempt.
+    const latestSwitch = [...(state.executionUnitSwitches ?? [])].reverse().find((entry) => (
+      entry.switchPlanId === state.executionUnit?.switchPlanId
+    ));
+    const marker = latestSwitch
+      ? existingAttempts.find((entry) => entry.attemptId === latestSwitch.attemptId) : null;
+    const candidate = executionUnitSwitchMarker(state, marker);
+    if (candidate) {
+      const children = existingAttempts.filter((entry) => (
+        isExecutionAttempt(entry)
+          && entry.parentAttemptId === marker.attemptId
+          && entry.reason === switchExecutionReason(latestSwitch.switchPlanId)
+      ));
+      if (!children.some((entry) => !['planned', 'running'].includes(entry.status))) {
+        switchLineage = await settleExecutionUnitSwitchMarker(root, flightId, candidate);
+        if (switchLineage.attempt.recordSha256 !== marker.recordSha256) {
+          existingAttempts = await listAutoP1Records(root, 'auto-attempt', flightId);
+        }
+      }
+    }
+  }
   const repair = state.position === 'repair-authorized';
   const phaseAttempts = existingAttempts.filter((entry) => entry.phase === phase.id);
-  const executionAttempts = phaseAttempts.filter((entry) => (
-    !entry.reason.startsWith('repair-authorization:')
+  const executionAttempts = phaseAttempts.filter(isExecutionAttempt);
+  const settledAttempts = executionAttempts.filter((entry) => (
+    !['planned', 'running'].includes(entry.status)
   ));
-  const settledAttempts = phaseAttempts.filter((entry) => !['planned', 'running'].includes(entry.status));
   let repairAuthorization = null;
   if (repair) {
     const activeRepairPlanSha256 = state.activeRepair?.repairPlanSha256 ?? null;
@@ -260,9 +349,13 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
   }
   const parentAttemptId = repair
     ? repairAuthorization.parentAttemptId
-    : settledAttempts.at(-1)?.attemptId ?? null;
+    : switchLineage?.attempt.attemptId ?? settledAttempts.at(-1)?.attemptId ?? null;
   const attemptKind = repair ? 'repair' : parentAttemptId ? 'resume' : 'initial';
-  const reason = repair ? `repair:${state.activeRepairPlanId}` : 'phase-entry';
+  const reason = repair
+    ? `repair:${state.activeRepairPlanId}`
+    : switchLineage
+      ? switchExecutionReason(switchLineage.entry.switchPlanId)
+      : 'phase-entry';
   const recoverable = phaseAttempts.filter((entry) => (
     ['planned', 'running'].includes(entry.status)
       && entry.attemptKind === attemptKind
@@ -272,6 +365,7 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
       && entry.taskContractSha256 === phaseContract.taskContractSha256
       && entry.contextManifestSha256 === phaseContract.contextContractSha256
       && entry.executionUnitManifestSha256 === phaseContract.executionUnitContractSha256
+      && (!phaseContract.attemptId || entry.attemptId === phaseContract.attemptId)
   ));
   if (recoverable.length > 1) {
     throw new SingularityFlowError(
@@ -281,7 +375,7 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
       }
     );
   }
-  const unresolvedAttempts = phaseAttempts.filter((entry) => (
+  const unresolvedAttempts = executionAttempts.filter((entry) => (
     ['planned', 'running'].includes(entry.status)
       && !recoverable.some((candidate) => candidate.attemptId === entry.attemptId)
   ));
@@ -294,6 +388,7 @@ async function beginAutoAttemptLineageLocked(root, flightId, {
     );
   }
   const attempt = recoverable[0] ?? await persistAutoAttempt(root, {
+    ...(phaseContract.attemptId ? { attemptId: phaseContract.attemptId } : {}),
     flightId, phase: phase.id,
     attemptNumber: Math.max(0, ...executionAttempts.map((entry) => entry.attemptNumber)) + 1,
     attemptKind, parentAttemptId, reason,
@@ -333,14 +428,25 @@ export async function recordAutoAttemptAuthored(root, flightId, attemptId, {
   invocation, candidateSha256 = null, worldModelReference = null, comprehensionReference = null
 }) {
   const state = await readAutoFlightState(root, flightId);
+  const currentAttempt = await readAutoP1Record(root, 'auto-attempt', flightId, attemptId);
+  const observed = invocationEconomics(invocation);
+  const budgetImpact = {
+    ...currentAttempt.budgetImpact,
+    ...(observed.toolOutput.bytes == null
+      ? {} : { toolOutputBytes: observed.toolOutput.bytes }),
+    ...(observed.toolOutput.estimatedTokens == null
+      ? {} : { estimatedToolOutputTokens: observed.toolOutput.estimatedTokens }),
+    ...(observed.toolOutput.providerTokens == null
+      ? {} : { toolOutputTokens: observed.toolOutput.providerTokens })
+  };
   const attempt = await updateAttemptRecord(root, flightId, attemptId, {
     status: 'authored', candidateSha256,
+    budgetImpact,
     result: { status: 'authored', invocationId: invocation?.invocationId ?? null }
   });
   if (state.activePhaseRunId) await updatePhaseRunRecord(root, flightId, state.activePhaseRunId, {
     status: 'verifying', activeAttemptId: attemptId
   });
-  const observed = invocationEconomics(invocation);
   const receipt = await persistAutoTokenEconomicsReceipt(root, {
     flightId, attemptId, contextManifestSha256: attempt.contextManifestSha256,
     ...observed,
@@ -357,13 +463,32 @@ export async function recordAutoAttemptAuthored(root, flightId, attemptId, {
 
 export async function recordAutoAttemptRefusal(root, flightId, {
   attemptId, phase, gate, code, message, candidateSha256 = null,
-  verificationReceiptSha256 = null, changedPaths = [], repairScope = []
+  verificationReceiptSha256 = null, changedPaths = [], repairScope = [],
+  repairEligibility = null, candidateVerification = null,
+  protectedPaths = []
 }) {
   const state = await readAutoFlightState(root, flightId);
   const attempt = attemptId
     ? await readAutoP1Record(root, 'auto-attempt', flightId, attemptId).catch(() => null)
     : null;
   const secondFailure = attempt?.attemptKind === 'repair';
+  const policy = state.execution?.repair?.policy ?? 'ask';
+  const classified = repairEligibility ?? (candidateVerification
+    ? classifyAutoRepairEligibility({
+      state, attempt, gate, code, candidateVerification,
+      changedPaths, repairScope,
+      protectedPaths, repairOperationAvailable: true
+    }) : null);
+  const intrinsicEligibility = classified?.eligibility ?? 'ask-only';
+  const eligibility = secondFailure ? 'ineligible'
+    : policy === 'never' ? 'manual-only'
+      : intrinsicEligibility === 'auto-eligible'
+        ? policy === 'auto-on-machine-actionable' ? 'auto-eligible' : 'ask-only'
+        : intrinsicEligibility;
+  const repairable = ['auto-eligible', 'ask-only'].includes(eligibility)
+    && Number(state.execution?.repair?.maximumAttempts ?? 1) === 1;
+  const boundedRepairScope = classified?.scope?.length
+    ? classified.scope : repairScope;
   const boundVerificationReceiptSha256 = verificationReceiptSha256
     ?? (state.candidate?.attemptId === attempt?.attemptId
       ? state.candidate?.verificationReceiptSha256 ?? null : null)
@@ -372,18 +497,26 @@ export async function recordAutoAttemptRefusal(root, flightId, {
     flightId, phase, attemptId: attempt?.attemptId ?? state.activeAttemptId ?? `AAT-${'0'.repeat(26)}`,
     gate, code,
     subject: { candidateSha256, verificationReceiptSha256: boundVerificationReceiptSha256 },
-    missing: [{ requirement: gate, evidence: String(message ?? code) }],
+    missing: classified?.requiredEvidence?.length
+      ? classified.requiredEvidence.map((evidence) => ({
+          requirement: classified.reasonCode,
+          evidence
+        }))
+      : [{ requirement: gate, evidence: String(message ?? code) }],
     preserved: {
       candidateSha256, verificationReceiptSha256: boundVerificationReceiptSha256,
       changedPaths: changedPaths.length, paths: changedPaths, workingArea: true
     },
     repair: {
-      eligibility: secondFailure ? 'ineligible' : 'ask-only',
-      operation: 'auto.repair', scope: repairScope, maximumAttempts: secondFailure ? 0 : 1
+      eligibility,
+      operation: 'auto.repair', scope: boundedRepairScope,
+      maximumAttempts: repairable ? 1 : 0
     },
-    primaryNextAction: secondFailure
+    primaryNextAction: secondFailure || !repairable
       ? { operation: 'auto.takeover', label: 'Take over the preserved Story manually' }
-      : { operation: 'auto.repair', label: 'Review one bounded Repair Plan' }
+      : eligibility === 'auto-eligible'
+        ? { operation: 'auto.repair', label: 'Run the one policy-authorized bounded repair' }
+        : { operation: 'auto.repair', label: 'Review one bounded Repair Plan' }
   });
   if (attempt) await updateAutoAttempt(root, flightId, attempt.attemptId, {
     status: 'refused', candidateSha256,

@@ -27,7 +27,9 @@ import {
   AUTO_AUTHORING_TOOLS, effectiveAutoPolicy, parseAutoPace, parseAutoStopSelector,
   selectAutoProfile
 } from './auto-policy.mjs';
-import { buildAutoPlanPacket } from './auto-plan-packet.mjs';
+import {
+  AUTO_PLAN_CONFIRMATION_PROTOCOL, buildAutoPlanPacket
+} from './auto-plan-packet.mjs';
 import { executionUnitDriverDoctor } from './execution-unit-driver.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
 import {
@@ -132,6 +134,7 @@ function predictedPathList(value) {
     const normalized = path.posix.normalize(portable);
     if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')
       || path.posix.isAbsolute(normalized) || path.win32.isAbsolute(candidate)
+      || path.win32.isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized)
       || /[*?{}[\]\0]/.test(candidate)) {
       throw new SingularityFlowError(
         `Model proposal predictedPaths entry '${candidate}' must be a bounded repository-relative path without traversal or glob syntax.`,
@@ -184,7 +187,7 @@ export function autoPlanPrompt(requirement, definition) {
     'Allowed fields: title, workType, assumptions, unresolvedDecisions, predictedPaths, acceptanceCriteria, suggestedUntil.',
     'All list fields contain strings. predictedPaths are repository-relative paths or directories, never globs.',
     'Choose workType only from the supplied eligible work types. Use null if none is safely inferable.',
-    'suggestedUntil is first-human-boundary, story-complete, or published|submitted|phase-complete:<phase>.',
+    'suggestedUntil is first-human-boundary, story-complete, a supplied phase id, or published|submitted|phase-complete:<phase>.',
     `Eligible work types: ${JSON.stringify(eligible)}`,
     `Requirement: ${JSON.stringify(requirement)}`
   ].join('\n');
@@ -227,12 +230,32 @@ export async function synthesizeAutoPlanProposal(root, requirement, options = {}
   }, { preferAuthority: true });
 }
 
-function workIdFor(requirement, config, explicit = null) {
-  if (explicit) return String(explicit).trim();
+const AUTO_SLUG_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'as', 'at', 'be', 'by', 'for', 'from', 'in', 'into', 'of', 'on',
+  'or', 'the', 'to', 'while', 'with', 'add', 'create', 'implement', 'make'
+]);
+
+function fourWordSlug(requirement) {
+  const words = String(requirement ?? '')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const meaningful = words.filter((word) => !AUTO_SLUG_STOP_WORDS.has(word));
+  const selected = [...meaningful, ...words, 'guided', 'story', 'change', 'work']
+    // Reserve room for the largest deterministic collision suffix while staying within the
+    // 64-character Story ID contract.
+    .map((word) => word.slice(0, 9))
+    .filter((word, index, all) => word && all.indexOf(word) === index)
+    .slice(0, 4);
+  return selected.join('-');
+}
+
+function workIdFor(requirement, config, explicit = null, createdAt = nowIso()) {
+  if (explicit) return { workId: String(explicit).trim(), generated: false };
   if (config.auto.workIdAllocator === 'require-explicit') {
     throw new SingularityFlowError('Auto policy requires --work-id ID.', { code: 'AUTO_PLAN_INVALID' });
   }
-  return `AUT-${sha256(`${requirement}\0${nowIso()}`).slice(0, 12).toUpperCase()}`;
+  const storyId = `AUT-${sha256(`${requirement}\0${createdAt}`).slice(0, 12).toUpperCase()}`;
+  return { workId: `${storyId}-${fourWordSlug(requirement)}`, generated: true };
 }
 
 function remoteHead(root, remote, branchName) {
@@ -274,9 +297,33 @@ function autoPolicySha256(definition) {
   return sha256(policy);
 }
 
-function branchExists(root, name, remote) {
+function branchExists(root, name, remote, catalog = null) {
   return run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${name}`], { cwd: root, allowFailure: true }).status === 0
-    || run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/${remote}/${name}`], { cwd: root, allowFailure: true }).status === 0;
+    || run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/${remote}/${name}`], { cwd: root, allowFailure: true }).status === 0
+    || Object.values(catalog?.published ?? {}).some((branches) => branches.includes(name));
+}
+
+function allocateAutoWorkId(root, requirement, definition, explicit, createdAt, remote, catalog) {
+  const initial = workIdFor(requirement, definition, explicit, createdAt);
+  if (!branchExists(root, initial.workId, remote, catalog)) return initial;
+  if (!initial.generated) {
+    throw new SingularityFlowError(
+      `Supplied Auto destination branch '${initial.workId}' already exists. Choose another --work-id before reviewing a Plan.`,
+      {
+        code: 'AUTO_BRANCH_COLLISION',
+        details: { branch: initial.workId, nextAction: 'Repeat auto plan with a different --work-id.' }
+      }
+    );
+  }
+  for (let suffix = 2; suffix <= 9999; suffix += 1) {
+    const candidate = `${initial.workId}-${suffix}`;
+    if (!branchExists(root, candidate, remote, catalog)) {
+      return { workId: candidate, generated: true, collisionSuffix: suffix };
+    }
+  }
+  throw new SingularityFlowError('Auto could not allocate an unused deterministic Story branch.', {
+    code: 'AUTO_BRANCH_COLLISION', details: { branch: initial.workId }
+  });
 }
 
 function protectedPredictions(proposal, definition, capability) {
@@ -323,7 +370,8 @@ async function readVerifiedAutoAuthorization(root, planIdValue, {
       || stored.mode !== 'auto'
       || stored.planId !== planId
       || !PLAN_HASH.test(String(stored.planSha256 ?? ''))
-      || stored.confirmationProtocol !== 'packet-v1'
+      || stored.legacyCompatibility != null
+      || stored.confirmationProtocol !== AUTO_PLAN_CONFIRMATION_PROTOCOL
       || !PLAN_HASH.test(String(stored.confirmedSha256 ?? ''))
       || !PLAN_HASH.test(String(stored.packetSha256 ?? ''))
       || !PLAN_HASH.test(String(stored.validationSha256 ?? ''))
@@ -353,10 +401,17 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const requirement = normalizedRequirement(requirementValue);
   const proposal = proposalObject(proposalValue);
   const definition = options.definition ?? await loadDefinition(root);
+  const createdAt = options.now?.() ?? nowIso();
   if (!definition.auto.enabled) throw new SingularityFlowError('Auto mode is disabled by repository policy.', { code: 'AUTO_DISABLED' });
   const capability = options.capability === undefined
-    ? await resolveLifecycleCapability(root, { capabilityId: options.capabilityId, required: false })
+    ? await resolveLifecycleCapability(root, { capabilityId: options.capabilityId, required: true })
     : options.capability;
+  if (!capability) throw new SingularityFlowError(
+    'Auto Plan requires one approved delivery capability.', {
+      code: 'CAPABILITY_REGISTRATION_REQUIRED',
+      details: { nextAction: 'Register and approve a capability, then create a new Auto Plan.' }
+    }
+  );
   const eligible = Object.keys(definition.workTypes).filter((id) => {
     const resolution = resolveWorkType(definition, id);
     return effectiveAutoPolicy(definition.auto, resolution.auto, capability?.policy?.auto).eligibility !== 'disabled';
@@ -378,10 +433,6 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     options.until ?? proposal.suggestedUntil ?? resolution.auto.defaultUntil ?? definition.auto.defaultUntil,
     resolution.phases.map((phase) => phase.id)
   );
-  const workId = workIdFor(requirement, definition, options.workId);
-  if (!(new RegExp(definition.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(workId)) {
-    throw new SingularityFlowError(`Auto Work ID '${workId}' does not match ${definition.idPattern}.`, { code: 'AUTO_PLAN_INVALID' });
-  }
   const remote = definition.git?.remote ?? 'origin';
   const rootRemoteIdentity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
   if (!rootRemoteIdentity.configured || rootRemoteIdentity.ambiguous || !rootRemoteIdentity.url) {
@@ -407,6 +458,13 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     throw new SingularityFlowError('Auto Plan cannot pin published base heads because a repository remote is unreachable.', {
       code: 'AUTO_BASE_INVALID', details: { unreachable: catalog.unreachable }
     });
+  }
+  const allocated = allocateAutoWorkId(
+    root, requirement, definition, options.workId, createdAt, remote, catalog
+  );
+  const workId = allocated.workId;
+  if (!(new RegExp(definition.idPattern ?? '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')).test(workId)) {
+    throw new SingularityFlowError(`Auto Work ID '${workId}' does not match ${definition.idPattern}.`, { code: 'AUTO_PLAN_INVALID' });
   }
   const baseBranch = String(options.fromBranch ?? definition.defaultBaseBranch).trim();
   const missing = Object.entries(catalog.published).filter(([, branches]) => !branches.includes(baseBranch)).map(([id]) => id);
@@ -497,7 +555,6 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
   const modelCapacityReady = Number.isFinite(minimumModelInvocations)
     && policy.ceilings.maximumModelInvocations >= minimumModelInvocations;
   const tokenAssuranceStartable = policy.ceilings.tokenBudget.assurance !== 'exact-required';
-  const destinationCollision = branchExists(root, workId, remote);
   const startable = policy.eligibility === 'bounded'
     && catalog.repositories.length === 1
     && protectedPaths.length === 0
@@ -506,15 +563,13 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
     && pilotWindow
     && phaseCapacityReady
     && modelCapacityReady
-    && tokenAssuranceStartable
-    && !destinationCollision;
-  const createdAt = nowIso();
+    && tokenAssuranceStartable;
   const expiresAt = new Date(Date.parse(createdAt) + definition.auto.planTtlMinutes * 60 * 1000).toISOString();
   const core = {
     schemaVersion: currentSchemaVersion('auto-plan'),
     kind: 'auto-plan',
     mode: 'auto',
-    confirmation: { protocol: 'packet-v1' },
+    confirmation: { protocol: AUTO_PLAN_CONFIRMATION_PROTOCOL },
     requirement: {
       text: requirement, sha256: sha256(requirement),
       ...(options.requirementSource ? { source: structuredClone(options.requirementSource) } : {})
@@ -524,7 +579,12 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
       unresolvedDecisions: proposal.unresolvedDecisions, predictedPaths: proposal.predictedPaths,
       acceptanceCriteria: proposal.acceptanceCriteria
     },
-    story: { workId, workType, branch: workId, phaseRail: resolution.phases.map((phase) => phase.id) },
+    story: {
+      workId, workType, branch: workId,
+      generatedIdentity: allocated.generated,
+      collisionSuffix: allocated.collisionSuffix ?? null,
+      phaseRail: resolution.phases.map((phase) => phase.id)
+    },
     execution: {
       profile, pace, until, ceilings: policy.ceilings, concurrency: policy.concurrency,
       eligibility: policy.eligibility, repair: policy.repair
@@ -576,8 +636,7 @@ async function createAutoPlanInScope(root, requirementValue, proposalValue, opti
         ...(!modelCapacityReady
           ? [`endpoint requires at least ${minimumModelInvocations} model invocation(s), above maximumModelInvocations ${policy.ceilings.maximumModelInvocations}`]
           : []),
-        ...(!tokenAssuranceStartable ? ['exact-required token assurance cannot be proven before invocation by this execution host'] : []),
-        ...(destinationCollision ? [`destination branch '${workId}' already exists`] : [])
+        ...(!tokenAssuranceStartable ? ['exact-required token assurance cannot be proven before invocation by this execution host'] : [])
       ]
     },
     createdAt, expiresAt,
@@ -617,21 +676,35 @@ export async function readAutoPlan(root, planIdValue) {
     loaded = readRecord('auto-plan', raw);
   } catch (error) {
     if (error?.code !== 'SCHEMA_VERSION_ARCHIVED') throw error;
+    const storedVersion = error.details?.storedVersion ?? null;
     throw new SingularityFlowError(
-      `Auto Plan '${planId}' uses retired schema version 1 and cannot authorize execution.`,
+      `Auto Plan '${planId}' uses retired schema version ${storedVersion ?? 'unknown'} and cannot authorize execution.`,
       {
         code: 'AUTO_PLAN_LEGACY_UNSUPPORTED',
         details: {
-          storedVersion: 1,
-          nextAction: 'Create and review a new Auto Plan; legacy Plan-SHA confirmation is retired.'
+          storedVersion,
+          nextAction: 'Create and review a new Auto Plan; packet-v2 confirmation is required.'
         },
         cause: error
       }
     );
   }
   const plan = loaded.record;
+  if (loaded.storedVersion < currentSchemaVersion('auto-plan')
+      || plan.legacyCompatibility != null) {
+    throw new SingularityFlowError(
+      `Auto Plan '${planId}' uses compatibility schema version ${loaded.storedVersion} and cannot authorize a new flight.`,
+      {
+        code: 'AUTO_PLAN_LEGACY_UNSUPPORTED',
+        details: {
+          storedVersion: loaded.storedVersion,
+          nextAction: 'Create and review a new Auto Plan; packet-v2 confirmation is required.'
+        }
+      }
+    );
+  }
   if (plan.kind !== 'auto-plan' || plan.mode !== 'auto'
-      || plan.confirmation?.protocol !== 'packet-v1'
+      || plan.confirmation?.protocol !== AUTO_PLAN_CONFIRMATION_PROTOCOL
       || plan.planId !== planId || plan.planSha256 !== autoPlanHash(plan)) {
     throw new SingularityFlowError(`Auto Plan '${planId}' failed its integrity check.`, { code: 'AUTO_PLAN_CORRUPT' });
   }
@@ -780,7 +853,7 @@ export async function ratifyAutoPlan(root, planIdValue, confirmation) {
   const authorization = sealAuthorization({
     schemaVersion: currentSchemaVersion('auto-authorization'), kind: 'auto-plan-ratification', mode: 'auto',
     planId: plan.planId, planSha256: plan.planSha256,
-    confirmationProtocol: 'packet-v1',
+    confirmationProtocol: AUTO_PLAN_CONFIRMATION_PROTOCOL,
     confirmedSha256: suppliedConfirmation,
     packetSha256,
     validationSha256: packet.validationSha256,

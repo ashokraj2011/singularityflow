@@ -111,10 +111,182 @@ function autoFlightStateV1ToV2(source) {
   return migrated;
 }
 
+function autoLegacyDigestRecord(value, field) {
+  const record = clone(value);
+  record[field] = `sha256:${recordSha256(record)}`;
+  return record;
+}
+
+function autoPlanV2Validation(source) {
+  const requiredQuestions = [...(source.proposal?.unresolvedDecisions ?? [])];
+  const checks = [
+    { id: 'exact-plan-hash', status: 'passed' },
+    {
+      id: 'governed-story-rail',
+      status: Array.isArray(source.story?.phaseRail) && source.story.phaseRail.length
+        ? 'passed' : 'failed'
+    },
+    {
+      id: 'managed-worktree',
+      status: source.executionHost?.containment?.managedWorktree === true ? 'passed' : 'failed'
+    },
+    { id: 'start-safety', status: source.safety?.startable ? 'passed' : 'failed' }
+  ];
+  const status = !source.safety?.startable || checks.some((entry) => entry.status === 'failed')
+    ? 'invalid'
+    : requiredQuestions.length || source.humanBoundaries?.firstPhaseClarificationRequired
+      ? 'needs-human' : 'valid';
+  return autoLegacyDigestRecord({
+    schemaVersion: 1,
+    kind: 'auto-plan-validation',
+    planSha256: source.planSha256,
+    status,
+    checks,
+    warnings: [...(source.proposal?.assumptions ?? [])],
+    requiredQuestions,
+    requiredHumanStops: clone(source.humanBoundaries?.stopPoints ?? []),
+    insertedControls: [
+      'exact-packet-confirmation', 'managed-worktree', 'ordinary-story-lifecycle',
+      'protected-path-halt', 'single-authoring-attempt'
+    ]
+  }, 'validationSha256');
+}
+
+function autoPlanV2Packet(source) {
+  const validation = autoPlanV2Validation(source);
+  const packet = autoLegacyDigestRecord({
+    schemaVersion: 1,
+    kind: 'auto-plan-packet',
+    mode: 'auto',
+    planId: source.planId,
+    planSha256: source.planSha256,
+    validationSha256: validation.validationSha256,
+    requirement: clone(source.requirement),
+    story: clone(source.story),
+    workflow: { phases: [...(source.story?.phaseRail ?? [])] },
+    scope: {
+      predictedRead: [...(source.proposal?.predictedPaths ?? [])],
+      predictedWrite: [...(source.proposal?.predictedPaths ?? [])],
+      protected: [...(source.scope?.protectedPaths ?? [])],
+      forbidden: ['governance-policy', 'approval', 'waiver', 'unplanned-external-effect']
+    },
+    execution: {
+      profile: source.execution?.profile?.resolved ?? 'story',
+      executionUnit: source.executionHost?.id ?? null,
+      pacing: source.execution?.pace?.source ?? null,
+      until: source.execution?.until?.source ?? null,
+      repairAttemptsPerPhase: 0
+    },
+    humanStops: clone(source.humanBoundaries?.stopPoints ?? []),
+    evidence: [...(source.proposal?.acceptanceCriteria ?? [])],
+    budgets: clone(source.execution?.ceilings ?? {})
+  }, 'packetSha256');
+  return { packetSha256: packet.packetSha256, validationSha256: validation.validationSha256 };
+}
+
+function autoLegacyCompatibility(source, packet = null) {
+  return {
+    sourceSchemaVersion: 2,
+    confirmationProtocol: 'packet-v1',
+    planSha256: source.planSha256,
+    packetSha256: packet?.packetSha256 ?? source.packetSha256,
+    validationSha256: packet?.validationSha256 ?? source.validationSha256,
+    repairPolicy: 'never',
+    repairAttemptsPerPhase: 0
+  };
+}
+
+function autoPlanV2ToV3(source) {
+  const historical = clone(source);
+  const storedSha256 = historical.planSha256;
+  delete historical.planSha256;
+  if (source.kind !== 'auto-plan' || source.mode !== 'auto'
+      || source.confirmation?.protocol !== 'packet-v1'
+      || storedSha256 !== `sha256:${recordSha256(historical)}`) {
+    throw new SingularityFlowError(
+      'Auto Plan v2 failed its historical integrity check and cannot be migrated.', {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'auto-plan', storedVersion: 2 }
+      }
+    );
+  }
+  const packet = autoPlanV2Packet(source);
+  return {
+    ...clone(source),
+    schemaVersion: 3,
+    execution: {
+      ...clone(source.execution),
+      repair: { policy: 'never', maximumAttempts: 0 }
+    },
+    legacyCompatibility: autoLegacyCompatibility(source, packet)
+  };
+}
+
+function autoAuthoritySha256(source) {
+  const authority = {
+    schemaVersion: source.schemaVersion,
+    kind: source.kind,
+    mode: source.mode,
+    planId: source.planId,
+    planSha256: source.planSha256,
+    actor: source.actor,
+    identityAssurance: source.identityAssurance,
+    ratifiedAt: source.ratifiedAt,
+    expiresAt: source.expiresAt
+  };
+  for (const field of [
+    'confirmationProtocol', 'confirmedSha256', 'packetSha256', 'validationSha256'
+  ]) {
+    if (source[field] != null) authority[field] = source[field];
+  }
+  return `sha256:${recordSha256(authority)}`;
+}
+
+function autoAuthorityV2ToV3(source, familyId) {
+  const sourceRecord = clone(source);
+  const storedRecordSha256 = sourceRecord.recordSha256;
+  delete sourceRecord.recordSha256;
+  if (source.kind !== 'auto-plan-ratification' || source.mode !== 'auto'
+      || source.confirmationProtocol !== 'packet-v1'
+      || source.confirmedSha256 !== source.packetSha256
+      || source.authorizationSha256 !== autoAuthoritySha256(source)
+      || (storedRecordSha256 != null
+        && storedRecordSha256 !== recordSha256(sourceRecord))) {
+    throw new SingularityFlowError(
+      `Auto ${familyId === 'auto-authorization' ? 'authorization' : 'Plan ratification'} v2 failed its historical integrity check and cannot be migrated.`, {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: familyId, storedVersion: 2 }
+      }
+    );
+  }
+  const migrated = {
+    ...clone(source),
+    schemaVersion: 3,
+    ...(familyId === 'auto-authorization'
+      ? { confirmationProtocol: 'packet-v2' } : {}),
+    legacyCompatibility: autoLegacyCompatibility(source)
+  };
+  delete migrated.recordSha256;
+  migrated.authorizationSha256 = autoAuthoritySha256(migrated);
+  if (storedRecordSha256 != null || familyId === 'auto-authorization') {
+    migrated.recordSha256 = recordSha256(migrated);
+  }
+  return migrated;
+}
+
+function autoPlanRatificationV2ToV3(source) {
+  return autoAuthorityV2ToV3(source, 'auto-plan-ratification');
+}
+
+function autoAuthorizationV2ToV3(source) {
+  return autoAuthorityV2ToV3(source, 'auto-authorization');
+}
+
 const AUTO_P1_HASH = /^sha256:[a-f0-9]{64}$/;
 const AUTO_P1_BUDGET_FIELDS = new Set([
   'modelInvocations', 'repairAttempts', 'maximumRepairAttempts', 'routeChanges', 'tokens',
-  'toolOutputTokens', 'contextExpansions', 'fullContextFallbacks'
+  'toolOutputTokens', 'toolOutputBytes', 'estimatedToolOutputTokens',
+  'contextExpansions', 'fullContextFallbacks'
 ]);
 
 function autoP1Counter(value, fallback = null) {
@@ -131,7 +303,11 @@ function autoP1Strings(value) {
 }
 
 function autoP1Reseal(source, changes, hashField) {
-  const migrated = { ...clone(source), ...clone(changes), schemaVersion: 2 };
+  return autoP1ResealAt(source, changes, hashField, 2);
+}
+
+function autoP1ResealAt(source, changes, hashField, schemaVersion) {
+  const migrated = { ...clone(source), ...clone(changes), schemaVersion };
   delete migrated[hashField];
   migrated[hashField] = `sha256:${recordSha256(migrated)}`;
   return migrated;
@@ -257,6 +433,27 @@ function autoHumanRequestV1ToV2(source) {
   }, 'requestSha256');
 }
 
+const AUTO_HUMAN_REQUEST_V2_TYPES = new Set([
+  'clarification', 'credential', 'architecture-choice'
+]);
+
+function autoHumanRequestV2ToV3(source) {
+  if (!AUTO_HUMAN_REQUEST_V2_TYPES.has(source.requestType)) {
+    throw new SingularityFlowError(
+      `Auto Human Request v2 has unsupported requestType '${String(source.requestType ?? '')}'.`, {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: {
+          family: 'auto-human-request', storedVersion: 2,
+          requestType: source.requestType ?? null
+        }
+      }
+    );
+  }
+  // v3 expands the closed requestType vocabulary. Existing request semantics and exact content
+  // remain unchanged; only the registry-owned version stamp and integrity seal advance.
+  return autoP1ResealAt(source, {}, 'requestSha256', 3);
+}
+
 function autoEconomicsWorldModelV1ToV2(reference) {
   const required = [
     'protocol', 'path', 'workId', 'phase', 'generation', 'agent', 'worldModelCommit',
@@ -331,12 +528,184 @@ function autoFlightReportV1ToV2(source) {
       'auto-repair-plan': [], 'auto-human-request': [],
       'auto-token-economics-receipt': [], 'auto-execution-unit-switch': []
     },
-    approvalSource: 'flight-checkpoint'
+    approvalSource: 'flight-checkpoint',
+    // These two fields exist only between migration steps. They preserve the immutable v1
+    // identity so a flight checkpoint that named the original report remains valid after the
+    // in-memory v3 projection is produced.
+    migrationSourceSchemaVersion: 1,
+    migrationSourceReportSha256: storedSha256
   }, 'reportSha256');
+}
+
+function autoFlightReportQualityFloorV3(lineage) {
+  const receipts = Array.isArray(lineage?.['auto-token-economics-receipt'])
+    ? lineage['auto-token-economics-receipt'] : [];
+  const reasons = [];
+  if (!receipts.length) reasons.push('no-economics-receipts');
+  if (receipts.some((entry) => entry?.quality?.verification === 'pending')) {
+    reasons.push('verification-pending');
+  }
+  if (receipts.some((entry) => entry?.quality?.verification === 'failed')) {
+    reasons.push('verification-failed');
+  }
+  if (receipts.some((entry) => entry?.quality?.reviewReturned === true)) {
+    reasons.push('review-returned');
+  }
+  if (receipts.some((entry) => entry?.quality?.missingContextIncident === true)) {
+    reasons.push('missing-context-incident');
+  }
+  const failed = reasons.some((entry) => [
+    'verification-failed', 'review-returned', 'missing-context-incident'
+  ].includes(entry));
+  return {
+    status: !receipts.length ? 'unavailable'
+      : failed ? 'failed' : reasons.includes('verification-pending') ? 'pending' : 'passed',
+    basis: 'observed-task-outcomes', tokenSavingComparison: 'not-evaluated', reasons,
+    firstPassVerified: receipts.filter((entry) => (
+      entry?.quality?.verification === 'passed' && entry?.quality?.firstPass === true
+    )).length,
+    verifiedAfterRepair: receipts.filter((entry) => (
+      entry?.quality?.verification === 'passed' && entry?.quality?.firstPass !== true
+    )).length,
+    reviewReturns: receipts.filter((entry) => entry?.quality?.reviewReturned === true).length,
+    missingContextIncidents: receipts.filter(
+      (entry) => entry?.quality?.missingContextIncident === true
+    ).length
+  };
+}
+
+function autoFlightReportOutcomeMetricsV3(source, lineage) {
+  const records = (family) => Array.isArray(lineage?.[family]) ? lineage[family] : [];
+  const attempts = records('auto-attempt');
+  const receipts = records('auto-token-economics-receipt');
+  const verified = receipts.filter((entry) => entry?.quality?.verification === 'passed');
+  return {
+    protocol: 'auto-outcome-metrics-v1', scope: 'flight', contentFree: true, flightCount: 1,
+    phaseRuns: records('auto-phase-run').length, attempts: attempts.length,
+    repairAttempts: attempts.filter((entry) => entry?.attemptKind === 'repair').length,
+    refusals: records('auto-refusal').length,
+    humanRequests: records('auto-human-request').length,
+    executionUnitSwitches: records('auto-execution-unit-switch').length,
+    verifiedOutcomes: verified.length,
+    firstPassVerifiedOutcomes: verified.filter(
+      (entry) => entry?.quality?.firstPass === true
+    ).length,
+    manualTakeover: source.status === 'manual-takeover' || source.stopReason === 'manual-takeover',
+    haltReason: source.stopReason ?? null,
+    latencyToFirstVerifiedOutcomeMilliseconds: null,
+    contextExpansions: attempts.reduce((total, entry) => total
+      + autoP1Counter(entry?.budgetImpact?.contextExpansions, 0), 0),
+    fullContextFallbacks: attempts.reduce((total, entry) => total
+      + autoP1Counter(entry?.budgetImpact?.fullContextFallbacks, 0), 0)
+  };
+}
+
+function autoFlightReportAccountingV3(source, lineage) {
+  const accounting = plainObject(source.accounting) ? clone(source.accounting) : {};
+  const observations = plainObject(accounting.observations) ? accounting.observations : {};
+  const receipts = Array.isArray(lineage?.['auto-token-economics-receipt'])
+    ? lineage['auto-token-economics-receipt'] : [];
+  return {
+    tokens: plainObject(accounting.tokens) ? accounting.tokens
+      : { assurance: 'unavailable', totalTokens: null },
+    observations: {
+      receipts: autoP1Counter(observations.receipts, receipts.length),
+      pending: autoP1Counter(observations.pending,
+        receipts.filter((entry) => entry?.quality?.verification === 'pending').length),
+      passed: autoP1Counter(observations.passed,
+        receipts.filter((entry) => entry?.quality?.verification === 'passed').length),
+      failed: autoP1Counter(observations.failed,
+        receipts.filter((entry) => entry?.quality?.verification === 'failed').length),
+      promptBytes: autoP1Counter(observations.promptBytes),
+      estimatedInputTokens: autoP1Counter(observations.estimatedInputTokens),
+      providerInputTokens: autoP1Counter(observations.providerInputTokens),
+      cachedTokens: autoP1Counter(observations.cachedTokens),
+      estimatedOutputTokens: autoP1Counter(observations.estimatedOutputTokens),
+      providerOutputTokens: autoP1Counter(observations.providerOutputTokens),
+      toolOutput: plainObject(observations.toolOutput) ? observations.toolOutput : {
+        assurance: 'unavailable', observedBytes: null,
+        estimatedTokens: null, providerTokens: null
+      }
+    },
+    cost: plainObject(accounting.cost) ? accounting.cost
+      : { assurance: 'unavailable', amount: null },
+    activeMilliseconds: autoP1Counter(accounting.activeMilliseconds, 0),
+    elapsedMilliseconds: autoP1Counter(accounting.elapsedMilliseconds, 0)
+  };
+}
+
+function autoFlightReportV2ToV3(source) {
+  const historical = clone(source);
+  const storedSha256 = historical.reportSha256;
+  delete historical.reportSha256;
+  if (storedSha256 !== `sha256:${recordSha256(historical)}`) {
+    throw new SingularityFlowError(
+      'Auto flight report v2 failed its historical integrity check and cannot be migrated.', {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'auto-flight-report', storedVersion: 2 }
+      }
+    );
+  }
+  const sourceSchemaVersion = source.migrationSourceSchemaVersion ?? 2;
+  const sourceReportSha256 = source.migrationSourceReportSha256 ?? storedSha256;
+  const lineage = plainObject(source.lineage) ? clone(source.lineage) : {
+    'auto-phase-run': [], 'auto-attempt': [], 'auto-refusal': [],
+    'auto-repair-plan': [], 'auto-human-request': [],
+    'auto-token-economics-receipt': [], 'auto-execution-unit-switch': []
+  };
+  const migrated = {
+    ...clone(source), schemaVersion: 3, integrityVersion: 3,
+    sourceSchemaVersion,
+    story: plainObject(source.story) ? clone(source.story) : {
+      workId: null, branch: null, phase: null, workType: null, phaseRail: []
+    },
+    intent: plainObject(source.intent) ? clone(source.intent) : {
+      source: 'unavailable', requirement: { text: null, sha256: null },
+      inferences: {
+        title: null, assumptions: [], unresolvedDecisions: [],
+        predictedPaths: [], acceptanceCriteria: []
+      }
+    },
+    executionUnits: plainObject(source.executionUnits) ? clone(source.executionUnits) : {
+      planned: null, current: null, currentManifestSha256: null, switches: []
+    },
+    lineage,
+    qualityFloor: plainObject(source.qualityFloor) ? clone(source.qualityFloor)
+      : autoFlightReportQualityFloorV3(lineage),
+    outcomeMetrics: plainObject(source.outcomeMetrics) ? clone(source.outcomeMetrics)
+      : autoFlightReportOutcomeMetricsV3(source, lineage),
+    accounting: autoFlightReportAccountingV3(source, lineage)
+  };
+  delete migrated.migrationSourceSchemaVersion;
+  delete migrated.migrationSourceReportSha256;
+  delete migrated.reportSha256;
+  delete migrated.projectionSha256;
+  migrated.reportSha256 = sourceReportSha256;
+  migrated.projectionSha256 = `sha256:${recordSha256(migrated)}`;
+  return migrated;
 }
 
 function autoExecutionUnitSwitchV1ToV2(source) {
   return autoP1Reseal(source, {}, 'switchPlanSha256');
+}
+
+function autoCandidateVerificationV1ToV2(source) {
+  const historical = clone(source);
+  const storedSha256 = historical.verificationReceiptSha256;
+  delete historical.verificationReceiptSha256;
+  if (storedSha256 !== `sha256:${recordSha256(historical)}`) {
+    throw new SingularityFlowError(
+      'Auto Candidate verification v1 failed its historical integrity check and cannot be migrated.', {
+        code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT',
+        details: { family: 'auto-candidate-verification', storedVersion: 1 }
+      }
+    );
+  }
+  // Preserve the historically published receipt identity. integrityVersion:1 tells the current
+  // validator to reproduce the v1 projection; legacy bytes did not make any machine-repair claim.
+  return {
+    ...clone(source), schemaVersion: 2, integrityVersion: 1, repairEvidence: []
+  };
 }
 
 function specificationClaimMapV1ToV2(source) {
@@ -1767,9 +2136,10 @@ const families = [
   }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({
-    // v1 authorized execution from the Plan digest instead of the independently rendered packet.
-    // That missing human-decision evidence cannot be invented by a migration, so v1 is archival.
-    id: 'auto-plan', currentVersion: 2, minimumReadableVersion: 2,
+    // v1 predates packet confirmation and remains archival. A v2 Plan is readable for active-flight
+    // compatibility only; migration clamps repair to never/zero and retains its historical digest.
+    id: 'auto-plan', currentVersion: 3, minimumReadableVersion: 2,
+    steps: [migration(2, 3, autoPlanV2ToV3)],
     paths: [
       /^\$git\/auto-plans\/APL-[A-F0-9]{26}\.json$/,
       /^singularity\/work-items\/[^/]+\/context\/auto\/accepted-plan\.json$/
@@ -1777,16 +2147,24 @@ const families = [
     immutable: true
   }),
   family({ id: 'auto-plan-validation', currentVersion: 1, immutable: true }),
-  family({ id: 'auto-plan-packet', currentVersion: 1, immutable: true }),
   family({
-    // v1 ratifications record Plan-digest confirmation and cannot prove packet-v1 review.
-    id: 'auto-plan-ratification', currentVersion: 2, minimumReadableVersion: 2,
+    // packet-v1 omitted the repair policy and rendered a fixed zero-attempt projection. Adding the
+    // missing authority after review would change what the actor approved, so it remains archival.
+    id: 'auto-plan-packet', currentVersion: 2, minimumReadableVersion: 2, immutable: true
+  }),
+  family({
+    // v1 records Plan-digest confirmation and remains archival. v2 packet-v1 receipts migrate to a
+    // read-safe compatibility projection; they never become authority for a new packet-v2 start.
+    id: 'auto-plan-ratification', currentVersion: 3, minimumReadableVersion: 2,
+    steps: [migration(2, 3, autoPlanRatificationV2ToV3)],
     paths: [/^singularity\/work-items\/[^/]+\/context\/auto\/ratification\.json$/],
     immutable: true
   }),
   family({
-    // v1 authorizations have no packet/validation digest set. They remain archival alongside v1 Plans.
-    id: 'auto-authorization', currentVersion: 2, minimumReadableVersion: 2,
+    // v1 has no packet digest and remains archival. v2 is readable for recovery diagnostics, but
+    // its compatibility marker and packet-v1 digest cannot authorize a new flight.
+    id: 'auto-authorization', currentVersion: 3, minimumReadableVersion: 2,
+    steps: [migration(2, 3, autoAuthorizationV2ToV3)],
     paths: [/^\$git\/auto-authorizations\/APL-[A-F0-9]{26}\.json$/]
   }),
   family({
@@ -1797,6 +2175,34 @@ const families = [
   }),
   family({ id: 'auto-origin', currentVersion: 1 }),
   family({ id: 'auto-step-result', currentVersion: 1, immutable: true }),
+  family({
+    id: 'auto-context-manifest', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/context-manifests\/ACM-[A-F0-9]{26}\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-agent-task-contract', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/task-contracts\/ATC-[A-F0-9]{26}\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-execution-selection', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/execution-selections\/AES-[A-F0-9]{26}\.json$/
+    ],
+    immutable: true
+  }),
+  family({
+    id: 'auto-execution-event', currentVersion: 1,
+    paths: [
+      /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/execution-events\/AEV-[A-F0-9]{26}\.json$/
+    ],
+    immutable: true
+  }),
   family({
     id: 'auto-phase-run', currentVersion: 2,
     steps: [migration(1, 2, autoPhaseRunV1ToV2)],
@@ -1820,8 +2226,11 @@ const families = [
     immutable: true
   }),
   family({
-    id: 'auto-human-request', currentVersion: 2,
-    steps: [migration(1, 2, autoHumanRequestV1ToV2)],
+    id: 'auto-human-request', currentVersion: 3,
+    steps: [
+      migration(1, 2, autoHumanRequestV1ToV2),
+      migration(2, 3, autoHumanRequestV2ToV3)
+    ],
     paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/human-requests\/AHR-[A-F0-9]{26}\.json$/]
   }),
   family({
@@ -1842,7 +2251,8 @@ const families = [
     immutable: true
   }),
   family({
-    id: 'auto-candidate-verification', currentVersion: 1,
+    id: 'auto-candidate-verification', currentVersion: 2,
+    steps: [migration(1, 2, autoCandidateVerificationV1ToV2)],
     paths: [
       /^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/candidates\/CAN-[A-F0-9]{26}\.verification\.json$/
     ],
@@ -1856,8 +2266,11 @@ const families = [
     immutable: true
   }),
   family({
-    id: 'auto-flight-report', currentVersion: 2,
-    steps: [migration(1, 2, autoFlightReportV1ToV2)],
+    id: 'auto-flight-report', currentVersion: 3,
+    steps: [
+      migration(1, 2, autoFlightReportV1ToV2),
+      migration(2, 3, autoFlightReportV2ToV3)
+    ],
     paths: [/^\$git\/auto-flights\/AFL-[A-F0-9]{26}\/report\.json$/],
     immutable: true
   }),

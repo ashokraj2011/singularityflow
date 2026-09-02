@@ -6,7 +6,9 @@ import { loadDefinition } from '../config.mjs';
 import { applicationPathContext } from '../application-paths.mjs';
 import { activatePhaseAgent } from '../commands/kernel.mjs';
 import { branch, gitCommonDir, head } from '../git.mjs';
-import { assertCredentialFreeRemote, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
+import {
+  assertCredentialFreeRemote, configuredRemoteIdentity, remoteFingerprint
+} from '../git-remote-diagnostics.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
@@ -24,9 +26,12 @@ import {
 import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import {
   createAutoFlightState, mutateAutoFlightState, readAutoFlightReport, readAutoFlightState,
-  restoreAutoFlightReport
+  restoreAutoFlightReport, validateAutoFlightReportRecord
 } from './auto-flight-store.mjs';
 import { restoreAutoP1Records, snapshotAutoP1Records } from './auto-p1-records.mjs';
+import {
+  restoreAutoContractRecords, validateAutoPhaseContractSnapshots
+} from './auto-contract-records.mjs';
 
 const CHECKPOINT_CLASSES = new Set([
   'phase-boundary', 'human-boundary', 'publication-boundary', 'recovery', 'completion'
@@ -34,6 +39,11 @@ const CHECKPOINT_CLASSES = new Set([
 const FLIGHT_ID = /^AFL-[A-F0-9]{26}$/;
 const PLAN_ID = /^APL-[A-F0-9]{26}$/;
 const HASH = /^sha256:[a-f0-9]{64}$/;
+const PORTABLE_REPOSITORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/;
+const PORTABLE_REMOTE_ID = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,159}$/;
+const CHECKPOINT_REPOSITORY_KEYS = Object.freeze([
+  'id', 'remote', 'remoteUrl', 'remoteFingerprint', 'baseBranch', 'baseCommit'
+]);
 const CHECKPOINT_KEYS = Object.freeze([
   'schemaVersion', 'kind', 'mode', 'checkpointClass', 'flightId', 'planId',
   'planSha256', 'story', 'position', 'status', 'stopReason', 'execution',
@@ -68,12 +78,117 @@ function checkpointHash(record) {
   return `sha256:${recordSha256(copy)}`;
 }
 
+/**
+ * Close and validate repository authority before checkpoint bytes can influence a path or Git
+ * transport. Legacy packet-v1 checkpoints may omit the frozen URL/fingerprint pair; in that case
+ * recovery uses the identically ratified remote name and verifies its configured identity later.
+ */
+export function validateAutoCheckpointRepositories(value) {
+  if (!Array.isArray(value)) {
+    throw new SingularityFlowError('Auto checkpoint repositories must be an array.', {
+      code: 'AUTO_CHECKPOINT_INVALID'
+    });
+  }
+  return Object.freeze(value.map((repository) => {
+    if (!repository || typeof repository !== 'object' || Array.isArray(repository)) {
+      throw new SingularityFlowError('Auto checkpoint repository authority must be an object.', {
+        code: 'AUTO_CHECKPOINT_INVALID'
+      });
+    }
+    const keys = Object.keys(repository);
+    const extra = keys.filter((key) => !CHECKPOINT_REPOSITORY_KEYS.includes(key));
+    const required = ['id', 'remote', 'baseBranch', 'baseCommit'];
+    const missing = required.filter((key) => !Object.hasOwn(repository, key));
+    const id = String(repository.id ?? '');
+    const remote = String(repository.remote ?? '');
+    if (extra.length || missing.length
+        || !PORTABLE_REPOSITORY_ID.test(id) || id === '.' || id === '..'
+        || !PORTABLE_REMOTE_ID.test(remote) || remote === '.' || remote === '..'
+        || remote.includes('..') || remote.includes('//') || remote.endsWith('/')
+        || remote.split('/').some((part) => part === '.' || part.endsWith('.lock'))
+        || typeof repository.baseBranch !== 'string' || !repository.baseBranch
+        || /[\0\r\n]/.test(repository.baseBranch)
+        || typeof repository.baseCommit !== 'string' || !repository.baseCommit
+        || /[\0\r\n]/.test(repository.baseCommit)) {
+      throw new SingularityFlowError('Auto checkpoint repository authority has an unsafe or open field set.', {
+        code: 'AUTO_CHECKPOINT_INVALID', details: { repositoryId: id || null, extra, missing }
+      });
+    }
+    const hasUrl = repository.remoteUrl != null;
+    const hasFingerprint = repository.remoteFingerprint != null;
+    if (hasUrl !== hasFingerprint) {
+      throw new SingularityFlowError(
+        'Auto checkpoint repository URL and fingerprint must be present together.', {
+          code: 'AUTO_CHECKPOINT_INVALID', details: { repositoryId: id }
+        }
+      );
+    }
+    if (hasUrl) {
+      let remoteUrl;
+      try { remoteUrl = assertCredentialFreeRemote(repository.remoteUrl); }
+      catch (error) {
+        throw new SingularityFlowError('Auto checkpoint contains an unsafe repository remote.', {
+          code: 'AUTO_CHECKPOINT_INVALID', details: { repositoryId: id }, cause: error
+        });
+      }
+      if (!/^[a-f0-9]{64}$/.test(String(repository.remoteFingerprint ?? ''))
+          || repository.remoteFingerprint !== remoteFingerprint(remoteUrl)) {
+        throw new SingularityFlowError(
+          'Auto checkpoint repository remote does not match its fingerprint.', {
+            code: 'AUTO_CHECKPOINT_INVALID', details: { repositoryId: id }
+          }
+        );
+      }
+    }
+    return Object.freeze(structuredClone(repository));
+  }));
+}
+
+/** Prove that a governed checkpoint has not substituted any ratified Story authority. */
+export function assertAutoCheckpointAcceptedBinding(record, acceptedPlan) {
+  const repositories = validateAutoCheckpointRepositories(record?.repositories);
+  const acceptedRepositories = validateAutoCheckpointRepositories(acceptedPlan?.repositories);
+  const expectedCapabilityId = acceptedPlan?.capability?.id ?? null;
+  const executionMatches = canonicalJson(record?.execution) === canonicalJson(acceptedPlan?.execution);
+  const legacyRepairReduction = acceptedPlan?.legacyCompatibility?.confirmationProtocol === 'packet-v1'
+    && canonicalJson({
+      ...(record?.execution ?? {}), repair: structuredClone(acceptedPlan?.execution?.repair)
+    }) === canonicalJson(acceptedPlan?.execution);
+  if (repositories.length !== 1 || acceptedRepositories.length !== 1
+      || canonicalJson(repositories) !== canonicalJson(acceptedRepositories)
+      || record?.story?.workId !== acceptedPlan?.story?.workId
+      || record?.story?.branch !== acceptedPlan?.story?.branch
+      || !acceptedPlan?.story?.phaseRail?.includes(record?.story?.phase)
+      || (record?.capabilityId ?? null) !== expectedCapabilityId
+      || canonicalJson(record?.scopePrediction ?? [])
+        !== canonicalJson(acceptedPlan?.proposal?.predictedPaths ?? [])
+      || (!executionMatches && !legacyRepairReduction)) {
+    throw new SingularityFlowError(
+      'Auto checkpoint authority does not match the ratified Story Plan.', {
+        code: 'AUTO_FLIGHT_BINDING_MISMATCH',
+        details: {
+          workId: record?.story?.workId ?? null,
+          flightId: record?.flightId ?? null,
+          planId: acceptedPlan?.planId ?? null
+        }
+      }
+    );
+  }
+  return Object.freeze({
+    repositories,
+    capabilityId: expectedCapabilityId,
+    scopePrediction: Object.freeze([...(acceptedPlan.proposal?.predictedPaths ?? [])]),
+    execution: Object.freeze(structuredClone(acceptedPlan.execution))
+  });
+}
+
 export function validateAutoBoundaryCheckpoint(record) {
   if (!record || typeof record !== 'object' || Array.isArray(record)) {
     throw new SingularityFlowError('Auto boundary checkpoint must be an object.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
+  validateAutoCheckpointRepositories(record.repositories);
   const allowed = new Set(CHECKPOINT_KEYS);
   const extra = Object.keys(record).filter((key) => !allowed.has(key));
   const storyKeys = new Set([
@@ -88,6 +203,8 @@ export function validateAutoBoundaryCheckpoint(record) {
     ? Object.keys(record.lineage).filter((key) => !LINEAGE_KEYS.includes(key)) : ['lineage'];
   let candidateBinding = null;
   let candidateVerification = null;
+  let phaseContractProjection = null;
+  let finalReportProjection = null;
   try {
     candidateBinding = record.candidateBinding == null
       ? null : validateAutoCandidateBinding(record.candidateBinding);
@@ -95,6 +212,27 @@ export function validateAutoBoundaryCheckpoint(record) {
       ? null : validateAutoCandidateVerification(record.candidateVerification);
   } catch {
     candidateBinding = Symbol.for('invalid-auto-candidate-binding');
+  }
+  try {
+    phaseContractProjection = validateAutoPhaseContractSnapshots(
+      record.phaseContracts,
+      record.evidence?.autoExecutionEvents ?? [], {
+        flightId: record.flightId,
+        activeContractSha256: record.phaseContractSha256,
+        requireTerminalQuiescence: true
+      }
+    );
+  } catch {
+    phaseContractProjection = Symbol.for('invalid-auto-phase-contract-projection');
+  }
+  try {
+    finalReportProjection = record.finalReport == null
+      ? null
+      : validateAutoFlightReportRecord(record.finalReport, {
+        expectedFlightId: record.flightId
+      });
+  } catch {
+    finalReportProjection = Symbol.for('invalid-auto-flight-report-projection');
   }
   if (extra.length || storyExtra.length
       || record.kind !== 'auto-boundary-checkpoint' || record.mode !== 'auto'
@@ -121,8 +259,10 @@ export function validateAutoBoundaryCheckpoint(record) {
       || !record.counters || typeof record.counters !== 'object' || Array.isArray(record.counters)
       || !record.phaseContracts || typeof record.phaseContracts !== 'object'
       || Array.isArray(record.phaseContracts)
+      || typeof phaseContractProjection !== 'object'
       || (record.phaseContractSha256 != null
         && !HASH.test(String(record.phaseContractSha256)))
+      || record.phaseContractSha256 !== (record.evidence?.phaseContractSha256 ?? null)
       || (record.candidate != null
         && (typeof record.candidate !== 'object' || Array.isArray(record.candidate)))
       || (record.candidate == null) !== (candidateBinding == null)
@@ -156,15 +296,11 @@ export function validateAutoBoundaryCheckpoint(record) {
         && !HASH.test(String(record.finalReportSha256)))
       || (record.finalReport == null) !== (record.finalReportSha256 == null)
       || (record.finalReport != null
-        && (record.finalReport.kind !== 'auto-flight-report'
-          || record.finalReport.flightId !== record.flightId
-          || record.finalReport.planSha256 !== record.planSha256
-          || record.finalReport.reportSha256 !== record.finalReportSha256
-          || record.finalReport.reportSha256 !== `sha256:${recordSha256((() => {
-            const core = structuredClone(record.finalReport);
-            delete core.reportSha256;
-            return core;
-          })())}`))
+        && (typeof finalReportProjection !== 'object'
+          || finalReportProjection.kind !== 'auto-flight-report'
+          || finalReportProjection.flightId !== record.flightId
+          || finalReportProjection.planSha256 !== record.planSha256
+          || finalReportProjection.reportSha256 !== record.finalReportSha256))
       || Number.isNaN(Date.parse(record.flightCreatedAt))
       || Number.isNaN(Date.parse(record.createdAt))
       || !HASH.test(String(record.checkpointSha256 ?? ''))
@@ -466,24 +602,25 @@ export async function discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, 
   return readGovernedAutoCheckpoint(storyRoot, workflow, projections[0]);
 }
 
-async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer) {
+async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, acceptedPlan) {
   const record = pointer.record;
+  const repository = acceptedPlan.repositories[0];
   const managed = path.join(
     gitCommonDir(controlRoot), 'singularity-flow', 'auto-worktrees', record.flightId,
-    record.repositories?.[0]?.id ?? 'repository'
+    repository.id
   );
   const alreadyManaged = path.resolve(storyRoot) === path.resolve(managed)
     || path.resolve(storyRoot).startsWith(`${path.resolve(path.dirname(managed))}${path.sep}`);
   if (alreadyManaged) return storyRoot;
-  const configured = configuredRemoteIdentity(storyRoot, record.repositories?.[0]?.remote ?? 'origin', {
+  const configured = configuredRemoteIdentity(storyRoot, repository.remote, {
     direction: 'fetch'
   });
   const remote = assertCredentialFreeRemote(
-    record.repositories?.[0]?.remoteUrl ?? configured.url
+    repository.remoteUrl ?? configured.url
   );
   await mkdir(path.dirname(managed), { recursive: true });
   const clone = runRemoteGit([
-    'clone', '--single-branch', '--no-tags', '--branch', record.story.branch,
+    'clone', '--single-branch', '--no-tags', '--branch', acceptedPlan.story.branch,
     '--', remote, managed
   ], { cwd: controlRoot, operation: 'auto-recovery-clone', allowFailure: true });
   if (clone.status !== 0) {
@@ -561,21 +698,35 @@ export async function rebuildAutoFlightState(controlRoot, {
     workflow = await loadStoryAggregate(storyRoot, definition, workId);
   }
   const pointer = await discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, flightId);
-  const managed = await ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer);
+  const record = pointer.record;
+  // The Story checkout already contains the accepted Plan and ratification. Verify and compare them
+  // before checkpoint-controlled repository bytes can select a clone URL or filesystem target.
+  let acceptedBinding = await readVerifiedAcceptedAutoBinding(storyRoot, definition, workflow, {
+    flightId: record.flightId, planId: record.planId, planSha256: record.planSha256,
+    story: { workId: record.story.workId }
+  });
+  let recoveryAuthority = assertAutoCheckpointAcceptedBinding(
+    record, acceptedBinding.acceptedPlan
+  );
+  const managed = await ensureManagedRecoveryCheckout(
+    controlRoot, storyRoot, pointer, acceptedBinding.acceptedPlan
+  );
   if (managed !== storyRoot) {
     definition = await loadDefinition(managed);
     workflow = await loadStoryAggregate(managed, definition, workId);
   }
-  const record = pointer.record;
-  const acceptedBinding = await readVerifiedAcceptedAutoBinding(managed, definition, workflow, {
+  acceptedBinding = await readVerifiedAcceptedAutoBinding(managed, definition, workflow, {
     flightId: record.flightId, planId: record.planId, planSha256: record.planSha256,
     story: { workId: record.story.workId }
   });
+  recoveryAuthority = assertAutoCheckpointAcceptedBinding(
+    record, acceptedBinding.acceptedPlan
+  );
   let freezeRecovery = null;
   if (record.candidateBinding) {
     await restoreAutoCandidateAuthority(
       managed, record.candidateBinding, record.candidateVerification, {
-        remote: record.repositories?.[0]?.remote ?? 'origin'
+        remote: recoveryAuthority.repositories[0].remote
       }
     );
     // A provider can fail or be cancelled after writing but before successful authoring. That
@@ -592,7 +743,7 @@ export async function rebuildAutoFlightState(controlRoot, {
       flightId: record.flightId,
       phase: record.story.phase,
       baseCheckpointSha256: pointer.checkpointSha256,
-      remote: record.repositories?.[0]?.remote ?? 'origin'
+      remote: recoveryAuthority.repositories[0].remote
     });
     if (freezeRecovery) {
       const phase = workflow.phases?.[record.story.phase];
@@ -629,19 +780,29 @@ export async function rebuildAutoFlightState(controlRoot, {
     const active = workflow.phases?.[workflow.currentPhase] ?? workflow.phases?.[record.story.phase];
     await activatePhaseAgent(managed, definition, record.story.workId, active);
   }
+  // Restore every disposable authority sidecar before creating local flight state. A malformed
+  // governed snapshot must remain retryable after correction and must never strand a partial
+  // AUTO_FLIGHT_CONFLICT that masks the original recovery failure.
+  await restoreAutoP1Records(controlRoot, flightId, record.lineage);
+  await restoreAutoContractRecords(
+    controlRoot,
+    record.phaseContracts,
+    record.evidence?.autoExecutionEvents ?? []
+  );
+  if (record.finalReport) await restoreAutoFlightReport(controlRoot, record.finalReport);
   const created = await createAutoFlightState(controlRoot, {
     flightId: record.flightId, planId: record.planId, planSha256: record.planSha256,
-    capabilityId: record.capabilityId,
+    capabilityId: recoveryAuthority.capabilityId,
     status: record.status,
     story: {
       workId: record.story.workId, branch: record.story.branch,
       phase: record.story.phase, revision: pointer.commit
     },
     worktree: managed,
-    scopePrediction: record.scopePrediction,
+    scopePrediction: recoveryAuthority.scopePrediction,
     configuration: record.configuration,
-    repositories: record.repositories,
-    execution: record.execution,
+    repositories: recoveryAuthority.repositories,
+    execution: recoveryAuthority.execution,
     position: record.position,
     stopReason: 'governed-checkpoint-rebuilt',
     nextAction: record.status === 'completed'
@@ -710,8 +871,6 @@ export async function rebuildAutoFlightState(controlRoot, {
       }
     }
   }, { expectedCheckpoint: created.checkpointSha256 });
-  await restoreAutoP1Records(controlRoot, flightId, record.lineage);
-  if (record.finalReport) await restoreAutoFlightReport(controlRoot, record.finalReport);
   try {
     // Never bless an arbitrary remote branch tail as the new checkpoint. The ordinary
     // continuation verifier accepts only the same exact revision or a machine-legal, governed

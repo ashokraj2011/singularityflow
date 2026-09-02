@@ -15,6 +15,11 @@ function flightCard(projection) {
     candidateSha256: flight.candidate.candidateSha256 ?? null
   } : null;
   const cards = [];
+  const ceilings = flight.execution?.ceilings ?? {};
+  const providerInputTokens = projection.economics.length > 0
+    && projection.economics.every((entry) => Number.isSafeInteger(entry.input?.providerTokens))
+    ? projection.economics.reduce((total, entry) => total + entry.input.providerTokens, 0)
+    : null;
   cards.push({
     kind: flight.status === 'running' ? 'running'
       : flight.status === 'manual-takeover' ? 'takeover' : 'status',
@@ -22,6 +27,23 @@ function flightCard(projection) {
     status: flight.status, position: flight.position,
     story: flight.story, checkpointSha256: flight.checkpointSha256,
     executionUnit: flight.executionUnit ?? null, candidate,
+    progress: {
+      phasesCompleted: flight.counters?.phasesCompleted ?? 0,
+      maximumPhases: ceilings.maximumPhases ?? null,
+      phaseRuns: projection.phaseRuns.length,
+      currentAttempt: current.attempt?.attemptNumber ?? null,
+      currentAttemptStatus: current.attempt?.status ?? null,
+      maximumAttemptsPerPhase: ceilings.maximumAuthoringAttemptsPerPhase ?? null
+    },
+    budget: {
+      touchedPaths: flight.counters?.touchedPaths ?? 0,
+      maximumTouchedPaths: ceilings.maximumTouchedPaths ?? null,
+      modelInvocations: flight.counters?.modelInvocations ?? 0,
+      maximumModelInvocations: ceilings.maximumModelInvocations ?? null,
+      providerInputTokens,
+      maximumInputTokens: ceilings.tokenBudget?.maximum ?? null,
+      tokenAssurance: providerInputTokens == null ? 'unavailable' : 'provider-reported'
+    },
     stopReason: flight.stopReason, nextAction: flight.nextAction
   });
   if (current.refusal) cards.push({
@@ -48,6 +70,12 @@ function planReviewCard(plan, packet) {
   return {
     kind: 'plan', mode: 'auto', planId: plan.planId, planSha256: plan.planSha256,
     packetSha256: packet.packetSha256, story: structuredClone(plan.story),
+    title: plan.proposal?.title ?? null,
+    requirement: plan.requirement?.text ?? null,
+    inferences: {
+      assumptions: [...(plan.proposal?.assumptions ?? [])],
+      unresolvedDecisions: [...(plan.proposal?.unresolvedDecisions ?? [])]
+    },
     status: plan.safety?.startable ? 'startable' : 'review-required',
     phaseRail: [...(plan.story?.phaseRail ?? [])],
     scope: {
@@ -63,6 +91,12 @@ function planReviewCard(plan, packet) {
       acceptanceCriteria: [...(packet.evidence ?? [])]
     },
     ceilings: structuredClone(plan.execution?.ceilings ?? {}),
+    execution: {
+      profile: plan.execution?.profile?.resolved ?? 'story',
+      pace: plan.execution?.pace?.source ?? plan.execution?.pace?.mode ?? null,
+      until: plan.execution?.until?.source ?? plan.execution?.until?.kind ?? null,
+      executionUnit: plan.executionHost?.id ?? null
+    },
     humanStops: structuredClone(plan.humanBoundaries?.stopPoints ?? []),
     capability: plan.capability == null ? null : structuredClone(plan.capability),
     repositories: structuredClone(plan.repositories ?? [])
@@ -113,7 +147,11 @@ export async function autoFlightRead({ operation, arguments: args = {}, subject 
   if (report) cards.push({
     kind: 'report', mode: 'auto', flightId: report.flightId, planId: report.planId,
     story: projection.flight.story, status: 'available', reportSha256: report.reportSha256,
-    candidate: report.candidate ?? null, report
+    candidate: report.candidate ?? null,
+    qualityFloor: report.qualityFloor ?? null,
+    outcomeMetrics: report.outcomeMetrics ?? null,
+    accounting: report.accounting ?? null,
+    report
   });
   return sflowResult({
     kind: 'read', operation: { id: operation.id, classification: 'read' },

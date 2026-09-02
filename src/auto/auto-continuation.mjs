@@ -48,12 +48,19 @@ export async function verifyAutoFlightContinuation(root, state) {
     state.worktree, definition, workflow, state
   );
   let plan;
-  try { plan = await readAutoPlan(root, state.planId); }
-  catch (error) {
-    // Machine-local Plans are disposable. A clone/crash recovery is authorized by the committed
-    // accepted Plan and ratification, not by recreating private bytes outside the Story.
-    if (error?.code !== 'AUTO_PLAN_NOT_FOUND') throw error;
+  if (binding.compatibility?.protocol === 'packet-v1-no-repair') {
+    // A stored v2 Plan cannot authorize a new flight, but its exact committed packet-v1
+    // ratification can resume this already-bound flight under the strictly reduced no-repair
+    // projection verified by auto-origin.
     plan = binding.acceptedPlan;
+  } else {
+    try { plan = await readAutoPlan(root, state.planId); }
+    catch (error) {
+      // Machine-local Plans are disposable. A clone/crash recovery is authorized by the committed
+      // accepted Plan and ratification, not by recreating private bytes outside the Story.
+      if (error?.code !== 'AUTO_PLAN_NOT_FOUND') throw error;
+      plan = binding.acceptedPlan;
+    }
   }
   if (plan.planSha256 !== state.planSha256) {
     throw new SingularityFlowError('The local Auto Plan no longer matches the flight.', {

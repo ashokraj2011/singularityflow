@@ -4,10 +4,15 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { validateAutoContractRecord } from '../src/auto/auto-contract-records.mjs';
 import { migrationRegistrySnapshot, readRecord } from '../src/schema-migrations.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixtureFile = path.join(root, 'test', 'fixtures', 'schema-migrations', 'goldens.json');
+const autoContractFamilies = new Set([
+  'auto-context-manifest', 'auto-agent-task-contract',
+  'auto-execution-selection', 'auto-execution-event'
+]);
 
 test('all-goldens-read-to-current', async () => {
   const bytes = await readFile(fixtureFile);
@@ -25,6 +30,11 @@ test('all-goldens-read-to-current', async () => {
       const source = JSON.stringify(record);
       const migrated = readRecord(family.id, source);
       assert.equal(migrated.record.schemaVersion, family.currentVersion, family.id);
+      if (autoContractFamilies.has(family.id)) {
+        assert.deepEqual(
+          validateAutoContractRecord(family.id, source), migrated.record, family.id
+        );
+      }
       assert.equal(source, JSON.stringify(record), `${family.id} source changed`);
     }
   }

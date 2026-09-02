@@ -251,11 +251,144 @@
   "ast-story-start-warm": [{ "schemaVersion": 1 }],
   "ast-derivation-manifest": [{ "schemaVersion": 1 }],
   "ast-gate-receipt": [{ "schemaVersion": 1 }, { "schemaVersion": 2 }, { "schemaVersion": 3, "derivation": { "replayability": "legacy-unreplayable", "reason": "artifact and exact-input derivation were not recorded" } }],
-  "auto-plan": [{ "schemaVersion": 2 }],
+  "auto-plan": [{
+    "schemaVersion": 2, "kind": "auto-plan", "mode": "auto",
+    "confirmation": { "protocol": "packet-v1" },
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "requirement": { "text": "Change report output.", "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "proposal": {
+      "title": "Change report output", "assumptions": [], "unresolvedDecisions": [],
+      "predictedPaths": ["src/report"], "acceptanceCriteria": ["AC-001"]
+    },
+    "story": { "workId": "AUT-LEGACY", "workType": "feature", "branch": "AUT-LEGACY", "phaseRail": ["implementation"] },
+    "execution": {
+      "pace": { "source": "phase" }, "until": { "source": "implementation" },
+      "ceilings": { "maximumPhases": 1 }, "eligibility": "bounded",
+      "repair": { "policy": "auto-on-machine-actionable", "maximumAttempts": 1 }
+    },
+    "humanBoundaries": { "firstPhaseClarificationRequired": false, "stopPoints": [] },
+    "scope": { "protectedPaths": [], "status": "bounded" },
+    "repositories": [{ "id": "example", "remote": "origin", "baseBranch": "main", "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+    "executionHost": {
+      "id": "copilot-cli", "modelTask": "implementation-authoring",
+      "modelAssurance": "configured-route", "capabilities": ["source-write"],
+      "writableRoots": ["managed-worktree"], "containment": { "managedWorktree": true },
+      "cancellation": true, "status": "available"
+    },
+    "bindings": {}, "safety": { "startable": true, "reasons": [] },
+    "createdAt": "2026-01-02T03:04:05.000Z", "expiresAt": "2026-01-02T04:04:05.000Z",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a"
+  }, {
+    "schemaVersion": 3, "kind": "auto-plan", "mode": "auto",
+    "confirmation": { "protocol": "packet-v1" },
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "requirement": { "text": "Change report output.", "sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "proposal": {
+      "title": "Change report output", "assumptions": [], "unresolvedDecisions": [],
+      "predictedPaths": ["src/report"], "acceptanceCriteria": ["AC-001"]
+    },
+    "story": { "workId": "AUT-LEGACY", "workType": "feature", "branch": "AUT-LEGACY", "phaseRail": ["implementation"] },
+    "execution": {
+      "pace": { "source": "phase" }, "until": { "source": "implementation" },
+      "ceilings": { "maximumPhases": 1 }, "eligibility": "bounded",
+      "repair": { "policy": "never", "maximumAttempts": 0 }
+    },
+    "humanBoundaries": { "firstPhaseClarificationRequired": false, "stopPoints": [] },
+    "scope": { "protectedPaths": [], "status": "bounded" },
+    "repositories": [{ "id": "example", "remote": "origin", "baseBranch": "main", "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }],
+    "executionHost": {
+      "id": "copilot-cli", "modelTask": "implementation-authoring",
+      "modelAssurance": "configured-route", "capabilities": ["source-write"],
+      "writableRoots": ["managed-worktree"], "containment": { "managedWorktree": true },
+      "cancellation": true, "status": "available"
+    },
+    "bindings": {}, "safety": { "startable": true, "reasons": [] },
+    "createdAt": "2026-01-02T03:04:05.000Z", "expiresAt": "2026-01-02T04:04:05.000Z",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+    "legacyCompatibility": {
+      "sourceSchemaVersion": 2, "confirmationProtocol": "packet-v1",
+      "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+      "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+      "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+      "repairPolicy": "never", "repairAttemptsPerPhase": 0
+    }
+  }],
   "auto-plan-validation": [{ "schemaVersion": 1 }],
-  "auto-plan-packet": [{ "schemaVersion": 1 }],
-  "auto-plan-ratification": [{ "schemaVersion": 2 }],
-  "auto-authorization": [{ "schemaVersion": 2 }],
+  "auto-plan-packet": [{ "schemaVersion": 2 }],
+  "auto-plan-ratification": [{
+    "schemaVersion": 2, "kind": "auto-plan-ratification", "mode": "auto",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+    "confirmationProtocol": "packet-v1",
+    "confirmedSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local", "ratifiedAt": "2026-01-02T03:04:06.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "authorizationSha256": "sha256:c05ccd46bce0874a143a5a562606df0d8106cbb5e5e1da52e7543ed8972eef98",
+    "pinnedAt": "2026-01-02T03:04:07.000Z",
+    "recordSha256": "597f2951713342e2d2fd53fa18108e9dfc2de0793ec17647b6bc85a9580e1e4f"
+  }, {
+    "schemaVersion": 3, "kind": "auto-plan-ratification", "mode": "auto",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+    "confirmationProtocol": "packet-v1",
+    "confirmedSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local", "ratifiedAt": "2026-01-02T03:04:06.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "authorizationSha256": "sha256:7942d86f138a7df66f1263912f0b932d488899c75d3baaf458c64586944f0ad3",
+    "pinnedAt": "2026-01-02T03:04:07.000Z",
+    "legacyCompatibility": {
+      "sourceSchemaVersion": 2, "confirmationProtocol": "packet-v1",
+      "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+      "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+      "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+      "repairPolicy": "never", "repairAttemptsPerPhase": 0
+    },
+    "recordSha256": "2225452abaa0dd0a2250b7a0889d14c2c5b2b2c5efbd6f1e8f662ed48e0ffb2e"
+  }],
+  "auto-authorization": [{
+    "schemaVersion": 2, "kind": "auto-plan-ratification", "mode": "auto",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+    "confirmationProtocol": "packet-v1",
+    "confirmedSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local", "ratifiedAt": "2026-01-02T03:04:06.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z", "claimedAt": null,
+    "claimExpiresAt": null, "claimId": null, "claimOwner": null,
+    "consumedAt": null, "flightId": null,
+    "authorizationSha256": "sha256:c05ccd46bce0874a143a5a562606df0d8106cbb5e5e1da52e7543ed8972eef98",
+    "recordSha256": "1a6fc1de899878fd7677bd7c5ec0c28132f912691ed66cea0556e16d3cb348cc"
+  }, {
+    "schemaVersion": 3, "kind": "auto-plan-ratification", "mode": "auto",
+    "planId": "APL-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+    "confirmationProtocol": "packet-v2",
+    "confirmedSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+    "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+    "actor": { "name": "Legacy Auto Tester", "email": "legacy@example.com", "login": null },
+    "identityAssurance": "configured-local", "ratifiedAt": "2026-01-02T03:04:06.000Z",
+    "expiresAt": "2026-01-02T04:04:05.000Z", "claimedAt": null,
+    "claimExpiresAt": null, "claimId": null, "claimOwner": null,
+    "consumedAt": null, "flightId": null,
+    "authorizationSha256": "sha256:a1a207684a01090b77df12cafd35025aaf8b44807cee3528b1f0a91830853b46",
+    "legacyCompatibility": {
+      "sourceSchemaVersion": 2, "confirmationProtocol": "packet-v1",
+      "planSha256": "sha256:08d42c85daa048adeb72368b4c1e4ee6f1101930d7b6b80bd3f280d0e576c17a",
+      "packetSha256": "sha256:1e963e92265e8f37612b5430b924669720e160c11403a6968fc64e96c96a9be9",
+      "validationSha256": "sha256:86f445d92e1edcea380239c0efd92de70c1e3c9e9d71db4db61de71f78a99644",
+      "repairPolicy": "never", "repairAttemptsPerPhase": 0
+    },
+    "recordSha256": "6e860ae9ea02bd7d6742411ec304825d44166b44fd5c99f5f8f361a5c85c6f86"
+  }],
   "auto-origin": [{ "schemaVersion": 1 }],
   "auto-flight-state": [
     {
@@ -326,6 +459,96 @@
     }
   ],
   "auto-step-result": [{ "schemaVersion": 1 }],
+  "auto-context-manifest": [{
+    "kind": "auto-context-manifest",
+    "mode": "auto",
+    "contextManifestId": "ACM-78E1ED054296476C635004E695",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "phase": "implementation",
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "sections": [{
+      "id": "acceptance-clauses",
+      "sourceRef": "sfref:auto-plan/APL-EXAMPLE/acceptance",
+      "contentSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "representation": "full",
+      "estimatedTokens": 12,
+      "mandatory": true
+    }],
+    "omitted": [{ "id": "world-model", "reason": "not-required" }],
+    "expansionPolicySha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "budgetSha256": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "schemaVersion": 1,
+    "manifestSha256": "sha256:08ca5f0354aeb15586b46100e924c4211a856598fdba064a7277f6a95ad46f3d"
+  }],
+  "auto-agent-task-contract": [{
+    "kind": "auto-agent-task-contract",
+    "mode": "auto",
+    "taskContractId": "ATC-78E1ED054296476C635004E695",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "phase": "implementation",
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "objective": "Implement the ratified acceptance clauses.",
+    "acceptanceClauses": ["AC-001"],
+    "readScope": ["src/report/**", "test/report/**"],
+    "writeScope": ["src/report/**", "test/report/**"],
+    "protectedScope": ["src/security/**"],
+    "forbiddenScope": ["singularity/**"],
+    "allowedTools": ["read", "edit", "search"],
+    "requiredOutputs": ["source changes", "tests"],
+    "requiredEvidence": ["affected tests"],
+    "budgets": {
+      "maximumTouchedPaths": 20,
+      "maximumTouchedChanges": 40,
+      "maximumModelInvocations": 2,
+      "maximumTotalTokens": 30000,
+      "tokenAssurance": "best-available"
+    },
+    "stopConditions": ["protected-path", "scope-expansion"],
+    "schemaVersion": 1,
+    "contractSha256": "sha256:02e500bec6f6b75f989811b40dcbee096f1055a453feff987835cb5188610414"
+  }],
+  "auto-execution-selection": [{
+    "kind": "auto-execution-selection",
+    "mode": "auto",
+    "selectionId": "AES-78E1ED054296476C635004E695",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "phase": "implementation",
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "executionUnitId": "copilot-cli",
+    "manifestSha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "reason": "approved-default-for-implementation",
+    "schemaVersion": 1,
+    "selectionSha256": "sha256:3353e864b97ca78a14b1120f8524755c8c7a0240a94ea430e8255685300f22c7"
+  }],
+  "auto-execution-event": [{
+    "kind": "auto-execution-event",
+    "mode": "auto",
+    "eventId": "AEV-A0FAC7DF80080C79FDA1303CF2",
+    "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "phase": "implementation",
+    "createdAt": "2026-01-02T03:04:05.000Z",
+    "sequence": 1,
+    "eventType": "execution.started",
+    "executionSelectionSha256": "sha256:3353e864b97ca78a14b1120f8524755c8c7a0240a94ea430e8255685300f22c7",
+    "taskContractSha256": "sha256:02e500bec6f6b75f989811b40dcbee096f1055a453feff987835cb5188610414",
+    "observation": {
+      "status": "started",
+      "invocationId": null,
+      "code": null,
+      "usageSha256": null
+    },
+    "rawEvidence": {
+      "status": "unavailable",
+      "sha256": null,
+      "reason": "adapter exposes no raw provider events"
+    },
+    "schemaVersion": 1,
+    "eventSha256": "sha256:d0ad9ab3439abee38a4f1d2fdaf65e36ff76c8ae584f2014abb1de3ef393d66c"
+  }],
   "auto-phase-run": [{
     "kind": "auto-phase-run", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
     "phase": "implementation", "status": "planned", "attemptIds": [], "activeAttemptId": null,
@@ -435,6 +658,17 @@
     "status": "open", "response": null, "createdAt": "2026-01-02T03:04:05.000Z",
     "expiresAt": null, "requestId": "AHR-8C9ECF0FA98AD320C79D03E9C2", "schemaVersion": 2,
     "requestSha256": "sha256:9573bd4db3bb3a0fd739259f427a1ff251c7b420f095bcfbbf9610418ad89a43"
+  }, {
+    "kind": "auto-human-request", "mode": "auto", "flightId": "AFL-AAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "phase": "implementation", "attemptId": "AAT-BBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "requestType": "clarification", "title": "Choose behavior",
+    "detail": { "question": "Which behavior?" }, "options": [{ "id": "one", "label": "One" }],
+    "subjectSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "policySha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "checkpointSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "status": "open", "response": null, "createdAt": "2026-01-02T03:04:05.000Z",
+    "expiresAt": null, "requestId": "AHR-8C9ECF0FA98AD320C79D03E9C2", "schemaVersion": 3,
+    "requestSha256": "sha256:c349e80a82900fc76d601873210d83917d8c58893d05398b55636dc626da1b16"
   }],
   "auto-token-economics-receipt": [{
     "kind": "auto-token-economics-receipt", "mode": "auto",
@@ -519,6 +753,20 @@
       "outputBytes": 0
     }], "candidateTreeUnchanged": true, "verifiedAt": "2026-01-02T03:04:05.000Z",
     "verificationReceiptSha256": "sha256:c9878489a92a008fcc583ce3c51d8663f68eaa27f06192838ccd8c3d260745c5"
+  }, {
+    "schemaVersion": 2, "integrityVersion": 2, "kind": "auto-candidate-verification",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC",
+    "candidateId": "CAN-82D1478DA8EC29CB8ABD6483B7",
+    "candidateSha256": "sha256:22bc978ef86787b46f0f332331f69092bc0dbd2039849b1acf0ad500f581f349",
+    "bindingSha256": "sha256:388cab2df164a399ce150a203c8deceb185594a3892d68db8f36e7ba92127b25",
+    "status": "passed", "commands": [{
+      "id": "node-check", "argvSha256": "sha256:e074b4819799f364e9c7ae33060f2484d00a8e37013afa90c0e9cab1054afe1f",
+      "workingDirectory": ".", "status": 0, "signal": null, "timedOut": false,
+      "overflow": false, "outputSha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "outputBytes": 0
+    }], "repairEvidence": [], "candidateTreeUnchanged": true,
+    "verifiedAt": "2026-01-02T03:04:05.000Z",
+    "verificationReceiptSha256": "sha256:18103c2292529ce6878b7ccb573eac042e22e36238cd7783d78c8516c560f4dd"
   }],
   "auto-boundary-checkpoint": [{
     "schemaVersion": 1, "kind": "auto-boundary-checkpoint", "mode": "auto",
@@ -600,5 +848,61 @@
       "activeMilliseconds": 0, "elapsedMilliseconds": 0, "cost": { "assurance": "unavailable", "amount": null } },
     "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
     "reportSha256": "sha256:a708a14914c371e1b014d44d92da2483c88bbf2d87bf00cc8198dc5207797d29"
+  }, {
+    "schemaVersion": 3, "integrityVersion": 3, "sourceSchemaVersion": 2,
+    "kind": "auto-flight-report", "mode": "auto",
+    "flightId": "AFL-CCCCCCCCCCCCCCCCCCCCCCCCCC", "planId": "APL-DDDDDDDDDDDDDDDDDDDDDDDDDD",
+    "planSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "status": "paused", "stopReason": "fixture", "nextAction": "Review", "position": "story-created",
+    "story": { "workId": null, "branch": null, "phase": null, "workType": null, "phaseRail": [] },
+    "intent": {
+      "source": "unavailable", "requirement": { "text": null, "sha256": null },
+      "inferences": { "title": null, "assumptions": [], "unresolvedDecisions": [], "predictedPaths": [], "acceptanceCriteria": [] }
+    },
+    "executionUnits": { "planned": null, "current": null, "currentManifestSha256": null, "switches": [] },
+    "configuration": null, "repositories": [], "operations": [], "commits": {}, "evidence": {},
+    "candidate": null, "worldModelReference": null, "comprehensionReference": null,
+    "lineage": {
+      "auto-phase-run": [], "auto-attempt": [], "auto-refusal": [],
+      "auto-repair-plan": [], "auto-human-request": [],
+      "auto-token-economics-receipt": [], "auto-execution-unit-switch": []
+    },
+    "approvalSource": "flight-checkpoint",
+    "phaseContracts": {}, "boundaryCheckpoints": [], "boundaryCheckpoint": null,
+    "lastSuccessfulStoryRevision": "172f1f90e9966d3d9c89e8418b75d0df3afe5209",
+    "retainedUnpublishedPaths": [], "authorityTarget": null, "quality": [],
+    "qualityFloor": {
+      "status": "unavailable", "basis": "observed-task-outcomes",
+      "tokenSavingComparison": "not-evaluated", "reasons": ["no-economics-receipts"],
+      "firstPassVerified": 0, "verifiedAfterRepair": 0, "reviewReturns": 0,
+      "missingContextIncidents": 0
+    },
+    "outcomeMetrics": {
+      "protocol": "auto-outcome-metrics-v1", "scope": "flight", "contentFree": true,
+      "flightCount": 1, "phaseRuns": 0, "attempts": 0, "repairAttempts": 0,
+      "refusals": 0, "humanRequests": 0, "executionUnitSwitches": 0,
+      "verifiedOutcomes": 0, "firstPassVerifiedOutcomes": 0, "manualTakeover": false,
+      "haltReason": "fixture", "latencyToFirstVerifiedOutcomeMilliseconds": null,
+      "contextExpansions": 0, "fullContextFallbacks": 0
+    },
+    "approvals": [],
+    "humanIntervention": { "required": false, "reason": null, "requested": null }, "lastError": null,
+    "counters": { "modelInvocations": 0, "authoringAttempts": {}, "phasesCompleted": 0,
+      "touchedPaths": 0, "touchedChanges": 0, "totalTokens": 0, "activeMilliseconds": 0 },
+    "scope": { "predicted": { "status": "predicted", "paths": ["src/"] },
+      "observed": { "status": "unavailable", "paths": [] } },
+    "accounting": {
+      "tokens": { "assurance": "unavailable", "totalTokens": null },
+      "observations": { "receipts": 0, "pending": 0, "passed": 0, "failed": 0,
+        "promptBytes": null, "estimatedInputTokens": null, "providerInputTokens": null,
+        "cachedTokens": null, "estimatedOutputTokens": null, "providerOutputTokens": null,
+        "toolOutput": { "assurance": "unavailable", "observedBytes": null,
+          "estimatedTokens": null, "providerTokens": null } },
+      "cost": { "assurance": "unavailable", "amount": null },
+      "activeMilliseconds": 0, "elapsedMilliseconds": 0
+    },
+    "checkpointSha256": "sha256:18ae89d45127f8e3917ba3dca4c77260b3140d212276b7326a7fc3b26b852374",
+    "reportSha256": "sha256:a708a14914c371e1b014d44d92da2483c88bbf2d87bf00cc8198dc5207797d29",
+    "projectionSha256": "sha256:c38fa14df1fdcf907e95ea6b56338b3a1805e2b6b8f189c73c7f34e61a88622c"
   }]
 }

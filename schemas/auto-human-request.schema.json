@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-human-request.schema.json",
-  "title": "Singularity Flow Auto Human Request v2",
+  "title": "Singularity Flow Auto Human Request v3",
   "type": "object",
   "required": ["schemaVersion", "kind", "mode", "flightId", "phase", "attemptId", "requestType", "title", "detail", "options", "subjectSha256", "policySha256", "checkpointSha256", "status", "response", "createdAt", "expiresAt", "requestId", "requestSha256"],
   "properties": {
-    "schemaVersion": { "const": 2 }, "kind": { "const": "auto-human-request" }, "mode": { "const": "auto" },
+    "schemaVersion": { "const": 3 }, "kind": { "const": "auto-human-request" }, "mode": { "const": "auto" },
     "flightId": { "$ref": "#/$defs/flightId" }, "phase": { "$ref": "#/$defs/nonempty" },
     "attemptId": { "oneOf": [{ "$ref": "#/$defs/attemptId" }, { "type": "null" }] },
-    "requestType": { "enum": ["clarification", "credential", "architecture-choice"] }, "title": { "$ref": "#/$defs/nonempty" },
+    "requestType": { "enum": ["clarification", "approval", "architecture-choice", "scope-choice", "credential", "exception", "risk-acceptance", "policy-choice", "conflict-resolution", "evidence-review", "production-authority", "legal-judgment", "scientific-judgment"] }, "title": { "$ref": "#/$defs/nonempty" },
     "detail": { "type": "object" },
     "options": { "type": "array", "items": { "$ref": "#/$defs/option" } },
     "subjectSha256": { "$ref": "#/$defs/hash" }, "policySha256": { "$ref": "#/$defs/hash" }, "checkpointSha256": { "$ref": "#/$defs/hash" },
@@ -41,11 +41,11 @@
       }
     },
     {
-      "if": { "properties": { "requestType": { "const": "architecture-choice" } }, "required": ["requestType"] },
+      "if": { "properties": { "requestType": { "enum": ["approval", "architecture-choice", "scope-choice", "exception", "risk-acceptance", "policy-choice", "conflict-resolution", "evidence-review", "production-authority", "legal-judgment", "scientific-judgment"] } }, "required": ["requestType"] },
       "then": {
         "properties": {
-          "detail": { "$ref": "#/$defs/architectureDetail" }, "options": { "minItems": 2 },
-          "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/architectureResponse" }] }
+          "detail": { "$ref": "#/$defs/choiceDetail" }, "options": { "minItems": 2 },
+          "response": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/choiceResponse" }] }
         }
       }
     }
@@ -76,7 +76,7 @@
     "credentialDetail": {
       "type": "object", "required": ["provider"], "properties": { "provider": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false
     },
-    "architectureDetail": {
+    "choiceDetail": {
       "type": "object", "required": ["reason"], "properties": { "reason": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false
     },
     "response": {
@@ -96,7 +96,7 @@
         { "properties": { "value": { "type": "object", "required": ["brokerReference"], "properties": { "brokerReference": { "type": "string", "minLength": 10, "maxLength": 256, "pattern": "^broker://[A-Za-z0-9][A-Za-z0-9._:-]*(?:/[A-Za-z0-9][A-Za-z0-9._:-]*)*$" }, "status": { "enum": ["available", "unavailable"] } }, "additionalProperties": false } } }
       ]
     },
-    "architectureResponse": {
+    "choiceResponse": {
       "allOf": [
         { "$ref": "#/$defs/response" },
         { "properties": { "value": { "type": "object", "required": ["choice"], "properties": { "choice": { "$ref": "#/$defs/nonempty" } }, "additionalProperties": false } } }

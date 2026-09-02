@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-plan-ratification.schema.json",
-  "title": "Singularity Flow Auto Plan ratification v2",
+  "title": "Singularity Flow Auto Plan ratification v3",
   "type": "object",
   "required": ["schemaVersion", "kind", "mode", "planId", "planSha256", "confirmationProtocol", "confirmedSha256", "packetSha256", "validationSha256", "actor", "identityAssurance", "ratifiedAt", "expiresAt", "authorizationSha256"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "kind": { "const": "auto-plan-ratification" },
     "mode": { "const": "auto" },
     "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
     "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
     "planSha256": { "$ref": "#/$defs/hash" },
-    "confirmationProtocol": { "const": "packet-v1" },
+    "confirmationProtocol": { "enum": ["packet-v1", "packet-v2"] },
     "confirmedSha256": { "$ref": "#/$defs/hash" },
     "packetSha256": { "$ref": "#/$defs/hash" },
     "validationSha256": { "$ref": "#/$defs/hash" },
@@ -21,8 +21,32 @@
     "expiresAt": { "type": "string", "format": "date-time" },
     "authorizationSha256": { "$ref": "#/$defs/hash" },
     "pinnedAt": { "type": "string", "format": "date-time" },
-    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    "recordSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "legacyCompatibility": { "$ref": "#/$defs/legacyCompatibility" }
   },
-  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "allOf": [{
+    "if": {
+      "properties": { "confirmationProtocol": { "const": "packet-v1" } },
+      "required": ["confirmationProtocol"]
+    },
+    "then": { "required": ["legacyCompatibility"] }
+  }],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "legacyCompatibility": {
+      "type": "object",
+      "required": ["sourceSchemaVersion", "confirmationProtocol", "planSha256", "packetSha256", "validationSha256", "repairPolicy", "repairAttemptsPerPhase"],
+      "properties": {
+        "sourceSchemaVersion": { "const": 2 },
+        "confirmationProtocol": { "const": "packet-v1" },
+        "planSha256": { "$ref": "#/$defs/hash" },
+        "packetSha256": { "$ref": "#/$defs/hash" },
+        "validationSha256": { "$ref": "#/$defs/hash" },
+        "repairPolicy": { "const": "never" },
+        "repairAttemptsPerPhase": { "const": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": false
 }

@@ -16,6 +16,7 @@ const planValue = {
   execution: {
     profile: { requested: 'story', resolved: 'story', selectionReason: 'explicit' },
     pace: { source: 'phase' }, until: { source: 'first-human-boundary' },
+    repair: { policy: 'auto-on-machine-actionable', maximumAttempts: 1 },
     ceilings: { maximumTouchedPaths: 8 }, eligibility: 'bounded'
   },
   executionHost: { id: 'copilot-cli', containment: { managedWorktree: true } },
@@ -34,8 +35,11 @@ test('Auto Plan validation and ratification packet are deterministic exact-hash 
   assert.match(packet.packetSha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(buildAutoPlanValidation(plan), validation);
   assert.deepEqual(buildAutoPlanPacket(plan), packet);
+  assert.equal(packet.schemaVersion, 2);
   assert.equal(packet.planSha256, plan.planSha256);
   assert.equal(packet.execution.profile, 'story');
+  assert.equal(packet.execution.repairPolicy, 'auto-on-machine-actionable');
+  assert.equal(packet.execution.repairAttemptsPerPhase, 1);
 });
 
 test('unresolved Plan decisions become an explicit needs-human validation', () => {

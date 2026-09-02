@@ -21,6 +21,8 @@
         "modelInvocations": { "$ref": "#/$defs/counter" }, "repairAttempts": { "$ref": "#/$defs/counter" },
         "maximumRepairAttempts": { "$ref": "#/$defs/counter" }, "routeChanges": { "$ref": "#/$defs/counter" },
         "tokens": { "$ref": "#/$defs/counter" }, "toolOutputTokens": { "$ref": "#/$defs/counter" },
+        "toolOutputBytes": { "$ref": "#/$defs/counter" },
+        "estimatedToolOutputTokens": { "$ref": "#/$defs/counter" },
         "contextExpansions": { "$ref": "#/$defs/counter" }, "fullContextFallbacks": { "$ref": "#/$defs/counter" }
       },
       "additionalProperties": false

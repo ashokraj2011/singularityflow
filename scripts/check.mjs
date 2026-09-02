@@ -15,7 +15,7 @@ import { BOOLEAN_OPTIONS } from '../src/util.mjs';
 import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
-import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import {
   ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
@@ -456,9 +456,9 @@ function validateAutoAuthorizationSchema(schema, schemaFile) {
   const confirmationFields = [
     'confirmationProtocol', 'confirmedSha256', 'packetSha256', 'validationSha256'
   ];
-  if (schema.properties?.confirmationProtocol?.const !== 'packet-v1'
+  if (schema.properties?.confirmationProtocol?.const !== 'packet-v2'
       || !confirmationFields.every((field) => schema.required?.includes(field))) {
-    fail(`${schemaFile}: packet-v1 must require the complete confirmation digest set`);
+    fail(`${schemaFile}: packet-v2 must require the complete confirmation digest set`);
   }
   const activeClaimRule = (schema.allOf ?? []).find((entry) => (
     entry.if?.properties?.claimedAt?.type === 'string'
@@ -652,6 +652,38 @@ function validateWorldModelContractSchema(schema, schemaFile) {
   }
 }
 
+const durableRecordFamilies = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
+const fullyCompiledAutoSchemas = new Set([
+  'auto-context-manifest', 'auto-agent-task-contract',
+  'auto-execution-selection', 'auto-execution-event', 'auto-flight-report'
+]);
+
+/** Keep every durable Auto schema closed and pinned to the same version as its reader/writer. */
+function validateAutoDurableContractSchema(schema, schemaFile) {
+  const kind = schema.properties?.kind?.const;
+  if (typeof kind !== 'string' || !durableRecordFamilies.has(kind)) return;
+  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
+    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
+  }
+  if (schema.type !== 'object' || schema.additionalProperties !== false) {
+    fail(`${schemaFile}: durable Auto records must use a closed top-level object schema`);
+  }
+  if (!schema.required?.includes('schemaVersion') || !schema.required?.includes('kind')) {
+    fail(`${schemaFile}: durable Auto records must require schemaVersion and kind`);
+  }
+  for (const required of schema.required ?? []) {
+    if (!Object.hasOwn(schema.properties ?? {}, required)) {
+      fail(`${schemaFile}: requires undeclared property '${required}'`);
+    }
+  }
+  const current = currentSchemaVersion(kind);
+  if (schema.properties?.schemaVersion?.const !== current) {
+    fail(`${schemaFile}: schemaVersion must equal migration-registry version ${current}`);
+  }
+  validateLocalSchemaReferences(schema, schemaFile);
+  if (fullyCompiledAutoSchemas.has(kind)) compileWorldModelSchemaGraph(schema, schemaFile);
+}
+
 const baselineSchemaFiles = [
   'schemas/config.schema.json',
   'schemas/workflow.schema.json',
@@ -691,6 +723,10 @@ const baselineSchemaFiles = [
   'schemas/auto-flight-state.schema.json',
   'schemas/auto-origin.schema.json',
   'schemas/auto-step-result.schema.json',
+  'schemas/auto-context-manifest.schema.json',
+  'schemas/auto-agent-task-contract.schema.json',
+  'schemas/auto-execution-selection.schema.json',
+  'schemas/auto-execution-event.schema.json',
   'schemas/auto-candidate-binding.schema.json',
   'schemas/auto-candidate-verification.schema.json',
   'schemas/auto-boundary-checkpoint.schema.json',
@@ -713,6 +749,9 @@ for (const schemaFile of [...new Set([...baselineSchemaFiles, ...worldModelSchem
   if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
   if (schemaFile === 'schemas/auto-authorization.schema.json') {
     validateAutoAuthorizationSchema(schema, schemaFile);
+  }
+  if (schemaFile.startsWith('schemas/auto-')) {
+    validateAutoDurableContractSchema(schema, schemaFile);
   }
   if (schemaFile === 'schemas/release-platform-evidence.schema.json'
       && schema.properties?.checks?.properties?.exactPackageLocalStart

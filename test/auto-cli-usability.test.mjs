@@ -41,6 +41,9 @@ test('Auto shorthand and compatibility commands have exact registry classificati
 
   assert.equal(operation(['auto', 'Add CSV export']).id, 'auto.plan');
   assert.equal(operation(['auto', 'Add CSV export']).modelPolicy, 'required');
+  assert.equal(operation(['auto', 'plan'], { story: 'STORY-142' }).id, 'auto.plan.story');
+  assert.equal(operation(['auto', 'plan'], { story: 'STORY-142' }).modelPolicy, 'never');
+  assert.equal(operation(['auto'], { story: 'STORY-142' }).id, 'auto.plan.story');
   assert.equal(operation(['auto', 'planning']).id, 'auto.plan');
   assert.equal(operation(['auto', 'reporting']).id, 'auto.plan');
   assert.equal(operation(['auto', 'list']).classification, 'read');

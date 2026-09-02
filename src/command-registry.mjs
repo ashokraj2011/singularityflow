@@ -615,7 +615,8 @@ function resolveReturnOperation(definition, options) {
 }
 
 function resolveAutoOperation(definition, positionals, options = {}) {
-  const token = positionals[1] ?? (optionString(options, 'goal') ? 'plan' : 'status');
+  const token = positionals[1]
+    ?? (optionString(options, 'goal') || optionString(options, 'story') ? 'plan' : 'status');
   // A token outside the closed subcommand vocabulary is the documented shorthand requirement.
   // A near spelling of a control verb is a typo, not a requirement that may consume a model call.
   const nearest = nearestNames(token, AUTO_SUBCOMMANDS, { limit: 1 })[0] ?? null;
@@ -624,6 +625,9 @@ function resolveAutoOperation(definition, positionals, options = {}) {
     return unknownSubcommand('auto', token, AUTO_SUBCOMMANDS);
   }
   const subcommand = AUTO_SUBCOMMANDS.includes(token) ? token : 'plan';
+  if (subcommand === 'plan' && optionString(options, 'story')) {
+    return never('auto.plan.story', definition, 'read');
+  }
   if (subcommand === 'plan' || subcommand === 'flight-step') return required(`auto.${subcommand}`);
   if (subcommand === 'repair' && optionString(options, 'confirm') == null) {
     return never('auto.repair.plan', definition, 'read');
@@ -1089,6 +1093,7 @@ export function operationCatalog() {
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
     required('auto.plan'),
+    never('auto.plan.story', autoDefinition, 'read'),
     required('auto.flight-step'),
     required('auto.repair'),
     never('auto.repair.plan', autoDefinition, 'read'),

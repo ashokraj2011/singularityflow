@@ -54,6 +54,33 @@ test('one explicit mutation plus its exact watcher echo produces one snapshot an
   assert.equal(renders, 1, 'loading is ignored and the relevant snapshot renders once');
 });
 
+test('a Git-common Auto event is never hidden by a tracked-repository echo fence', async () => {
+  const before = snapshot('before', { repository: 'r1', lifecycle: 'l1' });
+  const after = snapshot('after', { repository: 'r2', lifecycle: 'l2' });
+  const fence = new RevisionSliceWatcherFence(() => root);
+  const privateState = '/workspace/repository.git/singularity-flow/auto-flights/AFL-PRIVATE/state.json';
+
+  const observed = fence.observe(privateState, 'auto-private');
+  assert.equal(observed.origin, 'auto-private');
+  assert.deepEqual(observed.candidateSlices, ['repository'],
+    'an out-of-worktree path retains the conservative slice classification');
+  const explicitBatch = fence.capture();
+  assert.equal(fence.matchesExplicitRefresh(explicitBatch, before, after), false,
+    'a simultaneous Git revision cannot prove that private Auto bytes were incorporated');
+
+  // Establish the exact delayed Git echo which would ordinarily suppress another repository event.
+  let current = before;
+  await fence.reconcileExplicitRefresh(() => current, async () => { current = after; });
+  fence.observe(privateState, 'auto-private');
+  const delayedBatch = fence.capture();
+  let probes = 0;
+  assert.equal(await fence.matchesDelayedEcho(delayedBatch, async () => {
+    probes += 1;
+    return after.revision;
+  }), false);
+  assert.equal(probes, 0, 'a repository probe is not purchased for bytes it cannot observe');
+});
+
 test('a delayed exact watcher echo uses one lightweight revision probe and no second full refresh', async () => {
   const before = snapshot('before', { repository: 'r1', lifecycle: 'l1' });
   const after = snapshot('after', { repository: 'r2', lifecycle: 'l2' });

@@ -1,11 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-flight-report.schema.json",
-  "title": "Singularity Flow deterministic Auto flight report v2",
+  "title": "Singularity Flow deterministic Auto flight report v3",
   "type": "object",
-  "required": ["schemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "stopReason", "nextAction", "position", "configuration", "repositories", "operations", "commits", "evidence", "candidate", "worldModelReference", "comprehensionReference", "lineage", "approvalSource", "phaseContracts", "boundaryCheckpoints", "boundaryCheckpoint", "lastSuccessfulStoryRevision", "retainedUnpublishedPaths", "authorityTarget", "quality", "approvals", "humanIntervention", "lastError", "counters", "scope", "accounting", "checkpointSha256", "reportSha256"],
+  "required": ["schemaVersion", "integrityVersion", "sourceSchemaVersion", "kind", "mode", "flightId", "planId", "planSha256", "status", "stopReason", "nextAction", "position", "story", "intent", "executionUnits", "configuration", "repositories", "operations", "commits", "evidence", "candidate", "worldModelReference", "comprehensionReference", "lineage", "approvalSource", "phaseContracts", "boundaryCheckpoints", "boundaryCheckpoint", "lastSuccessfulStoryRevision", "retainedUnpublishedPaths", "authorityTarget", "quality", "qualityFloor", "outcomeMetrics", "approvals", "humanIntervention", "lastError", "counters", "scope", "accounting", "checkpointSha256", "reportSha256", "projectionSha256"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
+    "integrityVersion": { "const": 3 },
+    "sourceSchemaVersion": { "type": ["integer", "null"], "enum": [null, 1, 2] },
     "kind": { "const": "auto-flight-report" },
     "mode": { "const": "auto" },
     "flightId": { "type": "string" },
@@ -15,6 +17,47 @@
     "stopReason": { "type": "string" },
     "nextAction": { "type": "string" },
     "position": { "type": "string" },
+    "story": {
+      "type": "object",
+      "required": ["workId", "branch", "phase", "workType", "phaseRail"],
+      "properties": {
+        "workId": { "type": ["string", "null"] }, "branch": { "type": ["string", "null"] },
+        "phase": { "type": ["string", "null"] }, "workType": { "type": ["string", "null"] },
+        "phaseRail": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "intent": {
+      "type": "object",
+      "required": ["source", "requirement", "inferences"],
+      "properties": {
+        "source": { "enum": ["exact-auto-plan", "unavailable"] },
+        "requirement": { "type": "object" },
+        "inferences": {
+          "type": "object",
+          "required": ["title", "assumptions", "unresolvedDecisions", "predictedPaths", "acceptanceCriteria"],
+          "properties": {
+            "title": { "type": ["string", "null"] },
+            "assumptions": { "type": "array" },
+            "unresolvedDecisions": { "type": "array" },
+            "predictedPaths": { "type": "array" },
+            "acceptanceCriteria": { "type": "array" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "executionUnits": {
+      "type": "object",
+      "required": ["planned", "current", "currentManifestSha256", "switches"],
+      "properties": {
+        "planned": { "type": ["string", "null"] }, "current": { "type": ["string", "null"] },
+        "currentManifestSha256": { "type": ["string", "null"] },
+        "switches": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": false
+    },
     "configuration": { "type": ["object", "null"] },
     "repositories": { "type": "array" },
     "operations": { "type": "array" },
@@ -45,14 +88,108 @@
     "retainedUnpublishedPaths": { "type": "array" },
     "authorityTarget": { "type": ["object", "null"] },
     "quality": { "type": "array" },
+    "qualityFloor": {
+      "type": "object",
+      "required": ["status", "basis", "tokenSavingComparison", "reasons", "firstPassVerified", "verifiedAfterRepair", "reviewReturns", "missingContextIncidents"],
+      "properties": {
+        "status": { "enum": ["unavailable", "pending", "failed", "passed"] },
+        "basis": { "const": "observed-task-outcomes" },
+        "tokenSavingComparison": { "const": "not-evaluated" },
+        "reasons": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["no-economics-receipts", "verification-pending", "verification-failed", "review-returned", "missing-context-incident"] }
+        },
+        "firstPassVerified": { "$ref": "#/$defs/counter" },
+        "verifiedAfterRepair": { "$ref": "#/$defs/counter" },
+        "reviewReturns": { "$ref": "#/$defs/counter" },
+        "missingContextIncidents": { "$ref": "#/$defs/counter" }
+      },
+      "additionalProperties": false
+    },
+    "outcomeMetrics": {
+      "type": "object",
+      "required": ["protocol", "scope", "contentFree", "flightCount", "phaseRuns", "attempts", "repairAttempts", "refusals", "humanRequests", "executionUnitSwitches", "verifiedOutcomes", "firstPassVerifiedOutcomes", "manualTakeover", "haltReason", "latencyToFirstVerifiedOutcomeMilliseconds", "contextExpansions", "fullContextFallbacks"],
+      "properties": {
+        "protocol": { "const": "auto-outcome-metrics-v1" },
+        "scope": { "const": "flight" },
+        "contentFree": { "const": true },
+        "flightCount": { "const": 1 },
+        "phaseRuns": { "$ref": "#/$defs/counter" },
+        "attempts": { "$ref": "#/$defs/counter" },
+        "repairAttempts": { "$ref": "#/$defs/counter" },
+        "refusals": { "$ref": "#/$defs/counter" },
+        "humanRequests": { "$ref": "#/$defs/counter" },
+        "executionUnitSwitches": { "$ref": "#/$defs/counter" },
+        "verifiedOutcomes": { "$ref": "#/$defs/counter" },
+        "firstPassVerifiedOutcomes": { "$ref": "#/$defs/counter" },
+        "manualTakeover": { "type": "boolean" },
+        "haltReason": { "type": ["string", "null"] },
+        "latencyToFirstVerifiedOutcomeMilliseconds": { "$ref": "#/$defs/nullableCounter" },
+        "contextExpansions": { "$ref": "#/$defs/counter" },
+        "fullContextFallbacks": { "$ref": "#/$defs/counter" }
+      },
+      "additionalProperties": false
+    },
     "approvals": { "type": "array" },
     "humanIntervention": { "type": "object" },
     "lastError": { "type": ["object", "null"] },
     "counters": { "type": "object" },
     "scope": { "type": "object" },
-    "accounting": { "type": "object" },
+    "accounting": {
+      "type": "object",
+      "required": ["tokens", "observations", "cost", "activeMilliseconds", "elapsedMilliseconds"],
+      "properties": {
+        "tokens": {
+          "type": "object", "required": ["assurance", "totalTokens"],
+          "properties": {
+            "assurance": { "enum": ["exact", "unavailable"] },
+            "totalTokens": { "$ref": "#/$defs/nullableCounter" }
+          }, "additionalProperties": false
+        },
+        "observations": {
+          "type": "object",
+          "required": ["receipts", "pending", "passed", "failed", "promptBytes", "estimatedInputTokens", "providerInputTokens", "cachedTokens", "estimatedOutputTokens", "providerOutputTokens", "toolOutput"],
+          "properties": {
+            "receipts": { "$ref": "#/$defs/counter" },
+            "pending": { "$ref": "#/$defs/counter" },
+            "passed": { "$ref": "#/$defs/counter" },
+            "failed": { "$ref": "#/$defs/counter" },
+            "promptBytes": { "$ref": "#/$defs/nullableCounter" },
+            "estimatedInputTokens": { "$ref": "#/$defs/nullableCounter" },
+            "providerInputTokens": { "$ref": "#/$defs/nullableCounter" },
+            "cachedTokens": { "$ref": "#/$defs/nullableCounter" },
+            "estimatedOutputTokens": { "$ref": "#/$defs/nullableCounter" },
+            "providerOutputTokens": { "$ref": "#/$defs/nullableCounter" },
+            "toolOutput": {
+              "type": "object",
+              "required": ["assurance", "observedBytes", "estimatedTokens", "providerTokens"],
+              "properties": {
+                "assurance": { "enum": ["provider-reported", "estimated-bytes-per-token-4.0", "unavailable"] },
+                "observedBytes": { "$ref": "#/$defs/nullableCounter" },
+                "estimatedTokens": { "$ref": "#/$defs/nullableCounter" },
+                "providerTokens": { "$ref": "#/$defs/nullableCounter" }
+              }, "additionalProperties": false
+            }
+          }, "additionalProperties": false
+        },
+        "cost": {
+          "type": "object", "required": ["assurance", "amount"],
+          "properties": {
+            "assurance": { "enum": ["provider-reported", "unavailable"] },
+            "amount": { "type": ["number", "null"], "minimum": 0 }
+          }, "additionalProperties": false
+        },
+        "activeMilliseconds": { "$ref": "#/$defs/counter" },
+        "elapsedMilliseconds": { "$ref": "#/$defs/counter" }
+      }, "additionalProperties": false
+    },
     "checkpointSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "reportSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    "reportSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "projectionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "counter": { "type": "integer", "minimum": 0 },
+    "nullableCounter": { "type": ["integer", "null"], "minimum": 0 }
+  }
 }

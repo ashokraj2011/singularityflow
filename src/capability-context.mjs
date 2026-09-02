@@ -140,8 +140,16 @@ function normalizedRemote(value) {
 }
 
 function soleDelivery(definition) {
-  const rows = Object.keys(definition.capabilities)
-    .map((id) => ({ id, repositories: capabilityDeliveries(definition, id).flatMap((item) => item.repositories ?? []) }))
+  // Collection ancestors also return their descendant deliveries from `capabilityDeliveries`.
+  // Counting those ancestors made one real delivery look like three choices (enterprise, product,
+  // delivery), so automatic intake could never select the only approved delivery in a normal
+  // hierarchy. The selectable unit is the delivery node itself.
+  const rows = Object.entries(definition.capabilities ?? {})
+    .filter(([, capability]) => capability.kind === 'delivery')
+    .map(([id]) => ({
+      id,
+      repositories: capabilityDeliveries(definition, id).flatMap((item) => item.repositories ?? [])
+    }))
     .filter((entry) => entry.repositories.length);
   return rows.length === 1 ? rows[0].id : null;
 }
@@ -304,7 +312,16 @@ export async function resolveLifecycleCapability(root, {
         }
       );
     }
-    if (required || capabilityId) throw new SingularityFlowError(`No ${CAPABILITIES_PATH} is available for this repository or its active workspace.`);
+    if (required || capabilityId) throw new SingularityFlowError(
+      `No approved capability is available because ${CAPABILITIES_PATH} is absent for this repository and its active workspace.`,
+      {
+        code: 'CAPABILITY_REGISTRATION_REQUIRED',
+        details: {
+          mapPath: CAPABILITIES_PATH,
+          nextAction: 'Open People & approvals → Capabilities in VS Code, or run `singularity-flow capability map <lower-case-kebab-id> --repository <REPOSITORY-URL>`.'
+        }
+      }
+    );
     return null;
   }
 
@@ -342,7 +359,23 @@ export async function resolveLifecycleCapability(root, {
         }
       );
     }
-    if (required) throw new SingularityFlowError('This repository maps to more than one capability. Pass --capability <id>.');
+    if (required && deliveries.length > 1) throw new SingularityFlowError(
+      `This repository maps to more than one approved capability (${deliveries.join(', ')}). Select one with --capability <id>.`,
+      {
+        code: 'CAPABILITY_SELECTION_REQUIRED',
+        details: { capabilityIds: deliveries, option: '--capability <id>' }
+      }
+    );
+    if (required) throw new SingularityFlowError(
+      'No approved delivery capability maps this repository. Register and approve one before starting Auto work.',
+      {
+        code: 'CAPABILITY_REGISTRATION_REQUIRED',
+        details: {
+          capabilityIds: deliveries,
+          nextAction: 'Open People & approvals → Capabilities in VS Code, or run `singularity-flow capability map <lower-case-kebab-id> --repository <REPOSITORY-URL>`.'
+        }
+      }
+    );
     return null;
   }
   // Validate after every derivation path. Previously only an explicit --capability value was

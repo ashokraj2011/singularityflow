@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/singularity-flow/auto-plan.schema.json",
-  "title": "Singularity Flow Auto Plan v2",
+  "title": "Singularity Flow Auto Plan v3",
   "type": "object",
   "required": ["schemaVersion", "kind", "mode", "confirmation", "planId", "planSha256", "requirement", "proposal", "story", "execution", "scope", "repositories", "executionHost", "bindings", "safety", "createdAt", "expiresAt"],
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "kind": { "const": "auto-plan" },
     "mode": { "const": "auto" },
     "confirmation": {
       "type": "object",
       "required": ["protocol"],
-      "properties": { "protocol": { "const": "packet-v1" } },
+      "properties": { "protocol": { "enum": ["packet-v1", "packet-v2"] } },
       "additionalProperties": false
     },
     "planId": { "type": "string", "pattern": "^APL-[A-F0-9]{26}$" },
@@ -45,8 +45,55 @@
     "safety": { "type": "object", "required": ["startable", "reasons"] },
     "createdAt": { "type": "string", "format": "date-time" },
     "expiresAt": { "type": "string", "format": "date-time" },
-    "synthesis": { "type": ["object", "null"] }
+    "synthesis": { "type": ["object", "null"] },
+    "legacyCompatibility": { "$ref": "#/$defs/legacyCompatibility" }
   },
-  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "allOf": [{
+    "if": {
+      "properties": {
+        "confirmation": {
+          "properties": { "protocol": { "const": "packet-v1" } },
+          "required": ["protocol"]
+        }
+      },
+      "required": ["confirmation"]
+    },
+    "then": {
+      "required": ["legacyCompatibility"],
+      "properties": {
+        "execution": {
+          "required": ["repair"],
+          "properties": {
+            "repair": {
+              "type": "object",
+              "required": ["policy", "maximumAttempts"],
+              "properties": {
+                "policy": { "const": "never" },
+                "maximumAttempts": { "const": 0 }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  }],
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "legacyCompatibility": {
+      "type": "object",
+      "required": ["sourceSchemaVersion", "confirmationProtocol", "planSha256", "packetSha256", "validationSha256", "repairPolicy", "repairAttemptsPerPhase"],
+      "properties": {
+        "sourceSchemaVersion": { "const": 2 },
+        "confirmationProtocol": { "const": "packet-v1" },
+        "planSha256": { "$ref": "#/$defs/hash" },
+        "packetSha256": { "$ref": "#/$defs/hash" },
+        "validationSha256": { "$ref": "#/$defs/hash" },
+        "repairPolicy": { "const": "never" },
+        "repairAttemptsPerPhase": { "const": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
   "additionalProperties": false
 }

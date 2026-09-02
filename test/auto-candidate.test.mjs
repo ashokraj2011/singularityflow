@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, mkdir, readFile, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,9 +11,11 @@ import {
   autoCandidateFromEnvironment, autoCandidatePublicationFromEnvironment,
   freezeAutoCandidate, observeAutoCandidateWorktree, publishAutoCandidateAuthority,
   readAutoCandidateBinding, readAutoCandidateVerification, restoreAutoCandidateAuthority,
-  restoreAutoCandidateWorktree, validateAutoCandidateBinding, verifyAutoCandidate
+  restoreAutoCandidateWorktree, validateAutoCandidateBinding,
+  validateAutoCandidateVerification, verifyAutoCandidate
 } from '../src/auto/auto-candidate.mjs';
 import { gitCommonDir } from '../src/git.mjs';
+import { canonicalJson } from '../src/records.mjs';
 import {
   buildRepositoryChangeSet, compareRepositoryIdentity
 } from '../src/repository-change-set.mjs';
@@ -303,6 +306,15 @@ test('isolated Candidate verification allows disposable result output and is cra
   assert.equal(first.status, 'passed');
   assert.equal(first.candidateTreeUnchanged, true);
 
+  const duplicateReceipt = structuredClone(first);
+  duplicateReceipt.commands.push(structuredClone(duplicateReceipt.commands[0]));
+  delete duplicateReceipt.verificationReceiptSha256;
+  duplicateReceipt.verificationReceiptSha256 = `sha256:${createHash('sha256')
+    .update(canonicalJson(duplicateReceipt)).digest('hex')}`;
+  assert.throws(() => validateAutoCandidateVerification(duplicateReceipt),
+    (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_CORRUPT'
+      && /duplicate command IDs/i.test(error.message));
+
   const reused = await verifyAutoCandidate(root, candidate, {
     verifiedAt: '2099-01-01T00:00:00.000Z',
     commands: [{ id: 'must-not-run', argv: [process.execPath, '-e', 'process.exit(99)'] }]
@@ -314,6 +326,123 @@ test('isolated Candidate verification allows disposable result output and is cra
   assert.equal(publication.binding.bindingSha256, candidate.bindingSha256);
   assert.equal(publication.verification.verificationReceiptSha256,
     first.verificationReceiptSha256);
+});
+
+test('isolated Candidate verification refuses a tracked symlink working directory', async (t) => {
+  if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
+  const root = await repository();
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-outside-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await symlink(outside, path.join(root, 'src', 'outside-workdir'));
+  const flightId = `AFL-${'7'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const marker = path.join(outside, 'verifier-ran');
+
+  await assert.rejects(verifyAutoCandidate(root, candidate, {
+    commands: [{
+      id: 'escaped-cwd', modelPolicy: 'never', workingDirectory: 'src/outside-workdir',
+      argv: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`]
+    }]
+  }), (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_INVALID'
+    && /working directory.*not securely contained/i.test(error.message));
+  await assert.rejects(readFile(marker), (error) => error.code === 'ENOENT');
+});
+
+test('isolated Candidate verification refuses a tracked symlink result parent', async (t) => {
+  if (process.platform === 'win32') return t.skip('symlink creation requires privileges on Windows');
+  const root = await repository();
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-candidate-outside-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  await symlink(outside, path.join(root, 'src', 'outside-results'));
+  const flightId = `AFL-${'8'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const marker = path.join(outside, 'verifier-ran');
+
+  await assert.rejects(verifyAutoCandidate(root, candidate, {
+    commands: [{
+      id: 'escaped-result', kind: 'test', modelPolicy: 'never', workingDirectory: '.',
+      affectedRoots: ['src'],
+      result: { adapter: 'node-tap', path: 'src/outside-results/result.tap' },
+      argv: [process.execPath, '-e', [
+        `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`,
+        "process.stdout.write('TAP version 13\\nnot ok 1 - failed\\n1..1\\n')",
+        'process.exit(1)'
+      ].join(';')]
+    }]
+  }), (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_INVALID'
+    && /evidence path.*not securely contained/i.test(error.message));
+  await assert.rejects(readFile(marker), (error) => error.code === 'ENOENT');
+  await assert.rejects(readFile(path.join(outside, 'result.tap')),
+    (error) => error.code === 'ENOENT');
+});
+
+test('isolated Candidate verification refuses duplicate evidence output paths before execution', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  const flightId = `AFL-${'9'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const marker = path.join(root, 'verifier-ran');
+  const command = (id) => ({
+    id, modelPolicy: 'never', workingDirectory: '.',
+    result: { adapter: 'sflow-test-result-v1', path: '.sflow/results/result.json' },
+    argv: [process.execPath, '-e',
+      `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`]
+  });
+
+  await assert.rejects(verifyAutoCandidate(root, candidate, {
+    commands: [command('first'), command('second')]
+  }), (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_INVALID'
+    && /distinct evidence output paths/i.test(error.message));
+  await assert.rejects(readFile(marker), (error) => error.code === 'ENOENT');
+});
+
+test('isolated Candidate verification refuses duplicate command IDs before execution', async (t) => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  const flightId = `AFL-${'A'.repeat(26)}`;
+  const candidate = await freezeAutoCandidate(root, {
+    flightId,
+    attemptId: autoAttemptId({ flightId, phase: 'implementation', attemptNumber: 1 }),
+    baselineCommit,
+    executionUnitId: 'copilot-cli'
+  });
+  const marker = path.join(root, 'verifier-ran');
+  const command = (resultPath) => ({
+    id: 'duplicate', modelPolicy: 'never', workingDirectory: '.',
+    result: { adapter: 'sflow-test-result-v1', path: resultPath },
+    argv: [process.execPath, '-e',
+      `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`]
+  });
+
+  await assert.rejects(verifyAutoCandidate(root, candidate, {
+    commands: [
+      command('.sflow/results/first.json'),
+      command('.sflow/results/second.json')
+    ]
+  }), (error) => error.code === 'AUTO_CANDIDATE_VERIFICATION_INVALID'
+    && /distinct command IDs/i.test(error.message));
+  await assert.rejects(readFile(marker), (error) => error.code === 'ENOENT');
 });
 
 test('isolated Candidate verification records and refuses source mutation', async (t) => {

@@ -1,5 +1,6 @@
 /** AUT v2 review-first product operations layered over the existing Story flight. */
 import { loadDefinition } from '../config.mjs';
+import { globToRegExp } from '../inject.mjs';
 import { recordSha256 } from '../records.mjs';
 import { loadStoryAggregate } from '../state-stores.mjs';
 import { SingularityFlowError } from '../util.mjs';
@@ -14,6 +15,11 @@ import {
 import { assertAutoCredentialBrokerReference } from './auto-credential-reference.mjs';
 
 const HASH = /^sha256:[a-f0-9]{64}$/;
+const HUMAN_CHOICE_REQUEST_TYPES = new Set([
+  'approval', 'architecture-choice', 'scope-choice', 'exception', 'risk-acceptance',
+  'policy-choice', 'conflict-resolution', 'evidence-review', 'production-authority',
+  'legal-judgment', 'scientific-judgment'
+]);
 
 function digest(value) { return `sha256:${recordSha256(value)}`; }
 
@@ -205,8 +211,15 @@ export async function findAutoFlightForStory(root, workId) {
   return matches[0];
 }
 
-export async function planAutoRepair(root, flightId, refusalId) {
+export async function planAutoRepair(root, flightId, refusalId, options = {}) {
   const state = await readAutoFlightState(root, flightId);
+  if (options.expectedCheckpoint
+      && state.checkpointSha256 !== options.expectedCheckpoint) {
+    fail('The Auto flight changed before its Repair Plan could be created.',
+      'AUTO_CHECKPOINT_STALE', {
+        expected: options.expectedCheckpoint, actual: state.checkpointSha256
+      });
+  }
   const refusal = await readAutoP1Record(root, 'auto-refusal', flightId, refusalId);
   if (!['auto-eligible', 'ask-only'].includes(refusal.repair.eligibility)
       || refusal.repair.maximumAttempts !== 1) {
@@ -241,18 +254,73 @@ export async function planAutoRepair(root, flightId, refusalId) {
   return { flight: state, refusal, repairPlan, reused: false };
 }
 
-export async function authorizeAutoRepair(root, flightId, repairPlanId, confirmation, options = {}) {
+function withinScope(pathname, roots) {
+  const candidate = String(pathname ?? '').replaceAll('\\', '/').replace(/^\.\//, '');
+  return roots.some((value) => {
+    const root = String(value ?? '').replaceAll('\\', '/').replace(/^\.\//, '').replace(/\/$/, '');
+    return root.includes('*') ? globToRegExp(root).test(candidate)
+      : candidate === root || candidate.startsWith(`${root}/`);
+  });
+}
+
+async function authorizeAutoRepairInternal(
+  root, flightId, repairPlanId, confirmation, options, authorizationMode
+) {
   const plan = await readAutoP1Record(root, 'auto-repair-plan', flightId, repairPlanId);
-  if (exactHash(confirmation, 'Repair confirmation') !== plan.repairPlanSha256) {
+  if (authorizationMode === 'human-confirmation'
+      && exactHash(confirmation, 'Repair confirmation') !== plan.repairPlanSha256) {
     fail(`Repair confirmation must equal ${plan.repairPlanSha256}.`, 'AUTO_REPAIR_CONFIRMATION_REQUIRED', {
       expected: plan.repairPlanSha256
     });
   }
   const state = await readAutoFlightState(root, flightId);
-  if (state.repairAttempts?.some((entry) => entry.refusalSha256 === plan.refusalSha256)) {
-    const used = state.repairAttempts.find((entry) => entry.refusalSha256 === plan.refusalSha256);
+  if (state.stopRequested && !state.stopRequested.quiescedAt) {
+    fail('A repair cannot replace an active stop before Execution Unit quiescence is proven.',
+      'AUTO_REPAIR_NOT_QUIESCENT', {
+        stopRequested: {
+          kind: state.stopRequested.kind,
+          requestId: state.stopRequested.requestId ?? null,
+          requestedAt: state.stopRequested.requestedAt ?? null
+        }
+      });
+  }
+  if ((state.openHumanRequestIds ?? []).length) {
+    fail('Resolve every open Human Request before authorizing a repair.',
+      'AUTO_HUMAN_REQUEST_OPEN', {
+        requestIds: [...state.openHumanRequestIds]
+      });
+  }
+  const reserved = state.repairAttempts
+    ?.find((entry) => entry.refusalSha256 === plan.refusalSha256) ?? null;
+  const automaticReplay = authorizationMode === 'ratified-auto-repair-policy'
+    && reserved != null
+    && state.activeRepairPlanId === plan.repairPlanId
+    && state.position === 'repair-authorized'
+    && state.status === 'running';
+  if (authorizationMode === 'ratified-auto-repair-policy') {
+    if (!options.expectedCheckpoint
+        || state.checkpointSha256 !== options.expectedCheckpoint) {
+      fail('Automatic repair requires the exact current refusal checkpoint.',
+        'AUTO_CHECKPOINT_STALE', {
+          expected: options.expectedCheckpoint ?? null,
+          actual: state.checkpointSha256
+        });
+    }
+    if ((!automaticReplay && state.status !== 'waiting-human') || state.stopRequested != null
+        || state.execution?.repair?.policy !== 'auto-on-machine-actionable'
+        || Number(state.execution?.repair?.maximumAttempts ?? 0) !== 1) {
+      fail('The ratified Auto policy does not authorize automatic repair at this checkpoint.',
+        'AUTO_REPAIR_NOT_ELIGIBLE', {
+          status: state.status,
+          stopRequested: state.stopRequested ?? null,
+          policy: state.execution?.repair?.policy ?? null
+        });
+    }
+  }
+  if (reserved) {
+    const used = reserved;
     if (used.repairPlanSha256 !== plan.repairPlanSha256
-        || used.parentAttemptId !== plan.parentAttemptId) {
+          || used.parentAttemptId !== plan.parentAttemptId) {
       fail('The recorded repair attempt is not bound to the exact active Repair Plan.',
         'AUTO_REPAIR_PLAN_STALE', {
           repairPlanId: plan.repairPlanId,
@@ -260,6 +328,14 @@ export async function authorizeAutoRepair(root, flightId, repairPlanId, confirma
           expectedRepairPlanSha256: plan.repairPlanSha256,
           recordedParentAttemptId: used.parentAttemptId,
           expectedParentAttemptId: plan.parentAttemptId
+        });
+    }
+    if (used.authorizationSource !== authorizationMode) {
+      fail('The recorded repair reservation used a different authorization source.',
+        'AUTO_REPAIR_PLAN_STALE', {
+          repairPlanId: plan.repairPlanId,
+          expectedAuthorizationSource: authorizationMode,
+          actualAuthorizationSource: used.authorizationSource ?? null
         });
     }
     if (state.activeRepairPlanId === plan.repairPlanId && state.position === 'repair-authorized'
@@ -284,6 +360,16 @@ export async function authorizeAutoRepair(root, flightId, repairPlanId, confirma
           });
       }
       if (used.checkpointSha256) {
+        if (state.boundaryCheckpoint?.checkpointSha256 !== used.checkpointSha256
+            || state.boundaryCheckpoint?.commit !== used.checkpointCommit
+            || state.boundaryCheckpoint?.position !== 'repair-authorized') {
+          fail('The recorded repair reservation is not bound to its exact governed checkpoint.',
+            'AUTO_REPAIR_PLAN_STALE', {
+              repairPlanId: plan.repairPlanId,
+              checkpointSha256: used.checkpointSha256,
+              boundaryCheckpointSha256: state.boundaryCheckpoint?.checkpointSha256 ?? null
+            });
+        }
         return { flight: state, repairPlan: plan, attempt, replayed: true };
       }
       const checkpointed = await publishControlBoundary(root, state, options, (draft, pointer) => {
@@ -311,6 +397,24 @@ export async function authorizeAutoRepair(root, flightId, repairPlanId, confirma
     root, 'auto-refusal', flightId, state.activeRefusalId
   );
   assertCurrentRefusalAuthority(state, activeRefusal, plan);
+  if (authorizationMode === 'ratified-auto-repair-policy') {
+    if (activeRefusal.repair?.eligibility !== 'auto-eligible'
+        || activeRefusal.repair?.maximumAttempts !== 1) {
+      fail('The exact refusal is not machine-actionable under the ratified policy.',
+        'AUTO_REPAIR_NOT_ELIGIBLE', {
+          refusalId: activeRefusal.refusalId,
+          eligibility: activeRefusal.repair?.eligibility ?? null
+        });
+    }
+    const ratifiedScope = state.scopePrediction ?? [];
+    if (!plan.writeScope.length
+        || plan.writeScope.some((pathname) => !withinScope(pathname, ratifiedScope))) {
+      fail('The automatic Repair Plan expands beyond the ratified Story scope.',
+        'AUTO_REPAIR_PLAN_STALE', {
+          writeScope: plan.writeScope, ratifiedScope
+        });
+    }
+  }
   if (state.activeRepairPlanId && state.activeRepairPlanId !== plan.repairPlanId) {
     fail('A different Repair Plan is already active for this flight.', 'AUTO_REPAIR_PLAN_STALE', {
       activeRepairPlanId: state.activeRepairPlanId, repairPlanId: plan.repairPlanId
@@ -366,12 +470,18 @@ export async function authorizeAutoRepair(root, flightId, repairPlanId, confirma
     draft.activeRepair = {
       repairPlanId: plan.repairPlanId, repairPlanSha256: plan.repairPlanSha256,
       objective: plan.objective, readScope: plan.readScope, writeScope: plan.writeScope,
-      forbiddenChanges: plan.forbiddenChanges, requiredEvidence: plan.requiredEvidence
+      forbiddenChanges: plan.forbiddenChanges, requiredEvidence: plan.requiredEvidence,
+      authorizationSource: authorizationMode
     };
     draft.repairAttempts = [...(draft.repairAttempts ?? []), {
       attemptId: attempt.attemptId, parentAttemptId: plan.parentAttemptId,
       refusalSha256: plan.refusalSha256, repairPlanSha256: plan.repairPlanSha256,
-      status: 'authorized'
+      status: 'authorized', authorizationSource: authorizationMode
+    }];
+    draft.operations = [...(draft.operations ?? []), {
+      operation: 'authorize-repair', phase: draft.story.phase, outcome: 'succeeded',
+      repairPlanId: plan.repairPlanId, repairPlanSha256: plan.repairPlanSha256,
+      authorizationSource: authorizationMode
     }];
     draft.nextAction = 'Run the one exact bounded repair attempt; any further failure halts.';
   }, { expectedCheckpoint: state.checkpointSha256 });
@@ -383,6 +493,26 @@ export async function authorizeAutoRepair(root, flightId, repairPlanId, confirma
     }
   });
   return { flight: resumed, repairPlan: plan, attempt };
+}
+
+export async function authorizeAutoRepair(
+  root, flightId, repairPlanId, confirmation, options = {}
+) {
+  return authorizeAutoRepairInternal(
+    root, flightId, repairPlanId, confirmation, options, 'human-confirmation'
+  );
+}
+
+/**
+ * Internal policy authorization. Unlike the public review operation this accepts no synthetic
+ * confirmation: the already-ratified Plan, exact refusal, and current checkpoint are its authority.
+ */
+export async function authorizeAutomaticAutoRepair(
+  root, flightId, repairPlanId, options = {}
+) {
+  return authorizeAutoRepairInternal(
+    root, flightId, repairPlanId, null, options, 'ratified-auto-repair-policy'
+  );
 }
 
 function humanRequestIntent(request) {
@@ -469,13 +599,13 @@ export async function respondAutoHumanRequest(
       fail('Credential responses must contain only an approved brokerReference and status.', 'AUTO_HUMAN_REQUEST_RESPONSE_INVALID');
     }
     assertAutoCredentialBrokerReference(response.brokerReference);
-  } else if (request.requestType === 'architecture-choice') {
+  } else if (HUMAN_CHOICE_REQUEST_TYPES.has(request.requestType)) {
     const fields = Object.keys(response);
     const allowed = new Set((request.options ?? []).map((option) => (
       typeof option === 'string' ? option : option?.id
     )).filter(Boolean));
     if (fields.length !== 1 || fields[0] !== 'choice' || !allowed.has(response.choice)) {
-      fail('Architecture responses must select one exact offered choice.', 'AUTO_HUMAN_REQUEST_RESPONSE_INVALID', {
+      fail(`${request.requestType} responses must select one exact offered choice.`, 'AUTO_HUMAN_REQUEST_RESPONSE_INVALID', {
         allowed: [...allowed]
       });
     }

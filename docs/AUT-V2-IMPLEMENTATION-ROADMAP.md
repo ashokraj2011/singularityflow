@@ -1,151 +1,150 @@
 # AUT v2 implementation roadmap
 
-Status: P0 and P1 are implemented and release-validated for the Story profile. The tested
-implementation is commit `32a2ce555342d8d91bd13806dea1947ceafade7d`. This document records the
-implementation boundary and evidence map for `SingularityFlow_AUT_v2_Developer_Auto_Mode_Spec.md`.
-The optional SGOS profile remains outside this release boundary.
+Status: the dependency-free Story profile implements the AUT v2 P0/P1 boundary described below.
+Release validation for the current source tree is still in progress; do not infer a release commit or
+test result from this roadmap. The optional SGOS profile and enforcement of optional CMP policy are
+separate work and are not claimed complete here.
 
 ## Architecture decisions
 
-- Auto remains an orchestrator over the ordinary Story lifecycle. It does not own approval,
-  publication, policy waiver, or a second gate implementation.
-- `story` is the dependency-free default profile. `auto-select` currently resolves to `story`.
-  Explicit `sgos` selection is refused with `AUTO_PROFILE_UNAVAILABLE`; SGOS absence never blocks
-  Story Auto.
-- Existing `APL-` and `AFL-` identifier shapes remain stable. Schema-v1 Plans are retained as
-  archival bytes but cannot authorize execution; new Plans require the exact derived packet.
-- Core mode stays sequential and single-repository. Multi-repository and parallel execution remain
-  optional SGOS work, not simulated Story behavior.
-- The default repair posture has no hidden retry. A refusal may authorize at most one exact,
-  confirmed, bounded repair attempt; a second failure deterministically halts with both failures
-  preserved.
-- Ad Hoc landing preserves its original provenance. The Story profile supports an exact,
-  hash-verified promotion handoff. Direct materialization of arbitrary dirty bytes is deliberately
-  non-startable and fail-closed; the AUT v2 specification makes that direct adoption path optional
-  (`MAY`).
+- Auto orchestrates the ordinary Story lifecycle. It cannot approve, waive policy, publish around a
+  lifecycle gate, merge, deploy, or create a second source of governance authority.
+- `story` is the dependency-free default profile. `auto-select` resolves to `story`. Selecting the
+  unavailable `sgos` adapter fails with `AUTO_PROFILE_UNAVAILABLE` and leaves Story Auto usable.
+- An Auto Plan requires an approved delivery capability. One eligible capability is selected and
+  displayed; no eligible capability returns `CAPABILITY_REGISTRATION_REQUIRED` with a registration
+  action; multiple eligible capabilities require an explicit selection.
+- Generated Story identities use `AUT-<12-character-digest>-<four-word-slug>`. If that generated
+  branch already exists, allocation appends the first available numeric suffix (`-2`, `-3`, ...).
+  An explicitly supplied occupied identity is refused rather than renamed. The resolved identity and
+  collision suffix are visible in the Plan before ratification.
+- `auto plan --story <STORY-ID>` is a read-only, model-free projection of the next existing-Story
+  segment. It does not create a Plan, mutate the Story, or start a flight. `auto continue` remains the
+  compatible continuation spelling.
+- Operators may use a phase ID directly with `--until`, for example `--until verification`. The
+  kernel validates it against the selected Story rail and normalizes it to the closed
+  `phase-complete:<phase>` selector. Existing explicit endpoint syntax remains compatible.
+- Core execution stays sequential and single-repository. Multi-repository coordination, parallel
+  SGOS Processes, and interval/background execution remain optional follow-on work.
+- Plans and checkpoints retain existing identifier shapes and exact-hash authorization. Historical
+  schema-v1 Plan bytes remain readable but cannot authorize a new flight without the current packet.
 
 ## Implemented foundation
 
-- Exact Plan synthesis, explicit confirmation, identity-bound ratification, approved configuration
-  pinning, deterministic Story creation, and managed worktree isolation.
-- Fail-closed authorization reads: malformed, future-version, wrong-family, wrong-Plan, and
-  self-hash-tampered receipts are preserved and refused.
-- Credential-safe repository identity and fingerprints in Plan records; credential-bearing HTTP(S)
-  remotes are refused before Plan persistence.
-- Governed accepted-Plan and ratification verification before resume and every execution step.
-  Start-time TTL, caller branch, and moving remote-head checks are not incorrectly reapplied to an
-  already-started Story.
-- Story/auto-select profile resolution and real `step`, `phase`, and `continuous` policy vocabulary.
-  Step pacing checkpoints after authoring and publication without repeating the model attempt.
-- Stop-first pause/halt/takeover coordination. If execution cannot prove quiescence, the durable
-  state becomes `recovery-required`, never a false `paused` or `halted` result.
-- Backward-compatible CLI: requirement shorthand plans only, `list`, `stop`, `takeover`, and
-  `start --plan`, while legacy positional start and `halt` continue to work.
-- Deterministic Plan validation and ratification packet projections, plus the existing deterministic
-  flight report.
+- Exact Plan synthesis, complete ratification-packet confirmation, identity-bound authorization,
+  approved-configuration pinning, deterministic Story creation, and isolated managed worktrees.
+- Credential-safe remote identities and fingerprints. Credential-bearing HTTP(S) remotes are
+  refused before an Auto Plan is persisted.
+- Start and resume revalidate the exact accepted Plan and authority receipts. A started Story does
+  not incorrectly reapply intake TTL, caller-branch, or moving-base checks.
+- Real `step`, `phase`, and `continuous` pacing. Step checkpoints authoring and publication without
+  rerunning a completed model attempt.
+- Stop-first pause, halt, and takeover coordination. If quiescence cannot be proved, the durable
+  status is `recovery-required`, never a false paused or halted state.
+- Candidate records bind the exact add/delete/rename/mode/symlink set. Isolated verification,
+  delivery evidence, approval context, and lifecycle publication refer to the same Candidate hash.
+- Provider permissions enforce normalized read/write roots before an effect. Auto authoring exposes
+  only read, search, create, and edit operations; tests and lifecycle mutations remain kernel-owned.
 
-## P0 implementation
+## P0/P1 implementation
 
-1. **Immutable Candidate authority**
-   - Implemented an immutable Git-object Candidate outside the mutable worktree, including exact
-     add/delete/rename/mode/symlink and resource identities.
-   - Deterministic verification, delivery evidence, approval context, and ordinary lifecycle
-     publication bind to the same Candidate SHA.
-   - Verification runs in isolation, permits only bounded disposable evidence, and refuses source
-     mutation before publication. A sealed receipt is reused after a crash instead of repeating the
-     consequential verification operation.
+### Intake, identity, and endpoints
 
-2. **Governed boundary checkpoints**
-   - Phase, human, publication, recovery, and completion boundaries publish through the ordinary
-     Story transaction and carry closed, versioned Auto state.
-   - Private `.git` projections are explicitly non-authoritative. They can be discovered and rebuilt
-     from the governed Story checkpoint after clone, interruption, or loss of local runtime files.
-   - Pause, halt, takeover, and recovery preserve quiescence and checkpoint continuity.
+- Planning refuses before Story creation when approved capability authority is missing or ambiguous.
+- Generated Story/branch names carry a readable four-word requirement slug and deterministic
+  collision metadata; explicitly supplied collisions remain fail-closed.
+- Existing-Story inspection is available through `auto plan --story` without a model call or write.
+- Concise phase endpoints are validated only after the work type supplies the actual phase rail.
 
-3. **Sequential phase continuation**
-   - A legitimate adjacent approved phase transition is reconciled from ordinary lifecycle
-     authority; unrelated tail drift remains a refusal.
-   - Every phase receives an exact task, context, and execution-unit contract.
-   - `step`, `phase`, and `continuous` pacing now use deterministic endpoints across the full Story
-     rail without repeating a completed model attempt.
+### Exact per-attempt contracts
 
-4. **Enforced task scope**
-   - Provider adapters enforce normalized absolute read/write roots at tool-permission time as well
-     as at publication time.
-   - ACP tool identity is stable across announcement, permission, and completion orderings; changed
-     identity, out-of-scope paths, and unreviewed create/move effects fail before the effect.
+Every authoring attempt now creates four closed, schema-versioned records:
 
-5. **Runtime record contracts**
-   - Candidate binding/verification, boundary checkpoint, phase run, attempt, refusal, Repair Plan,
-     Human Request, token-economics, and execution-unit-switch families have closed validators,
-     current-schema writers, migrations, and fixtures.
-   - Historical self-hashes are verified against stored bytes before migration. Registered families
-     correspond to emitted state transitions; unknown fields and future versions fail closed.
+- `auto-context-manifest` binds each admitted context section, representation, token estimate,
+  omission, expansion policy, and budget.
+- `auto-agent-task-contract` binds the objective, acceptance clauses, predicted read/write scope,
+  protected/forbidden scope, allowed tools, outputs, evidence, budgets, and stop conditions.
+- `auto-execution-selection` binds the approved provider/model execution unit to the Context
+  Manifest with a deterministic selection reason.
+- `auto-execution-event` records normalized start/completion/failure observations with ordered event
+  IDs and hash-linked raw evidence when the provider exposes it.
 
-## P1 implementation
+The predicted Plan scope, plus the configured phase artifact, forms the read/write boundary; Auto no
+longer grants repository-wide read access by default. Records are written through the schema
+migration registry, persisted immutably in the repository Git common directory, embedded in governed
+checkpoints, and reconstructible after clone or loss of disposable sidecars.
 
-1. **Phase-run and attempt lineage**
-   - Stable attempt IDs, parent/reason links, task/context/unit hashes, budget impact, Candidate
-     binding, result, and phase-run status are persisted as typed records.
-2. **Refusal and bounded repair**
-   - Structured refusals produce ask-only Repair Plans. One exact plan may be confirmed for one
-     machine-actionable repair attempt; a further failure halts with a deterministic comparison.
-3. **Human Requests**
-   - Clarification, credential, and architecture requests use typed, checkpoint-bound records and
-     compare-and-swap responses. Credential values remain broker references; secret-shaped inline
-     answers are refused. Ordinary lifecycle approval remains the authority for decisions.
-4. **Entry and control modes**
-   - `auto continue` produces a read-only, checkpoint-bound proposal for an existing Story.
-   - Goal seeding binds exact Goal/workspace/repository authority and revalidates it at ratification.
-   - Ad Hoc work uses a provenance-preserving, exact-hash promotion handoff; arbitrary dirty-byte
-     materialization remains deliberately non-startable as described above.
-   - Execution-unit switching requires an exact switch plan and starts a new lineage-linked attempt.
-5. **Evidence and return surfaces**
-   - Governed checkpoints carry the state needed to rebuild authority-backed final reports, typed
-     token-economics receipts, and bounded WMB/CMP references.
-   - Home/Return provides repository-scoped Plan, running, refusal, Needs You, takeover, and report
-     summaries, and degrades to an explicit unavailable result rather than searching elsewhere.
-6. **Gateway, CLI, and VS Code surfaces**
-   - Read-first Auto operations are routed behind the existing five Gateway tools; the implementation
-     does not add a tool per feature.
-   - CLI controls and VS Code cards expose exact review or continuation commands without bypassing
-     confirmations, approvals, or lifecycle gates.
+### Lineage, refusals, repair, and Human Requests
 
-## P0/P1 traceability
+- Phase-run and attempt records preserve stable IDs, parents, reasons, task/context/selection hashes,
+  budgets, Candidate binding, and result.
+- Structured refusals preserve the gate, evidence, worktree, Candidate, and smallest legal next
+  action. Repair never expands scope or changes pinned law.
+- The default repair policy is `ask`: an exact Repair Plan must be reviewed and confirmed, and it may
+  authorize at most one machine-actionable repair attempt for that phase. The optional
+  `auto-on-machine-actionable` policy uses the ratified Plan as authorization only for an exact,
+  unchanged Candidate whose registered deterministic verification command returned non-zero. It
+  refuses provider, timeout, signal, overflow, stale-authority, scope, protected-path, credential,
+  and judgment failures. A second failure halts with both failures and repair lineage preserved.
+- Human Request records support the closed AUT v2 vocabulary: clarification, approval,
+  architecture choice, scope choice, credential, exception, risk acceptance, policy choice,
+  conflict resolution, evidence review, production authority, legal judgment, and scientific
+  judgment. Responses use exact compare-and-swap against the request hash. Credentials accept only
+  broker references; a response is input and never substitutes for ordinary lifecycle approval.
+
+### Reports, economics, and product surfaces
+
+- The deterministic Flight Report identifies the requested outcome, inferred Plan inputs, Story and
+  branch, execution-unit history, phase/attempt lineage, refusals, repairs, current stop, and one
+  legal next action.
+- Attempt economics keep prompt/input/output accounting distinct from tool-output accounting. Tool
+  output records exact observed bytes, a byte-derived estimate, and provider tokens only when the
+  provider supplies them.
+- Reports expose a content-free outcome summary and an observed quality-floor result. Token-saving
+  comparison remains `not-evaluated` until a registered comparison baseline exists; no prompt text or
+  developer/person score is stored in outcome metrics.
+- Home/Return, Gateway responses, and VS Code cards expose Plan, running, refusal, Needs You,
+  takeover, and report state without introducing a tool per feature. Buttons prepare existing kernel
+  commands for review and do not bypass confirmation.
+- WMB and CMP references are bounded and optional unless repository policy makes them required.
+  This release does not claim optional CMP enforcement is complete.
+
+## Traceability
 
 | Scope | Primary implementation | Focused evidence |
 | --- | --- | --- |
-| P0 Candidate authority | `src/auto/auto-candidate.mjs`, `src/state.mjs`, `src/delivery-evidence.mjs`, `src/story-lineage.mjs` | `test/auto-candidate.test.mjs`, `test/auto-candidate-crash-recovery.test.mjs` |
-| P0 governed checkpoints | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-flight-store.mjs`, `src/auto/auto-private-store.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-private-store.test.mjs` |
-| P0 sequential continuation | `src/auto/auto-continuation.mjs`, `src/auto/auto-phase-contract.mjs`, `src/auto/auto-executor.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-mode.test.mjs` |
-| P0 tool-time scope | `src/model-runner.mjs`, `src/model-providers/copilot-cli.mjs` | `test/model-runner.test.mjs`, `test/model-provider-copilot.test.mjs` |
-| P0 record contracts | `src/auto/auto-p1-records.mjs`, `src/schema-migrations.mjs`, `schemas/auto-*.schema.json` | `test/auto-p1-product.test.mjs`, schema-migration fixtures/checks |
-| P1 lineage, refusal, repair, and requests | `src/auto/auto-p1-lineage.mjs`, `src/auto/auto-p1-control.mjs`, `src/auto/auto-p1-records.mjs` | `test/auto-p1-product.test.mjs`, `test/auto-v2-controls.test.mjs` |
-| P1 entry modes and switching | `src/auto/auto-entry-modes.mjs`, `src/commands/auto.mjs`, `src/auto/auto-p1-control.mjs` | `test/auto-entry-modes.test.mjs`, `test/auto-cli-usability.test.mjs` |
-| P1 reports, economics, WMB/CMP, Home/Return | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-executor.mjs`, `src/gateway/auto-home-summary.mjs`, `src/gateway/planners/home-overview.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-home-projection.test.mjs` |
-| P1 Gateway and VS Code product surfaces | `src/gateway/planners/auto-flight.mjs`, `src/gateway/operations.mjs`, `apps/vscode/src/views/auto-cards-model.ts`, `apps/vscode/src/views/result-card-*.ts` | `test/auto-p1-surfaces.test.mjs`, `test/vscode-result-card.test.mjs`, `test/vscode-refusal-wiring.test.mjs` |
+| Plan authority, capability, identity | `src/auto/auto-plan.mjs`, `src/capability-context.mjs` | `test/auto-plan-security.test.mjs`, `test/auto-authorization-integrity.test.mjs` |
+| Existing-Story plan and endpoints | `src/commands/auto.mjs`, `src/auto/auto-policy.mjs`, `src/command-registry.mjs` | `test/auto-cli-usability.test.mjs`, `test/auto-v2-policy.test.mjs` |
+| Candidate authority | `src/auto/auto-candidate.mjs`, `src/state.mjs`, `src/delivery-evidence.mjs` | `test/auto-candidate.test.mjs`, `test/auto-candidate-crash-recovery.test.mjs` |
+| Context/task/selection/event records | `src/auto/auto-contract-records.mjs`, `src/auto/auto-phase-contract.mjs`, `src/auto/auto-executor.mjs`, `src/schema-migrations.mjs` | Auto phase-contract and v2 control tests, schema-migration checks |
+| Checkpoints and recovery | `src/auto/auto-checkpoint.mjs`, `src/auto/auto-flight-store.mjs`, `src/auto/auto-private-store.mjs` | `test/auto-v2-controls.test.mjs`, `test/auto-private-store.test.mjs` |
+| Lineage, requests, and repair | `src/auto/auto-p1-lineage.mjs`, `src/auto/auto-p1-control.mjs`, `src/auto/auto-p1-records.mjs`, `src/auto/auto-repair-eligibility.mjs` | `test/auto-p1-product.test.mjs`, `test/auto-repair-eligibility.test.mjs`, `test/auto-mode.test.mjs` |
+| Reports and economics | `src/auto/auto-flight-store.mjs`, `src/gateway/auto-home-summary.mjs`, `src/gateway/planners/auto-flight.mjs` | `test/auto-report-economics.test.mjs`, `test/auto-p1-surfaces.test.mjs` |
+| VS Code cards | `apps/vscode/src/views/auto-cards-model.ts`, `apps/vscode/src/views/result-card-*.ts` | `test/auto-p1-surfaces.test.mjs`, VS Code result-card tests |
 
-## P2 optional profile
+## Deferred roadmap
 
-Add the SGOS adapter only after the Story profile release gates pass. The adapter may add typed
-Processes, independent-task parallelism, Devices, leases, joins, and long-running recovery. It must
-not change or gate ordinary Story Auto behavior.
+- **SGOS adapter:** typed Process execution, independent-task parallelism, Devices, leases, joins,
+  multi-repository saga recovery, and long-running supervision. Its absence must never block Story
+  Auto.
+- **CMP enforcement:** make configured cause bindings and walkthrough freshness authoritative only
+  after CMP has its own complete validator, migration, and recovery coverage. Current bounded CMP
+  references must not be presented as that enforcement.
+- **Optional runtime modes:** real interval scheduling and provenance-preserving direct Ad Hoc byte
+  materialization. Neither is emulated by a hidden background process.
+- **Comparative quality evidence:** register a baseline before claiming token savings preserve or
+  improve first-pass verification, review-return, or rework outcomes.
 
 ## Release evidence
 
-The source tree committed as `32a2ce555342d8d91bd13806dea1947ceafade7d` passed the integrated release
-validation below on 2026-09-01. This evidence update changes documentation and the generated help
-catalog only; it does not alter the tested runtime.
+To be filled from the final integrated source tree by the release owner after all implementation
+changes settle:
 
-- `npm test`: 3,781 passed, 0 failed, 0 cancelled, 0 skipped.
-- Focused Auto suite: 140 passed, 0 failed, including Candidate mutation, crash recovery, exact
-  repair lineage, Human Requests, entry modes, reports, and token economics.
-- VS Code validation: typecheck and build passed; 42 focused UI tests and the extension-host Auto
-  command-wiring test passed.
-- `npm run check`: 1,095 checks passed. Existing vocabulary advisories remained non-blocking.
-- `npm run operation-catalog:check`: generated operation-policy catalog was current.
-- `npm pack --dry-run --json`: package dry-run passed with 918 entries.
-- Full-suite coverage includes Story lifecycle, publication recovery, model boundaries, prompt
-  audit, schema migrations, packaged CLI, fresh-repository journeys, and VS Code surfaces.
-- Security and integrity coverage includes duplicate-effect prevention, counterfeit-model,
-  credential-leak, symlink/oversize private-store, and individual-scoring tripwires.
+- Release commit: _pending_
+- Focused Auto tests: _pending_
+- Full `npm test`: _pending_
+- `npm run check`: _pending_
+- VS Code typecheck/build and focused UI tests: _pending_
+- Operation-catalog, package, migration, and conformance checks: _pending_
+
+Do not replace these placeholders with results from an earlier commit or a partial concurrent run.

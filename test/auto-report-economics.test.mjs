@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import {
-  createAutoFlightState, mutateAutoFlightState, persistAutoFlightReport,
+  buildAutoFlightReport, createAutoFlightState, mutateAutoFlightState, persistAutoFlightReport,
   projectAutoFlightReport, readAutoFlightReport, restoreAutoFlightReport
 } from '../src/auto/auto-flight-store.mjs';
 import {
@@ -18,6 +18,7 @@ import {
   persistAutoPhaseRun, persistAutoRepairPlan, readAutoP1Record, updateAutoHumanRequest
 } from '../src/auto/auto-p1-records.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 const FLIGHT = `AFL-${'E'.repeat(26)}`;
 const PLAN = `APL-${'F'.repeat(26)}`;
@@ -54,10 +55,21 @@ async function attempt(root, {
   });
 }
 
-function invocation(id, inputTokens, outputTokens) {
+function invocation(id, inputTokens, outputTokens, {
+  toolOutputBytes = [24], providerToolOutputTokens = null
+} = {}) {
   return {
     invocationId: id, promptBytes: 640,
-    usage: { inputTokens, outputTokens, cachedInputTokens: 3, providerCost: 0.25 },
+    usage: {
+      inputTokens, outputTokens, cachedInputTokens: 3, providerCost: 0.25,
+      ...(providerToolOutputTokens == null ? {} : { toolOutputTokens: providerToolOutputTokens })
+    },
+    toolObservation: {
+      status: 'exact', totalCalls: toolOutputBytes.length,
+      calls: toolOutputBytes.map((outputBytes, index) => ({
+        sequence: index + 1, outputBytes, status: 'completed'
+      }))
+    },
     economics: {
       prompt: { finalPromptBytes: 640 },
       input: { estimatedTokens: inputTokens - 1, inputTokens, cachedInputTokens: 3 },
@@ -66,6 +78,23 @@ function invocation(id, inputTokens, outputTokens) {
     }
   };
 }
+
+function resealCurrentReport(value) {
+  const report = structuredClone(value);
+  delete report.reportSha256;
+  delete report.projectionSha256;
+  report.reportSha256 = `sha256:${recordSha256(report)}`;
+  report.projectionSha256 = `sha256:${recordSha256(report)}`;
+  return report;
+}
+
+test('the Auto flight report schema stamp follows the migration registry', async () => {
+  const schema = JSON.parse(await readFile(new URL(
+    '../schemas/auto-flight-report.schema.json', import.meta.url
+  ), 'utf8'));
+  assert.equal(schema.properties.schemaVersion.const,
+    currentSchemaVersion('auto-flight-report'));
+});
 
 test('attempt economics is pending at authoring and exact-CAS finalized by the observed outcome', async (t) => {
   const root = await repository(t);
@@ -77,6 +106,10 @@ test('attempt economics is pending at authoring and exact-CAS finalized by the o
   });
   assert.equal(authored.receipt.quality.verification, 'pending');
   assert.equal(authored.receipt.classification, 'first-pass-pending-verification');
+  assert.equal(authored.attempt.budgetImpact.toolOutputBytes, 24);
+  assert.equal(authored.attempt.budgetImpact.estimatedToolOutputTokens, 6);
+  assert.equal(Object.hasOwn(authored.attempt.budgetImpact, 'toolOutputTokens'), false,
+    'unavailable provider tool tokens are not fabricated as zero');
   await recordAutoAttemptCompleted(root, FLIGHT, initial.attemptId);
   const passed = await readAutoP1Record(
     root, 'auto-token-economics-receipt', FLIGHT, initial.attemptId
@@ -90,9 +123,14 @@ test('attempt economics is pending at authoring and exact-CAS finalized by the o
     attemptNumber: 2, attemptKind: 'repair', parentAttemptId: initial.attemptId, character: '6'
   });
   const repairAuthored = await recordAutoAttemptAuthored(root, FLIGHT, repair.attemptId, {
-    invocation: invocation('model-repair', 9, 4)
+    invocation: invocation('model-repair', 9, 4, {
+      toolOutputBytes: [7, 9], providerToolOutputTokens: 5
+    })
   });
   assert.equal(repairAuthored.receipt.classification, 'repair-pending-verification');
+  assert.equal(repairAuthored.attempt.budgetImpact.toolOutputBytes, 16);
+  assert.equal(repairAuthored.attempt.budgetImpact.estimatedToolOutputTokens, 4);
+  assert.equal(repairAuthored.attempt.budgetImpact.toolOutputTokens, 5);
   await recordAutoAttemptRefusal(root, FLIGHT, {
     attemptId: repair.attemptId, phase: 'implementation', gate: 'verification',
     code: 'TEST_FAILED', message: 'required test failed', changedPaths: ['src/app.mjs']
@@ -194,7 +232,7 @@ test('terminal report is an immutable reconstruction of typed P1 lineage and obs
   assert.equal(projected.accounting.observations.receipts, 1);
   const first = await persistAutoFlightReport(root, terminal);
   assert.deepEqual(first, projected);
-  assert.equal(first.schemaVersion, 2);
+  assert.equal(first.schemaVersion, 3);
   assert.equal(first.approvalSource, 'flight-checkpoint');
   assert.deepEqual(first.approvals, terminal.approvals);
   assert.equal(first.lineage['auto-phase-run'].length, 1);
@@ -208,7 +246,46 @@ test('terminal report is an immutable reconstruction of typed P1 lineage and obs
   assert.equal(first.accounting.observations.passed, 1);
   assert.equal(first.accounting.tokens.totalTokens, 20);
   assert.equal(first.accounting.cost.amount, 0.25);
+  assert.deepEqual(first.accounting.observations.toolOutput, {
+    assurance: 'estimated-bytes-per-token-4.0',
+    observedBytes: 24, estimatedTokens: 6, providerTokens: null
+  });
+  assert.equal(first.qualityFloor.status, 'passed');
+  assert.equal(first.qualityFloor.basis, 'observed-task-outcomes');
+  assert.equal(first.qualityFloor.tokenSavingComparison, 'not-evaluated');
+  assert.equal(first.outcomeMetrics.contentFree, true);
+  assert.equal(first.outcomeMetrics.verifiedOutcomes, 1);
+  assert.equal(first.outcomeMetrics.firstPassVerifiedOutcomes, 1);
+  assert.doesNotMatch(JSON.stringify(first.outcomeMetrics), /developer|identity|person|prompt/i);
+  assert.equal(first.story.workId, 'AUTO-REPORT');
+  assert.equal(first.story.branch, 'AUTO-REPORT');
+  assert.equal(first.intent.source, 'unavailable');
   assert.doesNotMatch(JSON.stringify(first), /transcript/i);
+
+  const plan = {
+    planId: PLAN, planSha256: HASH('1'),
+    requirement: { text: 'Add deterministic reporting.', sha256: HASH('2') },
+    proposal: {
+      title: 'Deterministic reporting', assumptions: ['Existing report storage is retained.'],
+      unresolvedDecisions: [], predictedPaths: ['src/report.mjs'],
+      acceptanceCriteria: ['The report names its exact Story and branch.']
+    },
+    story: {
+      workId: 'AUTO-REPORT', branch: 'AUTO-REPORT', workType: 'feature',
+      phaseRail: ['specification', 'implementation', 'verification']
+    },
+    executionHost: { id: 'copilot-cli' }
+  };
+  const explained = buildAutoFlightReport(terminal, {
+    lineage: first.lineage, approvals: first.approvals,
+    approvalSource: first.approvalSource, plan
+  });
+  assert.equal(explained.intent.source, 'exact-auto-plan');
+  assert.equal(explained.intent.requirement.text, 'Add deterministic reporting.');
+  assert.deepEqual(explained.intent.inferences.assumptions,
+    ['Existing report storage is retained.']);
+  assert.equal(explained.executionUnits.planned, 'copilot-cli');
+  assert.equal(explained.story.workType, 'feature');
 
   // A late local record cannot rewrite a final report. It will be visible only in a new governed
   // flight, never retroactively inserted into this report's signed lineage.
@@ -242,5 +319,33 @@ test('terminal report is an immutable reconstruction of typed P1 lineage and obs
   await assert.rejects(
     () => restoreAutoFlightReport(root, tampered),
     (error) => error.code === 'AUTO_FLIGHT_CORRUPT'
+  );
+});
+
+test('independently resealed report projections cannot fabricate quality or outcomes', async (t) => {
+  const root = await repository(t);
+  const state = await mutateAutoFlightState(root, FLIGHT, (flight) => {
+    flight.status = 'halted';
+    flight.stopReason = 'test-halt';
+    flight.nextAction = 'Review the governed result.';
+  });
+  const current = buildAutoFlightReport(state);
+  assert.equal(current.schemaVersion, currentSchemaVersion('auto-flight-report'));
+
+  const fabricatedQuality = structuredClone(current);
+  fabricatedQuality.qualityFloor.status = 'passed';
+  fabricatedQuality.qualityFloor.reasons = [];
+  await assert.rejects(
+    () => restoreAutoFlightReport(root, resealCurrentReport(fabricatedQuality)),
+    (error) => error.code === 'AUTO_FLIGHT_CORRUPT'
+      && error.details?.detail === 'quality-floor'
+  );
+
+  const fabricatedOutcomes = structuredClone(current);
+  fabricatedOutcomes.outcomeMetrics.verifiedOutcomes = 999;
+  await assert.rejects(
+    () => restoreAutoFlightReport(root, resealCurrentReport(fabricatedOutcomes)),
+    (error) => error.code === 'AUTO_FLIGHT_CORRUPT'
+      && error.details?.detail === 'outcome-metrics'
   );
 });

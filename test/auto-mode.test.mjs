@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,15 +8,19 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import YAML from 'yaml';
 
-import { createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-plan.mjs';
+import { autoPlanHash, createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-plan.mjs';
 import { buildAutoPlanPacket } from '../src/auto/auto-plan-packet.mjs';
-import { rebuildAutoFlightState } from '../src/auto/auto-checkpoint.mjs';
+import {
+  rebuildAutoFlightState, validateAutoBoundaryCheckpoint
+} from '../src/auto/auto-checkpoint.mjs';
 import {
   readAutoCandidateBinding, readAutoCandidateVerification
 } from '../src/auto/auto-candidate.mjs';
 import { startAutoFlight } from '../src/auto/auto-flight.mjs';
 import { executeAutoFlightStep, mutateAutoExecutorState } from '../src/auto/auto-executor.mjs';
+import { listAutoContractRecords } from '../src/auto/auto-contract-records.mjs';
 import { authorizeAutoRepair, planAutoRepair } from '../src/auto/auto-p1-control.mjs';
+import { listAutoP1Records } from '../src/auto/auto-p1-records.mjs';
 import {
   authorizeAutoAuthoringAttempt, discardAutoFlight, haltAutoFlight, mutateAutoFlightState, pauseAutoFlight,
   readAutoFlightReport, readAutoFlightState, resumeAutoFlight
@@ -24,12 +29,80 @@ import { loadDefinition } from '../src/config.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
 import { autoFlightRead } from '../src/gateway/planners/auto-flight.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
+import { invokeModel } from '../src/model-runner.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 
 function confirmation(plan) { return buildAutoPlanPacket(plan).packetSha256; }
+
+function legacyPacketV1(plan) {
+  const digest = (value, field) => {
+    const record = structuredClone(value);
+    record[field] = `sha256:${recordSha256(record)}`;
+    return record;
+  };
+  const requiredQuestions = [...(plan.proposal?.unresolvedDecisions ?? [])];
+  const checks = [
+    { id: 'exact-plan-hash', status: 'passed' },
+    { id: 'governed-story-rail', status: plan.story?.phaseRail?.length ? 'passed' : 'failed' },
+    { id: 'managed-worktree', status: plan.executionHost?.containment?.managedWorktree === true ? 'passed' : 'failed' },
+    { id: 'start-safety', status: plan.safety?.startable ? 'passed' : 'failed' }
+  ];
+  const validation = digest({
+    schemaVersion: 1, kind: 'auto-plan-validation', planSha256: plan.planSha256,
+    status: !plan.safety?.startable || checks.some((entry) => entry.status === 'failed')
+      ? 'invalid'
+      : requiredQuestions.length || plan.humanBoundaries?.firstPhaseClarificationRequired
+        ? 'needs-human' : 'valid',
+    checks, warnings: [...(plan.proposal?.assumptions ?? [])], requiredQuestions,
+    requiredHumanStops: structuredClone(plan.humanBoundaries?.stopPoints ?? []),
+    insertedControls: [
+      'exact-packet-confirmation', 'managed-worktree', 'ordinary-story-lifecycle',
+      'protected-path-halt', 'single-authoring-attempt'
+    ]
+  }, 'validationSha256');
+  return digest({
+    schemaVersion: 1, kind: 'auto-plan-packet', mode: 'auto',
+    planId: plan.planId, planSha256: plan.planSha256,
+    validationSha256: validation.validationSha256,
+    requirement: structuredClone(plan.requirement), story: structuredClone(plan.story),
+    workflow: { phases: [...(plan.story?.phaseRail ?? [])] },
+    scope: {
+      predictedRead: [...(plan.proposal?.predictedPaths ?? [])],
+      predictedWrite: [...(plan.proposal?.predictedPaths ?? [])],
+      protected: [...(plan.scope?.protectedPaths ?? [])],
+      forbidden: ['governance-policy', 'approval', 'waiver', 'unplanned-external-effect']
+    },
+    execution: {
+      profile: plan.execution?.profile?.resolved ?? 'story',
+      executionUnit: plan.executionHost?.id ?? null,
+      pacing: plan.execution?.pace?.source ?? null,
+      until: plan.execution?.until?.source ?? null,
+      repairAttemptsPerPhase: 0
+    },
+    humanStops: structuredClone(plan.humanBoundaries?.stopPoints ?? []),
+    evidence: [...(plan.proposal?.acceptanceCriteria ?? [])],
+    budgets: structuredClone(plan.execution?.ceilings ?? {})
+  }, 'packetSha256');
+}
+
+function sealLegacyRatification(record) {
+  const next = structuredClone(record);
+  delete next.authorizationSha256;
+  delete next.recordSha256;
+  next.authorizationSha256 = `sha256:${recordSha256({
+    schemaVersion: next.schemaVersion, kind: next.kind, mode: next.mode,
+    planId: next.planId, planSha256: next.planSha256, actor: next.actor,
+    identityAssurance: next.identityAssurance, ratifiedAt: next.ratifiedAt,
+    expiresAt: next.expiresAt, confirmationProtocol: next.confirmationProtocol,
+    confirmedSha256: next.confirmedSha256, packetSha256: next.packetSha256,
+    validationSha256: next.validationSha256
+  })}`;
+  next.recordSha256 = recordSha256(next);
+  return next;
+}
 
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {
@@ -48,6 +121,12 @@ async function repository() {
   run('git', ['config', 'user.name', 'Auto Tester'], root);
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
+  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  capabilities.capabilities['auto-fixture'] = {
+    kind: 'delivery', parent: 'product', repository: 'auto-fixture'
+  };
+  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.git.publish = 'off';
@@ -101,7 +180,7 @@ function crashAutoStart(root, plan, boundary, exitCode) {
   });
 }
 
-async function executableRepository({ authorDelayMs = 0 } = {}) {
+async function executableRepository({ authorDelayMs = 0, repairPolicy = 'ask' } = {}) {
   const root = await repository();
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
@@ -166,6 +245,7 @@ for await (const line of lines) {
     promptTransport: 'acp-stdio', arguments: [fakeAcp]
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
+  workflow.auto.repair = { policy: repairPolicy, maximumAttempts: repairPolicy === 'never' ? 0 : 1 };
   workflow.workTypes['quick-fix'].auto = {
     eligibility: 'bounded', allowedPaces: ['phase'], defaultUntil: 'phase-complete:implement'
   };
@@ -586,7 +666,7 @@ test('Auto start reuses the governed Story transaction in a managed worktree and
   ), 'utf8'));
   assert.equal(ratification.identityAssurance, 'configured-local');
   assert.equal(ratification.actor.name, 'Auto Tester');
-  assert.equal(ratification.confirmationProtocol, 'packet-v1');
+  assert.equal(ratification.confirmationProtocol, 'packet-v2');
   assert.equal(ratification.confirmedSha256, confirmation(plan));
   assert.equal(ratification.packetSha256, confirmation(plan));
   assert.equal(ratification.authorizationSha256.startsWith('sha256:'), true);
@@ -611,6 +691,78 @@ test('resume trusts the governed accepted Plan rather than reapplying mutable st
   run('git', ['push', 'origin', 'main'], root);
   const resumed = await resumeAutoFlight(root, flight.flightId, flight.checkpointSha256);
   assert.equal(resumed.status, 'running');
+});
+
+test('resume accepts an exact active packet-v1 binding only after disabling legacy repair authority', async () => {
+  const root = await repository();
+  const plan = await createAutoPlan(root, 'Resume an existing historical flight without repair authority.', {
+    ...proposal, unresolvedDecisions: ['Pause before authoring.']
+  }, { workId: 'AUT-LEGACY-RESUME', workType: 'feature', fromBranch: 'main' });
+  const { flight } = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const autoDirectory = path.join(
+    flight.worktree, 'singularity/work-items/AUT-LEGACY-RESUME/context/auto'
+  );
+  const acceptedPath = path.join(autoDirectory, 'accepted-plan.json');
+  const ratificationPath = path.join(autoDirectory, 'ratification.json');
+  const workflowPath = path.join(
+    flight.worktree, 'singularity/work-items/AUT-LEGACY-RESUME/workflow.json'
+  );
+  const legacyPlan = structuredClone(plan);
+  legacyPlan.schemaVersion = 2;
+  legacyPlan.confirmation = { protocol: 'packet-v1' };
+  legacyPlan.execution.repair = {
+    policy: 'auto-on-machine-actionable', maximumAttempts: 1
+  };
+  delete legacyPlan.legacyCompatibility;
+  delete legacyPlan.planSha256;
+  legacyPlan.planSha256 = autoPlanHash(legacyPlan);
+  const packet = legacyPacketV1(legacyPlan);
+  const currentRatification = JSON.parse(await readFile(ratificationPath, 'utf8'));
+  const legacyRatification = sealLegacyRatification({
+    ...currentRatification,
+    schemaVersion: 2,
+    planSha256: legacyPlan.planSha256,
+    confirmationProtocol: 'packet-v1',
+    confirmedSha256: packet.packetSha256,
+    packetSha256: packet.packetSha256,
+    validationSha256: packet.validationSha256
+  });
+  const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
+  workflow.executionOrigin.planSha256 = legacyPlan.planSha256;
+  workflow.lineage.executionOrigin.planSha256 = legacyPlan.planSha256;
+  workflow.auto.planSha256 = legacyPlan.planSha256;
+  await writeFile(acceptedPath, JSON.stringify(legacyPlan));
+  await writeFile(ratificationPath, JSON.stringify(legacyRatification));
+  await writeFile(workflowPath, JSON.stringify(workflow));
+  run('git', ['add', '--', acceptedPath, ratificationPath, workflowPath], flight.worktree);
+  run('git', ['commit', '-m', 'fixture: preserve historical Auto authority'], flight.worktree);
+  const revision = run('git', ['rev-parse', 'HEAD'], flight.worktree).stdout.trim();
+  const legacyState = await mutateAutoFlightState(root, flight.flightId, (state) => {
+    state.planSha256 = legacyPlan.planSha256;
+    state.execution.repair = {
+      policy: 'auto-on-machine-actionable', maximumAttempts: 1
+    };
+    state.lastSuccessfulStoryRevision = revision;
+    state.story.revision = revision;
+  }, { expectedCheckpoint: flight.checkpointSha256 });
+
+  const tampered = sealLegacyRatification({
+    ...legacyRatification,
+    confirmedSha256: `sha256:${'f'.repeat(64)}`,
+    packetSha256: `sha256:${'f'.repeat(64)}`
+  });
+  await writeFile(ratificationPath, JSON.stringify(tampered));
+  await assert.rejects(
+    () => resumeAutoFlight(root, flight.flightId, legacyState.checkpointSha256),
+    (error) => error.code === 'AUTO_FLIGHT_BINDING_MISMATCH'
+  );
+
+  await writeFile(ratificationPath, JSON.stringify(legacyRatification));
+  const resumed = await resumeAutoFlight(root, flight.flightId, legacyState.checkpointSha256);
+  assert.equal(resumed.status, 'running');
+  assert.deepEqual(resumed.execution.repair, { policy: 'never', maximumAttempts: 0 });
+  assert.equal(resumed.operations.at(-1).operation, 'legacy-authority-compatibility');
+  assert.equal(resumed.operations.at(-1).outcome, 'repair-disabled');
 });
 
 test('resume refuses a managed worktree whose configured repository authority changed', async () => {
@@ -881,7 +1033,13 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   }, { workId: 'AUT-EXEC-1', workType: 'quick-fix', fromBranch: 'main' });
   const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   assert.equal(started.flight.status, 'running');
-  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
+  let sentPrompt = null;
+  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree }, {
+    invokeModel: async (request) => {
+      sentPrompt = request.prompt.text;
+      return invokeModel(request);
+    }
+  });
   if (final.status === 'halted') assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
   assert.equal(final.counters.authoringAttempts.implement, 1);
   assert.equal(final.counters.modelInvocations, 1);
@@ -912,6 +1070,127 @@ test('thin pilot performs one governed authoring attempt and stops after normal 
   assert.equal(report.evidence.changeSetDigest, deliveryReceipt.changeSet.digest);
   assert.equal(report.evidence.reviewPacketSha256, completedWorkflow.lineage.submissions.at(-1).packetSha256);
   assert.equal(report.lastSuccessfulStoryRevision, final.commits.submission);
+  const contracts = Object.values(final.phaseContracts);
+  assert.equal(contracts.length, 1);
+  const contract = contracts[0];
+  assert.equal(contract.attemptId, contract.taskContract.attemptId);
+  assert.equal(typeof sentPrompt, 'string');
+  assert.equal(
+    contract.contextManifest.sections.find((section) => section.id === 'phase-prompt')
+      .contentSha256,
+    `sha256:${createHash('sha256').update(sentPrompt, 'utf8').digest('hex')}`,
+    'the durable Context Manifest must bind the exact full UTF-8 prompt sent to the provider'
+  );
+  assert.deepEqual(contract.taskContract.readScope, [
+    'app.mjs',
+    'singularity/work-items/AUT-EXEC-1/artifacts/implement/implementation-summary.md',
+    'test/app.test.mjs'
+  ]);
+  assert.equal(Object.hasOwn(contract, 'readRoots'), false);
+  assert.equal(Object.hasOwn(contract, 'writeRoots'), false);
+  assert.equal(JSON.stringify(contract).includes(path.resolve(started.story.worktree)), false,
+    'durable model authority must not retain machine-local worktree paths');
+  const governedCheckpoint = JSON.parse(await readFile(path.join(
+    started.story.worktree, final.boundaryCheckpoint.path
+  ), 'utf8'));
+  const tamperedCheckpoint = structuredClone(governedCheckpoint);
+  const contractKey = Object.keys(tamperedCheckpoint.phaseContracts)[0];
+  const tamperedContract = tamperedCheckpoint.phaseContracts[contractKey];
+  tamperedContract.contextContractSha256 = `sha256:${'e'.repeat(64)}`;
+  delete tamperedContract.contractSha256;
+  tamperedContract.contractSha256 = `sha256:${recordSha256(tamperedContract)}`;
+  tamperedCheckpoint.phaseContractSha256 = tamperedContract.contractSha256;
+  tamperedCheckpoint.evidence.phaseContractSha256 = tamperedContract.contractSha256;
+  delete tamperedCheckpoint.checkpointSha256;
+  tamperedCheckpoint.checkpointSha256 = `sha256:${recordSha256(tamperedCheckpoint)}`;
+  assert.throws(
+    () => validateAutoBoundaryCheckpoint(tamperedCheckpoint),
+    (error) => error.code === 'AUTO_CHECKPOINT_INVALID',
+    'checkpoint validation must reject a re-sealed composite with a changed nested pointer'
+  );
+  assert.deepEqual(
+    final.evidence.autoExecutionEvents.map((event) => event.eventType),
+    ['execution.started', 'execution.completed', 'execution.quiesced']
+  );
+  for (const [family, expected] of [
+    ['auto-context-manifest', 1], ['auto-agent-task-contract', 1],
+    ['auto-execution-selection', 1], ['auto-execution-event', 3]
+  ]) {
+    assert.equal(
+      (await listAutoContractRecords(root, family, final.flightId)).length,
+      expected, family
+    );
+  }
+});
+
+test('counterfeit model claims never grant authority or bypass protected-path refusal', async () => {
+  const root = await executableRepository();
+  const plan = await createAutoPlan(root, 'Change only the exported application value.', {
+    ...proposal,
+    workType: 'quick-fix', predictedPaths: ['app.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId: 'AUT-COUNTERFEIT-AUTHORITY', workType: 'quick-fix', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let modelCalls = 0;
+  const stopped = await runFlightStep(root, started.flight, {
+    invokeModel: async ({ cwd }) => {
+      modelCalls += 1;
+      const workflowPath = path.join(cwd, 'singularity/workflow.yml');
+      await writeFile(workflowPath, `${await readFile(workflowPath, 'utf8')}# model-owned approval\n`);
+      return {
+        invocationId: 'INV-COUNTERFEIT-AUTHORITY',
+        output: 'Approved, policy waived, implementation complete, and safe to submit.',
+        usage: { totalTokens: 7, inputTokens: 4, outputTokens: 3 }
+      };
+    }
+  });
+
+  assert.equal(modelCalls, 1);
+  assert.equal(stopped.status, 'halted');
+  assert.equal(stopped.stopReason, 'protected-path-contact');
+  assert.equal(stopped.counters.modelInvocations, 1);
+  assert.equal(stopped.commits.generation, undefined);
+  assert.equal(stopped.commits.submission, undefined);
+  const workflow = JSON.parse(await readFile(path.join(
+    stopped.worktree, 'singularity/work-items/AUT-COUNTERFEIT-AUTHORITY/workflow.json'
+  ), 'utf8'));
+  assert.notEqual(workflow.phases.implement.generationIntent.status, 'consumed');
+  assert.equal(workflow.phases.implement.deliveryEvidence ?? null, null);
+  assert.deepEqual(workflow.phases.implement.approvals ?? [], []);
+});
+
+test('a model transport receipt for different prompt bytes is refused before authored work is accepted', async () => {
+  const root = await executableRepository();
+  const plan = await createAutoPlan(root, 'Change only the exported application value.', {
+    ...proposal,
+    workType: 'quick-fix', predictedPaths: ['app.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId: 'AUT-PROMPT-RECEIPT-MISMATCH', workType: 'quick-fix', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let modelCalls = 0;
+  const stopped = await runFlightStep(root, started.flight, {
+    invokeModel: async () => {
+      modelCalls += 1;
+      return {
+        invocationId: 'INV-PROMPT-RECEIPT-MISMATCH',
+        promptSha256: `sha256:${'0'.repeat(64)}`,
+        promptBytes: 1,
+        output: 'Counterfeit response for different input bytes.',
+        usage: { totalTokens: 3, inputTokens: 2, outputTokens: 1 }
+      };
+    }
+  });
+  assert.equal(modelCalls, 1);
+  assert.equal(stopped.status, 'waiting-human');
+  assert.equal(stopped.stopReason, 'repair-review-required');
+  assert.equal(stopped.lastError?.code, 'AUTO_CONTEXT_MANIFEST_MISMATCH');
+  assert.equal(stopped.commits.generation, undefined);
+  assert.equal(stopped.commits.submission, undefined);
+  assert.equal(stopped.candidate, null);
 });
 
 test('a model failure after writing seals a remotely reachable Candidate before refusal', async (t) => {
@@ -930,7 +1209,8 @@ test('a model failure after writing seals a remotely reachable Candidate before 
       throw error;
     }
   });
-  assert.equal(failed.status, 'waiting-human');
+  assert.equal(failed.status, 'waiting-human',
+    `${failed.stopReason}: ${failed.lastError?.code ?? ''} ${failed.lastError?.message ?? ''}`);
   assert.equal(failed.stopReason, 'repair-review-required');
   assert.ok(failed.candidate?.candidateId);
   assert.match(await readFile(path.join(failed.worktree, 'app.mjs'), 'utf8'), /value = 2/);
@@ -948,6 +1228,22 @@ test('a model failure after writing seals a remotely reachable Candidate before 
   assert.equal(checkpoint.candidate.candidateSha256, candidate.candidateSha256);
   assert.equal(checkpoint.lineage['auto-refusal'].at(-1).subject.candidateSha256,
     candidate.candidateSha256);
+  const failureEvents = failed.evidence.autoExecutionEvents;
+  assert.deepEqual(failureEvents.map((event) => event.eventType), [
+    'execution.started', 'execution.failed', 'execution.quiesced'
+  ]);
+  assert.deepEqual(failureEvents.map((event) => event.sequence), [1, 2, 3]);
+  assert.deepEqual(failureEvents.map((event) => event.observation.status), [
+    'started', 'failed', 'quiesced'
+  ]);
+  assert.equal(failureEvents[1].observation.code, 'MODEL_PROVIDER_FAILED');
+  assert.deepEqual(checkpoint.evidence.autoExecutionEvents, failureEvents,
+    'the governed refusal checkpoint must carry the complete failure stream');
+  assert.deepEqual(
+    await listAutoContractRecords(root, 'auto-execution-event', failed.flightId),
+    failureEvents,
+    'disposable event sidecars must equal the governed flight projection'
+  );
 
   run('git', ['push', 'origin', failed.story.branch], failed.worktree);
   const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-partial-recovery-'));
@@ -963,6 +1259,13 @@ test('a model failure after writing seals a remotely reachable Candidate before 
   });
   assert.equal(rebuilt.status, 'waiting-human');
   assert.equal(rebuilt.candidate.bindingSha256, candidate.bindingSha256);
+  assert.deepEqual(rebuilt.evidence.autoExecutionEvents, failureEvents,
+    'fresh-clone recovery must restore the exact normalized failure stream');
+  assert.deepEqual(
+    await listAutoContractRecords(recoveryRoot, 'auto-execution-event', failed.flightId),
+    failureEvents,
+    'fresh-clone recovery must rebuild disposable event sidecars'
+  );
   assert.match(await readFile(path.join(rebuilt.worktree, 'app.mjs'), 'utf8'), /value = 2/);
 });
 
@@ -1000,6 +1303,10 @@ test('failed Candidate verification is bound into flight, refusal, and governed 
     verificationReceiptSha256: failed.candidate.verificationReceiptSha256
   });
   assert.equal(receipt.status, 'failed');
+  assert.equal(receipt.integrityVersion, 2);
+  assert.equal(receipt.repairEvidence.length, 1);
+  assert.equal(receipt.repairEvidence[0].kind, 'structured-test-failure');
+  assert.deepEqual(receipt.repairEvidence[0].repairScope, ['test/app.test.mjs']);
   const checkpoint = JSON.parse(await readFile(path.join(
     failed.worktree, failed.boundaryCheckpoint.path
   ), 'utf8'));
@@ -1008,6 +1315,137 @@ test('failed Candidate verification is bound into flight, refusal, and governed 
   const refusal = checkpoint.lineage['auto-refusal'].at(-1);
   assert.equal(refusal.subject.verificationReceiptSha256, receipt.verificationReceiptSha256);
   assert.equal(refusal.preserved.verificationReceiptSha256, receipt.verificationReceiptSha256);
+});
+
+test('machine-actionable policy runs one exact Candidate-verification repair without a second confirmation', async () => {
+  const root = await executableRepository({ repairPolicy: 'auto-on-machine-actionable' });
+  const plan = await createAutoPlan(root, 'Repair one deterministic failing Candidate test.', {
+    ...proposal,
+    workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId: 'AUT-AUTO-REPAIR', workType: 'quick-fix', fromBranch: 'main'
+  });
+  assert.equal(plan.execution.repair.policy, 'auto-on-machine-actionable');
+  assert.equal(buildAutoPlanPacket(plan).execution.repairAttemptsPerPhase, 1);
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let modelCalls = 0;
+  const final = await runFlightStep(root, started.flight, {
+    invokeModel: async ({ cwd }) => {
+      modelCalls += 1;
+      if (modelCalls === 1) {
+        await writeFile(path.join(cwd, 'app.mjs'), 'export const value = 2;\n');
+        await mkdir(path.join(cwd, 'test'), { recursive: true });
+        await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+          "import assert from 'node:assert/strict';",
+          "import { value } from '../app.mjs';",
+          'assert.equal(value, 99);', ''
+        ].join('\n'));
+      } else {
+        await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+          "import assert from 'node:assert/strict';",
+          "import { value } from '../app.mjs';",
+          'assert.equal(value, 2);', ''
+        ].join('\n'));
+      }
+      return {
+        invocationId: `INV-AUTO-REPAIR-${modelCalls}`,
+        usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4 }
+      };
+    }
+  });
+  assert.equal(final.status, 'completed',
+    `${final.status}/${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
+  assert.equal(modelCalls, 2);
+  assert.equal(final.counters.modelInvocations, 2);
+  assert.equal(final.counters.authoringAttempts.implement, 2);
+  assert.equal(final.repairAttempts.length, 1);
+  assert.equal(final.repairAttempts[0].authorizationSource, 'ratified-auto-repair-policy');
+  const [refusal] = await listAutoP1Records(root, 'auto-refusal', final.flightId);
+  const [repairPlan] = await listAutoP1Records(root, 'auto-repair-plan', final.flightId);
+  assert.deepEqual(refusal.repair.scope, ['test/app.test.mjs']);
+  assert.deepEqual(repairPlan.writeScope, ['test/app.test.mjs']);
+  const repairEvidence = JSON.parse(refusal.missing[0].evidence);
+  assert.equal(repairEvidence.kind, 'structured-test-failure');
+  assert.equal(repairEvidence.tests.failed, 1);
+  assert.deepEqual(repairEvidence.repairScope, ['test/app.test.mjs']);
+  assert.equal(final.operations.some((operation) => (
+    operation.operation === 'authorize-repair'
+      && operation.authorizationSource === 'ratified-auto-repair-policy'
+  )), true);
+});
+
+test('a failed policy-authorized repair halts after exactly two model calls', async () => {
+  const root = await executableRepository({ repairPolicy: 'auto-on-machine-actionable' });
+  const plan = await createAutoPlan(root, 'Stop after one deterministic repair also fails.', {
+    ...proposal,
+    workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId: 'AUT-AUTO-REPAIR-HALTS', workType: 'quick-fix', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let modelCalls = 0;
+  const halted = await runFlightStep(root, started.flight, {
+    invokeModel: async ({ cwd }) => {
+      modelCalls += 1;
+      if (modelCalls === 1) {
+        await writeFile(path.join(cwd, 'app.mjs'), 'export const value = 2;\n');
+      }
+      await mkdir(path.join(cwd, 'test'), { recursive: true });
+      await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+        "import assert from 'node:assert/strict';",
+        "import { value } from '../app.mjs';",
+        'assert.equal(value, 99);', ''
+      ].join('\n'));
+      return {
+        invocationId: `INV-AUTO-REPAIR-FAIL-${modelCalls}`,
+        usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4 }
+      };
+    }
+  });
+  assert.equal(halted.status, 'halted');
+  assert.equal(halted.stopReason, 'repair-attempt-exhausted');
+  assert.equal(modelCalls, 2);
+  assert.equal(halted.counters.modelInvocations, 2);
+  assert.equal(halted.failureComparison.result, 'second-failure-halt');
+  await assert.rejects(
+    () => runFlightStep(root, halted, { invokeModel: async () => { modelCalls += 1; } }),
+    (error) => error.code === 'AUTO_FLIGHT_NOT_RUNNING'
+  );
+  assert.equal(modelCalls, 2);
+});
+
+test('never repair policy halts at the first Candidate refusal', async () => {
+  const root = await executableRepository({ repairPolicy: 'never' });
+  const plan = await createAutoPlan(root, 'Never retry a refused Candidate.', {
+    ...proposal,
+    workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, {
+    workId: 'AUT-NEVER-REPAIR', workType: 'quick-fix', fromBranch: 'main'
+  });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  let modelCalls = 0;
+  const halted = await runFlightStep(root, started.flight, {
+    invokeModel: async ({ cwd }) => {
+      modelCalls += 1;
+      await writeFile(path.join(cwd, 'app.mjs'), 'export const value = 2;\n');
+      await mkdir(path.join(cwd, 'test'), { recursive: true });
+      await writeFile(path.join(cwd, 'test/app.test.mjs'), [
+        "import assert from 'node:assert/strict';",
+        "import { value } from '../app.mjs';",
+        'assert.equal(value, 99);', ''
+      ].join('\n'));
+      return {
+        invocationId: 'INV-NEVER-REPAIR',
+        usage: { totalTokens: 12, inputTokens: 8, outputTokens: 4 }
+      };
+    }
+  });
+  assert.equal(halted.status, 'halted');
+  assert.equal(halted.stopReason, 'repair-disabled');
+  assert.equal(modelCalls, 1);
 });
 
 test('one confirmed repair opens a new generation and succeeds without reusing consumed intent', async () => {
@@ -1355,6 +1793,99 @@ test('pause after a model write seals the cancelled attempt before quiescence is
   ], final.worktree).stdout, new RegExp(candidate.repository.candidateCommit));
 });
 
+test('halt records stop-requested before quiescence and preserves the exact event chain', async (t) => {
+  const root = await executableRepository();
+  const plan = await createAutoPlan(root, 'Stop one active bounded model execution exactly.', {
+    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs'],
+    suggestedUntil: 'phase-complete:implement'
+  }, { workId: 'AUT-HALT-EVENT-CHAIN', workType: 'quick-fix', fromBranch: 'main' });
+  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
+  const entered = deferred();
+  const cancelled = deferred();
+  const release = deferred();
+  const execution = runFlightStep(root, started.flight, {
+    invokeModel: async ({ signal }) => {
+      entered.resolve();
+      await new Promise((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener('abort', resolve, { once: true });
+      });
+      cancelled.resolve();
+      await release.promise;
+      const error = new Error('Injected provider cancellation after durable halt.');
+      error.code = 'MODEL_CANCELLED';
+      throw error;
+    }
+  });
+  await entered.promise;
+  const stopping = haltAutoFlight(root, started.flight.flightId);
+  const interrupt = await waitForFlight(root, started.flight.flightId, (state) => (
+    state.evidence?.autoExecutionEvents?.some(
+      (event) => event.eventType === 'execution.stop-requested'
+    )
+  ), 'the exact stop request was not recorded while the model remained active');
+  assert.deepEqual(interrupt.evidence.autoExecutionEvents.map((event) => event.eventType), [
+    'execution.started', 'execution.stop-requested'
+  ]);
+  assert.equal(interrupt.stopRequested.quiescedAt, undefined,
+    'control quiescence must not be claimed while the provider is still active');
+  const requestDigest = `sha256:${recordSha256({
+    kind: interrupt.stopRequested.kind,
+    requestId: interrupt.stopRequested.requestId,
+    requestedAt: interrupt.stopRequested.requestedAt
+  })}`;
+  assert.equal(interrupt.evidence.autoExecutionEvents[1].rawEvidence.sha256, requestDigest);
+  assert.deepEqual(
+    await listAutoContractRecords(root, 'auto-execution-event', interrupt.flightId),
+    interrupt.evidence.autoExecutionEvents,
+    'the pre-quiescence state projection and immutable sidecars must agree'
+  );
+  await cancelled.promise;
+  release.resolve();
+  const [executorFinal, halted] = await Promise.all([execution, stopping]);
+  assert.equal(executorFinal.status, 'halted');
+  assert.equal(halted.status, 'halted');
+  const events = halted.evidence.autoExecutionEvents;
+  assert.deepEqual(events.map((event) => event.eventType), [
+    'execution.started', 'execution.stop-requested',
+    'execution.stopped', 'execution.quiesced'
+  ]);
+  assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4]);
+  assert.deepEqual(events.map((event) => event.observation.status), [
+    'started', 'stop-requested', 'stopped', 'quiesced'
+  ]);
+  assert.equal(events[2].observation.code, 'AUTO_STOP_REQUESTED');
+  assert.equal(halted.stopRequested.quiescedAt == null, false);
+  const report = await readAutoFlightReport(root, halted.flightId);
+  assert.deepEqual(report.evidence.autoExecutionEvents, events,
+    'the final halt report must carry the exact stopped stream');
+  const checkpoint = JSON.parse(await readFile(path.join(
+    halted.worktree, halted.boundaryCheckpoint.path
+  ), 'utf8'));
+  assert.deepEqual(checkpoint.evidence.autoExecutionEvents, events,
+    'the governed control checkpoint must carry the exact stopped stream');
+  assert.deepEqual(
+    await listAutoContractRecords(root, 'auto-execution-event', halted.flightId), events
+  );
+
+  run('git', ['push', 'origin', halted.story.branch], halted.worktree);
+  const recoveryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-halt-recovery-'));
+  t.after(() => rm(recoveryRoot, { recursive: true, force: true }));
+  const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
+  run('git', ['clone', '--branch', 'main', '--', remote, recoveryRoot], root);
+  run('git', ['config', 'user.name', 'Auto Recovery Tester'], recoveryRoot);
+  run('git', ['config', 'user.email', 'auto-recovery@example.com'], recoveryRoot);
+  const rebuilt = await rebuildAutoFlightState(recoveryRoot, {
+    storyRoot: recoveryRoot, workId: halted.story.workId, flightId: halted.flightId
+  });
+  assert.deepEqual(rebuilt.evidence.autoExecutionEvents, events);
+  assert.deepEqual(
+    await listAutoContractRecords(recoveryRoot, 'auto-execution-event', halted.flightId), events
+  );
+  assert.deepEqual((await readAutoFlightReport(recoveryRoot, halted.flightId))
+    .evidence.autoExecutionEvents, events);
+});
+
 test('a stop observed while its flight-state lock is still held remains recoverable', async () => {
   const root = await executableRepository({ authorDelayMs: 10_000 });
   const workId = 'AUT-STOP-RACE-1';
@@ -1375,7 +1906,10 @@ test('a stop observed while its flight-state lock is still held remains recovera
   await withRetriedSubjectLock(root, { kind: 'auto-flight', id: started.flight.flightId }, async () => {
     await mutateAutoFlightState(root, started.flight.flightId, (draft) => {
       draft.status = 'paused'; draft.stopReason = 'human-paused';
-      draft.stopRequested = { kind: 'pause', requestedAt: new Date().toISOString() };
+      draft.stopRequested = {
+        kind: 'pause', requestId: '00000000-0000-4000-8000-000000000001',
+        requestedAt: new Date().toISOString()
+      };
       draft.nextAction = 'Resume with the exact checkpoint hash when ready.';
     });
     // Keep the mutation lease beyond the cancellation monitor interval. The executor must retry
@@ -1522,7 +2056,10 @@ test('executor state CAS converts 128 portable pause/halt lock races into a dura
       await mutateAutoFlightState(root, id, (draft) => {
         draft.status = kind === 'pause' ? 'paused' : 'halted';
         draft.stopReason = `human-${kind}`;
-        draft.stopRequested = { kind, requestedAt: new Date().toISOString() };
+        draft.stopRequested = {
+          kind, requestId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          requestedAt: new Date().toISOString()
+        };
       });
       await delay(2);
     });

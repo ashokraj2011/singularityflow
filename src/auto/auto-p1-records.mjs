@@ -34,9 +34,20 @@ export const AUTO_ATTEMPT_STATUSES = Object.freeze([
 export const AUTO_REPAIR_ELIGIBILITY = Object.freeze([
   'auto-eligible', 'ask-only', 'manual-only', 'ineligible'
 ]);
-export const AUTO_HUMAN_REQUEST_TYPES = Object.freeze([
+// Versions 1 and 2 were sealed before AUT v2 added the remaining judgment boundaries. Validate
+// archived bytes against the vocabulary that existed when they were written; otherwise a caller
+// could forge a v2 seal around a v3-only type and have migration legitimize it.
+const AUTO_HUMAN_REQUEST_TYPES_V1_V2 = Object.freeze([
   'clarification', 'credential', 'architecture-choice'
 ]);
+export const AUTO_HUMAN_REQUEST_TYPES = Object.freeze([
+  'clarification', 'approval', 'architecture-choice', 'scope-choice', 'credential',
+  'exception', 'risk-acceptance', 'policy-choice', 'conflict-resolution',
+  'evidence-review', 'production-authority', 'legal-judgment', 'scientific-judgment'
+]);
+const AUTO_HUMAN_CHOICE_REQUEST_TYPES = new Set(
+  AUTO_HUMAN_REQUEST_TYPES.filter((type) => !['clarification', 'credential'].includes(type))
+);
 export const AUTO_HUMAN_REQUEST_STATUSES = Object.freeze(['open', 'answered', 'expired', 'cancelled']);
 export const AUTO_SWITCH_STATUSES = Object.freeze(['proposed', 'confirmed', 'applied', 'refused']);
 export const AUTO_ECONOMICS_CLASSIFICATIONS = Object.freeze([
@@ -46,7 +57,8 @@ export const AUTO_ECONOMICS_CLASSIFICATIONS = Object.freeze([
 
 const ATTEMPT_BUDGET_FIELDS = Object.freeze([
   'modelInvocations', 'repairAttempts', 'maximumRepairAttempts', 'routeChanges', 'tokens',
-  'toolOutputTokens', 'contextExpansions', 'fullContextFallbacks'
+  'toolOutputTokens', 'toolOutputBytes', 'estimatedToolOutputTokens',
+  'contextExpansions', 'fullContextFallbacks'
 ]);
 const REFUSAL_ACTIONS = Object.freeze([
   'auto.repair', 'auto.takeover', 'auto.respond', 'auto.resume', 'auto.halt'
@@ -379,8 +391,8 @@ function validateHumanDetail(type, value) {
     const detail = exactObject(value, 'Credential detail', ['provider']);
     nonempty(detail.provider, 'Credential provider');
   } else {
-    const detail = exactObject(value, 'Architecture-choice detail', ['reason']);
-    nonempty(detail.reason, 'Architecture-choice reason');
+    const detail = exactObject(value, `${type} detail`, ['reason']);
+    nonempty(detail.reason, `${type} reason`);
   }
 }
 
@@ -401,8 +413,8 @@ function validateHumanOptions(type, value) {
   const options = array(value, 'Human Request options');
   const ids = options.map(optionId);
   if (new Set(ids).size !== ids.length) fail('Human Request option IDs must be unique.', 'AUTO_RECORD_CORRUPT');
-  if (type === 'architecture-choice' && options.length < 2) {
-    fail('An architecture choice requires at least two exact options.', 'AUTO_RECORD_CORRUPT');
+  if (AUTO_HUMAN_CHOICE_REQUEST_TYPES.has(type) && options.length < 2) {
+    fail(`A ${type} request requires at least two exact options.`, 'AUTO_RECORD_CORRUPT');
   }
   if (type === 'credential' && options.length) {
     fail('A credential request cannot offer inline credential values.', 'AUTO_RECORD_CORRUPT');
@@ -427,11 +439,11 @@ function validateHumanResponse(type, status, value, options) {
       invalidCode: 'AUTO_RECORD_CORRUPT', secretCode: 'AUTO_RECORD_CORRUPT'
     });
     if (Object.hasOwn(answer, 'status')) vocabulary(answer.status, ['available', 'unavailable'], 'Credential status');
-  } else if (type === 'architecture-choice') {
-    const answer = exactObject(response.value, 'Architecture-choice response', ['choice']);
-    nonempty(answer.choice, 'Architecture choice');
+  } else if (AUTO_HUMAN_CHOICE_REQUEST_TYPES.has(type)) {
+    const answer = exactObject(response.value, `${type} response`, ['choice']);
+    nonempty(answer.choice, `${type} choice`);
     if (!new Set(options.map(optionId)).has(answer.choice)) {
-      fail('Architecture response must select one exact offered option.', 'AUTO_RECORD_CORRUPT');
+      fail(`${type} response must select one exact offered option.`, 'AUTO_RECORD_CORRUPT');
     }
   } else {
     const answer = exactObject(response.value, 'Clarification response', ['answer', 'choice'], { required: [] });
@@ -601,7 +613,12 @@ function validateFamilyShape(family, value, { legacyNested = false } = {}) {
   } else if (family === 'auto-human-request') {
     recordId(value.requestId, 'AHR', 'Human Request ID');
     recordId(value.attemptId, 'AAT', 'Human Request attempt ID', { nullable: true });
-    vocabulary(value.requestType, AUTO_HUMAN_REQUEST_TYPES, 'Human Request type');
+    const requestTypes = Number(value.schemaVersion) <= 2
+      ? AUTO_HUMAN_REQUEST_TYPES_V1_V2 : AUTO_HUMAN_REQUEST_TYPES;
+    if (!requestTypes.includes(value.requestType)) {
+      fail(`Human Request type must be one of: ${requestTypes.join(', ')}.`,
+        'AUTO_RECORD_CORRUPT');
+    }
     vocabulary(value.status, AUTO_HUMAN_REQUEST_STATUSES, 'Human Request status');
     if (legacyNested) return validateLegacyFamilyShape(family, value);
     validateHumanDetail(value.requestType, value.detail);

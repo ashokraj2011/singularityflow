@@ -28,8 +28,14 @@ import { verifyAutoFlightContinuation } from './auto-continuation.mjs';
 import { AUTO_AUTHORING_TOOLS } from './auto-policy.mjs';
 import { publishAutoBoundaryCheckpoint } from './auto-checkpoint.mjs';
 import {
-  assertCompatibleAutoPhaseContract, autoPhaseContractKey, buildAutoPhaseContract
+  absoluteAutoReadScope, absoluteAutoWriteScope, assertCompatibleAutoPhaseContract,
+  autoPhaseContractKey, buildAutoPhaseContract, nextAutoAttemptId,
+  renderAutoAuthoringPrompt
 } from './auto-phase-contract.mjs';
+import {
+  mergeAutoExecutionEventRecords, persistAutoExecutionTransitions,
+  persistAutoPhaseContractRecords, validateAutoPhaseContractSnapshots
+} from './auto-contract-records.mjs';
 import {
   assertAutoCandidateMatches, autoAttemptId, autoCandidateEnvironment,
   discoverAutoCandidateRecoveryAuthority, freezeAutoCandidate,
@@ -41,6 +47,9 @@ import {
   recordAutoAttemptCompleted, recordAutoAttemptPublished, recordAutoAttemptRefusal
 } from './auto-p1-lineage.mjs';
 import {
+  authorizeAutomaticAutoRepair, planAutoRepair
+} from './auto-p1-control.mjs';
+import {
   authorizeAutoAuthoringAttempt, mutateAutoFlightState, persistAutoFlightReport, readAutoFlightState
 } from './auto-flight-store.mjs';
 
@@ -49,6 +58,15 @@ const SHA256 = /^sha256:[a-f0-9]{64}$/;
 
 function allowedPath(actual, predicted) {
   return predicted.some((candidate) => actual === candidate || actual.startsWith(`${candidate.replace(/\/$/, '')}/`));
+}
+
+function exactRepairAuthorizationBoundary(state, reservation) {
+  const pointer = state.boundaryCheckpoint;
+  return Boolean(reservation?.checkpointSha256 && reservation?.checkpointCommit
+    && pointer?.checkpointClass === 'human-boundary'
+    && pointer?.position === 'repair-authorized'
+    && pointer.checkpointSha256 === reservation.checkpointSha256
+    && pointer.commit === reservation.checkpointCommit);
 }
 
 function tokenObservation(usage) {
@@ -110,6 +128,118 @@ function candidateTouchedPaths(binding) {
   return [...new Set(binding.resourceManifest.entries.flatMap((entry) => (
     [entry.oldPath, entry.newPath].filter(Boolean)
   )))].sort();
+}
+
+async function appendAutoExecutionEvents(root, state, records, { stopping = false } = {}) {
+  if (!records.length) return state;
+  return mutateAutoExecutorState(root, state.flightId, (draft) => {
+    draft.evidence = {
+      ...(draft.evidence ?? {}),
+      autoExecutionEvents: mergeAutoExecutionEventRecords(
+        draft.evidence?.autoExecutionEvents ?? [], records
+      )
+    };
+  }, stopping ? {
+    expectedStatuses: [
+      'running', 'paused', 'halted', 'manual-takeover', 'recovery-required'
+    ],
+    allowStopRequested: true
+  } : { expectedCheckpoint: state.checkpointSha256 });
+}
+
+function executionEventAuthority(state, phase, attempt, phaseContract) {
+  return {
+    flightId: state.flightId, attemptId: attempt.attemptId, phase: phase.id,
+    executionSelectionSha256: phaseContract.executionSelectionSha256,
+    taskContractSha256: phaseContract.taskContractSha256
+  };
+}
+
+function unavailableExecutionEvidence(reason) {
+  return { status: 'unavailable', sha256: null, reason };
+}
+
+function stopRequestEvidence(stopRequested) {
+  if (!stopRequested?.kind || !stopRequested?.requestId || !stopRequested?.requestedAt) {
+    return unavailableExecutionEvidence('the exact durable stop request was unavailable');
+  }
+  return {
+    status: 'hash-linked',
+    sha256: `sha256:${recordSha256({
+      kind: stopRequested.kind,
+      requestId: stopRequested.requestId,
+      requestedAt: stopRequested.requestedAt
+    })}`,
+    reason: null
+  };
+}
+
+const HUMAN_STOP_ERROR_CODES = new Set([
+  'AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE',
+  'SUBJECT_LOCK_BUSY', 'AUTO_FLIGHT_NOT_RUNNING'
+]);
+
+async function observedHumanStop(root, flightId, error) {
+  if (!HUMAN_STOP_ERROR_CODES.has(error?.code)) return null;
+  const current = await readAutoFlightState(root, flightId);
+  return current.status !== 'running' || current.stopRequested ? current : null;
+}
+
+async function recordExecutionTermination(root, state, phase, attempt, phaseContract, {
+  error = null, invocation = null, completed = false, stopRequested = null
+} = {}) {
+  const stopping = Boolean(stopRequested);
+  const usageSha256 = invocation?.usage == null
+    ? null : `sha256:${recordSha256(invocation.usage)}`;
+  const stopEvidence = stopping
+    ? stopRequestEvidence(stopRequested)
+    : null;
+  const transitions = [];
+  if (stopping) transitions.push({
+    eventType: 'execution.stop-requested', createdAt: stopRequested.requestedAt,
+    observation: {
+      status: 'stop-requested', invocationId: null,
+      code: 'AUTO_STOP_REQUESTED', usageSha256: null
+    },
+    rawEvidence: stopEvidence
+  });
+  const eventType = completed
+    ? 'execution.completed'
+    : stopping ? 'execution.stopped' : 'execution.failed';
+  const status = eventType.slice('execution.'.length);
+  const terminalEvidence = stopEvidence ?? unavailableExecutionEvidence(
+    eventType === 'execution.completed'
+      ? 'provider event stream is retained by the model invocation audit boundary'
+      : 'provider failure exposed no independently retained raw event stream'
+  );
+  const quiescenceEvidence = stopEvidence ?? unavailableExecutionEvidence(
+    eventType === 'execution.completed'
+      ? 'process completion is observed; raw provider events are not exposed here'
+      : 'provider failure exposed no independently retained raw event stream'
+  );
+  transitions.push({
+    eventType,
+    observation: {
+      status,
+      invocationId: invocation?.invocationId ?? null,
+      code: eventType === 'execution.failed'
+        ? error?.code ?? 'MODEL_PROVIDER_FAILED'
+        : eventType === 'execution.stopped' ? 'AUTO_STOP_REQUESTED' : null,
+      usageSha256
+    },
+    rawEvidence: terminalEvidence
+  }, {
+    eventType: 'execution.quiesced',
+    observation: {
+      status: 'quiesced', invocationId: invocation?.invocationId ?? null,
+      code: null, usageSha256
+    },
+    rawEvidence: quiescenceEvidence
+  });
+  const events = await persistAutoExecutionTransitions(
+    root, executionEventAuthority(state, phase, attempt, phaseContract), transitions
+  );
+  return appendAutoExecutionEvents(root, state, events, { stopping });
 }
 
 async function stop(root, id, status, reason, nextAction, extra = {}, {
@@ -385,10 +515,7 @@ function cancellationMonitor(root, flightId, controller) {
 }
 
 async function stoppedByHuman(root, flightId, error, activeSince) {
-  if (![
-    'AUTO_STOP_REQUESTED', 'MODEL_CANCELLED', 'AUTO_CHECKPOINT_STALE',
-    'SUBJECT_LOCK_BUSY', 'AUTO_FLIGHT_NOT_RUNNING'
-  ].includes(error?.code)) return null;
+  if (!HUMAN_STOP_ERROR_CODES.has(error?.code)) return null;
   // The interrupt is durable before pause/halt waits for the step lease. The executor can observe
   // that new checkpoint while the interrupt command is still releasing the short-lived state
   // lock. Treat that as ordinary coordination, not as an authoring failure. A stale checkpoint is
@@ -525,6 +652,13 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   const runModel = runtime.invokeModel ?? invokeModel;
   const boundary = runtime.boundary ?? (async () => {});
   let state = await readAutoFlightState(root, flightId);
+  validateAutoPhaseContractSnapshots(
+    state.phaseContracts ?? {}, state.evidence?.autoExecutionEvents ?? [], {
+      flightId: state.flightId,
+      activeContractSha256: state.evidence?.phaseContractSha256 ?? null,
+      requireTerminalQuiescence: true
+    }
+  );
   let activeAttempt = null;
   const preserveFailedAuthoringCandidate = async ({ phase, workflow, plan, error }) => {
     if (!activeAttempt || !phaseRequiresCodeDelivery(phase)) return state;
@@ -608,6 +742,30 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     });
   }
   let { plan } = continuation;
+
+  if (continuation.binding.compatibility?.protocol === 'packet-v1-no-repair'
+      && (state.execution?.repair?.policy !== 'never'
+        || state.execution?.repair?.maximumAttempts !== 0)) {
+    state = await mutateAutoExecutorState(root, flightId, (draft) => {
+      draft.execution = {
+        ...draft.execution,
+        repair: { policy: 'never', maximumAttempts: 0 }
+      };
+      draft.operations = [...(draft.operations ?? []), {
+        operation: 'legacy-authority-compatibility',
+        outcome: 'repair-disabled',
+        sourceSchemaVersion: 2,
+        packetSha256: continuation.binding.compatibility.packetSha256
+      }];
+    }, { expectedCheckpoint: state.checkpointSha256 });
+    // Make the reduced authority durable before any model or lifecycle operation proceeds. A crash
+    // can therefore never resurrect the unreviewed repair values from the historical Plan.
+    state = await persistGovernedBoundary(root, state, 'recovery', {
+      definition: continuation.definition, workflow: continuation.workflow
+    });
+    continuation = await verifyAutoFlightContinuation(root, state);
+    ({ plan } = continuation);
+  }
 
   // A human may approve the submitted phase between Auto invocations. That is an authorized
   // adjacent transition, not an external-state violation. Persist the completed phase boundary,
@@ -812,8 +970,68 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
 
   if (['story-created', 'repair-authorized'].includes(state.position)) {
     const repairAttempt = state.position === 'repair-authorized';
+    if (repairAttempt) {
+      let reservation = state.repairAttempts?.find((entry) => (
+        entry.attemptId === state.activeAttemptId
+          && entry.repairPlanSha256 === state.activeRepair?.repairPlanSha256
+      ));
+      if (!exactRepairAuthorizationBoundary(state, reservation)) {
+        if (reservation?.authorizationSource !== 'ratified-auto-repair-policy'
+            || !state.activeRepairPlanId) {
+          return stopActive('recovery-required', 'repair-authorization-checkpoint-missing',
+            'The bounded repair has no exact governed authorization checkpoint. Re-authorize the preserved Repair Plan before another model call.');
+        }
+        try {
+          const recovered = await authorizeAutomaticAutoRepair(
+            root, flightId, state.activeRepairPlanId,
+            { expectedCheckpoint: state.checkpointSha256 }
+          );
+          state = recovered.flight;
+          reservation = state.repairAttempts?.find((entry) => (
+            entry.attemptId === state.activeAttemptId
+              && entry.repairPlanSha256 === state.activeRepair?.repairPlanSha256
+          ));
+        } catch (error) {
+          const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
+          if (humanStop) return humanStop;
+          return stopActive('recovery-required', 'repair-authorization-checkpoint-missing',
+            'The policy-authorized repair reservation could not be bound to an exact governed checkpoint. Recover the preserved refusal before another model call.', {
+              lastError: {
+                code: error.code ?? 'AUTO_CHECKPOINT_PUBLICATION_FAILED',
+                message: error.message
+              }
+            });
+        }
+        if (!exactRepairAuthorizationBoundary(state, reservation)) {
+          return stopActive('recovery-required', 'repair-authorization-checkpoint-missing',
+            'The policy-authorized repair checkpoint did not bind the exact reservation. Recover the preserved refusal before another model call.');
+        }
+      }
+    }
+    let repairBaseline = null;
     let attemptConsumed = false;
+    let phaseContract = null;
+    let executionStarted = false;
+    let executionCompleted = false;
+    let executionQuiesced = false;
+    let invocation = null;
     try {
+      if (repairAttempt) {
+        if (!state.candidate?.candidateId) {
+          throw new SingularityFlowError(
+            'Automatic repair has no preserved Candidate baseline.', {
+              code: 'AUTO_REPAIR_PLAN_STALE'
+            }
+          );
+        }
+        repairBaseline = await readAutoCandidateBinding(worktree, {
+          flightId, candidateId: state.candidate.candidateId
+        });
+        const repairObservation = await observeAutoCandidateWorktree(
+          worktree, repairBaseline, applicationPathContext(definition, workflow)
+        );
+        assertAutoCandidateMatches(repairBaseline, repairObservation);
+      }
       const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
       if (groundingMode !== 'off') {
         let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
@@ -880,6 +1098,10 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         ({ workflow, phase } = await ensureAutoRepairGeneration({
           root, worktree, flightId, state, definition, workflow, phase, runLifecycle
         }));
+        const repairObservation = await observeAutoCandidateWorktree(
+          worktree, repairBaseline, applicationPathContext(definition, workflow)
+        );
+        assertAutoCandidateMatches(repairBaseline, repairObservation);
       }
       if (!repairAttempt) {
         workflow = await loadStoryAggregate(worktree, definition, state.story.workId);
@@ -944,9 +1166,17 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         // CMP is observe-only until a reviewed comprehension receipt is supplied by the phase.
         comprehensionReference: null
       };
-      const phaseContract = await buildAutoPhaseContract(worktree, {
-        state: phaseContractState, plan, definition, workflow, phase, task, composed, provider
+      const expectedAttemptId = nextAutoAttemptId(phaseContractState, phase);
+      const prompt = renderAutoAuthoringPrompt({
+        composed, flightId, attemptId: expectedAttemptId, plan,
+        state: phaseContractState,
+        deterministic: phase.generationPolicy?.producer === 'deterministic'
       });
+      phaseContract = await buildAutoPhaseContract(worktree, {
+        state: phaseContractState, plan, definition, workflow, phase, task,
+        composed, modelPrompt: prompt, provider
+      });
+      await persistAutoPhaseContractRecords(root, phaseContract);
       const phaseContractKey = autoPhaseContractKey(phase.id, phaseContract, {
         repairPlanId: repairAttempt ? state.activeRepairPlanId : null
       });
@@ -992,29 +1222,16 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       });
       state = lineage.state;
       activeAttempt = lineage.attempt;
+      if (activeAttempt.attemptId !== phaseContract.attemptId) {
+        throw new SingularityFlowError(
+          'Auto attempt identity does not match its exact Task Contract.', {
+            code: 'AUTO_TASK_CONTRACT_MISMATCH'
+          }
+        );
+      }
       let authoringCheckpoint = state.checkpointSha256;
-      const prompt = [
-        composed.trimEnd(), '', '# Ratified Auto execution boundary', '',
-        `- Flight: ${flightId}`,
-        `- Attempt: ${activeAttempt.attemptId} (${activeAttempt.attemptKind})`,
-        `- Plan: ${plan.planId} (${plan.planSha256})`,
-        `- Requirement: ${plan.requirement.text}`,
-        `- Predicted repository paths: ${plan.proposal.predictedPaths.join(', ') || 'none'}`,
-        ...(repairAttempt ? [
-          `- Exact Repair Plan: ${state.activeRepair?.repairPlanId} (${state.activeRepair?.repairPlanSha256})`,
-          `- Repair objective: ${state.activeRepair?.objective}`,
-          `- Repair write scope: ${(state.activeRepair?.writeScope ?? []).join(', ') || 'none'}`,
-          `- Required repair evidence: ${(state.activeRepair?.requiredEvidence ?? []).join('; ') || 'none'}`,
-          '- This is the only authorized repair attempt. Do not expand scope or repeat prior work.'
-        ] : []),
-        '- Work only in this managed worktree. Do not commit, push, approve, waive policy, answer clarification, change lifecycle state, or run Singularity Flow commands.',
-        phase.generationPolicy?.producer === 'deterministic'
-          ? '- Implement and test the requirement. Do not edit the phase artifact; the kernel will regenerate its deterministic summary from your changes.'
-          : '- Implement and test the requirement, and completely author the configured phase artifact. Do not leave placeholders.'
-      ].join('\n');
       const controller = new AbortController();
       const stopMonitoring = cancellationMonitor(root, flightId, controller);
-      let invocation;
       try {
         const invocationBudgetMs = maximumActiveMs - (state.counters.activeMilliseconds ?? 0)
           - Math.max(0, Date.now() - activeAccountedAt);
@@ -1024,6 +1241,28 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         }
         await boundary('model-start', { root, worktree, flightId, phase: phase.id });
         await assertActive(root, flightId, authoringCheckpoint);
+        const startedEvents = await persistAutoExecutionTransitions(
+          root, executionEventAuthority(state, phase, activeAttempt, phaseContract), [{
+          eventType: 'execution.started',
+          observation: {
+            status: 'started', invocationId: null, code: null, usageSha256: null
+          },
+          rawEvidence: unavailableExecutionEvidence(
+            'provider event stream is retained by the model invocation audit boundary'
+          )
+        }]);
+        executionStarted = true;
+        state = await appendAutoExecutionEvents(root, state, startedEvents, { stopping: true });
+        authoringCheckpoint = state.checkpointSha256;
+        await assertActive(root, flightId, authoringCheckpoint);
+        // Durable contracts contain only portable repository-relative scope. Materialize the
+        // machine-local absolute roots at the final invocation boundary for this worktree only.
+        const invocationReadRoots = absoluteAutoReadScope(
+          worktree, phaseContract.taskContract.readScope
+        );
+        const invocationWriteRoots = absoluteAutoWriteScope(
+          worktree, phaseContract.taskContract.writeScope
+        );
         invocation = await runModel({
           provider: provider.provider,
           providerConfig: provider.providerConfig,
@@ -1039,8 +1278,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           tools: {
             mode: 'allowlist', names: [...AUTO_AUTHORING_TOOLS],
             scope: {
-              readRoots: phaseContract.readRoots,
-              writeRoots: phaseContract.writeRoots
+              readRoots: invocationReadRoots,
+              writeRoots: invocationWriteRoots
             }
           },
           limits: {
@@ -1048,9 +1287,32 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             outputBytes: 4 * 1024 * 1024
           }
         });
+        const admittedPrompt = phaseContract.contextManifest.sections
+          .find((section) => section.id === 'phase-prompt')?.contentSha256 ?? null;
+        const transportedPrompt = invocation?.promptSha256 == null ? null
+          : `sha256:${String(invocation.promptSha256).replace(/^sha256:/, '')}`;
+        if ((!runtime.invokeModel && transportedPrompt == null)
+            || (transportedPrompt != null && transportedPrompt !== admittedPrompt)) {
+          throw new SingularityFlowError(
+            'The model transport receipt does not match the exact admitted Auto prompt.', {
+              code: 'AUTO_CONTEXT_MANIFEST_MISMATCH',
+              details: {
+                expectedPromptSha256: admittedPrompt,
+                actualPromptSha256: transportedPrompt
+              }
+            }
+          );
+        }
+        executionCompleted = true;
         await boundary('model-complete', { root, worktree, flightId, phase: phase.id, invocation });
       } finally { stopMonitoring(); }
       await assertActive(root, flightId, authoringCheckpoint);
+      state = await recordExecutionTermination(
+        root, state, phase, activeAttempt, phaseContract,
+        { invocation, completed: true }
+      );
+      executionQuiesced = true;
+      authoringCheckpoint = state.checkpointSha256;
       const token = tokenObservation(invocation.usage);
       const invocationActiveMilliseconds = Date.now() - activeAccountedAt;
       activeAccountedAt = Date.now();
@@ -1079,6 +1341,35 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         baseCommit: plan.repositories[0].baseCommit,
         subject: { kind: 'story', id: state.story.workId, phase: phase.id }
       });
+      if (repairBaseline) {
+        const repairDelta = await buildRepositoryChangeSet(worktree, {
+          baseCommit: repairBaseline.repository.candidateCommit,
+          subject: {
+            kind: 'story', id: state.story.workId, phase: phase.id,
+            attempt: 'repair'
+          }
+        });
+        const repairApplicationDelta = applicationChangeSetProjection(
+          repairDelta, applicationPathContext(definition, workflow)
+        );
+        const repairPaths = [...new Set(repairApplicationDelta.entries.flatMap((entry) => [
+          entry.oldPath, entry.newPath
+        ]).filter(Boolean))].sort();
+        const outsideRepair = repairPaths.filter((file) => (
+          !allowedPath(file, state.activeRepair?.writeScope ?? [])
+        ));
+        if (outsideRepair.length) {
+          return stopActive('halted', 'repair-scope-expansion',
+            `The bounded repair changed paths outside its exact Repair Plan: ${outsideRepair.join(', ')}.`, {
+              touchedPaths: repairPaths,
+              lastInvocationId: invocation.invocationId,
+              lastError: {
+                code: 'AUTO_SCOPE_EXPANSION',
+                message: 'Repair delta exceeded the authorized repair write scope.'
+              }
+            });
+        }
+      }
       const protectedResult = protectedPathEvaluation(definition, workflow, changeSet);
       const pathContext = applicationPathContext(definition, workflow);
       const applicationChangeSet = applicationChangeSetProjection(changeSet, pathContext);
@@ -1185,6 +1476,46 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       const stepBoundary = await pauseAtStepBoundary(root, flightId, state, phase.id, 'authored');
       if (stepBoundary) return stepBoundary;
     } catch (error) {
+      let humanStopState = await observedHumanStop(root, flightId, error);
+      if (attemptConsumed && activeAttempt && phaseContract
+          && executionStarted && !executionQuiesced) {
+        try {
+          const current = humanStopState ?? await readAutoFlightState(root, flightId);
+          state = await recordExecutionTermination(
+            root, current, phase, activeAttempt, phaseContract, {
+              error, invocation, completed: executionCompleted,
+              stopRequested: humanStopState?.stopRequested ?? null
+            }
+          );
+          executionQuiesced = true;
+          if (humanStopState) humanStopState = state;
+        } catch (recordError) {
+          const current = await readAutoFlightState(root, flightId);
+          if (humanStopState) {
+            return mutateAutoExecutorState(root, flightId, (draft) => {
+              draft.status = 'recovery-required';
+              draft.stopReason = 'execution-event-recording-failed';
+              draft.nextAction = 'Inspect the stopped Execution Unit and recover its normalized event stream before continuing.';
+              draft.lastError = {
+                code: recordError.code ?? 'AUTO_EXECUTION_EVENT_RECORDING_FAILED',
+                message: recordError.message
+              };
+              draft.counters.activeMilliseconds = (draft.counters.activeMilliseconds ?? 0)
+                + Math.max(0, Date.now() - activeAccountedAt);
+            }, {
+              expectedCheckpoint: current.checkpointSha256,
+              expectedStatuses: [current.status], allowStopRequested: true
+            });
+          }
+          return stopActive('recovery-required', 'execution-event-recording-failed',
+            'Preserved work exists, but its normalized execution failure event could not be recorded.', {
+              lastError: {
+                code: recordError.code ?? 'AUTO_EXECUTION_EVENT_RECORDING_FAILED',
+                message: recordError.message
+              }
+            });
+        }
+      }
       if (attemptConsumed && activeAttempt) {
         try {
           state = await preserveFailedAuthoringCandidate({
@@ -1197,7 +1528,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
                 code: preservationError.code ?? 'AUTO_CANDIDATE_PRESERVATION_FAILED',
                 message: preservationError.message
               }
-            });
+          });
         }
       }
       const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
@@ -1210,9 +1541,12 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         verificationReceiptSha256: state.candidate?.verificationReceiptSha256 ?? null,
         changedPaths: state.observedPaths ?? [], repairScope: state.activeRepair?.writeScope ?? state.scopePrediction ?? []
       });
-      return stopActive(refusal?.secondFailure ? 'halted' : attemptConsumed ? 'waiting-human' : 'halted',
-        refusal?.secondFailure ? 'repair-attempt-exhausted' : attemptConsumed ? 'repair-review-required' : 'authoring-preflight-failed',
-        refusal?.secondFailure
+      const repairDisabled = refusal?.flight.execution?.repair?.policy === 'never';
+      return stopActive(refusal?.secondFailure || repairDisabled
+        ? 'halted' : attemptConsumed ? 'waiting-human' : 'halted',
+        refusal?.secondFailure ? 'repair-attempt-exhausted'
+          : repairDisabled ? 'repair-disabled' : attemptConsumed ? 'repair-review-required' : 'authoring-preflight-failed',
+        refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
           : attemptConsumed
             ? `Review refusal ${refusal?.refusal.refusalId}; Auto will not repair until its exact Repair Plan is confirmed.`
@@ -1319,6 +1653,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       if (stepBoundary) return stepBoundary;
     } catch (error) {
       const failedVerificationSha256 = error?.details?.verificationReceiptSha256 ?? null;
+      let failedCandidateVerification = null;
       if (failedVerificationSha256 && state.candidate?.candidateId) {
         try {
           const failedVerification = await readAutoCandidateVerification(worktree, {
@@ -1326,6 +1661,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             candidateId: state.candidate.candidateId,
             verificationReceiptSha256: failedVerificationSha256
           });
+          failedCandidateVerification = failedVerification;
           state = await mutateAutoExecutorState(root, flightId, (draft) => {
             draft.candidate = {
               ...draft.candidate,
@@ -1356,20 +1692,81 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
       if (humanStop) return humanStop;
+      const failedMachineEvidence = failedCandidateVerification?.repairEvidence ?? [];
       const refusal = state.activeAttemptId ? await recordAutoAttemptRefusal(root, flightId, {
         attemptId: state.activeAttemptId, phase: phase.id, gate: 'generation-publication',
         code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message,
         candidateSha256: state.candidate?.candidateSha256 ?? null,
         verificationReceiptSha256: state.candidate?.verificationReceiptSha256 ?? null,
-        changedPaths: state.observedPaths ?? [], repairScope: state.scopePrediction ?? []
+        changedPaths: state.observedPaths ?? [],
+        repairScope: [...new Set(failedMachineEvidence.flatMap((entry) => (
+          Array.isArray(entry?.repairScope) ? entry.repairScope : []
+        )))].sort(),
+        candidateVerification: failedCandidateVerification,
+        protectedPaths: [...new Set([
+          'singularity/workflow.yml', 'singularity/capabilities.yml',
+          ...(definition.governance?.protectedPaths ?? []),
+          ...(workflow.resolution?.capability?.policy?.protectedPaths ?? [])
+        ])]
       }) : null;
-      return stopActive(refusal?.secondFailure ? 'halted' : 'waiting-human',
-        refusal?.secondFailure ? 'repair-attempt-exhausted' : 'repair-review-required',
-        refusal?.secondFailure
+      const repairDisabled = refusal?.flight.execution?.repair?.policy === 'never';
+      const stopped = await stopActive(refusal?.secondFailure || repairDisabled
+        ? 'halted' : 'waiting-human',
+        refusal?.secondFailure ? 'repair-attempt-exhausted'
+          : repairDisabled ? 'repair-disabled' : 'repair-review-required',
+        refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
           : `Review refusal ${refusal?.refusal.refusalId}; confirm at most one bounded repair or take over.`, {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }
         });
+      if (refusal?.refusal.repair?.eligibility !== 'auto-eligible'
+          || stopped.status !== 'waiting-human') return stopped;
+      try {
+        await boundary('auto-repair-plan', {
+          root, worktree, flightId, phase: phase.id,
+          refusalId: refusal.refusal.refusalId
+        });
+        const proposed = await planAutoRepair(
+          root, flightId, refusal.refusal.refusalId,
+          { expectedCheckpoint: stopped.checkpointSha256 }
+        );
+        await boundary('auto-repair-authorize', {
+          root, worktree, flightId, phase: phase.id,
+          repairPlanId: proposed.repairPlan.repairPlanId
+        });
+        const authorized = await authorizeAutomaticAutoRepair(
+          root, flightId, proposed.repairPlan.repairPlanId,
+          { expectedCheckpoint: stopped.checkpointSha256 }
+        );
+        await assertActive(root, flightId, authorized.flight.checkpointSha256);
+        return executeAutoFlightStepLocked(
+          root, flightId, authorized.flight.checkpointSha256, runtime
+        );
+      } catch (repairError) {
+        const current = await readAutoFlightState(root, flightId);
+        if (current.status === 'running') {
+          return stopActive('recovery-required', 'automatic-repair-authorization-failed',
+            'Automatic repair did not reach a complete governed authorization boundary. Recover the exact refusal before continuing.', {
+              lastError: {
+                code: repairError.code ?? 'AUTO_REPAIR_NOT_ELIGIBLE',
+                message: repairError.message
+              }
+            });
+        }
+        if (current.status !== 'waiting-human') return current;
+        let retained = await mutateAutoExecutorState(root, flightId, (draft) => {
+          draft.nextAction = `Review refusal ${refusal.refusal.refusalId}; automatic repair remained fail-closed before another model call.`;
+          draft.lastError = {
+            code: repairError.code ?? 'AUTO_REPAIR_NOT_ELIGIBLE',
+            message: repairError.message
+          };
+        }, {
+          expectedCheckpoint: current.checkpointSha256,
+          expectedStatuses: ['waiting-human'], allowStopRequested: true
+        });
+        retained = await persistGovernedBoundary(root, retained, 'human-boundary');
+        return retained;
+      }
     }
   }
 
@@ -1523,9 +1920,12 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         candidateSha256: state.candidate?.candidateSha256 ?? null,
         changedPaths: state.observedPaths ?? [], repairScope: state.scopePrediction ?? []
       }) : null;
-      return stopActive(refusal?.secondFailure ? 'halted' : 'waiting-human',
-        refusal?.secondFailure ? 'repair-attempt-exhausted' : 'repair-review-required',
-        refusal?.secondFailure
+      const repairDisabled = refusal?.flight.execution?.repair?.policy === 'never';
+      return stopActive(refusal?.secondFailure || repairDisabled
+        ? 'halted' : 'waiting-human',
+        refusal?.secondFailure ? 'repair-attempt-exhausted'
+          : repairDisabled ? 'repair-disabled' : 'repair-review-required',
+        refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
           : `Review refusal ${refusal?.refusal.refusalId}; confirm at most one bounded repair or take over.`, {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }

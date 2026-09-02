@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/auto-context-manifest.schema.json",
+  "title": "Singularity Flow Auto Context Manifest v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "contextManifestId", "flightId", "attemptId", "phase", "sections", "omitted", "expansionPolicySha256", "budgetSha256", "createdAt", "manifestSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "auto-context-manifest" },
+    "mode": { "const": "auto" },
+    "contextManifestId": { "type": "string", "pattern": "^ACM-[A-F0-9]{26}$" },
+    "flightId": { "$ref": "#/$defs/flightId" },
+    "attemptId": { "$ref": "#/$defs/attemptId" },
+    "phase": { "$ref": "#/$defs/nonempty" },
+    "sections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/section" } },
+    "omitted": { "type": "array", "items": { "$ref": "#/$defs/omission" } },
+    "expansionPolicySha256": { "$ref": "#/$defs/hash" },
+    "budgetSha256": { "$ref": "#/$defs/hash" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "manifestSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "flightId": { "type": "string", "pattern": "^AFL-[A-F0-9]{26}$" },
+    "attemptId": { "type": "string", "pattern": "^AAT-[A-F0-9]{26}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nonempty": { "type": "string", "minLength": 1 },
+    "section": {
+      "type": "object",
+      "required": ["id", "sourceRef", "contentSha256", "representation", "estimatedTokens", "mandatory"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty" }, "sourceRef": { "$ref": "#/$defs/nonempty" },
+        "contentSha256": { "$ref": "#/$defs/hash" }, "representation": { "$ref": "#/$defs/nonempty" },
+        "estimatedTokens": { "type": "integer", "minimum": 0 }, "mandatory": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "omission": {
+      "type": "object", "required": ["id", "reason"],
+      "properties": { "id": { "$ref": "#/$defs/nonempty" }, "reason": { "$ref": "#/$defs/nonempty" } },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

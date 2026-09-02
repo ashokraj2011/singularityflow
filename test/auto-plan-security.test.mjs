@@ -31,6 +31,12 @@ async function repository(t) {
   run('git', ['config', 'user.name', 'Auto Tester'], root);
   run('git', ['config', 'user.email', 'auto@example.com'], root);
   run(process.execPath, [cli, 'init'], root);
+  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  capabilities.capabilities['auto-fixture'] = {
+    kind: 'delivery', parent: 'product', repository: 'auto-fixture'
+  };
+  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.git.publish = 'off';
@@ -67,6 +73,79 @@ test('Auto Plan persists a credential-free repository identity and fingerprint',
   assert.match(plan.repositories[0].remoteFingerprint, /^[a-f0-9]{64}$/);
   assert.match(plan.bindings.repositoryFingerprint, /^[a-f0-9]{64}$/);
   assert.doesNotMatch(JSON.stringify(plan), /password|token@/i);
+  assert.equal(plan.capability.id, 'auto-fixture');
+});
+
+test('Auto Plan rejects Windows drive and UNC absolute scope on every host platform', async (t) => {
+  const root = await repository(t);
+  const definition = await loadDefinition(root);
+  for (const predictedPath of [
+    'C:\\workspace\\src\\app.mjs',
+    'C:/workspace/src/app.mjs',
+    '\\\\office-server\\share\\src\\app.mjs',
+    './C:/workspace/src/app.mjs',
+    '././C:/workspace/src/app.mjs',
+    '.\\C:\\workspace\\src\\app.mjs',
+    'C:workspace\\src\\app.mjs'
+  ]) {
+    await assert.rejects(
+      () => createAutoPlan(root, 'Change a bounded application path.', {
+        ...proposal, predictedPaths: [predictedPath]
+      }, {
+        definition, workId: 'AUT-PORTABLE-SCOPE', workType: 'feature', fromBranch: 'main'
+      }),
+      (error) => error.code === 'AUTO_PLAN_INVALID'
+        && /repository-relative path/.test(error.message),
+      predictedPath
+    );
+  }
+});
+
+test('Auto Plan refuses missing capability authority before model execution can become work', async (t) => {
+  const root = await repository(t);
+  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
+  delete capabilities.capabilities['auto-fixture'];
+  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
+  run('git', ['add', 'singularity/capabilities.yml'], root);
+  run('git', ['commit', '-m', 'remove approved delivery capability'], root);
+  run('git', ['push', 'origin', 'main'], root);
+  const definition = await loadDefinition(root);
+  await assert.rejects(
+    () => createAutoPlan(root, 'Change the exported value.', proposal, {
+      definition, workId: 'AUT-NO-CAPABILITY',
+      workType: 'feature', fromBranch: 'main'
+    }),
+    (error) => error.code === 'CAPABILITY_REGISTRATION_REQUIRED'
+      && /capability map/.test(error.details.nextAction)
+  );
+});
+
+test('generated Auto Story identity includes four words and resolves collisions deterministically', async (t) => {
+  const root = await repository(t);
+  const definition = await loadDefinition(root);
+  const now = () => '2026-09-02T00:00:00.000Z';
+  const requirement = 'Export monthly CSV reports for finance users';
+  const generated = await createAutoPlan(root, requirement, proposal, {
+    definition, workType: 'feature', fromBranch: 'main', now
+  });
+  assert.match(generated.story.workId,
+    /^AUT-[A-F0-9]{12}-export-monthly-csv-reports$/);
+  assert.equal(generated.story.generatedIdentity, true);
+  run('git', ['branch', generated.story.branch], root);
+  const collision = await createAutoPlan(root, requirement, proposal, {
+    definition, workType: 'feature', fromBranch: 'main', now
+  });
+  assert.equal(collision.story.workId, `${generated.story.workId}-2`);
+  assert.equal(collision.story.collisionSuffix, 2);
+
+  await assert.rejects(
+    () => createAutoPlan(root, 'Use an explicit occupied identity.', proposal, {
+      definition, workId: generated.story.workId, workType: 'feature', fromBranch: 'main'
+    }),
+    (error) => error.code === 'AUTO_BRANCH_COLLISION'
+      && /Supplied Auto destination branch/.test(error.message)
+  );
 });
 
 test('Auto Plan ratification accepts the exact derived review packet digest', async (t) => {
@@ -74,8 +153,8 @@ test('Auto Plan ratification accepts the exact derived review packet digest', as
   const plan = await createAutoPlan(root, 'Change the exported value.', proposal, {
     definition: await loadDefinition(root), workId: 'AUT-PACKET-RATIFY', workType: 'feature', fromBranch: 'main'
   });
-  assert.equal(plan.schemaVersion, 2);
-  assert.deepEqual(plan.confirmation, { protocol: 'packet-v1' });
+  assert.equal(plan.schemaVersion, 3);
+  assert.deepEqual(plan.confirmation, { protocol: 'packet-v2' });
   const packet = buildAutoPlanPacket(plan);
   await assert.rejects(
     () => ratifyAutoPlan(root, plan.planId, plan.planSha256),
@@ -191,14 +270,14 @@ test('a schema-v1 Plan is retained unchanged but cannot authorize execution', as
   assert.equal(await readFile(target, 'utf8'), bytes);
 });
 
-test('a fresh schema-v2 Plan cannot be stripped and rehashed as schema v1 to regain Plan-SHA confirmation', async (t) => {
+test('a fresh packet-v2 Plan cannot be downgraded and rehashed as a packet-v1 Plan', async (t) => {
   const root = await repository(t);
   const current = await createAutoPlan(root, 'Change the exported value.', proposal, {
     definition: await loadDefinition(root), workId: 'AUT-DOWNGRADE-RATIFY', workType: 'feature', fromBranch: 'main'
   });
   const downgraded = structuredClone(current);
-  downgraded.schemaVersion = 1;
-  delete downgraded.confirmation;
+  downgraded.schemaVersion = 2;
+  downgraded.confirmation = { protocol: 'packet-v1' };
   downgraded.planSha256 = autoPlanHash(downgraded);
   await writeFile(
     path.join(root, '.git/singularity-flow/auto-plans', `${downgraded.planId}.json`),

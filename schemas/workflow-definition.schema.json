@@ -637,7 +637,7 @@
         "repair": {
           "type": "object",
           "properties": {
-            "policy": { "enum": ["never", "ask"], "default": "ask" },
+            "policy": { "enum": ["never", "ask", "auto-on-machine-actionable"], "default": "ask" },
             "maximumAttempts": { "type": "integer", "minimum": 0, "maximum": 1, "default": 1 }
           },
           "additionalProperties": false

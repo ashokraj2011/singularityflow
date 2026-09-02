@@ -26,7 +26,8 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 
 const {
   invokeCli, CliError, CliTimeoutError, terminalCommand, validateRepositoryDirectory,
-  localGit, remoteGit, UninitializedRepositoryError, RepositoryAuthorityUnavailableError
+  validatedRepositoryGitCommonDirectory, localGit, remoteGit, UninitializedRepositoryError,
+  RepositoryAuthorityUnavailableError
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
@@ -468,6 +469,52 @@ async function initializedRepository() {
 test('an initialized repository root validates and resolves to its canonical path', async () => {
   const { root } = await initializedRepository();
   assert.equal(await validateRepositoryDirectory(root), await realpath(root));
+});
+
+test('the verified Git common directory is shared by a linked worktree with no path fallback', async (t) => {
+  const { base, root } = await initializedRepository();
+  t.after(() => rm(base, { recursive: true, force: true }));
+  run('git', ['config', 'user.name', 'VS Code Test'], { cwd: root });
+  run('git', ['config', 'user.email', 'vscode@example.com'], { cwd: root });
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Initialize'], { cwd: root });
+  const linked = path.join(base, 'linked-worktree');
+  run('git', ['worktree', 'add', '-q', '-b', 'linked-worktree', linked], { cwd: root });
+
+  assert.equal(await validateRepositoryDirectory(linked), await realpath(linked));
+  assert.equal(
+    await validatedRepositoryGitCommonDirectory(linked),
+    await realpath(path.join(root, '.git')),
+    'the watcher authority is the shared common directory, not the worktree-private Git directory'
+  );
+
+  const unrelated = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-unrelated-common-'));
+  t.after(() => rm(unrelated, { recursive: true, force: true }));
+  await mkdir(path.join(unrelated, 'worktrees', 'forged'), { recursive: true });
+  const fakeRunner = async () => ({
+    status: 0,
+    stdout: Buffer.from(`${path.join(unrelated, 'worktrees', 'forged')}\n${unrelated}\n`),
+    stderr: '', failure: null
+  });
+  await assert.rejects(
+    validatedRepositoryGitCommonDirectory(linked, { localRunner: fakeRunner }),
+    /unrelated Git (?:common )?directory/,
+    'an unrelated directory is refused rather than becoming a home/repository-wide fallback'
+  );
+});
+
+test('Git common-directory resolution never falls back to the process directory', async () => {
+  let invoked = false;
+  await assert.rejects(
+    validatedRepositoryGitCommonDirectory('', {
+      localRunner: async () => {
+        invoked = true;
+        throw new Error('must not run');
+      }
+    }),
+    /explicit absolute repository root/
+  );
+  assert.equal(invoked, false);
 });
 
 test('the asynchronous local Git boundary honors cancellation before spawning work', async () => {

@@ -41,6 +41,8 @@ Then, on a repository you care about:
 The full documentation map is in [docs/README.md](./docs/README.md).
 The additive, model-free SGOS compiler/runtime profile and its explicit staged boundaries are in
 [the SGOS guide](./docs/SGOS.md).
+For a practical walkthrough covering normal Story usage, explicit Intent-to-Process execution,
+recovery, and Git-trusted Capability Pack sharing, read [How to use SGOS](./docs/SGOS-USAGE-GUIDE.md).
 For bounded work that begins without a Story, follow the
 [ad hoc work and governed landing guide](./README-AD-HOC-WORK.md).
 For a complete Java/Maven demonstration of reusable deep world-model generation, optional JDT

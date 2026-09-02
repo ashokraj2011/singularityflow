@@ -5,6 +5,10 @@ program. It does not replace the existing Story lifecycle. Story `workflow.json`
 submission, and approval remain the authority for existing work; supported lifecycle publishers
 delegate their Git mutation to the shared Candidate boundary.
 
+For the developer and operator sequence—from choosing the normal Story flow through explicit
+Intent-to-Process execution, recovery, and Git-trusted Pack sharing—read
+[How to use SGOS](SGOS-USAGE-GUIDE.md).
+
 ## What this release implements
 
 The installed SGOS profile is deliberately bounded enough to audit end to end:

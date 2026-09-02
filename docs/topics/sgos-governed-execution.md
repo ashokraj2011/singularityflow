@@ -26,7 +26,7 @@ related:
   - governed-execution
   - workflow-authoring
   - evidence-and-ledger
-version: 15
+version: 16
 ---
 SGOS compiles confirmed intent and a ratified workflow into a finite, content-addressed Governed VM
 Program. Its operational Process state never replaces Story, Initiative, configuration, ledger, or
@@ -35,6 +35,10 @@ Git authority.
 A Story subject must already exist at the exact Process baseline. SFlow validates its durable Story
 record and pins the exact path, blob digest, normalized state digest, and Git revision in the
 Process Binding before any task—including `NOOP` or `END`—can run.
+
+Follow [How to use SGOS](../SGOS-USAGE-GUIDE.md) for the practical developer and operator sequence,
+including normal Story boundaries, explicit Intent-to-Process execution, recovery, and Git-trusted
+Capability Pack sharing.
 
 ## Purpose and prerequisites
 

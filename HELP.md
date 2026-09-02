@@ -36,6 +36,8 @@ For a visual end-to-end walkthrough with architecture, lifecycle, Git handoff,
 phase-input, and remote-agent diagrams, open `HOW-TO.md`. The complete navigation
 map is `docs/README.md`; terminology is defined in `docs/GLOSSARY.md`; and the
 supported visual surface is documented in `docs/VS-CODE.md`.
+For the practical SGOS developer and operator workflow—including explicit Program execution,
+recovery, and Git-trusted Capability Pack sharing—open `docs/SGOS-USAGE-GUIDE.md`.
 
 ## VS Code first-run onboarding
 

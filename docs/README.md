@@ -20,6 +20,7 @@ is not part of the current product.
 | Install and initialize a repository | [README](../README.md) |
 | Run a complete Story locally | [Local runbook](../LOCAL-RUNBOOK.md) |
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
+| Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |

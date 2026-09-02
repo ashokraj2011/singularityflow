@@ -176,6 +176,9 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /"responses"/);
   }
   assert.match(next, /selected action is `\/sf-code`.*do not imitate or inline.*Next in Copilot: \/sf-code.*stop/is);
+  assert.match(next, /never rewrite it to `\/sf-phase`/i);
+  assert.match(next, /deterministic convergence.*singularity-flow prepare convergence.*inspect that result's `next\[\]`/is);
+  assert.match(next, /publish only if preparation returns `convergence\.publish`/i);
   assert.match(requirements, /required.*evidence looks complete/is);
   assert.match(epicRequirements, /epic sources answer/);
 });
@@ -196,7 +199,7 @@ test('Copilot phase recovery re-authors once and never loops or pads an incomple
 
 test('generation skills use the phase-configured publication producer and channel', async () => {
   for (const name of [
-    'sflow-code', 'sflow-design', 'sflow-next', 'sflow-phase', 'sflow-release',
+    'sflow-code', 'sflow-converge', 'sflow-design', 'sflow-next', 'sflow-phase', 'sflow-release',
     'sflow-requirements', 'sflow-review', 'sflow-verify', 'sflow-workflow-rules'
   ]) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
@@ -204,6 +207,16 @@ test('generation skills use the phase-configured publication producer and channe
     assert.doesNotMatch(content, /phase publish[^\n`]*--authored governed-agent[^\n`]*--channel copilot-host/,
       `${name} hard-codes governed-agent publication`);
   }
+});
+
+test('convergence skill cannot replace deterministic kernel generation with agent authorship', async () => {
+  const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-converge', 'SKILL.md'), 'utf8');
+  assert.match(content, /Treat each returned command, configured producer, and channel as exact kernel output/);
+  assert.match(content, /checkpoint is `deterministic-generation`/);
+  assert.match(content, /never invoke a model, author or edit the artifact, or substitute human\/governed-agent authorship/i);
+  assert.match(content, /--authored deterministic --channel kernel-generator/);
+  assert.match(content, /clarification mode.*`off`/is);
+  assert.doesNotMatch(content, /you may author with the resolved convergence agent/i);
 });
 
 test('plugin exposes safe refresh, merge-stack, and regression investigation skills', async () => {

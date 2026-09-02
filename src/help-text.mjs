@@ -599,7 +599,7 @@ Usage:
   singularity-flow story rework [--work-id ID] [--reason TEXT] [--confirm]
   singularity-flow story rework roll-forward [--work-id ID] [--change-request CR-ID]
     [--json] [--confirm sha256:...]              (preview first; backup and restore without rewriting history)
-  singularity-flow story advance [--work-id ID] [--confirm]
+  singularity-flow story advance [--work-id ID] [--confirm sha256:<REVIEW-DIGEST>]
   singularity-flow story checks [--parent STORY-KEY] [--packet SHA256]
   singularity-flow story finalize [--json]
   singularity-flow finalize [--json]

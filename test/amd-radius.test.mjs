@@ -9,6 +9,7 @@
  * hand, so a change to either shape fails here instead of at the first real amendment.
  */
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { blastRadius, clauseDiff, radiusSummary } from '../src/amendment.mjs';
@@ -329,10 +330,16 @@ test('the P3 computations are reachable from a command, not just exported', asyn
    */
   const { commandLayerSource, withoutComments } = await import('./helpers/command-source.mjs');
   const cli = withoutComments(await commandLayerSource());
+  const context = withoutComments(await readFile(
+    new URL('../src/convergence-context.mjs', import.meta.url), 'utf8'
+  ));
 
-  // Convergence is told which clauses the interval's amendments touched.
-  assert.match(cli, /amendedClauses: \[\.\.\.new Set\(\(workflow\.workIntervals\?\.current\?\.amendments/,
+  // The shared exact-context boundary tells convergence which clauses the interval's amendments
+  // touched, and the command consumes that boundary rather than rebuilding a weaker snapshot.
+  assert.match(context, /amendedClauses: \[\.\.\.new Set\(\(workflow\.workIntervals\?\.current\?\.amendments/,
     'story converge no longer passes the amended clause set');
+  assert.match(cli, /currentConvergenceContext\(root, config, workflow\)/,
+    'story converge bypasses the exact convergence context');
 
   // The recap and the churn floor reach the reader.
   assert.match(cli, /amendmentRecap\(\{ amendments: current\.amendments/, 'interval status no longer prints the recap');

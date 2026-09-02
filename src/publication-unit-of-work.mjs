@@ -19,7 +19,9 @@ import {
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
-import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
+import {
+  capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
+} from './publication-recovery.mjs';
 import { recordSha256 } from './records.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import {
@@ -61,6 +63,7 @@ export class GitPublicationUnitOfWork {
   conflictStrategy = null,
   state = null,
   beforeCommit = null,
+  afterOwnedWrites = null,
   stabilityGuard = null,
   fault = null,
   transactionId = null,
@@ -182,7 +185,9 @@ export class GitPublicationUnitOfWork {
     const recoveryPreimage = suppliedRecoveryPreimage
       ?? (state?.captureRecovery
         ? await state.captureRecovery()
-        : await capturePublicationPreimage(root, allowedPaths));
+        : await capturePublicationPreimage(root, allowedPaths, {
+          refPrefixes: [publicationReworkRefNamespace(subject)]
+        }));
     const journal = await beginPublicationJournal(root, {
       subject,
       expectedHead: publicationHead,
@@ -301,6 +306,14 @@ export class GitPublicationUnitOfWork {
       // must never produce different chain bodies based on whether the network happened to be up.
       try {
         ledgerIntentPath = await persistLedgerIntent(root, ledger.intentDirectory, ledger.intent);
+      } catch (error) { await unwind(error); }
+    }
+    // Some transition guards bind an entire governed directory. Run their post-state capture only
+    // after every transaction-owned file exists, including the optional ledger intent written
+    // outside state.write; otherwise enabling the ledger makes the transaction invalidate itself.
+    if (afterOwnedWrites) {
+      try {
+        await afterOwnedWrites(envelope, { ledgerIntentPath });
       } catch (error) { await unwind(error); }
     }
     // This is both the isolated commit scope and the Candidate scope. Define it once so the

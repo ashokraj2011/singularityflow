@@ -26,7 +26,7 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { mergeObservedClaimRecords, mergePlannedClaimRecords } from './specifications.mjs';
 
-import { currentSchemaVersion } from './schema-migrations.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('convergence-record');
 
@@ -310,7 +310,7 @@ export function convergenceBindings({
     sourceTargetCommit: reconciliation.target?.head ?? null,
     plannedClaimsSha256: sorted(planned.map((map) => map.recordSha256 ?? recordSha256(map))),
     observedClaimsSha256: sorted(observed.map((map) => map.recordSha256 ?? recordSha256(map))),
-    evidenceSha256: sorted(evidence.map((entry) => entry.sha256).filter(Boolean))
+    evidenceSha256: sorted(evidence.map((entry) => entry.recordSha256 ?? entry.sha256).filter(Boolean))
   };
 }
 
@@ -427,7 +427,8 @@ function allowedTransitions({ facts, candidates, findings, blockers }) {
  * evidence hash, and improving a sentence would invalidate the iteration it described.
  */
 export function convergenceProjection({
-  workId, bindings, facts = [], candidates = [], candidateRecords = [], adjudications = []
+  workId, bindings, facts = [], candidates = [], candidateRecords = [],
+  candidateRecordBindings = [], legacyMigration = null, adjudications = []
 } = {}) {
   if (!workId) throw new SingularityFlowError('A convergence projection requires the work item it belongs to.');
   const validated = adjudications.map((entry) => validateAdjudication(entry, { facts, candidates }));
@@ -444,11 +445,433 @@ export function convergenceProjection({
     facts,
     candidates: candidates.map(({ id, classification, clauseIds }) => ({ id, classification, clauseIds })),
     candidateRecords: sorted(candidateRecords).map(posix),
+    candidateRecordBindings: [...candidateRecordBindings]
+      .map((binding) => ({ path: posix(binding.path), sha256: String(binding.sha256 ?? '') }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    legacyMigration: legacyMigration == null ? null : {
+      path: posix(legacyMigration.path),
+      recordSha256: String(legacyMigration.recordSha256 ?? '')
+    },
     findings,
     unresolvedBlockers: blockers,
     allowedNext: allowedTransitions({ facts, candidates, findings, blockers })
   };
   return { ...record, convergenceSha256: recordSha256(record) };
+}
+
+/**
+ * Rebuild a projection after a human decision without dropping any sealed source authority.
+ *
+ * Keeping this in the kernel (instead of reconstructing the shape in the command layer) makes the
+ * legacy archive binding and complete assisted-candidate snapshot part of every new projection
+ * seal. A decision can change findings; it cannot rewrite where the evidence came from.
+ */
+export function adjudicatedConvergenceProjection(existing, adjudications) {
+  return {
+    ...convergenceProjection({
+      workId: existing.workId,
+      bindings: existing.bindings,
+      facts: existing.facts ?? [],
+      candidates: existing.candidateSnapshot ?? [],
+      candidateRecords: existing.candidateRecords ?? [],
+      candidateRecordBindings: existing.candidateRecordBindings ?? [],
+      legacyMigration: existing.legacyMigration ?? null,
+      adjudications
+    }),
+    candidateSnapshot: existing.candidateSnapshot ?? []
+  };
+}
+
+function convergenceIntegrityFailure(message, code = 'CONVERGENCE_RECORD_CORRUPT', details = {}) {
+  throw new SingularityFlowError(message, { code, details });
+}
+
+function convergenceHashCore(record) {
+  const core = structuredClone(record);
+  delete core.convergenceSha256;
+  // Version 1 stored the complete assisted-candidate snapshot beside the sealed projection. The
+  // projection still binds every candidate through its content-derived ID; validate the complete
+  // snapshot independently below rather than silently changing the historical v1 hash contract.
+  delete core.candidateSnapshot;
+  return core;
+}
+
+function candidatePayload(candidate, index) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    convergenceIntegrityFailure(`Convergence candidate snapshot entry ${index + 1} is not an object.`);
+  }
+  const classification = String(candidate.classification ?? '').trim();
+  if (!FINDING_CLASSIFICATIONS.includes(classification)) {
+    convergenceIntegrityFailure(
+      `Convergence candidate snapshot entry ${index + 1} has invalid classification '${classification}'.`
+    );
+  }
+  const text = String(candidate.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) convergenceIntegrityFailure(`Convergence candidate snapshot entry ${index + 1} has no text.`);
+  const payload = {
+    classification,
+    clauseIds: sorted(candidate.clauseIds).map((id) => id.toUpperCase()),
+    evidence: sorted(candidate.evidence).map(posix),
+    factIds: sorted(candidate.factIds),
+    text
+  };
+  if (candidate.id !== itemId('CC', payload)) {
+    convergenceIntegrityFailure(
+      `Convergence candidate '${candidate.id ?? `at position ${index + 1}`}' does not match its complete content-derived identity.`
+    );
+  }
+  return { id: candidate.id, ...payload };
+}
+
+/**
+ * Verify the exact stored convergence projection before any human decision can consume it.
+ *
+ * The v1 projection hash intentionally excludes the complete candidate prose, but its compact
+ * candidate row contains a content-derived ID. Recomputing that ID from the full snapshot closes
+ * the other half of the binding: changed prose/evidence cannot remain attached to the old ID.
+ */
+export function assertConvergenceIntegrity(record, {
+  workId = null, iteration = null, currentBindings = null, currentFacts = null
+} = {}) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    convergenceIntegrityFailure('Convergence record is not an object.');
+  }
+  if (record.resultType !== 'convergence') {
+    convergenceIntegrityFailure(`Convergence record has resultType '${record.resultType ?? 'missing'}'.`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(String(record.convergenceSha256 ?? ''))) {
+    convergenceIntegrityFailure('Convergence record has no valid convergenceSha256.');
+  }
+  const computedSha256 = recordSha256(convergenceHashCore(record));
+  if (record.convergenceSha256 !== computedSha256) {
+    convergenceIntegrityFailure(
+      `Convergence record hash mismatch: stored ${record.convergenceSha256}, computed ${computedSha256}.`,
+      'CONVERGENCE_RECORD_HASH_MISMATCH',
+      { storedSha256: record.convergenceSha256, computedSha256 }
+    );
+  }
+  if (workId != null && record.workId !== workId) {
+    convergenceIntegrityFailure(`Convergence record belongs to '${record.workId}', not '${workId}'.`);
+  }
+  if (iteration != null && Number(record.iteration) !== Number(iteration)) {
+    convergenceIntegrityFailure(
+      `Convergence record is iteration ${record.iteration}, not current iteration ${iteration}.`
+    );
+  }
+  if (Number(record.bindings?.iteration) !== Number(record.iteration)) {
+    convergenceIntegrityFailure('Convergence record iteration does not match its bound iteration.');
+  }
+
+  const snapshot = record.candidateSnapshot ?? [];
+  if (!Array.isArray(snapshot)) {
+    convergenceIntegrityFailure('Convergence candidateSnapshot is not an array.');
+  }
+  if (snapshot.length === 0 && (record.candidates ?? []).length > 0) {
+    convergenceIntegrityFailure('Convergence record has compact candidates but no complete candidate snapshot.');
+  }
+  const complete = snapshot.map(candidatePayload);
+  const ids = complete.map((candidate) => candidate.id);
+  if (new Set(ids).size !== ids.length) {
+    convergenceIntegrityFailure('Convergence candidate snapshot contains duplicate candidate IDs.');
+  }
+  const compact = complete.map(({ id, classification, clauseIds }) => ({ id, classification, clauseIds }));
+  if (canonicalJson(compact) !== canonicalJson(record.candidates ?? [])) {
+    convergenceIntegrityFailure(
+      'Convergence compact candidates do not match the complete candidate snapshot.',
+      'CONVERGENCE_CANDIDATE_SNAPSHOT_MISMATCH'
+    );
+  }
+
+  const factIds = (record.facts ?? []).map((entry) => entry?.id);
+  if (factIds.some((id) => typeof id !== 'string') || new Set(factIds).size !== factIds.length) {
+    convergenceIntegrityFailure('Convergence facts contain missing or duplicate identities.');
+  }
+  if (!Array.isArray(record.findings)) {
+    convergenceIntegrityFailure('Convergence findings are not an array.');
+  }
+  const findingItemIds = record.findings.map((finding) => finding?.itemId);
+  if (findingItemIds.some((id) => typeof id !== 'string')
+      || new Set(findingItemIds).size !== findingItemIds.length) {
+    convergenceIntegrityFailure('Convergence findings contain missing or duplicate item identities.');
+  }
+  const adjudications = record.findings.map((finding) => {
+    const actor = finding?.decision?.actor;
+    const at = finding?.decision?.at;
+    if (typeof actor !== 'string' || !actor.trim()) {
+      convergenceIntegrityFailure(`Convergence finding '${finding?.id ?? 'unknown'}' has no human decision identity.`);
+    }
+    if (typeof at !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(at)
+        || Number.isNaN(Date.parse(at))) {
+      convergenceIntegrityFailure(`Convergence finding '${finding?.id ?? 'unknown'}' has no valid decision timestamp.`);
+    }
+    return {
+      itemId: finding.itemId,
+      disposition: finding.disposition,
+      classification: finding.classification,
+      clauseIds: finding.clauseIds,
+      reason: finding.decision?.reason,
+      actor,
+      at
+    };
+  });
+  const derived = convergenceProjection({
+    workId: record.workId,
+    bindings: record.bindings,
+    facts: record.facts ?? [],
+    candidates: complete,
+    candidateRecords: record.candidateRecords ?? [],
+    candidateRecordBindings: record.candidateRecordBindings ?? [],
+    legacyMigration: record.legacyMigration ?? null,
+    adjudications
+  });
+  for (const field of ['findings', 'unresolvedBlockers', 'allowedNext']) {
+    if (canonicalJson(record[field] ?? []) !== canonicalJson(derived[field] ?? [])) {
+      convergenceIntegrityFailure(
+        `Convergence ${field} is not the deterministic projection of its facts and human decisions.`,
+        'CONVERGENCE_DERIVED_STATE_MISMATCH',
+        { field }
+      );
+    }
+  }
+
+  const candidateRecords = sorted(record.candidateRecords).map(posix);
+  const sourceBindings = record.candidateRecordBindings ?? [];
+  if (!Array.isArray(sourceBindings)
+      || sourceBindings.some((binding) => !binding || typeof binding !== 'object'
+        || !candidateRecords.includes(posix(String(binding.path ?? '')))
+        || !/^[0-9a-f]{64}$/.test(String(binding.sha256 ?? '')))
+      || sourceBindings.length !== candidateRecords.length
+      || new Set(sourceBindings.map((binding) => posix(binding.path))).size !== candidateRecords.length) {
+    convergenceIntegrityFailure(
+      'Convergence candidate records are not bound to exact provenance digests.',
+      'CONVERGENCE_CANDIDATE_RECORD_BINDING_MISSING'
+    );
+  }
+  if (record.legacyMigration != null) {
+    const migration = record.legacyMigration;
+    const migrationPath = String(migration?.path ?? '');
+    const normalizedMigrationPath = posix(migrationPath);
+    const migrationSegments = normalizedMigrationPath.split('/');
+    if (!migration || typeof migration !== 'object' || Array.isArray(migration)
+        || Object.keys(migration).sort().join(',') !== 'path,recordSha256'
+        || !normalizedMigrationPath || normalizedMigrationPath !== migrationPath
+        || migrationSegments.some((segment) => !segment || segment === '.' || segment === '..')
+        || !/\/context\/convergence\/legacy\/iteration-\d+-[0-9a-f]{64}\.json$/.test(normalizedMigrationPath)
+        || !/^[0-9a-f]{64}$/.test(String(migration.recordSha256 ?? ''))) {
+      convergenceIntegrityFailure(
+        'Convergence legacy migration is not bound to one exact archive record.',
+        'CONVERGENCE_LEGACY_ARCHIVE_BINDING_INVALID'
+      );
+    }
+  }
+
+  if (currentBindings && canonicalJson(record.bindings) !== canonicalJson(currentBindings)) {
+    convergenceIntegrityFailure(
+      'Convergence bindings no longer match the current approved inputs. Run singularity-flow story converge again before adjudicating or advancing.',
+      'CONVERGENCE_BINDINGS_STALE',
+      {
+        storedBindingsSha256: recordSha256(record.bindings),
+        currentBindingsSha256: recordSha256(currentBindings)
+      }
+    );
+  }
+  if (currentFacts && canonicalJson(record.facts ?? []) !== canonicalJson(currentFacts)) {
+    convergenceIntegrityFailure(
+      'Convergence facts no longer match the deterministic result for the current approved inputs. Run singularity-flow prepare convergence again before publishing, adjudicating, or advancing.',
+      'CONVERGENCE_FACTS_STALE',
+      {
+        storedFactsSha256: recordSha256(record.facts ?? []),
+        currentFactsSha256: recordSha256(currentFacts)
+      }
+    );
+  }
+  return record;
+}
+
+/** Parse and integrity-check stored bytes; malformed JSON is corruption, never absence. */
+export function decodeConvergenceRecord(rawBytes, options = {}) {
+  try {
+    const record = readRecord('convergence-record', rawBytes).record;
+    return assertConvergenceIntegrity(record, options);
+  } catch (error) {
+    if (String(error?.code ?? '').startsWith('CONVERGENCE_')) throw error;
+    // A record written by a newer/archived compatible reader is unavailable to this build, not
+    // corrupt. Preserve the registry's actionable version diagnosis in those two cases.
+    if (['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED'].includes(error?.code)) throw error;
+    throw new SingularityFlowError(
+      `Convergence record is corrupt: ${error?.message ?? String(error)}`,
+      { code: 'CONVERGENCE_RECORD_CORRUPT', cause: error }
+    );
+  }
+}
+
+/** Verify the complete candidate snapshot against the assisted record that produced it. */
+export function assertConvergenceCandidateSource(source, projection, { path: sourcePath = null } = {}) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    convergenceIntegrityFailure('Assisted convergence candidate record is not an object.');
+  }
+  if (source.resultType !== 'convergence-candidates'
+      || source.workId !== projection.workId
+      || Number(source.iteration) !== Number(projection.iteration)) {
+    convergenceIntegrityFailure(
+      'Assisted convergence candidate record does not belong to this Story iteration.',
+      'CONVERGENCE_CANDIDATE_RECORD_MISMATCH'
+    );
+  }
+  const sourceCore = structuredClone(source);
+  delete sourceCore.recordSha256;
+  const computedSourceSha256 = recordSha256(sourceCore);
+  if (!/^[0-9a-f]{64}$/.test(String(source.recordSha256 ?? ''))
+      || source.recordSha256 !== computedSourceSha256) {
+    convergenceIntegrityFailure(
+      'Assisted convergence candidate provenance has changed since it was recorded.',
+      'CONVERGENCE_CANDIDATE_RECORD_HASH_MISMATCH',
+      { storedSha256: source.recordSha256 ?? null, computedSha256: computedSourceSha256 }
+    );
+  }
+  if (sourcePath != null) {
+    const normalizedPath = posix(sourcePath);
+    const binding = (projection.candidateRecordBindings ?? [])
+      .find((entry) => posix(entry.path) === normalizedPath);
+    if (!binding || binding.sha256 !== source.recordSha256) {
+      convergenceIntegrityFailure(
+        `Assisted convergence candidate record '${normalizedPath}' does not match its sealed projection binding.`,
+        'CONVERGENCE_CANDIDATE_RECORD_BINDING_MISMATCH',
+        { path: normalizedPath, expectedSha256: binding?.sha256 ?? null, currentSha256: source.recordSha256 }
+      );
+    }
+  }
+  const expectedDeterministic = {
+    reconciliationSha256: projection.bindings?.reconciliation?.sha256 ?? null,
+    sourceTargetCommit: projection.bindings?.sourceTargetCommit ?? null,
+    clauseIndexSha256: projection.bindings?.clauseIndexSha256 ?? [],
+    factIds: (projection.facts ?? []).map((item) => item.id)
+  };
+  if (canonicalJson(source.deterministic ?? null) !== canonicalJson(expectedDeterministic)) {
+    convergenceIntegrityFailure(
+      'Assisted convergence candidate record is bound to different deterministic inputs.',
+      'CONVERGENCE_CANDIDATE_BINDINGS_STALE'
+    );
+  }
+  if (canonicalJson(source.candidates ?? []) !== canonicalJson(projection.candidateSnapshot ?? [])) {
+    convergenceIntegrityFailure(
+      'The complete convergence candidate snapshot does not match its assisted source record.',
+      'CONVERGENCE_CANDIDATE_SNAPSHOT_MISMATCH'
+    );
+  }
+  return source;
+}
+
+function markdownCell(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').replaceAll('|', '\\|').trim() || '—';
+}
+
+/** Deterministic human-readable projection used as the convergence phase artifact. */
+export function renderConvergenceArtifact(projection) {
+  assertConvergenceIntegrity(projection);
+  const candidates = projection.candidateSnapshot ?? [];
+  const lines = [
+    `# Convergence — ${projection.workId}`,
+    '',
+    '> Deterministically rendered from the kernel-owned convergence projection. No model authored this artifact.',
+    '',
+    '## Iteration',
+    '',
+    `- Iteration: **${projection.iteration}**`,
+    `- Projection SHA-256: \`${projection.convergenceSha256}\``,
+    `- Reconciliation SHA-256: \`${projection.bindings.reconciliation.sha256}\``,
+    `- Source target: \`${projection.bindings.sourceTargetCommit ?? 'unavailable'}\``,
+    '',
+    '## Deterministic facts',
+    '',
+    ...(projection.facts?.length
+      ? projection.facts.map((fact) => `- **${fact.id}** · ${fact.kind}${fact.clauseIds?.length ? ` · ${fact.clauseIds.join(', ')}` : ''}: ${markdownCell(fact.detail)}`)
+      : ['- No deterministic trace-evidence gaps were found.']),
+    '',
+    '## Assisted candidates',
+    '',
+    ...(candidates.length
+      ? candidates.map((candidate) => `- **${candidate.id}** · ${candidate.classification}${candidate.clauseIds?.length ? ` · ${candidate.clauseIds.join(', ')}` : ''}: ${markdownCell(candidate.text)}`)
+      : ['- No assisted candidates are bound to this iteration.']),
+    '',
+    '## Findings and dispositions',
+    '',
+    '| Finding | Item | Clauses | Disposition | Reason |',
+    '|---|---|---|---|---|',
+    ...(projection.findings?.length
+      ? projection.findings.map((finding) => `| ${markdownCell(finding.id)} | ${markdownCell(finding.itemId)} | ${markdownCell(finding.clauseIds?.join(', '))} | ${markdownCell(finding.disposition)} | ${markdownCell(finding.decision?.reason)} |`)
+      : ['| — | — | — | — | No human dispositions recorded. |']),
+    '',
+    '## Unresolved blockers',
+    '',
+    ...(projection.unresolvedBlockers?.length
+      ? projection.unresolvedBlockers.map((id) => `- \`${id}\``)
+      : ['- None.']),
+    '',
+    '## Allowed next actions',
+    '',
+    ...(projection.allowedNext?.length
+      ? projection.allowedNext.map((action) => `- \`${action}\``)
+      : ['- None.']),
+    ''
+  ];
+  return lines.join('\n');
+}
+
+function normalizedConvergenceArtifactBody(value) {
+  return String(value ?? '')
+    .replaceAll('\r\n', '\n')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Refuse publication until the deterministic projection has been reviewed to a terminal state and
+ * the authored artifact bytes are still its canonical rendering.
+ *
+ * Guidance alone is not an authorization boundary: a caller can always invoke `phase publish`
+ * directly. Keeping this check in the publication path prevents an undisposed projection or a
+ * hand-edited narrative from consuming the generation intent and trapping the Story in a recovery
+ * loop.
+ */
+export function assertConvergencePublishable(projection, authoredArtifactBody) {
+  assertConvergenceIntegrity(projection);
+  const allowed = projection.allowedNext ?? [];
+  if (!allowed.includes('advance-to-verification')
+      || (projection.unresolvedBlockers ?? []).length > 0) {
+    throw new SingularityFlowError(
+      `Convergence iteration ${projection.iteration} has not completed human review. `
+      + `Allowed next action${allowed.length === 1 ? ' is' : 's are'}: ${allowed.join(', ') || 'none'}. `
+      + 'Record the required adjudications or rework, then run singularity-flow prepare convergence again.',
+      {
+        code: 'CONVERGENCE_REVIEW_REQUIRED',
+        details: {
+          iteration: projection.iteration,
+          allowedNext: allowed,
+          unresolvedBlockers: projection.unresolvedBlockers ?? []
+        }
+      }
+    );
+  }
+  const expected = normalizedConvergenceArtifactBody(renderConvergenceArtifact(projection));
+  const actual = normalizedConvergenceArtifactBody(authoredArtifactBody);
+  if (actual !== expected) {
+    throw new SingularityFlowError(
+      'The convergence artifact no longer matches the reviewed deterministic projection. '
+      + 'Run singularity-flow prepare convergence to restore the canonical artifact before publishing.',
+      {
+        code: 'CONVERGENCE_ARTIFACT_MISMATCH',
+        details: {
+          iteration: projection.iteration,
+          projectionSha256: projection.convergenceSha256
+        }
+      }
+    );
+  }
+  return projection;
 }
 
 /** Canonical bytes, so an unchanged iteration rewrites identically `[SPK:REQ-075]`. */

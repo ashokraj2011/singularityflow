@@ -19,6 +19,7 @@ import {
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import {
   configurationReadRoot, configurationReadSnapshot
@@ -877,7 +878,7 @@ test('Story start materializes approved configuration without requiring it on ap
     const workflow = JSON.parse(await readFile(
       path.join(checkout, 'singularity', 'work-items', 'CFG-100', 'workflow.json'), 'utf8'
     ));
-    assert.equal(workflow.schemaVersion, 3);
+    assert.equal(workflow.schemaVersion, currentSchemaVersion('story-workflow'));
     assert.equal(workflow.resolution.wel.mode, 'disabled');
     assert.equal(workflow.resolution.wel.rollout.enrollment, 'new-story-only');
     assert.match(workflow.resolution.configurationSource.commit, /^[0-9a-f]{40}$/);

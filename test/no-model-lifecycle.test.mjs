@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { canonicalJson } from '../src/records.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
@@ -136,6 +138,63 @@ test('a migrated pre-anchor Story is not reported as policy tampering', async (t
   assert.equal(malformedValidation.valid, false);
   assert.ok(malformedValidation.errors.some((message) =>
     /creation policy anchor .* is malformed/.test(message)), malformedValidation.errors.join('\n'));
+});
+
+test('an honestly anchored v3 Story survives the deterministic convergence policy upgrade', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-v3-policy-anchor-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.name', 'Upgrade Author');
+  git(root, 'config', 'user.email', 'upgrade@example.invalid');
+  await writeFile(path.join(root, 'README.md'), '# Anchored upgrade compatibility\n');
+  await initializeDefinition(root);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'initialize repository');
+  git(root, 'switch', '-c', 'V3-UPGRADE-1');
+
+  const config = await loadConfig(root);
+  config.git.publish = 'off';
+  const actor = { name: 'Upgrade Author', email: 'upgrade@example.invalid', login: null };
+  await setAgentSession(root, config, actor, 'developer', 'V3-UPGRADE-1', {
+    phaseId: 'intake', source: 'test'
+  });
+  await createWorkflow(root, config, {
+    id: 'V3-UPGRADE-1',
+    title: 'Read an anchored Story across a policy-strengthening migration',
+    source: {
+      type: 'manual', key: 'V3-UPGRADE-1',
+      title: 'Read an anchored Story across a policy-strengthening migration',
+      description: 'Exercise immutable policy validation across the v3 to v4 reader migration.',
+      acceptanceCriteria: ['The authenticated v3 policy is compared in the current schema.']
+    },
+    baseBranch: 'main', workType: 'spec-driven-standard', agent: 'developer'
+  });
+  const workflowFile = path.join(root, config.workItemRoot, 'V3-UPGRADE-1', 'workflow.json');
+  const v3 = JSON.parse(await readFile(workflowFile, 'utf8'));
+  v3.schemaVersion = 3;
+  v3.phases.convergence.generationPolicy = {
+    requirement: 'none', producer: 'agent', defaultProducer: 'governed-agent',
+    allowedProducers: ['governed-agent', 'human']
+  };
+  const resolved = v3.resolution.phases.find((phase) => phase.id === 'convergence');
+  resolved.generation = {
+    requirement: 'none', producer: 'agent', defaultProducer: 'governed-agent',
+    allowedProducers: ['governed-agent', 'human']
+  };
+  delete v3.resolution.policySha256;
+  v3.resolution.policySha256 = `sha256:${createHash('sha256').update(canonicalJson(v3.resolution)).digest('hex')}`;
+  await writeFile(workflowFile, `${JSON.stringify(v3, null, 2)}\n`);
+  git(root, 'add', '.');
+  git(root, 'commit', '-m', 'anchored v3 Story creation');
+
+  const migrated = await loadWorkflow(root, config, 'V3-UPGRADE-1');
+  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
+  assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
+  const validation = await validateWorkflow(root, config, migrated);
+  assert.equal(validation.errors.some((message) =>
+    /Resolved Story policy differs from the immutable creation commit/.test(message)), false,
+  validation.errors.join('\n'));
 });
 
 test('a Story can complete through manual authorship with model mode disabled', async () => {

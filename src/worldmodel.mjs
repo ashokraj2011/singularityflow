@@ -13,7 +13,9 @@ import {
 } from './util.mjs';
 import { invokeModel } from './model-runner.mjs';
 import { nullLogger, repositoryLogger } from './logging.mjs';
-import { loadDefinition, renderArtifactTemplate, WORKFLOW_PATH } from './config.mjs';
+import {
+  loadDefinition, normalizeGenerationPolicy, renderArtifactTemplate, WORKFLOW_PATH
+} from './config.mjs';
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
@@ -50,7 +52,12 @@ import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
-import { normalizeClarificationPolicy, renderClarificationProtocol } from './clarifications.mjs';
+import {
+  renderClarificationProtocol, resolvedClarificationPolicy
+} from './clarifications.mjs';
+import {
+  phasePublicationContract
+} from './manual-authorship.mjs';
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
@@ -3992,6 +3999,51 @@ function groundingSectionsText(selected, rulePaths) {
   ].join('\n');
 }
 
+/**
+ * The executable part of a composed phase prompt.
+ *
+ * Publication guidance used to be implied by the phase label while the actual lifecycle gate read
+ * `generationPolicy`. That let an agent guess `human` for a deterministic-only convergence phase,
+ * even though the kernel could never accept that producer. Resolve the pinned policy once and put
+ * the same producer/channel pair and exact command in the prompt that the lifecycle gate uses.
+ */
+export function phasePromptExecutionContract(definition, workflow, phase) {
+  const resolvedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === phase.id);
+  const generationPolicy = normalizeGenerationPolicy(
+    phase.generationPolicy
+      ?? resolvedPhase?.generationPolicy
+      ?? resolvedPhase?.generation
+      ?? definition.phases?.[phase.id]?.generation,
+    phase.id
+  );
+  const effectivePhase = { ...phase, generationPolicy };
+  const publication = phasePublicationContract(effectivePhase);
+  const clarification = resolvedClarificationPolicy(definition, workflow, phase);
+  const allowedProducers = publication.allowedProducers;
+  const deterministicOnly = allowedProducers.length === 1 && allowedProducers[0] === 'deterministic';
+  const command = publication.command;
+  const lines = [
+    `- Generation requirement: \`${generationPolicy.requirement}\``,
+    `- Default publication producer: \`${publication.producer}\``,
+    `- Allowed publication producers: ${allowedProducers.map((producer) => `\`${producer}\``).join(', ')}`,
+    `- Required publication channel: \`${publication.channel}\``,
+    `- Clarification mode: \`${clarification.mode}\`${clarification.mode === 'off' ? '; do not ask phase clarification questions or run `clarification record`' : ''}`,
+    `- Exact publication command: \`${command}\``,
+    '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
+    ...(deterministicOnly ? [
+      '- Deterministic-only generation: do not author or edit the phase artifact with a model, governed agent, or human. Run only the deterministic kernel action returned by the router; the kernel owns artifact generation.'
+    ] : [])
+  ];
+  return Object.freeze({
+    generationPolicy: Object.freeze(generationPolicy),
+    publication,
+    clarification: Object.freeze(clarification),
+    deterministicOnly,
+    command,
+    lines: Object.freeze(lines)
+  });
+}
+
 async function workflowPromptContext(root, definition, workflow, phase, workItemRoot) {
   if (!workflow || !phase) return { contract: '', inputs: '', inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
@@ -4000,6 +4052,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     ? posix(path.join(itemRelative, phase.requiredArtifact.path))
     : 'not configured';
   const resolvedPhase = workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id);
+  const executionContract = phasePromptExecutionContract(definition, workflow, phase);
   const pinnedIntelligence = workflow.resolution?.intelligence ?? {};
   const astContract = pinnedIntelligence.ast === 'off' || definition.ast?.mode === 'off'
     ? 'off; ordinary repository file access remains available'
@@ -4028,6 +4081,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `- Work type: \`${workflow.workItem.workType}\``,
     `- Phase: \`${phase.id}\``,
     `- Generation to author: ${Number(phase.generation ?? 0) + 1}`,
+    ...executionContract.lines,
     `- Repository root: \`${root}\``,
     `- Work-item directory: \`${itemRelative}\``,
     `- Required artifact: \`${requiredArtifact}\``,
@@ -4066,7 +4120,8 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     evidence: evidence.markdown,
     evidenceFiles: evidence.files,
     evidenceEntries: evidence.entries,
-    warnings: [...collected.warnings, ...evidence.warnings]
+    warnings: [...collected.warnings, ...evidence.warnings],
+    executionContract
   };
 }
 
@@ -4208,10 +4263,8 @@ async function compose(root, options) {
   const approvedReferences = await renderApprovedReferenceContext(root, definition, workflow, phase, {
     inputRecords: governed.inputRecords
   });
-  const pinnedPhase = workflow?.resolution?.phases?.find((candidate) => candidate.id === signals.phase);
-  const clarificationPolicy = normalizeClarificationPolicy(
-    pinnedPhase?.clarification ?? definition.phases?.[signals.phase]?.clarification
-  );
+  const clarificationPolicy = governed.executionContract?.clarification
+    ?? resolvedClarificationPolicy(definition, workflow, phase);
   const clarification = renderClarificationProtocol(clarificationPolicy, signals.phase);
   const mcpPolicy = renderMcpPromptPolicy(definition, { agent, phase: signals.phase });
   const designSources = workflow && phase

@@ -374,7 +374,9 @@ export async function doctorSnapshot(root, {
         const fix = registration.status === 'unsafe'
           ? `Run singularity-flow recover ${workflow.workItem.id} --phase ${active.id}.`
           : registration.status === 'repairable'
-            ? `Run singularity-flow submit ${active.id}; SFlow will record the repair in the governed commit.`
+            ? active.id === 'convergence'
+              ? `Run singularity-flow story advance --work-id ${workflow.workItem.id}; after review, confirm that same advancement so SFlow records the repair in the governed commit.`
+              : `Run singularity-flow submit ${active.id}; SFlow will record the repair in the governed commit.`
             : null;
         checks.push(check('artifact-registration', status, message, fix, {
           phase: active.id,

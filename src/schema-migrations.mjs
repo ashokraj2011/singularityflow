@@ -43,6 +43,52 @@ function identity(next) {
   return (record) => ({ ...record, schemaVersion: next });
 }
 
+function assistedConvergenceV1ToV2(source) {
+  // v1 did not seal the model provenance fields. Preserve it for audit, but mark the missing seal
+  // explicitly so an authority decision cannot consume it; rerunning deterministic convergence
+  // creates a fully bound v2 source record.
+  return { ...clone(source), schemaVersion: 2, recordSha256: null };
+}
+
+function convergenceRecordV1ToV2(source) {
+  // A v1 convergence projection already sealed its core and complete Candidate IDs. Verify that
+  // seal before migration. Candidate source receipts did not have digests in v1, so those records
+  // deliberately migrate with an empty binding list and must be regenerated before publication.
+  const v1Core = clone(source);
+  delete v1Core.convergenceSha256;
+  delete v1Core.candidateSnapshot;
+  if (source.convergenceSha256 !== recordSha256(v1Core)) {
+    throw new SingularityFlowError(
+      'Convergence record v1 failed its integrity check and cannot be migrated.',
+      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'convergence-record', storedVersion: 1 } }
+    );
+  }
+  const migrated = { ...clone(source), schemaVersion: 2, candidateRecordBindings: [] };
+  const currentCore = clone(migrated);
+  delete currentCore.convergenceSha256;
+  delete currentCore.candidateSnapshot;
+  migrated.convergenceSha256 = recordSha256(currentCore);
+  return migrated;
+}
+
+function convergenceRecordV2ToV3(source) {
+  const v2Core = clone(source);
+  delete v2Core.convergenceSha256;
+  delete v2Core.candidateSnapshot;
+  if (source.convergenceSha256 !== recordSha256(v2Core)) {
+    throw new SingularityFlowError(
+      'Convergence record v2 failed its integrity check and cannot be migrated.',
+      { code: 'SCHEMA_MIGRATION_SOURCE_CORRUPT', details: { family: 'convergence-record', storedVersion: 2 } }
+    );
+  }
+  const migrated = { ...clone(source), schemaVersion: 3, legacyMigration: source.legacyMigration ?? null };
+  const currentCore = clone(migrated);
+  delete currentCore.convergenceSha256;
+  delete currentCore.candidateSnapshot;
+  migrated.convergenceSha256 = recordSha256(currentCore);
+  return migrated;
+}
+
 function autoFlightCheckpointSha256V1(source) {
   return `sha256:${recordSha256({
     flightId: source.flightId,
@@ -987,6 +1033,68 @@ function storyWorkflowV1ToV2(source) {
   };
 }
 
+function storyWorkflowV3ToV4(source) {
+  const migrated = clone(source);
+  migrated.schemaVersion = 4;
+  const convergence = migrated.phases?.convergence;
+  const resolved = migrated.resolution?.phases?.find((phase) => phase.id === 'convergence');
+  if (convergence) {
+    convergence.generationPolicy = {
+      ...(convergence.generationPolicy ?? {}),
+      requirement: 'required',
+      producer: 'deterministic',
+      defaultProducer: 'deterministic',
+      allowedProducers: ['deterministic']
+    };
+  }
+  if (resolved) {
+    resolved.generation = {
+      ...(resolved.generation ?? {}),
+      requirement: 'required',
+      producer: 'deterministic',
+      defaultProducer: 'deterministic',
+      allowedProducers: ['deterministic']
+    };
+  }
+  // v4 introduced the explicit human convergence boundary. Strengthen both copies of the pinned
+  // policy together so an honestly anchored v3 Story remains loadable while an old `none` or
+  // policy-waived phase cannot auto-advance after upgrade.
+  if (convergence || resolved) {
+    const candidates = [convergence?.approvalPolicy, resolved?.approval]
+      .filter((policy) => policy && typeof policy === 'object' && !Array.isArray(policy));
+    const registryIds = Object.keys(migrated.resolution?.approvalAuthorities ?? {});
+    const authorities = candidates.find((policy) => Array.isArray(policy.authorities) && policy.authorities.length)
+      ?.authorities ?? [registryIds.includes('architecture-reviewers')
+        ? 'architecture-reviewers'
+        : registryIds[0] ?? 'architecture-reviewers'];
+    const sourcePolicy = candidates[0] ?? {};
+    const sourceMode = sourcePolicy.mode ?? 'required';
+    const approvalSecurity = migrated.resolution?.approvalSecurity ?? {};
+    const migratedAllowSelfApproval = sourceMode === 'required'
+      && typeof sourcePolicy.allowSelfApproval === 'boolean'
+      ? sourcePolicy.allowSelfApproval
+      : approvalSecurity.allowSelfApproval ?? approvalSecurity.profile !== 'regulated';
+    const requiredAuthorities = (sourcePolicy.requiredAuthorities ?? [])
+      .filter((authority) => authorities.includes(authority));
+    const approval = {
+      ...sourcePolicy,
+      mode: 'required',
+      policy: null,
+      maximumChangedPaths: null,
+      authorities: [...new Set(authorities)],
+      requiredAuthorities,
+      minimum: Math.max(1, sourcePolicy.minimum ?? 1, requiredAuthorities.length),
+      allowSelfApproval: migratedAllowSelfApproval,
+      rejectTo: clone(sourcePolicy.rejectTo?.length
+        ? sourcePolicy.rejectTo
+        : (migrated.phases?.implementation ? ['implementation'] : ['convergence']))
+    };
+    if (convergence) convergence.approvalPolicy = clone(approval);
+    if (resolved) resolved.approval = clone(approval);
+  }
+  return migrated;
+}
+
 function actionPlanV1ToV2(source) {
   const worktreeHash = source.revision?.worktreeHash ?? null;
   return {
@@ -1803,8 +1911,12 @@ const families = [
   }),
   family({ id: 'harness-event', currentVersion: 1, paths: [/^\$git\/harness-events\/[0-9a-f-]{36}\.json$/], immutable: true }),
   family({
-    id: 'story-workflow', currentVersion: 3,
-    steps: [migration(1, 2, storyWorkflowV1ToV2), migration(2, 3, identity(3))],
+    id: 'story-workflow', currentVersion: 4,
+    steps: [
+      migration(1, 2, storyWorkflowV1ToV2),
+      migration(2, 3, identity(3)),
+      migration(3, 4, storyWorkflowV3ToV4)
+    ],
     paths: [/^(?:singularity|\.sdlc)\/work-items\/[^/]+\/workflow\.json$/], unversionedAs: 1
   }),
   family({
@@ -1837,7 +1949,11 @@ const families = [
   family({ id: 'artifact-set', currentVersion: 1 }),
   family({ id: 'artifact-sidecar', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/sidecars\/[^/]+\.json$/], immutable: true }),
   family({ id: 'assisted-quality', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/spec-quality\/[^/]+\.json$/], immutable: true }),
-  family({ id: 'assisted-convergence', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/candidates-[^/]+\.json$/], immutable: true }),
+  family({
+    id: 'assisted-convergence', currentVersion: 2,
+    steps: [migration(1, 2, assistedConvergenceV1ToV2)],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/candidates-[^/]+\.json$/], immutable: true
+  }),
   family({ id: 'clarification-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/clarifications-[^/]+-gen\d+\.json$/] }),
   family({ id: 'phase-input-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/inputs-[^/]+-gen\d+\.json$/] }),
   family({ id: 'agent-brief-record', currentVersion: 1, paths: [/^singularity\/work-items\/[^/]+\/context\/briefs\/[^/]+-gen\d+-for-[^/]+\.json$/], immutable: true }),
@@ -2107,7 +2223,19 @@ const families = [
     paths: [/^\$local\/vscode-fresh-reset-pending\.json$/]
   }),
   family({ id: 'constitution-record', currentVersion: 1, immutable: true }),
-  family({ id: 'convergence-record', currentVersion: 1, immutable: true }),
+  family({
+    id: 'convergence-record', currentVersion: 3,
+    steps: [
+      migration(1, 2, convergenceRecordV1ToV2),
+      migration(2, 3, convergenceRecordV2ToV3)
+    ],
+    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/iteration-\d+\.json$/]
+  }),
+  family({
+    id: 'convergence-legacy-archive', currentVersion: 1,
+    paths: [/^singularity\/work-items\/[^/]+\/context\/convergence\/legacy\/iteration-\d+-[0-9a-f]{64}\.json$/],
+    immutable: true
+  }),
   family({ id: 'fault-envelope', currentVersion: 1, paths: [/^\$git\/fault-repair\/faults\/[^/]+\.json$/], immutable: true }),
   family({ id: 'fault-occurrence-group', currentVersion: 1, paths: [/^\$git\/fault-repair\/occurrences\/[^/]+\.json$/] }),
   family({ id: 'fault-diagnosis', currentVersion: 1, paths: [/^\$git\/fault-repair\/diagnoses\/[^/]+\/[^/]+\.json$/], immutable: true }),

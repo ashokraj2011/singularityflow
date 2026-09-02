@@ -374,7 +374,10 @@ test('the agent that runs convergence cannot approve, reopen or advance', async 
    * true is for the converge path to contain none of their calls.
    */
   const cli = await (await import('./helpers/command-source.mjs')).commandLayerSource();
-  const converge = cli.slice(cli.indexOf('async function storyConvergeCommand'), cli.indexOf('function convergenceSourceRef'));
+  const converge = cli.slice(
+    cli.indexOf('async function storyConvergeCommand'),
+    cli.indexOf('async function storyAdjudicateCommand')
+  );
   for (const forbidden of ['approvePhase(', 'rejectPhase(', 'submitCommand(', 'publishGeneration(']) {
     assert.equal(converge.includes(forbidden), false, `story converge calls ${forbidden}`);
   }

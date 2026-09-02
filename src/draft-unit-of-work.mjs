@@ -3,7 +3,9 @@ import {
   beginPublicationJournal, clearPublicationJournal, updatePublicationJournal
 } from './publication-journal.mjs';
 import { readPendingPublication, verifyPendingPublicationCommit } from './publication-pending.mjs';
-import { capturePublicationPreimage, restorePublicationPreimage } from './publication-recovery.mjs';
+import {
+  capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
+} from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { nowIso, SingularityFlowError, stateFingerprint } from './util.mjs';
 import { verifySgosLifecycleCandidateBinding } from './sgos/candidate-lifecycle.mjs';
@@ -96,7 +98,9 @@ export class DraftUnitOfWork {
         throw new SingularityFlowError(`${subject.kind} '${subject.id}' has pending recovery. Synchronize it before ${operation}.`);
       }
       const expectedHead = head(root);
-      const recoveryPreimage = await capturePublicationPreimage(root, allowedPaths);
+      const recoveryPreimage = await capturePublicationPreimage(root, allowedPaths, {
+        refPrefixes: [publicationReworkRefNamespace(subject)]
+      });
       const journal = await beginPublicationJournal(root, {
         subject,
         expectedHead,

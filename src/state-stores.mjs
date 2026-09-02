@@ -226,11 +226,13 @@ export {
   validateWorkflow, workflowPath
 };
 export {
-  actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, CONFIG_PATH, createWorkflow, currentPhase,
+  actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow,
+  CONFIG_PATH, createWorkflow, currentPhase,
   generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
   inspectRequiredArtifactRegistration, previewReworkRollForward, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,
   rollForwardRework, scanArtifacts,
-  sourceTreeHash, storyPublicationPending, storyWelEnrollmentStatus, submitPhase, validateId, workflowBranchAllowed,
+  sourceTreeHash, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase,
+  submitPhase, validateId, workflowBranchAllowed,
   workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
 } from './state.mjs';
 export {

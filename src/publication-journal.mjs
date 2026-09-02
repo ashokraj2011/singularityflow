@@ -9,6 +9,7 @@ import { currentSubjectLockOwner } from './subject-lock.mjs';
 import {
   prepareSharedPublicationStorage, resolveSharedPublicationFile
 } from './publication-storage.mjs';
+import { validatePublicationPreimage } from './publication-recovery.mjs';
 
 const PROCESS_OWNER_ID = randomUUID();
 
@@ -18,6 +19,44 @@ async function writePrivateJson(target, value) {
 
 function safeId(id) {
   return encodeURIComponent(String(id ?? '').trim()).replace(/%/g, '_');
+}
+
+function assertJournalSubject(record, requestedSubject, { parent = false, depth = 0 } = {}) {
+  if (depth > 32) {
+    throw new SingularityFlowError('Publication journal parent chain exceeds its bounded depth.', {
+      code: 'PUBLICATION_JOURNAL_SUBJECT_MISMATCH'
+    });
+  }
+  const actual = record?.subject;
+  const sameIdentity = actual?.kind === requestedSubject?.kind
+    && actual?.id === requestedSubject?.id
+    && (!Object.hasOwn(requestedSubject ?? {}, 'branch')
+      || actual?.branch === requestedSubject.branch);
+  if (!sameIdentity) {
+    throw new SingularityFlowError(
+      `${parent ? 'Parent publication journal' : 'Publication journal'} subject does not match its requested durable identity.`,
+      {
+        code: 'PUBLICATION_JOURNAL_SUBJECT_MISMATCH',
+        details: {
+          expected: {
+            kind: requestedSubject?.kind ?? null,
+            id: requestedSubject?.id ?? null,
+            ...(Object.hasOwn(requestedSubject ?? {}, 'branch')
+              ? { branch: requestedSubject.branch }
+              : {})
+          },
+          actual: actual ?? null,
+          parent
+        }
+      }
+    );
+  }
+  if (record.recoveryPreimage) {
+    validatePublicationPreimage(record.recoveryPreimage, { subject: requestedSubject });
+  }
+  if (record.parentJournal) {
+    assertJournalSubject(record.parentJournal, requestedSubject, { parent: true, depth: depth + 1 });
+  }
 }
 
 export function publicationJournalPath(root, kind, id) {
@@ -34,6 +73,10 @@ export async function readPublicationJournal(root, subject, { migrate = true } =
     migrate
   });
   if (!resolved) return null;
+  // The filename is selected from `subject`; its bytes cannot nominate a different Story and then
+  // use that identity to acquire a lock or restore that Story's private refs. Nested journals have
+  // the same subject lease and are checked recursively before the record leaves the reader.
+  assertJournalSubject(resolved.value, subject);
   return {
     path: resolved.path,
     record: resolved.value,
@@ -58,9 +101,13 @@ export async function beginPublicationJournal(root, {
   transactionId = randomUUID(),
   lockOwner = currentSubjectLockOwner(root, subject)
 }) {
+  if (recoveryPreimage) validatePublicationPreimage(recoveryPreimage, { subject });
   // Surface or consolidate any worktree-private journal before the shared record is replaced. A
   // divergent legacy transaction is a recovery decision, never stale scratch to overwrite.
   const existing = await readPublicationJournal(root, subject);
+  if (existing?.record?.recoveryPreimage) {
+    validatePublicationPreimage(existing.record.recoveryPreimage, { subject });
+  }
   const parentJournal = existing && publicationJournalOwnedByCurrentProcess(existing.record, root)
     ? existing.record
     : null;

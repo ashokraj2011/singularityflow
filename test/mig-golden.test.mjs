@@ -64,3 +64,46 @@ test('legacy planned claim maps migrate without inventing a test waiver', () => 
   assert.equal(migrated.claims['APP:CON-001'].testDisposition, 'unspecified');
   assert.equal(migrated.claims['APP:CON-001'].testReason, null);
 });
+
+test('legacy Story convergence policy migrates to the kernel-owned deterministic producer', () => {
+  const migrated = readRecord('story-workflow', {
+    schemaVersion: 3,
+    phaseOrder: ['convergence'],
+    phases: {
+      convergence: {
+        id: 'convergence',
+        approvalPolicy: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['convergence'] },
+        generationPolicy: {
+          requirement: 'required', producer: 'agent', defaultProducer: 'governed-agent',
+          allowedProducers: ['governed-agent', 'human']
+        }
+      }
+    },
+    resolution: {
+      approvalSecurity: { profile: 'team', allowSelfApproval: true, autoEnrollNewIdentities: true },
+      approvalAuthorities: {
+        'architecture-reviewers': { label: 'Architecture reviewers', members: [], allowAnyGitIdentity: true }
+      },
+      phases: [{
+        id: 'convergence',
+        approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['convergence'] },
+        generation: {
+          requirement: 'required', producer: 'agent', defaultProducer: 'governed-agent',
+          allowedProducers: ['governed-agent', 'human']
+        }
+      }]
+    }
+  }).record;
+  assert.equal(migrated.schemaVersion, 4);
+  assert.equal(migrated.phases.convergence.generationPolicy.requirement, 'required');
+  assert.deepEqual(migrated.phases.convergence.generationPolicy.allowedProducers, ['deterministic']);
+  assert.equal(migrated.phases.convergence.generationPolicy.defaultProducer, 'deterministic');
+  assert.deepEqual(migrated.resolution.phases[0].generation.allowedProducers, ['deterministic']);
+  assert.equal(migrated.resolution.phases[0].generation.requirement, 'required');
+  assert.equal(migrated.phases.convergence.approvalPolicy.mode, 'required');
+  assert.deepEqual(migrated.phases.convergence.approvalPolicy.authorities, ['architecture-reviewers']);
+  assert.equal(migrated.phases.convergence.approvalPolicy.minimum, 1);
+  assert.equal(migrated.phases.convergence.approvalPolicy.allowSelfApproval, true,
+    'migrating approval:none must not strand a lone developer with its normalized false value');
+  assert.equal(migrated.resolution.phases[0].approval.mode, 'required');
+});

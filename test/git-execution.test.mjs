@@ -635,7 +635,7 @@ test('process-tree signalling uses POSIX groups and observes Windows descendant-
 });
 
 test('Windows process-tree signalling falls back safely when taskkill fails or hangs', async (t) => {
-  const exercise = async ({ outcome }) => {
+  const exercise = async ({ outcome, timeoutMs = 15 }) => {
     const directSignals = [];
     const killerSignals = [];
     const child = {
@@ -647,7 +647,7 @@ test('Windows process-tree signalling falls back safely when taskkill fails or h
     const pending = signalProcessTree(child, 'SIGKILL', {
       platform: 'win32',
       environment: { SystemRoot: 'C:\\Windows' },
-      timeoutMs: 15,
+      timeoutMs,
       spawnCommand(command, args, options) {
         assert.equal(command, 'C:\\Windows\\System32\\taskkill.exe');
         assert.deepEqual(args, ['/PID', '654', '/T', '/F']);
@@ -680,14 +680,27 @@ test('Windows process-tree signalling falls back safely when taskkill fails or h
   });
 
   await t.test('hung taskkill', async () => {
+    const taskkillTimeoutMs = 15;
     const startedAt = performance.now();
-    const result = await exercise({ outcome: 'hang' });
+    // Compare settlement with a timer carrying the same requested deadline. An absolute 200 ms
+    // ceiling made this a scheduler benchmark: under full-suite CPU pressure both this control
+    // timer and signalProcessTree's timer can be delayed by hundreds of milliseconds even though
+    // the configured cleanup deadline is honoured. Their relative delay still detects a missing,
+    // ignored, or materially longer taskkill timeout, while the outer bound below proves a hung
+    // system utility cannot retain the test indefinitely.
+    const controlDeadline = new Promise((resolve) => {
+      setTimeout(() => resolve(performance.now()), taskkillTimeoutMs);
+    });
+    const result = await exercise({ outcome: 'hang', timeoutMs: taskkillTimeoutMs });
     const elapsedMs = performance.now() - startedAt;
+    const controlElapsedMs = (await controlDeadline) - startedAt;
     assert.equal(result.accepted, true);
     assert.deepEqual(result.directSignals, ['SIGKILL']);
     assert.deepEqual(result.killerSignals, ['SIGKILL']);
     assert.ok(elapsedMs >= 10, `taskkill timed out too early after ${elapsedMs}ms`);
-    assert.ok(elapsedMs < 200, `taskkill escaped its cleanup deadline (${elapsedMs}ms)`);
+    assert.ok(elapsedMs - controlElapsedMs < 100,
+      `taskkill ignored its configured cleanup deadline by ${elapsedMs - controlElapsedMs}ms`);
+    assert.ok(elapsedMs < 2_000, `taskkill escaped its outer non-hang bound (${elapsedMs}ms)`);
   });
 });
 

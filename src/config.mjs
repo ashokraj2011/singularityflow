@@ -534,6 +534,14 @@ export function normalizeGenerationPolicy(value = null, phaseId = 'phase') {
   };
 }
 
+function assertConvergenceHumanApproval(policy, label = "Phase 'convergence'") {
+  if (policy.mode === 'required') return policy;
+  throw new SingularityFlowError(
+    `${label} approval must require an explicit human decision; approval modes 'none' and 'policy' cannot waive convergence.`,
+    { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED', details: { mode: policy.mode } }
+  );
+}
+
 export function normalizeDesignSourcePolicy(value = null, { phases = [] } = {}) {
   if (value == null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('designSources must be an object.');
@@ -968,9 +976,21 @@ export function validateDefinition(definition) {
     if (template) assertTemplate(template, `Phase '${id}' defaultTemplate`);
     for (const [workTypeId, workType] of Object.entries(definition.workTypes)) if (workType.templateOverrides?.[id]) assertTemplate(workType.templateOverrides[id], `Work type '${workTypeId}' template override for '${id}'`);
     if (!template && !Object.values(definition.workTypes).some((type) => type.templateOverrides?.[id])) throw new SingularityFlowError(`Phase '${id}' has no default or work-type template.`);
-    normalizeApprovalPolicy(phase.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
+    const normalizedApproval = normalizeApprovalPolicy(
+      phase.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity
+    );
+    if (id === 'convergence') assertConvergenceHumanApproval(normalizedApproval);
     normalizeSourceBoundary(phase.sourceBoundary, id);
-    normalizeGenerationPolicy(phase.generation, id);
+    const normalizedGeneration = normalizeGenerationPolicy(phase.generation, id);
+    if (id === 'convergence'
+        && (normalizedGeneration.requirement !== 'required'
+          || normalizedGeneration.defaultProducer !== 'deterministic'
+          || normalizedGeneration.allowedProducers.length !== 1
+          || normalizedGeneration.allowedProducers[0] !== 'deterministic')) {
+      throw new SingularityFlowError(
+        "Phase 'convergence' generation must be required and allow only deterministic authorship; its reviewed artifact is a kernel-owned projection."
+      );
+    }
     phase.mcp = normalizePhaseMcpPolicy(phase.mcp, { servers: definition.mcpServers, phaseId: id });
     phase.repairBudget = normalizeRepairBudget(phase.repairBudget, { phaseId: id, phases: Object.keys(definition.phases) });
     for (const [index, command] of (phase.qualityCommands ?? []).entries()) normalizeExternalCommand(command, index);
@@ -1455,8 +1475,22 @@ export function resolveWorkType(definition, workTypeId) {
     const template = resolvedTemplate?.source === 'catalog' ? resolvedTemplate.path : declaredTemplate;
     const inputs = normalizePhaseInputs(merged.inputs, `Work type '${workTypeId}' phase '${id}' inputs`);
     const approval = normalizeApprovalPolicy(merged.approval ?? {}, definition.approvalAuthorities, id, definition.approvalSecurity);
+    if (id === 'convergence') {
+      assertConvergenceHumanApproval(
+        approval, `Work type '${workTypeId}' phase 'convergence'`
+      );
+    }
     const sourceBoundary = normalizeSourceBoundary(merged.sourceBoundary, id);
     let generation = normalizeGenerationPolicy(merged.generation, id);
+    if (id === 'convergence'
+        && (generation.requirement !== 'required'
+          || generation.defaultProducer !== 'deterministic'
+          || generation.allowedProducers.length !== 1
+          || generation.allowedProducers[0] !== 'deterministic')) {
+      throw new SingularityFlowError(
+        `Work type '${workTypeId}' phase 'convergence' must be required and allow only deterministic authorship.`
+      );
+    }
     generation = pinCodeDeliveryTask({ ...merged, generation }, 'generation');
     const mcp = normalizePhaseMcpPolicy(merged.mcp, { servers: definition.mcpServers, phaseId: id });
     const repairBudget = normalizeRepairBudget(merged.repairBudget, { phaseId: id, phases: workType.phases });

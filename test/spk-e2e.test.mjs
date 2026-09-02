@@ -109,6 +109,10 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   const workflowPath = path.join(seed, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.approvalSecurity = { profile: 'poc' };
+  // Exercise the complete convergence rework transaction with ledger intent persistence enabled.
+  // The intent is written after lifecycle state, so this catches a post-state guard that captures
+  // too early and then mistakes the transaction's own ledger file for concurrent user change.
+  workflow.ledger.enabled = true;
   for (const authority of Object.values(workflow.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(workflow.phases ?? {})) {
     if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
@@ -429,22 +433,111 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.deepEqual(resolved.unresolvedBlockers, []);
   assert.deepEqual(resolved.allowedNext, ['advance-to-verification']);
 
+  // The implementation reconciliation is an exact evidence boundary, not permission for any
+  // later commit that happens to remain on the same Story branch. A source or test commit made
+  // after reconciliation must invalidate every convergence entry point before any one of them
+  // prepares files, publishes a generation, or advances lifecycle state. This specifically uses
+  // committed drift: working-tree-only checks would miss the production failure this guards.
+  settle(root, `[${WORK}][phase:convergence] checkpoint reviewed projection`);
+  const driftedApplicationPaths = ['src/payments/retry.ts', 'tests/payments-retry.test.mjs'];
+  for (const relative of driftedApplicationPaths) {
+    const original = await readFile(path.join(root, relative), 'utf8');
+    await write(root, relative,
+      `${original.trimEnd()}\n// committed after implementation reconciliation -- deliberately outside its evidence\n`);
+  }
+  git(root, 'add', '--', ...driftedApplicationPaths);
+  git(root, 'commit', '-m', `[${WORK}] deliberate post-reconciliation source drift`);
+  git(root, 'push', '-q', 'origin', WORK);
+  const driftCommit = git(root, 'rev-parse', 'HEAD');
+  const beforeDriftRefusals = {
+    head: driftCommit,
+    status: git(root, 'status', '--porcelain=v1'),
+    workflow: await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`), 'utf8')
+  };
+  const driftAttempts = [
+    ['prepare', 'convergence'],
+    ['phase', 'publish', 'convergence', '--authored', 'deterministic', '--channel', 'kernel-generator'],
+    ['story', 'advance', '--work-id', WORK]
+  ];
+  for (const args of driftAttempts) {
+    const refused = sflow(root, args, { allowFailure: true });
+    assert.notEqual(refused.status, 0,
+      `${args.join(' ')} accepted application source committed after implementation reconciliation`);
+    assert.match(refused.output,
+      /WORK_RECONCILIATION_TARGET_DRIFT|application (?:source|test|path).*reconciliation|implementation reconciliation.*(?:stale|changed|drift)/i,
+      `${args.join(' ')} did not explain the sealed reconciliation drift`);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDriftRefusals.head,
+      `${args.join(' ')} committed while refusing reconciliation drift`);
+    assert.equal(git(root, 'status', '--porcelain=v1'), beforeDriftRefusals.status,
+      `${args.join(' ')} changed the worktree while refusing reconciliation drift`);
+    assert.equal(
+      await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`), 'utf8'),
+      beforeDriftRefusals.workflow,
+      `${args.join(' ')} mutated lifecycle state while refusing reconciliation drift`
+    );
+  }
+  // Restoring the exact application bytes is sufficient even though Git necessarily advances:
+  // convergence binds the reconciled application evidence, not an incidental metadata-only HEAD.
+  git(root, 'revert', '--no-edit', driftCommit);
+  git(root, 'push', '-q', 'origin', WORK);
+  const restored = JSON.parse(sflow(root, ['story', 'converge', '--json']).stdout);
+  assert.equal(restored.convergenceSha256, resolved.convergenceSha256,
+    'restoring the exact reconciled source bytes changed the deterministic convergence result');
+
   // ---- advancement, verification and release -----------------------------------------------------
+  // A caller cannot replace the canonical projection with plausible narrative and consume the
+  // generation. The refusal is preflight-only; deterministic preparation repairs it in one step.
   await write(root, `singularity/work-items/${WORK}/artifacts/convergence/convergence.md`, [
-    '# Convergence — iteration 2', '',
-    'Every deterministic fact carries a recorded human disposition. Two iterations were needed: the',
-    'first returned the Story to implementation because E2E:REQ-002 had no observed claim, and the',
-    'second found the append-only attempts change recorded against it.', '',
-    '## Dispositions', '',
-    'All remaining facts were accepted as deviations, each with a reason on the record. No blocking',
-    'finding remains, so advancement to verification is a decision a human can now take.', ''
+    '# Convergence — hand edited', '',
+    'This document is deliberately long enough to pass the generic artifact size boundary, but it',
+    'does not match the reviewed kernel projection. Publication must refuse it and point back to the',
+    'single deterministic preparation command without consuming the open generation intent.', '',
+    '## Status', '', 'All findings appear resolved, but this prose is not authoritative.', ''
   ].join('\n'));
+  sflow(root, ['artifact', 'scan', '--phase', 'convergence']);
+  const handEdited = sflow(root, ['phase', 'publish', 'convergence', '--authored', 'deterministic',
+    '--channel', 'kernel-generator'], { allowFailure: true });
+  assert.notEqual(handEdited.status, 0, 'a hand-edited deterministic convergence artifact was published');
+  assert.match(handEdited.output, /CONVERGENCE_ARTIFACT_MISMATCH|no longer matches the reviewed deterministic projection/i);
+  const repaired = sflow(root, ['prepare', 'convergence']);
+  assert.match(repaired.output, /advance-to-verification|publish convergence/i);
   sflow(root, ['artifact', 'scan', '--phase', 'convergence']);
   // Convergence pins `producer: deterministic` — the artifact is derived from the projection, not
   // authored — so publishing it as human authorship is correctly refused.
   sflow(root, ['phase', 'publish', 'convergence', '--authored', 'deterministic', '--channel', 'kernel-generator']);
   settle(root, `[${WORK}][phase:convergence] settle`);
-  sflow(root, ['story', 'advance', '--confirm']);
+
+  // Convergence is a human decision boundary, not an ordinary phase submission. The generic
+  // command must refuse before telemetry, state, Git, or any other durable surface changes; only
+  // the reviewed `story advance --confirm` path may mint the in-process authority to submit it.
+  const beforeDirectSubmit = {
+    head: git(root, 'rev-parse', 'HEAD'),
+    status: git(root, 'status', '--porcelain=v1'),
+    workflow: await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`), 'utf8')
+  };
+  const directSubmit = sflow(root, ['submit', 'convergence', '--skip-checks'], { allowFailure: true });
+  assert.notEqual(directSubmit.status, 0, 'generic submit crossed the convergence human-decision boundary');
+  assert.match(directSubmit.output, /CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED|story advance --confirm/i);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDirectSubmit.head,
+    'refused direct convergence submission created a commit');
+  assert.equal(git(root, 'status', '--porcelain=v1'), beforeDirectSubmit.status,
+    'refused direct convergence submission changed the worktree');
+  assert.equal(
+    await readFile(path.join(root, `singularity/work-items/${WORK}/workflow.json`), 'utf8'),
+    beforeDirectSubmit.workflow,
+    'refused direct convergence submission mutated workflow state'
+  );
+
+  const advancePreview = sflow(root, ['story', 'advance', '--work-id', WORK]);
+  const confirmation = advancePreview.output.match(/--confirm (sha256:[0-9a-f]{64})/)?.[1];
+  assert.match(confirmation ?? '', /^sha256:[0-9a-f]{64}$/,
+    'convergence preview omitted its exact confirmation digest');
+  const staleConfirmation = sflow(root, [
+    'story', 'advance', '--work-id', WORK, '--confirm', `sha256:${'0'.repeat(64)}`
+  ], { allowFailure: true });
+  assert.notEqual(staleConfirmation.status, 0, 'a non-matching convergence review digest was accepted');
+  assert.match(staleConfirmation.output, /CONVERGENCE_ADVANCE_CONFIRMATION_STALE|changed after preview/i);
+  sflow(root, ['story', 'advance', '--work-id', WORK, '--confirm', confirmation]);
   assert.equal((await workflowOf(root)).phases.convergence.status, 'awaiting_approval');
   sflow(root, ['approve', 'convergence', '--yes']);
   assert.equal((await workflowOf(root)).currentPhase, 'verification');

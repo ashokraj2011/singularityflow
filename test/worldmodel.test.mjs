@@ -13,7 +13,9 @@ import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildRe
 import { registerReference, resolveReference } from '../src/harness-imports.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { snapshot } from '../src/util.mjs';
-import { specializeBuiltinWorldModelPrompt } from '../src/worldmodel.mjs';
+import {
+  phasePromptExecutionContract, specializeBuiltinWorldModelPrompt
+} from '../src/worldmodel.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -161,6 +163,48 @@ await writeFile(path.join(output, 'manifest.json'), JSON.stringify({
 }));
 `;
 
+test('phase prompts bind deterministic convergence to its exact publication and clarification contract', () => {
+  const phase = {
+    id: 'convergence',
+    generationPolicy: {
+      requirement: 'required',
+      defaultProducer: 'deterministic',
+      allowedProducers: ['deterministic'],
+      producer: 'deterministic',
+      task: 'analyze'
+    }
+  };
+  const workflow = {
+    resolution: {
+      phases: [{ id: 'convergence', clarification: { mode: 'off' } }]
+    }
+  };
+  const definition = {
+    phases: { convergence: { generation: phase.generationPolicy, clarification: { mode: 'required' } } }
+  };
+
+  const contract = phasePromptExecutionContract(definition, workflow, phase);
+  assert.equal(contract.deterministicOnly, true);
+  assert.deepEqual(contract.publication, {
+    producer: 'deterministic',
+    channel: 'kernel-generator',
+    allowedProducers: ['deterministic'],
+    command: 'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator'
+  });
+  assert.equal(contract.clarification.mode, 'off');
+  assert.equal(
+    contract.command,
+    'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator'
+  );
+  const rendered = contract.lines.join('\n');
+  assert.match(rendered, /Default publication producer: `deterministic`/);
+  assert.match(rendered, /Allowed publication producers: `deterministic`/);
+  assert.match(rendered, /Required publication channel: `kernel-generator`/);
+  assert.match(rendered, /Clarification mode: `off`; do not ask phase clarification questions/);
+  assert.match(rendered, /Exact publication command: `singularity-flow phase publish convergence --authored deterministic --channel kernel-generator`/);
+  assert.match(rendered, /do not author or edit the phase artifact with a model, governed agent, or human/i);
+});
+
 test('a phase gets the views it declared, and the agent prompt, but not the agent’s extra views', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-worldmodel-'));
   run('git', ['init', '-b', 'main'], root);
@@ -268,6 +312,11 @@ test('wm inject renders matched agent context and records the generation audit',
   const rendered = run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1', '--render-only'], root);
   assert.match(rendered, /Active Story phase contract/);
   assert.match(rendered, /Work ID: `WM-1`/);
+  assert.match(rendered, /Default publication producer: `governed-agent`/);
+  assert.match(rendered, /Allowed publication producers: `governed-agent`, `human`/);
+  assert.match(rendered, /Required publication channel: `copilot-host`/);
+  assert.match(rendered, /Clarification mode: `/);
+  assert.match(rendered, /Exact publication command: `singularity-flow phase publish design --authored governed-agent --channel copilot-host`/);
   assert.match(rendered, /# Pinned Story source/);
   assert.match(rendered, /Change the background color to blue/);
   assert.match(rendered, /A screenshot proves the blue background/);

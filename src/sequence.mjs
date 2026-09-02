@@ -8,7 +8,7 @@ import { action, because, commandResult, noEffects, refused } from './narration/
 import { withCommandResult } from './narration/emit.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
-import { phasePublicationCommand } from './manual-authorship.mjs';
+import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -50,11 +50,22 @@ export function sequenceGuidance(workflow) {
     alternativeSecond: true
   };
   if (phase.status === 'in_progress' && phaseNeedsGeneration(workflow, phase)) return {
-    summary: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
+    summary: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
+      ? `Prepare deterministic phase '${phase.id}', then follow its returned human-review or publication action.`
+      : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} and publish phase '${phase.id}' before submission.`,
     actions: [
       copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}` }),
-      copilotAction({ skill: generationSkillForPhase(phase), command: phasePublicationCommand(phase) })
+      ...(phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase) ? [] : [
+        copilotAction({ skill: generationSkillForPhase(phase), command: phasePublicationCommand(phase) })
+      ])
     ]
+  };
+  if (phase.status === 'in_progress' && phase.id === 'convergence') return {
+    summary: "Review the published deterministic convergence result, then explicitly confirm advancement before submission.",
+    actions: [copilotAction({
+      skill: '/sflow-submit',
+      command: `singularity-flow story advance --work-id ${workId}`
+    })]
   };
   if (phase.status === 'in_progress') return {
     summary: phase.approvalPolicy?.mode === 'none'

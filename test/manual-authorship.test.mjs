@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand,
+  assertProducerAllowed, buildGenerationAuthorship, normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationContract,
   phasePublicationCommandForProducer
 } from '../src/manual-authorship.mjs';
 
@@ -45,12 +45,24 @@ test('authorship rejects incompatible producer/channel combinations', () => {
 });
 
 test('publication guidance derives producer and channel from the phase contract', () => {
+  assert.deepEqual(phasePublicationContract({
+    id: 'convergence',
+    generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
+  }), {
+    producer: 'deterministic',
+    channel: 'kernel-generator',
+    allowedProducers: ['deterministic'],
+    command: 'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator'
+  });
   assert.equal(phasePublicationCommand({
     id: 'implementation', generationPolicy: { defaultProducer: 'governed-agent' }
   }), 'singularity-flow phase publish implementation --authored governed-agent --channel copilot-host');
   assert.equal(phasePublicationCommand({
     id: 'convergence', generationPolicy: { defaultProducer: 'deterministic' }
   }), 'singularity-flow phase publish convergence --authored deterministic --channel kernel-generator');
+  assert.equal(phasePublicationCommand({
+    id: 'legacy-convergence', generationPolicy: { producer: 'deterministic' }
+  }), 'singularity-flow phase publish legacy-convergence --authored deterministic --channel kernel-generator');
   assert.equal(phasePublicationCommandForProducer({
     id: 'design',
     generationPolicy: {
@@ -61,5 +73,20 @@ test('publication guidance derives producer and channel from the phase contract'
   assert.throws(() => phasePublicationCommandForProducer({
     id: 'convergence',
     generationPolicy: { defaultProducer: 'deterministic', allowedProducers: ['deterministic'] }
-  }, 'human'), /does not permit 'human'/);
+  }, 'human'), /deterministic authorship only/);
+  assert.throws(() => phasePublicationCommand({
+    id: 'broken',
+    generationPolicy: { defaultProducer: 'human', allowedProducers: ['deterministic'] }
+  }), /does not permit 'human'/);
+});
+
+test('legacy agent-only snapshots retain their configured manual recovery route', () => {
+  const legacy = {
+    id: 'legacy-phase',
+    generationPolicy: { requirement: 'required', producer: 'agent' }
+  };
+  assert.doesNotThrow(() => assertProducerAllowed(legacy, 'governed-agent'));
+  assert.doesNotThrow(() => assertProducerAllowed(legacy, 'human'));
+  assert.equal(phasePublicationCommandForProducer(legacy, 'human'),
+    'singularity-flow phase publish legacy-phase --authored human --channel manual-in-place');
 });

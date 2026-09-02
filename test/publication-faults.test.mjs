@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,7 +18,9 @@ import {
   discardCleanPreparedPublication, livePreparedPublicationOwner, readPendingPublication,
   recoverPreparedPublication, recoverPreparedPublicationBySubject, writePendingPublication
 } from '../src/publication-pending.mjs';
-import { capturePublicationPreimage, restorePublicationPreimage } from '../src/publication-recovery.mjs';
+import {
+  capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
+} from '../src/publication-recovery.mjs';
 import {
   beginPublicationJournal, publicationJournalPath, readPublicationJournal
 } from '../src/publication-journal.mjs';
@@ -2201,6 +2204,273 @@ test('preimages are content-addressed and reject oversized files and directory d
     () => capturePublicationPreimage(root, ['too-deep']),
     (error) => error.code === 'PUBLICATION_PREIMAGE_QUOTA_EXCEEDED'
   );
+});
+
+test('publication recovery removes a rework-baseline ref created after the durable preimage', async () => {
+  const root = await repository('sflow-preimage-new-rework-ref-');
+  const subject = { kind: 'story', id: 'NEW-REWORK-REF' };
+  const refPrefix = publicationReworkRefNamespace(subject);
+  await writeFile(path.join(root, 'governed.json'), '{"status":"before"}\n');
+  git(['add', 'governed.json'], root);
+  git(['commit', '-m', 'governed baseline'], root);
+  const snapshot = await capturePublicationPreimage(root, ['governed.json'], {
+    refPrefixes: [refPrefix]
+  });
+  const createdRef = `${refPrefix}${'a'.repeat(64)}`;
+  git(['update-ref', createdRef, 'HEAD'], root);
+
+  const recovery = await restorePublicationPreimage(root, snapshot, {
+    subject
+  });
+
+  assert.equal(recovery.restored, true);
+  const probe = spawnSync('git', ['show-ref', '--verify', '--quiet', createdRef], { cwd: root });
+  assert.equal(probe.status, 1, 'the interrupted transaction ref must be deleted');
+});
+
+test('publication recovery restores a pre-existing rework-baseline ref to its exact object', async () => {
+  const root = await repository('sflow-preimage-existing-rework-ref-');
+  const subject = { kind: 'story', id: 'EXISTING-REWORK-REF' };
+  const refPrefix = publicationReworkRefNamespace(subject);
+  await writeFile(path.join(root, 'governed.json'), '{"status":"before"}\n');
+  git(['add', 'governed.json'], root);
+  git(['commit', '-m', 'first governed baseline'], root);
+  const originalTarget = git(['rev-parse', 'HEAD'], root);
+  const existingRef = `${refPrefix}${'b'.repeat(64)}`;
+  git(['update-ref', existingRef, originalTarget], root);
+  const snapshot = await capturePublicationPreimage(root, ['governed.json'], {
+    refPrefixes: [refPrefix]
+  });
+  const tampered = structuredClone(snapshot);
+  tampered.refs[0].target = '0'.repeat(originalTarget.length);
+  await assert.rejects(
+    () => restorePublicationPreimage(root, tampered, {
+      subject: { kind: 'story', id: 'TAMPERED-REWORK-REF' }
+    }),
+    /manifest failed integrity validation/
+  );
+
+  git(['commit', '--allow-empty', '-m', 'later object'], root);
+  const interruptedTarget = git(['rev-parse', 'HEAD'], root);
+  git(['update-ref', existingRef, interruptedTarget, originalTarget], root);
+  const recovery = await restorePublicationPreimage(root, snapshot, {
+    subject
+  });
+
+  assert.equal(recovery.restored, true);
+  assert.equal(git(['rev-parse', existingRef], root), originalTarget);
+});
+
+test('a ref-bearing preimage is refused for a different Story before admission or recovery', async () => {
+  const root = await repository('sflow-preimage-subject-mismatch-');
+  const first = { kind: 'story', id: 'FIRST', branch: 'main' };
+  const second = { kind: 'story', id: 'SECOND', branch: 'main' };
+  const firstPrefix = publicationReworkRefNamespace(first);
+  const firstRef = `${firstPrefix}${'d'.repeat(64)}`;
+  const target = path.join(root, 'governed.json');
+  await writeFile(target, '{"status":"before"}\n');
+  git(['add', 'governed.json'], root);
+  git(['commit', '-m', 'governed baseline'], root);
+  const original = git(['rev-parse', 'HEAD'], root);
+  git(['update-ref', firstRef, original], root);
+  const snapshot = await capturePublicationPreimage(root, ['governed.json'], {
+    refPrefixes: [firstPrefix]
+  });
+  await assert.rejects(
+    () => restorePublicationPreimage(root, snapshot),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_SUBJECT_MISMATCH'
+  );
+
+  await assert.rejects(
+    () => beginPublicationJournal(root, {
+      subject: second,
+      expectedHead: original,
+      branch: 'main',
+      remote: 'origin',
+      event: lifecycleEvent({ type: 'binding', subject: second }),
+      recoveryPreimage: snapshot
+    }),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_SUBJECT_MISMATCH'
+  );
+  assert.equal(await readPublicationJournal(root, second), null,
+    'a mismatched preimage must be refused before journal admission');
+
+  git(['commit', '--allow-empty', '-m', 'later ref target'], root);
+  const later = git(['rev-parse', 'HEAD'], root);
+  git(['update-ref', firstRef, later, original], root);
+  await writeFile(target, '{"status":"interrupted"}\n');
+  await assert.rejects(
+    () => restorePublicationPreimage(root, snapshot, { subject: second }),
+    (error) => error.code === 'PUBLICATION_PREIMAGE_SUBJECT_MISMATCH'
+  );
+  assert.equal(await readFile(target, 'utf8'), '{"status":"interrupted"}\n',
+    'mismatch refusal must happen before worktree restoration');
+  assert.equal(git(['rev-parse', firstRef], root), later,
+    'mismatch refusal must happen before another Story ref is restored');
+});
+
+test('journal lookup refuses a record whose subject was swapped beneath another subject filename', async (t) => {
+  await t.test('top-level journal', async () => {
+    const root = await repository('sflow-journal-swapped-subject-');
+    const first = { kind: 'story', id: 'FIRST', branch: 'main' };
+    const second = { kind: 'story', id: 'SECOND', branch: 'main' };
+    const secondPrefix = publicationReworkRefNamespace(second);
+    const secondRef = `${secondPrefix}${'e'.repeat(64)}`;
+    const target = path.join(root, 'governed.json');
+    await writeFile(target, '{"status":"before"}\n');
+    git(['add', 'governed.json'], root);
+    git(['commit', '-m', 'governed baseline'], root);
+    git(['update-ref', secondRef, 'HEAD'], root);
+    const secondPreimage = await capturePublicationPreimage(root, ['governed.json'], {
+      refPrefixes: [secondPrefix]
+    });
+    await beginPublicationJournal(root, {
+      subject: second,
+      expectedHead: git(['rev-parse', 'HEAD'], root),
+      branch: 'main',
+      remote: 'origin',
+      event: lifecycleEvent({ type: 'binding', subject: second }),
+      recoveryPreimage: secondPreimage
+    });
+    await rename(
+      publicationJournalPath(root, second.kind, second.id),
+      publicationJournalPath(root, first.kind, first.id)
+    );
+    await writeFile(target, '{"status":"interrupted"}\n');
+
+    await assert.rejects(
+      () => recoverPreparedPublicationBySubject(root, first),
+      (error) => error.code === 'PUBLICATION_JOURNAL_SUBJECT_MISMATCH'
+    );
+    assert.equal(await readFile(target, 'utf8'), '{"status":"interrupted"}\n');
+    assert.equal(git(['rev-parse', secondRef], root), git(['rev-parse', 'HEAD'], root));
+    assert.equal(await pathExists(publicationJournalPath(root, first.kind, first.id)), true,
+      'the mismatched journal must remain available for manual diagnosis');
+  });
+
+  await t.test('embedded parent journal', async () => {
+    const root = await repository('sflow-journal-swapped-parent-');
+    const first = { kind: 'story', id: 'FIRST', branch: 'main' };
+    const second = { kind: 'story', id: 'SECOND', branch: 'main' };
+    const firstPreimage = await capturePublicationPreimage(root, ['governed.json'], {
+      refPrefixes: [publicationReworkRefNamespace(first)]
+    });
+    const secondPreimage = await capturePublicationPreimage(root, ['governed.json'], {
+      refPrefixes: [publicationReworkRefNamespace(second)]
+    });
+    const journalOptions = {
+      subject: first,
+      expectedHead: git(['rev-parse', 'HEAD'], root),
+      branch: 'main',
+      remote: 'origin',
+      event: lifecycleEvent({ type: 'binding', subject: first }),
+      recoveryPreimage: firstPreimage
+    };
+    await beginPublicationJournal(root, journalOptions);
+    await beginPublicationJournal(root, journalOptions);
+    const journalPath = publicationJournalPath(root, first.kind, first.id);
+    const nested = JSON.parse(await readFile(journalPath, 'utf8'));
+    nested.parentJournal.subject = second;
+    nested.parentJournal.recoveryPreimage = secondPreimage;
+    await writeFile(journalPath, `${JSON.stringify(nested, null, 2)}\n`);
+
+    await assert.rejects(
+      () => readPublicationJournal(root, first, { migrate: false }),
+      (error) => error.code === 'PUBLICATION_JOURNAL_SUBJECT_MISMATCH'
+    );
+    assert.equal(await pathExists(journalPath), true);
+  });
+});
+
+test('publication recovery restores only the interrupted Story rework-ref namespace', async () => {
+  const root = await repository('sflow-preimage-story-ref-isolation-');
+  await writeFile(path.join(root, 'governed.json'), '{"status":"before"}\n');
+  git(['add', 'governed.json'], root);
+  git(['commit', '-m', 'shared baseline'], root);
+  const original = git(['rev-parse', 'HEAD'], root);
+  const firstPrefix = publicationReworkRefNamespace({ kind: 'story', id: 'FIRST' });
+  const secondPrefix = publicationReworkRefNamespace({ kind: 'story', id: 'SECOND' });
+  const firstRef = `${firstPrefix}${'a'.repeat(64)}`;
+  const secondRef = `${secondPrefix}${'b'.repeat(64)}`;
+  git(['update-ref', firstRef, original], root);
+  git(['update-ref', secondRef, original], root);
+  const snapshot = await capturePublicationPreimage(root, ['governed.json'], {
+    refPrefixes: [firstPrefix]
+  });
+
+  git(['commit', '--allow-empty', '-m', 'concurrent targets'], root);
+  const later = git(['rev-parse', 'HEAD'], root);
+  git(['update-ref', firstRef, later, original], root);
+  git(['update-ref', secondRef, later, original], root);
+  await restorePublicationPreimage(root, snapshot, {
+    subject: { kind: 'story', id: 'FIRST' }
+  });
+
+  assert.equal(git(['rev-parse', firstRef], root), original);
+  assert.equal(git(['rev-parse', secondRef], root), later,
+    'recovering FIRST must not roll back SECOND\'s concurrent checkpoint');
+});
+
+test('historical publication preimages remain restorable without claiming authority over refs', async (t) => {
+  await t.test('v2 without ref metadata', async () => {
+    const root = await repository('sflow-preimage-historical-v2-');
+    const target = path.join(root, 'governed.json');
+    await writeFile(target, '{"status":"before"}\n');
+    const current = structuredClone(await capturePublicationPreimage(root, ['governed.json']));
+    delete current.refs;
+    delete current.refPrefixes;
+    current.sha256 = recordSha256({
+      format: current.format,
+      roots: current.roots.map((entry) => ({
+        path: entry.path,
+        type: entry.type,
+        mode: entry.mode ?? null,
+        directories: (entry.directories ?? []).map(({ path: directory, mode }) => ({ path: directory, mode })),
+        files: entry.files.map((file) => ({
+          path: file.path, mode: file.mode, size: file.size, sha256: file.sha256,
+          blob: { algorithm: file.blob.algorithm, digest: file.blob.digest }
+        }))
+      }))
+    });
+    const laterRef = `refs/singularity-flow/rework-baselines/${'c'.repeat(64)}`;
+    git(['update-ref', laterRef, 'HEAD'], root);
+    await writeFile(target, '{"status":"interrupted"}\n');
+
+    assert.equal((await restorePublicationPreimage(root, current, {
+      subject: { kind: 'story', id: 'HISTORICAL-V2' }
+    })).restored, true);
+    assert.equal(await readFile(target, 'utf8'), '{"status":"before"}\n');
+    assert.equal(git(['rev-parse', laterRef], root), git(['rev-parse', 'HEAD'], root));
+  });
+
+  await t.test('v1 inline-byte manifest', async () => {
+    const root = await repository('sflow-preimage-historical-v1-');
+    const target = path.join(root, 'governed.json');
+    const before = Buffer.from('{"status":"before"}\n');
+    await writeFile(target, before);
+    const info = await stat(target);
+    const file = {
+      path: 'governed.json', mode: info.mode & 0o777, size: before.length,
+      sha256: createHash('sha256').update(before).digest('hex'), contents: before.toString('base64')
+    };
+    const legacy = {
+      format: 'publication-preimage-v1',
+      roots: [{ path: 'governed.json', type: 'file', files: [file] }]
+    };
+    legacy.sha256 = recordSha256({
+      format: legacy.format,
+      roots: [{
+        path: 'governed.json', type: 'file',
+        files: [{ path: file.path, mode: file.mode, size: file.size, sha256: file.sha256 }]
+      }]
+    });
+    await writeFile(target, '{"status":"interrupted"}\n');
+
+    assert.equal((await restorePublicationPreimage(root, legacy, {
+      subject: { kind: 'story', id: 'HISTORICAL-V1' }
+    })).restored, true);
+    assert.equal(await readFile(target, 'utf8'), before.toString('utf8'));
+  });
 });
 
 test('recovery restores directory modes and bounds rescue retention per subject', async () => {

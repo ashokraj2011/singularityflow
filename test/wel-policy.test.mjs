@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
 import { specificationQualityPolicy } from '../src/specification-quality.mjs';
-import { readRecord } from '../src/schema-migrations.mjs';
+import { currentSchemaVersion, readRecord } from '../src/schema-migrations.mjs';
 import { storyWelEnrollmentStatus } from '../src/state.mjs';
 import { run } from '../src/util.mjs';
 import { buildWelEnrollment, validateWelEnrollment, welEnrollmentDigest } from '../src/wel-policy.mjs';
@@ -77,7 +77,7 @@ test('enrollment refuses an unsupported future claim-map contract', () => {
   }), { valid: false, reason: 'claim-map-contract-unsupported' });
 });
 
-test('story-workflow v2 migration is identity-only and never enrolls a legacy Story', () => {
+test('story-workflow v2 migration reaches the current schema without enrolling a legacy Story', () => {
   const legacy = {
     schemaVersion: 2,
     workItem: { id: 'LEGACY-1' },
@@ -87,7 +87,7 @@ test('story-workflow v2 migration is identity-only and never enrolls a legacy St
   };
   const migrated = readRecord('story-workflow', legacy);
   assert.equal(migrated.storedVersion, 2);
-  assert.equal(migrated.record.schemaVersion, 3);
+  assert.equal(migrated.record.schemaVersion, currentSchemaVersion('story-workflow'));
   assert.deepEqual(migrated.record.resolution, legacy.resolution);
   assert.equal(Object.hasOwn(migrated.record.resolution, 'wel'), false);
   assert.deepEqual(legacy.resolution, {

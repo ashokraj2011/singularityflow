@@ -20,11 +20,29 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { itemId } from './convergence.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 as hashRecord } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 
 export const ASSISTED_CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('assisted-convergence');
+
+export function assistedConvergenceRecordSha256(record) {
+  const core = structuredClone(record);
+  delete core.recordSha256;
+  return hashRecord(core);
+}
+
+export function assertAssistedConvergenceIntegrity(record) {
+  const computed = assistedConvergenceRecordSha256(record);
+  if (!/^[0-9a-f]{64}$/.test(String(record?.recordSha256 ?? ''))
+      || record.recordSha256 !== computed) {
+    throw new SingularityFlowError(
+      `Assisted convergence provenance hash mismatch: stored ${record?.recordSha256 ?? 'missing'}, computed ${computed}.`,
+      { code: 'CONVERGENCE_CANDIDATE_RECORD_HASH_MISMATCH' }
+    );
+  }
+  return record;
+}
 
 /** What a candidate may claim `[SPK:REQ-076]`. */
 export const CANDIDATE_KINDS = Object.freeze(['missing', 'partial', 'contradicts', 'unplanned']);
@@ -32,8 +50,11 @@ export const CANDIDATE_KINDS = Object.freeze(['missing', 'partial', 'contradicts
 const MAX_CANDIDATES = 25;
 const MAX_CANDIDATE_CHARS = 600;
 
-export function assistedConvergenceRelative(workDirRelativePath, iteration) {
-  return posix(path.posix.join(workDirRelativePath, 'context', 'convergence', `candidates-iter${iteration}.json`));
+export function assistedConvergenceRelative(workDirRelativePath, iteration, sourceSha256 = null) {
+  const suffix = sourceSha256 == null ? '' : `-${String(sourceSha256).replace(/^sha256:/, '').slice(0, 16)}`;
+  return posix(path.posix.join(
+    workDirRelativePath, 'context', 'convergence', `candidates-iter${iteration}${suffix}.json`
+  ));
 }
 
 /**
@@ -175,7 +196,7 @@ export function buildAssistedConvergenceRecord({
   for (const [field, value] of Object.entries({ workId, bindings, candidates, invocation, prompt, generatedAt })) {
     if (value === undefined || value === null) throw new SingularityFlowError(`Assisted convergence record is missing '${field}'.`);
   }
-  return {
+  const record = {
     schemaVersion: ASSISTED_CONVERGENCE_SCHEMA_VERSION,
     resultType: 'convergence-candidates',
     workId,
@@ -202,6 +223,7 @@ export function buildAssistedConvergenceRecord({
     disclaimer: 'Candidates are proposals for a human to adjudicate. They are not deterministic facts, '
       + 'they change no deterministic fact, and none of them is a governed finding until a person disposes of it.'
   };
+  return { ...record, recordSha256: assistedConvergenceRecordSha256(record) };
 }
 
 export function serializeAssistedConvergence(record) {

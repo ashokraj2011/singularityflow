@@ -28,8 +28,20 @@ import { resolveLifecycleCapability } from '../capability-context.mjs';
 import { assertPlannedClaimsReady, resolveWorkType } from '../config.mjs';
 import { readConfigurationSource } from '../configuration-branch.mjs';
 import { continuationPacket, submissionBlockedByAmendment } from '../continuation-packet.mjs';
-import { advancementBlocked, convergenceBindings, convergenceFacts, convergenceProjection, serializeConvergence } from '../convergence.mjs';
-import { assertClean, branch, changedFiles, changes, checkout, commit, identity, refHead, repoRoot } from '../git.mjs';
+import {
+  adjudicatedConvergenceProjection, advancementBlocked, assertConvergenceIntegrity,
+  convergenceProjection, decodeConvergenceRecord,
+  renderConvergenceArtifact, serializeConvergence
+} from '../convergence.mjs';
+import {
+  assertConvergencePublicationReady, assertConvergenceSources, assertLegacyConvergenceSourceIdentity,
+  currentConvergenceContext, loadVerifiedConvergenceProjection
+} from '../convergence-context.mjs';
+import { runDraftTransaction } from '../draft-unit-of-work.mjs';
+import {
+  admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
+  identity, refHead, repoRoot
+} from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
@@ -48,20 +60,24 @@ import {
 } from '../specifications.mjs';
 import {
   StoryStateStore, acknowledgeIntentAmendment, actorKey, commitAndPublish, createWorkflow,
-  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, previewReworkRollForward,
-  rejectPhase, rollForwardRework, workDir
+  currentPhase, decideIntentAmendment, loadConfig, loadStoryAggregate, preparePhase,
+  previewReworkRollForward, rejectPhase, rollForwardRework, saveStoryDraft,
+  workflowPublicationBranch, workDir
 } from '../state-stores.mjs';
 import { attachStoryBranch, createStoryBranch, promoteStoryBranch, storyBranchStatus } from '../story-lineage.mjs';
-import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, snapshot, table, writeJson, writeText } from '../util.mjs';
+import { SingularityFlowError, exists, nowIso, optionBoolean, optionNumber, optionString, optionStrings, posix, readJson, requirePositional, run, secureRepositoryPath, snapshot, table, writeBytes, writeJson, writeText } from '../util.mjs';
 import { runRemoteGit } from '../git-execution.mjs';
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { extractInputsBlock } from '../inputs.mjs';
+import { withSubjectLock } from '../subject-lock.mjs';
 import { STORY_LINEAGE_PROPERTY, activatePhaseAgent, activeActionContext, confirm, summary } from './kernel.mjs';
 import { capabilityBaseForRepository, prepareCapabilityRepositories, printCapabilityBase } from '../capability-start.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { recordSha256 } from '../records.mjs';
 
 /**
  * Commands this service delegates to that still live in the router. Dynamic so the cycle stays
@@ -597,42 +613,7 @@ export async function storyCommand(positionals, options) {
  * to touch, which is indistinguishable from binding all of them until someone needs to re-check one.
  */
 async function convergenceSubject(root, config, workflow) {
-  const phase = workflow.phases.convergence;
-  if (!phase) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase.`);
-  const implementation = workflow.phases.implementation;
-  if (!implementation) throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no implementation phase to converge.`);
-  const reconciliationRef = implementation.workIntervalReconciliation;
-  if (!reconciliationRef?.path) {
-    throw new SingularityFlowError(
-      'Convergence operates on the reconciliation record for the implementation generation, and none exists yet. '
-      + 'Run singularity-flow submit implementation first.'
-    );
-  }
-  const itemDirectory = workDir(root, config, workflow.workItem.id);
-  const itemRelative = posix(path.relative(root, itemDirectory));
-  // The full record, not the summary the phase keeps: `[SPK:CON-032]` says convergence consumes the
-  // exact reconciliation output, and the summary has no `findings`.
-  const reconciliation = readRecord('work-reconciliation', await readJson(path.join(root, reconciliationRef.path))).record;
-  reconciliation.path = reconciliationRef.path;
-  const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  const policy = workflow.resolution?.spec ?? config.spec;
-  return {
-    phase,
-    implementation,
-    itemDirectory,
-    itemRelative,
-    reconciliation,
-    records,
-    policy,
-    acceptance: evaluateSpecAcceptance(records, policy, {
-      workId: workflow.workItem.id,
-      phase: implementation.id,
-      generation: implementation.generation
-    }),
-    // One iteration per implementation generation `[SPK:REQ-083]`: a new generation opens a new one,
-    // and re-running convergence against the same generation refreshes it rather than counting up.
-    iteration: Math.max(1, Number(implementation.generation ?? 1))
-  };
+  return currentConvergenceContext(root, config, workflow);
 }
 
 /**
@@ -679,7 +660,9 @@ async function runAssistedConvergence(root, config, workflow, subject, { facts, 
     unknown: unknownReferences(candidates, { factIds: facts.map((item) => item.id), clauseIds: clauses.map((clause) => clause.id) }),
     generatedAt: invocation.completedAt ?? new Date().toISOString()
   });
-  const relative = assistedConvergenceRelative(subject.itemRelative, bindings.iteration);
+  const relative = assistedConvergenceRelative(
+    subject.itemRelative, bindings.iteration, record.recordSha256
+  );
   await writeText(path.join(root, relative), serializeAssistedConvergence(record));
   for (const id of record.unknownReferences.factIds) console.warn(`Warning: a candidate cites deterministic fact '${id}', which this iteration does not contain.`);
   for (const id of record.unknownReferences.clauseIds) console.warn(`Warning: a candidate cites clause '${id}', which the approved specification does not contain.`);
@@ -690,14 +673,331 @@ function convergenceRecordRelative(itemRelative, iteration) {
   return posix(path.join(itemRelative, 'context', 'convergence', `iteration-${iteration}.json`));
 }
 
+function convergenceLegacyArchiveRelative(itemRelative, iteration, planSha256) {
+  return posix(path.join(
+    itemRelative,
+    'context',
+    'convergence',
+    'legacy',
+    `iteration-${iteration}-${String(planSha256).replace(/^sha256:/, '')}.json`
+  ));
+}
+
+function sha256Bytes(bytes) {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function legacyMigrationRecordSha256(record) {
+  const core = structuredClone(record);
+  delete core.recordSha256;
+  return recordSha256(core);
+}
+
+/**
+ * Build and, after an exact confirmation, preserve a v1 convergence record before replacement.
+ *
+ * v1 sealed its projection but not the bytes of its assisted-candidate source.  Treating a reader
+ * migration as sufficient would silently promote unauthenticated model output; refusing forever
+ * left an in-progress Story with no valid recovery path.  This migration therefore binds the exact
+ * projection and exact legacy candidate bytes into a user-confirmed plan, archives the original
+ * projection losslessly, and deliberately starts the deterministic candidate set empty.
+ */
+async function migrateLegacyConvergenceDraft(root, workflow, subject, legacyRelative, rawBytes, {
+  enabled = false, confirmation = null, assistedRequested = false
+} = {}) {
+  const migrated = readRecord('convergence-record', rawBytes);
+  if (migrated.storedVersion !== 1) return null;
+  assertLegacyConvergenceSourceIdentity(migrated.record, {
+    workId: workflow.workItem.id,
+    iteration: subject.iteration
+  });
+  const expectedCandidate = assistedConvergenceRelative(subject.itemRelative, subject.iteration);
+  const declaredCandidatePaths = migrated.record.candidateRecords ?? [];
+  const candidatePaths = [...new Set(declaredCandidatePaths)].sort();
+  const unsafe = candidatePaths.filter((candidate) => candidate !== expectedCandidate);
+  if (unsafe.length || candidatePaths.length > 1 || candidatePaths.length !== declaredCandidatePaths.length) {
+    throw new SingularityFlowError(
+      'The legacy convergence record references duplicate or non-canonical candidate sources and cannot be migrated automatically. '
+      + 'Preserve the Story and return it to implementation for authority review.',
+      {
+        code: 'CONVERGENCE_LEGACY_CANDIDATE_PATH_INVALID',
+        details: { path: legacyRelative, candidatePaths, expectedCandidate }
+      }
+    );
+  }
+  const candidateBindings = [];
+  for (const candidate of candidatePaths) {
+    const secured = await secureRepositoryPath(root, candidate, {
+      label: 'Legacy convergence candidate source', mustExist: true, type: 'file'
+    });
+    const bytes = await readFile(secured.absolute);
+    const legacyCandidate = readRecord('assisted-convergence', bytes);
+    if (legacyCandidate.storedVersion !== 1) {
+      throw new SingularityFlowError(
+        `Legacy convergence candidate source '${candidate}' is not a v1 record.`,
+        { code: 'CONVERGENCE_LEGACY_CANDIDATE_RECORD_INVALID', details: { path: candidate } }
+      );
+    }
+    assertLegacyConvergenceSourceIdentity(migrated.record, {
+      workId: workflow.workItem.id,
+      iteration: subject.iteration,
+      candidate: legacyCandidate.record
+    });
+    candidateBindings.push({
+      path: candidate,
+      sha256: sha256Bytes(bytes),
+      bytes: bytes.length,
+      bytesBase64: Buffer.from(bytes).toString('base64')
+    });
+  }
+  const planCandidateBindings = candidateBindings.map(({ path: candidate, sha256, bytes }) => ({
+    path: candidate, sha256, bytes
+  }));
+  const plan = {
+    schemaVersion: 1, // schema-transient: exact confirmation plan, persisted only inside its sealed archive
+    kind: 'convergence-legacy-migration-plan',
+    workId: workflow.workItem.id,
+    iteration: subject.iteration,
+    source: { path: legacyRelative, sha256: sha256Bytes(rawBytes), bytes: rawBytes.length },
+    candidateBindings: planCandidateBindings
+  };
+  const planSha256 = `sha256:${recordSha256(plan)}`;
+  const command = `singularity-flow story converge --work-id ${workflow.workItem.id} --migrate-legacy --confirm ${planSha256}`
+    + `${assistedRequested ? ' --assisted' : ''}`;
+  if (!enabled || confirmation !== planSha256) {
+    throw new SingularityFlowError(
+      'This convergence iteration uses a v1 assisted-candidate receipt without an immutable provenance seal. '
+      + 'The original bytes will not be overwritten without an exact migration confirmation. '
+      + `Review the record and run: ${command}`,
+      {
+        code: 'CONVERGENCE_LEGACY_MIGRATION_REQUIRED',
+        details: {
+          path: legacyRelative,
+          storedVersion: migrated.storedVersion,
+          planSha256,
+          candidateBindings: planCandidateBindings,
+          command
+        }
+      }
+    );
+  }
+  const archiveRelative = convergenceLegacyArchiveRelative(
+    subject.itemRelative, subject.iteration, planSha256
+  );
+  const archive = {
+    schemaVersion: currentSchemaVersion('convergence-legacy-archive'),
+    kind: 'convergence-legacy-archive',
+    workId: workflow.workItem.id,
+    iteration: subject.iteration,
+    planSha256,
+    source: plan.source,
+    candidateBindings,
+    sourceBytesBase64: Buffer.from(rawBytes).toString('base64'),
+    recordSha256: null
+  };
+  archive.recordSha256 = legacyMigrationRecordSha256(archive);
+  const archiveAbsolute = path.join(root, archiveRelative);
+  if (await exists(archiveAbsolute)) {
+    const existing = readRecord('convergence-legacy-archive', await readFile(archiveAbsolute)).record;
+    if (existing.recordSha256 !== legacyMigrationRecordSha256(existing)
+      || existing.recordSha256 !== archive.recordSha256
+      || existing.planSha256 !== planSha256
+      || existing.sourceBytesBase64 !== archive.sourceBytesBase64) {
+      throw new SingularityFlowError(
+        `Legacy convergence archive '${archiveRelative}' already exists with different bytes.`,
+        { code: 'CONVERGENCE_LEGACY_ARCHIVE_CONFLICT', details: { path: archiveRelative } }
+      );
+    }
+  } else {
+    await writeJson(archiveAbsolute, archive);
+  }
+  return { archiveRelative, planSha256, candidateBindings: planCandidateBindings, recordSha256: archive.recordSha256 };
+}
+
 async function readConvergence(root, itemRelative, iteration) {
   const relative = convergenceRecordRelative(itemRelative, iteration);
   if (!(await exists(path.join(root, relative)))) return null;
-  try { return readRecord('convergence-record', await readJson(path.join(root, relative))).record; }
-  catch (error) {
-    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
-    return null;
+  try {
+    return decodeConvergenceRecord(await readFile(path.join(root, relative)), { iteration });
+  } catch (error) {
+    if (['SCHEMA_VERSION_FUTURE', 'SCHEMA_VERSION_ARCHIVED'].includes(error?.code)) throw error;
+    throw new SingularityFlowError(
+      `Convergence record '${relative}' is corrupt and cannot authorize a decision: ${error.message}`,
+      { code: error.code ?? 'CONVERGENCE_RECORD_CORRUPT', details: { path: relative }, cause: error }
+    );
   }
+}
+
+function currentConvergenceProjectionInputs(workflow, subject) {
+  return { facts: subject.facts, bindings: subject.bindings };
+}
+
+function mergeManagedConvergenceArtifact(existing, projection) {
+  const metadata = String(existing ?? '').match(/^<!-- singularity-flow:metadata\r?\n[\s\S]*?\r?\n-->/)?.[0] ?? null;
+  const inputs = extractInputsBlock(existing ?? '');
+  return [metadata, renderConvergenceArtifact(projection), inputs].filter(Boolean).join('\n\n');
+}
+
+async function writeConvergenceProjection(root, subject, projection) {
+  const stored = { ...projection, candidateSnapshot: projection.candidateSnapshot ?? [] };
+  assertConvergenceIntegrity(stored, {
+    workId: projection.workId,
+    iteration: subject.iteration,
+    currentBindings: subject.bindings,
+    currentFacts: subject.facts
+  });
+  await assertConvergenceSources(root, stored, { itemRelative: subject.itemRelative });
+  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
+  await writeText(path.join(root, relative), serializeConvergence(stored));
+
+  const artifactRelative = posix(path.join(subject.itemRelative, subject.phase.requiredArtifact.path));
+  const securedArtifact = await secureRepositoryPath(root, artifactRelative, {
+    label: 'Convergence phase artifact'
+  });
+  const existing = securedArtifact.exists ? await readFile(securedArtifact.absolute, 'utf8') : '';
+  await writeText(securedArtifact.absolute, mergeManagedConvergenceArtifact(existing, stored));
+  return { stored, relative, artifactRelative };
+}
+
+async function withConvergenceDraft(root, config, requestedWorkId, operation, write) {
+  const selected = await loadStoryAggregate(root, config, requestedWorkId);
+  return runDraftTransaction(root, {
+    subject: {
+      kind: 'story',
+      id: selected.workItem.id,
+      branch: workflowPublicationBranch(root, selected)
+    },
+    expectedRevision: selected[Symbol.for('singularity-flow.state-revision')] ?? null,
+    allowedPaths: [posix(path.relative(root, workDir(root, config, selected.workItem.id)))],
+    operation,
+    write: async () => {
+      const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
+      const subject = await convergenceSubject(root, config, workflow);
+      return write(workflow, subject);
+    }
+  });
+}
+
+/**
+ * Silent deterministic convergence service shared by CLI routing and `story converge`.
+ *
+ * Preparation and the canonical projection/artifact render are one rollback-capable draft unit.
+ * A caller cannot accidentally stop after the generic deterministic prepare artifact and publish a
+ * document that never consumed the kernel-owned convergence facts.
+ */
+export async function prepareDeterministicConvergence(root, config, workId = null, {
+  assisted = false, model = null, migrateLegacy = false, legacyConfirmation = null
+} = {}) {
+  return withConvergenceDraft(
+    root,
+    config,
+    workId,
+    'story:converge',
+    async (workflow, subject) => {
+      if (workflow.currentPhase !== subject.phase.id || subject.phase.status !== 'in_progress') {
+        throw new SingularityFlowError(
+          `Convergence projection can be generated only while phase '${subject.phase.id}' is active and in progress.`
+        );
+      }
+      // Always refresh managed metadata and approved-input blocks before rendering. The authored
+      // body belongs to the deterministic kernel and is replaced below from the exact projection.
+      await preparePhase(root, config, workflow, subject.phase.id);
+      await saveStoryDraft(root, config, workflow);
+      const { facts, bindings } = currentConvergenceProjectionInputs(workflow, subject);
+      let previous;
+      let legacyMigration = null;
+      try {
+        previous = await readConvergence(root, subject.itemRelative, subject.iteration);
+      } catch (error) {
+        if (error.code !== 'CONVERGENCE_CANDIDATE_RECORD_BINDING_MISSING') throw error;
+        const legacyRelative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
+        const rawBytes = await readFile(path.join(root, legacyRelative));
+        const migrated = readRecord('convergence-record', rawBytes);
+        if (migrated.storedVersion !== 1) throw error;
+        const migratedLegacy = await migrateLegacyConvergenceDraft(root, workflow, subject, legacyRelative, rawBytes, {
+          enabled: migrateLegacy,
+          confirmation: legacyConfirmation,
+          assistedRequested: assisted
+        });
+        legacyMigration = {
+          path: migratedLegacy.archiveRelative,
+          recordSha256: migratedLegacy.recordSha256
+        };
+        // v1 candidate bytes remain preserved and are bound by the archive, but cannot authorize a
+        // v2 decision. Regenerate from deterministic facts (and a fresh assisted run if requested).
+        previous = null;
+      }
+      if (previous) {
+        try {
+          assertConvergenceIntegrity(previous, {
+            workId: workflow.workItem.id,
+            iteration: subject.iteration,
+            currentBindings: bindings,
+            currentFacts: facts
+          });
+          await assertConvergenceSources(root, previous, { itemRelative: subject.itemRelative });
+        } catch (error) {
+          if (!['CONVERGENCE_BINDINGS_STALE', 'CONVERGENCE_FACTS_STALE'].includes(error.code)) throw error;
+          if (previous.findings?.length) {
+            throw new SingularityFlowError(
+              'Convergence inputs changed after human dispositions were recorded. The existing decisions were preserved; '
+              + 'open a new implementation generation before computing a new convergence iteration.',
+              { code: 'CONVERGENCE_DECISIONS_BINDINGS_STALE', cause: error }
+            );
+          }
+          // An unadjudicated projection is a regenerable draft. Do not carry its advisory candidates
+          // across changed approved inputs; recompute the exact deterministic projection below.
+          previous = null;
+        }
+      }
+
+      const assistedResult = assisted
+        ? await runAssistedConvergence(root, config, workflow, subject, {
+          facts, bindings, model
+        })
+        : null;
+      const candidates = assistedResult?.record.candidates ?? previous?.candidateSnapshot ?? [];
+      const projection = {
+        ...convergenceProjection({
+          workId: workflow.workItem.id,
+          bindings,
+          facts,
+          candidates,
+          // One authoritative complete snapshot per iteration. An assisted rerun replaces the
+          // selected source rather than requiring every historical candidate record to equal the
+          // latest snapshot.
+          candidateRecords: assistedResult ? [assistedResult.path] : (previous?.candidateRecords ?? []),
+          candidateRecordBindings: assistedResult
+            ? [{ path: assistedResult.path, sha256: assistedResult.record.recordSha256 }]
+            : (previous?.candidateRecordBindings ?? []),
+          legacyMigration: legacyMigration ?? previous?.legacyMigration ?? null,
+          // Carried forward only after the exact current binding and complete candidate source have
+          // been verified under the Story mutation lock.
+          adjudications: previous?.findings?.map((finding) => ({
+            itemId: finding.itemId,
+            disposition: finding.disposition,
+            classification: finding.classification,
+            clauseIds: finding.clauseIds,
+            reason: finding.decision?.reason,
+            actor: finding.decision?.actor,
+            at: finding.decision?.at
+          })) ?? []
+        }),
+        candidateSnapshot: candidates
+      };
+      const written = await writeConvergenceProjection(root, subject, projection);
+      return {
+        workflow,
+        subject,
+        facts,
+        bindings,
+        assisted: assistedResult,
+        projection,
+        path: written.relative,
+        artifactPath: written.artifactRelative
+      };
+    }
+  );
 }
 
 /**
@@ -711,60 +1011,13 @@ async function readConvergence(root, itemRelative, iteration) {
 export async function storyConvergeCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const facts = convergenceFacts({
-    reconciliation: subject.reconciliation,
-    indexes: subject.records.indexes,
-    planned: subject.records.planned,
-    observed: subject.records.observed,
-    acceptance: subject.acceptance,
-    /**
-     * Clauses amended during this interval `[AMD:REQ-050]`. Convergence cannot know which clauses
-     * moved — it holds claims, not two generations of specification text — so the interval's own
-     * amendment log is the source. Without this the check exists and never fires, which is the
-     * shape of defect this repository keeps finding.
-     */
-    amendedClauses: [...new Set((workflow.workIntervals?.current?.amendments ?? [])
-      .flatMap((entry) => entry.clauses ?? []))]
+  const result = await prepareDeterministicConvergence(root, config, optionString(options, 'work-id'), {
+    assisted: optionBoolean(options, 'assisted'),
+    model: optionString(options, 'model'),
+    migrateLegacy: optionBoolean(options, 'migrate-legacy'),
+    legacyConfirmation: optionString(options, 'confirm')
   });
-  const bindings = convergenceBindings({
-    iteration: subject.iteration,
-    configurationSha256: workflow.resolution?.configSha256 ?? null,
-    configurationRevision: workflow.resolution?.configurationSource?.commit ?? null,
-    specification: convergenceSourceRef(workflow.phases.specification),
-    planning: convergenceSourceRef(workflow.phases.planning),
-    indexes: subject.records.indexes,
-    reconciliation: subject.reconciliation,
-    planned: subject.records.planned,
-    observed: subject.records.observed,
-    evidence: subject.records.acceptance
-  });
-
-  const previous = await readConvergence(root, subject.itemRelative, subject.iteration);
-  const assisted = optionBoolean(options, 'assisted')
-    ? await runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model: optionString(options, 'model') })
-    : null;
-  const candidates = assisted?.record.candidates ?? previous?.candidateSnapshot ?? [];
-  const projection = convergenceProjection({
-    workId: workflow.workItem.id,
-    bindings,
-    facts,
-    candidates,
-    candidateRecords: [...(previous?.candidateRecords ?? []), ...(assisted ? [assisted.path] : [])],
-    // Carried forward, because a disposition survives a re-run of the facts it was about.
-    adjudications: previous?.findings?.map((finding) => ({
-      itemId: finding.itemId,
-      disposition: finding.disposition,
-      classification: finding.classification,
-      clauseIds: finding.clauseIds,
-      reason: finding.decision?.reason,
-      actor: finding.decision?.actor,
-      at: finding.decision?.at
-    })) ?? []
-  });
-  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
-  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: candidates }));
+  const { workflow, facts, bindings, assisted, projection, path: relative } = result;
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
   console.log(`Convergence iteration ${projection.iteration} — ${workflow.workItem.id}`);
@@ -781,7 +1034,8 @@ export async function storyConvergeCommand(positionals, options) {
   console.log('is unimplemented or the change unplanned — only a human can say that.');
   console.log(`\nAllowed next: ${projection.allowedNext.join(', ') || 'none'}`);
   if (projection.allowedNext.includes('adjudicate')) {
-    console.log(`  singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]`);
+    console.log('  singularity-flow story adjudicate <ITEM-ID> --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT] [--clause <CLAUSE-ID> ...]');
+    console.log('  --clause is required when the disposition is update-intent.');
   }
   if (projection.allowedNext.includes('create-rework')) {
     // `story rework`, not `reject convergence`. Convergence is `in_progress` when its findings are
@@ -792,16 +1046,9 @@ export async function storyConvergeCommand(positionals, options) {
   if (projection.allowedNext.includes('propose-intent-amendment')) {
     console.log('  singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>');
   }
-  if (projection.allowedNext.includes('advance-to-verification')) console.log('  singularity-flow story advance --confirm');
-}
-
-function convergenceSourceRef(phase) {
-  if (!phase) return null;
-  const requiredPath = phase.requiredArtifact?.path;
-  const artifact = requiredPath
-    ? (phase.artifacts ?? []).find((entry) => entry.path?.endsWith(requiredPath))
-    : null;
-  return { generation: phase.generation ?? null, sha256: artifact?.sha256 ?? null };
+  if (projection.allowedNext.includes('advance-to-verification')) {
+    console.log(`  singularity-flow story advance --work-id ${workflow.workItem.id}`);
+  }
 }
 
 /**
@@ -814,39 +1061,55 @@ function convergenceSourceRef(phase) {
 export async function storyAdjudicateCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const existing = await readConvergence(root, subject.itemRelative, subject.iteration);
-  if (!existing) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`);
-
   const itemIds = [requirePositional(positionals, 2, 'convergence item ID'), ...optionStrings(options, 'item')];
-  const session = await loadSession(root);
-  const at = nowIso();
-  const decisions = itemIds.map((id) => ({
-    itemId: id,
-    disposition: optionString(options, 'disposition'),
-    classification: optionString(options, 'classification') ?? null,
-    reason: optionString(options, 'reason'),
-    clauseIds: optionStrings(options, 'clause'),
-    actor: actorKey(session.actor),
-    at
-  }));
-  const kept = (existing.findings ?? [])
-    .filter((finding) => !itemIds.includes(finding.itemId))
-    .map((finding) => ({
-      itemId: finding.itemId, disposition: finding.disposition, classification: finding.classification,
-      clauseIds: finding.clauseIds, reason: finding.decision?.reason, actor: finding.decision?.actor, at: finding.decision?.at
-    }));
-  const projection = convergenceProjection({
-    workId: workflow.workItem.id,
-    bindings: existing.bindings,
-    facts: existing.facts ?? [],
-    candidates: existing.candidateSnapshot ?? [],
-    candidateRecords: existing.candidateRecords ?? [],
-    adjudications: [...kept, ...decisions]
-  });
-  const relative = convergenceRecordRelative(subject.itemRelative, subject.iteration);
-  await writeText(path.join(root, relative), serializeConvergence({ ...projection, candidateSnapshot: existing.candidateSnapshot ?? [] }));
+  const result = await withConvergenceDraft(
+    root,
+    config,
+    optionString(options, 'work-id'),
+    'story:adjudicate',
+    async (workflow, subject) => {
+      if (workflow.currentPhase !== subject.phase.id || subject.phase.status !== 'in_progress') {
+        throw new SingularityFlowError('Convergence items can be adjudicated only before the convergence generation is published.');
+      }
+      const existing = await readConvergence(root, subject.itemRelative, subject.iteration);
+      if (!existing) {
+        throw new SingularityFlowError(
+          `Convergence iteration ${subject.iteration} has not been run. Run singularity-flow story converge first.`
+        );
+      }
+      const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
+      assertConvergenceIntegrity(existing, {
+        workId: workflow.workItem.id,
+        iteration: subject.iteration,
+        currentBindings: bindings,
+        currentFacts: facts
+      });
+      await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
+
+      const session = await loadSession(root);
+      const at = nowIso();
+      const decisions = itemIds.map((id) => ({
+        itemId: id,
+        disposition: optionString(options, 'disposition'),
+        classification: optionString(options, 'classification') ?? null,
+        reason: optionString(options, 'reason'),
+        clauseIds: optionStrings(options, 'clause'),
+        actor: actorKey(session.actor),
+        at
+      }));
+      const kept = (existing.findings ?? [])
+        .filter((finding) => !itemIds.includes(finding.itemId))
+        .map((finding) => ({
+          itemId: finding.itemId, disposition: finding.disposition, classification: finding.classification,
+          clauseIds: finding.clauseIds, reason: finding.decision?.reason,
+          actor: finding.decision?.actor, at: finding.decision?.at
+        }));
+      const projection = adjudicatedConvergenceProjection(existing, [...kept, ...decisions]);
+      await writeConvergenceProjection(root, subject, projection);
+      return { decisions, projection };
+    }
+  );
+  const { decisions, projection } = result;
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
   for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor}.`);
@@ -863,7 +1126,8 @@ function proposalDigest(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-async function proposeIntentAmendment(root, config, workflow, projection, options) {
+async function proposeIntentAmendment(root, config, workflow, verifiedConvergence, options) {
+  const projection = verifiedConvergence.projection;
   const findings = (projection.findings ?? []).filter((finding) => finding.disposition === 'update-intent');
   if (!findings.length) {
     throw new SingularityFlowError(
@@ -924,7 +1188,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
       { code: 'INTENT_AMENDMENT_INCOMPLETE' }
     );
   }
-  const records = await loadActiveSpecRecords(workDir(root, config, workflow.workItem.id), workflow);
+  const records = verifiedConvergence.current.records;
   const radius = intentAmendmentBlastRadius(diff, records);
   const session = await loadSession(root);
   const index = (workflow.intentAmendments ?? []).length + 1;
@@ -979,6 +1243,19 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
     acknowledgementRequired: false
   };
   const beforeWorkflow = structuredClone(workflow);
+  const expectedInputSnapshot = `${verifiedConvergence.snapshotSha256}:${beforeSha256}`;
+  const exactInputGuard = async () => {
+    const current = await loadVerifiedConvergenceProjection(root, config, beforeWorkflow);
+    const currentSpecification = await readFile(path.join(root, specificationPath), 'utf8');
+    const observed = `${current.snapshotSha256}:${createHash('sha256').update(currentSpecification).digest('hex')}`;
+    if (observed !== expectedInputSnapshot) {
+      throw new SingularityFlowError(
+        'Convergence or specification inputs changed while the intent amendment was being prepared. Nothing was committed; review the current projection and retry.',
+        { code: 'CONVERGENCE_AMENDMENT_INPUT_CHANGED' }
+      );
+    }
+    return expectedInputSnapshot;
+  };
   const publication = await commitAndPublish(
     root,
     config,
@@ -994,6 +1271,7 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
     {
       rollbackWorkflow: beforeWorkflow,
       beforeStateWrite: async () => {
+        await exactInputGuard();
         await mkdir(path.join(root, directory), { recursive: true });
         await writeText(path.join(root, beforePath), currentText);
         await writeText(path.join(root, proposedPath), proposedText);
@@ -1008,7 +1286,8 @@ async function proposeIntentAmendment(root, config, workflow, projection, option
           phase: 'convergence',
           detail: `${id} proposes ${diff.changed.length} clause change(s): ${diff.changed.join(', ')}`
         });
-      }
+      },
+      worktreeGuard: exactInputGuard
     }
   );
   return { proposal, summary, publication };
@@ -1163,10 +1442,8 @@ export async function storyIntentAmendmentCommand(positionals, options) {
     return;
   }
   if (action === 'propose') {
-    const subject = await convergenceSubject(root, config, workflow);
-    const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-    if (!projection) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run.`);
-    const result = await proposeIntentAmendment(root, config, workflow, projection, options);
+    const verified = await loadVerifiedConvergenceProjection(root, config, workflow);
+    const result = await proposeIntentAmendment(root, config, workflow, verified, options);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Proposed ${result.proposal.id} for ${result.proposal.diff.changed.join(', ')}; commit ${result.publication.sha.slice(0, 8)}.`);
     console.log(`Authority decision: singularity-flow story intent-amendment decide ${result.proposal.id} --decision approve|reject --confirm ${result.proposal.id}`);
@@ -1218,8 +1495,8 @@ export async function storyReworkCommand(positionals, options) {
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
   const subject = await convergenceSubject(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-  if (!projection) throw new SingularityFlowError(`Convergence iteration ${subject.iteration} has not been run.`);
+  const verified = await loadVerifiedConvergenceProjection(root, config, workflow);
+  const projection = verified.projection;
   const rework = (projection.findings ?? []).filter((finding) => finding.disposition === 'rework');
   if (!rework.length) {
     throw new SingularityFlowError('No convergence finding is dispositioned as rework, so there is nothing to send back.');
@@ -1234,6 +1511,38 @@ export async function storyReworkCommand(positionals, options) {
     return;
   }
   const workflowBeforeRework = structuredClone(workflow);
+  const expectedInputSnapshot = verified.snapshotSha256;
+  const exactInputGuard = async () => {
+    const observed = (await loadVerifiedConvergenceProjection(
+      root, config, workflowBeforeRework
+    )).snapshotSha256;
+    if (observed !== expectedInputSnapshot) {
+      throw new SingularityFlowError(
+        'Convergence inputs changed while rework was being prepared. Nothing was committed; review the current projection and retry.',
+        { code: 'CONVERGENCE_REWORK_INPUT_CHANGED' }
+      );
+    }
+    return expectedInputSnapshot;
+  };
+  const reworkScope = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
+  const reworkParent = workflowBeforeRework[Symbol.for('singularity-flow.state-revision')]?.head
+    ?? head(root);
+  let expectedPostTransitionTree = null;
+  const postTransitionGuard = async () => {
+    const observed = admitGovernedPublication(root, [reworkScope], {
+      expectedHead: reworkParent
+    }).prospectiveTree;
+    if (!expectedPostTransitionTree || observed !== expectedPostTransitionTree) {
+      throw new SingularityFlowError(
+        'Story bytes changed after the convergence rework transition was prepared. Nothing was committed; review the current Story and retry.',
+        {
+          code: 'CONVERGENCE_REWORK_POST_STATE_CHANGED',
+          details: { expected: expectedPostTransitionTree, actual: observed }
+        }
+      );
+    }
+    return observed;
+  };
   const returned = await commitAndPublish(
     root,
     config,
@@ -1245,21 +1554,33 @@ export async function storyReworkCommand(positionals, options) {
       rollbackWorkflow: workflowBeforeRework,
       // Closes over `workflow`, like every other unit of work here: `beforeStateWrite` takes no
       // argument, and a parameter here is silently `undefined` rather than a compile error.
-      beforeStateWrite: async () => rejectPhase(root, config, workflow, {
-        phaseId: subject.phase.id,
-        target: 'implementation',
-        reason,
-        clauseIds,
-        // `[SPK:REQ-183]`'s sibling: the projection is what authorises rejecting an unsubmitted
-        // phase, and it is re-checked inside `rejectPhase` rather than trusted from here.
-        convergenceRework: {
-          iteration: projection.iteration,
-          convergenceSha256: projection.convergenceSha256,
-          unresolvedBlockers: projection.unresolvedBlockers
-        },
-        channel: 'terminal',
-        actionContext: activeActionContext()
-      })
+      beforeStateWrite: async () => {
+        // Verify the approved inputs before invalidating their managed metadata. Re-running this
+        // check after rejectPhase is self-defeating: the transition intentionally makes those old
+        // approval registrations stale.
+        await exactInputGuard();
+        return rejectPhase(root, config, workflow, {
+          phaseId: subject.phase.id,
+          target: 'implementation',
+          reason,
+          clauseIds,
+          // `[SPK:REQ-183]`'s sibling: the projection is what authorises rejecting an unsubmitted
+          // phase, and it is re-checked inside `rejectPhase` rather than trusted from here.
+          convergenceRework: {
+            iteration: projection.iteration,
+            convergenceSha256: projection.convergenceSha256,
+            findingIds: rework.map((finding) => finding.id)
+          },
+          channel: 'terminal',
+          actionContext: activeActionContext()
+        });
+      },
+      afterOwnedWrites: async () => {
+        expectedPostTransitionTree = admitGovernedPublication(root, [reworkScope], {
+          expectedHead: reworkParent
+        }).prospectiveTree;
+      },
+      worktreeGuard: postTransitionGuard
     }
   );
   console.log(`Returned ${workflow.workItem.id} to implementation for ${rework.length} convergence finding(s); commit ${returned.sha.slice(0, 8)}.`);
@@ -1380,18 +1701,52 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
 export async function storyAdvanceCommand(positionals, options) {
   const root = repoRoot();
   const config = await loadConfig(root);
-  const workflow = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
-  const subject = await convergenceSubject(root, config, workflow);
-  const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
-  const blocked = advancementBlocked(projection);
-  if (blocked.length) {
-    throw new SingularityFlowError(`Convergence cannot advance to verification:\n- ${blocked.join('\n- ')}`);
-  }
-  if (!optionBoolean(options, 'confirm')) {
-    console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
-    console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
-    return console.log('Advancement is an explicit human action. Re-run with --confirm to submit convergence for approval.');
-  }
-  console.log(`Convergence iteration ${projection.iteration} confirmed by an authorized human; submitting the phase for approval.`);
-  return (await router()).submitCommand(['submit', subject.phase.id], options);
+  const selected = await loadStoryAggregate(root, config, optionString(options, 'work-id'));
+  return withSubjectLock(root, { kind: 'story', id: selected.workItem.id }, async () => {
+    const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
+    const subject = await convergenceSubject(root, config, workflow);
+    const projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+    if (projection) {
+      const { bindings, facts } = currentConvergenceProjectionInputs(workflow, subject);
+      assertConvergenceIntegrity(projection, {
+        workId: workflow.workItem.id,
+        iteration: subject.iteration,
+        currentBindings: bindings,
+        currentFacts: facts
+      });
+      await assertConvergenceSources(root, projection, { itemRelative: subject.itemRelative });
+    }
+    const blocked = advancementBlocked(projection);
+    if (blocked.length) {
+      throw new SingularityFlowError(`Convergence cannot advance to verification:\n- ${blocked.join('\n- ')}`);
+    }
+    const reviewed = await assertConvergencePublicationReady(root, config, workflow, subject.phase);
+    const confirmation = optionString(options, 'confirm');
+    if (!confirmation) {
+      console.log(`Convergence iteration ${projection.iteration} has no unresolved blockers and every item is dispositioned.`);
+      console.log(`Findings: ${projection.findings.length}. Bound to reconciliation ${projection.bindings.reconciliation.sha256.slice(0, 12)}.`);
+      console.log(`Confirmation digest: ${reviewed.snapshotSha256}`);
+      console.log('No lifecycle state, file, commit, or remote changed.');
+      return console.log(`After reviewing this exact result, run: singularity-flow story advance --work-id ${workflow.workItem.id} --confirm ${reviewed.snapshotSha256}`);
+    }
+    if (confirmation !== reviewed.snapshotSha256) {
+      throw new SingularityFlowError(
+        `The convergence result changed after preview. Review it again and confirm ${reviewed.snapshotSha256}.`,
+        {
+          code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
+          details: {
+            workId: workflow.workItem.id,
+            supplied: confirmation,
+            expected: reviewed.snapshotSha256
+          }
+        }
+      );
+    }
+    console.log(`Convergence iteration ${projection.iteration} (${reviewed.snapshotSha256}) confirmed by an authorized human; submitting the phase for approval.`);
+    return (await router()).submitConfirmedConvergenceCommand(
+      ['submit', subject.phase.id],
+      { ...options, 'work-id': workflow.workItem.id },
+      reviewed.snapshotSha256
+    );
+  });
 }

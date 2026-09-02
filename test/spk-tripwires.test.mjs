@@ -168,10 +168,24 @@ test('the agent running convergence cannot create rework or advance', async () =
     assert.doesNotMatch(converge, new RegExp(`\\b${forbidden}\\s*\\(`), `story converge calls ${forbidden} itself`);
   }
 
-  // Advancement refuses without an explicit confirmation, and the deterministic run never sets it.
+  // Advancement refuses without the exact digest of the fully verified convergence snapshot. A
+  // boolean `--confirm` would merely prove that somebody supplied a flag; it would not prove what
+  // they reviewed, and could survive source/evidence drift between preview and submission.
   const advance = await commandFunction('storyAdvanceCommand');
-  assert.match(advance, /optionBoolean\(options, 'confirm'\)/, 'advancement does not require an explicit confirmation');
   assert.match(advance, /advancementBlocked\(/, 'advancement does not check for unresolved blockers');
+  assert.match(advance,
+    /const reviewed = await assertConvergencePublicationReady\(root, config, workflow, subject\.phase\)/,
+    'advancement does not compute the exact publishable convergence snapshot');
+  assert.match(advance, /const confirmation = optionString\(options, 'confirm'\)/,
+    'advancement does not require a digest-valued confirmation');
+  assert.match(advance, /if \(confirmation !== reviewed\.snapshotSha256\)/,
+    'advancement does not reject a stale or unrelated confirmation digest');
+  assert.match(advance, /--confirm \$\{reviewed\.snapshotSha256\}/,
+    'the no-confirm preview does not return the exact digest a human must review');
+  assert.match(advance, /submitConfirmedConvergenceCommand\([\s\S]*reviewed\.snapshotSha256/,
+    'the reviewed digest is not carried into the private confirmed-submission boundary');
+  assert.doesNotMatch(advance, /optionBoolean\(options, 'confirm'\)|options\.confirm\s*===\s*true/,
+    'advancement still accepts a content-free boolean confirmation');
 
   // Every disposition except direct deterministic rework needs a human-authored reason.
   const facts = [{ id: 'CF-aaaaaaaaaaaa', kind: 'absent-observed-claim', clauseIds: [] }];

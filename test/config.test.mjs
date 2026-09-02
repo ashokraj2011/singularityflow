@@ -189,6 +189,61 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
   );
 });
 
+test('convergence cannot be configured as a generation-free phase', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const invalid = structuredClone(definition);
+  invalid.phases.convergence.generation.requirement = 'none';
+  assert.throws(
+    () => validateDefinition(invalid),
+    /must be required and allow only deterministic authorship/
+  );
+
+  const overridden = structuredClone(definition);
+  overridden.workTypes['spec-driven-standard'].phaseOverrides = {
+    ...(overridden.workTypes['spec-driven-standard'].phaseOverrides ?? {}),
+    convergence: { generation: { requirement: 'none' } }
+  };
+  assert.throws(
+    () => resolveWorkType(overridden, 'spec-driven-standard'),
+    /must be required and allow only deterministic authorship/,
+    'a work-type override must not weaken the kernel-owned convergence phase'
+  );
+});
+
+test('convergence approval cannot be waived by base policy or work-type overrides', async () => {
+  const definition = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const convergenceApproval = definition.phases.convergence.approval;
+
+  for (const approval of [
+    'none',
+    { ...convergenceApproval, mode: 'policy', policy: 'convergence-auto-waiver-v1' }
+  ]) {
+    const invalid = structuredClone(definition);
+    invalid.phases.convergence.approval = approval;
+    assert.throws(
+      () => validateDefinition(invalid),
+      /convergence.*approval.*(?:human|required)|approval.*convergence.*(?:human|required)/i,
+      `base convergence approval ${typeof approval === 'string' ? approval : approval.mode} was accepted`
+    );
+  }
+
+  for (const approval of [
+    'none',
+    { ...convergenceApproval, mode: 'policy', policy: 'convergence-auto-waiver-v1' }
+  ]) {
+    const overridden = structuredClone(definition);
+    overridden.workTypes['spec-driven-standard'].phaseOverrides = {
+      ...(overridden.workTypes['spec-driven-standard'].phaseOverrides ?? {}),
+      convergence: { approval }
+    };
+    assert.throws(
+      () => resolveWorkType(overridden, 'spec-driven-standard'),
+      /convergence.*approval.*(?:human|required)|approval.*convergence.*(?:human|required)/i,
+      `work-type convergence approval ${typeof approval === 'string' ? approval : approval.mode} was accepted`
+    );
+  }
+});
+
 test('every shipped Story workflow phase renders a contract-consistent guarded artifact', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-artifact-contract-matrix-'));
   await mkdir(path.join(root, '.git'), { recursive: true });

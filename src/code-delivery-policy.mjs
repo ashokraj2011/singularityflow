@@ -1,4 +1,5 @@
 import { SingularityFlowError } from './util.mjs';
+import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 
 const CODE_DELIVERY_ARTIFACT_KINDS = new Set(['implementation-summary']);
 
@@ -207,6 +208,7 @@ export function phaseRequiresCodeDelivery(phase) {
 
 /** One deterministic authoring route for every code task, independent of phase name. */
 export function generationSkillForPhase(phase) {
+  if (phase?.id === 'convergence' && phaseUsesDeterministicGeneration(phase)) return '/sflow-converge';
   return phaseRequiresCodeDelivery(phase) ? '/sflow-code' : '/sflow-phase';
 }
 

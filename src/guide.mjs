@@ -1,6 +1,7 @@
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
+import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -21,9 +22,22 @@ function nextActions(workflow, phase) {
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
   if (regenerate) return [
-    copilotAction({ skill: generationSkillForPhase(phase), command: `singularity-flow prepare ${phase.id}`, reason: `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.` })
+    copilotAction({
+      skill: generationSkillForPhase(phase),
+      command: `singularity-flow prepare ${phase.id}`,
+      reason: phase.id === 'convergence' && phaseUsesDeterministicGeneration(phase)
+        ? 'Compute the deterministic convergence projection, then follow its returned adjudication, rework, amendment, or publication action.'
+        : `${phase.generation > 0 ? 'Regenerate' : 'Generate'} the required ${phase.label} artifact, then publish it.`
+    })
   ];
   const noApproval = phase.approvalPolicy?.mode === 'none';
+  if (phase.id === 'convergence') return [
+    copilotAction({
+      skill: '/sflow-submit',
+      command: `singularity-flow story advance --work-id ${workflow.workItem.id}`,
+      reason: 'Review the exact deterministic convergence result, then explicitly confirm advancement before it can be submitted for human approval.'
+    })
+  ];
   return [
     copilotAction({
       skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}`,

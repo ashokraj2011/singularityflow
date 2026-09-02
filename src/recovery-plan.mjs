@@ -7,6 +7,7 @@ import { inspectRequiredArtifactContent } from './publication-preflight.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
 import { publishedGenerationCommit } from './generation-boundary.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
+import { assertConvergencePublicationReady } from './convergence-context.mjs';
 
 function action({ id, mode = 'guided', detail, command = null, skill = null, evidence = null, retry = null }) {
   return {
@@ -152,16 +153,38 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, { gene
     actions.push(generation.action);
   }
 
-  const artifactFindings = await inspectRequiredArtifactContent(root, config, workflow, phase);
-  blockers.push(...artifactFindings.map((finding) => ({
-    ...finding, blocking: true, phase: phase.id, generation: Number(phase.generation) + 1,
-    details: {
-      bytes: finding.bytes ?? null, minimumBytes: finding.minimumBytes ?? null
+  const deterministicConvergence = phase.id === 'convergence';
+  let artifactFindings = [];
+  if (deterministicConvergence) {
+    try {
+      await assertConvergencePublicationReady(root, config, workflow, phase);
+    } catch (error) {
+      blockers.push({
+        code: `convergence.${String(error.code ?? 'not-ready').toLocaleLowerCase('en-US').replaceAll('_', '-')}`,
+        category: 'convergence', blocking: true, phase: phase.id,
+        generation: Number(phase.generation) + 1,
+        path: error.details?.path ?? null, line: null, value: null,
+        details: { sourceCode: error.code ?? null, message: error.message }
+      });
+      actions.push(action({
+        id: 'prepare-convergence',
+        detail: 'Recompute the canonical projection from the current bound inputs, then follow only its returned review or publication action.',
+        command: 'singularity-flow prepare convergence',
+        skill: '/sflow-converge'
+      }));
     }
-  })));
-  actions.push(...artifactActions(workflow, phase, artifactFindings));
+  } else {
+    artifactFindings = await inspectRequiredArtifactContent(root, config, workflow, phase);
+    blockers.push(...artifactFindings.map((finding) => ({
+      ...finding, blocking: true, phase: phase.id, generation: Number(phase.generation) + 1,
+      details: {
+        bytes: finding.bytes ?? null, minimumBytes: finding.minimumBytes ?? null
+      }
+    })));
+    actions.push(...artifactActions(workflow, phase, artifactFindings));
+  }
 
-  if (!artifactFindings.length) {
+  if (!artifactFindings.length && !blockers.some((finding) => finding.category === 'convergence')) {
     const itemRelative = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`;
     try {
       await planAgentBriefs(root, workflow, phase, {

@@ -65,25 +65,98 @@ function defaultChannel(producer, imported) {
   return 'legacy';
 }
 
+function configuredPublicationProducer(phase) {
+  const policy = phase?.generationPolicy;
+  const legacy = policy?.producer;
+  return policy?.defaultProducer
+    ?? (legacy === 'agent' ? 'governed-agent' : legacy === 'manual' ? 'human' : legacy)
+    ?? 'governed-agent';
+}
+
+function allowedPublicationProducers(phase) {
+  const policy = phase?.generationPolicy;
+  if (policy?.allowedProducers?.length) return policy.allowedProducers;
+  // Historical Story snapshots stored only the legacy `producer` field. Match the configuration
+  // normalizer exactly so an upgraded in-flight `producer: agent` phase retains its long-standing
+  // governed-agent *and* human routes instead of silently losing manual recovery.
+  if (policy?.producer === 'manual') return ['human'];
+  if (policy?.producer === 'deterministic') return ['deterministic'];
+  if (policy?.producer === 'agent') return ['governed-agent', 'human'];
+  if (policy?.defaultProducer === 'governed-agent') return ['governed-agent', 'human'];
+  if (policy?.defaultProducer) return [configuredPublicationProducer(phase)];
+  return ['governed-agent', 'human'];
+}
+
 /** The exact producer/channel pair pinned by a phase's generation contract. */
 export function phasePublicationAuthorship(phase, { producer = null, imported = false } = {}) {
-  const selected = producer ?? phase?.generationPolicy?.defaultProducer ?? 'governed-agent';
+  const selected = producer ?? configuredPublicationProducer(phase);
+  assertProducerAllowed(phase, selected);
   return Object.freeze({ producer: selected, channel: defaultChannel(selected, imported) });
+}
+
+export function phaseUsesDeterministicGeneration(phase) {
+  return phasePublicationAuthorship(phase).producer === 'deterministic';
+}
+
+/** One producer resolver for next, nextsteps, fast-path, prompts, and publication guidance. */
+export function effectivePhasePublicationProducer(phase, {
+  modelEnabled = true, requestedProducer = null
+} = {}) {
+  if (phase?.id === 'convergence') {
+    const allowed = allowedPublicationProducers(phase);
+    if (allowed.length !== 1 || allowed[0] !== 'deterministic') {
+      throw new SingularityFlowError(
+        "Phase 'convergence' must permit only deterministic authorship because its artifact is a kernel-owned projection.",
+        { code: 'CONVERGENCE_GENERATION_POLICY_INVALID' }
+      );
+    }
+    if (requestedProducer != null && requestedProducer !== 'deterministic') {
+      throw new SingularityFlowError(
+        "Phase 'convergence' records deterministic authorship only; human and model review decisions are separate governed records.",
+        { code: 'CONVERGENCE_AUTHORSHIP_INVALID' }
+      );
+    }
+    return 'deterministic';
+  }
+  if (requestedProducer != null) return phasePublicationAuthorship(phase, { producer: requestedProducer }).producer;
+  const configured = configuredPublicationProducer(phase);
+  if (modelEnabled !== false) return phasePublicationAuthorship(phase, { producer: configured }).producer;
+  const allowed = allowedPublicationProducers(phase);
+  // The convergence artifact remains a deterministic kernel projection even when an optional
+  // assisted pass supplied candidates. Prefer it over a manual/external fallback in no-model mode.
+  if (['human', 'deterministic', 'external-tool'].includes(configured)) return configured;
+  const fallback = allowed.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
+  return fallback ?? configured;
+}
+
+/**
+ * The complete publication contract consumed by CLI, recovery, prompts, UI actions, and skills.
+ * Constructing the contract validates the configured default producer before guidance can escape.
+ */
+export function phasePublicationContract(phase, {
+  producer = null, imported = false, executable = 'singularity-flow'
+} = {}) {
+  const { producer: selected, channel } = phasePublicationAuthorship(phase, { producer, imported });
+  const allowedProducers = Object.freeze([...allowedPublicationProducers(phase)]);
+  return Object.freeze({
+    producer: selected,
+    channel,
+    allowedProducers,
+    command: `${executable} phase publish ${phase?.id ?? '<phase>'} --authored ${selected} --channel ${channel}`
+  });
 }
 
 /** One canonical command prevents CLI guidance, recovery, and Copilot skills from drifting. */
 export function phasePublicationCommand(phase, executable = 'singularity-flow') {
-  const { producer, channel } = phasePublicationAuthorship(phase);
-  return `${executable} phase publish ${phase?.id ?? '<phase>'} --authored ${producer} --channel ${channel}`;
+  return phasePublicationContract(phase, { executable }).command;
 }
 
 /** Build a deliberate alternate route only when the phase contract actually permits it. */
 export function phasePublicationCommandForProducer(phase, producer, {
   executable = 'singularity-flow', source = null, noModel = false
 } = {}) {
-  assertProducerAllowed(phase, producer);
-  const { channel } = phasePublicationAuthorship(phase, {
-    producer, imported: source != null
+  const { channel } = phasePublicationContract(phase, {
+    producer, imported: source != null, executable
   });
   return [
     executable, 'phase', 'publish', phase?.id ?? '<phase>', '--authored', producer,
@@ -131,8 +204,19 @@ export function normalizeAuthorshipOptions({
 }
 
 export function assertProducerAllowed(phase, producer) {
-  const allowed = phase.generationPolicy?.allowedProducers ?? ['governed-agent', 'human'];
-  if (!allowed.includes(producer) && producer !== 'legacy-unspecified') {
+  const allowed = allowedPublicationProducers(phase);
+  if (phase?.id === 'convergence' && producer !== 'deterministic') {
+    throw new SingularityFlowError(
+      "Phase 'convergence' records deterministic authorship only; human and model review decisions are separate governed records.",
+      { code: 'CONVERGENCE_AUTHORSHIP_INVALID', details: { phase: phase.id, producer } }
+    );
+  }
+  // Historical unspecified provenance remains readable for upgraded agent/manual phases. It must
+  // never authorize a new deterministic-only publication, because that would also bypass the
+  // exact deterministic convergence integrity path selected by the producer contract.
+  const legacyCompatible = producer === 'legacy-unspecified'
+    && configuredPublicationProducer(phase) !== 'deterministic';
+  if (!allowed.includes(producer) && !legacyCompatible) {
     throw new SingularityFlowError(`Phase '${phase.id}' does not permit '${producer}' authorship. Allowed producers: ${allowed.join(', ')}.`, {
       code: 'MANUAL_ARTIFACT_INVALID', details: { phase: phase.id, producer, allowedProducers: allowed }
     });
@@ -195,7 +279,7 @@ export async function importManualArtifact({ sourcePath, targetPath, contract, b
   return Object.freeze({ kind: 'import', filename: path.basename(sourcePath), mediaType, sha256: sha256(authored), bytes: authored.length });
 }
 
-export async function inspectInPlaceArtifact(targetPath, contract, { baseline = null } = {}) {
+async function inspectPreparedArtifact(targetPath, contract, { baseline = null, deterministic = false } = {}) {
   const info = await lstat(targetPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) throw new SingularityFlowError('Prepared artifact must be a regular file and must not be a symbolic link.', { code: 'MANUAL_ARTIFACT_INVALID' });
   const bytes = await readFile(targetPath);
@@ -211,11 +295,26 @@ export async function inspectInPlaceArtifact(targetPath, contract, { baseline = 
     }
     authored = Buffer.from(authoredArtifactText(sanitized), 'utf8');
   }
-  validateArtifactBytes(authored, contract, path.basename(targetPath), {
-    text: /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? bytes.toString('utf8') : null,
-    baseline
-  });
+  if (deterministic) {
+    // Exact kernel projections can quote TODO/template text and intentionally own their heading
+    // layout. Their content is authorized by the projection verifier, while this boundary still
+    // enforces safe file type, metadata placement, and configured byte limits.
+    validateArtifactBytes(authored, { ...contract, validation: {} }, path.basename(targetPath));
+  } else {
+    validateArtifactBytes(authored, contract, path.basename(targetPath), {
+      text: /^(?:text\/|application\/(?:json|yaml)$)/.test(mediaType) ? bytes.toString('utf8') : null,
+      baseline
+    });
+  }
   return Object.freeze({ kind: 'in-place', filename: path.basename(targetPath), mediaType, sha256: sha256(authored), bytes: authored.length });
+}
+
+export async function inspectInPlaceArtifact(targetPath, contract, options = {}) {
+  return inspectPreparedArtifact(targetPath, contract, options);
+}
+
+export async function inspectDeterministicInPlaceArtifact(targetPath, contract) {
+  return inspectPreparedArtifact(targetPath, contract, { deterministic: true });
 }
 
 export function buildGenerationAuthorship({

@@ -33,3 +33,25 @@ test('nextsteps gives deterministic phases their exact model-free publication co
     'singularity-flow phase publish design --authored deterministic --channel kernel-generator');
   assert.equal(actions.some((item) => item.command.includes('--authored human')), false);
 });
+
+test('a deterministic convergence policy routes through projection preparation', () => {
+  const state = workflow(['deterministic']);
+  state.currentPhase = 'convergence';
+  state.phaseOrder = ['convergence'];
+  state.phases = {
+    convergence: {
+      id: 'convergence', label: 'Convergence', status: 'in_progress', generation: 0,
+      generationPolicy: {
+        requirement: 'required', defaultProducer: 'deterministic',
+        allowedProducers: ['deterministic']
+      }
+    }
+  };
+  state.resolution.phases = [{ id: 'convergence', inputs: [] }];
+  const actions = workflowNextSteps(state, { modelMode: { enabled: false } });
+  assert.equal(actions[0].skill, '/sf-converge');
+  assert.equal(actions[0].command, 'singularity-flow prepare convergence --no-model');
+  assert.equal(actions.some((item) => item.command.startsWith('singularity-flow phase publish')), false);
+  assert.equal(actions.some((item) => /singularity-flow (?:submit|approve) convergence/.test(item.command)), false);
+  assert.equal(actions.some((item) => item.availability === 'blocked'), false);
+});

@@ -41,7 +41,7 @@ const DEFINITION = {
 };
 
 function story(current, statuses = {}) {
-  return {
+  const workflow = {
     workItem: { id: 'SPK-1', workType: 'spec-driven-standard', workTypeLabel: 'Spec-Driven Standard' },
     status: 'in_progress',
     currentPhase: current,
@@ -50,6 +50,22 @@ function story(current, statuses = {}) {
       id, label: id, generation: 0, status: statuses[id] ?? (id === current ? 'in_progress' : 'pending')
     }]))
   };
+  workflow.phases.convergence.generationPolicy = {
+    requirement: 'required', defaultProducer: 'deterministic',
+    allowedProducers: ['deterministic'], producer: 'deterministic'
+  };
+  return workflow;
+}
+
+function deterministicStory(current = 'convergence') {
+  const workflow = story(current);
+  workflow.phases[current].generationPolicy = {
+    requirement: 'required',
+    defaultProducer: 'deterministic',
+    allowedProducers: ['deterministic'],
+    producer: 'deterministic'
+  };
+  return workflow;
 }
 
 test('a verb proposes exactly what the advanced planner proposes', () => {
@@ -74,6 +90,47 @@ test('the underlying kernel operations are named, never hidden', () => {
   // A friendly verb that concealed which governed operation it stood for would be the whole risk of
   // this feature in one field.
   assert.ok(plan.underlyingOperations.every((id) => typeof id === 'string' && id.length));
+});
+
+test('deterministic-only convergence is never presented as model or agent generation', () => {
+  for (const modelMode of [{ enabled: true }, { enabled: false }]) {
+    const plan = planFastPath(
+      deterministicStory(), DEFINITION, 'converge', { modelMode }
+    );
+    assert.equal(plan.checkpoint.kind, 'deterministic-generation');
+    assert.equal(plan.checkpoint.reason, 'The next step runs the configured deterministic generator.');
+    assert.doesNotMatch(JSON.stringify(plan), /\b(?:model|agent)\b/i);
+    assert.deepEqual(plan.underlyingOperations, ['prepare.convergence']);
+    assert.equal(plan.next[0].command, 'singularity-flow prepare convergence');
+  }
+});
+
+test('a published generation awaiting submit is a review checkpoint, never model generation', () => {
+  for (const [phaseId, verb] of [['specification', 'specify'], ['convergence', 'converge']]) {
+    const workflow = phaseId === 'convergence' ? deterministicStory() : story(phaseId);
+    workflow.phases[phaseId].generation = 1;
+    const plan = planFastPath(workflow, DEFINITION, verb);
+    assert.equal(
+      plan.next[0].command,
+      phaseId === 'convergence'
+        ? 'singularity-flow story advance --work-id SPK-1'
+        : `singularity-flow submit ${phaseId}`
+    );
+    assert.equal(plan.checkpoint.kind, 'human-review');
+    assert.doesNotMatch(plan.checkpoint.reason, /model|author/i);
+  }
+});
+
+test('legacy deterministic generation policy is classified without relying on the prepare verb alone', () => {
+  const workflow = deterministicStory();
+  workflow.phases.convergence.generationPolicy = { requirement: 'required', producer: 'deterministic' };
+  const plan = planFastPath(workflow, DEFINITION, 'converge');
+  assert.equal(plan.checkpoint.kind, 'deterministic-generation');
+
+  workflow.phases.convergence.generationPolicy = {
+    requirement: 'none', defaultProducer: 'deterministic', allowedProducers: ['deterministic']
+  };
+  assert.notEqual(planFastPath(workflow, DEFINITION, 'converge').checkpoint.kind, 'deterministic-generation');
 });
 
 test('every result carries the full contract', () => {

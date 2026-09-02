@@ -63,9 +63,32 @@ test('redaction survives cycles, depth, and error objects without throwing', () 
   assert.equal(redact(cyclic).self, '[circular]');
   const deep = { a: { b: { c: { d: { e: { f: { g: 'too far' } } } } } } };
   assert.equal(JSON.stringify(redact(deep)).includes('[depth limit]'), true);
-  const failure = redact(new Error('boom'));
+  const source = new Error('boom');
+  source.code = 'CONVERGENCE_INVALID';
+  source.details = {
+    iteration: 1,
+    path: 'singularity/work-items/WRK-1/context/convergence/iteration-1.json',
+    currentBindingsSha256: 'a'.repeat(64),
+    token: 'must-not-leak',
+    diagnostic: 'private prompt text must-not-leak',
+    url: 'https://person:office-password@example.invalid/repo.git'
+  };
+  source.details.parent = source;
+  const failure = redact(source);
   assert.equal(failure.name, 'Error');
   assert.equal(failure.message, 'boom');
+  assert.equal(failure.code, 'CONVERGENCE_INVALID');
+  assert.equal(failure.details.iteration, 1);
+  assert.equal(failure.details.path, 'singularity/work-items/WRK-1/context/convergence/iteration-1.json');
+  assert.equal(failure.details.currentBindingsSha256, 'a'.repeat(64));
+  assert.equal(JSON.stringify(failure).includes('must-not-leak'), false);
+  assert.equal(JSON.stringify(failure).includes('office-password'), false);
+
+  const unrelated = new Error('unrelated');
+  unrelated.code = 'SOME_OTHER_ERROR';
+  unrelated.details = { innocentName: 'raw private prompt must-not-leak' };
+  assert.equal(redact(unrelated).details, undefined, 'arbitrary Error.details entered the activity log');
+  assert.equal(redact('https://person:office-password@example.invalid/repo.git').includes('office-password'), false);
 });
 
 test('child loggers inherit bound context so every entry carries its subject', async () => {

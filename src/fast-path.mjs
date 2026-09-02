@@ -18,6 +18,7 @@
  * actually prove that about.
  */
 import { workflowGuide } from './guide.mjs';
+import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 /**
@@ -39,7 +40,8 @@ export const FAST_PATH_VERBS = Object.freeze(['specify', 'plan', 'implement', 'c
  * its remote is how a Story ends up with two truths.
  */
 export const CHECKPOINT_KINDS = Object.freeze([
-  'recovery', 'model-generation', 'human-review', 'approval', 'external-completion',
+  'recovery', 'deterministic-generation', 'model-generation', 'human-review', 'approval',
+  'external-completion',
   // Not a boundary the spec names, but a real stopping condition: the reader asked for a verb that
   // does not route the phase the Story is actually at. Calling that a `milestone` would have been a
   // lie in the one field a reader uses to decide what to do next.
@@ -220,10 +222,11 @@ export function planFastPath(workflow, definition, verb, {
 
   // Everything below is the ordinary case: the verb owns the active phase and has work to route.
   const planned = workflowGuide(workflow).nextActions ?? [];
-  const stop = checkpoint ?? modelCheckpoint(planned, modelMode);
+  const stop = checkpoint ?? generationCheckpoint(planned, phase, modelMode)
+    ?? nonGenerativeCheckpoint(planned, phase);
   return result({
-    verb, milestone, outcome: stop ? 'checkpoint' : 'checkpoint',
-    checkpoint: stop ?? { kind: 'model-generation', reason: 'The next step authors an artifact.' },
+    verb, milestone, outcome: 'checkpoint',
+    checkpoint: stop,
     underlyingOperations: planned.map((action) => operationOf(action.command)).filter(Boolean),
     // The checkpoint action is taught, and the verb stays as the journey context. `[SPK:REQ-021]`
     next: planned.map((action, index) => ({
@@ -237,13 +240,43 @@ export function planFastPath(workflow, definition, verb, {
   });
 }
 
-/** A step that needs authoring is a model-generation checkpoint, and consent is explicit. */
-function modelCheckpoint(planned, modelMode) {
+/**
+ * Classify an artifact-generation boundary from the phase's pinned generation policy.
+ *
+ * Looking only at the command verb is insufficient: both governed-agent phases and kernel-owned
+ * deterministic phases begin with `prepare`, but only the former is a model boundary. In
+ * particular, convergence commonly permits only the deterministic producer. Calling that a model
+ * checkpoint sends clients into an impossible agent-authored publication loop.
+ */
+function generationCheckpoint(planned, phase, modelMode) {
   const authoring = planned.some((action) => /\b(prepare|generate)\b/.test(action.command ?? ''));
   if (!authoring) return null;
+
+  const generation = phase?.generationPolicy ?? {};
+  const producer = effectivePhasePublicationProducer(phase, {
+    modelEnabled: modelMode?.enabled !== false
+  });
+  if (generation.requirement === 'none') return null;
+  if (producer === 'deterministic') {
+    return {
+      kind: 'deterministic-generation',
+      reason: 'The next step runs the configured deterministic generator.'
+    };
+  }
   return modelMode?.enabled
     ? { kind: 'model-generation', reason: 'The next step authors an artifact and needs an agent.' }
     : { kind: 'model-generation', reason: 'The next step authors an artifact, and models are disabled for this run.' };
+}
+
+/** A planned non-authoring mutation is a review boundary, never implicit model generation. */
+function nonGenerativeCheckpoint(planned, phase) {
+  const submitting = planned.some((action) => /^singularity-flow\s+submit\b/.test(action.command ?? ''));
+  return {
+    kind: 'human-review',
+    reason: submitting
+      ? `${phase?.label ?? phase?.id ?? 'The phase'} artifact is generated and ready for review and submission.`
+      : 'The next governed action requires user review.'
+  };
 }
 
 /** The registered operation a planned command maps to, for `underlyingOperations[]`. */

@@ -34,6 +34,10 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function sameDigest(left, right) {
+  return String(left ?? '').replace(/^sha256:/, '') === String(right ?? '').replace(/^sha256:/, '');
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === 'object') {
@@ -610,6 +614,90 @@ function expectedClaimMapPath(root, itemDirectory, phase, kind) {
   )));
 }
 
+function assertCommittedInputBytes(root, relative, label) {
+  const current = run('git', ['hash-object', '--', relative], { cwd: root, allowFailure: true });
+  const committed = run('git', ['rev-parse', '--verify', `HEAD:${relative}`], {
+    cwd: root, allowFailure: true
+  });
+  if (current.status !== 0 || committed.status !== 0
+      || current.stdout.trim() !== committed.stdout.trim()) {
+    throw new SingularityFlowError(
+      `${label} is not the exact version committed with the approved Story state.`,
+      { code: 'SPECIFICATION_INPUT_NOT_COMMITTED', details: { path: relative } }
+    );
+  }
+}
+
+function expectedSpecIndexPath(root, itemDirectory, phase) {
+  return posix(path.relative(root, path.join(
+    itemDirectory, 'context', 'spec-indexes', `${phase.id}-gen${phase.generation}.json`
+  )));
+}
+
+async function readBoundSpecificationIndex(root, itemDirectory, workflow, phase, {
+  requireCommitted = false
+} = {}) {
+  const pointer = phase?.specIndex;
+  if (!pointer) {
+    throw new SingularityFlowError(
+      `Phase '${phase?.id ?? 'unknown'}' has no authoritative specification-index binding.`,
+      { code: 'SPECIFICATION_INDEX_BINDING_REQUIRED' }
+    );
+  }
+  const expectedPath = expectedSpecIndexPath(root, itemDirectory, phase);
+  if (pointer.path !== expectedPath || Number(pointer.generation) !== Number(phase.generation)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' specification-index binding is stale.`,
+      { code: 'SPECIFICATION_INDEX_BINDING_STALE' }
+    );
+  }
+  const boundary = await secureRepositoryPath(root, pointer.path, {
+    label: `Specification index for phase '${phase.id}'`, mustExist: true, type: 'file'
+  });
+  if (requireCommitted) {
+    assertCommittedInputBytes(root, boundary.relative, `Specification index for phase '${phase.id}'`);
+  }
+  const index = readRecord('specification-index', await readFile(boundary.absolute)).record;
+  const withoutHash = { ...index };
+  delete withoutHash.indexSha256;
+  const computedIndexSha256 = sha256(canonicalJson(withoutHash));
+  const expectedSourcePath = posix(path.relative(root, path.join(
+    itemDirectory, phase.requiredArtifact?.path ?? ''
+  )));
+  if (index.workId !== workflow.workItem.id
+      || index.phase !== phase.id
+      || Number(index.generation) !== Number(phase.generation)
+      || !sameDigest(index.indexSha256, computedIndexSha256)
+      || !sameDigest(pointer.indexSha256, computedIndexSha256)
+      || Number(pointer.clauses) !== Number(index.clauses?.length ?? 0)
+      || index.source?.path !== expectedSourcePath
+      || !sameDigest(pointer.sourceSha256, index.source?.sha256)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' specification index does not match its exact workflow binding.`,
+      { code: 'SPECIFICATION_INDEX_UNTRUSTED', details: { phase: phase.id, path: boundary.relative } }
+    );
+  }
+  const source = await secureRepositoryPath(root, index.source.path, {
+    label: `Specification source for phase '${phase.id}'`, mustExist: true, type: 'file'
+  });
+  if (requireCommitted) {
+    assertCommittedInputBytes(root, source.relative, `Specification source for phase '${phase.id}'`);
+  }
+  const current = await snapshot(source.absolute);
+  const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === source.relative);
+  if (!sameDigest(current.sha256, index.source.sha256)
+      || Number(current.size) !== Number(index.source.bytes)
+      || !approved
+      || approved.status !== 'approved'
+      || !sameDigest(approved.sha256, current.sha256)) {
+    throw new SingularityFlowError(
+      `Phase '${phase.id}' specification source changed after its approved index was recorded.`,
+      { code: 'SPECIFICATION_INDEX_UNTRUSTED', details: { phase: phase.id, path: source.relative } }
+    );
+  }
+  return index;
+}
+
 /**
  * Read one claim map through the workflow aggregate's authoritative pointer.
  *
@@ -618,7 +706,7 @@ function expectedClaimMapPath(root, itemDirectory, phase, kind) {
  * terminal arithmetic merely by naming the current work item, phase, and generation.
  */
 export async function readBoundSpecificationClaimMap(root, itemDirectory, workflow, phase, kind, {
-  clauseIds = [], policy = {}
+  clauseIds = [], policy = {}, requireCommitted = false
 } = {}) {
   if (!['planned', 'observed'].includes(kind)) {
     throw new SingularityFlowError(`Claim-map binding kind must be planned or observed.`);
@@ -640,6 +728,9 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
   const boundary = await secureRepositoryPath(root, pointer.path, {
     label: `Phase '${phase.id}' ${kind} claim map`, mustExist: true, type: 'file'
   });
+  if (requireCommitted) {
+    assertCommittedInputBytes(root, boundary.relative, `Phase '${phase.id}' ${kind} claim map`);
+  }
   const raw = JSON.parse(await readFile(boundary.absolute, 'utf8'));
   if (sha256(canonicalJson(raw)) !== pointer.sha256) {
     throw new SingularityFlowError(
@@ -805,34 +896,71 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
  * Indexes and acceptance runs remain directory records; planned and observed maps are admitted only
  * through the exact current-generation bindings in the workflow aggregate.
  */
-export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}) {
+export async function loadBoundActiveSpecRecords(root, itemDirectory, workflow, policy = {}, {
+  requireCommitted = false
+} = {}) {
   const plannedPolicy = workflow?.resolution?.plannedClaims;
-  if (plannedPolicy?.mode !== 'required') return loadActiveSpecRecords(itemDirectory, workflow);
-
+  if (!requireCommitted && plannedPolicy?.mode !== 'required') {
+    return loadActiveSpecRecords(itemDirectory, workflow);
+  }
+  const phaseOrder = workflow.phaseOrder ?? Object.keys(workflow.phases ?? {});
   const indexes = [];
   const acceptance = [];
-  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'spec-indexes'))) {
-    indexes.push(readRecord('specification-index', await readFile(file)).record);
+  for (const phaseId of phaseOrder) {
+    const phase = workflow.phases?.[phaseId];
+    if (!phase || !isSpecificationDefinitionPhase(phase) || !phase.specIndex) continue;
+    indexes.push(await readBoundSpecificationIndex(root, itemDirectory, workflow, phase, {
+      requireCommitted
+    }));
   }
-  for (const file of await jsonFiles(path.join(itemDirectory, 'context', 'acceptance'))) {
-    acceptance.push(readRecord('specification-acceptance', await readFile(file)).record);
+  for (const phaseId of phaseOrder) {
+    const phase = workflow.phases?.[phaseId];
+    if (!phase || !(phase.generation > 0)) continue;
+    const relative = posix(path.relative(root, path.join(
+      itemDirectory, 'context', 'acceptance', `${phase.id}-gen${phase.generation}.json`
+    )));
+    if (!(await exists(path.join(root, relative)))) continue;
+    const boundary = await secureRepositoryPath(root, relative, {
+      label: `Specification acceptance for phase '${phase.id}'`, mustExist: true, type: 'file'
+    });
+    if (requireCommitted) {
+      assertCommittedInputBytes(root, boundary.relative, `Specification acceptance for phase '${phase.id}'`);
+    }
+    const record = readRecord('specification-acceptance', await readFile(boundary.absolute)).record;
+    const withoutHash = { ...record };
+    delete withoutHash.recordSha256;
+    if (record.workId !== workflow.workItem.id
+        || record.phase !== phase.id
+        || Number(record.generation) !== Number(phase.generation)
+        || !sameDigest(record.recordSha256, sha256(canonicalJson(withoutHash)))) {
+      throw new SingularityFlowError(
+        `Phase '${phase.id}' specification acceptance record is not sealed to this Story generation.`,
+        { code: 'SPECIFICATION_ACCEPTANCE_UNTRUSTED', details: { path: boundary.relative } }
+      );
+    }
+    acceptance.push(record);
   }
   const base = selectActiveSpecRecords({ indexes, planned: [], observed: [], acceptance }, workflow);
   const clauseIds = [...new Set(base.indexes.flatMap((index) =>
     (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
   const planned = [];
   const observed = [];
-  const ownerIds = [...new Set(Object.values(plannedPolicy.owners ?? {}))];
+  const ownerIds = plannedPolicy?.mode === 'required'
+    ? [...new Set(Object.values(plannedPolicy.owners ?? {}))]
+    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.planned);
   for (const ownerId of ownerIds) {
     const owner = workflow.phases?.[ownerId];
     planned.push(await readBoundSpecificationClaimMap(
-      root, itemDirectory, workflow, owner, 'planned', { clauseIds, policy }
+      root, itemDirectory, workflow, owner, 'planned', { clauseIds, policy, requireCommitted }
     ));
   }
-  for (const codePhaseId of Object.keys(plannedPolicy.owners ?? {})) {
+  const codePhaseIds = plannedPolicy?.mode === 'required'
+    ? Object.keys(plannedPolicy.owners ?? {})
+    : phaseOrder.filter((phaseId) => workflow.phases?.[phaseId]?.claimMaps?.observed);
+  for (const codePhaseId of codePhaseIds) {
     const codePhase = workflow.phases?.[codePhaseId];
     observed.push(await readBoundSpecificationClaimMap(
-      root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy }
+      root, itemDirectory, workflow, codePhase, 'observed', { clauseIds, policy, requireCommitted }
     ));
   }
   return {

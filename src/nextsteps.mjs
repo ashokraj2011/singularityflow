@@ -2,7 +2,7 @@ import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
-  phasePublicationCommand, phasePublicationCommandForProducer
+  effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
 } from './manual-authorship.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
@@ -62,7 +62,7 @@ export function workflowNextSteps(workflow, {
   ];
   if (!phase) return workflow.status === 'cancelled' ? cancellationActions(workflow) : completionActions(workId);
 
-  const immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
+  let immediate = workflowGuide(workflow).nextActions.map((item, index) => action(
     phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
     item.skill,
     item.command,
@@ -71,9 +71,20 @@ export function workflowNextSteps(workflow, {
   if (phase.status === 'awaiting_approval') return [...immediate, ...afterCompletionActions(workflow, phase)];
 
   const needsGeneration = phaseNeedsGeneration(workflow, phase);
+  const modelFreeProducer = effectivePhasePublicationProducer(phase, { modelEnabled: false });
+  const effectiveProducer = effectivePhasePublicationProducer(phase, { modelEnabled: modelMode.enabled });
+  const convergenceProjectionRequired = phase.id === 'convergence'
+    && effectiveProducer === 'deterministic';
+  if (needsGeneration && convergenceProjectionRequired) {
+    immediate = immediate.map((entry) => entry.command === `singularity-flow prepare ${phase.id}`
+      ? action(
+          entry.timing, '/sflow-converge', `singularity-flow prepare ${phase.id}${modelMode.enabled ? '' : ' --no-model'}`,
+          'Compute the canonical deterministic convergence projection, then follow only its returned human-review or publication action.',
+          { operationId: 'prepare', route: 'deterministic-convergence' }
+        )
+      : entry);
+  }
   const actions = [...prerequisites.map(copilotAction), ...immediate];
-  const generationPolicy = phase.generationPolicy ?? { allowedProducers: ['governed-agent', 'human'], defaultProducer: 'governed-agent' };
-  const modelFreeProducer = generationPolicy.allowedProducers?.find((producer) => ['human', 'deterministic', 'external-tool'].includes(producer));
   if (needsGeneration && !modelMode.enabled) {
     if (modelFreeProducer === 'human') actions.unshift(action(
       'now', generationSkillForPhase(phase), phasePublicationCommandForProducer(
@@ -82,17 +93,22 @@ export function workflowNextSteps(workflow, {
       `Import and publish ${phase.label} without invoking a model.`,
       { operationId: 'phase', modelPolicy: 'never', route: 'manual' }
     ));
-    else if (modelFreeProducer === 'deterministic') actions.push(action(
-      'then', generationSkillForPhase(phase), phasePublicationCommandForProducer(phase, 'deterministic'),
-      `Publish the deterministically generated ${phase.label} without invoking a model.`,
-      { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
-    ));
+    else if (modelFreeProducer === 'deterministic') {
+      if (!convergenceProjectionRequired) actions.push(action(
+        'then', generationSkillForPhase(phase), phasePublicationCommandForProducer(phase, 'deterministic'),
+        `Publish the deterministically generated ${phase.label} without invoking a model.`,
+        { operationId: 'phase', modelPolicy: 'never', route: 'deterministic' }
+      ));
+      // Deterministic convergence is already represented by its immediate prepare action. That
+      // action computes the projection and returns the exact human-review or publication branch;
+      // absence of a premature publication action is not a model-free availability failure.
+    }
     else actions.unshift(action(
       'blocked', '/sf-nextsteps', `singularity-flow nextsteps ${workId} --no-model`,
       `${phase.label} has no configured model-free producer.`,
       { operationId: 'phase', modelPolicy: 'required', availability: 'blocked', route: 'none' }
     ));
-  } else if (needsGeneration) actions.push(action(
+  } else if (needsGeneration && !convergenceProjectionRequired) actions.push(action(
     'then', generationSkillForPhase(phase), phasePublicationCommand(phase),
     `Publish ${phase.label} with its configured producer and channel.`,
     { operationId: 'phase', route: 'configured-producer' }
@@ -101,13 +117,26 @@ export function workflowNextSteps(workflow, {
   if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== phase.generation + 1) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
   }
+  if (needsGeneration && convergenceProjectionRequired) {
+    actions.push(action(
+      'alternative', '/sf-cancel',
+      `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`,
+      'Cancel this Story, preserve its artifacts, and move it to Archived.'
+    ));
+    return actions;
+  }
   const noApproval = phase.approvalPolicy?.mode === 'none';
-  if (needsGeneration) actions.push(action(
-    'then', '/sflow-submit', `singularity-flow submit ${phase.id}`,
-    noApproval
-      ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
-      : `After publishing ${phase.id}, run its checks and submit it for approval.`
-  ));
+  if (needsGeneration) actions.push(phase.id === 'convergence'
+    ? action(
+        'then', '/sflow-submit', `singularity-flow story advance --work-id ${workId}`,
+        'After deterministic publication, review every convergence disposition and explicitly confirm advancement before submission.'
+      )
+    : action(
+        'then', '/sflow-submit', `singularity-flow submit ${phase.id}`,
+        noApproval
+          ? `After publishing ${phase.id}, run its checks, complete it without approval, and advance.`
+          : `After publishing ${phase.id}, run its checks and submit it for approval.`
+      ));
   if (!noApproval) actions.push(
     action('then', '/sflow-approve', `singularity-flow approve ${phase.id} --work-id ${workId} --fetch`, `After submission, approve ${phase.id} using an authorized human Git identity; the phase agent is prompt context only.`),
     action('alternative', '/sflow-reject', `singularity-flow reject ${phase.id} --work-id ${workId} --fetch --to <phase> --reason <reason>`, `Instead of approval, return ${phase.id} to an allowed earlier phase.`)

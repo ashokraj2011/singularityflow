@@ -41,7 +41,8 @@ const SECRET_VALUE = [
   /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
-  /\bAIza[A-Za-z0-9_-]{30,}\b/g
+  /\bAIza[A-Za-z0-9_-]{30,}\b/g,
+  /\bhttps?:\/\/[^\s/@:]+:[^\s/@]+@/gi
 ];
 
 export const REDACTED = '[redacted]';
@@ -52,6 +53,20 @@ function redactText(value) {
   return text.length > MAX_VALUE_CHARS ? `${text.slice(0, MAX_VALUE_CHARS)}…[truncated ${text.length - MAX_VALUE_CHARS} chars]` : text;
 }
 
+const SAFE_CONVERGENCE_DETAIL_KEYS = new Set([
+  'iteration', 'path', 'allowedNext', 'unresolvedBlockers', 'projectionSha256',
+  'storedSha256', 'computedSha256', 'storedBindingsSha256', 'currentBindingsSha256',
+  'storedFactsSha256', 'currentFactsSha256'
+]);
+
+function safeErrorDetails(error, depth, seen) {
+  if (!String(error?.code ?? '').startsWith('CONVERGENCE_')
+      || !error.details || typeof error.details !== 'object' || Array.isArray(error.details)) return null;
+  const selected = Object.fromEntries(Object.entries(error.details)
+    .filter(([key]) => SAFE_CONVERGENCE_DETAIL_KEYS.has(key)));
+  return Object.keys(selected).length ? redact(selected, depth + 1, seen) : null;
+}
+
 // Recursively strip secrets from log context. Runs before serialization, so nothing unredacted is
 // ever handed to a sink.
 export function redact(value, depth = 0, seen = new WeakSet()) {
@@ -60,7 +75,19 @@ export function redact(value, depth = 0, seen = new WeakSet()) {
   if (typeof value === 'string') return redactText(value);
   if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
   if (value instanceof Error) {
-    return { name: value.name, message: redactText(value.message), stack: value.stack ? redactText(value.stack) : undefined, code: value.code };
+    if (seen.has(value)) return '[circular]';
+    seen.add(value);
+    const details = safeErrorDetails(value, depth, seen);
+    return {
+      name: value.name,
+      message: redactText(value.message),
+      stack: value.stack ? redactText(value.stack) : undefined,
+      code: value.code,
+      // Only bounded convergence identifiers and digests are diagnostic-safe. Error.details across
+      // the rest of the product can contain prompt text, previews, identities, or credentialed URLs,
+      // so it must never be serialized wholesale merely because a caller attached it.
+      ...(details == null ? {} : { details })
+    };
   }
   if (depth >= MAX_DEPTH) return '[depth limit]';
   if (typeof value === 'object') {

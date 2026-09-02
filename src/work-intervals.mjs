@@ -34,6 +34,60 @@ function prefixedHash(value) {
   return `sha256:${hash(value)}`;
 }
 
+function reconciliationHashCore(report) {
+  return {
+    schemaVersion: report?.schemaVersion,
+    kind: report?.kind,
+    workId: report?.workId,
+    workType: report?.workType,
+    intervalId: report?.intervalId,
+    phaseId: report?.phaseId,
+    generation: report?.generation,
+    baselineSha256: report?.baselineSha256,
+    baseline: report?.baseline,
+    sourceBaseCommit: report?.sourceBaseCommit,
+    target: report?.target,
+    findings: report?.findings,
+    summary: report?.summary,
+    decision: report?.decision
+  };
+}
+
+/**
+ * Verify a governed reconciliation before it can feed convergence or another authority decision.
+ * The stored record adds publication metadata after the core is sealed, so the verifier rebuilds
+ * the exact v1 hash core instead of trusting the record's embedded digest.
+ */
+export function assertWorkReconciliationIntegrity(report, {
+  reference = null, workId = null, phaseId = null, generation = null
+} = {}) {
+  if (!report || report.kind !== 'work-reconciliation') {
+    throw new SingularityFlowError('Work reconciliation is missing or has the wrong record kind.', {
+      code: 'WORK_RECONCILIATION_INVALID'
+    });
+  }
+  const computed = hash(reconciliationHashCore(report));
+  if (report.reconciliationSha256 !== computed) {
+    throw new SingularityFlowError(
+      `Work reconciliation hash mismatch: stored ${report.reconciliationSha256 ?? 'missing'}, computed ${computed}.`,
+      { code: 'WORK_RECONCILIATION_HASH_MISMATCH' }
+    );
+  }
+  const mismatches = [];
+  if (reference?.reconciliationSha256 && reference.reconciliationSha256 !== report.reconciliationSha256) mismatches.push('digest');
+  if (reference?.targetHead && reference.targetHead !== report.target?.head) mismatches.push('target head');
+  if (workId != null && report.workId !== workId) mismatches.push('work item');
+  if (phaseId != null && report.phaseId !== phaseId) mismatches.push('phase');
+  if (generation != null && Number(report.generation) !== Number(generation)) mismatches.push('generation');
+  if (mismatches.length) {
+    throw new SingularityFlowError(
+      `Work reconciliation does not match its workflow reference (${mismatches.join(', ')}).`,
+      { code: 'WORK_RECONCILIATION_BINDING_MISMATCH', details: { mismatches } }
+    );
+  }
+  return report;
+}
+
 function generationFor(phase) {
   return Math.max(1, Number(phase?.generation ?? 0) + (phase?.status === 'in_progress' ? 1 : 0));
 }

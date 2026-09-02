@@ -83,7 +83,7 @@ import {
   verifyPendingPublicationCommit,
   writePendingPublication,
 } from './publication-pending.mjs';
-import { restorePublicationPreimage } from './publication-recovery.mjs';
+import { publicationReworkRefNamespace, restorePublicationPreimage } from './publication-recovery.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import {
   capabilityPublicationEntrySha256, capabilityPublicationPlanSha256,
@@ -147,16 +147,67 @@ import {
   inspectRequiredArtifactContent, requiredArtifactRepoPath,
   validateRequiredArtifactContent as validateRequiredArtifactContentPreflight
 } from './publication-preflight.mjs';
+import {
+  assertConvergencePublicationReady, loadVerifiedConvergenceProjection
+} from './convergence-context.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
 const DEFAULT_QUALITY_COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
+// Convergence is the one lifecycle boundary whose deterministic result must be acknowledged by
+// an explicit `story advance --confirm`. Generic phase submission never receives this private
+// symbol; only the combined confirmation-and-transition operation below can enter that path.
+const CONFIRMED_CONVERGENCE_SUBMISSION = Symbol('confirmed-convergence-submission');
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
 
 function requiredModelAssuranceRank(value) {
   return ({ unavailable: 0, observed: 1, 'provider-reported': 2, 'policy-selected': 3 })[value] ?? 1;
+}
+
+function convergenceAdvanceRequired(workflow, details = {}) {
+  const workId = workflow?.workItem?.id ?? details.workId ?? '<WORK-ID>';
+  return new SingularityFlowError(
+    `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${workId} to review the deterministic result and receive its digest-bound confirmation command.`,
+    {
+      code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED',
+      details: { workId, ...details }
+    }
+  );
+}
+
+function assertRequiredConvergenceApproval(phase) {
+  if (phase?.approvalPolicy?.mode === 'required') return;
+  throw new SingularityFlowError(
+    "Phase 'convergence' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.",
+    {
+      code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED',
+      details: { mode: phase?.approvalPolicy?.mode ?? null }
+    }
+  );
+}
+
+async function assertConvergenceConfirmation(root, config, workflow, phase, confirmation) {
+  if (typeof confirmation !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(confirmation)) {
+    throw convergenceAdvanceRequired(workflow, { phase: 'convergence' });
+  }
+  assertRequiredConvergenceApproval(phase);
+  const verified = await assertConvergencePublicationReady(root, config, workflow, phase);
+  if (confirmation !== verified.snapshotSha256) {
+    throw new SingularityFlowError(
+      `The convergence result changed after preview. Review the current result and confirm ${verified.snapshotSha256}.`,
+      {
+        code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
+        details: {
+          workId: workflow.workItem.id,
+          supplied: confirmation,
+          expected: verified.snapshotSha256
+        }
+      }
+    );
+  }
+  return verified;
 }
 
 export function validateId(config, id) {
@@ -424,7 +475,16 @@ function verifiedInitialPolicyAnchor(initial, workId) {
 
 function committedResolutionPolicySha256(root, config, workId) {
   const initial = initialWorkflowRecord(root, config, workId);
-  return verifiedInitialPolicyAnchor(initial, workId);
+  const storedAnchor = verifiedInitialPolicyAnchor(initial, workId);
+  if (!storedAnchor) return null;
+  // The creation receipt authenticates the exact schema that was written at creation time.  A
+  // deterministic reader migration may subsequently strengthen that policy (for example the v4
+  // convergence producer restriction).  Comparing the migrated live aggregate with the *stored*
+  // v3 digest would reject every honestly anchored in-flight Story after an upgrade.  First prove
+  // the stored anchor above, then derive the policy identity from the registry-migrated creation
+  // record so both sides of the immutable-policy comparison use the same current schema.
+  const migratedCreation = readRecord('story-workflow', initial.record).record;
+  return resolutionPolicySha256(migratedCreation.resolution);
 }
 
 /** Classify WEL only from the immutable creation commit; migrated working-tree defaults never enroll. */
@@ -1456,13 +1516,64 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
           inputRenderedSha256: rendered.sha256
         });
       }
-    } else await beginTelemetryCapture(root, workflow, phase);
+    } else if (phase.generationPolicy?.producer !== 'deterministic') {
+      // Deterministic phases do not open a Copilot usage interval. Besides being misleading, a
+      // cursor is machine-local state outside the Story draft rollback boundary; a later corrupt
+      // projection or assisted-model refusal could leave that cursor behind and attribute an
+      // unrelated retry to the failed attempt. Assisted convergence records its invocation through
+      // the model audit boundary itself.
+      await beginTelemetryCapture(root, workflow, phase);
+    }
   }
   const remote = dryRun ? { outputs: [], warnings: [] } : await prepareRemoteOutputs(root, workflow, phase, session, { itemDirectory });
   if (remote.outputs.length) {
     phase.remoteOutputs = [...(phase.remoteOutputs ?? []).filter((entry) => !remote.outputs.some((output) => output.resource === entry.resource && output.generation === entry.generation)), ...remote.outputs];
   }
   if (!dryRun) {
+    if (phase.id === 'convergence'
+        && phase.generationPolicy?.producer === 'deterministic'
+        && artifactExistedBeforePreparation) {
+      // The convergence kernel already rendered this artifact from its sealed projection. A
+      // publication retry still refreshes declared input records and managed metadata, but must
+      // never replace the canonical body with the generic deterministic phase scaffold.
+      let canonicalArtifact = await readFile(target, 'utf8');
+      canonicalArtifact = applyInputsBlock(canonicalArtifact, rendered.text, inputs.mode);
+      if (!/^<!-- singularity-flow:metadata\n[\s\S]*?\n-->/.test(canonicalArtifact)) {
+        canonicalArtifact = `${artifactMetadataBlock(storyArtifactMetadata(workflow, phase))}\n\n${canonicalArtifact}`;
+      }
+      await writeText(target, canonicalArtifact);
+      if (workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length) {
+        const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
+        phase.inputContext = {
+          generation: inputs.generation,
+          path: recorded.path,
+          sha256: recorded.sha256,
+          renderedSha256: recorded.record.renderedSha256,
+          mode: inputs.mode
+        };
+        await updateArtifactMetadata(root, config, workflow, phase);
+      }
+      if (remote.outputs.length) {
+        phase.agentContext = {
+          agent: session.agent,
+          generation: phase.generation + 1,
+          outputs: remote.outputs.map((item) => item.resource),
+          warnings: remote.warnings
+        };
+        await updateArtifactMetadata(root, config, workflow, phase);
+        await updateRemoteOutputRenderedHashes(root, workflow, phase, {
+          itemDirectory, generation: phase.generation + 1
+        });
+      }
+      return {
+        phase,
+        path: posix(path.relative(root, target)),
+        ...inputs,
+        renderedSha256: rendered.sha256,
+        remoteOutputs: remote.outputs,
+        remoteWarnings: remote.warnings
+      };
+    }
     let text;
     if (phase.generationPolicy?.producer === 'deterministic') {
       const pathContext = applicationPathContext(config, workflow);
@@ -1828,8 +1939,10 @@ function pruneTransientArtifactRegistrations(phase) {
   return [...transient].sort();
 }
 
-async function validatePhase(root, config, workflow, phase, { placeholders = true } = {}) {
-  const errors = await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { placeholders });
+async function validatePhase(root, config, workflow, phase, { placeholders = true, content = true } = {}) {
+  const errors = content
+    ? await validateRequiredArtifactContentPreflight(root, config, workflow, phase, { placeholders })
+    : [];
   const required = requiredRepoPath(config, workflow, phase);
   if (!errors.some((error) => error.startsWith('Required artifact missing:')) && !artifactFor(phase, required)) {
     errors.push(`Required artifact is not registered to ${phase.id}: ${required}`);
@@ -2115,6 +2228,28 @@ export async function publishGeneration(root, config, workflow, {
   const generationIntent = await verifyOpenGenerationIntent(root, workflow, phase);
   assertRequiredAssignment(workflow, phase);
   await assertMcpPhaseReadiness(root, workflow, phase);
+  // Resolve and validate authorship before any content, test, brief, input, telemetry, or lifecycle
+  // write. A wrong producer is a preflight refusal and must not leave partial recovery state.
+  let effectiveAuthorship = authorship ?? {
+    schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
+    governedAgentContext: session.agent ? { agentId: session.agent } : null,
+    kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
+    externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
+  };
+  if (workflow.executionOrigin?.mode === 'auto') {
+    effectiveAuthorship = {
+      ...effectiveAuthorship,
+      executionOrigin: structuredClone(workflow.executionOrigin)
+    };
+  }
+  assertProducerAllowed(phase, effectiveAuthorship.producer);
+  // Convergence is a kernel-owned projection regardless of which legacy/mixed producer label an
+  // upgraded workflow carried. Never let an alternate or omitted producer bypass exact review,
+  // source, fact, and artifact validation.
+  const deterministicConvergence = phase.id === 'convergence';
+  if (deterministicConvergence) {
+    await assertConvergencePublicationReady(root, config, workflow, phase);
+  }
   // Template completeness is a publication preflight, not a late transaction failure. In
   // particular, do this before `preparePhaseInputs` records context or the generation counter,
   // sidecars and telemetry begin to move. An untouched prepared template should cost the author one
@@ -2123,7 +2258,12 @@ export async function publishGeneration(root, config, workflow, {
   // Use the same authored-byte boundary as manual import and recovery. Report every deterministic
   // authoring blocker together so a host can repair the artifact once instead of chasing one
   // first-error failure per retry.
-  const contentFindings = await inspectRequiredArtifactContent(root, config, workflow, phase);
+  // The convergence body is a byte-for-byte kernel projection and may legitimately quote text such
+  // as "TODO remains" from evidence. Its exact projection check above supersedes human-template
+  // placeholder heuristics; asking a user to edit those bytes would itself violate the contract.
+  const contentFindings = deterministicConvergence
+    ? []
+    : await inspectRequiredArtifactContent(root, config, workflow, phase);
   if (contentFindings.length) {
     const required = requiredRepoPath(config, workflow, phase);
     throw new SingularityFlowError(
@@ -2188,19 +2328,6 @@ export async function publishGeneration(root, config, workflow, {
     generation: phase.generation + 1
   });
   await preparePhaseInputs(root, config, workflow, phase.id);
-  let effectiveAuthorship = authorship ?? {
-    schemaVersion: currentSchemaVersion('artifact-authorship'), producer: 'legacy-unspecified', channel: 'legacy', actor: structuredClone(session.actor),
-    governedAgentContext: session.agent ? { agentId: session.agent } : null,
-    kernelModel: { invoked: false, status: 'unavailable', invocationIds: [] },
-    externalAiUse: { value: 'unknown', status: 'unavailable' }, source: null
-  };
-  if (workflow.executionOrigin?.mode === 'auto') {
-    effectiveAuthorship = {
-      ...effectiveAuthorship,
-      executionOrigin: structuredClone(workflow.executionOrigin)
-    };
-  }
-  assertProducerAllowed(phase, effectiveAuthorship.producer);
   // Grounding and telemetry preserve the existing legacy behavior. Clarification is narrower:
   // only explicit governed-agent authorship proves that an interactive model path ran and must
   // therefore carry a generation-bound human response. Never guess that from legacy provenance.
@@ -2579,7 +2706,10 @@ export async function publishGeneration(root, config, workflow, {
   await refreshPhaseSpecificationIndex(root, config, workflow, phase);
   await refreshPlannedSpecificationClaims(root, config, workflow, phase);
   await updateRemoteOutputRenderedHashes(root, workflow, phase, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  const errors = await validatePhase(root, config, workflow, phase);
+  const errors = await validatePhase(root, config, workflow, phase, {
+    placeholders: !deterministicConvergence,
+    content: true
+  });
   if (errors.length) throw new SingularityFlowError(`Phase ${phase.id} generation is not publishable:\n- ${errors.join('\n- ')}`);
   if (generationIntent) {
     const resultDigest = await generationResultDigest(root, config, workflow, phase);
@@ -2979,8 +3109,21 @@ export function qualityValidationVerdict(checks = [], { required = false } = {})
   };
 }
 
-export async function submitPhase(root, config, workflow, { phaseId, runChecks = true, persist = true } = {}) {
+async function submitPhaseTransition(root, config, workflow, {
+  phaseId, runChecks = true, persist = true, submissionContext = null
+} = {}) {
   await assertNoPendingPublication(root, config, workflow, 'submit for approval');
+  const requestedPhase = workflow.phases?.[phaseId ?? workflow.currentPhase] ?? null;
+  // Keep this guard in the domain transition as well as the CLI. Alternate hosts and future
+  // command services therefore cannot advance convergence by calling `submitPhase` directly. It
+  // precedes even soft sequence reconciliation, pruning, or any other in-memory mutation.
+  if (requestedPhase?.id === 'convergence') {
+    if (submissionContext !== CONFIRMED_CONVERGENCE_SUBMISSION) {
+      throw convergenceAdvanceRequired(workflow, { phase: requestedPhase.id });
+    }
+    assertRequiredConvergenceApproval(requestedPhase);
+    await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
+  }
   const phase = await assertPhaseSequence(root, workflow, 'submit for approval', { requestedPhase: phaseId }); const session = await loadSession(root);
   // Repair legacy generations whose raw reporter output was registered as a phase artifact. The
   // normalized test-execution receipt is durable evidence; `.sflow/results/**` is disposable
@@ -3211,7 +3354,13 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
     }
   }
   if (phase.id === 'visual-verification') await assertVisualCoverage(root, workflow, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  const errors = await validatePhase(root, config, workflow, phase);
+  if (phase.id === 'convergence') {
+    await assertConvergencePublicationReady(root, config, workflow, phase);
+  }
+  const errors = await validatePhase(root, config, workflow, phase, {
+    placeholders: phase.id !== 'convergence',
+    content: true
+  });
   const validation = qualityValidationVerdict(phase.checks);
   const { failed, unavailable, unavailableRequired } = validation;
   const reviewableFailure = Boolean(phase.repairBudget && failed.length);
@@ -3422,6 +3571,30 @@ export async function submitPhase(root, config, workflow, { phaseId, runChecks =
   return phase;
 }
 
+/** Ordinary submission deliberately has no route through the convergence confirmation context. */
+export async function submitPhase(root, config, workflow, options = {}) {
+  return submitPhaseTransition(root, config, workflow, options);
+}
+
+/**
+ * One combined, explicit confirmation-and-transition operation for convergence. It never returns
+ * or exports the private authority used by the transition, so another command cannot mint or
+ * retain it and then feed it into generic submission.
+ */
+export async function submitConfirmedConvergencePhase(root, config, workflow, {
+  confirmation, phaseId = 'convergence', runChecks = true, persist = true
+} = {}) {
+  const phase = workflow.phases?.[phaseId] ?? null;
+  if (phase?.id !== 'convergence') throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
+  await assertConvergenceConfirmation(root, config, workflow, phase, confirmation);
+  return submitPhaseTransition(root, config, workflow, {
+    phaseId,
+    runChecks,
+    persist,
+    submissionContext: CONFIRMED_CONVERGENCE_SUBMISSION
+  });
+}
+
 function nextPhase(workflow, phase) { const id = workflow.phaseOrder[workflow.phaseOrder.indexOf(phase.id) + 1]; return id ? workflow.phases[id] : null; }
 
 async function writeDecision(root, config, workflow, phase, decision) {
@@ -3441,6 +3614,9 @@ export async function approvePhase(root, config, workflow, {
 } = {}) {
   await assertNoPendingPublication(root, config, workflow, 'approve');
   const phase = await assertPhaseSequence(root, workflow, 'approve', { requestedPhase: phaseId, allowedStatuses: ['awaiting_approval'] });
+  if (phase.id === 'convergence') {
+    await assertConvergencePublicationReady(root, config, workflow, phase);
+  }
   const packetEntry = [...(workflow.lineage?.submissions ?? [])].reverse().find((entry) =>
     entry.phase === phase.id && Number(entry.generation) === Number(phase.generation));
   if (!packetEntry) {
@@ -3878,7 +4054,7 @@ function reworkBaselineRef(workflow, changeRequestId) {
   const key = createHash('sha256')
     .update(`${workflow.workItem.id}\0${changeRequestId}`)
     .digest('hex');
-  return `refs/singularity-flow/rework-baselines/${key}`;
+  return `${publicationReworkRefNamespace({ kind: 'story', id: workflow.workItem.id })}${key}`;
 }
 
 async function createReworkForwardCheckpoint(root, config, workflow, {
@@ -3937,7 +4113,29 @@ export async function rejectPhase(root, config, workflow, { phaseId, target, rea
    * has nothing to authorise it. Everything after this line is the ordinary rejection path — the
    * same authority check, change request, invalidation and transition `[SPK:REQ-082]`.
    */
-  const reworkBlockers = convergenceRework?.unresolvedBlockers ?? [];
+  let reworkBlockers = convergenceRework?.findingIds ?? convergenceRework?.unresolvedBlockers ?? [];
+  if (convergenceRework) {
+    const verified = await loadVerifiedConvergenceProjection(root, config, workflow);
+    if (Number(convergenceRework.iteration) !== Number(verified.projection.iteration)
+        || convergenceRework.convergenceSha256 !== verified.projection.convergenceSha256) {
+      throw new SingularityFlowError(
+        'Convergence rework does not match the exact current projection.',
+        { code: 'CONVERGENCE_REWORK_BINDING_MISMATCH' }
+      );
+    }
+    const currentRework = (verified.projection.findings ?? [])
+      .filter((finding) => finding.disposition === 'rework')
+      .map((finding) => finding.id)
+      .sort();
+    const supplied = [...new Set(reworkBlockers)].sort();
+    if (!currentRework.length || canonicalJson(currentRework) !== canonicalJson(supplied)) {
+      throw new SingularityFlowError(
+        'Convergence rework must name every and only the current findings dispositioned as rework.',
+        { code: 'CONVERGENCE_REWORK_BINDING_MISMATCH' }
+      );
+    }
+    reworkBlockers = currentRework;
+  }
   if (convergenceRework && !reworkBlockers.length) {
     throw new SingularityFlowError('Convergence rework needs at least one finding dispositioned as rework.');
   }
@@ -5058,6 +5256,7 @@ export async function cancelWorkflow(root, config, workflow, { reason, channel =
 
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
+  afterOwnedWrites = null,
   eventFromResult = null,
   afterEventFinalize = null,
   worktreeGuard = null,
@@ -5289,10 +5488,12 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       // touches, not only the aggregate.
       // The captured bytes are the aggregate too, so restoring them is the whole undo — writing
       // `priorWorkflow` on top would re-serialise a file that is already correct.
-      rollback: (preimage, recoveryOptions = {}) => restorePublicationPreimage(root, preimage, {
-        subject: envelope.subject,
-        ...recoveryOptions
-      }),
+      rollback: async (preimage, recoveryOptions = {}) => {
+        return restorePublicationPreimage(root, preimage, {
+          subject: envelope.subject,
+          ...recoveryOptions
+        });
+      },
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {
@@ -5312,6 +5513,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
     pendingRecord: () => pendingMetadata,
     retainPendingOnSuccess: Boolean(publicationTail),
     ledger: { config: ledgerConfig, intent: ledgerIntent, intentDirectory: workDirRelative(config, workflow.workItem.id) },
+    afterOwnedWrites,
     recoveryPreimage,
     stabilityGuard: worktreeGuard,
     transactionId
@@ -5680,7 +5882,17 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
     if (!workflow.cancellation?.cancelledAt || !workflow.cancellation?.cancelledBy) errors.push('Cancelled workflow must record when and by whom it was cancelled.');
     if (!workflow.cancellation?.phase || workflow.phases[workflow.cancellation.phase]?.status !== 'cancelled') errors.push('Cancelled workflow must identify its cancelled phase.');
   } else { if (!workflow.currentPhase) errors.push('In-progress workflow must have a current phase.'); if (activeCount !== 1) errors.push(`In-progress workflow must have exactly one active phase; found ${activeCount}.`); }
-  const active = currentPhase(workflow); if (strict && active && active.status === 'awaiting_approval') errors.push(...await validatePhase(root, config, workflow, active));
+  const active = currentPhase(workflow);
+  if (strict && active && active.status === 'awaiting_approval') {
+    if (active.id === 'convergence') {
+      try { await assertConvergencePublicationReady(root, config, workflow, active); }
+      catch (error) { errors.push(`Convergence publication integrity: ${error.message}`); }
+    }
+    errors.push(...await validatePhase(root, config, workflow, active, {
+      placeholders: active.id !== 'convergence',
+      content: true
+    }));
+  }
   // Validation reports; it does not migrate. The enforcement paths that gate a mutation still do.
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) errors.push('Publication is pending; run singularity-flow sync.');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});

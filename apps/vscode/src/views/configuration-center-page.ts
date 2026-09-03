@@ -275,13 +275,13 @@ function worldModel(view: ConfigurationCenterView): string {
       ? ''
       : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Review world-model build</button></p>'}
     <details class="configuration-advanced-tools wm-settings"><summary>Behavior &amp; generation settings</summary>
-    <div class="section-heading"><div><h2>${icon('configuration')}World-model behavior</h2><p class="muted">Control when repository grounding is required and how missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
+    <div class="section-heading"><div><h2>${icon('configuration')}World-model behavior</h2><p class="muted">Control whether verified repository context is included and how optional missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
     <form id="world-model-form">
       <div class="editor-card">
         <h2>${icon('approval')}Grounding policy</h2>
         <div class="form-grid">
-          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — do not require grounding')}${option('warn', model.grounding, 'Warn — continue with a visible warning')}${option('enforce', model.grounding, 'Enforce — block until grounded')}</select><small>Warn is the adoption-friendly setting. Enforce turns missing or invalid grounding into a hard lifecycle gate.</small></label>
-          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('fail', model.staleness, 'Fail until refreshed')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>Controls a committed model whose source-tree hash no longer matches the repository.</small></label>
+          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — no World-Model context')}${option('warn', model.grounding, 'Warn — use when available')}${option('enforce', model.grounding, 'Enforce — verify strictly when used')}</select><small>No mode makes availability a lifecycle blocker. Enforce rejects tampered or unverifiable context that was actually consumed.</small></label>
+          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('fail', model.staleness, 'Treat as unavailable until refreshed')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>Controls whether stale bytes may be consumed. Phase work can still continue with zero World-Model context.</small></label>
         </div>
       </div>
 

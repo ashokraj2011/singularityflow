@@ -16,23 +16,38 @@ import { snapshot } from '../src/util.mjs';
 import {
   phasePromptExecutionContract, specializeBuiltinWorldModelPrompt
 } from '../src/worldmodel.mjs';
+import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
+function isolatedMachineEnvironment(cwd, env = process.env) {
+  const machineState = path.join(cwd, '.isolated-machine-state');
+  return {
+    ...env,
+    NODE_ENV: 'test',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'lead-registry.json'),
+    SINGULARITY_FLOW_WMB_SHARED_CACHE: path.join(machineState, 'wmb-shared-cache')
+  };
+}
+
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  const result = spawnSync(command, args, {
+    cwd, encoding: 'utf8', env: isolatedMachineEnvironment(cwd)
+  });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result.stdout;
 }
 
 function result(command, args, cwd, env = process.env) {
-  return spawnSync(command, args, { cwd, encoding: 'utf8', env: { ...env, NODE_ENV: 'test' } });
+  return spawnSync(command, args, { cwd, encoding: 'utf8', env: isolatedMachineEnvironment(cwd, env) });
 }
 
 function resultAsync(command, args, cwd, env = process.env, timeoutMs = 30_000) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, env: { ...env, NODE_ENV: 'test' } });
+    const child = spawn(command, args, { cwd, env: isolatedMachineEnvironment(cwd, env) });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
@@ -47,8 +62,7 @@ function resultAsync(command, args, cwd, env = process.env, timeoutMs = 30_000) 
 
 function flow(args, cwd, { allowFailure = false, agent = 'product-owner', workType = 'feature' } = {}) {
   const env = {
-    ...process.env,
-    NODE_ENV: 'test',
+    ...isolatedMachineEnvironment(cwd),
     SINGULARITY_FLOW_TEST_IDENTITY: 'Grounding Tester',
     SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ agent, workType })
   };
@@ -334,6 +348,15 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(inspected, /INJECTED DEVELOPMENT VIEW/);
   assert.match(inspected, /END GOVERNED PHASE PROMPT/);
   await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/);
+  await withSubjectLock(root, { kind: 'story', id: 'WM-1' }, async () => {
+    const blocked = await resultAsync(process.execPath, [
+      bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1', '--record-audit'
+    ], root);
+    assert.notEqual(blocked.status, 0);
+    assert.match(blocked.stderr, /story 'WM-1' is locked/);
+  });
+  await assert.rejects(readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'), /ENOENT/,
+    'a competing recorded handoff is refused before any generation side effect');
   run(process.execPath, [bin, 'prompt-log', 'on'], root);
   const handedOff = run(process.execPath, [bin, 'wm', 'show-prompt', '--phase', 'design', '--work-id', 'WM-1', '--record-audit'], root);
   const promptAuditPath = path.join(root, '.git/singularity-flow/prompt-audit/prompts.jsonl');
@@ -348,11 +371,38 @@ test('wm inject renders matched agent context and records the generation audit',
   assert.match(promptAudits[0].prompt, /Use this repository as the working directory/);
   assert.match(promptAudits[0].prompt, /BEGIN plugin\/skills\/sflow-phase\/SKILL\.md/);
   assert.match(promptAudits[0].prompt, /INJECTED DEVELOPMENT VIEW/);
+  const canonicalPromptRecord = JSON.parse(await readFile(
+    path.join(workDir, 'context/design-gen1.json'), 'utf8'
+  ));
+  assert.equal(canonicalPromptRecord.agent, 'developer');
+  assert.match(canonicalPromptRecord.renderedSha256, /^[a-f0-9]{64}$/);
+  const canonicalPromptPath = path.join(root, canonicalPromptRecord.promptPath);
+  const canonicalPrompt = await readFile(canonicalPromptPath, 'utf8');
+
+  // Command-level recovery must reach recordInjection rather than letting the early reuse probe
+  // turn a crash between the two exclusive writes into a permanent blocker.
+  await unlink(canonicalPromptPath);
+  assert.equal(
+    run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1'], root),
+    canonicalPrompt
+  );
+  assert.equal(await readFile(canonicalPromptPath, 'utf8'), canonicalPrompt);
+  promptAudits = (await readFile(promptAuditPath, 'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(promptAudits.length, 2,
+    'an audit interrupted or disabled after prompt persistence is backfilled on exact reuse');
+  assert.deepEqual(promptAudits.map((entry) => entry.source), [
+    'vscode-governed-handoff', 'wm-compose'
+  ]);
+
+  await unlink(path.join(workDir, 'context/design-gen1.json'));
+  assert.equal(
+    run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1'], root),
+    canonicalPrompt
+  );
   run(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', 'WM-1'], root);
   promptAudits = (await readFile(promptAuditPath, 'utf8')).trim().split('\n').map(JSON.parse);
-  assert.equal(promptAudits.length, 2);
-  assert.equal(promptAudits[1].source, 'wm-compose');
-  assert.match(promptAudits[1].promptSha256, /^[a-f0-9]{64}$/);
+  assert.equal(promptAudits.length, 2,
+    'exact recovery and later fast reuse deduplicate the same wm-compose handoff');
   const unsafeWorkId = result(process.execPath, [bin, 'wm', 'compose', '--phase', 'design', '--work-id', '../../outside', '--render-only'], root);
   assert.equal(unsafeWorkId.status, 1);
   assert.match(unsafeWorkId.stderr, /valid work ID/);

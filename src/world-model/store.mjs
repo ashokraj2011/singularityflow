@@ -154,6 +154,30 @@ function readAt(root, ref, relative, { optional = false } = {}) {
   return shown.stdout;
 }
 
+function projectionPathsAt(root, ref, outputDir) {
+  const result = run('git', ['ls-tree', '-r', '--name-only', ref, '--', safeOutputDirectory(outputDir)], {
+    cwd: root, allowFailure: true
+  });
+  if (result.status !== 0) {
+    throw new SingularityFlowError('The registered World-Model authority tree could not be inspected.', {
+      code: 'WMB_PUBLICATION_PARTIAL', details: { ref, outputDir: safeOutputDirectory(outputDir) }
+    });
+  }
+  return result.stdout.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function assertMissingManifestIsEmpty(root, ref, outputDir, manifestPath) {
+  const paths = projectionPathsAt(root, ref, outputDir)
+    .filter((entry) => !entry.includes('/.checkpoints/'));
+  if (!paths.length) return;
+  throw new SingularityFlowError(
+    `Registered World-Model authority ${ref} contains a partial projection without ${manifestPath}.`, {
+      code: 'WMB_PUBLICATION_PARTIAL',
+      details: { ref, outputDir: safeOutputDirectory(outputDir), manifestPath, paths }
+    }
+  );
+}
+
 function jsonAt(root, ref, relative, options) {
   const text = readAt(root, ref, relative, options);
   if (text == null) return null;
@@ -844,6 +868,7 @@ export function resolvePublishedWorldModelV4Authority(root, {
   }
   const raw = readAt(root, normalized, manifestPath, { optional: true });
   if (raw == null) {
+    assertMissingManifestIsEmpty(root, normalized, target, manifestPath);
     if (!required) return null;
     throw new SingularityFlowError(
       `No registered WMB v4 manifest was found at ${manifestPath} in authority ${normalized}.`,
@@ -878,6 +903,7 @@ export function resolvePublishedWorldModelV4(root, {
   if (commitAt(root, remoteRef)) {
     const raw = readAt(root, remoteRef, manifestPath, { optional: true });
     if (raw == null) {
+      assertMissingManifestIsEmpty(root, remoteRef, target, manifestPath);
       // `required: false` is used by an explicit first build to ask whether there is an existing
       // projection worth preserving. An existing state branch with no World Model is a legitimate
       // empty starting point. Return that absence without falling through to a local branch or
@@ -924,6 +950,7 @@ export function resolvePublishedWorldModelV4(root, {
   if (commitAt(root, localRef)) {
     const raw = readAt(root, localRef, manifestPath, { optional: true });
     if (raw == null) {
+      assertMissingManifestIsEmpty(root, localRef, target, manifestPath);
       // When no remote authority is materialized, the local state branch is the authority. Its
       // deliberate removal must not be undone by falling through to a stale projection committed
       // on the application branch. This mirrors the remote-tip no-fallback rule above.
@@ -951,7 +978,10 @@ export function resolvePublishedWorldModelV4(root, {
   for (const ref of candidateRefs(root, { stateBranch, remote })) {
     if (ref === remoteRef || ref === localRef) continue;
     const raw = readAt(root, ref, manifestPath, { optional: true });
-    if (raw == null) continue;
+    if (raw == null) {
+      assertMissingManifestIsEmpty(root, ref, target, manifestPath);
+      continue;
+    }
     const classification = classifyWorldModelInput(raw);
     if (classification.classification !== 'registered-v4-manifest') {
       throw worldModelMigrationRequired(raw);

@@ -748,6 +748,13 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     return never(`wm.recovery.${action}`, definition, action === 'publish' ? 'mutation' : 'read');
   }
   const id = `wm.${subcommand}`;
+  // Rendering a handoff is observational, but --record-audit deliberately creates the immutable
+  // generation prompt/receipt and appends the exact VS Code handoff to prompt audit. Give that
+  // durable path its own operation identity so timing, local work journal, and policy diagnostics
+  // do not describe a repository mutation as a read.
+  if (subcommand === 'show-prompt' && optionBoolean(options, 'record-audit')) {
+    return never('wm.show-prompt.record-audit', definition, 'mutation');
+  }
   // `build --depth light` is a compatibility spelling of `wm light`, and an explicitly light
   // ensure can only select the same deterministic builder. Classify both from their actual work so
   // `--no-model` does not reject a zero-token operation before its handler is loaded.
@@ -980,6 +987,7 @@ export function operationCatalog() {
     .filter((name) => !WM_NEVER_OPERATIONS.has(name) && name !== 'ensure');
   const wm = [...WM_NEVER_OPERATIONS]
     .map((name) => never(`wm.${name}`, wmDefinition, WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
+    .concat([never('wm.show-prompt.record-audit', wmDefinition, 'mutation')])
     .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
     .concat([optional('wm.ensure', 'wm.light', wmDefinition)])
     .concat([never('wm.ensure.registered-v4', wmDefinition, 'read')])

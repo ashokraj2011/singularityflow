@@ -42,10 +42,38 @@ import {
 } from './workspace-context.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
-  posix, run, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText
+  posix, run, secureRepositoryPath, SingularityFlowError, snapshot, writeBytes, writeJson
 } from './util.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
+const CAPABILITY_WORLD_MODEL_UNAVAILABLE = 'world_model.capability_unavailable';
+const CAPABILITY_WORLD_MODEL_AVAILABILITY_CODES = new Set([
+  CAPABILITY_WORLD_MODEL_UNAVAILABLE,
+  'world_model.capability_missing',
+  'world_model.capability_stale',
+  'WMB_MANIFEST_MISSING',
+  'WMB_SOURCE_SNAPSHOT_STALE',
+  'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+  'WMB_STATE_AUTHORITY_UNAVAILABLE',
+  'WMB_VIEW_UNAVAILABLE',
+  'world_model.state_extraction_failed'
+]);
+const CAPABILITY_WORLD_MODEL_AVAILABILITY_STATUSES = new Set([
+  'missing',
+  'world-model-missing',
+  'world-model-stale',
+  'world-model-unavailable'
+]);
+const CAPABILITY_WORLD_MODEL_SUCCESS_STATUSES = new Set(['local-grounding', 'pinned']);
+const LEGACY_CAPABILITY_AVAILABILITY_REFRESH = new Set([
+  'offline-cached', 'offline-no-state-copy', 'remote-absent', 'timeout-cached', 'unavailable'
+]);
+const LEGACY_CAPABILITY_AVAILABILITY_CLASSIFICATIONS = new Set([
+  'authentication-required', 'authorization-denied',
+  'branch-not-found', 'network-transient', 'offline', 'proxy-configuration', 'rate-limited',
+  'remote-not-found', 'tls-trust'
+]);
 let capabilityMapReadObserverForTests = null;
 
 /** @internal Test-only hook for exercising path replacement at the descriptor boundary. */
@@ -648,14 +676,14 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
     if (authority.status === 'remote-absent') {
       throw new SingularityFlowError(
         'The capability repository remote state branch has no registered World-Model projection.',
-        { code: 'world_model.capability_authority_conflict', details: { refresh: authority.status } }
+        { code: 'world_model.capability_missing', details: { refresh: authority.status } }
       );
     }
-    if (['offline-cached', 'timeout-cached'].includes(authority.status)
+    if (['offline-cached', 'timeout-cached', 'unavailable'].includes(authority.status)
         && !cachedWorldModelV4AuthorityPresent(repositoryRoot, config)) {
       throw new SingularityFlowError(
         'The capability repository registered World-Model authority could not be refreshed and has no verified cache.',
-        { code: 'world_model.capability_authority_conflict', details: { refresh: authority.status } }
+        { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, details: { refresh: authority.status } }
       );
     }
     const resolved = resolveWorldModelV4Grounding(repositoryRoot, config, {
@@ -736,7 +764,9 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
     located,
     manifestPath,
     manifest: validated.manifest,
-    normalizedManifest: validated.normalizedManifest
+    normalizedManifest: validated.normalizedManifest,
+    manifestContentSha256: validated.manifestContentSha256,
+    validatedModelFiles: validated.registeredFiles
   };
 }
 
@@ -773,7 +803,12 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       : repositoryId === source.repositoryId ? root : null;
     if (!repositoryRoot || !existsSync(repositoryRoot)) {
       warnings.push(`Capability repository '${repositoryId}' is not materialized in the active workspace.`);
-      repositories.push({ id: repositoryId, status: 'missing' });
+      repositories.push({
+        id: repositoryId,
+        status: 'missing',
+        failureClass: 'availability',
+        reasonCode: 'CAPABILITY_REPOSITORY_UNAVAILABLE'
+      });
       continue;
     }
     if (isLocalCapabilityRepository(repositoryId, source.repositoryId, repositoryRoot, current)) {
@@ -790,23 +825,35 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
       });
     }
     catch (error) {
-      const status = error.code === 'world_model.capability_missing'
+      const availabilityFailure = isWorldModelAvailabilityError(error);
+      const status = ['world_model.capability_missing', 'WMB_MANIFEST_MISSING', 'WMB_VIEW_UNAVAILABLE'].includes(error.code)
         ? 'world-model-missing'
-        : error.code === 'world_model.capability_stale'
+        : ['world_model.capability_stale', 'WMB_SOURCE_SNAPSHOT_STALE'].includes(error.code)
           ? 'world-model-stale'
+          : availabilityFailure
+            ? 'world-model-unavailable'
           : error.code === 'world_model.capability_authority_conflict'
             ? 'world-model-authority-conflict'
             : 'world-model-invalid';
       warnings.push(`Capability repository '${repositoryId}' world model is unavailable: ${error.message}`);
-      repositories.push({ id: repositoryId, status, ...(error.details ?? {}) });
+      const failureClass = availabilityFailure
+        ? 'availability'
+        : 'integrity';
+      repositories.push({
+        id: repositoryId,
+        status,
+        failureClass,
+        reasonCode: error.code ?? 'CAPABILITY_WORLD_MODEL_INVALID',
+        ...(error.details ?? {})
+      });
       continue;
     }
     const {
-      format, outputDir, sourceState, located, manifestPath, manifest, normalizedManifest
+      format, outputDir, sourceState, located, manifest, normalizedManifest
     } = resolved;
     const manifestInfo = format === 'registered-v4'
       ? { sha256: resolved.resolved.manifestContentSha256 }
-      : await snapshot(manifestPath);
+      : { sha256: resolved.manifestContentSha256 };
     const commit = format === 'registered-v4'
       ? resolved.resolved.store.sourceSnapshot.revision.commit
       : manifest.repository_commit ?? manifest.repository?.commit
@@ -817,28 +864,90 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
           relative: entry.relative,
           views: [entry.viewId],
           content: entry.body,
-          bytes: entry.size
+          bytes: entry.size,
+          sha256: entry.sha256
         }))
       : modelFiles(normalizedManifest, views);
+    const validatedFiles = new Map(
+      (resolved.validatedModelFiles ?? []).map((entry) => [entry.path, entry])
+    );
+    const prepared = [];
+    let preparationFailure = null;
     for (const selection of selections) {
       const { relative } = selection;
       const absolute = located.directory ? path.join(located.directory, relative) : null;
-      const info = selection.content == null ? await snapshot(absolute) : {
-        exists: true, size: selection.bytes
-      };
-      if (!info.exists) {
-        warnings.push(`Capability repository '${repositoryId}' is missing world-model file '${relative}'.`);
-        continue;
+      try {
+        let sourceBytes;
+        let expectedSha256;
+        if (selection.content != null) {
+          sourceBytes = Buffer.from(selection.content, 'utf8');
+          expectedSha256 = selection.sha256;
+          if ((selection.bytes != null && sourceBytes.length !== selection.bytes)
+              || (expectedSha256
+                && createHash('sha256').update(sourceBytes).digest('hex') !== expectedSha256)) {
+            throw new SingularityFlowError(
+              `Capability repository '${repositoryId}' returned inconsistent registered world-model bytes for '${relative}'.`
+            );
+          }
+        } else {
+          const expected = validatedFiles.get(posix(relative));
+          if (!expected) {
+            throw new SingularityFlowError(
+              `Capability repository '${repositoryId}' selected an unvalidated world-model file '${relative}'.`
+            );
+          }
+          try { sourceBytes = await readFile(absolute); }
+          catch (error) {
+            if (!isWorldModelAvailabilityError(error)) throw error;
+            throw new SingularityFlowError(
+              `Capability repository '${repositoryId}' world-model file '${relative}' became unavailable.`,
+              { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, cause: error }
+            );
+          }
+          expectedSha256 = expected.sha256;
+          if (sourceBytes.length !== expected.size
+              || createHash('sha256').update(sourceBytes).digest('hex') !== expected.sha256) {
+            throw new SingularityFlowError(
+              `Capability repository '${repositoryId}' world-model file '${relative}' changed after validation.`
+            );
+          }
+        }
+        prepared.push({ selection, sourceBytes, expectedSha256 });
+      } catch (error) {
+        preparationFailure = error;
+        break;
       }
-      if (used + info.size > maxBytes) {
+      const preparedBytes = prepared.reduce((total, entry) => total + entry.sourceBytes.length, 0);
+      if (used + preparedBytes > maxBytes) {
+        prepared.pop();
         warnings.push(`Capability world-model context reached its ${maxBytes}-byte budget before '${repositoryId}/${relative}'.`);
         break;
       }
+    }
+    if (preparationFailure) {
+      const availabilityFailure = isWorldModelAvailabilityError(preparationFailure);
+      warnings.push(`Capability repository '${repositoryId}' world model could not be pinned: ${preparationFailure.message}`);
+      repositories.push({
+        id: repositoryId,
+        status: availabilityFailure ? 'world-model-unavailable' : 'world-model-invalid',
+        failureClass: availabilityFailure ? 'availability' : 'integrity',
+        reasonCode: preparationFailure.code ?? 'CAPABILITY_WORLD_MODEL_INVALID'
+      });
+      continue;
+    }
+    for (const { selection, sourceBytes, expectedSha256 } of prepared) {
+      const { relative } = selection;
       const targetRelative = posix(path.join('context', 'capability-world-model', repositoryId, relative));
       const target = path.join(itemDirectory, targetRelative);
       await mkdir(path.dirname(target), { recursive: true });
-      await writeText(target, selection.content ?? await readFile(absolute, 'utf8'));
+      await writeBytes(target, sourceBytes);
       const copied = await snapshot(target);
+      if (!copied.exists || copied.size !== sourceBytes.length
+          || (expectedSha256 && copied.sha256 !== expectedSha256)) {
+        throw new SingularityFlowError(
+          `Capability world-model snapshot changed while it was being pinned: ${targetRelative}.`
+        );
+      }
       used += copied.size;
       const entry = {
         repositoryId,
@@ -892,24 +1001,104 @@ export async function materializeCapabilityWorldModelPack(root, capability, {
 
 async function renderCapabilityWorldModelPackStrict(root, capability, { views = [] } = {}) {
   if (!capability?.context?.path) return { text: '', files: [], warnings: [] };
-  const recordInfo = await snapshot(path.join(root, capability.context.path));
-  if (!recordInfo.exists || recordInfo.sha256 !== capability.context.sha256) {
+  const recordPath = await secureRepositoryPath(root, capability.context.path, {
+    label: 'Capability world-model context', type: 'file'
+  });
+  if (!recordPath.exists) {
+    throw new SingularityFlowError(
+      `Capability world-model context is unavailable: ${capability.context.path}.`,
+      { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE }
+    );
+  }
+  let recordBytes;
+  try { recordBytes = await readFile(recordPath.absolute); }
+  catch (error) {
+    if (!isWorldModelAvailabilityError(error)) throw error;
+    throw new SingularityFlowError(
+      `Capability world-model context became unavailable: ${capability.context.path}.`,
+      { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, cause: error }
+    );
+  }
+  const recordSha256 = createHash('sha256').update(recordBytes).digest('hex');
+  if (recordSha256 !== capability.context.sha256) {
     throw new SingularityFlowError(`Capability world-model context changed after lifecycle creation: ${capability.context.path}.`);
   }
-  const record = JSON.parse(await readFile(path.join(root, capability.context.path), 'utf8'));
+  let record;
+  try { record = JSON.parse(recordBytes.toString('utf8')); }
+  catch (error) {
+    throw new SingularityFlowError(
+      `Capability world-model context is invalid JSON: ${capability.context.path}.`,
+      { cause: error }
+    );
+  }
   const files = [];
   const requested = new Set(views);
   for (const entry of record.files ?? []) {
     const entryViews = entry.views ?? ['core'];
     if (requested.size && !entryViews.includes('core') && !entryViews.some((view) => requested.has(view))) continue;
-    const info = await snapshot(path.join(root, entry.path));
-    if (!info.exists || info.sha256 !== entry.sha256) {
+    const selectedPath = await secureRepositoryPath(root, entry.path, {
+      label: 'Capability world-model snapshot', type: 'file'
+    });
+    if (!selectedPath.exists) {
+      throw new SingularityFlowError(
+        `Capability world-model snapshot is unavailable: ${entry.path}.`,
+        { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE }
+      );
+    }
+    let content;
+    try { content = await readFile(selectedPath.absolute); }
+    catch (error) {
+      if (!isWorldModelAvailabilityError(error)) throw error;
+      throw new SingularityFlowError(
+        `Capability world-model snapshot became unavailable: ${entry.path}.`,
+        { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE, cause: error }
+      );
+    }
+    const contentSha256 = createHash('sha256').update(content).digest('hex');
+    if (contentSha256 !== entry.sha256
+        || (entry.bytes != null && content.length !== entry.bytes)) {
       throw new SingularityFlowError(`Capability world-model snapshot changed: ${entry.path}.`);
     }
-    files.push({ ...entry, content: await readFile(path.join(root, entry.path), 'utf8') });
+    files.push({ ...entry, content: content.toString('utf8') });
   }
-  if (!files.length && capability.policy?.worldModelGrounding === 'enforce' && (record.repositories ?? []).some((entry) => entry.status !== 'local-grounding')) {
-    throw new SingularityFlowError(`Capability '${capability.id}' requires cross-repository grounding, but no sibling world-model files were pinned.`);
+  const crossRepositories = (record.repositories ?? []).filter((entry) => entry.status !== 'local-grounding');
+  const failureClass = (entry) => {
+    if (CAPABILITY_WORLD_MODEL_SUCCESS_STATUSES.has(entry.status)) return null;
+    if (['availability', 'integrity'].includes(entry.failureClass)) return entry.failureClass;
+    if (CAPABILITY_WORLD_MODEL_AVAILABILITY_STATUSES.has(entry.status)) return 'availability';
+    // Pre-fix v4 authority failures were stored as `world-model-invalid`, but retained the remote
+    // failure classification. That is enough to migrate them safely at read time without
+    // weakening genuinely malformed legacy records, which have no such classification.
+    if (entry.status === 'world-model-invalid'
+        && LEGACY_CAPABILITY_AVAILABILITY_CLASSIFICATIONS.has(entry.classification)) {
+      return 'availability';
+    }
+    // Compatibility records written before failureClass/reasonCode existed retained enough
+    // transport evidence to distinguish absence/offline state from malformed pinned bytes. Keep
+    // this deliberately narrow: an authority conflict without one of these refresh outcomes, or
+    // an invalid row without a known availability code, remains an integrity failure.
+    if (entry.status === 'world-model-authority-conflict'
+        && LEGACY_CAPABILITY_AVAILABILITY_REFRESH.has(entry.refresh)) {
+      return 'availability';
+    }
+    if (entry.status === 'world-model-invalid'
+        && CAPABILITY_WORLD_MODEL_AVAILABILITY_CODES.has(entry.reasonCode ?? entry.code)) {
+      return 'availability';
+    }
+    return 'integrity';
+  };
+  const integrityFailures = crossRepositories.filter((entry) => failureClass(entry) === 'integrity');
+  if (capability.policy?.worldModelGrounding === 'enforce' && integrityFailures.length) {
+    throw new SingularityFlowError(
+      `Capability '${capability.id}' has invalid cross-repository world-model context for ${integrityFailures.map((entry) => entry.id).join(', ')}.`
+    );
+  }
+  if (!files.length && capability.policy?.worldModelGrounding === 'enforce' && crossRepositories.length) {
+    const availabilityOnly = crossRepositories.every((entry) => failureClass(entry) !== 'integrity');
+    throw new SingularityFlowError(
+      `Capability '${capability.id}' requires cross-repository grounding, but no sibling world-model files were pinned.`,
+      availabilityOnly ? { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE } : {}
+    );
   }
   const text = files.map((file) => [
     `## Capability world model: ${file.repositoryId} — ${file.sourcePath}`,
@@ -921,16 +1110,21 @@ async function renderCapabilityWorldModelPackStrict(root, capability, { views = 
   return { text, files: files.map(({ content, ...file }) => file), warnings: record.warnings ?? [] };
 }
 
-export async function renderCapabilityWorldModelPack(root, capability, {
-  views = [], grounding = capability?.policy?.worldModelGrounding ?? 'off'
-} = {}) {
+export async function renderCapabilityWorldModelPack(root, capability, options = {}) {
+  const views = options.views ?? [];
+  const grounding = options.grounding ?? capability?.policy?.worldModelGrounding ?? 'off';
+  // Preserve the legacy direct-helper default for callers that only ask to render a pinned pack,
+  // while an explicit workflow/capability `off` policy must not read or validate optional context.
+  if (options.grounding === 'off' || capability?.policy?.worldModelGrounding === 'off') {
+    return { text: '', files: [], warnings: [] };
+  }
   try {
     return await renderCapabilityWorldModelPackStrict(root, capability, { views });
   } catch (error) {
-    if (grounding !== 'warn') throw error;
-    // Capability context is additional world-model intelligence. Advisory repository grounding
-    // must retain ordinary governed inputs when that snapshot is unavailable or changed, while
-    // enforce mode above remains fail-closed.
+    if (!isWorldModelAvailabilityError(error) && grounding !== 'warn') throw error;
+    // Capability context is additional world-model intelligence. Known availability failures
+    // retain ordinary governed inputs in every mode. Warn mode also preserves its historical
+    // advisory behavior, while enforce still fails closed for changed or invalid pinned context.
     return {
       text: '', files: [],
       warnings: [`Capability world-model grounding unavailable: ${error.message}`]

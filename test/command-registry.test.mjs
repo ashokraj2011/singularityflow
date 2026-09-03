@@ -141,6 +141,18 @@ test('mixed deterministic commands classify their actual operation rather than t
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.light');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.light');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'standard' } }).modelPolicy, 'required');
+  const promptPreview = resolveOperation({
+    requestedCommand: 'wm', positionals: ['wm', 'show-prompt'], options: {}
+  });
+  assert.equal(promptPreview.id, 'wm.show-prompt');
+  assert.equal(promptPreview.classification, 'read');
+  const recordedPrompt = resolveOperation({
+    requestedCommand: 'wm', positionals: ['wm', 'show-prompt'], options: { 'record-audit': true }
+  });
+  assert.equal(recordedPrompt.id, 'wm.show-prompt.record-audit');
+  assert.equal(recordedPrompt.classification, 'mutation');
+  assert.equal(recordedPrompt.modelPolicy, 'never');
+  assert.equal(operationCatalog().find((entry) => entry.id === recordedPrompt.id)?.classification, 'mutation');
   assert.equal(resolveOperation({ requestedCommand: 'pr', positionals: ['pr', 'describe'], options: { polish: 'true' } }).modelPolicy, 'optional');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'reproduce'] }).id, 'wm.ast.evidence.replay');
   assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ast', 'evidence', 'replay'] }).id, 'wm.ast.evidence.replay');

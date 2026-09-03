@@ -13,7 +13,7 @@ argument-hint: "[target environment or release window]"
 **Boundary:** `singularity-flow session current --json` → verified `ready`/`workId`, cwd=`repositoryPath`; never `$HOME`; `singularity/work-items/<WORK-ID>/`.
 
 1. Run `singularity-flow status --json`; stop if the current phase is not `release`. Use that governed workflow as Story context.
-2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If the grounding plan is missing or stale, show and run the exact returned ensure command only with explicit contributor authorization, then rerun the identical compose command. Never add the Story title or a conversational release target as `--task`. Use the shared release, operations, security, and evidence grounding.
+2. Run `singularity-flow wm compose --phase release --evidence` and use the complete returned prompt. If composition reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—continue with its explicit zero-context evidence and ordinary repository access. Show any exact returned recovery command only as an optional improvement; do not run it from this skill or make it a prerequisite for release work. Never add the Story title or a conversational release target as `--task`. Use available shared release, operations, security, and evidence grounding.
 3. Read all approved phase artifacts and the deployment locations selected by the grounding package.
 4. Run `singularity-flow prepare release` and complete the release plan.
 5. Include preconditions, deployment steps, migrations, flags, configuration, validation, metrics, alerts, success criteria, rollback triggers and steps, communication, ownership, and support escalation.

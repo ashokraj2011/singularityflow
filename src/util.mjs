@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
@@ -707,6 +707,28 @@ export async function writeAtomic(filePath, value, { mode = undefined } = {}) {
       ...(mode == null ? {} : { mode })
     });
     await rename(temp, filePath);
+  } finally {
+    await rm(temp, { force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Atomically publishes a complete file only when the destination is still absent.
+ *
+ * `rename(temp, destination)` replaces an entry that appears after a caller's last existence
+ * check. Linking a fully-written same-directory temporary file instead gives us create-if-absent
+ * semantics on every supported platform: an occupied file or symlink wins and is never replaced.
+ */
+export async function writeAtomicExclusive(filePath, value, { mode = undefined } = {}) {
+  await ensureDir(path.dirname(filePath));
+  const temp = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(temp, value, {
+      ...(Buffer.isBuffer(value) || value instanceof Uint8Array ? {} : { encoding: 'utf8' }),
+      ...(mode == null ? {} : { mode }),
+      flag: 'wx'
+    });
+    await link(temp, filePath);
   } finally {
     await rm(temp, { force: true }).catch(() => {});
   }

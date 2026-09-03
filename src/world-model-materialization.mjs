@@ -6,6 +6,7 @@ import {
   resolveWorldModelSource,
   validateWorldModelDirectory,
   validateWorldModelPathIndexReferences,
+  worldModelCommit,
   worldModelFreshness,
   worldModelSelectionEntry,
   worldModelSourceSnapshot
@@ -16,6 +17,7 @@ import { withSubjectLock } from './subject-lock.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError, snapshot, writeJson } from './util.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 
 export const MATERIALIZATION_MODES = Object.freeze(['on-demand', 'explicit', 'disabled']);
 export const MATERIALIZATION_DEPTHS = Object.freeze(['light', 'phase']);
@@ -101,22 +103,38 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
     // An empty target is first creation. Any bytes without a manifest are an interrupted or invalid
     // model and must be preserved for diagnosis rather than classified as absence and overwritten
     // by unattended lifecycle materialization.
-    const present = existsSync(candidate.directory)
-      ? await readdir(candidate.directory).then((entries) => entries.length > 0, () => true)
-      : false;
-    return { ...candidate, present, ready: false, fresh: false, integrityValid: false, error: 'manifest.json is absent', selections: [], taskGuide: candidateTaskGuide(plan, null) };
+    let present = false;
+    let inspectionError = null;
+    if (existsSync(candidate.directory)) {
+      try { present = (await readdir(candidate.directory)).length > 0; }
+      catch (error) {
+        present = true;
+        inspectionError = error;
+      }
+    }
+    const unavailable = inspectionError && isWorldModelAvailabilityError(inspectionError);
+    return {
+      ...candidate,
+      present,
+      ready: false,
+      fresh: false,
+      integrityValid: false,
+      failureClass: unavailable || !present ? 'availability' : 'integrity',
+      error: inspectionError?.message ?? 'manifest.json is absent',
+      selections: [],
+      taskGuide: candidateTaskGuide(plan, null)
+    };
   }
   let normalized = null;
   try {
-    const raw = JSON.parse(await readFile(path.join(candidate.directory, 'manifest.json'), 'utf8'));
-    normalized = normalizeWorldModelManifest(raw);
     // Validate the manifest-controlled snapshot independently of this phase's selections. A model
     // may be incomplete for the requested phase and still be a safe progressive-generation base;
     // undeclared, missing, or tampered files must never be carried into the next generation.
-    await validateWorldModelDirectory(candidate.directory, {
+    const validated = await validateWorldModelDirectory(candidate.directory, {
       integrity: 'full',
       sourceLabel: candidate.source
     });
+    normalized = validated.normalizedManifest;
     const allowLegacyFallback = normalized.source_schema_version !== '3.0';
     const selections = plan.selections.map((selection) => {
       const entry = worldModelSelectionEntry(normalized, selection, { allowLegacyFallback });
@@ -126,23 +144,15 @@ async function inspectCandidate(root, config, plan, candidate, sourceState) {
     const taskGuide = candidateTaskGuide(plan, normalized);
     const freshness = await worldModelFreshness(root, config.definition ?? config, normalized);
     if (!missing.length && taskGuide.status !== 'missing') {
-      const validated = await validateWorldModelDirectory(candidate.directory, {
-        requiredSelections: plan.selections,
-        requireEvidence: plan.includeEvidence,
-        expectedTask: plan.taskGuide?.required ? plan.taskGuide.task : null,
-        integrity: 'selected',
-        sourceLabel: candidate.source,
-        allowLegacyFallback
-      });
-      return { ...candidate, present: true, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: validated.normalizedManifest, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
+      return { ...candidate, present: true, complete: true, ready: freshness.fresh, fresh: freshness.fresh, integrityValid: true, failureClass: null, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: freshness.fresh ? null : `source snapshot differs (${freshness.built} != ${sourceState.sha256})` };
     }
     const absent = [
       ...missing.map((entry) => entry.id),
       ...(taskGuide.status === 'missing' ? [`task guide for ${JSON.stringify(taskGuide.task)}`] : [])
     ];
-    return { ...candidate, present: true, complete: false, ready: false, fresh: freshness.fresh, integrityValid: true, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: `missing ${absent.join(', ')}` };
+    return { ...candidate, present: true, complete: false, ready: false, fresh: freshness.fresh, integrityValid: true, failureClass: null, selections, taskGuide, manifest: normalized, sourceTreeSha256: freshness.built, error: `missing ${absent.join(', ')}` };
   } catch (error) {
-    return { ...candidate, present: true, ready: false, fresh: false, integrityValid: false, selections: [], taskGuide: candidateTaskGuide(plan, normalized), manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
+    return { ...candidate, present: true, ready: false, fresh: false, integrityValid: false, failureClass: isWorldModelAvailabilityError(error) ? 'availability' : 'integrity', selections: [], taskGuide: candidateTaskGuide(plan, normalized), manifest: normalized, sourceTreeSha256: normalized?.source_tree_sha256 ?? null, error: error.message };
   }
 }
 
@@ -199,14 +209,25 @@ export function automaticMaterializationDecision(availability) {
 /** Fast, read-only availability. It never invokes a model, writes a file, or publishes. */
 export async function inspectGroundingAvailability(root, config, plan, { refreshRemote = true } = {}) {
   const sourceState = await worldModelSourceSnapshot(root, config.definition ?? config);
-  const governed = await resolveWorldModelSource(root, config, {
-    refreshRemote,
-    sourceTreeSha256: sourceState.sha256,
-    requiredSelections: plan.selections,
-    expectedTask: plan.taskGuide?.required ? plan.taskGuide.task : null,
-    requireEvidence: plan.includeEvidence === true
-  });
   const policy = config.materialization ?? materializationPolicy(config.definition ?? config);
+  // Local publication deliberately has no state-branch dependency. Resolving or extracting remote
+  // state first made an optional local model unusable whenever tar, credentials, or the network was
+  // unavailable—even though none of those inputs participates in the selected authority.
+  const governed = policy.publish === 'local'
+    ? {
+        directory: path.join(root, config.outputDir), source: 'worktree', branch: null, ref: null,
+        snapshotRef: null, commit: worldModelCommit(root, config.outputDir), treeSha: null,
+        authority: 'local-only', refresh: 'local-only',
+        diverged: false, remoteBranchPresent: null, remoteModelAtTip: null,
+        remoteModelInHistory: null, localStatePresent: null
+      }
+    : await resolveWorldModelSource(root, config, {
+        refreshRemote,
+        sourceTreeSha256: sourceState.sha256,
+        requiredSelections: plan.selections,
+        expectedTask: plan.taskGuide?.required ? plan.taskGuide.task : null,
+        requireEvidence: plan.includeEvidence === true
+      });
   const stalenessPolicy = config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn';
   const authorityUnavailable = policy.publish === 'governed'
     && governed.refresh === 'offline-no-state-copy'
@@ -225,7 +246,10 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     && governed.authority === 'unpublished-local-state'
     && (governed.refresh === 'remote-absent'
       || (governed.remoteBranchPresent === true && governed.remoteModelAtTip === false));
-  const worktree = { directory: path.join(root, config.outputDir), source: 'worktree', branch: null };
+  const worktree = {
+    directory: path.join(root, config.outputDir), source: 'worktree', branch: null,
+    commit: policy.publish === 'local' ? governed.commit : worldModelCommit(root, config.outputDir)
+  };
   const candidates = [];
   if (governed.source === 'state-branch') candidates.push(await inspectCandidate(root, config, plan, governed, sourceState));
   if (!candidates.some((item) => path.resolve(item.directory) === path.resolve(worktree.directory))) {
@@ -246,7 +270,11 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     ? null
     : usableGovernedCandidate;
   const worktreeReady = candidates.find((item) => item.source === 'worktree' && usable(item)) ?? null;
-  const legacyWorktreeReady = worktreeReady?.manifest?.source_schema_version !== '3.0'
+  const governedProjectionPresent = candidates.some((item) => (
+    item.source === 'state-branch' && item.present === true
+  ));
+  const legacyWorktreeReady = !governedProjectionPresent
+      && worktreeReady?.manifest?.source_schema_version !== '3.0'
     ? worktreeReady
     : null;
   // A locally complete model is not a governed model. When publication is required, exposing it as
@@ -353,6 +381,22 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     'The repository world model is stale for the current source tree.'
   );
   const ready = Boolean(selected) && missing.length === 0 && conflicts.length === 0 && !staleness.blocks;
+  // Integrity is lifecycle-authoritative only for a candidate this policy could consume. A
+  // governed repository must not be blocked by stray/untracked files in the application
+  // worktree when its state projection is simply absent; those bytes are never selected. The
+  // inverse applies to local publication, where the worktree is the configured authority.
+  const invalidCandidates = candidates.filter((candidate) => (
+    candidate?.present === true
+    && candidate?.integrityValid === false
+    && candidate?.failureClass !== 'availability'
+    && (policy.publish === 'local'
+      ? candidate.source === 'worktree'
+      : candidate.source === 'state-branch')
+  ));
+  const integrityConflict = conflicts.some((conflict) => [
+    'world_model.state_diverged',
+    'world_model.state_publication_pending'
+  ].includes(conflict.code));
   return {
     schemaVersion: 1,
     status: ready ? (stale.length ? 'stale' : 'ready') : conflicts.length ? 'conflict' : stale.length ? 'stale' : 'missing',
@@ -373,6 +417,8 @@ export async function inspectGroundingAvailability(root, config, plan, { refresh
     remoteModelAtTip: governed.remoteModelAtTip ?? null,
     remoteModelInHistory: governed.remoteModelInHistory ?? null,
     ready,
+    failureClass: ready ? null
+      : invalidCandidates.length || integrityConflict ? 'integrity' : 'availability',
     sourceTreeSha256: sourceState.sha256,
     selected,
     extensionBase,

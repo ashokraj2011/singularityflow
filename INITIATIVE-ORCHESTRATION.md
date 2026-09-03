@@ -145,7 +145,7 @@ phase contract
 + approved upstream initiative artifacts
 ```
 
-The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. With `worldModel.grounding: enforce`, a missing, stale, uncommitted, or changed model blocks generation/publication. Build it using the exact `singularity-flow wm build --views ... --focus ...` command shown by the CLI.
+The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. A missing or unreachable model—and a stale model under staleness `fail`—produces an explicit unavailable receipt with zero World-Model bytes and does not block Initiative generation or publication. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot. With `worldModel.grounding: enforce`, model bytes that are uncommitted, changed, or inconsistent with their recorded provenance still fail closed before use. Build or refresh intelligence only through the exact `singularity-flow wm build --views ... --focus ...` command shown by the CLI.
 
 Every prepare, publication, evidence record, approval, rejection, materialization, synchronization, and lifecycle transition creates a commit and pushes it. A failed push retains the local commit, records pending publication, and blocks later mutations until `singularity-flow initiative sync` succeeds.
 
@@ -285,9 +285,9 @@ repositories:
     worldModelViews: [architecture]
 ```
 
-Publishing that phase validates the map against committed state: every named repository must exist in `portfolio.repositories`, and every referenced view must exist in the committed world-model manifest. This is what stops an impact analysis from naming a repository that is not configured, or citing a view that was never built.
+Publishing that phase validates the map against committed state: every named repository must exist in `portfolio.repositories`; when a committed World-Model manifest is available, every referenced view must exist in it. This stops an impact analysis from naming a repository that is not configured or citing a view absent from available governed evidence, without treating model availability itself as authority.
 
-The `impact-grounded` checklist item carries the result. Under `grounding: enforce` an unresolvable reference blocks publication; otherwise it warns. With no world model committed the view half cannot be checked, so it warns rather than failing closed on absent evidence.
+The `impact-grounded` checklist item carries the result. When a committed manifest is available, an unresolvable view reference blocks publication under `grounding: enforce`; otherwise it warns. With no available World Model, the view half cannot be checked, so the Initiative records degraded evidence and continues rather than failing closed on absent intelligence.
 
 ## Merge stories in dependency order
 

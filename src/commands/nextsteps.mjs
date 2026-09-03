@@ -7,6 +7,7 @@ import { buildRepositorySubjectIndex, resolveContext } from '../repository-subje
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
+import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -61,12 +62,21 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
   const prerequisites = [];
   const active = activePhase(workflow);
   const session = await localSession(root);
+  const activeSessionAgent = session?.workId === workflow.workItem.id
+      && session?.phaseId === active?.id
+    ? session.agent
+    : null;
+  const activeAgent = activeSessionAgent ?? active?.defaultAgent ?? null;
+  const deterministicConvergence = active?.id === 'convergence'
+    && effectivePhasePublicationProducer(active, {
+      modelEnabled: modelMode.enabled
+    }) === 'deterministic';
   if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) {
     prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
   } else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) {
     prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
   }
-  if (active?.status === 'in_progress' && !session?.agent) prerequisites.push({
+  if (active?.status === 'in_progress' && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
     timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
     reason: 'Select the governed agent that will remain active for this terminal session before generation.'
   });
@@ -74,35 +84,44 @@ async function storyPrerequisites(root, workflow, selected, modelMode = { enable
   const generationRequired = active && (active.generationPolicy?.requirement !== 'none')
     && (active.generation < 1 || (active.rejectedAt && !(workflow.history ?? []).some((event) => event.phase === active.id && event.event === 'phase_generated' && event.at > active.rejectedAt)));
   const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
-  if (active?.status === 'in_progress' && generationRequired && groundingMode !== 'off') {
+  if (active?.status === 'in_progress' && generationRequired
+      && groundingMode !== 'off' && !deterministicConvergence) {
     const { loadDefinition } = await import('../config.mjs');
     const { verifyGroundingRecord } = await import('../grounding.mjs');
     const { inspectWorkflowGrounding } = await import('../worldmodel.mjs');
     const definition = await loadDefinition(root);
     const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-      agent: session?.agent ?? null
+      agent: activeAgent
     });
     if (!readiness.availability.ready) {
-      const blocks = groundingMode === 'enforce' || readiness.availability.staleness?.blocks;
-      prerequisites.push({ timing: blocks ? 'now' : 'optional', skill: '/sf-worldmodel', command: readiness.command, reason: readiness.reason });
-      prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`, reason: 'Compose and record the governed phase prompt from the shared repository model.' });
+      const integrityBlocks = groundingMode === 'enforce'
+        && readiness.availability.failureClass === 'integrity';
+      prerequisites.push({
+        timing: integrityBlocks ? 'now' : 'optional',
+        skill: '/sf-worldmodel', command: readiness.command,
+        reason: integrityBlocks
+          ? `${readiness.reason} Enforced context integrity must be repaired before these bytes can be used.`
+          : `${readiness.reason} World-model recovery is optional and does not block phase work.`
+      });
     } else {
       if (readiness.availability.staleness?.warns) prerequisites.push({
         timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
         reason: readiness.availability.staleness.message
       });
-      const grounding = await verifyGroundingRecord(root, definition, workflow, active, { agent: session?.agent ?? null });
+      const grounding = await verifyGroundingRecord(root, definition, workflow, active, {
+        agent: activeAgent
+      });
       if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-        timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
+        timing: grounding.errors.length ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
         reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
       });
     }
   }
-  if (active?.status === 'in_progress' && session?.agent) {
+  if (active?.status === 'in_progress' && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
-    const status = (await agentStatus(root, session.agent))[0];
-    if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available pack.` });
-    else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+    const status = (await agentStatus(root, activeSessionAgent))[0];
+    if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
+    else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
     else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
     if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
     const itemDirectory = path.join(root, path.dirname(selected.location.path));

@@ -307,10 +307,12 @@ or intentionally removed authority is never auto-repaired. The unattended action
 inspected state commit and manifest digest into the child build; an advance, deletion, or replacement
 before execution refuses prior to extraction or composition.
 
-Grounding mode controls the failure boundary. `enforce` stops before authoring when the exact model
-is unavailable. `warn` continues with ordinary bounded repository access and writes a versioned
+Grounding mode controls the integrity failure boundary. When the exact model is unavailable, every
+enabled mode continues with ordinary bounded repository access and writes a versioned
 prompt-injection receipt whose `groundingAvailability` contains only a stable reason code—never a
-path, provider diagnostic, or invented manifest identity. Older receipts migrate as
+path, provider diagnostic, or invented manifest identity—and whose World-Model byte count is zero.
+`enforce` stops only when consumed context, provenance, or its prompt snapshot fails verification;
+`warn` reports those integrity findings without blocking. Older receipts migrate as
 `legacy-unverified`; migration does not retroactively claim that missing grounding was approved.
 
 ## Migration from v3

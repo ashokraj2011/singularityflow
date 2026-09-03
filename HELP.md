@@ -272,7 +272,7 @@ Operate an initiative inside GitHub Copilot:
 
 Start and approval use Copilot selectable options and one-time receipts when persistent terminal input is unavailable. governed agents control prompt perspective; they never grant initiative approval authority. Authority comes from normalized local Git emails configured in `approvalAuthorities`, and reports label this `configured-local` rather than cryptographic identity.
 
-`/sf-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected governed-agent prompt → required repository world-model views → active agent Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, publication is blocked when the prompt, world model, or an approved input is missing or changed.
+`/sf-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected governed-agent prompt → required repository world-model views → active agent Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, a missing or changed prompt/approved input and any unverifiable World-Model bytes still block publication. A missing or unreachable model instead records zero World-Model bytes and does not block the Initiative phase. A stale snapshot is omitted under staleness `fail`, warned under `warn`, and accepted silently under `ignore` only after its bytes and provenance verify.
 
 For `kind: binary-bundle` outputs without a template, phase preparation prints the exact target as `awaiting upload`. Place the binary evidence at that path and run the phase command again to register its size and SHA-256 before publishing. Required missing bundles block publication with their expected paths. Downstream prompts include binary provenance, never decoded binary bytes.
 
@@ -1400,11 +1400,12 @@ Feature work produces stable `AC-n` acceptance criteria and `SPEC-nnn` implement
 
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
 artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,
-and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A refuses
-prompt composition until governed world-model grounding exists. Its optional AST page is bounded and records
-the cone, engine, extractor, assurance, fact count, and whether a continuation exists. B never
-silently acquires world-model context from a capability policy. Missing AST never blocks either arm;
-ordinary repository file access remains available. Choose the profile during normal
+and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A records a
+degraded intelligence observation and continues when World-Model context is unavailable. Its
+optional AST page is bounded and records the cone, engine, extractor, assurance, fact count, and
+whether a continuation exists. B never silently acquires world-model context from a capability
+policy. Missing World-Model or AST intelligence never blocks either arm; ordinary repository file
+access remains available. Choose the profile during normal
 Story intake. Existing Stories retain their selected arm.
 
 `poc-lite` is the smallest packaged demonstration. Its four phase records are deterministic, its
@@ -2240,10 +2241,13 @@ For a configured clarification checkpoint, the accepted human response is separa
 stored in `context/clarifications-<phase>-gen<n>.json`. Its prompt and composition
 hashes prevent an answer from an older prompt or generation from satisfying a new one.
 
-In `enforce` mode, publication fails if composition is absent, stale, uncommitted,
-uses the wrong governed agent, omits a required view, or differs from its committed
-manifest/prompt snapshot. `warn` reports the same problems without blocking.
-`off` skips the grounding gate. The mode is pinned into work-item resolution at start, so
+In `enforce` mode, publication fails if composition is absent or changed, uses the wrong governed
+agent, or World-Model bytes differ from their committed manifest/prompt snapshot before use. A valid
+unavailable receipt for a missing or unreachable model—or a stale model under staleness `fail`—
+contains zero World-Model bytes and does not block publication. Staleness `warn` and `ignore` may
+consume an otherwise integrity-verified stale snapshot with the configured visibility. `warn`
+reports consumed-context integrity problems without blocking.
+`off` skips World-Model handling. The mode is pinned into work-item resolution at start, so
 later configuration changes cannot weaken or strengthen an in-flight item.
 
 Context composition is additive:

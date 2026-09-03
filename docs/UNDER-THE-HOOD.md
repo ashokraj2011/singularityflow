@@ -538,9 +538,11 @@ The records capture source paths, SHA-256 values, injected sizes, truncation,
 world-model commit and manifest, active agent, agent resources, approved
 input hashes, and the complete rendered-prompt hash.
 
-With grounding or inputs set to `enforce`, publication fails when required
-context is missing, stale, tampered, composed for another agent, or built against
-another source tree.
+With inputs set to `enforce`, required approved inputs must be present and exact. With World-Model
+grounding set to `enforce`, any model context that was consumed must match its committed hashes,
+source tree, agent, provenance, and prompt snapshot. A missing or unreachable World Model—or a
+stale model under staleness `fail`—is represented by a stable unavailable receipt with zero model bytes and does not block publication;
+tampering, identity mismatch, or unverifiable consumed bytes still fails closed.
 
 ## 7. End-to-end phase execution
 

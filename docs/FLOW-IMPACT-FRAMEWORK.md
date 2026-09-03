@@ -166,9 +166,10 @@ no longer has an active or draft run referencing it.
 
 The seeded `benchmarking-a` and `benchmarking-b` Story work types compare a broader treatment than
 prompt wording. Both use `intake → design → implementation → testing → conformance` with identical
-templates, agents and approvals. A requires the world model, bounded AST context and approval-bound
-agent briefs. B disables those three features and uses full approved artifacts. Their intelligence
-profile is pinned at Story birth.
+templates, agents and approvals. A requests the world model, bounded AST context and approval-bound
+agent briefs; unavailable intelligence is recorded as a degraded treatment rather than a lifecycle
+refusal. B disables those three features and uses full approved artifacts. Their intelligence profile
+is pinned at Story birth.
 
 Use these profiles for an operational benchmark when the whole context strategy is the independent
 variable. Because a contributor chooses the work type, the result is observational unless assignment

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -314,14 +314,45 @@ test('publication records its own machine evidence, so every surface can approve
   portfolio.initiativeProfiles['impact-only'] = {
     label: 'Impact only', description: 'Single phase for gate verification', lifecycleMode: 'planning-only', phases: ['impact-phase']
   };
+  portfolio.repositories = {
+    app: { url: 'https://example.test/app.git', defaultBranch: 'main', required: true }
+  };
   await writeFile(file, YAML.stringify(portfolio));
+  const workflowFile = path.join(root, 'singularity/workflow.yml');
+  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  workflow.worldModel.grounding = 'enforce';
+  await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Add impact profile'], { cwd: root });
   run('git', ['switch', '-c', 'INIT-IMPACT'], { cwd: root });
 
-  await createInitiative(root, { id: 'INIT-IMPACT', title: 'Impact gate', profile: 'impact-only', agent: 'product-owner' });
+  const created = await createInitiative(root, { id: 'INIT-IMPACT', title: 'Impact gate', profile: 'impact-only', agent: 'product-owner' });
+  assert.equal(created.initiative.resolution.worldModelGrounding, 'enforce');
   await prepareInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { agent: 'product-owner' });
+  const mapPath = path.join(
+    root,
+    created.initiative.resolution.initiativeRoot,
+    'INIT-IMPACT',
+    created.initiative.phases['impact-phase'].outputs['repository-map'].path
+  );
+  await writeFile(mapPath, YAML.stringify({
+    version: 1,
+    repositories: { app: { worldModelViews: ['architecture'] } }
+  }));
 
+  // Enforce still protects exact context integrity. A present but malformed model is not treated
+  // like ordinary absence merely because both make the intelligence unusable.
+  const modelDirectory = path.join(root, created.initiative.resolution.worldModelOutputDir);
+  await mkdir(modelDirectory, { recursive: true });
+  await writeFile(path.join(modelDirectory, 'manifest.json'), '{"schema_version":"3.0"}\n');
+  await assert.rejects(
+    () => publishInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { agent: 'product-owner' }),
+    /manifest is missing required metadata/
+  );
+  await rm(modelDirectory, { recursive: true, force: true });
+
+  // Missing intelligence is an availability warning even under enforce; it cannot make ordinary
+  // lifecycle publication impossible.
   const published = await publishInitiativePhase(root, 'INIT-IMPACT', 'impact-phase', { agent: 'product-owner' });
 
   // The impact map is validated during publication; recording that result is what makes the phase

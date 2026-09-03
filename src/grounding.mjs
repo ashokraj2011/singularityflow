@@ -17,6 +17,7 @@ import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { runRemoteGit } from './git-execution.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 
 const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 
@@ -324,14 +325,46 @@ async function modelFiles(directory, prefix = '') {
 
 async function requireModelFile(directory, relative, label, { json = false, jsonl = false } = {}) {
   const absolute = safeModelPath(directory, relative, label);
-  const entry = await lstat(absolute).catch(() => null);
-  if (!entry?.isFile() || entry.isSymbolicLink()) throw new SingularityFlowError(`${label} must be a regular file: ${relative}`);
+  let entry;
+  try { entry = await lstat(absolute); }
+  catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    throw new SingularityFlowError(`${label} is unavailable: ${relative}`, {
+      code: 'WORLD_MODEL_CONTEXT_UNAVAILABLE', details: { path: posix(relative) }, cause: error
+    });
+  }
+  if (!entry.isFile() || entry.isSymbolicLink()) throw new SingularityFlowError(`${label} must be a regular file: ${relative}`);
   const resolvedRoot = await realpath(directory);
   const resolved = await realpath(absolute);
   if (!resolved.startsWith(`${resolvedRoot}${path.sep}`)) throw new SingularityFlowError(`${label} resolves outside the world-model directory: ${relative}`);
   const info = await snapshot(absolute);
-  if (!info.exists || !info.sha256 || info.size < 1) throw new SingularityFlowError(`${label} is missing or empty: ${relative}`);
-  const text = await readFile(absolute, 'utf8');
+  if (!info.exists) throw new SingularityFlowError(`${label} is unavailable: ${relative}`, {
+    code: 'WORLD_MODEL_CONTEXT_UNAVAILABLE', details: { path: posix(relative) }
+  });
+  if (!info.sha256) throw new SingularityFlowError(`${label} changed to a non-file while it was being validated: ${relative}`, {
+    code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) }
+  });
+  if (info.size < 1) throw new SingularityFlowError(`${label} is empty: ${relative}`);
+  let text;
+  try { text = await readFile(absolute, 'utf8'); }
+  catch (error) {
+    throw new SingularityFlowError(
+      `${label} ${isWorldModelAvailabilityError(error) ? 'became unavailable' : 'changed to an unreadable non-file'}: ${relative}`,
+      {
+        code: isWorldModelAvailabilityError(error)
+          ? 'WORLD_MODEL_CONTEXT_UNAVAILABLE'
+          : 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+        details: { path: posix(relative) },
+        cause: error
+      }
+    );
+  }
+  const observedSha256 = createHash('sha256').update(text).digest('hex');
+  if (Buffer.byteLength(text, 'utf8') !== info.size || observedSha256 !== info.sha256) {
+    throw new SingularityFlowError(`${label} changed while it was being validated: ${relative}`, {
+      code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) }
+    });
+  }
   if (json) {
     try { JSON.parse(text); } catch (error) { throw new SingularityFlowError(`${label} is invalid JSON: ${error.message}`); }
   }
@@ -342,7 +375,9 @@ async function requireModelFile(directory, relative, label, { json = false, json
       try { JSON.parse(line); } catch (error) { throw new SingularityFlowError(`${label} line ${index + 1} is invalid JSON: ${error.message}`); }
     }
   }
-  return { path: posix(relative), absolute, ...info };
+  // Return the exact bytes whose size and digest were verified above so semantic validators never
+  // reopen a mutable path after integrity validation.
+  return { path: posix(relative), absolute, ...info, text };
 }
 
 function missingTier(pathValue = null) {
@@ -455,10 +490,44 @@ export async function validateWorldModelDirectory(directory, {
   requireEvidence = true, allowIncompleteMetadata = false, integrity = 'full', sourceLabel = 'world-model'
 } = {}) {
   const manifestFile = path.join(directory, 'manifest.json');
-  if (!(await exists(manifestFile))) throw new SingularityFlowError('World-model builder did not create manifest.json.');
+  if (!(await exists(manifestFile))) {
+    let entries = [];
+    try { entries = await readdir(directory); }
+    catch (error) {
+      if (!['ENOENT', 'EACCES', 'EPERM', 'ESTALE'].includes(error?.code)) throw error;
+      throw new SingularityFlowError('World-model directory is unavailable.', {
+        code: 'WORLD_MODEL_CONTEXT_UNAVAILABLE', details: { path: 'manifest.json' }, cause: error
+      });
+    }
+    const partial = entries.filter((entry) => entry !== '.checkpoints');
+    if (partial.length) {
+      throw new SingularityFlowError(
+        'World-model projection contains files but has no manifest.json.', {
+          code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+          details: { path: 'manifest.json' }
+        }
+      );
+    }
+    throw new SingularityFlowError('World-model builder did not create manifest.json.', {
+      code: 'WORLD_MODEL_CONTEXT_UNAVAILABLE', details: { path: 'manifest.json' }
+    });
+  }
   let manifest;
-  try { manifest = JSON.parse(await readFile(manifestFile, 'utf8')); }
+  let manifestText;
+  try {
+    manifestText = await readFile(manifestFile, 'utf8');
+  }
+  catch (error) {
+    throw new SingularityFlowError(`World-model manifest could not be read: ${error.message}`, {
+      code: isWorldModelAvailabilityError(error)
+        ? 'WORLD_MODEL_CONTEXT_UNAVAILABLE'
+        : 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+      details: { path: 'manifest.json' }, cause: error
+    });
+  }
+  try { manifest = JSON.parse(manifestText); }
   catch (error) { throw new SingularityFlowError(`World-model manifest is invalid JSON: ${error.message}`); }
+  const manifestContentSha256 = createHash('sha256').update(manifestText).digest('hex');
   const normalizedManifest = normalizeWorldModelManifest(manifest);
   const modern = ['2.0', '3.0'].includes(manifest.schema_version);
   if (modern && !allowIncompleteMetadata) {
@@ -474,10 +543,14 @@ export async function validateWorldModelDirectory(directory, {
   if (manifest.source_tree_sha256 != null && !/^sha256:[0-9a-f]{64}$/.test(manifest.source_tree_sha256)) throw new SingularityFlowError('World-model manifest source_tree_sha256 is invalid.');
 
   const registered = new Set();
+  const registeredFiles = new Map();
   const register = async (relative, label, options) => {
     const record = await requireModelFile(directory, relative, label, options);
     if (registered.has(record.path)) throw new SingularityFlowError(`World-model manifest declares the same file more than once: ${record.path}`);
     registered.add(record.path);
+    registeredFiles.set(record.path, {
+      path: record.path, sha256: record.sha256, size: record.size
+    });
     return record;
   };
   const coreModel = normalizedManifest.core?.model?.path ?? 'core/model.json';
@@ -499,7 +572,7 @@ export async function validateWorldModelDirectory(directory, {
     if (manifest.schema_version === '3.0' && manifest.path_index.sha256 && manifest.path_index.sha256 !== record.sha256) {
       throw new SingularityFlowError('World-model path index hash differs from manifest.json.');
     }
-    pathIndexValue = JSON.parse(await readFile(safeModelPath(directory, manifest.path_index.path, 'World-model path index'), 'utf8'));
+    pathIndexValue = JSON.parse(record.text);
   }
 
   if (!manifest.views || typeof manifest.views !== 'object' || Array.isArray(manifest.views)) throw new SingularityFlowError('World-model manifest views must be an object.');
@@ -582,7 +655,12 @@ export async function validateWorldModelDirectory(directory, {
     if (exceeded.length) warnings.push(`World-model budget warning: ${relative} (${exceeded.join('; ')}).`);
   }
   for (const warning of warnings) console.warn(`Warning: ${warning} Consider moving detail into a domain file or evidence ledger.`);
-  return { manifest, normalizedManifest, repositoryCommit, registered: [...registered].sort(), warnings };
+  return {
+    manifest, normalizedManifest, manifestContentSha256,
+    repositoryCommit, registered: [...registered].sort(),
+    registeredFiles: [...registeredFiles.values()].sort((left, right) => left.path.localeCompare(right.path)),
+    warnings
+  };
 }
 
 export async function worldModelFreshness(root, config, manifest) {
@@ -947,7 +1025,9 @@ export async function resolveWorldModelContext(root, config, phase, {
     requireEvidence: plan.includeEvidence
   });
   const directory = located.directory;
-  const { manifest, normalizedManifest } = await validateWorldModelDirectory(directory, {
+  const {
+    manifest, normalizedManifest, manifestContentSha256, registeredFiles
+  } = await validateWorldModelDirectory(directory, {
     requiredSelections: plan.selections,
     expectedTask: plan.taskGuide.required ? plan.taskGuide.task : null,
     requireEvidence: plan.includeEvidence,
@@ -955,19 +1035,69 @@ export async function resolveWorldModelContext(root, config, phase, {
   });
   const freshness = await worldModelFreshness(root, config.definition ?? config, manifest);
   const selected = [];
-  const add = async (relative, level, reason, required = true) => {
+  const validatedFiles = new Map(registeredFiles.map((entry) => [entry.path, entry]));
+  const add = async (relative, level, reason, required = true, expectedSha256 = null) => {
     if (!relative) {
-      if (required) throw new SingularityFlowError(`Required world-model context is not declared: ${reason}.`);
-      return;
-    }
-    const absolute = safeModelPath(directory, relative, `World-model context '${reason}'`);
-    const info = await snapshot(absolute);
-    if (!info.exists || !info.sha256 || info.size < 1) {
-      if (required) throw new SingularityFlowError(`Required world-model context is missing: ${relative} (${reason}).`);
+      if (required) throw new SingularityFlowError(
+        `Required world-model context is not declared: ${reason}.`,
+        { code: 'WORLD_MODEL_SELECTION_UNAVAILABLE' }
+      );
       return;
     }
     const relativePath = posix(relative);
-    if (!selected.some((item) => item.relative === relativePath)) selected.push({ relative: relativePath, absolute, level, reason, ...info });
+    const validated = validatedFiles.get(relativePath);
+    if (!validated) {
+      throw new SingularityFlowError(
+        `World-model context was not part of the validated manifest snapshot: ${relative} (${reason}).`,
+        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: relativePath } }
+      );
+    }
+    const absolute = safeModelPath(directory, relativePath, `World-model context '${reason}'`);
+    let raw;
+    try {
+      // Read once and bind the exact bytes sent to the caller to the validation snapshot. A
+      // separate stat/hash followed by another read lets a cache file be replaced in between.
+      raw = await readFile(absolute);
+    } catch (error) {
+      if (!required && error?.code === 'ENOENT') return;
+      throw new SingularityFlowError(
+        `Required world-model context could not be read: ${relative} (${reason}).`,
+        {
+          code: isWorldModelAvailabilityError(error)
+            ? 'WORLD_MODEL_CONTEXT_UNAVAILABLE'
+            : 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+          details: { path: posix(relative) }, cause: error
+        }
+      );
+    }
+    if (raw.length < 1) {
+      if (!required) return;
+      throw new SingularityFlowError(
+        `Required world-model context is missing: ${relative} (${reason}).`,
+        { code: 'WORLD_MODEL_CONTEXT_UNAVAILABLE', details: { path: relativePath } }
+      );
+    }
+    const observed = createHash('sha256').update(raw).digest('hex');
+    const expected = String(expectedSha256 ?? '').replace(/^sha256:/, '') || null;
+    if (raw.length !== validated.size || observed !== validated.sha256
+        || (expected && observed !== expected)) {
+      throw new SingularityFlowError(
+        `World-model context changed while it was being selected: ${relative} (${reason}).`,
+        { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED', details: { path: posix(relative) } }
+      );
+    }
+    if (!selected.some((item) => item.relative === relativePath)) {
+      selected.push({
+        relative: relativePath,
+        absolute,
+        level,
+        reason,
+        exists: true,
+        size: raw.length,
+        sha256: observed,
+        body: raw.toString('utf8')
+      });
+    }
   };
   // The core and each view are read at the tier the phase's declared depth asks for. Every model is
   // required to produce a brief of both (see the v2 checks above) and, until this, nothing ever read
@@ -976,7 +1106,10 @@ export async function resolveWorldModelContext(root, config, phase, {
   const plannedCore = worldModelSelectionEntry(normalizedManifest, plan.core, {
     allowLegacyFallback: legacyFallback
   });
-  await add(plannedCore.path, 0, `shared repository core (${plan.core.tier})`);
+  await add(
+    plannedCore.path, 0, `shared repository core (${plan.core.tier})`, true,
+    plannedCore.sha256
+  );
   const knownCorePaths = new Set(['brief', 'full']
     .map((tier) => worldModelSelectionEntry(normalizedManifest, { kind: 'core', tier }, {
       allowLegacyFallback: legacyFallback
@@ -995,7 +1128,10 @@ export async function resolveWorldModelContext(root, config, phase, {
     const entry = worldModelSelectionEntry(normalizedManifest, selection, {
       allowLegacyFallback: legacyFallback
     });
-    await add(entry.path, 1, `${phase} view: ${selection.view} (${selection.tier}; ${selection.origin})`);
+    await add(
+      entry.path, 1, `${phase} view: ${selection.view} (${selection.tier}; ${selection.origin})`,
+      true, entry.sha256
+    );
   }
   if (plan.includeDomains !== 'none') {
     for (const domain of manifest.domains ?? []) {
@@ -1005,11 +1141,18 @@ export async function resolveWorldModelContext(root, config, phase, {
   if (plan.taskGuide.required) {
     const normalized = normalizeTask(plan.taskGuide.task);
     const exact = (manifest.task_guides ?? []).find((guide) => normalizeTask(guide.task) === normalized);
-    if (!exact) throw new SingularityFlowError(`World model has no task guide for '${plan.taskGuide.task}'. Materialize it with the same --task value.`);
-    await add(exact.path, 2, `task guide: ${exact.id}`);
+    if (!exact) throw new SingularityFlowError(
+      `World model has no task guide for '${plan.taskGuide.task}'. Materialize it with the same --task value.`,
+      { code: 'WORLD_MODEL_SELECTION_UNAVAILABLE' }
+    );
+    await add(exact.path, 2, `task guide: ${exact.id}`, true, exact.sha256);
   }
   if (plan.includeEvidence) await add(manifest.evidence?.path, 3, 'evidence ledger');
-  return { manifest, normalizedManifest, freshness, selected, directory, plan, located };
+  return {
+    manifest, normalizedManifest, manifestContentSha256,
+    validatedModelFiles: registeredFiles,
+    freshness, selected, directory, plan, located
+  };
 }
 
 // Why the repository world model needs (re)building, or null when it is present, committed, and
@@ -1131,6 +1274,7 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   }
   const problems = [];
   const stalenessProblems = [];
+  const availabilityWarnings = [];
   const groundingAvailability = record.groundingAvailability ?? {
     status: 'legacy-unverified', reasonCode: null
   };
@@ -1142,7 +1286,10 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     if (!stableGroundingReasonCode(groundingAvailability.reasonCode)) {
       problems.push(`grounding composition has no stable unavailability reason code: ${relative}`);
     } else {
-      problems.push(
+      // A valid unavailable receipt proves that no World-Model bytes were consumed. Availability
+      // is a quality signal, not lifecycle authority—even when `grounding: enforce` asks us to
+      // fail closed on hashes, paths, and provenance for context that *was* consumed.
+      availabilityWarnings.push(
         `repository world-model grounding was unavailable when this prompt was composed (${groundingAvailability.reasonCode})`
       );
     }
@@ -1308,11 +1455,17 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
             totalEnvelopeBytes: referencePolicy.totalEnvelopeBytes
           });
           const authoredResolved = authoredReferencePreview(rawResolved);
-          // Historical prompt receipts recorded the complete published preview. New receipts use
-          // the authored-only projection. Both are reproducible from the same immutable handle;
-          // select by the recorded preview identity so an upgrade does not invalidate history.
-          const resolved = file.previewSha256 === authoredResolved.preview.sha256
-            ? authoredResolved : rawResolved;
+          const projectedResolved = await resolveReference(root, handle, {
+            maxBytes: referencePolicy.previewTextBytes,
+            totalEnvelopeBytes: referencePolicy.totalEnvelopeBytes,
+            authoredMarkdown: true
+          });
+          // Historical receipts may have recorded the bounded raw preview or the old
+          // bound-then-project representation. New receipts use project-then-bound so an oversized
+          // managed input envelope cannot survive a truncated closing marker.
+          const resolved = [projectedResolved, authoredResolved, rawResolved]
+            .find((candidate) => file.previewSha256 === candidate.preview.sha256)
+            ?? projectedResolved;
           if (resolved.reference.artifact.path !== recordedPath
               || resolved.source.rawSha256 !== file.sha256 || resolved.source.rawBytes !== file.bytes
               || (file.previewSha256 && resolved.preview.sha256 !== file.previewSha256)
@@ -1418,7 +1571,11 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     stalenessProblems.join('; ')
   );
   const errors = [...severity.errors, ...(staleness.blocks ? stalenessProblems : [])];
-  const warnings = [...severity.warnings, ...(staleness.warns ? stalenessProblems : [])];
+  const warnings = [
+    ...availabilityWarnings,
+    ...severity.warnings,
+    ...(staleness.warns ? stalenessProblems : [])
+  ];
   return {
     mode, errors, warnings, staleness,
     passes: errors.length || warnings.length ? [] : [`grounding composition: ${phase.id} generation ${generation} (${record.files.length} files)`],

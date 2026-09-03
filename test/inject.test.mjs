@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
   globToRegExp,
   injectAgentPrompt,
+  readPromptGeneration,
   recordInjection,
   renderInjection,
   resolveInjection,
@@ -13,10 +15,11 @@ import {
   validateInjectionDefinition
 } from '../src/inject.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
-import { readJson } from '../src/util.mjs';
+import { readJson, run } from '../src/util.mjs';
 
 async function fixtureRoot({ placeholder = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-inject-'));
+  run('git', ['init', '-q'], { cwd: root });
   await mkdir(path.join(root, 'singularity/world-model/architecture'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/domains'), { recursive: true });
   await mkdir(path.join(root, 'singularity/world-model/evidence'), { recursive: true });
@@ -89,6 +92,53 @@ test('renderInjection assembles matching model files with hashes and header', as
   assert.match(rendered.text, /PCI boundaries/);
   assert.match(rendered.text, /commit=aaaaaaaaaa/);
   assert.ok(rendered.sections.every((section) => /^[0-9a-f]{64}$/.test(section.sha256)));
+});
+
+test('renderInjection refuses rule bytes that differ from the validated model snapshot', async () => {
+  const root = await fixtureRoot();
+  const relative = 'architecture/overview.md';
+  const original = await readFile(path.join(root, 'singularity/world-model', relative));
+  const validatedModelFiles = [{
+    path: relative,
+    sha256: createHash('sha256').update(original).digest('hex'),
+    size: original.length
+  }];
+  await writeFile(
+    path.join(root, 'singularity/world-model', relative),
+    '# Architecture\n\nReplaced after validation.\n'
+  );
+  await assert.rejects(
+    () => renderInjection(
+      root,
+      definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }]),
+      { agent: 'architect' },
+      { validatedModelFiles }
+    ),
+    (error) => error?.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED'
+      && /differs from the validated model snapshot/.test(error.message)
+  );
+});
+
+test('renderInjection does not silently omit a validated file that disappears before selection', async () => {
+  const root = await fixtureRoot();
+  const relative = 'architecture/overview.md';
+  const original = await readFile(path.join(root, 'singularity/world-model', relative));
+  const validatedModelFiles = [{
+    path: relative,
+    sha256: createHash('sha256').update(original).digest('hex'),
+    size: original.length
+  }];
+  await unlink(path.join(root, 'singularity/world-model', relative));
+
+  await assert.rejects(
+    () => renderInjection(
+      root,
+      definition([{ when: { agent: 'architect' }, include: ['architecture/*'] }]),
+      { agent: 'architect' },
+      { validatedModelFiles }
+    ),
+    (error) => error?.code === 'ENOENT'
+  );
 });
 
 test('renderInjection enforces the UTF-8 source-byte budget with truncation', async () => {
@@ -169,7 +219,10 @@ test('recordInjection writes an auditable generation context record', async () =
   const workflow = { workItem: { id: 'ENG-9' } };
   const phase = { id: 'design', generation: 1 };
   const workDir = path.join(root, 'singularity/work-items/ENG-9');
-  const { record, file } = await recordInjection(root, workflow, phase, { ...rendered, agent: 'architect' }, { workDir });
+  const renderedText = '# Exact composed design prompt\n';
+  const { record, file } = await recordInjection(root, workflow, phase, {
+    ...rendered, agent: 'architect', renderedText
+  }, { workDir });
   assert.equal(record.generation, 2);
   assert.equal(file, 'singularity/work-items/ENG-9/context/design-gen2.json');
   const written = await readJson(path.join(root, file));
@@ -178,6 +231,11 @@ test('recordInjection writes an auditable generation context record', async () =
   assert.match(written.files[0].sha256, /^[0-9a-f]{64}$/);
   assert.equal(written.modelCommit, 'a'.repeat(40));
   assert.equal(written.schemaVersion, currentSchemaVersion('prompt-injection'));
+  assert.equal(written.renderedSha256, createHash('sha256').update(renderedText).digest('hex'));
+  assert.equal(
+    await readFile(path.join(root, written.promptPath), 'utf8'),
+    renderedText
+  );
   assert.deepEqual(written.groundingAvailability, {
     status: 'available', reasonCode: null
   });
@@ -205,6 +263,7 @@ test('recordInjection preserves prompt-study, agent, and remote-skill provenance
   const { record } = await recordInjection(root, workflow, phase, {
     ...rendered,
     agent: 'architect',
+    renderedText: '# Exact prompt-study composition\n',
     promptStudy,
     promptDefinition,
     remoteSkills
@@ -231,5 +290,256 @@ test('recordInjection refuses diagnostic prose and paths in durable grounding re
       }
     }, { workDir: path.join(root, 'singularity/work-items/ENG-11') }),
     /stable reason code/
+  );
+});
+
+test('recordInjection reuses a verified generation without rewriting its receipt or snapshot', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = { workItem: { id: 'ENG-REUSE' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-REUSE');
+  const injection = {
+    ...rendered,
+    agent: 'architect',
+    task: 'design',
+    renderedText: '# Immutable generation prompt\n',
+    compositionCache: { key: 'a'.repeat(64), hit: false }
+  };
+
+  const first = await recordInjection(root, workflow, phase, injection, { workDir });
+  const recordBefore = await readFile(path.join(root, first.file), 'utf8');
+  const promptBefore = await readFile(path.join(root, first.promptFile), 'utf8');
+  const second = await recordInjection(root, workflow, phase, {
+    ...injection,
+    compositionCache: { ...injection.compositionCache, hit: true }
+  }, { workDir });
+
+  assert.equal(first.reused, false);
+  assert.equal(second.reused, true);
+  assert.equal(second.record.injectedAt, first.record.injectedAt);
+  assert.equal(await readFile(path.join(root, first.file), 'utf8'), recordBefore);
+  assert.equal(await readFile(path.join(root, first.promptFile), 'utf8'), promptBefore);
+  const verified = await readPromptGeneration(root, workflow, phase, {
+    workDir, agent: 'architect', task: 'design'
+  });
+  assert.equal(verified.text, injection.renderedText);
+  assert.equal(verified.record.compositionCache.key, 'a'.repeat(64));
+  assert.equal(verified.record.compositionCache.promptSha256, verified.record.renderedSha256);
+});
+
+test('recordInjection refuses a different composition for an occupied generation', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = { workItem: { id: 'ENG-CONFLICT' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-CONFLICT');
+  const first = await recordInjection(root, workflow, phase, {
+    ...rendered, agent: 'architect', renderedText: '# First prompt\n'
+  }, { workDir });
+  const recordBefore = await readFile(path.join(root, first.file), 'utf8');
+
+  await assert.rejects(
+    () => recordInjection(root, workflow, phase, {
+      ...rendered, agent: 'architect', renderedText: '# Different prompt\n'
+    }, { workDir }),
+    (error) => error.code === 'PROMPT_GENERATION_CONFLICT'
+  );
+  await assert.rejects(
+    () => recordInjection(root, workflow, phase, {
+      ...rendered, agent: 'developer', renderedText: '# First prompt\n'
+    }, { workDir }),
+    (error) => error.code === 'PROMPT_GENERATION_CONFLICT',
+    'the same bytes under a different agent are still a different governed composition'
+  );
+  assert.equal(await readFile(path.join(root, first.file), 'utf8'), recordBefore);
+  assert.equal(await readFile(path.join(root, first.promptFile), 'utf8'), '# First prompt\n');
+});
+
+test('prompt-generation reuse refuses a corrupt snapshot instead of replacing it', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = { workItem: { id: 'ENG-CORRUPT' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-CORRUPT');
+  const injection = { ...rendered, agent: 'architect', renderedText: '# Original prompt\n' };
+  const first = await recordInjection(root, workflow, phase, injection, { workDir });
+  await writeFile(path.join(root, first.promptFile), '# Locally changed prompt\n');
+
+  await assert.rejects(
+    () => readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+  await assert.rejects(
+    () => recordInjection(root, workflow, phase, injection, { workDir }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+  assert.equal(await readFile(path.join(root, first.promptFile), 'utf8'), '# Locally changed prompt\n');
+});
+
+test('prompt-generation persistence repairs an exact interrupted pair and refuses changed orphan bytes', async () => {
+  const renderedText = '# Pair prompt\n';
+
+  const promptOnlyRoot = await fixtureRoot();
+  const promptOnlyWorkflow = { workItem: { id: 'ENG-PROMPT-ONLY' } };
+  const phase = { id: 'design', generation: 0 };
+  const promptOnlyWorkDir = path.join(promptOnlyRoot, 'singularity/work-items/ENG-PROMPT-ONLY');
+  const promptOnlyPath = path.join(promptOnlyWorkDir, 'context/prompts/design-gen1.md');
+  await mkdir(path.dirname(promptOnlyPath), { recursive: true });
+  await writeFile(promptOnlyPath, renderedText);
+  const promptOnlyRendered = await renderInjection(
+    promptOnlyRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const repairedPromptOnly = await recordInjection(promptOnlyRoot, promptOnlyWorkflow, phase, {
+    ...promptOnlyRendered, agent: 'architect', renderedText
+  }, { workDir: promptOnlyWorkDir });
+  assert.equal(repairedPromptOnly.recovered, true);
+  assert.equal((await readPromptGeneration(
+    promptOnlyRoot, promptOnlyWorkflow, phase,
+    { workDir: promptOnlyWorkDir, agent: 'architect' }
+  )).text, renderedText);
+
+  const receiptOnlyRoot = await fixtureRoot();
+  const receiptOnlyWorkflow = { workItem: { id: 'ENG-RECEIPT-ONLY' } };
+  const receiptOnlyWorkDir = path.join(receiptOnlyRoot, 'singularity/work-items/ENG-RECEIPT-ONLY');
+  const receiptOnlyRendered = await renderInjection(
+    receiptOnlyRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const recorded = await recordInjection(receiptOnlyRoot, receiptOnlyWorkflow, phase, {
+    ...receiptOnlyRendered, agent: 'architect', renderedText
+  }, { workDir: receiptOnlyWorkDir });
+  await unlink(path.join(receiptOnlyRoot, recorded.promptFile));
+  const repairedReceiptOnly = await recordInjection(receiptOnlyRoot, receiptOnlyWorkflow, phase, {
+    ...receiptOnlyRendered, agent: 'architect', renderedText
+  }, { workDir: receiptOnlyWorkDir });
+  assert.equal(repairedReceiptOnly.recovered, true);
+  assert.equal(await readFile(path.join(receiptOnlyRoot, recorded.promptFile), 'utf8'), renderedText);
+
+  const corruptReceiptRoot = await fixtureRoot();
+  const corruptReceiptWorkflow = { workItem: { id: 'ENG-CORRUPT-RECEIPT' } };
+  const corruptReceiptWorkDir = path.join(
+    corruptReceiptRoot, 'singularity/work-items/ENG-CORRUPT-RECEIPT'
+  );
+  const corruptRendered = await renderInjection(
+    corruptReceiptRoot, definition([{ when: {}, include: ['architecture/*'] }]),
+    { agent: 'architect' }
+  );
+  const corruptRecorded = await recordInjection(
+    corruptReceiptRoot, corruptReceiptWorkflow, phase,
+    {
+      ...corruptRendered,
+      agent: 'architect',
+      renderedText,
+      compositionCache: { key: 'c'.repeat(64) }
+    },
+    { workDir: corruptReceiptWorkDir }
+  );
+  await unlink(path.join(corruptReceiptRoot, corruptRecorded.promptFile));
+  const corruptReceiptPath = path.join(corruptReceiptRoot, corruptRecorded.file);
+  const corruptReceipt = JSON.parse(await readFile(corruptReceiptPath, 'utf8'));
+  corruptReceipt.compositionCache.promptSha256 = 'd'.repeat(64);
+  await writeFile(corruptReceiptPath, `${JSON.stringify(corruptReceipt, null, 2)}\n`);
+  await assert.rejects(
+    () => recordInjection(corruptReceiptRoot, corruptReceiptWorkflow, phase, {
+      ...corruptRendered,
+      agent: 'architect',
+      renderedText,
+      compositionCache: { key: 'c'.repeat(64) }
+    }, { workDir: corruptReceiptWorkDir }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+  await assert.rejects(readFile(path.join(corruptReceiptRoot, corruptRecorded.promptFile), 'utf8'), /ENOENT/);
+
+  const changedRoot = await fixtureRoot();
+  const changedWorkflow = { workItem: { id: 'ENG-CHANGED-ORPHAN' } };
+  const changedWorkDir = path.join(changedRoot, 'singularity/work-items/ENG-CHANGED-ORPHAN');
+  const changedPath = path.join(changedWorkDir, 'context/prompts/design-gen1.md');
+  await mkdir(path.dirname(changedPath), { recursive: true });
+  await writeFile(changedPath, '# Different orphan prompt\n');
+  const changedRendered = await renderInjection(
+    changedRoot, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  await assert.rejects(
+    () => recordInjection(changedRoot, changedWorkflow, phase, {
+      ...changedRendered, agent: 'architect', renderedText
+    }, { workDir: changedWorkDir }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+});
+
+test('concurrent first composers cannot overwrite one prompt-generation slot', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = { workItem: { id: 'ENG-RACE' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-RACE');
+  const candidates = ['# Concurrent prompt A\n', '# Concurrent prompt B\n'];
+  const settled = await Promise.allSettled(candidates.map((renderedText) => recordInjection(
+    root, workflow, phase, { ...rendered, agent: 'architect', renderedText }, { workDir }
+  )));
+  const completed = settled.filter((result) => result.status === 'fulfilled');
+  const refused = settled.filter((result) => result.status === 'rejected');
+
+  assert.equal(completed.length, 1);
+  assert.equal(refused.length, 1);
+  assert.ok(['SUBJECT_LOCK_BUSY', 'PROMPT_GENERATION_CONFLICT'].includes(refused[0].reason.code));
+  const stored = await readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' });
+  assert.ok(candidates.includes(stored.text));
+  assert.equal(
+    stored.record.renderedSha256,
+    createHash('sha256').update(stored.text).digest('hex')
+  );
+  const losingText = candidates.find((candidate) => candidate !== stored.text);
+  await assert.rejects(
+    () => recordInjection(root, workflow, phase, {
+      ...rendered, agent: 'architect', renderedText: losingText
+    }, { workDir }),
+    (error) => error.code === 'PROMPT_GENERATION_CONFLICT'
+  );
+  assert.equal(
+    (await readPromptGeneration(root, workflow, phase, { workDir, agent: 'architect' })).text,
+    stored.text,
+    'a retry after the concurrent writer completes still cannot replace the winning snapshot'
+  );
+});
+
+test('a path occupied at the final persistence boundary is preserved and refused', async () => {
+  const root = await fixtureRoot();
+  const rendered = await renderInjection(
+    root, definition([{ when: {}, include: ['architecture/*'] }]), { agent: 'architect' }
+  );
+  const workflow = { workItem: { id: 'ENG-EXTERNAL-RACE' } };
+  const phase = { id: 'design', generation: 0 };
+  const workDir = path.join(root, 'singularity/work-items/ENG-EXTERNAL-RACE');
+  const foreign = '# Created by another process\n';
+
+  await assert.rejects(
+    () => recordInjection(root, workflow, phase, {
+      ...rendered, agent: 'architect', renderedText: '# Candidate prompt\n'
+    }, {
+      workDir,
+      beforePersist: async ({ promptFile }) => {
+        await mkdir(path.dirname(promptFile), { recursive: true });
+        await writeFile(promptFile, foreign);
+      }
+    }),
+    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+  );
+  assert.equal(
+    await readFile(path.join(workDir, 'context/prompts/design-gen1.md'), 'utf8'),
+    foreign,
+    'exclusive publication must not replace a path that wins the final race'
+  );
+  await assert.rejects(
+    readFile(path.join(workDir, 'context/design-gen1.json'), 'utf8'),
+    /ENOENT/
   );
 });

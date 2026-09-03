@@ -4,15 +4,18 @@
 # Publishing the plan phase validates this file against committed state:
 #
 #   - every key under `repositories` must exist in singularity/portfolio.yml
-#   - every entry in `worldModelViews` must exist in the committed world model
+#   - when a committed World-Model manifest is available, every entry in
+#     `worldModelViews` must exist in it
 #
-# Under `grounding: enforce` an unresolvable reference blocks publication;
-# otherwise it warns. Both checks are why this file is worth completing properly:
-# an impact map that names a repository nobody configured, or cites a view that
-# was never built, is a guess wearing the costume of an analysis.
+# A missing or unavailable World Model records degraded evidence and does not block
+# publication. Against an available manifest, an unresolvable reference blocks under
+# `grounding: enforce` and otherwise warns. These checks are why this file is worth
+# completing properly: an impact map that names a repository nobody configured, or
+# cites a view absent from the available manifest, is a guess wearing the costume of
+# an analysis.
 #
-# Build the world model before completing this file. Without it there is no
-# evidence to cite and the analysis is unfounded.
+# Use World-Model evidence when available. Without it, cite pinned sources and
+# record the uncertainty instead of guessing; ordinary Initiative work continues.
 #
 # Shape of a complete entry — copy into `repositories` and replace the alias with
 # a real portfolio repository ID:

@@ -45,7 +45,7 @@ This delivery combines deterministic next-action guidance, the one-script local 
 - Rule-selected repository world-model prompt injection, merged in PR #7.
 - Repository world models remain generated and stored in the repository. Remote agent Markdown is an additive prompt/template/output source, never a world-model replacement.
 - World-model generation is isolated, manifest-validated, source-hashed, atomically installed, and committed/published. `wm compose` is now the single audited phase path; `wm inject` remains an alias.
-- Grounding policy is configurable as `off`, `warn`, or `enforce`. The starter profile enforces committed required views and exact prompt snapshots, while missing legacy configuration remains off.
+- Grounding policy is configurable as `off`, `warn`, or `enforce`. The starter profile uses `warn`; `enforce` verifies any World-Model bytes and exact prompt snapshots before use. Missing or unreachable intelligence, plus stale intelligence under staleness `fail`, records an unavailable receipt and does not block lifecycle work. Staleness `warn` or `ignore` may consume a verified stale snapshot, while missing legacy configuration remains off.
 
 ### Configurable lifecycle sequence gates
 

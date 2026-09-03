@@ -2,8 +2,8 @@
 #
 # At Epic planning time Copilot resolves repository ownership against the
 # workspace registry and cites pinned business/technical sources. Detailed
-# code-level impact analysis begins later on each canonical Story branch, after
-# that branch has generated its repository world model.
+# code-level impact analysis begins later on each canonical Story branch, using
+# its repository World Model when available and explicit degraded context otherwise.
 
 version: 1
 epicId: "{{workId}}"

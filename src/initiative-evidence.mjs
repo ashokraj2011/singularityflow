@@ -37,6 +37,7 @@ import {
   cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
 } from './world-model/authority-refresh.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 
 export { canonicalJson, recordSha256 };
 
@@ -46,7 +47,6 @@ const RECORD_FAMILIES = Object.freeze({
   approvals: 'initiative-approval-record',
   invalidations: 'initiative-invalidation-record'
 });
-
 function actorEmail(actor) { return actor?.email?.trim().toLowerCase() ?? null; }
 function actorName(actor) { return actor?.name ?? actorEmail(actor) ?? 'unknown'; }
 
@@ -680,6 +680,7 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   const outputDir = initiative.resolution?.worldModelOutputDir ?? 'singularity/world-model';
   let manifest = null;
   let modelDiagnostic = null;
+  let modelFailure = 'availability';
   try {
     const definition = withWorldModelSourceScope(
       await loadDefinition(root),
@@ -719,7 +720,7 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
           { code: 'WMB_MANIFEST_MISSING', details: { refresh: authority.status } }
         );
       }
-      if (['offline-cached', 'timeout-cached'].includes(authority.status)
+      if (['offline-cached', 'timeout-cached', 'unavailable'].includes(authority.status)
           && !cachedWorldModelV4AuthorityPresent(root, config)) {
         throw new SingularityFlowError(
           'The registered World-Model authority could not be refreshed and has no verified cache.',
@@ -745,28 +746,38 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
         definition
       }, { sourceTreeSha256: source.sha256 });
       const candidate = path.join(located.directory, 'manifest.json');
-      const validated = await validateWorldModelDirectory(located.directory, {
-        integrity: 'full',
-        sourceLabel: located.source === 'state-branch'
-          ? `governed state-branch world model '${located.branch}'`
-          : 'application-projection world model'
-      });
-      const freshness = await worldModelFreshness(root, definition, validated.manifest);
-      if (!freshness.fresh || freshness.built !== source.sha256) {
-        modelDiagnostic = `the preserved world model at ${candidate} describes ${freshness.built ?? 'an unknown source'}, not the current scoped source ${source.sha256}`;
+      const candidateInfo = await snapshot(candidate);
+      if (!candidateInfo.exists) {
+        modelDiagnostic = `no world-model manifest is available at ${candidate}`;
       } else {
-        manifest = validated.manifest;
+        const validated = await validateWorldModelDirectory(located.directory, {
+          integrity: 'full',
+          sourceLabel: located.source === 'state-branch'
+            ? `governed state-branch world model '${located.branch}'`
+            : 'application-projection world model'
+        });
+        const freshness = await worldModelFreshness(root, definition, validated.manifest);
+        if (!freshness.fresh || freshness.built !== source.sha256) {
+          modelDiagnostic = `the preserved world model at ${candidate} describes ${freshness.built ?? 'an unknown source'}, not the current scoped source ${source.sha256}`;
+        } else {
+          manifest = validated.manifest;
+        }
       }
     }
   } catch (error) {
     modelDiagnostic = error.message;
+    modelFailure = isWorldModelAvailabilityError(error)
+      ? 'availability'
+      : 'integrity';
   }
   const mode = initiative.resolution?.worldModelGrounding ?? 'off';
   if (!manifest) {
     const message = `impact map references world-model views, but no exact-source validated model is available from governed state or the application projection (${outputDir}): ${modelDiagnostic ?? 'model authority is unavailable'}`;
     const referencesViews = Object.values(impact.repositories).some((entry) => (entry?.worldModelViews ?? entry?.views ?? []).length);
     if (!referencesViews) return { errors: [], warnings: [] };
-    return mode === 'enforce' ? { errors: [message], warnings: [] } : { errors: [], warnings: [message] };
+    return mode === 'enforce' && modelFailure === 'integrity'
+      ? { errors: [message], warnings: [] }
+      : { errors: [], warnings: [message] };
   }
   return validateImpactMap(portfolio, manifest, impact, { mode });
 }

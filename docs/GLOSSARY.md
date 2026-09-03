@@ -43,7 +43,7 @@ already exist.
 | Closed vocabulary | Immutable registry that owns finite first-party symbolic members such as lifecycle event types | `src/vocabularies/` and its generated manifest | Whether a producer may create authority using a symbolic member |
 | Publication | The atomic unit of a governed change: take the subject lock, run preflight, write state, commit, push, append to the ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
 | Configuration branch | The orphan `sflow/config` branch holding governed configuration, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
-| Grounding | Whether a phase requires a current world-model composition before it may generate. `off`, `warn` or `enforce` | `worldModel.grounding` | Whether generation may proceed without repository facts |
+| Grounding | How a phase handles World-Model context: `off` omits it, `warn` reports integrity findings, and `enforce` strictly verifies any context consumed. Unavailability itself is non-blocking | `worldModel.grounding` | Whether repository facts are included and how their provenance is verified |
 | Pinned resolution | The snapshot of configuration hashes a Story takes when it starts | `resolution` in the work item | Why an old Story is unaffected by today's configuration edit |
 | Review packet | The hashed record of exactly what a reviewer was shown when they approved | `singularity/work-items/<ID>/submissions/` | That an approval refers to specific bytes, not to a moving artifact |
 

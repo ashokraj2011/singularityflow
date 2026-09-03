@@ -117,32 +117,35 @@ test('story planning creates a private immutable context pack and promotes only 
   assert.match(git(root, ['log', '-1', '--format=%s']), /\[PLAN-101\]\[phase:intake\]\[planning\] promote reviewed plan/);
 });
 
-test('warn-mode planning never injects an ungoverned worktree model after authority resolution fails', async () => {
-  const root = await repository();
-  const workflowFile = path.join(root, 'singularity/workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'warn';
-  workflow.worldModel.injection = {
-    ...workflow.worldModel.injection,
-    rules: [{ when: { agent: 'product-owner' }, include: ['domains/**'] }]
-  };
-  await writeFile(workflowFile, YAML.stringify(workflow));
-  const ungoverned = path.join(root, 'singularity/world-model/domains/untrusted.md');
-  await mkdir(path.dirname(ungoverned), { recursive: true });
-  await writeFile(ungoverned, '# UNTRUSTED WORKTREE MODEL\n\nThis must never enter a planning prompt.\n');
-  git(root, ['add', '.']);
-  git(root, ['commit', '-m', 'Configure warn-mode grounding fixture']);
-  git(root, ['push', 'origin', 'main']);
+test('planning omits unavailable World-Model bytes without falling back to the worktree', async (t) => {
+  for (const mode of ['warn', 'enforce']) await t.test(mode, async () => {
+    const root = await repository();
+    const workflowFile = path.join(root, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.worldModel.grounding = mode;
+    workflow.worldModel.injection = {
+      ...workflow.worldModel.injection,
+      rules: [{ when: { agent: 'product-owner' }, include: ['domains/**'] }]
+    };
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    const ungoverned = path.join(root, 'singularity/world-model/domains/untrusted.md');
+    await mkdir(path.dirname(ungoverned), { recursive: true });
+    await writeFile(ungoverned, '# UNTRUSTED WORKTREE MODEL\n\nThis must never enter a planning prompt.\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-m', `Configure ${mode}-mode grounding fixture`]);
+    git(root, ['push', 'origin', 'main']);
 
-  run(root, process.execPath, [bin, 'start', 'PLAN-NO-FALLBACK', '--from-branch', 'main']);
-  const context = await createPlanningContext(root, {
-    scope: 'work-item', id: 'PLAN-NO-FALLBACK', phase: 'intake',
-    agent: 'product-owner', target: 'artifact'
+    const workId = `PLAN-NO-FALLBACK-${mode.toUpperCase()}`;
+    run(root, process.execPath, [bin, 'start', workId, '--from-branch', 'main']);
+    const context = await createPlanningContext(root, {
+      scope: 'work-item', id: workId, phase: 'intake',
+      agent: 'product-owner', target: 'artifact'
+    });
+
+    assert.doesNotMatch(context.context, /UNTRUSTED WORKTREE MODEL/);
+    assert.ok(context.manifest.warnings.some((warning) => /world model unavailable/i.test(warning)));
+    assert.equal(context.manifest.sources.some((source) => source.kind === 'world-model'), false);
   });
-
-  assert.doesNotMatch(context.context, /UNTRUSTED WORKTREE MODEL/);
-  assert.ok(context.manifest.warnings.some((warning) => /world model unavailable/i.test(warning)));
-  assert.equal(context.manifest.sources.some((source) => source.kind === 'world-model'), false);
 });
 
 test('promotion refuses stale planning context after repository state moves', async () => {

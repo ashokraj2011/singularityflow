@@ -14,7 +14,7 @@ argument-hint: "[PHASE] [--initiative INIT-ID]"
 
 1. Run `singularity-flow initiative status [INIT-ID] --json` and use only its current phase.
 2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, required repository world-model views, active agent Markdown, and approved upstream initiative artifacts.
-3. If the command reports missing world-model selections, show the exact displayed `singularity-flow wm ensure ...` command and require explicit contributor authorization before running it, then retry. Never substitute a Story phase for an Initiative phase.
+3. If the command reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—show the exact displayed `singularity-flow wm ensure ...` command as optional. Never run it without explicit contributor authorization and never block the Initiative phase on its absence; continue with a recorded zero-World-Model context. Never substitute a Story phase for an Initiative phase.
 4. Run `singularity-flow initiative context [PHASE] [--initiative INIT-ID]` and use the complete returned prompt. Do not generate from a summary or from filenames alone.
 5. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]`. Complete every required output, preserve managed metadata, satisfy the checklist contract, and do not invent evidence.
 6. Run `singularity-flow initiative phase publish [PHASE] [--initiative INIT-ID]`. Publication verifies that the composed prompt and every approved input/world-model hash still match, then commits and pushes the generation.

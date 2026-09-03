@@ -24,6 +24,7 @@ import { loadSession } from './session.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -256,6 +257,14 @@ async function repositoryGrounding(
       plan, refreshRemote: true
     });
     if (!inspected.availability.ready) {
+      if (inspected.availability.failureClass === 'integrity' && mode === 'enforce') {
+        throw new SingularityFlowError(
+          `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
+            code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+            details: { command: inspected.command }
+          }
+        );
+      }
       throw new SingularityFlowError(
         `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
           code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE',
@@ -272,19 +281,34 @@ async function repositoryGrounding(
     if (!commit) issues.push('repository world model is not committed');
     if (changes) issues.push('repository world-model files have uncommitted changes');
     const stalenessDecision = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
-    if (issues.length && mode === 'enforce') throw new SingularityFlowError(`${issues.join('; ')}. Run singularity-flow wm ensure --phase ${phase.id} before composing the initiative prompt.`);
-    if (issues.length) warnings.push(...issues);
+    if (issues.length) {
+      warnings.push(...issues);
+      return {
+        text: '',
+        files: [],
+        warnings,
+        record: {
+          mode,
+          available: false,
+          fresh: resolved.freshness.fresh,
+          requiredViews,
+          requiredSelections: inspected.plan.selections
+        }
+      };
+    }
     if (stalenessDecision.warns) warnings.push(stalenessDecision.message);
     const files = [];
     for (const item of resolved.selected) {
       const content = item.body ?? await readFile(item.absolute, 'utf8');
       files.push({
-        path: item.absolute
-          ? posix(path.relative(root, item.absolute))
-          : posix(path.join(config.outputDir, item.relative)),
+        // A state-branch extraction is disposable. Record the stable repository path plus the
+        // immutable source commit so another laptop can verify the same bytes with `git show`.
+        path: posix(path.join(config.outputDir, item.relative)),
         sha256: item.sha256,
         bytes: item.size,
         reason: item.reason,
+        commit,
+        source: resolved.located?.source ?? null,
         content
       });
     }
@@ -312,13 +336,12 @@ async function repositoryGrounding(
       }
     };
   } catch (error) {
-    if (error?.code === 'WORLD_MODEL_STALE') throw error;
-    if (mode === 'enforce') {
-      // Preserve the materializer's single exact recovery action. Adding the old broad-build advice
-      // here caused callers to regenerate unrelated tiers and invalidate already-approved phases.
-      throw error;
-    }
-    warnings.push(`Repository world model unavailable: ${error.message}`);
+    // Initiative work obeys the same optional-intelligence contract as Story work. Never consume a
+    // failed candidate, but do not require the contributor to build one before continuing.
+    if (!isWorldModelAvailabilityError(error) && mode === 'enforce') throw error;
+    warnings.push(
+      `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
+    );
     return {
       text: '', files: [], warnings,
       record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
@@ -340,7 +363,16 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const phase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!phase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
   const session = await loadSession(root, { required: false });
-  const selectedAgent = agent ?? (session?.workId === initiativeId ? session.agent : null);
+  const sessionAgentApplies = Boolean(
+    session?.agent
+    && session.workId === initiativeId
+    && session.phaseId === phaseId
+    && definition.agents[session.agent]
+  );
+  const selectedAgent = agent
+    ?? (sessionAgentApplies ? session.agent : null)
+    ?? phase.agents?.[0]
+    ?? null;
   if (!selectedAgent || !definition.agents[selectedAgent]) {
     throw new SingularityFlowError(`Initiative prompt composition requires the phase agent for ${initiativeId}. Resume the initiative to activate it automatically.`);
   }
@@ -356,7 +388,10 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   });
   if (!dryRun && existingRecord.exists) {
     const verification = await verifyInitiativeContext(root, portfolio, initiative, phaseId, generation);
-    if (verification.valid && !verification.warnings.length && verification.record?.agent === selectedAgent) {
+    const availabilityOnlyWarnings = verification.warnings.every((warning) =>
+      warning.startsWith('initiative world-model grounding is unavailable or stale'));
+    if (verification.valid && availabilityOnlyWarnings
+        && verification.record?.agent === selectedAgent) {
       const prompt = await secureRepositoryPath(root, verification.record.promptPath, {
         label: `Governed initiative prompt for '${phaseId}'`,
         mustExist: true,
@@ -398,7 +433,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   // A phase that declares the agents it expects is stating a requirement, not a preference. Running
   // it under a different agent produces artifacts that look governed and were composed by something
   // the phase was not written for — so it is said out loud rather than discovered in review.
-  const agentSession = session?.workId === initiativeId ? session : { agent: selectedAgent };
+  const agentSession = sessionAgentApplies ? session : { agent: selectedAgent, phaseId };
   // The phase's own declaration, pinned into the resolution when the Initiative started — so a
   // later edit to the configuration cannot change what work already under way expected.
   const expectedAgents = phase.agents ?? [];
@@ -560,17 +595,45 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== input.sha256) errors.push(`initiative prompt input changed: ${input.reference}`);
   }
-  for (const file of record.worldModelFiles ?? []) {
-    const target = await secureRepositoryPath(root, file.path, {
-      label: `Initiative world-model context '${file.path}'`,
-      type: 'file'
-    });
-    const current = await snapshot(target.absolute);
-    if (!current.exists || current.sha256 !== file.sha256) errors.push(`initiative world-model context changed: ${file.path}`);
-    if (record.worldModel?.commit) {
-      const committed = run('git', ['show', `${record.worldModel.commit}:${file.path}`], { cwd: root, allowFailure: true });
-      if (committed.status !== 0 || createHash('sha256').update(committed.stdout).digest('hex') !== file.sha256) {
+  const worldModelFiles = record.worldModelFiles ?? [];
+  const worldModelAvailable = record.worldModel?.available === true;
+  const worldModelCommit = record.worldModel?.commit ?? null;
+  if (!worldModelAvailable && worldModelFiles.length) {
+    errors.push(`initiative world-model receipt marks grounding unavailable but records ${worldModelFiles.length} consumed file(s)`);
+  }
+  if (worldModelAvailable && !worldModelFiles.length) {
+    errors.push(`initiative world-model receipt marks grounding available but records no consumed files`);
+  }
+  for (const file of worldModelFiles) {
+    if (/^[0-9a-f]{40}$/.test(worldModelCommit ?? '')) {
+      // A state-backed receipt names a Git object, not the current worktree projection. Validate
+      // that the name is repository-relative, then read the exact blob without requiring the path
+      // to exist (or be a regular file) in today's checkout.
+      const relative = posix(path.normalize(file.path ?? ''));
+      if (!file.path || path.isAbsolute(file.path) || relative === '..'
+          || relative.startsWith('../') || relative.split('/').includes('..')) {
+        errors.push(`initiative world-model context has an unsafe path: ${file.path ?? 'missing'}`);
+        continue;
+      }
+      const committed = run('git', ['show', `${worldModelCommit}:${file.path}`], {
+        cwd: root, allowFailure: true
+      });
+      const committedSha256 = committed.status === 0
+        ? createHash('sha256').update(committed.stdout).digest('hex') : null;
+      if (committed.status !== 0 || committedSha256 !== file.sha256
+          || (file.bytes != null && Buffer.byteLength(committed.stdout) !== file.bytes)) {
         errors.push(`initiative world-model commit does not pin ${file.path}`);
+      }
+    } else {
+      // Legacy receipts did not carry commit provenance. Keep their historical worktree check;
+      // current receipts that claim availability are rejected below for lacking immutable authority.
+      const target = await secureRepositoryPath(root, file.path, {
+        label: `Initiative world-model context '${file.path}'`,
+        type: 'file'
+      });
+      const current = await snapshot(target.absolute);
+      if (!current.exists || current.sha256 !== file.sha256) {
+        errors.push(`initiative world-model context changed: ${file.path}`);
       }
     }
   }
@@ -586,9 +649,12 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== file.sha256) errors.push(`initiative capability world-model context changed: ${file.path}`);
   }
-  if (mode === 'enforce') {
-    if (!record.worldModel?.available || !record.worldModel?.fresh) errors.push(`initiative world-model grounding is not fresh for ${phaseId}`);
-    if (!/^[0-9a-f]{40}$/.test(record.worldModel?.commit ?? '')) errors.push(`initiative world-model commit is missing for ${phaseId}`);
+  if (!worldModelAvailable || !record.worldModel?.fresh) {
+    warnings.push(`initiative world-model grounding is unavailable or stale for ${phaseId}; work may continue without it`);
+  }
+  if (worldModelAvailable && !/^[0-9a-f]{40}$/.test(worldModelCommit ?? '')) {
+    // A context that claims availability must still prove immutable authority.
+    errors.push(`initiative world-model commit is missing for ${phaseId}`);
   }
   if (errors.length && mode !== 'enforce') warnings.push(...errors.splice(0));
   return { valid: !errors.length, mode, errors, warnings, path: relative, record };

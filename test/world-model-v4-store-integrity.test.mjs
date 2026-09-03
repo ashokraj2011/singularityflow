@@ -136,6 +136,23 @@ test('an authoritative state branch without a World Model is an empty first-buil
   );
 });
 
+test('an authoritative state projection without its manifest is integrity failure, not absence', async (t) => {
+  const { parent, root } = await repository(t);
+  await rewriteState(root, parent, async (worktree) => {
+    await rm(path.join(worktree, 'singularity', 'world-model', 'manifest.json'));
+  });
+
+  for (const required of [false, true]) {
+    assert.throws(
+      () => resolvePublishedWorldModelV4(root, {
+        outputDir: 'singularity/world-model', stateBranch: 'state', remote: 'origin', required
+      }),
+      (error) => error.code === 'WMB_PUBLICATION_PARTIAL'
+        && error.details?.manifestPath === 'singularity/world-model/manifest.json'
+    );
+  }
+});
+
 test('a local-only state authority removal never falls through to an old model on HEAD', async (t) => {
   const { parent, root } = await repository(t);
   // Deliberately retain an old projection on the application branch to prove it cannot revive a

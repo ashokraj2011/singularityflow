@@ -166,14 +166,23 @@ function structureSummary(value) {
 }
 
 export function renderReferencePreview(bytesValue, mediaType = 'application/octet-stream', options = {}) {
-  const bytes = Buffer.isBuffer(bytesValue) ? bytesValue : Buffer.from(bytesValue);
+  const sourceBytes = Buffer.isBuffer(bytesValue) ? bytesValue : Buffer.from(bytesValue);
   const maximum = options.maxBytes ?? HARNESS_IMPORTS_DEFAULT_PREVIEW_BYTES;
   if (!Number.isInteger(maximum) || maximum < 1 || maximum > HARNESS_IMPORTS_HARD_MAXIMUM_BYTES) throw new SingularityFlowError(`--max-bytes must be from 1 through ${HARNESS_IMPORTS_HARD_MAXIMUM_BYTES}.`, { exitCode: 5, code: 'handle.expansion_invalid' });
   const textual = String(mediaType).startsWith('text/') || ['application/json', 'application/yaml', 'application/x-yaml'].includes(mediaType);
-  let selected = applyRange(bytes, options.range);
+  // Managed phase-input envelopes can be larger than the preview budget. Bounding first could cut
+  // off the closing marker, after which authoredArtifactText could no longer recognize the block
+  // and a later prompt received the complete upstream artifacts twice. Project the immutable Git
+  // object first, while retaining its original hash/size as reference authority, then apply all
+  // user-visible selection and byte limits to the producer-authored representation.
+  const projectedBytes = options.authoredMarkdown === true && mediaType === 'text/markdown'
+    ? Buffer.from(authoredArtifactText(sourceBytes.toString('utf8')), 'utf8')
+    : sourceBytes;
+  const managedBytesExcluded = Math.max(0, sourceBytes.length - projectedBytes.length);
+  let selected = applyRange(projectedBytes, options.range);
   let renderer = 'binary-metadata'; let summary = { schemaVersion: 1, kind: 'binary-metadata' }; const warnings = [];
   if (textual) {
-    const raw = bytes.toString('utf8');
+    const raw = projectedBytes.toString('utf8');
     if (mediaType === 'text/markdown') {
       renderer = 'markdown-outline'; summary = markdownSummary(raw); selected ??= markdownSelection(raw, options.section) ?? raw;
     } else if (['application/json', 'application/yaml', 'application/x-yaml'].includes(mediaType)) {
@@ -189,15 +198,17 @@ export function renderReferencePreview(bytesValue, mediaType = 'application/octe
       const lines = raw.split(/\r?\n/); summary = { schemaVersion: 1, kind: renderer, lines: lines.length, errors: lines.filter((line) => /\berror\b/i.test(line)).length, warnings: lines.filter((line) => /\bwarn(?:ing)?\b/i.test(line)).length };
     }
   } else {
-    selected = `[Binary content is not embedded. MIME type: ${mediaType}; bytes: ${bytes.length}; SHA-256: ${sha256(bytes)}.]`;
+    selected = `[Binary content is not embedded. MIME type: ${mediaType}; bytes: ${sourceBytes.length}; SHA-256: ${sha256(sourceBytes)}.]`;
   }
   const bounded = byteBound(`${MODEL_BOUNDARY}\n\n${selected}`, maximum);
   if (bounded.truncated) warnings.push('preview.truncated');
   return {
     renderer: { id: renderer, version: 1 },
-    source: { rawSha256: sha256(bytes), rawBytes: bytes.length },
+    source: { rawSha256: sha256(sourceBytes), rawBytes: sourceBytes.length },
     preview: { text: bounded.text, bytes: bounded.bytes, sha256: sha256(Buffer.from(bounded.text)), summary },
-    truncated: bounded.truncated || (!textual && bytes.length > 0), warnings
+    truncated: bounded.truncated || (!textual && sourceBytes.length > 0),
+    managedBytesExcluded,
+    warnings
   };
 }
 

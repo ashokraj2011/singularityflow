@@ -51,6 +51,7 @@ import {
   exists,
   nowIso,
   posix,
+  run,
   snapshot,
   writeJson,
   writeText
@@ -62,6 +63,7 @@ import { worldModelStateAuthority } from './world-model/authority-config.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
+import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const INITIATIVE_METADATA = /^<!-- singularity-flow:initiative-metadata[\s\S]*?-->/;
@@ -382,7 +384,8 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
   );
   const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
   if (mode === 'off') return {
-    text: '', files: [], directory: null, warnings: [], record: { mode, available: false }
+    text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+    warnings: [], record: { mode, available: false }
   };
   const plan = resolveGroundingPlan({
     phase: phase.id,
@@ -420,6 +423,14 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       plan, refreshRemote: true
     });
     if (!inspected.availability.ready) {
+      if (inspected.availability.failureClass === 'integrity' && mode === 'enforce') {
+        throw new SingularityFlowError(
+          `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
+            code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+            details: { command: inspected.command }
+          }
+        );
+      }
       throw new SingularityFlowError(`${inspected.reason} Run: ${inspected.command}`, {
         code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
       });
@@ -428,32 +439,60 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       evidence: phase.worldModel?.evidence ?? false
     });
     const staleness = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
+    const commit = resolved.located?.commit ?? null;
+    const changes = resolved.located?.source === 'worktree'
+      ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
+      : '';
+    if (!commit || changes) {
+      const reason = [
+        !commit ? 'repository world model is not committed' : null,
+        changes ? 'repository world-model files have uncommitted changes' : null
+      ].filter(Boolean).join('; ');
+      return {
+        text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+        warnings: [`Repository world model unavailable: ${reason}; work may continue without it.`],
+        record: {
+          mode, available: false, fresh: resolved.freshness.fresh,
+          requiredViews, requiredSelections: inspected.plan.selections
+        }
+      };
+    }
     const files = [];
     for (const item of resolved.selected) {
       const content = item.body ?? await readFile(item.absolute, 'utf8');
-      const itemPath = item.absolute
-        ? posix(path.relative(root, item.absolute))
-        : posix(path.join(config.outputDir, item.relative));
-      files.push({ path: itemPath, sha256: item.sha256, bytes: item.size, reason: item.reason, content });
+      // State-backed models are materialized in a temporary directory. Durable planning receipts
+      // must name the canonical Git path, never that machine-local extraction path, and bind the
+      // bytes to the exact commit that supplied them.
+      const itemPath = posix(path.join(config.outputDir, item.relative));
+      files.push({
+        path: itemPath, sha256: item.sha256, bytes: item.size, reason: item.reason,
+        commit, source: resolved.located?.source ?? null, content
+      });
     }
     return {
       text: files.map((file) => `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`).join('\n\n'),
       files: files.map(({ content, ...file }) => file),
       directory: resolved.directory,
+      validatedModelFiles: resolved.validatedModelFiles,
+      validatedManifest: resolved.manifest,
       warnings: staleness.warns ? [staleness.message] : [],
       record: {
         mode, available: true, fresh: resolved.freshness.fresh,
-        commit: resolved.located?.commit ?? null,
+        commit,
         format: inspected.format,
         requiredViews, requiredSelections: inspected.plan.selections
       }
     };
   } catch (error) {
-    if (error?.code === 'WORLD_MODEL_STALE') throw error;
-    if (mode === 'enforce') throw new SingularityFlowError(`Planning context requires fresh repository world-model grounding: ${error.message}`);
+    // Planning must remain usable on a new/offline laptop and for repositories without a
+    // supported model. `enforce` governs the integrity of bytes we consume; it does not make the
+    // optional accelerator a prerequisite. A failed/stale candidate is omitted in full.
+    if (!isWorldModelAvailabilityError(error) && mode === 'enforce') throw error;
     return {
-      text: '', files: [], warnings: [`Repository world model unavailable: ${error.message}`],
-      directory: null,
+      text: '', files: [], warnings: [
+        `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
+      ],
+      directory: null, validatedModelFiles: [], validatedManifest: null,
       record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
     };
   }
@@ -475,21 +514,47 @@ async function workItemPlanningParts(root, definition, { id, phaseId, agent, tar
     agentId: agent,
     agentSha256: definition.agents?.[agent]?.sha256 ?? null
   });
-  const world = await workItemWorldModel(root, definition, workflow, phase, agent);
-  const agentResult = await injectAgentPrompt(root, definition, agent, {
+  let world = await workItemWorldModel(root, definition, workflow, phase, agent);
+  const signals = {
     agent,
     phase: phase.id,
     workType: workflow.workItem.workType,
     labels: []
-  }, {
-    promptOverride: promptStudy,
-    // A resolver failure is an explicit authority decision, not permission to fall back to whatever
-    // happens to exist in the application worktree. Warn mode may continue without grounding, but
-    // it must continue with zero world-model injection.
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
-      || !world.record.available || world.record.format === 'registered-v4',
-    modelDirectory: world.directory
-  });
+  };
+  let agentResult;
+  try {
+    agentResult = await injectAgentPrompt(root, definition, agent, signals, {
+      promptOverride: promptStudy,
+      // A resolver failure is an explicit authority decision, not permission to fall back to
+      // whatever happens to exist in the application worktree. Continue with zero WM injection.
+      disableWorldModelInjection: worldModelDisabledForWorkflow(workflow)
+        || !world.record.available || world.record.format === 'registered-v4',
+      modelDirectory: world.directory,
+      validatedModelFiles: world.validatedModelFiles,
+      validatedManifest: world.validatedManifest
+    });
+  } catch (error) {
+    const optionalIntegrityRace = world.record.mode !== 'enforce'
+      && error?.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED';
+    if (!world.record.available
+        || (!isWorldModelAvailabilityError(error) && !optionalIntegrityRace)) throw error;
+    world = {
+      text: '', files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
+      warnings: [
+        ...world.warnings,
+        `Repository world model became unavailable during prompt composition: ${error.message}`
+      ],
+      record: {
+        ...world.record, available: false, fresh: null,
+        reasonCode: error.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
+      }
+    };
+    agentResult = await injectAgentPrompt(root, definition, agent, signals, {
+      promptOverride: promptStudy,
+      disableWorldModelInjection: true,
+      modelDirectory: null
+    });
+  }
   const capability = worldModelDisabledForWorkflow(workflow)
     ? { text: '', files: [], warnings: [] }
     : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
@@ -720,6 +785,23 @@ async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } =
   const changedSources = [];
   for (const source of pinnedFiles) {
     if (!source.path || !source.sha256 || /^(?:agent:|https?:)/.test(source.path)) continue;
+    if (source.kind === 'world-model' && /^[0-9a-f]{40}$/.test(source.commit ?? '')) {
+      const committed = run('git', ['show', `${source.commit}:${source.path}`], {
+        cwd: root, allowFailure: true
+      });
+      const actualSha256 = committed.status === 0 ? sha256(committed.stdout) : null;
+      const actualBytes = committed.status === 0 ? Buffer.byteLength(committed.stdout) : null;
+      if (committed.status !== 0 || actualSha256 !== source.sha256
+          || (source.bytes != null && actualBytes !== source.bytes)) {
+        changedSources.push({
+          path: source.path,
+          expectedSha256: source.sha256,
+          actualSha256,
+          status: committed.status === 0 ? 'changed' : 'missing-at-commit'
+        });
+      }
+      continue;
+    }
     const target = await secureRepositoryPath(root, source.path, {
       label: `Planning source '${source.path}'`,
       mustExist: false,

@@ -16,7 +16,7 @@ flowchart LR
   subgraph Prompt["Prompt composition for the active phase"]
     Contract["Phase contract and artifact template"]
     Agent["Phase-default governed Agent Markdown"]
-    World["Repository world model: required and rule-selected views"]
+    World["Repository World Model: configured views or an unavailable receipt"]
     Remote["Locked remote agent Markdown: optional and hash-pinned"]
     Inputs["Approved upstream phase artifacts: optional mode"]
   end

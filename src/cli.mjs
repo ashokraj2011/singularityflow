@@ -2485,12 +2485,17 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
       const workflow = await loadStoryAggregate(root, config, selected.id);
       const prerequisites = [];
       const active = currentPhase(workflow); const session = await loadSession(root, { required: false });
+      const activeSessionAgent = session?.workId === workflow.workItem.id
+          && session?.phaseId === active?.id
+        ? session.agent
+        : null;
+      const activeAgent = activeSessionAgent ?? active?.defaultAgent ?? null;
       const modelMode = operationContext()?.modelMode ?? { enabled: optionBoolean(options, 'model', true) };
       const deterministicConvergence = active?.id === 'convergence'
         && effectivePhasePublicationProducer(active, { modelEnabled: modelMode.enabled }) === 'deterministic';
       if (active && workflow.resolution?.collaboration?.assignmentMode === 'required' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Phase '${active.id}' requires an explicit assignment before the team continues.` });
       else if (active && workflow.resolution?.collaboration?.assignmentMode === 'suggested' && !workflow.collaboration?.assignments?.[active.id]) prerequisites.push({ timing: 'optional', skill: null, command: `singularity-flow assign ${active.id} <assignee>`, reason: `Record who is coordinating '${active.id}' so another terminal can see ownership.` });
-      if (active?.status === 'in_progress' && !session?.agent && !deterministicConvergence) prerequisites.push({
+      if (active?.status === 'in_progress' && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
         timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
         reason: 'Select the governed agent that will remain active for this terminal session before generation.'
       });
@@ -2498,28 +2503,36 @@ async function resolveNextStepsSnapshotInScope(root, positionals, options, appro
       if (active?.status === 'in_progress' && phaseNeedsGeneration(workflow, active)
           && groundingMode !== 'off' && !deterministicConvergence) {
         const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-          agent: session?.agent ?? null
+          agent: activeAgent
         });
         if (!readiness.availability.ready) {
-          const blocks = groundingMode === 'enforce' || readiness.availability.staleness?.blocks;
-          prerequisites.push({ timing: blocks ? 'now' : 'optional', skill: '/sf-worldmodel', command: readiness.command, reason: readiness.reason });
-          prerequisites.push({ timing: groundingMode === 'enforce' ? 'then' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`, reason: 'Compose and record the governed phase prompt from the shared repository model.' });
+          const integrityBlocks = groundingMode === 'enforce'
+            && readiness.availability.failureClass === 'integrity';
+          prerequisites.push({
+            timing: integrityBlocks ? 'now' : 'optional',
+            skill: '/sf-worldmodel', command: readiness.command,
+            reason: integrityBlocks
+              ? `${readiness.reason} Enforced context integrity must be repaired before these bytes can be used.`
+              : `${readiness.reason} World-model recovery is optional and does not block phase work.`
+          });
         } else {
           if (readiness.availability.staleness?.warns) prerequisites.push({
             timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
             reason: readiness.availability.staleness.message
           });
-          const grounding = await verifyGroundingRecord(root, config, workflow, active, { agent: session?.agent ?? null });
+          const grounding = await verifyGroundingRecord(root, config, workflow, active, {
+            agent: activeAgent
+          });
           if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-            timing: groundingMode === 'enforce' ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
+            timing: grounding.errors.length ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
             reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
           });
         }
       }
-      if (active?.status === 'in_progress' && session?.agent && !deterministicConvergence) {
-        const status = (await agentStatus(root, session.agent))[0];
-        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${session.agent}' is no longer available; choose and sync an available pack.` });
-        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
+      if (active?.status === 'in_progress' && activeSessionAgent && !deterministicConvergence) {
+        const status = (await agentStatus(root, activeSessionAgent))[0];
+        if (!status) prerequisites.push({ timing: 'now', skill: null, command: 'singularity-flow agents list', reason: `Active agent '${activeSessionAgent}' is no longer available; choose and sync an available pack.` });
+        else if (status.status === 'unlocked') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${activeSessionAgent}`, reason: `Review and trust the active agent's remote Markdown before generation.` });
         else if (status.status === 'stale') prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents lock ${session.agent} --update`, reason: 'The active agent Markdown changed after it was locked; review the new dependency hashes.' });
         if (status && !['ready', 'local-only'].includes(status.status)) prerequisites.push({ timing: ['unlocked', 'stale'].includes(status.status) ? 'then' : 'now', skill: null, command: `singularity-flow agents sync ${session.agent}`, reason: 'Verify the pinned hashes and materialize the active agent cache.' });
         for (const conflict of await remoteOutputConflicts(active, { itemDirectory: workDir(root, config, workflow.workItem.id) })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
@@ -2776,41 +2789,40 @@ async function nextCommand(options) {
       refreshRemote: true
     });
     if (!readiness.availability.ready) {
-      const materialization = await materializeWorldModelForNext(root, config, workflow, phase, options, readiness);
-      if (materialization.materialized) {
+      const policy = effectiveMaterializationPolicy(config, workflow);
+      let materialization = {
+        materialized: false,
+        policy,
+        reason: policy.confirmation === 'prompt' && !optionBoolean(options, 'yes')
+          ? 'world-model construction requires a separate explicit choice'
+          : null
+      };
+      // Lifecycle progress must never wait on optional intelligence. Preserve the configured
+      // zero-model automatic warm-up and an explicit --yes request, but contain every failure and
+      // compose a truthful no-model receipt instead of returning before phase preparation.
+      if (policy.confirmation === 'automatic' || optionBoolean(options, 'yes')) {
         try {
-          await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
+          materialization = await materializeWorldModelForNext(
+            root, config, workflow, phase, options, readiness
+          );
         } catch (error) {
-          if (materialization.policy.depth === 'light') {
-            throw new SingularityFlowError(`The configured automatic model-free world model did not satisfy phase '${phase.id}': ${error.message}\nUse confirmation: prompt with an approved composer, or run ${readiness.command}.`);
-          }
-          throw error;
+          materialization = {
+            materialized: false, policy,
+            reason: `optional materialization failed: ${error.message}`
+          };
         }
-      } else if (grounding === 'enforce' || readiness.availability.staleness?.blocks) {
-        console.log(`Next step prerequisite: ${readiness.reason}`);
-        console.log('No model was started. Build explicitly, then continue:');
-        console.log(`Copilot: /sf-worldmodel --phase ${phase.id}`);
-        console.log(`Run: ${readiness.command}`);
-        if (materialization.reason) console.log(`Configured policy did not build it: ${materialization.reason}.`);
-        const modelFreeProducer = phase.generationPolicy?.allowedProducers?.find((producer) =>
-          ['human', 'deterministic', 'external-tool'].includes(producer));
-        console.log(modelFreeProducer
-          ? `Model-free publication route: ${phasePublicationCommandForProducer(phase, modelFreeProducer)}`
-          : 'No model-free publication producer is configured for this phase.');
-        return;
-      } else {
-        console.warn(`Grounding warning: ${readiness.reason}`);
-        if (materialization.reason) console.warn(`Configured policy did not build it: ${materialization.reason}.`);
-        console.warn('Continuing because world-model grounding is advisory. No model will be built or composed.');
       }
+      console.warn(`Grounding warning: ${readiness.reason}`);
+      if (materialization.reason) console.warn(`World-model note: ${materialization.reason}.`);
+      console.warn(`Continuing phase '${phase.id}' without repository world-model context.`);
+      console.warn(`Optional recovery: ${readiness.command}`);
+      await worldModelCommand(root, ['wm', 'compose'], {
+        phase: phase.id, evidence: phase.worldModel?.evidence === true
+      });
     } else {
-      try {
-        await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
-      } catch (error) {
-        if (grounding === 'enforce') throw error;
-        console.warn(`Grounding warning: ${error.message}`);
-        console.warn('Continuing because world-model grounding is advisory.');
-      }
+      await worldModelCommand(root, ['wm', 'compose'], {
+        phase: phase.id, evidence: phase.worldModel?.evidence === true
+      });
     }
     // Composition records governed context and refreshes workflow.json. Continue from that exact
     // aggregate revision; otherwise the draft transaction correctly sees the pre-composition copy
@@ -9176,8 +9188,10 @@ async function initiativeCommand(positionals, options) {
         { type: LIFECYCLE_EVENT.ARTIFACT_GENERATED, phaseId, generation },
         `[${initiativeId}][initiative:${phaseId}][prepare] outputs`,
         async () => {
-          const context = await composeInitiativeContext(root, initiativeId, phaseId, { agent: session?.agent ?? null });
-          const result = await prepareInitiativePhase(root, initiativeId, phaseId, { agent: session?.agent ?? null });
+          const context = await composeInitiativeContext(root, initiativeId, phaseId);
+          const result = await prepareInitiativePhase(root, initiativeId, phaseId, {
+            agent: context.record.agent
+          });
           return { ...result, context };
         }
       );
@@ -9199,7 +9213,7 @@ async function initiativeCommand(positionals, options) {
     const session = await loadSession(root, { required: false });
     const dryRun = optionBoolean(options, 'dry-run');
     const compose = () => composeInitiativeContext(root, initiativeId, phaseId, {
-      agent: optionString(options, 'agent') ?? session?.agent ?? null,
+      agent: optionString(options, 'agent'),
       dryRun
     });
     const result = dryRun

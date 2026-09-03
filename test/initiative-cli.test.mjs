@@ -236,15 +236,21 @@ test('Epic Planning approval is an explicit business review, available outside t
   assert.doesNotMatch(alias.stderr, /desktop UI/);
 });
 
-test('initiative phase generation enforces repository world-model composition for Copilot', async () => {
+test('initiative phase generation continues without repository world-model bytes under enforce', async () => {
   const root = await repository({ grounding: 'enforce' });
   execute(root, ['initiative', 'start', 'INIT-GROUNDED']);
   const before = git(root, ['rev-parse', 'HEAD']);
   const result = execute(root, ['initiative', 'phase', 'define'], { allowFailure: true });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /wm ensure --phase define/);
-  assert.match(result.stderr, /grounding is not ready/i);
-  assert.equal(git(root, ['rev-parse', 'HEAD']), before);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Prepared 3 define documents/);
+  const record = JSON.parse(await readFile(
+    path.join(root, 'singularity/initiatives/INIT-GROUNDED/context/prompt-context-define-gen1.json'),
+    'utf8'
+  ));
+  assert.equal(record.worldModel.available, false);
+  assert.equal(record.worldModelFiles.length, 0);
+  assert.ok(record.warnings.some((warning) => /world model unavailable/i.test(warning)));
+  assert.notEqual(git(root, ['rev-parse', 'HEAD']), before);
   assert.equal(git(root, ['status', '--short']), '');
 });
 

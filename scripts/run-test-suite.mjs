@@ -118,7 +118,8 @@ const isolated = {
   ...process.env,
   SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
   SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
-  SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'leads.json')
+  SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'leads.json'),
+  SINGULARITY_FLOW_WMB_SHARED_CACHE: path.join(machineState, 'wmb-shared-cache')
 };
 
 /**

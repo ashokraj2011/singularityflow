@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import {
   applyCapabilityPolicyToInitiativeResolution,
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
   isLocalCapabilityRepository,
+  materializeCapabilityWorldModelPack,
   resolveCapabilityWorldModelCandidate,
   renderCapabilityWorldModelPack
 } from '../src/capability-context.mjs';
@@ -43,14 +45,19 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function seedCapabilityModel(root, sourceTreeSha256, label) {
+async function seedCapabilityModel(root, sourceTreeSha256, label, {
+  fullTrailingNewline = true
+} = {}) {
   const directory = path.join(root, 'singularity/world-model');
   await rm(directory, { recursive: true, force: true });
   await mkdir(path.join(directory, 'core'), { recursive: true });
   await mkdir(path.join(directory, 'views'), { recursive: true });
   await mkdir(path.join(directory, 'evidence'), { recursive: true });
   await writeFile(path.join(directory, 'core/summary.brief.md'), `# ${label} brief\n`);
-  await writeFile(path.join(directory, 'core/summary.md'), `# ${label} full\n`);
+  await writeFile(
+    path.join(directory, 'core/summary.md'),
+    `# ${label} full${fullTrailingNewline ? '\n' : ''}`
+  );
   await writeFile(path.join(directory, 'core/model.json'), '{}\n');
   await writeFile(path.join(directory, 'path-index.json'), '{}\n');
   await writeFile(path.join(directory, 'views/security.md'), `# ${label} security\n`);
@@ -220,6 +227,245 @@ test('capability world-model rendering is phase scoped and hash verified', async
       }, { views: ['security'], grounding: 'enforce' }),
       /Capability world-model snapshot changed/
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('unavailable capability world-model context stays advisory under enforce', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-unavailable-'));
+  try {
+    const recordPath = path.join(root, 'capability-world-model.json');
+    await writeFile(recordPath, `${JSON.stringify({
+      files: [],
+      repositories: [{ id: 'api', status: 'world-model-missing' }],
+      warnings: ["Capability repository 'api' has no current world model."]
+    })}\n`);
+    const record = await snapshot(recordPath);
+    const unavailable = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      policy: { worldModelGrounding: 'enforce' },
+      context: { path: 'capability-world-model.json', sha256: record.sha256 }
+    }, { grounding: 'enforce' });
+    assert.equal(unavailable.text, '');
+    assert.deepEqual(unavailable.files, []);
+    assert.match(unavailable.warnings.join('\n'), /grounding unavailable/);
+
+    const missingRecord = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      policy: { worldModelGrounding: 'enforce' },
+      context: { path: 'missing-context-record.json', sha256: '0'.repeat(64) }
+    }, { grounding: 'enforce' });
+    assert.equal(missingRecord.text, '');
+    assert.match(missingRecord.warnings.join('\n'), /context is unavailable/);
+
+    await writeFile(recordPath, `${JSON.stringify({
+      files: [{
+        repositoryId: 'api', sourcePath: 'singularity/world-model/core/summary.md',
+        path: 'missing-pinned-summary.md', views: ['core'], sha256: 'a'.repeat(64), bytes: 12
+      }],
+      repositories: [{ id: 'api', status: 'pinned' }], warnings: []
+    })}\n`);
+    const missingPinRecord = await snapshot(recordPath);
+    const missingPin = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      policy: { worldModelGrounding: 'enforce' },
+      context: { path: 'capability-world-model.json', sha256: missingPinRecord.sha256 }
+    }, { grounding: 'enforce' });
+    assert.equal(missingPin.text, '');
+    assert.match(missingPin.warnings.join('\n'), /snapshot is unavailable/);
+
+    // Old records did not retain `failureClass`/`reasonCode`, but a v4 remote-access failure did
+    // retain its Git classification. Upgrade that recognizable shape at read time so an office
+    // authentication/proxy failure cannot block ordinary work after installing the fix.
+    await writeFile(recordPath, `${JSON.stringify({
+      files: [],
+      repositories: [{
+        id: 'api', status: 'world-model-invalid',
+        classification: 'authentication-required', retryable: true
+      }],
+      warnings: []
+    })}\n`);
+    const legacyAvailabilityRecord = await snapshot(recordPath);
+    const legacyAvailability = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      policy: { worldModelGrounding: 'enforce' },
+      context: { path: 'capability-world-model.json', sha256: legacyAvailabilityRecord.sha256 }
+    }, { grounding: 'enforce' });
+    assert.equal(legacyAvailability.text, '');
+    assert.match(legacyAvailability.warnings.join('\n'), /grounding unavailable/);
+
+    for (const legacyRepository of [
+      { id: 'api', status: 'world-model-authority-conflict', refresh: 'offline-cached' },
+      {
+        id: 'api', status: 'world-model-invalid',
+        reasonCode: 'world_model.state_extraction_failed'
+      }
+    ]) {
+      await writeFile(recordPath, `${JSON.stringify({
+        files: [], repositories: [legacyRepository], warnings: []
+      })}\n`);
+      const legacyRecord = await snapshot(recordPath);
+      const result = await renderCapabilityWorldModelPack(root, {
+        id: 'payments-api',
+        policy: { worldModelGrounding: 'enforce' },
+        context: { path: 'capability-world-model.json', sha256: legacyRecord.sha256 }
+      }, { grounding: 'enforce' });
+      assert.equal(result.text, '');
+      assert.match(result.warnings.join('\n'), /grounding unavailable/);
+    }
+
+    // Semantic invalidity remains fail-closed; only proven availability failures are advisory.
+    for (const invalidRepository of [
+      { id: 'api', status: 'world-model-invalid' },
+      {
+        id: 'api', status: 'world-model-invalid',
+        classification: 'legacy-unregistered-view'
+      }
+    ]) {
+      await writeFile(recordPath, `${JSON.stringify({
+        files: [], repositories: [invalidRepository], warnings: []
+      })}\n`);
+      const invalidRecord = await snapshot(recordPath);
+      await assert.rejects(
+        () => renderCapabilityWorldModelPack(root, {
+          id: 'payments-api',
+          policy: { worldModelGrounding: 'enforce' },
+          context: { path: 'capability-world-model.json', sha256: invalidRecord.sha256 }
+        }, { grounding: 'enforce' }),
+        /invalid cross-repository world-model context/
+      );
+    }
+
+    // One valid sibling must not hide another sibling's corrupted context.
+    const pinnedPath = path.join(root, 'pinned-core.md');
+    await writeFile(pinnedPath, '# Valid sibling context\n');
+    const pinnedInfo = await snapshot(pinnedPath);
+    await writeFile(recordPath, `${JSON.stringify({
+      files: [{
+        repositoryId: 'valid-api', sourcePath: 'singularity/world-model/core/summary.md',
+        path: 'pinned-core.md', views: ['core'], sha256: pinnedInfo.sha256, bytes: pinnedInfo.size
+      }],
+      repositories: [
+        { id: 'valid-api', status: 'pinned' },
+        { id: 'invalid-api', status: 'world-model-invalid', failureClass: 'integrity' }
+      ],
+      warnings: []
+    })}\n`);
+    const mixedRecord = await snapshot(recordPath);
+    await assert.rejects(
+      () => renderCapabilityWorldModelPack(root, {
+        id: 'payments-api',
+        policy: { worldModelGrounding: 'enforce' },
+        context: { path: 'capability-world-model.json', sha256: mixedRecord.sha256 }
+      }, { grounding: 'enforce' }),
+      /invalid cross-repository world-model context for invalid-api/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('capability materialization preserves exact model bytes without adding a newline', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-exact-bytes-'));
+  const originalActive = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+  const originalRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  try {
+    const current = path.join(base, 'repos/current');
+    const sibling = path.join(base, 'repos/sibling');
+    const currentRemote = path.join(base, 'remotes/current.git');
+    const siblingRemote = path.join(base, 'remotes/sibling.git');
+    for (const [repository, remote] of [[current, currentRemote], [sibling, siblingRemote]]) {
+      await mkdir(repository, { recursive: true });
+      git(repository, 'init', '-q', '-b', 'main');
+      git(repository, 'config', 'user.name', 'Capability Tester');
+      git(repository, 'config', 'user.email', 'capability@example.com');
+      await writeFile(path.join(repository, 'source.txt'), 'source\n');
+      git(repository, 'add', 'source.txt');
+      git(repository, 'commit', '-qm', 'source');
+      await mkdir(path.dirname(remote), { recursive: true });
+      git(repository, 'init', '--bare', '-q', '-b', 'main', remote);
+      git(repository, 'remote', 'add', 'origin', remote);
+      git(repository, 'push', '-q', '-u', 'origin', 'main');
+    }
+    const siblingSource = await worldModelSourceSnapshot(sibling, {});
+    await seedCapabilityModel(sibling, siblingSource.sha256, 'exact sibling', {
+      fullTrailingNewline: false
+    });
+
+    const workspace = {
+      version: 1, id: 'exact-bytes', name: 'Exact bytes', path: base,
+      anchor: { provider: 'workspace', siteId: 'local', key: 'exact-bytes', title: 'Exact bytes' },
+      leadRepository: 'current', capabilityAuthority: { url: currentRemote },
+      repositories: {
+        current: {
+          id: 'current', url: currentRemote, defaultBranch: 'main', required: true,
+          path: 'repos/current', capabilities: ['demo'],
+          clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
+        },
+        sibling: {
+          id: 'sibling', url: siblingRemote, defaultBranch: 'main', required: true,
+          path: 'repos/sibling', capabilities: ['demo'],
+          clone: { mode: 'full', sparseCone: [], fallback: 'refuse' }
+        }
+      },
+      capabilities: ['demo'],
+      directories: { repositories: 'repos', documents: 'documents', logs: 'logs', jiraCache: 'cache/jira' },
+      createdAt: '2026-09-03T00:00:00.000Z', updatedAt: '2026-09-03T00:00:00.000Z'
+    };
+    const active = {
+      schemaVersion: 1, workspaceId: workspace.id, workspaceName: workspace.name,
+      workspacePath: base, anchorKey: workspace.anchor.key, repositoryId: 'current',
+      repositoryPath: current, canonicalRepositoryPath: current, checkoutPath: current,
+      repositoryState: 'ready', branch: 'main', capabilities: ['demo'],
+      repositoryCapabilities: ['demo'], storyId: null, selectedAt: '2026-09-03T00:00:00.000Z'
+    };
+    const activeFile = path.join(base, 'active-workspace.json');
+    const registryFile = path.join(base, 'workspaces.json');
+    await writeFile(path.join(base, 'workspace.json'), `${JSON.stringify(workspace, null, 2)}\n`);
+    await writeFile(activeFile, `${JSON.stringify(active, null, 2)}\n`);
+    await writeFile(registryFile, `${JSON.stringify({
+      schemaVersion: 1,
+      workspaces: [{
+        id: workspace.id, path: base, name: workspace.name,
+        anchorKey: workspace.anchor.key, anchorType: 'Workspace', siteId: 'local',
+        leadRepositoryPath: current, openedAt: '2026-09-03T00:00:00.000Z', archivedAt: null
+      }]
+    }, null, 2)}\n`);
+    process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = activeFile;
+    process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registryFile;
+
+    const itemRelative = 'singularity/work-items/EXACT-BYTES';
+    const itemDirectory = path.join(current, itemRelative);
+    const result = await materializeCapabilityWorldModelPack(current, {
+      id: 'demo', path: ['demo'], map: { sha256: 'f'.repeat(64) },
+      deliveries: [{ repositories: ['current', 'sibling'] }],
+      policy: { contextMaxBytes: 64 * 1024 }, sourceScope: null, warnings: []
+    }, { itemDirectory, itemRelative, views: [] });
+    const record = JSON.parse(await readFile(path.join(current, result.path), 'utf8'));
+    const pinned = record.files.find((entry) => entry.repositoryId === 'sibling');
+    assert.ok(pinned);
+    const bytes = await readFile(path.join(current, pinned.path));
+    assert.equal(bytes.toString('utf8'), '# exact sibling full');
+    assert.equal(bytes.at(-1), 'l'.charCodeAt(0));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), pinned.sha256);
+  } finally {
+    if (originalActive == null) delete process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
+    else process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = originalActive;
+    if (originalRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = originalRegistry;
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('an explicit off policy does not inspect optional capability world-model context', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-off-'));
+  try {
+    const result = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      context: { path: 'missing-capability-context.json', sha256: '0'.repeat(64) }
+    }, { grounding: 'off' });
+    assert.deepEqual(result, { text: '', files: [], warnings: [] });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "64cf7ddaf5e5b1296f610509da3db44fdb93a32b",
+  "sourceCommit": "de1821fab2c39e8ed13e78a1d40cad27bab9dcd8",
   "topicCount": 59,
-  "contentSha256": "14fa92736d0be06eeeabbe7a2fa15d385b7b31665d2d4e94de6b9873bf61e3a7",
+  "contentSha256": "e5e611a1bdba50012d66d655b79f030ee59d44c61295ec5963108702a38d12e0",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -280,8 +280,8 @@
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 5,
-      "sha256": "6fa80aacb41829a06e8605dcf8155dbe3b5c7109b5e5bc9198162f58acbbf2e3",
+      "version": 6,
+      "sha256": "22c7c6988f2bab192c7a8ebc9eb322fc124e41a8d032edd415840eea63d98ede",
       "routingSha256": "ef4810deabfd97c053a8863fc7e53c872039f95c9504843ebddf70f2ffc3ba39",
       "file": "nextsteps.md"
     },
@@ -456,8 +456,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 8,
-      "sha256": "a25cc2cff818e100e5ef7ef29676064eb93955835bbcd09df59109f3060084d6",
+      "version": 9,
+      "sha256": "05193e474e797fdfb6b17d9cdc64450fa99a5fee08810d9ef6264e62eefdc352",
       "routingSha256": "eeebcb23e63ef32a4067d72ac7d20cfff07d987defa8c563962ffc8f279b3efc",
       "file": "workflow-authoring.md"
     },
@@ -472,8 +472,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 19,
-      "sha256": "ee7a034db26285d2411285b143b876f4bea41fc228d66792e0538e0b162c69f1",
+      "version": 20,
+      "sha256": "c1a3219c9b691a174c01913a11c9b71552fd60792aff6e4e1aa6a477ae13a0ac",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

@@ -29,13 +29,15 @@ through one final pull request.
   prints the body when the GitHub CLI is unavailable.
 - **Grounded impact map.** Publishing the planning phase validates the repository
   map against committed state: every named repository must exist in
-  `portfolio.repositories` and every referenced world-model view must exist in the
-  committed manifest. Carried by the `impact-grounded` checklist item; blocking
-  under `grounding: enforce`, warning otherwise.
+  `portfolio.repositories`; when a World-Model manifest is available, every referenced view must
+  exist in it. A missing model records degraded evidence and does not block the phase. An invalid
+  view reference against an available manifest is carried by the `impact-grounded` checklist item,
+  blocking under `grounding: enforce` and warning otherwise.
 - **Story-scoped world model (current behavior).** Epic Intake accepts Jira identity
   and pinned source material without repository-grounding warnings. After Story
-  intake creates the canonical Story branch, Flow builds, commits, and pushes the
-  world model there before phase authoring begins.
+  intake creates the canonical Story branch, Flow may build, commit, and push the
+  world model there under the configured materialization policy. If intelligence remains
+  unavailable, phase authoring continues with a zero-World-Model receipt.
 - **Initiative template self-healing.** Starting an initiative and preparing a
   phase install any packaged template the repository lacks — into the templates
   root the portfolio declares — and commit what they installed. A profile that

@@ -1,6 +1,6 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { run } from '../src/util.mjs';
@@ -11,6 +11,36 @@ import {
 } from '../src/prompt-audit.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+const promptAuditMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-machine-'));
+const originalMachineEnvironment = Object.fromEntries([
+  'SINGULARITY_FLOW_WORKSPACE_REGISTRY',
+  'SINGULARITY_FLOW_ACTIVE_WORKSPACE',
+  'SINGULARITY_FLOW_LEAD_REGISTRY'
+].map((key) => [key, process.env[key]]));
+process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = path.join(promptAuditMachineState, 'workspaces.json');
+process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE = path.join(promptAuditMachineState, 'active-workspace.json');
+process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(promptAuditMachineState, 'lead-registry.json');
+after(async () => {
+  for (const [key, value] of Object.entries(originalMachineEnvironment)) {
+    if (value == null) delete process.env[key];
+    else process.env[key] = value;
+  }
+  await rm(promptAuditMachineState, { recursive: true, force: true });
+});
+
+function promptCli(root, args, options = {}) {
+  const machineState = path.join(root, '.isolated-machine-state');
+  return run(process.execPath, [cli, ...args], {
+    cwd: root,
+    env: {
+      ...process.env,
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(machineState, 'workspaces.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(machineState, 'active-workspace.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(machineState, 'lead-registry.json')
+    },
+    ...options
+  });
+}
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-prompt-audit-'));
@@ -71,6 +101,30 @@ test('a composition-cache hit reuses the consecutive prompt record without hidin
   await recordPromptAudit(root, {
     ...input, source: 'model-invocation', compositionCache: { ...input.compositionCache, hit: true }
   });
+  assert.equal((await promptAuditStatus(root)).count, 2);
+});
+
+test('wm-compose dedup never collapses different raw handoffs that redact identically', async () => {
+  const root = await repository();
+  await setPromptAudit(root, true);
+  const common = {
+    agent: 'developer', phase: 'implementation', workId: 'STORY-REDACTION', generation: 1,
+    source: 'wm-compose', compositionCache: { key: 'b'.repeat(64), hit: false }
+  };
+  const first = await recordPromptAudit(root, {
+    ...common, prompt: `Use Bearer ${'a'.repeat(32)} for this synthetic request.`
+  });
+  const second = await recordPromptAudit(root, {
+    ...common, prompt: `Use Bearer ${'b'.repeat(32)} for this synthetic request.`
+  });
+  assert.equal(first.promptSha256, second.promptSha256,
+    'the fixture must produce the same scrubbed prompt');
+  assert.notEqual(first.handoffSha256, second.handoffSha256);
+  assert.notEqual(first.id, second.id);
+  const repeated = await recordPromptAudit(root, {
+    ...common, prompt: `Use Bearer ${'b'.repeat(32)} for this synthetic request.`
+  });
+  assert.equal(repeated.id, second.id);
   assert.equal((await promptAuditStatus(root)).count, 2);
 });
 
@@ -154,12 +208,12 @@ test('structured prompt view joins exact invocation tools, tokens, timing, and o
   assert.match(rendered, /Prompt transport: attachment/);
   assert.match(rendered, /Prompt protocol version: unavailable/);
   assert.match(rendered, /--- BEGIN CAPTURED GOVERNED PROMPT ---/);
-  const cliView = run(process.execPath, [cli, 'prompt-log', 'view', record.id], { cwd: root }).stdout;
+  const cliView = promptCli(root, ['prompt-log', 'view', record.id]).stdout;
   assert.match(cliView, /## Tokens and cost/);
   assert.match(cliView, /Total provider tokens: 150/);
-  const raw = run(process.execPath, [cli, 'prompt-log', 'view', record.id, '--raw'], { cwd: root }).stdout;
+  const raw = promptCli(root, ['prompt-log', 'view', record.id, '--raw']).stdout;
   assert.equal(raw, prompt);
-  const json = JSON.parse(run(process.execPath, [cli, 'prompt-log', 'view', record.id, '--json'], { cwd: root }).stdout);
+  const json = JSON.parse(promptCli(root, ['prompt-log', 'view', record.id, '--json']).stdout);
   assert.equal(json.record.execution.tokens.total, 150);
 });
 
@@ -295,21 +349,19 @@ test('retention prunes expired legacy records and clear removes history plus rec
 
 test('the CLI requires explicit deletion confirmation and applies retention and clear controls', async () => {
   const root = await repository();
-  const enabled = JSON.parse(run(process.execPath, [cli, 'prompt-log', 'on', '--json'], { cwd: root }).stdout);
+  const enabled = JSON.parse(promptCli(root, ['prompt-log', 'on', '--json']).stdout);
   assert.equal(enabled.enabled, true);
-  const retained = JSON.parse(run(process.execPath, [
-    cli, 'prompt-log', 'retention', '--retention-days', '14', '--json'
-  ], { cwd: root }).stdout);
+  const retained = JSON.parse(promptCli(root, [
+    'prompt-log', 'retention', '--retention-days', '14', '--json'
+  ]).stdout);
   assert.equal(retained.retentionDays, 14);
   await recordPromptAudit(root, { agent: 'developer', phase: 'intake', prompt: 'delete through the CLI' });
-  const refused = run(process.execPath, [cli, 'prompt-log', 'clear', '--json'], {
-    cwd: root, allowFailure: true
-  });
+  const refused = promptCli(root, ['prompt-log', 'clear', '--json'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /requires --confirm "DELETE PROMPT AUDIT"/);
-  const cleared = JSON.parse(run(process.execPath, [
-    cli, 'prompt-log', 'clear', '--confirm', 'DELETE PROMPT AUDIT', '--json'
-  ], { cwd: root }).stdout);
+  const cleared = JSON.parse(promptCli(root, [
+    'prompt-log', 'clear', '--confirm', 'DELETE PROMPT AUDIT', '--json'
+  ]).stdout);
   assert.equal(cleared.removed, 1);
   assert.equal(cleared.count, 0);
 });

@@ -1011,14 +1011,19 @@ export async function recordPromptAudit(root, input) {
     const handoff = String(input.prompt ?? '');
     const scrubbed = scrubPrompt(handoff);
     const promptSha256 = createHash('sha256').update(scrubbed.prompt).digest('hex');
+    const handoffSha256 = createHash('sha256').update(handoff).digest('hex');
+    const handoffBytes = Buffer.byteLength(handoff);
     const source = input.source ?? 'wm-compose';
-    // A composition-cache hit is the same governed handoff, not a new model invocation. Repeating
-    // `wm compose` used to append the complete prompt again and made prompt logs look as if twice
-    // the context had been sent. Invocation records remain append-only and are never deduplicated.
-    if (input.compositionCache?.hit === true
-      && source === 'wm-compose'
+    // The exact same composition identity is one governed handoff even when the local composition
+    // cache was cold, disabled, or rebuilt. Repeating `wm compose` must not append the complete
+    // prompt again merely because cache metadata says `hit: false`. Model invocation and VS Code
+    // handoff records remain append-only and are never deduplicated.
+    if (source === 'wm-compose'
       && previous?.source === source
       && previous.promptSha256 === promptSha256
+      && previous.handoffSha256 === handoffSha256
+      && previous.handoffBytes === handoffBytes
+      && previous.repositoryPath === target.repositoryPath
       && previous.workId === (input.workId ?? null)
       && previous.phase === input.phase
       && previous.generation === (input.generation ?? null)
@@ -1047,8 +1052,8 @@ export async function recordPromptAudit(root, input) {
       references: input.references ?? [],
       compositionCache: input.compositionCache ?? null,
       composition: input.composition ?? null,
-      handoffSha256: createHash('sha256').update(handoff).digest('hex'),
-      handoffBytes: Buffer.byteLength(handoff),
+      handoffSha256,
+      handoffBytes,
       promptSha256,
       bytes: Buffer.byteLength(scrubbed.prompt),
       redactions: scrubbed.redactions,

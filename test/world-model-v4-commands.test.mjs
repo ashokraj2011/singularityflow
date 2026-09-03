@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -34,6 +34,14 @@ import { runDeterministicRegistration } from '../src/world-model/extract/runner.
 import { automaticMaterializationDecision } from '../src/world-model-materialization.mjs';
 
 const executable = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+const originalSharedCache = process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE;
+const isolatedSharedCacheRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmb-command-cache-'));
+process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE = path.join(isolatedSharedCacheRoot, 'cache');
+after(async () => {
+  if (originalSharedCache == null) delete process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE;
+  else process.env.SINGULARITY_FLOW_WMB_SHARED_CACHE = originalSharedCache;
+  await rm(isolatedSharedCacheRoot, { recursive: true, force: true });
+});
 
 function git(root, args) {
   return run('git', args, { cwd: root }).stdout.trim();
@@ -1449,7 +1457,10 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
     root, config, enforcedWorkflow, enforcedWorkflow.phases.intake,
     { generation: 1, agent: 'product-owner' }
   );
-  assert.match(enforced.errors.join('\n'), /repository world-model grounding was unavailable/);
+  assert.doesNotMatch(enforced.errors.join('\n'), /repository world-model grounding was unavailable/);
+  assert.match(enforced.warnings.join('\n'), /repository world-model grounding was unavailable/);
+  assert.match(enforced.errors.join('\n'), /prompt snapshot hash differs/);
+  assert.match(enforced.errors.join('\n'), /not bound to the current pinned Story source/);
 });
 
 test('v3 migration publishes the target projection and receipt in one state commit', async (t) => {

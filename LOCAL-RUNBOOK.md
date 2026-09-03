@@ -30,7 +30,7 @@ git remote add origin ../origin.git && git push -u origin main
 
 To run fully offline instead, set `git: { publish: off }` in `singularity/workflow.yml` on the base branch and commit it before `start`. Two consequences: `singularity-flow session attach` becomes unusable (it requires `refs/remotes/origin/<ID>`), and `workflow.yml` is hash-pinned at `start`, so it cannot be edited afterwards without failing `gate`.
 
-**`worldModel.grounding: enforce` is the shipped default.** `phase publish` refuses unless `wm compose --phase <phase>` has recorded a grounding record for the next generation against a committed, fresh world model. Set `worldModel.grounding: off` before `start` to skip repository grounding entirely.
+**`worldModel.grounding: warn` is the shipped starter setting.** `phase publish` requires the next generation's recorded `wm compose --phase <phase>` receipt, but that receipt may explicitly record a missing or unreachable model—or a stale model under staleness `fail`—with zero World-Model bytes. Normal file-based phase work continues in that state. Staleness `warn` or `ignore` may consume an otherwise verified stale snapshot. `enforce` fails closed when consumed model bytes, provenance, or the prompt snapshot do not verify; it does not turn model availability into a lifecycle prerequisite. Set `worldModel.grounding: off` before `start` to omit repository grounding entirely.
 
 **Semantic `wm build` shells out to `copilot`; `wm light` does not.** The default semantic runner is `copilot -p "$(cat {prompt_file})" --allow-all-tools`. Use `wm light` or `sflow-wm-minimal` for deterministic zero-token grounding. For semantic depths without the Copilot CLI on `PATH`, pass `--runner "<command> {prompt_file}"` or disable grounding.
 
@@ -355,9 +355,11 @@ sflow-wm-minimal --phase testing
 sflow-wm-minimal --phase conformance
 ```
 
-Benchmark A requires the published world model, so add `--publish` to the command for its current
-phase. Benchmark B deliberately disables world-model, AST, and agent-brief context; the commands
-above document the available phase IDs but are not required for that generic-context arm.
+Benchmark A measures the published world model, so add `--publish` to the command for its current
+phase when populating that treatment. If the model is unavailable, the run is marked degraded and
+the lifecycle still continues with ordinary repository access. Benchmark B deliberately disables
+world-model, AST, and agent-brief context; the commands above document the available phase IDs but
+are not required for that generic-context arm.
 
 You normally run only the current phase's command when Singularity Flow reports
 that grounding is missing or stale; running every command in advance is not
@@ -597,7 +599,7 @@ singularity-flow gate --terminal
    `start`, selection receipts, soft-gate confirmation, `approve`, `reject`, and
    `epic start --local`; phase agents are resolved by the workflow.
 5. Consume selection receipts without committing in between; they expire in 15 minutes and are single use.
-6. Run `wm compose --phase <phase>` before every `phase publish` while grounding is enforced; do not add a Story-specific `--task`.
+6. Run `wm compose --phase <phase>` before every `phase publish` when grounding is enabled; do not add a Story-specific `--task`. A valid unavailable receipt is sufficient to continue with zero World-Model bytes.
 7. Replace every template placeholder and exceed the phase's minimum byte count.
 8. Keep source changes inside `implementation` and `verification`.
 9. Name the branch exactly the work ID.

@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 19
+version: 20
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -40,9 +40,10 @@ phase prompt.
 
 Normal lifecycle commands inspect, reuse, and compose this shared model without a task guide. They
 never turn a Story title or conversational objective into `--task`. In registered v4, `wm ensure` is
-a read-only readiness check: a missing or stale required view is refused rather than built. Create or
-replace v4 bytes only through an explicit `wm build`, `wm regenerate`, or `wm migrate`; exact valid
-cache entries are reused without another model call.
+a read-only readiness check: it reports a missing or stale required view and refuses to build it.
+That command refusal is not a lifecycle refusal; ordinary work records unavailable context and
+continues. Create or replace v4 bytes only through an explicit `wm build`, `wm regenerate`, or
+`wm migrate`; exact valid cache entries are reused without another model call.
 
 All state-backed surfaces use the same approved authority: `ledger.remote`, then
 `worldModel.remote`, then `git.remote`. Read-only status, Help, gateway, and VS Code views never
@@ -76,10 +77,12 @@ deterministic v4 composer, lifecycle authoring may add a missing phase view to a
 projection without invoking a model; v4 maps light to its `quick` depth and preserves existing views
 byte-for-byte. Stale, invalid, source-mismatched, or intentionally removed models still require a
 reviewed action. The automatic child build is bound to the inspected state commit and manifest, so
-authority movement before execution cannot widen an extension into a replacement. In advisory
-grounding mode, a failed deterministic warm-up does not block normal
-file-based authoring: the prompt receipt records `groundingAvailability: unavailable` with a stable
-reason code. Enforced grounding remains fail-closed.
+authority movement before execution cannot widen an extension into a replacement. In every
+grounding mode, a failed deterministic warm-up does not block normal file-based authoring: the
+prompt receipt records `groundingAvailability: unavailable` with a stable reason code and zero
+World-Model bytes. Enforced grounding remains fail-closed for context integrity—hash, provenance,
+source, path, or prompt-snapshot mismatches—but never turns intelligence availability into lifecycle
+authority.
 
 The optional registered runtime and human-confirmed inputs live only at
 `world-model-inputs/runtime-observations.json` and

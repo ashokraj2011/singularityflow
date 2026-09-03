@@ -19,7 +19,7 @@ import {
 import { applicationPathContext, isApplicationPath } from './application-paths.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { renderMcpPromptPolicy } from './mcp.mjs';
-import { injectAgentPrompt, recordInjection } from './inject.mjs';
+import { injectAgentPrompt, readPromptGeneration, recordInjection } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { heartbeat } from './style.mjs';
@@ -61,7 +61,7 @@ import {
 import { generateLightWorldModel } from './worldmodel-light.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
-import { authoredReferencePreview, resolveReference } from './harness-imports.mjs';
+import { resolveReference } from './harness-imports.mjs';
 import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
 } from './composition-cache.mjs';
@@ -93,6 +93,10 @@ import {
   inspectWorldModelPublicationRecovery, listWorldModelPublicationRecoveries,
   resumeWorldModelPublication
 } from './world-model/recovery.mjs';
+import {
+  isWorldModelAvailabilityError, worldModelAvailabilityReasonCode
+} from './world-model-availability.mjs';
+import { withSubjectLock } from './subject-lock.mjs';
 
 const configRelative = 'singularity/worldmodel.json';
 const CHECKPOINT_SCHEMA_VERSION = currentSchemaVersion('worldmodel-checkpoint');
@@ -244,10 +248,11 @@ async function renderApprovedReferenceContext(root, definition, workflow, active
   const previews = []; const warnings = []; const deduplicated = [];
   for (const descriptor of descriptors) {
     try {
-      const resolved = authoredReferencePreview(await resolveReference(root, descriptor.handle, {
+      const resolved = await resolveReference(root, descriptor.handle, {
         maxBytes: policy?.previewTextBytes,
-        totalEnvelopeBytes: policy?.totalEnvelopeBytes
-      }));
+        totalEnvelopeBytes: policy?.totalEnvelopeBytes,
+        authoredMarkdown: true
+      });
       const capturedReason = approvedReferenceCaptureReason({
         handle: descriptor.handle,
         path: resolved.reference.artifact.path,
@@ -913,6 +918,10 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
           missing: plan.views,
           refresh: error?.details?.refresh ?? authorityRefresh.status,
           staleness,
+          // Readiness inspection is diagnostic and never consumes a failed candidate. Preserve
+          // whether repair is about ordinary availability or invalid candidate bytes so explicit
+          // WM commands and the UI can distinguish them, while lifecycle work can use zero context.
+          failureClass: isWorldModelAvailabilityError(error) ? 'availability' : 'integrity',
           error: { code: error?.code ?? 'WMB_GROUNDING_UNAVAILABLE', message: error.message },
           action
         },
@@ -923,7 +932,70 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
     }
   }
   const plan = suppliedPlan ?? groundingPlan(config, options, phaseId);
-  const availability = await inspectGroundingAvailability(root, config, plan, { refreshRemote });
+  let availability;
+  try {
+    availability = await inspectGroundingAvailability(root, config, plan, { refreshRemote });
+  } catch (error) {
+    // Failure to extract an otherwise immutable state-branch tree means the optional intelligence
+    // cannot be read on this machine; it says nothing about whether ordinary repository work is
+    // safe. Normalize that one transport/availability failure here so every caller (next,
+    // nextsteps, Auto, planning, and direct composition) takes the same zero-context path. Cache
+    // validation, manifest corruption, path escapes, and other uncoded integrity faults still
+    // escape and fail closed.
+    if (!isWorldModelAvailabilityError(error)) throw error;
+    const unavailableSelections = plan.selections.map((selection) => ({
+      ...selection,
+      id: selectionId(selection),
+      status: 'missing',
+      path: null
+    }));
+    const command = groundingEnsureCommand(plan);
+    availability = {
+      schemaVersion: 1,
+      status: 'unavailable',
+      source: null,
+      sourceAuthority: null,
+      sourceRefresh: 'unavailable',
+      sourceDiverged: false,
+      stateBranch: config.stateBranch ?? config.ledger?.branch ?? null,
+      resolvedRef: null,
+      snapshotRef: null,
+      commit: null,
+      treeSha: null,
+      refreshStatus: 'unavailable',
+      authority: 'unavailable',
+      remoteBranchPresent: null,
+      remoteModelAtTip: null,
+      remoteModelInHistory: null,
+      ready: false,
+      sourceTreeSha256: null,
+      selected: null,
+      extensionBase: null,
+      candidates: [],
+      selections: unavailableSelections,
+      readySelections: [],
+      missingSelections: unavailableSelections,
+      missing: unavailableSelections,
+      stale: [],
+      taskGuide: plan.taskGuide?.required
+        ? { required: true, task: plan.taskGuide.task, status: 'missing', id: null, path: null }
+        : { required: false, task: null, status: 'not-requested', id: null, path: null },
+      staleness: worldModelStalenessDecision(
+        config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn', true
+      ),
+      conflicts: [{
+        code: error.code,
+        source: 'state-branch',
+        message: error.message
+      }],
+      generationRequired: false,
+      error: {
+        code: worldModelAvailabilityReasonCode(error, 'WORLD_MODEL_STATE_EXTRACTION_FAILED'),
+        message: error.message
+      },
+      action: { command, reason: error.message }
+    };
+  }
   const reason = availability.ready
     ? availability.staleness?.warns ? availability.staleness.message : null
     : availability.action?.reason ?? 'No governed world model satisfies the pinned phase plan.';
@@ -4125,21 +4197,81 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
   };
 }
 
-async function compose(root, options) {
+function interruptedPromptPair(error) {
+  return error?.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
+    && typeof error.details?.hasRecord === 'boolean'
+    && typeof error.details?.hasPrompt === 'boolean'
+    && error.details.hasRecord !== error.details.hasPrompt;
+}
+
+async function recordCompositionPromptAudit(root, {
+  text, agent, phase, generation, workId, workType, task = null,
+  supportingEvidence = [], references = [], compositionCache = null, composition = null
+}) {
+  const audit = await recordPromptAudit(root, {
+    prompt: text,
+    agent,
+    phase,
+    generation,
+    workId,
+    workType,
+    task,
+    source: 'wm-compose',
+    supportingEvidence,
+    references,
+    compositionCache,
+    composition
+  });
+  if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
+  return audit;
+}
+
+async function compose(root, options, { storyLockHeld = false } = {}) {
   const session = await loadSession(root, { required: false });
-  const agent = optionString(options, 'agent') ?? session?.agent;
+  const explicitAgent = optionString(options, 'agent');
+  let agent = explicitAgent ?? session?.agent;
   if (!agent) throw new SingularityFlowError('Provide --agent (governed-agent ID) or start a governed-agent session first.');
   const workId = optionString(options, 'work-id');
   if (workId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workId)) {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
   }
-  const config = await load(root, { agent, workId });
-  const definition = config.definition ?? await loadDefinition(root);
-  const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
-  const workflow = config.workflow ?? null;
+  let config = await load(root, { agent, workId });
+  let definition = config.definition ?? await loadDefinition(root);
+  let workflow = config.workflow ?? null;
   const requestedPhase = optionString(options, 'phase');
   const dryRun = optionBoolean(options, 'dry-run');
   const renderOnly = optionBoolean(options, 'render-only');
+  if (workflow && !dryRun && !renderOnly && !storyLockHeld) {
+    const storyId = workflow.workItem.id;
+    // Pin the Story discovered before acquisition. The second call reloads all Story state inside
+    // the lease; it must not follow a concurrently changed UI/session cursor to another Story while
+    // still holding this Story's lock.
+    const lockedOptions = workId ? options : { ...options, 'work-id': storyId };
+    return withSubjectLock(root, { kind: 'story', id: storyId }, () => (
+      compose(root, lockedOptions, { storyLockHeld: true })
+    ));
+  }
+  // A terminal session can still name the actor that completed the previous phase. It is not
+  // authority to silently replace the newly active phase's pinned authoring agent. A session that
+  // is explicitly bound to this Story and phase remains authoritative, including a reviewed
+  // /sf-agent override. This prevents an outgoing-agent duplicate without erasing a current-phase
+  // choice.
+  const selectedPhaseId = requestedPhase ?? workflow?.currentPhase ?? null;
+  const pinnedAgent = selectedPhaseId ? workflow?.phases?.[selectedPhaseId]?.defaultAgent : null;
+  const sessionAgentApplies = Boolean(
+    session?.agent
+    && session.workId === workflow?.workItem?.id
+    && session.phaseId === selectedPhaseId
+    && definition.agents?.[session.agent]
+  );
+  const phaseAgent = sessionAgentApplies ? session.agent : pinnedAgent;
+  if (!explicitAgent && phaseAgent && phaseAgent !== agent) {
+    agent = phaseAgent;
+    config = await load(root, { agent, workId });
+    definition = config.definition ?? await loadDefinition(root);
+    workflow = config.workflow ?? workflow;
+  }
+  const workItemRoot = definition.workItemRoot ?? 'singularity/work-items';
   if (workflow && !dryRun && !renderOnly) {
     const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
     await assertNoPendingPublication(root, definition, workflow, 'compose and record a generation prompt');
@@ -4166,6 +4298,62 @@ async function compose(root, options) {
     labels: source?.labels ?? []
   };
   if (!signals.phase) throw new SingularityFlowError('Provide --phase or run from an active work-item branch.');
+  const phase = workflow?.phases?.[signals.phase] ?? null;
+  if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
+  if (workflow && !dryRun) {
+    const expectedPrompt = {
+      workDir: path.join(root, workItemRoot, workflow.workItem.id),
+      agent
+    };
+    // Omitting --task means "show/reuse this generation", not "prove it was composed without a
+    // task". An explicitly supplied task remains part of the immutable generation identity.
+    if (options.task !== undefined) expectedPrompt.task = optionString(options, 'task') ?? null;
+    let existing = null;
+    try {
+      existing = await readPromptGeneration(root, workflow, phase, {
+        ...expectedPrompt
+      });
+    } catch (error) {
+      // A durable mutation recomposes under the Story lease so recordInjection can prove and
+      // complete the one missing half. Read-only rendering cannot repair repository state.
+      if (!storyLockHeld || renderOnly || !interruptedPromptPair(error)) throw error;
+      console.error(
+        `Prompt generation recovery: ${workflow.workItem.id}/${phase.id}/generation ${phase.generation + 1} has one interrupted persistence half; recomposing exact bytes before repair.`
+      );
+    }
+    if (existing) {
+      // A generation prompt is immutable. Reuse the exact bytes that were verified above instead
+      // of re-reading World-Model authority or rebuilding large input sections. Prompt audit is
+      // still completed idempotently below: it may have been enabled, or the prior process may have
+      // stopped, after the immutable pair was published. A material context refresh belongs to a
+      // new phase generation.
+      console.error(`Grounding composition reused: ${existing.file}`);
+      if (!renderOnly && options['skip-prompt-audit'] !== true) {
+        await recordCompositionPromptAudit(root, {
+          text: existing.text,
+          agent: existing.record.agent ?? agent,
+          phase: existing.record.phase,
+          generation: existing.record.generation,
+          workId: existing.record.workId,
+          workType: workflow.workItem.workType ?? null,
+          task: existing.record.task ?? null,
+          supportingEvidence: existing.record.supportingEvidence ?? [],
+          references: existing.record.references ?? [],
+          compositionCache: existing.record.compositionCache?.key ? {
+            key: existing.record.compositionCache.key,
+            hit: true
+          } : null,
+          composition: existing.record.promptBudget ?? null
+        });
+      }
+      const destination = optionString(options, 'out');
+      if (destination) {
+        await writeFile(path.resolve(root, destination), existing.text);
+        console.log(`Composed prompt written to ${destination}.`);
+      } else if (!options['return-only']) process.stdout.write(existing.text);
+      return existing.text;
+    }
+  }
   const registeredV4 = isWorldModelV4(config, options);
   let plan = registeredV4
     ? {
@@ -4187,42 +4375,83 @@ async function compose(root, options) {
   let required = {
     selected: [], located: null, directory: null, manifest: {}, views: [],
     manifestContentSha256: null, sourceManifestSha256: null,
+    validatedModelFiles: [],
     freshness: { fresh: true, built: null, current: null }
   };
   if (worldModelEnabled) {
-    const inspected = await inspectConfiguredGrounding(root, config, signals.phase, {
-      options, plan, refreshRemote: true
-    });
-    plan = inspected.plan;
-    if (inspected.availability.ready) {
-      required = await resolveInspectedGrounding(root, inspected, signals.phase, {
-        task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
+    try {
+      const inspected = await inspectConfiguredGrounding(root, config, signals.phase, {
+        options, plan, refreshRemote: true
       });
-      groundingAvailable = true;
-      groundingAvailability = { status: 'available', reasonCode: null };
-    } else if (config.grounding === 'warn') {
-      // Advisory grounding must never turn missing/stale intelligence into a lifecycle blocker.
-      // The prompt and receipt still record the absence, while authoring proceeds with ordinary
-      // repository access and the governed phase inputs.
-      console.error(`Grounding warning: ${inspected.reason}`);
-      console.error(`Grounding recovery: ${inspected.command}`);
+      plan = inspected.plan;
+      if (inspected.availability.ready) {
+        required = await resolveInspectedGrounding(root, inspected, signals.phase, {
+          task: optionString(options, 'task'), evidence: optionBoolean(options, 'evidence')
+        });
+        groundingAvailable = true;
+        groundingAvailability = { status: 'available', reasonCode: null };
+      } else {
+        if (inspected.availability.failureClass === 'integrity'
+            && config.grounding === 'enforce') {
+          throw new SingularityFlowError(
+            `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
+              code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+              details: { command: inspected.command }
+            }
+          );
+        }
+        // World-model intelligence is an optional accelerator, never lifecycle authority.
+        console.error(`Grounding warning: ${inspected.reason}`);
+        console.error(`Grounding recovery: ${inspected.command}`);
+        groundingAvailability = {
+          status: 'unavailable',
+          reasonCode: durableGroundingReasonCode(inspected.availability?.error?.code)
+        };
+      }
+    } catch (error) {
+      // A candidate can disappear between inspection and exact resolution, and legacy authority
+      // probes can fail before returning a normalized availability object. Consume none of it.
+      if (!isWorldModelAvailabilityError(error)) {
+        if (config.grounding === 'enforce') throw error;
+        console.error(`Grounding integrity warning: ${error.message}`);
+      } else {
+        console.error(`Grounding warning: ${error.message}`);
+      }
+      console.error(`Grounding recovery: singularity-flow wm doctor`);
+      groundingAvailable = false;
       groundingAvailability = {
         status: 'unavailable',
-        reasonCode: durableGroundingReasonCode(inspected.availability?.error?.code)
+        reasonCode: worldModelAvailabilityReasonCode(error)
       };
-    } else {
-      throw new SingularityFlowError(
-        `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
-          code: inspected.availability.error?.code ?? 'world_model.materialization_required',
-          details: { command: inspected.command, availability: inspected.availability }
-        }
-      );
+    }
+  }
+  if (groundingAvailable) {
+    const candidateCommit = required.located?.commit ?? worldModelCommit(root, config.outputDir);
+    const candidateChanges = !registeredV4 && required.located?.source === 'worktree'
+      ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], {
+          cwd: root
+        }).stdout.trim()
+      : '';
+    if (!candidateCommit || candidateChanges) {
+      const reasonCode = candidateChanges
+        ? 'WORLD_MODEL_WORKTREE_DIRTY' : 'WORLD_MODEL_UNPUBLISHED';
+      console.error(`Grounding warning: ${candidateChanges
+        ? 'the worktree world-model projection has uncommitted changes'
+        : 'the resolved world model has no immutable commit'}.`);
+      groundingAvailable = false;
+      groundingAvailability = { status: 'unavailable', reasonCode };
+      required = {
+        selected: [], located: null, directory: null, manifest: {}, views: [],
+        manifestContentSha256: null, sourceManifestSha256: null,
+        validatedModelFiles: [],
+        freshness: { fresh: true, built: null, current: null }
+      };
     }
   }
   if (groundingAvailable && !required.freshness.fresh) {
     const message = `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${required.freshness.current.slice(0, 18)}).`;
     const staleness = assertWorldModelStaleness(config.staleness, false, message);
-    if (staleness.warns) console.error(`Warning: ${message}`);
+    if (staleness.warns) console.error(`Grounding warning: ${message}`);
   }
   const promptStudy = workflow
     ? await resolveImpactPromptOverride(root, workflow, signals.phase, {
@@ -4230,16 +4459,45 @@ async function compose(root, options) {
         agentSha256: definition.agents?.[agent]?.sha256 ?? null
       })
     : null;
-  const { text, injection } = await injectAgentPrompt(root, definition, agent, signals, {
-    promptOverride: promptStudy,
-    // Registered v4 views are read as exact state-backed blobs above. The legacy rule injector
-    // walks a mutable repository directory and would silently mix a second representation into
-    // the same prompt, so it is disabled only for this format.
-    disableWorldModelInjection: worldModelDisabledForWorkflow(workflow) || registeredV4,
-    modelDirectory: groundingAvailable ? required.directory : null
-  });
-  const phase = workflow?.phases?.[signals.phase] ?? null;
-  if (workflow && !phase) throw new SingularityFlowError(`Unknown workflow phase '${signals.phase}'.`);
+  let agentPrompt;
+  try {
+    agentPrompt = await injectAgentPrompt(root, definition, agent, signals, {
+      promptOverride: promptStudy,
+      // Registered v4 views are read as exact state-backed blobs above. The legacy rule injector
+      // walks a mutable repository directory and would silently mix a second representation into
+      // the same prompt, so it is disabled only for this format.
+      disableWorldModelInjection: !groundingAvailable
+        || worldModelDisabledForWorkflow(workflow) || registeredV4,
+      modelDirectory: groundingAvailable ? required.directory : null,
+      validatedModelFiles: groundingAvailable ? required.validatedModelFiles : null,
+      validatedManifest: groundingAvailable ? required.manifest : null
+    });
+  } catch (error) {
+    // A temporary/cache-backed legacy projection can disappear after its required files were
+    // selected but before supplemental rule injection. No prompt has left the process yet, so
+    // discard the entire candidate and compose an explicit zero-context prompt instead.
+    const optionalIntegrityRace = config.grounding !== 'enforce'
+      && error?.code === 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED';
+    if (!groundingAvailable
+        || (!isWorldModelAvailabilityError(error) && !optionalIntegrityRace)) throw error;
+    console.error(`Grounding warning: ${error.message} Continuing without World-Model context.`);
+    groundingAvailable = false;
+    groundingAvailability = {
+      status: 'unavailable', reasonCode: worldModelAvailabilityReasonCode(error)
+    };
+    required = {
+      selected: [], located: null, directory: null, manifest: {}, views: [],
+      manifestContentSha256: null, sourceManifestSha256: null,
+      validatedModelFiles: [],
+      freshness: { fresh: true, built: null, current: null }
+    };
+    agentPrompt = await injectAgentPrompt(root, definition, agent, signals, {
+      promptOverride: promptStudy,
+      disableWorldModelInjection: true,
+      modelDirectory: null
+    });
+  }
+  const { text, injection } = agentPrompt;
   const remote = phase ? await renderAgentSkills(root, workflow, phase, session ? { ...session, agent } : null, {
     record: !dryRun && !renderOnly,
     itemDirectory: path.join(root, workItemRoot, workflow.workItem.id)
@@ -4307,6 +4565,15 @@ async function compose(root, options) {
   structural.warnings.forEach((warning) => console.error(`AST warning: ${warning}`));
   designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
+  const groundingStatus = worldModelEnabled && !groundingAvailable
+    ? [
+        '# Repository world-model status',
+        '',
+        `- Availability: \`unavailable\` (\`${groundingAvailability.reasonCode}\`)`,
+        '- This is not a lifecycle blocker. Continue with the pinned Story source, approved phase inputs, and ordinary repository file access.',
+        '- Do not invent or reconstruct world-model facts. A contributor may build or repair the shared model separately.'
+      ].join('\n')
+    : '';
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
@@ -4315,6 +4582,7 @@ async function compose(root, options) {
     { id: 'governed-agent-policy', text: text.trimEnd(), mandatory: true, priority: 0 },
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
+    { id: 'world-model-status', text: groundingStatus, mandatory: true, priority: 0 },
     { id: 'world-model-grounding', text: requiredText, mandatory: config.grounding === 'enforce', priority: 40 },
     { id: 'capability-world-model', text: capability.text, priority: 50 },
     { id: 'optional-ast-context', text: structural.text, priority: 70 },
@@ -4369,7 +4637,7 @@ async function compose(root, options) {
   const manifestInfo = groundingAvailable
     ? registeredV4
       ? { sha256: required.manifestContentSha256 }
-      : await snapshot(path.join(required.directory, 'manifest.json'))
+      : { sha256: required.manifestContentSha256 }
     : { sha256: null };
   const modelCommit = groundingAvailable
     ? required.located?.commit ?? worldModelCommit(root, config.outputDir)
@@ -4377,9 +4645,18 @@ async function compose(root, options) {
   const modelChanges = groundingAvailable && !registeredV4 && required.located?.source === 'worktree'
     ? run('git', ['status', '--porcelain=v1', '--untracked-files=all', '--', config.outputDir], { cwd: root }).stdout.trim()
     : '';
-  if (modelChanges && config.grounding === 'enforce') throw new SingularityFlowError('The world-model directory has uncommitted changes. Rebuild it before composing a governed prompt.');
-  if (modelChanges && config.grounding === 'warn') console.error('Warning: the world-model directory has uncommitted changes; its committed hashes will not verify.');
-  if (config.grounding === 'enforce' && !modelCommit) throw new SingularityFlowError('The world model is not published. Run singularity-flow wm ensure --phase <phase> before composing a governed prompt.');
+  if (modelChanges) {
+    throw new SingularityFlowError(
+      'Internal grounding invariant failed: an uncommitted world-model projection reached prompt compilation.',
+      { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+    );
+  }
+  if (groundingAvailable && !modelCommit) {
+    throw new SingularityFlowError(
+      'Internal grounding invariant failed: consumed world-model context has no immutable commit.',
+      { code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED' }
+    );
+  }
   const files = [
     ...mandatory,
     ...injection.sections.map((section) => ({ ...section, category: 'rule', level: null, reason: 'matched injection rule' })),
@@ -4507,16 +4784,15 @@ async function compose(root, options) {
     }, { workDir: path.join(root, workItemRoot, workflow.workItem.id) });
     console.error(`Grounding composition recorded: ${file}`);
   }
-  if (!renderOnly) {
-    const audit = await recordPromptAudit(root, {
-      prompt: composedText,
+  if (!renderOnly && options['skip-prompt-audit'] !== true) {
+    await recordCompositionPromptAudit(root, {
+      text: composedText,
       agent,
       phase: signals.phase,
       generation: phase ? Number(phase.generation ?? 0) + 1 : null,
       workId: workflow?.workItem?.id ?? workId ?? null,
       workType: workflow?.workItem?.workType ?? null,
       task: optionString(options, 'task') ?? null,
-      source: 'wm-compose',
       supportingEvidence: governed.evidenceEntries,
       references: approvedReferences.previews.map((preview) => ({
         handle: preview.handle, rawSha256: preview.rawSha256,
@@ -4526,7 +4802,6 @@ async function compose(root, options) {
       compositionCache: { key: cached.key, hit: cached.hit },
       composition: promptComposition
     });
-    if (audit) console.error(`Prompt audit recorded: ${audit.id} (${audit.promptSha256.slice(0, 12)}).`);
   }
   const destination = optionString(options, 'out');
   if (destination) {
@@ -4573,6 +4848,7 @@ async function showPrompt(root, options) {
 
   const skill = await readFile(skillFile, 'utf8');
   const selectedWorkId = config.workflow?.workItem?.id ?? optionString(options, 'work-id') ?? null;
+  const recordHandoff = optionBoolean(options, 'record-audit');
   const prefix = [
     '# Singularity Flow governed Story handoff',
     '',
@@ -4586,7 +4862,9 @@ async function showPrompt(root, options) {
     '',
     `- Skill: \`/${skillId}\``,
     `- Phase: \`${phase}\``,
-    '- Mode: read-only render; no grounding record or workflow state is written',
+    recordHandoff
+      ? '- Mode: recorded Copilot handoff; the immutable generation prompt may be created in local Story context, but workflow state and Git are unchanged'
+      : '- Mode: read-only render; no grounding record or workflow state is written',
     '',
     `--- BEGIN plugin/skills/${skillId}/SKILL.md ---`,
     skill.trimEnd(),
@@ -4600,17 +4878,37 @@ async function showPrompt(root, options) {
   const composeOptions = {
     ...options,
     phase,
-    'render-only': true
+    'render-only': !recordHandoff,
+    'return-only': true,
+    'skip-prompt-audit': recordHandoff
   };
   delete composeOptions.skill;
   delete composeOptions.out;
   delete composeOptions['dry-run'];
   const governedPrompt = await compose(root, composeOptions);
+  process.stdout.write(governedPrompt);
   const suffix = '--- END GOVERNED PHASE PROMPT ---\n';
   process.stdout.write(suffix);
-  if (optionBoolean(options, 'record-audit')) {
+  if (recordHandoff) {
     const session = await loadSession(root, { required: false });
-    const agent = optionString(options, 'agent') ?? session?.agent;
+    const sessionAgentApplies = Boolean(
+      session?.agent
+      && session.workId === config.workflow?.workItem?.id
+      && session.phaseId === phase
+      && config.definition?.agents?.[session.agent]
+    );
+    // Pre-phase-binding session records are still readable during migration, but only as a last
+    // resort when the phase itself has no default. They can never override a phase-bound agent.
+    const legacySessionAgent = Boolean(
+      session?.agent
+      && session.workId === config.workflow?.workItem?.id
+      && !session.phaseId
+      && config.definition?.agents?.[session.agent]
+    ) ? session.agent : null;
+    const agent = optionString(options, 'agent')
+      ?? (sessionAgentApplies ? session.agent : null)
+      ?? config.workflow?.phases?.[phase]?.defaultAgent
+      ?? legacySessionAgent;
     if (!agent) throw new SingularityFlowError('Prompt audit requires an active governed agent or --agent ID.');
     const audit = await recordPromptAudit(root, {
       prompt: `${prefix}${governedPrompt}${suffix}`,

@@ -220,10 +220,10 @@ worldModel:
     # Use depth: phase with confirmation: prompt when exact phase-depth generation is preferred.
     depth: phase
     confirmation: prompt
-  # warn, not enforce. Grounding is a quality signal, and a repository that has not built a world
-  # model yet — or has no model provider configured at all — must still be able to run its
-  # lifecycle. Under `warn` the check runs and reports; under `enforce` it blocks publication.
-  # Raise this to enforce once `wm build` is part of your normal flow.
+  # Grounding is a quality signal, and a repository that has not built a world model yet — or has no
+  # model provider configured at all — must still be able to run its lifecycle. `warn` reports
+  # integrity findings; `enforce` fails closed on any model bytes actually consumed. Both record a
+  # stable unavailable receipt and continue with zero World-Model bytes when intelligence is absent.
   grounding: warn
   staleness: warn
   injection:
@@ -597,7 +597,7 @@ workTypes:
 
   benchmarking-a:
     label: Benchmark A — governed intelligence
-    description: Requires governed world-model, bounded AST, and approval-bound agent-brief context.
+    description: Measures governed world-model, bounded AST, and approval-bound agent-brief context; unavailable intelligence is a degraded benchmark run, not a lifecycle refusal.
     # Experimental arm: identical lifecycle, templates, agents, artifacts, and approvals to
     # Benchmark B. Only the pinned intelligence profile and input projection differ.
     phases: [intake, design, implementation, testing, conformance]

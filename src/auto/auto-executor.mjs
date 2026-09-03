@@ -1032,15 +1032,30 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         );
         assertAutoCandidateMatches(repairBaseline, repairObservation);
       }
+      const deterministicProducer = phase.generationPolicy?.producer === 'deterministic'
+        && !phaseRequiresCodeDelivery(phase);
       const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
-      if (groundingMode !== 'off') {
+      if (!deterministicProducer && groundingMode !== 'off') {
         let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
           agent: phase.defaultAgent,
           refreshRemote: true
         });
         if (!readiness.availability.ready) {
-          let materializationError = null;
-          let materializationRefusal = null;
+          if (groundingMode === 'enforce'
+              && readiness.availability.failureClass === 'integrity') {
+            return stopActive(
+              'waiting-human',
+              'world-model-grounding-integrity',
+              `${readiness.reason} Enforced context integrity must be repaired before Auto can use these bytes.`,
+              {
+                lastError: {
+                  code: readiness.availability.error?.code
+                    ?? 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
+                  message: readiness.reason
+                }
+              }
+            );
+          }
           const policy = effectiveMaterializationPolicy(readiness.config, workflow);
           const preservation = automaticMaterializationDecision(readiness.availability);
           const materialization = workflowGroundingMaterializationPlan(readiness, {
@@ -1056,31 +1071,10 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
                 agent: phase.defaultAgent,
                 refreshRemote: true
               });
-            } catch (error) {
-              materializationError = error;
-              // Advisory grounding remains optional even when an automatic deterministic warm-up
-              // cannot complete. Prompt composition records the absence and ordinary repository
-              // authoring continues without a model-derived context block.
+            } catch {
+              // Optional intelligence must never stop Auto. Prompt composition records an exact
+              // unavailable receipt and authoring continues through ordinary repository access.
             }
-          } else if (!materialization.allowed) {
-            materializationRefusal = materialization.reason;
-          }
-          if (!readiness.availability.ready && groundingMode === 'enforce') {
-            const groundingFailure = materializationError?.message
-              ?? materializationRefusal
-              ?? readiness.reason;
-            return stopActive(
-              'waiting-human',
-              'world-model-grounding-required',
-              `${groundingFailure} Run: ${readiness.command}`,
-              {
-                lastError: {
-                  code: materializationError?.code
-                    ?? readiness.availability.error?.code ?? 'AUTO_GROUNDING_UNAVAILABLE',
-                  message: groundingFailure
-                }
-              }
-            );
           }
         }
       }
@@ -1108,23 +1102,29 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         phase = workflow.phases[phase.id];
       }
       const task = generationTaskForPhase(definition, phase.id);
-      const composed = await composePhasePrompt(worktree, {
-        workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
-      });
-      const grounding = await verifyGroundingRecord(
-        worktree, definition, workflow, phase, { agent: phase.defaultAgent }
-      );
-      if (grounding.errors.length) {
-        throw new SingularityFlowError(
-          `Auto grounding authority is not ready: ${grounding.errors.join('; ')}`, {
-            code: 'AUTO_GROUNDING_REFERENCE_INVALID',
-            details: { phase: phase.id, path: grounding.path }
-          }
+      // Kernel-authored phases do not consume an authoring prompt. Composing one here performed
+      // needless World-Model checks, created misleading prompt-audit rows, and could stop a fully
+      // deterministic phase on optional context availability.
+      let composed = null;
+      let worldModelReference = null;
+      if (!deterministicProducer) {
+        composed = await composePhasePrompt(worktree, {
+          workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
+        });
+        const grounding = await verifyGroundingRecord(
+          worktree, definition, workflow, phase, { agent: phase.defaultAgent }
         );
+        if (grounding.errors.length) {
+          throw new SingularityFlowError(
+            `Auto grounding authority is not ready: ${grounding.errors.join('; ')}`, {
+              code: 'AUTO_GROUNDING_REFERENCE_INVALID',
+              details: { phase: phase.id, path: grounding.path }
+            }
+          );
+        }
+        worldModelReference = autoWorldModelReference(grounding);
       }
-      const worldModelReference = autoWorldModelReference(grounding);
-      if (phase.generationPolicy?.producer === 'deterministic'
-          && !phaseRequiresCodeDelivery(phase)) {
+      if (deterministicProducer) {
         const deterministicActiveMilliseconds = Date.now() - activeAccountedAt;
         activeAccountedAt = Date.now();
         state = await mutateAutoExecutorState(root, flightId, (draft) => {

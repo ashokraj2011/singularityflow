@@ -77,12 +77,14 @@ high-quality demo, use these settings:
 | Confirmation | `prompt` | Semantic model use remains visible and user-authorized |
 | Publication | `governed` | Publish the validated model through the configured Git policy |
 | Lookahead | `next-phase` | Prepare the next phase's views when policy permits |
-| Grounding | `enforce` | Refuse model-grounded generation until required world-model evidence is ready |
+| Grounding | `enforce` | Verify any consumed world-model evidence and prompt provenance; record unavailable intelligence with zero World-Model bytes |
 | Staleness | `warn` | Make source drift visible without hiding the recovery path |
 
 `grounding: enforce` applies to the world model, not AST. AST remains optional in every mode.
-Use `grounding: warn` for a lower-friction demonstration where a missing world model should be
-reported but not stop the phase.
+Both grounding modes allow the phase to continue when the World Model is missing or unreachable,
+and when staleness `fail` omits a stale model. Staleness `warn` or `ignore` may instead consume a
+verified stale snapshot. Use `grounding: warn` when consumed-context integrity findings should be
+reported rather than enforced.
 
 For a monorepo, configure only the capability's owned source roots and required shared roots. An
 empty scope means the whole application repository and can make generation slower and less focused.

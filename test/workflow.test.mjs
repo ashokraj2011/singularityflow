@@ -443,7 +443,7 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
 });
 
-test('next never launches a missing world-model agent unattended', async () => {
+test('next never launches a missing world-model agent unattended and still prepares the phase', async () => {
   const root = await repository();
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
@@ -456,13 +456,19 @@ test('next never launches a missing world-model agent unattended', async () => {
 
   const result = flow(root, ['next', '--task', 'Consent test'], { allowFailure: true });
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /Next step prerequisite:/);
-  assert.match(result.stdout, /No model was started/);
-  assert.match(result.stdout, /singularity-flow wm ensure --phase intake/);
+  assert.match(result.stderr, /Continuing phase 'intake' without repository world-model context/);
+  assert.match(result.stderr, /Optional recovery: singularity-flow wm ensure --phase intake/);
+  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
-  assert.equal(execute('git', ['status', '--short'], root).stdout.trim(), '');
+  assert.doesNotMatch(execute('git', ['status', '--short'], root).stdout, /singularity\/world-model/,
+    'continuing without intelligence must not create a World Model implicitly');
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/NEXT-CONSENT-1/workflow.json'), 'utf8'));
   assert.equal(workflow.phases.intake.generation, 0);
+  const receipt = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/NEXT-CONSENT-1/context/intake-gen1.json'), 'utf8'
+  ));
+  assert.equal(receipt.groundingAvailability.status, 'unavailable');
+  assert.equal(receipt.worldModelCommit, null);
 });
 
 test('next can automatically build the configured deterministic light world model', async () => {
@@ -555,16 +561,20 @@ test('automatic lifecycle materialization never replaces an existing stale world
     '--description', 'A stale governed snapshot must require an explicit refresh instead of automatic replacement.'
   ]);
   const next = flow(root, ['next']);
-  assert.match(next.stdout, /No model was started/);
-  assert.match(next.stdout, /automatic world-model recreation is disabled/);
-  assert.match(next.stdout, /singularity-flow wm ensure --phase intake/);
+  assert.match(next.stderr, /automatic world-model recreation is disabled/);
+  assert.match(next.stderr, /Continuing phase 'intake' without repository world-model context/);
+  assert.match(next.stdout, /Next step prepared: generate 'intake'/);
   assert.doesNotMatch(next.stdout, /Automatically building/);
   assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeSourceChange);
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.intake.generation, 0);
+  const receipt = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items', workId, 'context/intake-gen1.json'), 'utf8'
+  ));
+  assert.equal(receipt.groundingAvailability.status, 'unavailable');
 });
 
-test('prompted on-demand world-model materialization requires a TTY or --yes', async () => {
+test('prompted on-demand world-model materialization is skipped without consent and work continues', async () => {
   const root = await repository();
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
@@ -579,9 +589,15 @@ test('prompted on-demand world-model materialization requires a TTY or --yes', a
   flow(root, ['start', 'NEXT-LIGHT-PROMPT-1', '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Prompted light grounding', '--description', 'Require an explicit host decision before deterministic grounding.']);
 
   const result = flow(root, ['next', '--task', 'Prompted light grounding'], { allowFailure: true });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /interactive terminal or the explicit --yes flag/);
+  assert.equal(result.status, 0);
+  assert.match(result.stderr, /requires a separate explicit choice/);
+  assert.match(result.stderr, /Continuing phase 'intake' without repository world-model context/);
+  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
   assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
+  const receipt = JSON.parse(await readFile(
+    path.join(root, 'singularity/work-items/NEXT-LIGHT-PROMPT-1/context/intake-gen1.json'), 'utf8'
+  ));
+  assert.equal(receipt.groundingAvailability.status, 'unavailable');
 });
 
 test('advisory world-model grounding warns and continues without launching a model', async () => {

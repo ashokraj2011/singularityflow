@@ -4,7 +4,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:f
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import YAML from 'yaml';
 
@@ -34,6 +34,24 @@ import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+const autoTestMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-machine-'));
+const autoTestEnvironment = {
+  SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(autoTestMachineState, 'workspaces.json'),
+  SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(autoTestMachineState, 'active-workspace.json'),
+  SINGULARITY_FLOW_LEAD_REGISTRY: path.join(autoTestMachineState, 'lead-registry.json'),
+  SINGULARITY_FLOW_WMB_SHARED_CACHE: path.join(autoTestMachineState, 'wmb-shared-cache')
+};
+const originalMachineEnvironment = Object.fromEntries(
+  Object.keys(autoTestEnvironment).map((key) => [key, process.env[key]])
+);
+Object.assign(process.env, autoTestEnvironment);
+after(async () => {
+  for (const [key, value] of Object.entries(originalMachineEnvironment)) {
+    if (value == null) delete process.env[key];
+    else process.env[key] = value;
+  }
+  await rm(autoTestMachineState, { recursive: true, force: true });
+});
 
 function confirmation(plan) { return buildAutoPlanPacket(plan).packetSha256; }
 
@@ -389,8 +407,17 @@ test('Auto uses the shared format-aware grounding boundary and never asks ensure
   assert.match(source, /inspectWorkflowGrounding\(worktree, workflow, phase\.id/);
   assert.match(source, /workflowGroundingMaterializationPlan\(readiness/);
   assert.match(source, /runLifecycle\(worktree, materialization\.argv\)/);
-  assert.match(source, /groundingMode === 'enforce'/);
-  assert.match(source, /Advisory grounding remains optional/);
+  assert.match(
+    source,
+    /groundingMode === 'enforce'[\s\S]*?failureClass === 'integrity'/,
+    'enforced grounding must distinguish integrity failures from ordinary unavailability'
+  );
+  assert.doesNotMatch(
+    source,
+    /groundingMode === 'enforce'[\s\S]{0,160}failureClass === 'availability'/,
+    'World-Model availability must not become Auto lifecycle authority'
+  );
+  assert.match(source, /Optional intelligence must never stop Auto/);
   assert.doesNotMatch(
     source,
     /runLifecycle\(worktree, \['wm', 'ensure'/,
@@ -453,7 +480,7 @@ test('Auto treats missing registered-v4 grounding as advisory without rebuilding
   'ambiguous missing v4 authority must not be automatically recreated');
 });
 
-test('Auto stops before authoring when enforced registered-v4 authority is missing', async () => {
+test('Auto continues with zero World-Model bytes when enforced registered-v4 authority is missing', async () => {
   const root = await registeredV4AutoRepository('enforce');
   const workId = 'AUT-V4-ENFORCE-MISSING';
   const plan = await createAutoPlan(root, 'Refuse authoring without enforced registered grounding.', {
@@ -462,10 +489,11 @@ test('Auto stops before authoring when enforced registered-v4 authority is missi
   }, { workId, workType: 'quick-fix', fromBranch: 'main' });
   const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
-  assert.equal(final.status, 'waiting-human');
-  assert.equal(final.stopReason, 'world-model-grounding-required');
-  assert.equal(final.counters.modelInvocations, 0);
-  assert.match(final.nextAction, /wm build --format registered-v4 --phase implement/);
+  assert.notEqual(final.status, 'waiting-human');
+  assert.notEqual(final.stopReason, 'world-model-grounding-required');
+  assert.equal(final.counters.modelInvocations, 1,
+    'only phase authoring may invoke a model; missing repository intelligence must not add one');
+  assert.equal(final.worldModelReference ?? null, null);
   assert.notEqual(run('git', [
     'cat-file', '-e', 'state:singularity/world-model/manifest.json'
   ], root, { allowFailure: true }).status, 0,
@@ -498,21 +526,15 @@ test('Auto honors local-only registered-v4 publication for enforced and advisory
         'cat-file', '-e', 'state:singularity/world-model/manifest.json'
       ], root, { allowFailure: true }).status, 0,
       'unattended lifecycle materialization must not publish state under a local-only policy');
-      if (grounding === 'enforce') {
-        assert.equal(final.status, 'waiting-human');
-        assert.equal(final.stopReason, 'world-model-grounding-required');
-        assert.equal(final.counters.modelInvocations, 0);
-        assert.match(final.lastError?.message ?? '', /local rehearsal only/);
-      } else {
-        assert.notEqual(final.stopReason, 'world-model-grounding-required');
-        assert.equal(final.counters.modelInvocations, 1,
-          'advisory mode may author once but must not invoke a world-model provider');
-      }
+      assert.notEqual(final.stopReason, 'world-model-grounding-required');
+      assert.equal(final.counters.modelInvocations, 1,
+        'phase authoring runs once without invoking a World-Model provider');
+      assert.equal(final.worldModelReference ?? null, null);
     });
   }
 });
 
-test('Auto preserves an intentionally removed registered-v4 state projection', async () => {
+test('Auto preserves an intentionally removed registered-v4 projection and continues without it', async () => {
   const root = await registeredV4AutoRepository('enforce');
   const removedCommit = await removeRegisteredV4Projection(root);
   const workId = 'AUT-V4-REMOVED';
@@ -522,10 +544,10 @@ test('Auto preserves an intentionally removed registered-v4 state projection', a
   }, { workId, workType: 'quick-fix', fromBranch: 'main' });
   const started = await startAutoFlight(root, plan.planId, confirmation(plan));
   const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
-  assert.equal(final.status, 'waiting-human');
-  assert.equal(final.stopReason, 'world-model-grounding-required');
-  assert.equal(final.counters.modelInvocations, 0);
-  assert.match(final.nextAction, /wm build --format registered-v4 --phase implement/);
+  assert.notEqual(final.status, 'waiting-human');
+  assert.notEqual(final.stopReason, 'world-model-grounding-required');
+  assert.equal(final.counters.modelInvocations, 1);
+  assert.equal(final.worldModelReference ?? null, null);
   assert.equal(run('git', ['rev-parse', 'state'], root).stdout.trim(), removedCommit,
     'Auto must not advance state after an explicit projection deletion');
   assert.notEqual(run('git', [

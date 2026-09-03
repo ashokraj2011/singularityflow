@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
-  EMPTY_MAP_FORM, mapCapabilityHtml, mapCommand, mapProblems,
+  EMPTY_MAP_FORM, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems,
   MAP_CAPABILITY_SCRIPT, type MapCapabilityForm, type ParentChoice
 } from './map-capability-form.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
@@ -18,6 +18,27 @@ import type { StartWizardProgress } from './start-wizard.ts';
 export interface Organisation {
   governed: boolean;
   capabilities: Array<{ id: string; name: string; kind?: string; repository?: string | null; children: unknown[] }>;
+}
+
+interface RepositoryInspection {
+  status?: string;
+  repositoryUrl?: string;
+  matches?: Array<{
+    lead?: string; repositoryId?: string; repositoryUrl?: string; capabilities?: string[];
+    governed?: boolean; sourceBranch?: string | null; sourceCommit?: string | null;
+    cached?: boolean; stale?: boolean;
+  }>;
+  pendingMatches?: Array<{
+    lead?: string; repositoryId?: string; repositoryUrl?: string; capabilities?: string[];
+    capabilityMetadataComplete?: boolean; proposalBranch?: string; proposalCommit?: string;
+    proposalStatus?: string; proposalValid?: boolean;
+  }>;
+  checkedLeads?: string[];
+  failures?: Array<string | { lead?: string; code?: string; message?: string }>;
+  authorityScope?: string;
+  completeness?: string;
+  proposalCoverage?: string;
+  proposalInspection?: { total?: number; inspected?: number; limitPerAuthority?: number };
 }
 
 export interface Mapped {
@@ -56,6 +77,7 @@ export class BootstrapPanel {
   private requestedParent = '';
   private journey: StartWizardProgress | null = null;
   private mapLoadRevision = 0;
+  private inspectionRevision = 0;
 
   private constructor(
     panel: vscode.WebviewPanel, leads: string[], run: Run,
@@ -67,14 +89,19 @@ export class BootstrapPanel {
     this.onMapped = onMapped;
     this.requestedParent = initial.parent?.trim() ?? '';
     this.journey = initial.journey ?? null;
-    const uniqueLeads = [...new Set(leads.filter((lead) => lead.trim()))];
+    // A legacy or corrupt machine registry may predate credential-free URL enforcement. Drop an
+    // unsafe entry before it can reach webview HTML or the command runner; repository inspection
+    // will still report the registry problem through a non-secret fingerprint.
+    const uniqueLeads = [...new Set(leads
+      .map((lead) => lead.trim())
+      .filter((lead) => lead && !gitRemoteProblem(lead, 'Capability-map repository')))];
     this.form = {
       ...EMPTY_MAP_FORM,
       metadata: [],
       leads: uniqueLeads,
-      // One available map is not a meaningful choice. More than one is, so do not silently pick
-      // the first entry in an organisation whose capability map is split across repositories.
-      lead: uniqueLeads.length === 1 ? (uniqueLeads[0] ?? '') : ''
+      // Repository inspection comes first. Even one known authority is not read until that check
+      // establishes which onboarding path applies.
+      lead: ''
     };
     this.panel.webview.onDidReceiveMessage((raw: unknown) => {
       // The shared footer is the one way out of a full-page view. Handled here rather than through
@@ -84,7 +111,6 @@ export class BootstrapPanel {
  void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();
-    if (this.form.lead) void this.loadSelectedMap();
   }
 
   static show(
@@ -139,6 +165,30 @@ export class BootstrapPanel {
     this.render();
   }
 
+  /** Revoke every result whose repository/authority pair may no longer match the form. */
+  private invalidateInspection(): void {
+    this.inspectionRevision++;
+    this.form.inspectionStatus = 'idle';
+    this.form.inspectionComplete = false;
+    this.form.inspectionMatches = [];
+    this.form.inspectionPendingMatches = [];
+    this.form.inspectionMessage = null;
+    this.form.inspectionFailures = [];
+    this.form.inspectionCompleteness = null;
+    this.form.inspectionAuthorityScope = null;
+    this.form.inspectionProposalCoverage = null;
+    this.form.inspectionProposalTotal = 0;
+    this.form.inspectionProposalInspected = 0;
+    this.form.inspectionCheckedLeadCount = 0;
+    this.form.inspectionBoundRepositoryUrl = null;
+    this.form.inspectionBoundLeadUrl = null;
+  }
+
+  private inspectionIsBound(repositoryUrl: string, leadUrl: string): boolean {
+    return this.form.inspectionBoundRepositoryUrl === repositoryUrl.trim()
+      && this.form.inspectionBoundLeadUrl === leadUrl.trim();
+  }
+
   /**
    * Load the map as a consequence of selecting its repository. There is deliberately no separate
    * "read" action in the UI: repository selection is the decision; reading is just what the form
@@ -147,6 +197,14 @@ export class BootstrapPanel {
   private async loadSelectedMap(): Promise<void> {
     if (!this.form.lead.trim() || (this.form.busy && this.form.loaded)) return;
     const selectedLead = this.form.lead.trim();
+    const unsafe = gitRemoteProblem(selectedLead, 'Capability-map repository');
+    if (unsafe) return void this.update({ busy: false, loaded: false, error: unsafe });
+    if (!this.form.collectionWithoutRepository && this.form.repositoryUrl.trim()
+      && !this.inspectionIsBound(this.form.repositoryUrl, selectedLead)) {
+      this.invalidateInspection();
+      return void this.update({ loaded: false, parents: [], parent: '',
+        error: 'The selected capability-map repository changed. Check it for this Git repository before its map is loaded.' });
+    }
     const revision = ++this.mapLoadRevision;
     this.update({ busy: true, loaded: false, parents: [], parent: '', notice: null, error: null });
     const { result, error } = await this.run(['capability', 'organisation', selectedLead, '--json']);
@@ -172,11 +230,112 @@ export class BootstrapPanel {
 
   private async selectLead(value: string): Promise<void> {
     const lead = value.trim();
+    const unsafe = gitRemoteProblem(lead, 'Capability-map repository');
+    if (unsafe) return void this.update({ lead: '', loaded: false, parents: [], parent: '', error: unsafe });
     if (lead !== this.form.lead.trim()) {
       this.form = { ...this.form, lead, loaded: false, parents: [], parent: '', notice: null, error: null };
     }
     if (!lead) return void this.render();
     await this.loadSelectedMap();
+  }
+
+  private async inspectRepository(
+    explicitLeadUrl: string | null = null,
+    options: { includeKnownAuthorities?: boolean } = {}
+  ): Promise<void> {
+    const repositoryUrl = this.form.repositoryUrl.trim();
+    if (!repositoryUrl) return;
+    const explicitLead = explicitLeadUrl?.trim() || null;
+    const repositoryProblem = gitRemoteProblem(repositoryUrl, 'Repository');
+    const inspectionLeads = explicitLead
+      ? options.includeKnownAuthorities
+        ? [...new Set([...this.form.leads, explicitLead])]
+        : [explicitLead]
+      : [];
+    const leadProblem = inspectionLeads
+      .map((lead) => gitRemoteProblem(lead, 'Capability-map repository'))
+      .find((problem) => problem != null) ?? null;
+    if (repositoryProblem || leadProblem) {
+      this.invalidateInspection();
+      // Do not retain or re-render credential material after refusal. The safe diagnostic above
+      // names the host/path without user-info, queries, or fragments.
+      if (repositoryProblem) {
+        this.form.repositoryUrl = '';
+        this.form.lead = '';
+      }
+      if (leadProblem) {
+        if (explicitLead) this.form.inspectionLeadUrl = '';
+        this.form.leads = this.form.leads.filter((lead) => !gitRemoteProblem(lead, 'Capability-map repository'));
+        this.form.lead = '';
+      }
+      return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
+        inspectionMessage: repositoryProblem ?? leadProblem, error: repositoryProblem ?? leadProblem });
+    }
+    const revision = ++this.inspectionRevision;
+    this.update({ inspectionStatus: 'checking', inspectionComplete: false,
+      inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null, inspectionFailures: [],
+      inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
+      inspectionProposalCoverage: null, inspectionProposalTotal: 0, inspectionProposalInspected: 0,
+      inspectionBoundRepositoryUrl: null,
+      inspectionBoundLeadUrl: null,
+      error: null });
+    const argv = ['capability', 'inspect-repository', repositoryUrl, '--json'];
+    for (const lead of inspectionLeads) argv.push('--lead', lead);
+    const { result, error } = await this.run(argv);
+    if (revision !== this.inspectionRevision || repositoryUrl !== this.form.repositoryUrl.trim()) return;
+    if (error) return void this.update({ inspectionStatus: 'inconclusive', inspectionComplete: false,
+      inspectionMessage: error, inspectionFailures: [], inspectionCompleteness: null,
+      inspectionAuthorityScope: null, inspectionProposalCoverage: null,
+      inspectionCheckedLeadCount: 0 });
+    const inspected = (result ?? {}) as RepositoryInspection;
+    const matches = inspected.matches ?? [];
+    const pendingMatches = inspected.pendingMatches ?? [];
+    const raw = inspected.status ?? 'inconclusive';
+    const status = raw === 'already-mapped' || raw === 'known-repository-unassigned'
+      || raw === 'ambiguous' || raw === 'not-onboarded' || raw === 'unreachable'
+      || raw === 'inconclusive' ? raw : 'inconclusive';
+    const selectedLead = matches.length === 1 && matches[0]?.lead ? matches[0].lead : null;
+    const failures = (inspected.failures ?? []).map((failure) => {
+      if (typeof failure === 'string') return failure;
+      const message = failure?.message ?? failure?.code ?? 'Capability-map authority could not be inspected.';
+      return failure?.lead ? `${failure.lead}: ${message}` : message;
+    });
+    const availableLeads = explicitLead
+      ? [...new Set([...this.form.leads, explicitLead])]
+      : this.form.leads;
+    const completeAuthority = inspected.completeness === 'complete'
+      && inspected.proposalCoverage === 'complete';
+    const boundLead = completeAuthority && selectedLead
+      && (status === 'known-repository-unassigned' || status === 'already-mapped')
+      ? selectedLead
+      : status === 'not-onboarded' && completeAuthority
+        ? (explicitLead ?? (this.form.leads.length === 0
+          ? repositoryUrl
+          : this.form.leads.length === 1 ? (this.form.leads[0] ?? null) : null))
+        : null;
+    this.form = { ...this.form, leads: availableLeads,
+      inspectionStatus: status, inspectionMatches: matches, inspectionPendingMatches: pendingMatches,
+      inspectionMessage: null, inspectionFailures: failures,
+      inspectionCompleteness: inspected.completeness ?? null,
+      inspectionAuthorityScope: inspected.authorityScope ?? null,
+      inspectionProposalCoverage: inspected.proposalCoverage ?? null,
+      inspectionProposalTotal: inspected.proposalInspection?.total ?? 0,
+      inspectionProposalInspected: inspected.proposalInspection?.inspected ?? 0,
+      inspectionCheckedLeadCount: inspected.checkedLeads?.length ?? 0,
+      inspectionBoundRepositoryUrl: boundLead ? repositoryUrl : null,
+      inspectionBoundLeadUrl: boundLead,
+      inspectionComplete: (status === 'not-onboarded'
+        || status === 'known-repository-unassigned') && completeAuthority };
+    if (boundLead && selectedLead
+      && (status === 'known-repository-unassigned' || status === 'already-mapped')) {
+      await this.selectLead(selectedLead);
+    } else if (boundLead && status === 'not-onboarded' && explicitLead) {
+      await this.selectLead(explicitLead);
+    } else if (status === 'not-onboarded' && !this.form.leads.length) {
+      await this.selectLead(repositoryUrl);
+    } else if (status === 'not-onboarded' && this.form.leads.length === 1) {
+      await this.selectLead(this.form.leads[0] ?? '');
+    } else this.render();
   }
 
   private async receive(raw: unknown): Promise<void> {
@@ -208,8 +367,11 @@ export class BootstrapPanel {
       if (field === 'lead' || field === 'capabilityId' || field === 'name' || field === 'kind'
         || field === 'parent' || field === 'repositoryUrl' || field === 'jiraProject'
         || field === 'teams' || field === 'sourceRoots' || field === 'sharedRoots'
-        || field === 'sparseCone' || field === 'cloneMode' || field === 'cloneFallback') {
+        || field === 'sparseCone' || field === 'cloneMode' || field === 'cloneFallback'
+        || field === 'inspectionLeadUrl') {
         const previousRepository = this.form.repositoryUrl;
+        const previousLead = this.form.lead;
+        const previousInspectionLead = this.form.inspectionLeadUrl;
         // Changing which map is being edited invalidates the parents read from the last one.
         if (field === 'lead' && message.value !== this.form.lead) {
           this.form = { ...this.form, loaded: false, parents: [], parent: '' };
@@ -223,36 +385,145 @@ export class BootstrapPanel {
         } else {
           this.form[field] = message.value;
         }
+        if (field === 'repositoryUrl' && message.value !== previousRepository) {
+          this.invalidateInspection();
+          this.mapLoadRevision++;
+          this.form.loaded = false;
+          this.form.parents = [];
+          this.form.parent = '';
+          // A lead chosen for another URL is not consent for this repository. With no registered
+          // authority the URL remains the candidate first authority; otherwise inspection selects
+          // an exact match or the contributor chooses after the result.
+          this.form.lead = this.form.leads.length ? '' : message.value;
+        }
+        if (field === 'lead' && message.value !== previousLead
+          && !this.form.collectionWithoutRepository && this.form.repositoryUrl.trim()) {
+          this.invalidateInspection();
+        }
+        // The explicit authority field can be edited by a queued webview message while its prior
+        // check is still running. Advancing the revision prevents that stale result from binding.
+        if (field === 'inspectionLeadUrl' && message.value !== previousInspectionLead) {
+          this.inspectionRevision++;
+          if (this.form.inspectionStatus === 'checking') {
+            this.form.inspectionStatus = 'idle';
+            this.form.inspectionComplete = false;
+            this.form.inspectionBoundRepositoryUrl = null;
+            this.form.inspectionBoundLeadUrl = null;
+          }
+        }
         // When no map is registered, the first repository entered is the only possible home for
         // it. Defaulting here makes the checkbox truthful without inventing another prompt.
-        if (field === 'repositoryUrl' && !this.form.leads.length
-          && (!this.form.lead || this.form.lead === previousRepository)) {
-          this.form.lead = message.value;
+        if (field === 'kind' && message.value === 'collection') {
+          // Choosing Collection is the explicit decision that the checked repository will not be
+          // attached. Keep the chosen authority, but move the form onto the repository-free path.
+          this.inspectionRevision++;
+          this.form.collectionWithoutRepository = true;
+          this.form.repositoryUrl = '';
+          this.form.inspectionStatus = 'idle';
+          this.form.inspectionComplete = true;
+          this.form.inspectionMatches = [];
+          this.form.inspectionPendingMatches = [];
+          this.form.inspectionMessage = null;
+          this.form.inspectionFailures = [];
+          this.form.inspectionCompleteness = null;
+          this.form.inspectionAuthorityScope = null;
+          this.form.inspectionProposalCoverage = null;
+          this.form.inspectionProposalTotal = 0;
+          this.form.inspectionProposalInspected = 0;
+          this.form.inspectionCheckedLeadCount = 0;
+          this.form.inspectionBoundRepositoryUrl = null;
+          this.form.inspectionBoundLeadUrl = null;
+        } else if (field === 'kind' && message.value === 'delivery'
+          && this.form.collectionWithoutRepository) {
+          // Returning to Delivery requires a fresh repository URL and inspection.
+          this.form.collectionWithoutRepository = false;
+          this.form.inspectionComplete = false;
         }
-        if (field === 'kind' && message.value === 'collection') this.form.repositoryUrl = '';
       }
       return;
     }
 
     if (message?.type === 'redraw') return this.render();
 
+    if (message?.type === 'inspectRepository') return void await this.inspectRepository();
+
+    if (message?.type === 'inspectSelectedLead') {
+      const lead = this.form.inspectionLeadUrl.trim();
+      if (lead) await this.inspectRepository(lead);
+      return;
+    }
+
+    if (message?.type === 'inspectAuthority' && typeof message.value === 'string') {
+      const lead = message.value.trim();
+      const offered = this.form.inspectionStatus === 'ambiguous'
+        && this.form.inspectionMatches.some((match) => match.lead?.trim() === lead);
+      if (offered) await this.inspectRepository(lead);
+      return;
+    }
+
+    if (message?.type === 'reuseRepository') {
+      if (this.form.inspectionStatus !== 'already-mapped'
+        || this.form.inspectionCompleteness !== 'complete'
+        || this.form.inspectionProposalCoverage !== 'complete'
+        || !this.inspectionIsBound(this.form.repositoryUrl, this.form.lead)) return;
+      this.update({ inspectionComplete: true });
+      return;
+    }
+
+    if (message?.type === 'useFirstAuthority') {
+      if (this.form.inspectionStatus !== 'inconclusive'
+        || this.form.inspectionCompleteness !== 'no-authorities'
+        || this.form.inspectionProposalCoverage !== 'complete'
+        || !this.form.repositoryUrl.trim()) return;
+      this.form.inspectionComplete = true;
+      this.form.inspectionBoundRepositoryUrl = this.form.repositoryUrl.trim();
+      this.form.inspectionBoundLeadUrl = this.form.repositoryUrl.trim();
+      await this.selectLead(this.form.repositoryUrl);
+      return;
+    }
+
+    if (message?.type === 'toggleCollectionWithoutRepository') {
+      this.inspectionRevision++;
+      const enabled = !this.form.collectionWithoutRepository;
+      this.update({ collectionWithoutRepository: enabled, kind: enabled ? 'collection' : 'delivery',
+        repositoryUrl: enabled ? '' : this.form.repositoryUrl,
+        inspectionStatus: 'idle', inspectionComplete: enabled, inspectionMatches: [], inspectionPendingMatches: [],
+        inspectionMessage: null, inspectionFailures: [], inspectionCompleteness: null,
+        inspectionAuthorityScope: null, inspectionProposalCoverage: null,
+        inspectionProposalTotal: 0, inspectionProposalInspected: 0,
+        inspectionCheckedLeadCount: 0, inspectionBoundRepositoryUrl: null,
+        inspectionBoundLeadUrl: null });
+      return;
+    }
+
     if (message?.type === 'selectLead' && typeof message.value === 'string') {
-      await this.selectLead(message.value);
+      const lead = message.value.trim();
+      if (!lead) {
+        this.invalidateInspection();
+        return void await this.selectLead('');
+      }
+      if (!this.form.collectionWithoutRepository && this.form.repositoryUrl.trim()
+        && !this.inspectionIsBound(this.form.repositoryUrl, lead)) {
+        await this.inspectRepository(lead, { includeKnownAuthorities: true });
+      } else await this.selectLead(lead);
       return;
     }
 
     if (message?.type === 'repositoryCommitted' && typeof message.value === 'string') {
-      if (!this.form.leads.length && message.value.trim()) await this.selectLead(message.value);
-      else this.render();
+      this.render();
       return;
     }
 
     if (message?.type === 'useShippingRepository' && typeof message.checked === 'boolean') {
+      this.invalidateInspection();
       if (message.checked) {
-        if (this.form.repositoryUrl.trim()) await this.selectLead(this.form.repositoryUrl);
+        if (this.form.repositoryUrl.trim()) {
+          await this.inspectRepository(this.form.repositoryUrl, { includeKnownAuthorities: true });
+        }
       } else {
         const fallback = this.form.leads.length === 1 ? (this.form.leads[0] ?? '') : '';
-        await this.selectLead(fallback);
+        if (fallback) await this.inspectRepository(fallback, { includeKnownAuthorities: true });
+        else await this.selectLead('');
       }
       return;
     }

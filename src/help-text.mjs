@@ -645,6 +645,8 @@ Usage:
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
      says which delivery repository holds governed state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
+  singularity-flow capability inspect-repository <GIT-URL> [--lead URL]... [--refresh] [--json]
+    (read-only exact-URL lookup across explicit or registered maps, plus a self-hosted target map)
   singularity-flow capability edit <CAPABILITY-ID> [--lead URL] [--name TEXT] [--kind collection|delivery]
     [--mode add|set|remove]
     [--reparent-children-to ID]

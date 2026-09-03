@@ -69,6 +69,7 @@ export {
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
+const CAPABILITY_INSPECTION_MAX_PROPOSALS = 64;
 
 function quoted(value) {
   return JSON.stringify(String(value ?? ''));
@@ -191,6 +192,73 @@ function proposalConfigurationError(root, ref, { env = process.env } = {}) {
   } catch (error) {
     return redactDiagnosticText(error?.message ?? String(error));
   }
+}
+
+/** Find exact repository claims changed by one proposal, without treating inherited bytes as new. */
+function proposalRepositoryInspection(root, ref, repositoryUrl, {
+  baseRef = null, env = process.env
+} = {}) {
+  if (!repositoryUrl) return { complete: true, matches: [] };
+  const snapshot = (candidate, { missingIsEmpty = false } = {}) => {
+    const portfolio = run('git', ['show', `${candidate}:${PORTFOLIO_PATH}`], {
+      cwd: root, env, allowFailure: true
+    });
+    if (portfolio.status !== 0) {
+      return missingIsEmpty ? { complete: true, matches: [] } : { complete: false, matches: [] };
+    }
+    let repositories;
+    try { repositories = YAML.parse(portfolio.stdout)?.repositories ?? {}; }
+    catch { return { complete: false, matches: [] }; }
+    const entries = Object.entries(repositories)
+      .filter(([, declaration]) => declaration?.url === repositoryUrl);
+    if (!entries.length) return { complete: true, matches: [] };
+
+    const capabilities = run('git', ['show', `${candidate}:${CAPABILITIES_PATH}`], {
+      cwd: root, env, allowFailure: true
+    });
+    if (capabilities.status !== 0 && missingIsEmpty) {
+      return { complete: true, matches: entries.map(([repositoryId, declaration]) => ({
+        repositoryId, repositoryUrl: declaration.url, capabilities: [],
+        capabilityMetadataComplete: true
+      })) };
+    }
+    try {
+      const definition = validateCapabilities(YAML.parse(capabilities.stdout), YAML.parse(portfolio.stdout));
+      const rows = flattenTree(capabilityTree(definition));
+      return { complete: true, matches: entries.map(([repositoryId, declaration]) => ({
+        repositoryId,
+        repositoryUrl: declaration.url,
+        capabilities: rows
+          .filter((capability) => (capability.repositories ?? []).includes(repositoryId))
+          .map((capability) => capability.id).sort(),
+        capabilityMetadataComplete: true
+      })) };
+    } catch {
+      return { complete: false, matches: entries.map(([repositoryId, declaration]) => ({
+        repositoryId, repositoryUrl: declaration.url, capabilities: [],
+        capabilityMetadataComplete: false
+      })) };
+    }
+  };
+
+  const proposed = snapshot(ref);
+  if (!baseRef) return proposed;
+  const base = snapshot(baseRef, { missingIsEmpty: true });
+  if (!proposed.complete || !base.complete) {
+    return { complete: false, matches: proposed.matches };
+  }
+  const proposedById = new Map(proposed.matches.map((match) => [match.repositoryId, match]));
+  const baseById = new Map(base.matches.map((match) => [match.repositoryId, match]));
+  const changedIds = new Set([...proposedById.keys(), ...baseById.keys()]);
+  const matches = [];
+  for (const repositoryId of changedIds) {
+    const after = proposedById.get(repositoryId);
+    const before = baseById.get(repositoryId);
+    if (after?.repositoryUrl === before?.repositoryUrl
+      && canonicalJson(after?.capabilities ?? []) === canonicalJson(before?.capabilities ?? [])) continue;
+    matches.push(after ?? before);
+  }
+  return { complete: true, matches };
 }
 
 /** Git's push --dry-run does not execute receive hooks and therefore cannot prove protection. */
@@ -972,6 +1040,210 @@ export async function readOrganisation(url, { refresh = false } = {}) {
 }
 
 /**
+ * Locate an exact, credential-free repository URL in the approved maps this machine knows about.
+ *
+ * This is deliberately a read: it neither remembers a lead nor prepares a proposal. Callers can
+ * therefore use it as the first step of onboarding without making the answer change underneath
+ * the question. Literal URL equality is intentional here. Treating two independently supplied
+ * transports as the same authority needs stronger proof than a convenient basename or a lossy
+ * SSH/HTTPS rewrite.
+ */
+function registeredLeadDiagnosticReference(value) {
+  return `registered-lead:sha256:${createHash('sha256')
+    .update(String(value ?? '').trim()).digest('hex').slice(0, 16)}`;
+}
+
+function registeredLeadFailure(value, error) {
+  const reference = registeredLeadDiagnosticReference(value);
+  let message = redactDiagnosticText(error?.message ?? String(error));
+  for (const candidate of [String(value ?? '').trim(), sanitizeRemote(value)]) {
+    if (candidate) message = message.replaceAll(candidate, reference);
+  }
+  return {
+    lead: reference,
+    code: error?.code ?? 'CAPABILITY_LEAD_INVALID',
+    message: message || 'A registered capability authority could not be inspected.'
+  };
+}
+
+export async function inspectCapabilityRepository(repositoryUrl, {
+  leadUrl = null, leadUrls = [], refresh = false
+} = {}) {
+  const repository = assertCredentialFreeRemote(repositoryUrl);
+  const suppliedLeads = [...(leadUrl == null ? [] : [leadUrl]), ...leadUrls]
+    .map((url) => assertCredentialFreeRemote(url));
+  const registeredLeads = [];
+  const registeredLeadFailures = [];
+  if (!suppliedLeads.length) {
+    for (const entry of await listLeadRepositories()) {
+      const candidate = String(entry?.url ?? '').trim();
+      if (!candidate) continue;
+      try {
+        const safe = assertCredentialFreeRemote(candidate);
+        if (!registeredLeads.includes(safe)) registeredLeads.push(safe);
+      } catch (error) {
+        registeredLeadFailures.push(registeredLeadFailure(candidate, error));
+      }
+    }
+  }
+  // On a new laptop the target itself may be the lead authority. Probe it once so an existing
+  // self-hosted map is still discovered. A reachable repository with no sflow/config is only a
+  // candidate, not proof that no other organisation map names it; the UI asks before establishing
+  // it as the first authority.
+  const baseLeads = suppliedLeads.length ? [...new Set(suppliedLeads)] : registeredLeads;
+  const repositoryCandidateOnly = baseLeads.length === 0;
+  const repositoryCandidateAdded = !baseLeads.includes(repository);
+  const authorityScope = suppliedLeads.length ? 'explicit'
+    : repositoryCandidateOnly ? 'repository-candidate' : 'registered';
+  const leads = repositoryCandidateAdded ? [...baseLeads, repository] : baseLeads;
+
+  const inspected = await mapLimit(leads, Math.max(1, Math.min(4, leads.length)), async (url) => {
+    try {
+      const organisation = await readOrganisation(url, { refresh });
+      const repositoryEntries = Object.entries(organisation.repositories ?? {})
+        .filter(([, value]) => value?.url === repository);
+      const rows = flattenTree(organisation.capabilities ?? []);
+      const matches = repositoryEntries.map(([repositoryId, declaration]) => ({
+        lead: url,
+        repositoryId,
+        repositoryUrl: declaration.url,
+        capabilities: rows
+          .filter((capability) => (capability.repositories ?? []).includes(repositoryId))
+          .map((capability) => capability.id),
+        governed: organisation.governed,
+        sourceBranch: organisation.sourceBranch ?? null,
+        sourceCommit: organisation.sourceCommit ?? null,
+        cached: Boolean(organisation.cached),
+        stale: Boolean(organisation.stale)
+      }));
+      // A cached positive match is useful conservative evidence: it prevents a duplicate while the
+      // authority is offline. Cached absence is not proof of absence, however. Represent the stale
+      // read as an incomplete authority check so callers cannot turn an outage into a new mapping.
+      const failureLead = sanitizeRemote(url);
+      const failure = organisation.stale ? {
+        lead: failureLead,
+        code: 'CAPABILITY_AUTHORITY_STALE_CACHE',
+        message: `The approved capability map for '${failureLead}' could not be refreshed; the last validated cache was inspected.`
+      } : null;
+      let pendingProposals = [];
+      let proposalCoverage = organisation.stale ? 'not-checked' : 'complete';
+      let proposalFailure = null;
+      let proposalInspection = { total: 0, inspected: 0 };
+      // The first capability itself can still be waiting on a proposal before the approved
+      // configuration branch exists, so even an otherwise ungoverned target must be checked.
+      if (!organisation.stale) {
+        try {
+          const catalog = await listCapabilityProposals(url, {
+            includeDiff: false,
+            repositoryUrl: repository,
+            maximumProposals: CAPABILITY_INSPECTION_MAX_PROPOSALS,
+            withCoverage: true
+          });
+          pendingProposals = catalog.proposals;
+          proposalInspection = {
+            total: catalog.coverage.total,
+            inspected: catalog.coverage.inspected
+          };
+          proposalCoverage = catalog.coverage.status === 'complete'
+            && catalog.proposals.every((proposal) => proposal.repositoryInspectionComplete !== false)
+            ? 'complete' : 'partial';
+        } catch (error) {
+          proposalCoverage = 'not-checked';
+          proposalFailure = {
+            lead: sanitizeRemote(url),
+            code: error?.code ?? 'CAPABILITY_PROPOSAL_INSPECTION_INCOMPLETE',
+            message: redactDiagnosticText(error?.message ?? String(error))
+          };
+        }
+      }
+      const pendingMatches = pendingProposals.flatMap((proposal) =>
+        (proposal.repositoryMatches ?? []).map((match) => ({
+          lead: sanitizeRemote(url),
+          repositoryId: match.repositoryId,
+          repositoryUrl: match.repositoryUrl,
+          capabilities: match.capabilities,
+          capabilityMetadataComplete: match.capabilityMetadataComplete,
+          proposalBranch: proposal.branch,
+          proposalCommit: proposal.proposalCommit,
+          proposalStatus: proposal.status,
+          proposalValid: proposal.valid === true
+        })));
+      return {
+        lead: url, matches, pendingMatches, failure, proposalFailure, proposalCoverage,
+        proposalChecked: !organisation.stale,
+        proposalInspection, stale: Boolean(organisation.stale),
+        governed: Boolean(organisation.governed),
+        candidate: repositoryCandidateAdded && url === repository
+      };
+    } catch (error) {
+      return {
+        lead: url, matches: [], pendingMatches: [], stale: false, governed: false,
+        proposalCoverage: 'not-checked', proposalChecked: false,
+        proposalInspection: { total: 0, inspected: 0 },
+        candidate: repositoryCandidateAdded && url === repository,
+        failure: {
+          lead: sanitizeRemote(url), code: error?.code ?? null,
+          message: redactDiagnosticText(error?.message ?? String(error))
+        },
+        proposalFailure: null
+      };
+    }
+  });
+  const matches = inspected.flatMap((entry) => entry.matches);
+  const pendingMatches = inspected.flatMap((entry) => entry.pendingMatches ?? []);
+  const failures = [
+    ...registeredLeadFailures,
+    ...inspected.flatMap((entry) => [entry.failure, entry.proposalFailure]).filter(Boolean)
+  ];
+  const checkedLeads = inspected
+    .filter((entry) => !entry.failure && (!entry.candidate || entry.governed))
+    .map((entry) => entry.lead);
+  const candidateLeads = inspected
+    .filter((entry) => entry.candidate && !entry.failure && !entry.governed)
+    .map((entry) => entry.lead);
+  const staleLeads = inspected.filter((entry) => entry.stale).map((entry) => entry.lead);
+  const ungovernedCandidate = repositoryCandidateOnly && candidateLeads.length > 0;
+  const proposalCoverage = inspected.length === 0 ? 'not-checked'
+    : inspected.every((entry) => entry.proposalCoverage === 'complete')
+      ? 'complete'
+      : inspected.some((entry) => entry.proposalChecked) ? 'partial' : 'not-checked';
+  const proposalInspection = inspected.reduce((summary, entry) => ({
+    total: summary.total + (entry.proposalInspection?.total ?? 0),
+    inspected: summary.inspected + (entry.proposalInspection?.inspected ?? 0)
+  }), { total: 0, inspected: 0 });
+  const proposalInspectionIncomplete = proposalCoverage !== 'complete';
+  const noAuthoritiesConfirmed = ungovernedCandidate && registeredLeadFailures.length === 0;
+  const status = pendingMatches.length
+    ? 'inconclusive'
+    : matches.length > 1
+      ? 'ambiguous'
+      : matches.length === 1
+        ? (matches[0].capabilities.length ? 'already-mapped' : 'known-repository-unassigned')
+      : proposalInspectionIncomplete
+        ? 'inconclusive'
+      : ungovernedCandidate
+        ? 'inconclusive'
+        : checkedLeads.length === 0
+        ? (staleLeads.length || candidateLeads.length ? 'inconclusive' : 'unreachable')
+        : failures.length
+          ? 'inconclusive'
+          : 'not-onboarded';
+  return {
+    status, repositoryUrl: repository, matches, pendingMatches,
+    checkedLeads, candidateLeads, staleLeads, failures,
+    authorityScope,
+    completeness: noAuthoritiesConfirmed ? 'no-authorities'
+      : failures.length || proposalInspectionIncomplete
+        ? (checkedLeads.length ? 'partial' : 'none') : 'complete',
+    proposalCoverage,
+    proposalInspection: {
+      ...proposalInspection,
+      limitPerAuthority: CAPABILITY_INSPECTION_MAX_PROPOSALS
+    }
+  };
+}
+
+/**
  * Map a git repository to a capability, in the lead repository's map.
  *
  * `kind` states the structural responsibility: a collection groups related capabilities, while a
@@ -1091,6 +1363,16 @@ export async function mapCapability(leadUrl, {
         repositoryIds.push(id);
         const branch = observedBranches.get(url);
         const existing = portfolio.getIn(['repositories', id], true)?.toJSON?.() ?? {};
+        if (existing.url && existing.url !== url) {
+          throw new SingularityFlowError(
+            `Repository identifier '${id}' is already assigned to '${sanitizeRemote(existing.url)}'; it cannot also identify '${sanitizeRemote(url)}'. Nothing was changed.`, {
+              code: 'CAPABILITY_REPOSITORY_ID_COLLISION',
+              details: capabilityRecovery({
+                stage: 'proposal', state: 'repository-id-collision', remote: leadKey,
+                preserved: ['approved-configuration', 'application-branches']
+              })
+            });
+        }
         const repository = { ...existing, url, defaultBranch: branch, required: true };
         if (cloneStrategy) {
           if (cloneStrategy.mode === 'full') delete repository.clone;
@@ -1203,6 +1485,16 @@ export async function addCapabilityRepository(leadUrl, capabilityId, repositoryU
       const repositoryId = repositoryIdOf(repositoryKey);
       const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
       const existingRepository = portfolio.getIn(['repositories', repositoryId], true)?.toJSON?.() ?? {};
+      if (existingRepository.url && existingRepository.url !== repositoryKey) {
+        throw new SingularityFlowError(
+          `Repository identifier '${repositoryId}' is already assigned to '${sanitizeRemote(existingRepository.url)}'; it cannot also identify '${sanitizeRemote(repositoryKey)}'. Nothing was changed.`, {
+            code: 'CAPABILITY_REPOSITORY_ID_COLLISION',
+            details: capabilityRecovery({
+              stage: 'proposal', state: 'repository-id-collision', remote: leadKey,
+              preserved: ['approved-configuration', 'application-branches']
+            })
+          });
+      }
       const repository = {
         ...existingRepository, url: repositoryKey, defaultBranch, required: true
       };
@@ -1441,6 +1733,7 @@ export async function publishOrganisationCapabilityMap(url) {
 /** Pending capability proposals on a lead repository, without changing either authority branch. */
 export async function listCapabilityProposals(url, {
   includeMerged = false, includeDiff = true,
+  repositoryUrl = null, maximumProposals = null, withCoverage = false,
   env = process.env, remoteSession = null
 } = {}) {
   const remote = String(url ?? '').trim();
@@ -1451,6 +1744,25 @@ export async function listCapabilityProposals(url, {
       nextAction: { command: 'singularity-flow capability leads --json', skill: '/sf-capability-map' }
     })
   });
+  const inspectedRepository = repositoryUrl == null
+    ? null : assertCredentialFreeRemote(repositoryUrl);
+  const proposalLimit = maximumProposals == null ? null : Number(maximumProposals);
+  if (proposalLimit != null && (!Number.isSafeInteger(proposalLimit) || proposalLimit < 1)) {
+    throw new SingularityFlowError('Capability proposal inspection limit must be a positive integer.', {
+      code: 'CAPABILITY_PROPOSAL_LIMIT_INVALID'
+    });
+  }
+  const finish = (proposals, total = proposals.length, inspected = proposals.length) => withCoverage
+    ? {
+        proposals,
+        coverage: {
+          status: inspected < total ? 'partial' : 'complete',
+          total,
+          inspected,
+          limit: proposalLimit
+        }
+      }
+    : proposals;
   const gitEnv = remoteSession?.env ?? enterpriseGitEnvironment(env);
   const session = remoteSession ?? new GitRemoteSession({ env: gitEnv });
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
@@ -1470,14 +1782,15 @@ export async function listCapabilityProposals(url, {
         })
       });
   }
-  if (!advertised.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) return [];
-  const branches = [...advertised.refs]
+  if (!advertised.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) return finish([]);
+  const allBranches = [...advertised.refs]
     .filter(([ref]) => ref.startsWith(`refs/heads/${CAPABILITY_PROPOSAL_PREFIX}`))
     .map(([ref, proposalCommit]) => ({
       proposalCommit, branch: ref.replace(/^refs\/heads\//, '')
     }))
     .sort((left, right) => left.branch.localeCompare(right.branch));
-  if (!branches.length) return [];
+  const branches = proposalLimit == null ? allBranches : allBranches.slice(0, proposalLimit);
+  if (!branches.length) return finish([], allBranches.length, 0);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
   try {
@@ -1505,14 +1818,15 @@ export async function listCapabilityProposals(url, {
         code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE'
       });
     }
+    const proposalRefspecs = proposalLimit == null
+      ? [`+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`]
+      : branches.map((entry) => `+refs/heads/${entry.branch}:refs/remotes/origin/${entry.branch}`);
     let fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin',
-      `+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin', ...proposalRefspecs
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
       fetched = await runRemoteGitAsync([
-        'fetch', '--quiet', '--no-tags', 'origin',
-        `+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`
+        'fetch', '--quiet', '--no-tags', 'origin', ...proposalRefspecs
       ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     }
     const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
@@ -1520,9 +1834,9 @@ export async function listCapabilityProposals(url, {
       { code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE' }
     );
     for (const entry of branches) {
+      const ref = `refs/remotes/origin/${entry.branch}`;
       try {
         if (sharedFailure) throw sharedFailure;
-        const ref = `refs/remotes/origin/${entry.branch}`;
         // The ordinary inbox excludes merged proposals. Determine that with ancestry before
         // computing names, identities, and the full diff for a proposal the caller will discard.
         if (!includeMerged && run('git', ['merge-base', '--is-ancestor', ref, 'HEAD'], {
@@ -1530,7 +1844,7 @@ export async function listCapabilityProposals(url, {
         }).status === 0) continue;
         const proposal = inspectCapabilityProposalCheckout(
           scratch, sanitizeRemote(remote), entry.branch, ref, {
-            includeDiff, env: transport.env
+            includeDiff, repositoryUrl: inspectedRepository, env: transport.env
           }
         );
         if (includeMerged || !proposal.merged) proposals.push(proposal);
@@ -1538,6 +1852,9 @@ export async function listCapabilityProposals(url, {
         // One corrupt or stale proposal must remain visible without hiding every healthy proposal
         // on the same lead. Only the proven unrelated-history case gets the exact-SHA discard path;
         // every other unreadable state remains inspection-only.
+        const repositoryInspection = proposalRepositoryInspection(
+          scratch, ref, inspectedRepository, { env: transport.env }
+        );
         proposals.push({
           remote: sanitizeRemote(remote), branch: entry.branch,
           targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
@@ -1545,6 +1862,8 @@ export async function listCapabilityProposals(url, {
           merged: false, valid: false, invalidFiles: [], changedFiles: [], diff: '',
           status: 'unreadable',
           discardable: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID',
+          repositoryMatches: repositoryInspection.matches,
+          repositoryInspectionComplete: repositoryInspection.complete,
           failure: {
             code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
             message: redactDiagnosticText(error?.message ?? String(error)),
@@ -1567,11 +1886,11 @@ export async function listCapabilityProposals(url, {
   } finally {
     await removeTemporaryTree(scratch);
   }
-  return proposals;
+  return finish(proposals, allBranches.length, branches.length);
 }
 
 function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
-  includeDiff = true, env = process.env
+  includeDiff = true, repositoryUrl = null, env = process.env
 } = {}) {
   const targetCommit = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
   const proposalCommit = run('git', ['rev-parse', ref], { cwd: root, env }).stdout.trim();
@@ -1603,6 +1922,9 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
   const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
   const configurationError = proposalConfigurationError(root, ref, { env });
   const valid = invalidFiles.length === 0 && changed.names.length > 0 && !configurationError;
+  const repositoryInspection = proposalRepositoryInspection(
+    root, ref, repositoryUrl, { baseRef: reviewBase, env }
+  );
   const diff = includeDiff
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
         cwd: root, env
@@ -1623,6 +1945,8 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
     status: merged ? 'merged' : valid ? 'pending-review' : 'invalid',
     configurationError,
     invalidFiles,
+    repositoryMatches: repositoryInspection.matches,
+    repositoryInspectionComplete: repositoryInspection.complete,
     changedFiles: changed.statuses,
     diff: diff == null ? null
       : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,

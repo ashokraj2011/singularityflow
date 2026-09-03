@@ -80,6 +80,13 @@ test('an authored page carries description, examples and related commands', () =
   assert.match(page, /\nSEE ALSO\n/);
 });
 
+test('capability help starts repository onboarding with a read-only URL lookup', () => {
+  const page = renderCommandHelp('capability');
+  assert.match(page, /capability inspect-repository https:\/\/git\.example\/payments\.git --json/);
+  assert.match(page, /Repository onboarding starts from an exact credential-free Git URL/);
+  assert.match(page, /Only an explicit new-mapping choice proceeds to metadata/);
+});
+
 test('process help describes the installed parallel adapters and operational inspection surface', () => {
   const page = renderCommandHelp('process');
   assert.match(page, /process list \[--json\]/);

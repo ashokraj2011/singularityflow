@@ -2592,7 +2592,7 @@ const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices,
 const { bodyHtml: capabilitiesHtml, readEdits, SCRIPT: CAPABILITY_SCRIPT } =
   await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
-const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, mapCapabilityHtml, mapCommand, mapProblems } =
+const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems } =
   await import(source('views/map-capability-form.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
@@ -2637,11 +2637,143 @@ test('guided capability mapping is visibly the first step', () => {
   assert.match(html, /Step 1 of 3/);
 });
 
+test('capability mapping checks the Git URL before revealing capability details', () => {
+  const initial = mapCapabilityHtml(EMPTY_MAP_FORM);
+  assert.ok(initial.indexOf('Git repository') < initial.indexOf('The capability'));
+  assert.match(initial, /data-map-inspect/);
+  assert.match(initial, /data-map-details hidden/);
+  assert.match(initial, /Map a collection without a repository/);
+
+  const inspected = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: 'https://git.example/payments.git',
+    inspectionStatus: 'not-onboarded', inspectionComplete: true
+  });
+  assert.match(inspected, /not found in the capability maps checked/);
+  assert.doesNotMatch(inspected, /data-map-details hidden/);
+
+  const mapped = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: 'https://git.example/payments.git', inspectionStatus: 'already-mapped',
+    inspectionCompleteness: 'complete',
+    inspectionMatches: [{ lead: 'https://git.example/platform.git', capabilities: ['payments'] }]
+  });
+  assert.match(mapped, /already onboarded/);
+  assert.match(mapped, /Map another capability using this repository/);
+  assert.match(mapped, /data-map-details hidden/);
+
+  const partiallyChecked = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: 'https://git.example/payments.git', inspectionStatus: 'already-mapped',
+    inspectionCompleteness: 'partial', inspectionProposalCoverage: 'approved-only',
+    inspectionMatches: [{ lead: 'https://git.example/platform.git', capabilities: ['payments'] }]
+  });
+  assert.doesNotMatch(partiallyChecked, /data-map-reuse/);
+  assert.match(partiallyChecked, /Restore access and check again/);
+  assert.match(partiallyChecked, /pending review proposals are not included/);
+
+  const pending = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: 'https://git.example/payments.git', inspectionStatus: 'inconclusive',
+    inspectionCompleteness: 'partial', inspectionProposalCoverage: 'complete',
+    inspectionProposalTotal: 1, inspectionProposalInspected: 1,
+    inspectionPendingMatches: [{
+      lead: 'https://git.example/platform.git', capabilities: ['payments'],
+      proposalBranch: 'sflow/config-change/capability/map-payments-deadbeef'
+    }]
+  });
+  assert.match(pending, /already present in a capability proposal awaiting review/);
+  assert.match(pending, /map-payments-deadbeef/);
+  assert.match(pending, /Pending review coverage is complete \(1\/1 inspected\)/);
+  assert.match(pending, /data-map-details hidden/);
+});
+
+test('repository inspection unlocks only safe outcomes and explains blocked outcomes', () => {
+  const repositoryUrl = 'https://git.example/payments.git';
+  const known = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'known-repository-unassigned',
+    inspectionComplete: true,
+    inspectionMatches: [{ lead: 'https://git.example/platform.git', capabilities: [] }]
+  });
+  assert.match(known, /known, but is not assigned/);
+  assert.doesNotMatch(known, /data-map-details hidden/);
+
+  const ambiguous = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'ambiguous',
+    inspectionMatches: [
+      { lead: 'https://git.example/platform.git', capabilities: ['payments'] },
+      { lead: 'https://git.example/retail.git', capabilities: ['checkout'] }
+    ]
+  });
+  assert.match(ambiguous, /more than one capability map/);
+  assert.match(ambiguous, /payments in https:\/\/git\.example\/platform\.git/);
+  assert.match(ambiguous, /data-map-inspect-authority="https:\/\/git\.example\/platform\.git"/);
+  assert.match(ambiguous, /data-map-inspect-authority="https:\/\/git\.example\/retail\.git"/);
+  assert.match(MAP_CAPABILITY_SCRIPT, /type: 'inspectAuthority'/);
+  assert.match(ambiguous, /data-map-details hidden/);
+
+  for (const status of ['unreachable', 'inconclusive']) {
+    const blocked = mapCapabilityHtml({
+      ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: status,
+      inspectionFailures: ['lead could not be inspected']
+    });
+    assert.match(blocked, /lead could not be inspected/);
+    assert.match(blocked, /data-map-details hidden/);
+  }
+});
+
+test('capability mapping rejects credential-bearing remotes without reflecting their secrets', () => {
+  const repository = 'https://alice:super-secret@git.example/payments.git?access_token=also-secret#frag';
+  const repositoryProblem = gitRemoteProblem(repository, 'Repository');
+  assert.match(repositoryProblem, /Repository 'https:\/\/git\.example\/payments\.git' was rejected/);
+  assert.doesNotMatch(repositoryProblem, /alice|super-secret|also-secret|access_token/);
+  assert.match(repositoryProblem, /credential-free Git URL/);
+
+  const leadProblem = gitRemoteProblem('https://token@git.example/platform.git', 'Capability-map repository');
+  assert.match(leadProblem, /Capability-map repository 'https:\/\/git\.example\/platform\.git' was rejected/);
+  assert.doesNotMatch(leadProblem, /token@/);
+
+  const unsafe = {
+    ...EMPTY_MAP_FORM,
+    repositoryUrl: repository,
+    inspectionStatus: 'not-onboarded', inspectionComplete: true
+  };
+  assert.match(mapProblems(unsafe)[0], /was rejected/);
+  assert.doesNotMatch(mapProblems(unsafe)[0], /super-secret|also-secret/);
+});
+
+test('only zero-authority discovery can explicitly establish the first capability map', () => {
+  const repositoryUrl = 'https://git.example/first.git';
+  const noAuthorities = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'inconclusive',
+    inspectionCompleteness: 'no-authorities', inspectionAuthorityScope: 'repository-candidate',
+    inspectionCheckedLeadCount: 0, inspectionProposalCoverage: 'complete'
+  });
+  assert.match(noAuthorities, /Checked 0 capability-map authorities/);
+  assert.match(noAuthorities, /Existing capability-map Git URL/);
+  assert.match(noAuthorities, /data-map-inspect-lead disabled/);
+  assert.match(noAuthorities, /Use this repository as the first capability map/);
+  assert.match(noAuthorities, /data-map-details hidden/);
+
+  const partial = mapCapabilityHtml({
+    ...EMPTY_MAP_FORM, repositoryUrl, inspectionStatus: 'inconclusive',
+    inspectionCompleteness: 'partial', inspectionAuthorityScope: 'registered',
+    inspectionCheckedLeadCount: 1, inspectionFailures: ['one authority failed']
+  });
+  assert.match(partial, /Checked 1 capability-map authority/);
+  assert.doesNotMatch(partial, /Existing capability-map Git URL/);
+  assert.doesNotMatch(partial, /Use this repository as the first capability map/);
+  assert.match(partial, /data-map-details hidden/);
+});
+
 test('mapping a monorepo capability carries source scope and clone policy into one reviewed proposal', () => {
   const form = {
     ...EMPTY_MAP_FORM,
     lead: 'https://git.example/platform.git', loaded: true,
     capabilityId: 'payments', repositoryUrl: 'https://git.example/platform.git',
+    inspectionStatus: 'not-onboarded', inspectionComplete: true,
+    inspectionBoundRepositoryUrl: 'https://git.example/platform.git',
+    inspectionBoundLeadUrl: 'https://git.example/platform.git',
     sourceRoots: 'apps/payments', sharedRoots: 'packages/contracts',
     cloneMode: 'blobless-sparse', sparseCone: 'apps/payments, packages/contracts',
     cloneFallback: 'refuse'
@@ -2674,7 +2806,8 @@ test('capability metadata is included in remote map proposals and incomplete pai
   const form = {
     ...EMPTY_MAP_FORM,
     lead: 'https://git.example/platform.git', loaded: true,
-    capabilityId: 'commerce', kind: 'collection', metadata: [
+    capabilityId: 'commerce', kind: 'collection', collectionWithoutRepository: true,
+    inspectionComplete: true, metadata: [
       { key: 'applicationId', value: 'APP-1001' },
       { key: 'costCenter', value: 'CC-42' }
     ]
@@ -2716,7 +2849,8 @@ test('mapping a capability asks which map to use only when multiple maps exist',
   const html = mapCapabilityHtml({
     ...EMPTY_MAP_FORM,
     leads: ['https://git.example/platform.git', 'https://git.example/retail.git'],
-    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git'
+    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git',
+    inspectionStatus: 'not-onboarded', inspectionComplete: true
   });
 
   assert.match(html, /<select data-map="lead">/);
@@ -2725,7 +2859,8 @@ test('mapping a capability asks which map to use only when multiple maps exist',
   assert.ok(mapProblems({
     ...EMPTY_MAP_FORM,
     leads: ['https://git.example/platform.git', 'https://git.example/retail.git'],
-    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git'
+    kind: 'delivery', repositoryUrl: 'https://git.example/payments.git',
+    inspectionStatus: 'not-onboarded', inspectionComplete: true
   }).includes('Choose which repository stores the capability map.'));
 });
 
@@ -2734,6 +2869,8 @@ test('the shipping repository can become the first capability-map repository in 
   const html = mapCapabilityHtml({
     ...EMPTY_MAP_FORM,
     kind: 'delivery', repositoryUrl: repository, lead: repository, loaded: true,
+    inspectionStatus: 'not-onboarded', inspectionComplete: true,
+    inspectionBoundRepositoryUrl: repository, inspectionBoundLeadUrl: repository,
     capabilityId: 'payments-api'
   });
 
@@ -2748,7 +2885,7 @@ test('remote capability mapping may create another top-level capability', () => 
     ...EMPTY_MAP_FORM,
     lead: 'https://git.example/platform.git',
     loaded: true,
-    capabilityId: 'rule-engine',
+    capabilityId: 'rule-engine', collectionWithoutRepository: true, inspectionComplete: true,
     kind: 'collection',
     parents: [{ id: 'calculator', name: 'Calculator', depth: 0 }],
     parent: ''
@@ -2765,7 +2902,9 @@ test('capability identifier validation updates in place without reloading the we
   const repository = 'https://git.example/rule-ui.git';
   const base = {
     ...EMPTY_MAP_FORM,
-    kind: 'delivery', repositoryUrl: repository, lead: repository, loaded: true
+    kind: 'delivery', repositoryUrl: repository, lead: repository, loaded: true,
+    inspectionStatus: 'not-onboarded', inspectionComplete: true,
+    inspectionBoundRepositoryUrl: repository, inspectionBoundLeadUrl: repository
   };
 
   assert.equal(capabilityIdentifierProblem({ ...base, capabilityId: 'RuleUX' }),

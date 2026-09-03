@@ -252,7 +252,8 @@ const SESSION_READ_SUBCOMMANDS = Object.freeze(['current', 'doctor', 'context', 
 const SESSION_MUTATION_SUBCOMMANDS = Object.freeze(['workspace', 'attach', 'repair-selection']);
 const SESSION_SUBCOMMANDS = Object.freeze([...SESSION_READ_SUBCOMMANDS, ...SESSION_MUTATION_SUBCOMMANDS]);
 const CAPABILITY_READ_SUBCOMMANDS = Object.freeze([
-  'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads'
+  'tree', 'show', 'of', 'proposals', 'proposal', 'fsck', 'world-model', 'organisation', 'leads',
+  'inspect-repository'
 ]);
 const CAPABILITY_MUTATION_SUBCOMMANDS = Object.freeze([
   'add', 'set', 'remove', 'map', 'edit', 'publish', 'activate', 'discard-proposal', 'repository'

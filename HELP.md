@@ -910,6 +910,7 @@ deletes the checkout, branches, artifacts, approvals, or history.
 Useful commands:
 
 ```bash
+singularity-flow capability inspect-repository <GIT-URL> [--lead <URL>]... [--refresh] --json
 singularity-flow capability tree --json
 singularity-flow capability show <CAPABILITY-ID> --json
 singularity-flow capability map <CAPABILITY-ID> --lead <URL> --repository <URL> \
@@ -935,6 +936,19 @@ singularity-flow workspace archive-status <DIRECTORY> --fetch
 singularity-flow workspace archive <DIRECTORY> --confirm <WORKSPACE-ID>
 singularity-flow workspace restore <DIRECTORY>
 ```
+
+Start repository onboarding with its exact credential-free Git URL and run
+`capability inspect-repository` before collecting capability metadata. An
+`already-mapped` result identifies the existing lead, repository ID, and capabilities,
+so no duplicate proposal is needed. Resolve `ambiguous` to one explicit lead first.
+Treat `unreachable` and partial `inconclusive` results as unknown, never as permission to create a
+new mapping. The check includes a bounded scan of pending capability proposals; an existing
+pending mapping is returned for review instead of being proposed again, and incomplete proposal
+coverage blocks creation. When no capability-map authority is registered, inspection also checks whether the
+target itself hosts an approved map; otherwise it can become the first authority only after the
+contributor explicitly chooses that option. Only a confirmed new mapping after `not-onboarded`, or an explicit
+mapping for `known-repository-unassigned`, proceeds to capability ID, kind, ownership,
+roots, clone-policy, Jira, and team questions.
 
 Add organisation-specific attributes with repeatable key/value options:
 

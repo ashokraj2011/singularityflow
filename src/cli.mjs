@@ -193,7 +193,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -8213,6 +8213,32 @@ function capabilityRemovalDestination(options) {
  */
 async function capabilityCommand(positionals, options) {
   const subcommandForWrite = positionals[1];
+
+  if (subcommandForWrite === 'inspect-repository') {
+    const result = await inspectCapabilityRepository(
+      requirePositional(positionals, 2, 'Git repository URL'), {
+        leadUrls: optionStrings(options, 'lead'),
+        refresh: optionBoolean(options, 'refresh')
+      }
+    );
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${result.repositoryUrl}: ${result.status}`);
+    for (const match of result.matches) {
+      console.log(`  ${match.lead}: ${match.repositoryId}${match.capabilities.length ? ` (${match.capabilities.join(', ')})` : ''}`);
+    }
+    for (const match of result.pendingMatches ?? []) {
+      const commit = match.proposalCommit ? `@${match.proposalCommit.slice(0, 12)}` : '';
+      const capabilities = match.capabilities?.length ? ` (${match.capabilities.join(', ')})` : '';
+      console.log(`  awaiting review ${match.proposalBranch ?? '<proposal>'}${commit} on ${match.lead}: ${match.repositoryId}${capabilities}`);
+    }
+    if (result.proposalCoverage !== 'complete') {
+      const inspected = result.proposalInspection?.inspected ?? 0;
+      const total = result.proposalInspection?.total ?? 0;
+      console.warn(`  pending proposal coverage: ${result.proposalCoverage} (${inspected}/${total} inspected); no new mapping is authorized`);
+    }
+    for (const failure of result.failures) console.warn(`  ${failure.lead}: ${failure.message}`);
+    return;
+  }
 
   if (subcommandForWrite === 'repository' && positionals[2] === 'add') {
     const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;

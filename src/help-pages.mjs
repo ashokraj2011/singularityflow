@@ -1199,6 +1199,12 @@ const PAGES = Object.freeze({
       'Local `add`, `set`, and `remove` author the checkout only. Organisation reads prefer the state',
       'mirror and use a commit-validated cache; pass `--refresh` for an explicit remote recheck.',
       '',
+      'Repository onboarding starts from an exact credential-free Git URL. `inspect-repository` is',
+      'read-only and reports whether it is already mapped, known but unassigned, new, ambiguous, or',
+      'not conclusively inspectable. It also detects a self-hosted map on a new laptop; an ungoverned',
+      'target becomes the first map only by explicit choice. A bounded scan also finds matching pending',
+      'proposals; incomplete pending-proposal coverage blocks creation. Only an explicit new-mapping choice proceeds to metadata.',
+      '',
       'A capability stores one parent link; the reverse child list is derived from it. Removing a',
       'parent with children requires `--reparent-children-to`, so the move and removal validate and',
       'publish as one proposal. An empty destination moves direct children to the top level.',
@@ -1219,6 +1225,7 @@ const PAGES = Object.freeze({
       ['--json', 'Emit structured checks, exact refs, and remediation commands.']
     ],
     examples: [
+      ['singularity-flow capability inspect-repository https://git.example/payments.git --json', 'Check every registered capability authority before proposing a repository mapping.'],
       ['singularity-flow capability map payments --repository payments-api', 'Propose a capability.'],
       ['singularity-flow capability map payments --repository <URL> --source-roots apps/payments --clone-mode blobless-sparse --sparse-cone apps/payments --clone-fallback refuse', 'Propose a scoped capability and safe monorepo clone policy.'],
       ['singularity-flow capability edit legacy --lead <URL> --mode remove --reparent-children-to platform', 'Remove a capability and atomically relink its direct children.'],

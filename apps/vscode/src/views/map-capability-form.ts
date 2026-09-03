@@ -18,6 +18,34 @@ import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts
 /** A capability already in the map, offered as a parent. */
 export interface ParentChoice { id: string; name: string; depth: number; ships: boolean }
 
+export type RepositoryInspectionStatus =
+  | 'idle' | 'checking' | 'not-onboarded' | 'known-repository-unassigned'
+  | 'already-mapped' | 'ambiguous' | 'unreachable' | 'inconclusive';
+
+export interface RepositoryInspectionMatch {
+  lead?: string;
+  repositoryId?: string;
+  repositoryUrl?: string;
+  capabilities?: string[];
+  governed?: boolean;
+  sourceBranch?: string | null;
+  sourceCommit?: string | null;
+  cached?: boolean;
+  stale?: boolean;
+}
+
+export interface RepositoryInspectionPendingMatch {
+  lead?: string;
+  repositoryId?: string;
+  repositoryUrl?: string;
+  capabilities?: string[];
+  capabilityMetadataComplete?: boolean;
+  proposalBranch?: string;
+  proposalCommit?: string;
+  proposalStatus?: string;
+  proposalValid?: boolean;
+}
+
 /** The same closed structural vocabulary used by the engine and schema. */
 export { CAPABILITY_KINDS };
 
@@ -30,6 +58,23 @@ export interface MapCapabilityForm {
   parent: string;
   parents: ParentChoice[];
   repositoryUrl: string;
+  inspectionStatus: RepositoryInspectionStatus;
+  inspectionMatches: RepositoryInspectionMatch[];
+  inspectionPendingMatches: RepositoryInspectionPendingMatch[];
+  inspectionMessage: string | null;
+  inspectionFailures: string[];
+  inspectionCompleteness: string | null;
+  inspectionAuthorityScope: string | null;
+  inspectionProposalCoverage: string | null;
+  inspectionProposalTotal: number;
+  inspectionProposalInspected: number;
+  inspectionLeadUrl: string;
+  inspectionCheckedLeadCount: number;
+  /** Exact repository and authority pair proven by the last successful inspection. */
+  inspectionBoundRepositoryUrl: string | null;
+  inspectionBoundLeadUrl: string | null;
+  inspectionComplete: boolean;
+  collectionWithoutRepository: boolean;
   sourceRoots: string;
   sharedRoots: string;
   cloneMode: 'full' | 'blobless' | 'blobless-sparse';
@@ -48,9 +93,55 @@ export interface MapCapabilityForm {
 export const EMPTY_MAP_FORM: MapCapabilityForm = {
   lead: '', leads: [], capabilityId: '', name: '', kind: 'delivery',
   parent: '', parents: [], repositoryUrl: '', sourceRoots: '', sharedRoots: '',
+  inspectionStatus: 'idle', inspectionMatches: [], inspectionPendingMatches: [], inspectionMessage: null,
+  inspectionFailures: [],
+  inspectionCompleteness: null, inspectionAuthorityScope: null, inspectionCheckedLeadCount: 0,
+  inspectionProposalCoverage: null,
+  inspectionProposalTotal: 0, inspectionProposalInspected: 0,
+  inspectionLeadUrl: '',
+  inspectionBoundRepositoryUrl: null, inspectionBoundLeadUrl: null,
+  inspectionComplete: false, collectionWithoutRepository: false,
   cloneMode: 'full', sparseCone: '', cloneFallback: 'refuse', metadata: [], jiraProject: '', teams: '',
   loaded: false, busy: false, notice: null, error: null
 };
+
+/**
+ * Reject a remote before the extension can place it in a logged CLI argument vector.
+ *
+ * The engine repeats this validation at its trust boundary. The webview needs the same guard one
+ * layer earlier because extension command logging happens before the engine sees the arguments.
+ * Only a display-safe URL is included in the message; user-info, query parameters, and fragments
+ * can therefore never be reflected into the panel or output channel.
+ */
+export function gitRemoteProblem(value: string, label = 'Repository'): string | null {
+  const remote = value.trim();
+  if (!remote) return null;
+  let rejected = /[\0\r\n]/.test(remote) || remote.startsWith('-')
+    || /^[a-z][a-z0-9+.-]*::/i.test(remote)
+    // Keep the guard fail-closed even when URL parsing rejects malformed percent escapes or host
+    // syntax. An HTTP user-info prefix or ephemeral suffix must still never reach command logging.
+    || /^https?:\/\/[^/\s@]+@/i.test(remote)
+    || (/^https?:\/\//i.test(remote) && /[?#]/.test(remote));
+  let safe = '';
+  try {
+    const parsed = new URL(remote);
+    rejected ||= Boolean(parsed.password)
+      || (['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.username))
+      || (['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.search || parsed.hash));
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    safe = parsed.toString();
+  } catch {
+    // Local paths and SCP-like SSH remotes are valid Git identities. Their diagnostic form drops
+    // query/fragment-shaped suffixes, and unsafe control/option/helper forms stay fully redacted.
+    safe = rejected ? '' : remote.replace(/[?#].*$/, '');
+  }
+  if (!rejected) return null;
+  const displayed = safe && !/[\0\r\n]/.test(safe) && !safe.startsWith('-') ? ` '${safe}'` : '';
+  return `${label}${displayed} was rejected. Use a credential-free Git URL and configure authentication through Git or the operating system; embedded credentials, query parameters, and fragments are not accepted.`;
+}
 
 export function capabilityIdentifierProblem(form: MapCapabilityForm): string | null {
   const id = form.capabilityId.trim();
@@ -64,7 +155,33 @@ export function capabilityIdentifierProblem(form: MapCapabilityForm): string | n
 
 export function mapProblems(form: MapCapabilityForm): string[] {
   const problems: string[] = [];
+  if (!form.collectionWithoutRepository && !form.repositoryUrl.trim()) {
+    problems.push('Enter the Git repository URL and check it first.');
+  } else if (!form.collectionWithoutRepository && gitRemoteProblem(form.repositoryUrl, 'Repository')) {
+    problems.push(gitRemoteProblem(form.repositoryUrl, 'Repository') as string);
+  } else if (!form.collectionWithoutRepository && !form.inspectionComplete) {
+    const message = form.inspectionStatus === 'checking'
+      ? 'The repository is being checked.'
+      : form.inspectionStatus === 'already-mapped'
+        ? 'This repository is already mapped. Choose whether to map another capability using it.'
+        : form.inspectionStatus === 'ambiguous'
+          ? 'Resolve which capability map owns this repository before continuing.'
+          : form.inspectionStatus === 'unreachable'
+            ? 'The repository could not be reached. Correct access and check it again.'
+            : form.inspectionStatus === 'inconclusive'
+              ? 'Repository ownership could not be determined safely. Check it again after resolving the reported failures.'
+              : 'Check the repository before describing a capability.';
+    problems.push(message);
+  }
+  if (problems.length) return problems;
   if (!form.lead.trim()) problems.push('Choose which repository stores the capability map.');
+  else if (gitRemoteProblem(form.lead, 'Capability-map repository')) {
+    problems.push(gitRemoteProblem(form.lead, 'Capability-map repository') as string);
+  } else if (!form.collectionWithoutRepository
+    && (form.inspectionBoundRepositoryUrl !== form.repositoryUrl.trim()
+      || form.inspectionBoundLeadUrl !== form.lead.trim())) {
+    problems.push('The selected capability-map repository has not been checked for this Git repository. Check that authority again before continuing.');
+  }
   else if (!form.loaded) problems.push(form.busy
     ? 'The selected capability map is loading.'
     : 'Select the capability-map repository again so its current map can be loaded.');
@@ -121,13 +238,80 @@ export function mapCommand(form: MapCapabilityForm): string[] {
 
 export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardProgress | null = null): string {
   const problems = mapProblems(form);
-  const identifierProblem = capabilityIdentifierProblem(form);
+  const detailsVisible = form.collectionWithoutRepository || form.inspectionComplete;
+  const identifierProblem = detailsVisible ? capabilityIdentifierProblem(form) : null;
   const staticProblems = problems.filter((problem) => problem !== identifierProblem);
   const parents = form.parents;
   const repository = form.repositoryUrl.trim();
   const lead = form.lead.trim();
   const usesShippingRepository = Boolean(repository && repository === lead);
   const knownLeadSelected = form.leads.includes(lead);
+  const inspectionMatches = form.inspectionMatches.map((match) => {
+    const capabilities = match.capabilities?.length ? match.capabilities.join(', ') : 'no assigned capability';
+    const stale = match.stale ? ' (validated cached result)' : '';
+    return `<li>${escape(`${capabilities} in ${match.lead ?? 'an existing capability map'}${stale}`)}</li>`;
+  }).join('');
+  const ambiguousInspectionMatches = form.inspectionMatches.map((match) => {
+    const capabilities = match.capabilities?.length ? match.capabilities.join(', ') : 'no assigned capability';
+    const stale = match.stale ? ' (validated cached result)' : '';
+    const lead = match.lead?.trim() ?? '';
+    return `<li>${escape(`${capabilities} in ${lead || 'an existing capability map'}${stale}`)}${lead
+      ? ` <button type="button" class="secondary" data-map-inspect-authority="${escape(lead)}">Check this capability map</button>`
+      : ''}</li>`;
+  }).join('');
+  const pendingInspectionMatches = form.inspectionPendingMatches.map((match) => {
+    const capabilities = match.capabilities?.length
+      ? ` for ${match.capabilities.join(', ')}` : '';
+    const branch = match.proposalBranch ?? 'an unmerged capability proposal';
+    const lead = match.lead ? ` in ${match.lead}` : '';
+    return `<li><code>${escape(branch)}</code>${escape(`${capabilities}${lead}`)}</li>`;
+  }).join('');
+  const proposalScope = form.inspectionProposalCoverage === 'complete'
+    ? ` Pending review coverage is complete (${form.inspectionProposalInspected}/${form.inspectionProposalTotal} inspected).`
+    : form.inspectionProposalCoverage === 'partial'
+      ? ` Pending review coverage is incomplete (${form.inspectionProposalInspected}/${form.inspectionProposalTotal} inspected); no new mapping is permitted.`
+      : form.inspectionProposalCoverage === 'not-checked'
+        ? ' Pending review proposals could not be checked; no new mapping is permitted.'
+        : form.inspectionProposalCoverage === 'approved-only'
+          ? ' This older engine checked approved maps only; pending review proposals are not included.'
+          : '';
+  const inspectionScope = form.inspectionStatus !== 'idle' && form.inspectionStatus !== 'checking'
+    ? `<p class="muted">Checked ${form.inspectionCheckedLeadCount} capability-map ${form.inspectionCheckedLeadCount === 1 ? 'authority' : 'authorities'} (${escape(form.inspectionCompleteness ?? 'unknown completeness')}, ${escape(form.inspectionAuthorityScope ?? 'unknown scope')}).${escape(proposalScope)}</p>`
+    : '';
+  const inspectionResult = form.inspectionStatus === 'checking'
+    ? `<p class="muted">${icon('waiting')}Checking repository ownership and onboarding…</p>`
+    : form.inspectionStatus === 'not-onboarded'
+      ? `<p class="ok-text">${icon('ok')}This repository was not found in the capability maps checked. Describe its first capability below.</p>`
+      : form.inspectionStatus === 'known-repository-unassigned'
+        ? `<p class="ok-text">${icon('ok')}This repository is known, but is not assigned to a capability yet.</p>`
+        : form.inspectionStatus === 'already-mapped'
+          ? `<div class="warning-text">${icon('warning')}This repository is already onboarded.${inspectionMatches ? `<ul>${inspectionMatches}</ul>` : ''}
+              ${form.inspectionCompleteness === 'complete'
+                ? '<button type="button" class="secondary" data-map-reuse>Map another capability using this repository</button>'
+                : '<p>One or more capability-map authorities were not current. Restore access and check again before changing this mapping.</p>'}</div>`
+          : form.inspectionStatus === 'ambiguous'
+              ? `<div class="warning-text">${icon('warning')}This repository appears in more than one capability map. Check the intended authority explicitly before continuing.${ambiguousInspectionMatches ? `<ul>${ambiguousInspectionMatches}</ul>` : ''}</div>`
+              : form.inspectionStatus === 'unreachable' || form.inspectionStatus === 'inconclusive'
+                ? `<div class="blockers">${escape(form.inspectionMessage ?? (form.inspectionStatus === 'unreachable'
+                  ? 'The repository could not be reached. Correct access and try again.'
+                  : form.inspectionPendingMatches.length
+                    ? 'This repository is already present in a capability proposal awaiting review. Review or activate that proposal instead of creating a duplicate.'
+                  : form.inspectionCompleteness === 'no-authorities'
+                    ? 'No approved capability-map authority is registered on this laptop.'
+                    : 'Repository ownership could not be determined safely.'))}${form.inspectionFailures.length
+                    ? `<ul>${form.inspectionFailures.map((failure) => `<li>${escape(failure)}</li>`).join('')}</ul>` : ''}
+                    ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>` : ''}
+                    ${form.inspectionStatus === 'inconclusive' && form.inspectionCompleteness === 'no-authorities'
+                      ? `<div class="form-grid">
+                          <label class="field full"><span>Existing capability-map Git URL</span>
+                            <input type="text" value="${escape(form.inspectionLeadUrl)}" data-map="inspectionLeadUrl" placeholder="https://git.example.corp/acme/platform.git">
+                            <small>Use this when another repository already owns the organisation map.</small></label>
+                        </div>
+                        <p><button type="button" class="secondary" data-map-inspect-lead${form.inspectionLeadUrl.trim() ? '' : ' disabled'}>Check existing capability map</button>
+                          ${form.inspectionProposalCoverage === 'complete'
+                            ? '<button type="button" class="secondary" data-map-first-authority>Use this repository as the first capability map</button>'
+                            : ''}</p>` : ''}</div>`
+                : '';
   const mapStatus = form.busy && !form.loaded
     ? `<p class="muted">${icon('waiting')}Loading the selected capability map…</p>`
     : form.loaded
@@ -140,6 +324,22 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <p class="meta">What this organisation builds, and which repository each part ships from.
       Repository choices are made together below; no separate setup step is required.</p>
   </header>
+
+  <section>
+    <h2>${icon('git')}Git repository</h2>
+    <p class="muted">Start with the repository so Flow can tell whether it is already onboarded before another capability is proposed.</p>
+    <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
+      ${form.collectionWithoutRepository ? 'disabled' : ''} placeholder="https://git.example.corp/acme/payments-api.git"></label>
+    <p>
+      <button type="button" data-map-inspect ${!form.repositoryUrl.trim() || form.inspectionStatus === 'checking' || form.collectionWithoutRepository ? 'disabled' : ''}>
+        ${form.inspectionStatus === 'checking' ? 'Checking…' : 'Check repository'}
+      </button>
+      <button type="button" class="secondary" data-map-collection>${form.collectionWithoutRepository ? 'Use a repository instead' : 'Map a collection without a repository'}</button>
+    </p>
+    ${inspectionResult}${inspectionScope}
+  </section>
+
+  <div data-map-details${detailsVisible ? '' : ' hidden'}>
 
   <section>
     <h2>${icon('capability')}The capability</h2>
@@ -179,8 +379,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   <section>
     <h2>${icon('git')}Repository it ships from</h2>
     ${form.kind === 'delivery' ? `<div class="form-grid">
-      <label class="field full"><span>Clone URL</span><input type="text" value="${escape(form.repositoryUrl)}" data-map="repositoryUrl"
-        placeholder="https://git.example.corp/acme/payments-api.git"><small>The repository is declared in the portfolio so workspaces can clone it.</small></label>
+      <p class="muted full">Repository checked: <code>${escape(form.repositoryUrl)}</code></p>
       <label class="field"><span>Clone strategy</span><select data-map="cloneMode">
         <option value="full"${form.cloneMode === 'full' ? ' selected' : ''}>Full clone</option>
         <option value="blobless"${form.cloneMode === 'blobless' ? ' selected' : ''}>Blobless partial clone</option>
@@ -242,6 +441,7 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
     <p class="muted">Both belong to the capability rather than to a workspace: they stay true
       regardless of who has cloned what.</p>
   </section>
+  </div>
 
   <section>
     <div data-map-blocked${problems.length ? '' : ' hidden'}>
@@ -271,6 +471,18 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
 export const MAP_CAPABILITY_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
+    const inspect = event.target.closest('[data-map-inspect]');
+    if (inspect) return vscode.postMessage({ type: 'inspectRepository' });
+    const collection = event.target.closest('[data-map-collection]');
+    if (collection) return vscode.postMessage({ type: 'toggleCollectionWithoutRepository' });
+    const reuse = event.target.closest('[data-map-reuse]');
+    if (reuse) return vscode.postMessage({ type: 'reuseRepository' });
+    const firstAuthority = event.target.closest('[data-map-first-authority]');
+    if (firstAuthority) return vscode.postMessage({ type: 'useFirstAuthority' });
+    const inspectLead = event.target.closest('[data-map-inspect-lead]');
+    if (inspectLead) return vscode.postMessage({ type: 'inspectSelectedLead' });
+    const inspectAuthority = event.target.closest('[data-map-inspect-authority]');
+    if (inspectAuthority) return vscode.postMessage({ type: 'inspectAuthority', value: inspectAuthority.dataset.mapInspectAuthority });
     const addMetadata = event.target.closest('[data-map-metadata-add]');
     if (addMetadata) return vscode.postMessage({ type: 'metadataAdd' });
     const removeMetadata = event.target.closest('[data-map-metadata-remove]');
@@ -325,7 +537,7 @@ export const MAP_CAPABILITY_SCRIPT = `
       vscode.postMessage({ type: 'selectLead', value: event.target.value });
     } else if (field === 'repositoryUrl') {
       vscode.postMessage({ type: 'repositoryCommitted', value: event.target.value });
-    } else if (field === 'parent' || field === 'kind' || field === 'cloneMode') {
+    } else if (field === 'parent' || field === 'kind' || field === 'cloneMode' || field === 'inspectionLeadUrl') {
       vscode.postMessage({ type: 'redraw' });
     }
     if (event.target.matches('[data-use-shipping-repository]')) {

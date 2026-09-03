@@ -72,6 +72,18 @@ test('plugin provides one upload-first skill for Epic and Story evidence', async
 
 test('capability mapping reviews and activates the exact proposal instead of stopping at publication', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-capability-map', 'SKILL.md'), 'utf8');
+  const urlQuestion = content.indexOf('exact credential-free Git URL');
+  const inspection = content.indexOf('capability inspect-repository <GIT-URL> --json');
+  const details = content.indexOf('then ask only for missing ID');
+  assert.ok(urlQuestion >= 0 && inspection > urlQuestion && details > inspection,
+    'repository URL and read-only inspection precede capability metadata');
+  for (const status of [
+    'already-mapped', 'known-repository-unassigned', 'not-onboarded',
+    'ambiguous', 'unreachable', 'inconclusive'
+  ]) assert.ok(content.includes('`' + status + '`'), `skill handles ${status}`);
+  assert.match(content, /already-mapped[\s\S]*without proposing a duplicate/i);
+  assert.match(content, /unreachable[\s\S]*Do not reinterpret an unverified absence as a new repository/i);
+  assert.match(content, /Continue only after an explicit request for a new mapping/i);
   assert.match(content, /capability proposal <REVIEW-BRANCH>.*--json/s);
   assert.match(content, /explicitly approves/);
   assert.match(content, /capability activate <REVIEW-BRANCH>.*--confirm <FULL-PROPOSAL-COMMIT> --json/s);

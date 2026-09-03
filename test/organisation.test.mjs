@@ -13,7 +13,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, symlink, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -24,7 +24,7 @@ import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
   activateCapabilityProposal, addCapabilityRepository, capabilityFsck, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, initializeWorkspaceState,
-  inspectCapabilityProposal, listCapabilityProposals, mapCapability, readOrganisation,
+  inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
@@ -335,6 +335,292 @@ test('mapping several delivery repositories observes every distinct remote exact
     'the lead, service, and web remotes each have one combined operation-scoped observation');
   assert.equal(counters['git.remote.total'], 7,
     'parallel validation does not add probes beyond configuration bootstrap and proposal publication');
+});
+
+test('repository inspection finds an exact URL in registered capability maps without mutation', async () => {
+  const org = await remotes('platform', 'service', 'unmapped');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  await (await import('../src/lead-repositories.mjs')).rememberLeadRepository(org.platform);
+  const refsBefore = proposalRefs(org.platform);
+
+  const found = await inspectCapabilityRepository(org.service);
+  assert.equal(found.status, 'already-mapped');
+  assert.equal(found.matches.length, 1);
+  assert.equal(found.matches[0].lead, org.platform);
+  assert.equal(found.matches[0].repositoryId, 'service');
+  assert.deepEqual(found.matches[0].capabilities, ['calculator']);
+  assert.deepEqual(proposalRefs(org.platform), refsBefore, 'inspection created a proposal');
+  assert.equal(found.authorityScope, 'registered');
+  assert.equal(found.completeness, 'complete');
+  assert.equal(found.proposalCoverage, 'complete');
+  assert.deepEqual(found.proposalInspection, { total: 1, inspected: 1, limitPerAuthority: 64 });
+
+  const missing = await inspectCapabilityRepository(org.unmapped, { leadUrl: org.platform });
+  assert.equal(missing.status, 'not-onboarded');
+  assert.deepEqual(missing.matches, []);
+
+  const unreachable = await inspectCapabilityRepository(`${org.unmapped}.offline`, {
+    leadUrl: org.platform
+  });
+  assert.equal(unreachable.status, 'inconclusive');
+  assert.equal(unreachable.completeness, 'partial');
+  assert.equal(unreachable.failures.length, 1);
+});
+
+test('repository inspection blocks duplicate onboarding while an exact mapping awaits review', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  await (await import('../src/lead-repositories.mjs')).rememberLeadRepository(org.platform);
+  const refsBefore = proposalRefs(org.platform);
+
+  const result = await inspectCapabilityRepository(org.service, { refresh: true });
+  assert.equal(result.status, 'inconclusive', 'an unapproved proposal is not reported as approved');
+  assert.deepEqual(result.matches, []);
+  assert.equal(result.proposalCoverage, 'complete');
+  assert.deepEqual(result.proposalInspection, { total: 1, inspected: 1, limitPerAuthority: 64 });
+  assert.equal(result.pendingMatches.length, 1);
+  assert.deepEqual(result.pendingMatches[0], {
+    lead: org.platform,
+    repositoryId: 'service',
+    repositoryUrl: org.service,
+    capabilities: ['calculator'],
+    capabilityMetadataComplete: true,
+    proposalBranch: proposed.branch,
+    proposalCommit: proposed.commit,
+    proposalStatus: 'pending-review',
+    proposalValid: true
+  });
+  assert.deepEqual(proposalRefs(org.platform), refsBefore,
+    'pending-proposal inspection moved or created a governance ref');
+
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const displayed = execFileSync(process.execPath, [
+    cli, 'capability', 'inspect-repository', org.service, '--lead', org.platform
+  ], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.match(displayed, /inconclusive/);
+  assert.match(displayed, /awaiting review/);
+  assert.match(displayed, new RegExp(proposed.branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('a pending assignment takes precedence over an approved unassigned repository', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'portfolio', kind: 'collection' });
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'platform-runtime', kind: 'delivery', repositoryUrl: org.platform
+  });
+
+  const result = await inspectCapabilityRepository(org.platform, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.equal(result.matches.length, 1);
+  assert.deepEqual(result.matches[0].capabilities, []);
+  assert.equal(result.pendingMatches[0].proposalBranch, proposed.branch);
+  assert.equal(result.status, 'inconclusive',
+    'the approved unassigned entry cannot hide its pending assignment');
+});
+
+test('an unrelated proposal does not claim every repository inherited from its base', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform-runtime', kind: 'delivery', repositoryUrl: org.platform
+  });
+  await mapCapability(org.platform, { capabilityId: 'documentation', kind: 'collection' });
+
+  const result = await inspectCapabilityRepository(org.platform, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.equal(result.status, 'already-mapped');
+  assert.deepEqual(result.matches[0].capabilities, ['platform-runtime']);
+  assert.deepEqual(result.pendingMatches, [],
+    'unchanged repository bytes inherited by another proposal are not a pending repository claim');
+});
+
+test('bounded proposal lookup marks truncated coverage incomplete', async () => {
+  const org = await remotes('platform', 'first-service', 'second-service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapCapability(org.platform, {
+    capabilityId: 'alpha', kind: 'delivery', repositoryUrl: org['first-service']
+  });
+  await mapCapability(org.platform, {
+    capabilityId: 'beta', kind: 'delivery', repositoryUrl: org['second-service']
+  });
+
+  const result = await listCapabilityProposals(org.platform, {
+    includeDiff: false,
+    repositoryUrl: org['first-service'],
+    maximumProposals: 1,
+    withCoverage: true
+  });
+  assert.deepEqual(result.coverage, { status: 'partial', total: 2, inspected: 1, limit: 1 });
+  assert.equal(result.proposals.length, 1);
+});
+
+test('repository inspection never returns a rejected registered lead URL', async () => {
+  const org = await remotes('platform', 'unmapped');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  await rememberLeadRepository(org.platform);
+  const rejected = 'https://alice:super-secret@example.test/private.git';
+  await rememberLeadRepository(rejected);
+
+  const result = await inspectCapabilityRepository(org.unmapped, { refresh: true });
+  const serialized = JSON.stringify(result);
+  assert.equal(result.status, 'inconclusive');
+  assert.notEqual(result.completeness, 'no-authorities',
+    'a rejected registry entry is unresolved authority, not proof that no authority exists');
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0].lead, /^registered-lead:sha256:[0-9a-f]{16}$/);
+  assert.equal(result.failures[0].code, 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
+  assert.doesNotMatch(serialized, /alice|super-secret|private\.git/);
+});
+
+test('repository inspection without known authorities is explicitly inconclusive', async () => {
+  const org = await remotes('candidate');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const result = await inspectCapabilityRepository(org.candidate);
+  assert.equal(result.status, 'inconclusive');
+  assert.equal(result.completeness, 'no-authorities');
+  assert.equal(result.authorityScope, 'repository-candidate');
+  assert.deepEqual(result.checkedLeads, []);
+  assert.deepEqual(result.candidateLeads, [org.candidate]);
+});
+
+test('repository inspection discovers a self-hosted approved map on a new laptop', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'platform-runtime', kind: 'delivery', repositoryUrl: org.platform
+  });
+
+  const result = await inspectCapabilityRepository(org.platform, { refresh: true });
+  assert.equal(result.status, 'already-mapped');
+  assert.equal(result.authorityScope, 'repository-candidate');
+  assert.deepEqual(result.checkedLeads, [org.platform]);
+  assert.deepEqual(result.matches[0].capabilities, ['platform-runtime']);
+});
+
+test('repository inspection reports ambiguity across registered organisations', async () => {
+  const first = await remotes('first-lead', 'shared');
+  const second = await remotes('second-lead');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(first.base);
+  await mapAndMerge(first['first-lead'], {
+    capabilityId: 'first-capability', kind: 'delivery', repositoryUrl: first.shared
+  });
+  await mapAndMerge(second['second-lead'], {
+    capabilityId: 'second-capability', kind: 'delivery', repositoryUrl: first.shared
+  });
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  await rememberLeadRepository(first['first-lead']);
+  await rememberLeadRepository(second['second-lead']);
+
+  const result = await inspectCapabilityRepository(first.shared);
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.matches.length, 2);
+  assert.deepEqual(result.matches.flatMap((match) => match.capabilities).sort(),
+    ['first-capability', 'second-capability']);
+});
+
+test('repository inspection never treats stale cached absence as proof that a repository is new', async () => {
+  const org = await remotes('platform', 'service', 'unmapped');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  process.env.SINGULARITY_FLOW_ORGANISATION_CACHE = path.join(org.base, 'organisation-cache');
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  await rememberLeadRepository(org.platform);
+  await readOrganisation(org.platform, { refresh: true });
+
+  const unavailable = `${org.platform}.offline`;
+  await rm(unavailable, { recursive: true, force: true });
+  await rename(org.platform, unavailable);
+
+  const known = await inspectCapabilityRepository(org.service, { refresh: true });
+  assert.equal(known.status, 'already-mapped', 'a cached positive match stays conservative');
+  assert.equal(known.matches[0].stale, true);
+  assert.equal(known.completeness, 'none');
+  assert.deepEqual(known.staleLeads, [org.platform]);
+
+  const absent = await inspectCapabilityRepository(org.unmapped, { refresh: true });
+  assert.equal(absent.status, 'inconclusive', 'cached absence cannot authorize a new mapping');
+  assert.equal(absent.completeness, 'none');
+  assert.equal(absent.failures[0].code, 'CAPABILITY_AUTHORITY_STALE_CACHE');
+});
+
+test('mapping refuses repository identifier collisions without publishing a proposal', async () => {
+  const organisation = await remotes('platform', 'service');
+  const other = await remotes('service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(organisation.base);
+  await mapAndMerge(organisation.platform, {
+    capabilityId: 'original', kind: 'delivery', repositoryUrl: organisation.service
+  });
+  const before = proposalRefs(organisation.platform);
+
+  await assert.rejects(addCapabilityRepository(
+    organisation.platform, 'original', other.service
+  ), (error) => {
+    assert.equal(error.code, 'CAPABILITY_REPOSITORY_ID_COLLISION');
+    return true;
+  });
+  assert.deepEqual(proposalRefs(organisation.platform), before);
+
+  await assert.rejects(mapCapability(organisation.platform, {
+    capabilityId: 'replacement', kind: 'delivery', repositoryUrl: other.service
+  }), (error) => {
+    assert.equal(error.code, 'CAPABILITY_REPOSITORY_ID_COLLISION');
+    assert.equal(error.details.state, 'repository-id-collision');
+    return true;
+  });
+  assert.deepEqual(proposalRefs(organisation.platform), before);
+  assert.equal((await readOrganisation(organisation.platform, { refresh: true }))
+    .repositories.service.url, organisation.service);
+});
+
+test('capability inspect-repository CLI emits the read-only discovery result', async () => {
+  const org = await remotes('platform', 'service', 'other-lead');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const output = execFileSync(process.execPath, [cli, 'capability', 'inspect-repository', org.service,
+    '--lead', org['other-lead'], '--lead', org.platform, '--json'], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  const result = JSON.parse(output);
+  assert.equal(result.status, 'already-mapped');
+  assert.deepEqual(result.checkedLeads, [org['other-lead'], org.platform]);
+  assert.deepEqual(result.matches[0].capabilities, ['calculator']);
+
+  const partial = spawnSync(process.execPath, [
+    cli, 'capability', 'inspect-repository', org.service,
+    '--lead', org.platform, '--lead', `${org['other-lead']}.offline`
+  ], {
+    cwd: org.base,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(org.base), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.equal(partial.status, 0, partial.stderr);
+  assert.match(partial.stdout, /already-mapped/);
+  assert.match(partial.stderr, /pending proposal coverage: partial/);
+  assert.match(partial.stderr, /no new mapping is authorized/);
 });
 
 test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {

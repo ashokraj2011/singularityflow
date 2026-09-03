@@ -2672,6 +2672,8 @@ test('the capability editor delegates creation to the mapping form that accepts 
     'new capabilities default to Delivery');
   assert.match(mapping.webview.html, /Clone URL/,
     'the creation path has an explicit place for a new Git repository URL');
+  await mapping.post({ type: 'field', field: 'repositoryUrl', value: remote });
+  await mapping.post({ type: 'inspectRepository' });
   await until(() => /<option value="product" selected>/.test(mapping.webview.html) || null);
   assert.match(mapping.webview.html, /<option value="product" selected>/,
     'Add one inside carries the selected capability into the governed mapping form');
@@ -2945,12 +2947,14 @@ test('an organisation that has not described what it builds says so, and where t
   await panel.post({ type: 'open', what: 'capabilities' });
   const capabilityPanel = await until(() =>
     registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability'));
+  assert.match(capabilityPanel.webview.html, /data-map-details hidden/);
+  await capabilityPanel.post({ type: 'field', field: 'repositoryUrl', value: origin });
+  await capabilityPanel.post({ type: 'inspectRepository' });
   await until(() => (capabilityPanel.webview.html.includes('0 capabilities available as parents')
     ? capabilityPanel.webview.html : null));
   await capabilityPanel.post({ type: 'field', field: 'capabilityId', value: 'payments-api' });
   await capabilityPanel.post({ type: 'field', field: 'name', value: 'Payments API' });
   await capabilityPanel.post({ type: 'field', field: 'kind', value: 'delivery' });
-  await capabilityPanel.post({ type: 'field', field: 'repositoryUrl', value: origin });
   await capabilityPanel.post({ type: 'map' });
 
   // Mapping is a review proposal: the retained workspace form must not see it until the proposal
@@ -3914,7 +3918,10 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   // selected in place. There is no second URL field or button to press.
   await panel.post({ type: 'redraw' });
   await panel.post({ type: 'field', field: 'repositoryUrl', value: bare });
-  await panel.post({ type: 'repositoryCommitted', value: bare });
+  await panel.post({ type: 'inspectRepository' });
+  await until(() => (panel.webview.html.includes('Use this repository as the first capability map')
+    ? panel.webview.html : null));
+  await panel.post({ type: 'useFirstAuthority' });
   await until(() => (panel.webview.html.includes('0 capabilities available as parents')
     ? panel.webview.html : null));
   assert.match(panel.webview.html, /data-use-shipping-repository checked/,
@@ -3954,19 +3961,22 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   await registered.commands.get('singularityFlow.mapCapability')();
   const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.mapCapability').at(-1);
   assert.notEqual(second, panel, 'the screen reopened rather than reusing a disposed panel');
-  assert.match(second.webview.html, /Selected automatically because it is the only available capability map/,
-    'the only known map repository is selected without another prompt');
-  // The capability just mapped is offered as a parent, which is how a tree gets built at all.
+  assert.match(second.webview.html, /data-map-details hidden/,
+    'a known map is still not read until the repository URL is checked');
+  await second.post({ type: 'field', field: 'repositoryUrl', value: bare });
+  await second.post({ type: 'inspectRepository' });
+  // The repository is already declared by the first authority, but no delivery capability uses it
+  // yet. Inspection selects that exact map and only then loads possible parents.
   const reloaded = await until(() =>
     (second.webview.html.includes('<option value="commerce"') ? second.webview.html : null));
   assert.ok(reloaded, 'the map was read back, with the capability just mapped in it');
+  assert.match(reloaded, /known, but is not assigned to a capability/);
 
   const panel2 = second;
   await panel2.post({ type: 'field', field: 'capabilityId', value: 'platform-api' });
   await panel2.post({ type: 'field', field: 'name', value: 'Platform API' });
   await panel2.post({ type: 'field', field: 'kind', value: 'delivery' });
   await panel2.post({ type: 'field', field: 'parent', value: 'commerce' });
-  await panel2.post({ type: 'field', field: 'repositoryUrl', value: bare });
   await panel2.post({ type: 'map' });
 
   await until(() => run('git', ['for-each-ref', '--format=%(refname:short)',
@@ -3978,6 +3988,127 @@ test('a window with nothing open can map a capability from scratch', async (t) =
   const portfolio = run('git', ['show', 'sflow/config:singularity/portfolio.yml'], { cwd: bare }).stdout;
   assert.match(map, /parent: commerce/, 'and it was placed under the capability chosen as its parent');
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('a new laptop can find an already-onboarded repository through an explicit capability-map URL', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(org.base, 'empty-leads.json');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: org.api });
+  await panel.post({ type: 'inspectRepository' });
+  await until(() => (panel.webview.html.includes('Existing capability-map Git URL')
+    ? panel.webview.html : null));
+
+  await panel.post({ type: 'field', field: 'inspectionLeadUrl', value: org.lead });
+  await panel.post({ type: 'inspectSelectedLead' });
+  const result = await until(() => (panel.webview.html.includes('This repository is already onboarded.')
+    ? panel.webview.html : null));
+  const text = result.replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  assert.match(text, /payments-api in/);
+  assert.match(result, /data-map-details hidden/,
+    'finding an existing mapping does not silently begin another proposal');
+  assert.match(result, /Map another capability using this repository/,
+    'reuse remains an explicit secondary action');
+
+  await panel.post({ type: 'reuseRepository' });
+  await until(() => (!panel.webview.html.includes('data-map-details hidden')
+    ? panel.webview.html : null));
+  const inspectionsBeforeAuthorityChange = registered.output
+    .filter((line) => String(line).includes('capability inspect-repository')).length;
+  await panel.post({ type: 'useShippingRepository', checked: true });
+  const reinspected = await until(() => {
+    const inspections = registered.output
+      .filter((line) => String(line).includes('capability inspect-repository')).length;
+    return inspections > inspectionsBeforeAuthorityChange
+      && panel.webview.html.includes('data-map-details hidden')
+      && panel.webview.html.includes('This repository is already onboarded.')
+      ? panel.webview.html : null;
+  });
+  assert.match(reinspected, /This repository is already onboarded/,
+    'switching the map authority reruns ownership discovery instead of reusing a stale result');
+  const lastInspection = registered.output
+    .filter((line) => String(line).includes('capability inspect-repository')).at(-1);
+  assert.match(lastInspection, new RegExp(`--lead ${org.lead.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(lastInspection, new RegExp(`--lead ${org.api.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+});
+
+test('capability mapping refuses credential-bearing URLs before command logging', async (t) => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-map-url-safety-'));
+  const previousLeadRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(base, 'empty-leads.json');
+  t.after(() => {
+    if (previousLeadRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousLeadRegistry;
+  });
+  const legacySecret = 'legacy-registry-secret';
+  const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
+  const safeLead = path.join(base, 'safe-platform.git');
+  const repository = path.join(base, 'payments.git');
+  run('git', ['init', '--quiet', '--bare', safeLead], { cwd: base });
+  run('git', ['init', '--quiet', '--bare', repository], { cwd: base });
+  await rememberLeadRepository(safeLead);
+  await rememberLeadRepository(`https://legacy:${legacySecret}@git.example/old-map.git`);
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.mapCapability')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.mapCapability');
+  assert.doesNotMatch(panel.webview.html, new RegExp(`${legacySecret}|old-map\.git`),
+    'unsafe legacy registry entries never reach webview HTML');
+  const repositorySecret = 'repository-super-secret';
+  const authoritySecret = 'authority-super-secret';
+
+  // Default discovery must let the CLI read the complete registry. Passing only the safe entries
+  // rendered in the form would silently erase the rejected legacy authority and could make a mixed
+  // registry look complete enough to authorize a duplicate proposal.
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: repository });
+  await panel.post({ type: 'inspectRepository' });
+  const incompleteRegistry = await until(() => panel.webview.html.includes('registered-lead:sha256:')
+    ? panel.webview.html : null);
+  assert.match(incompleteRegistry, /registered-lead:sha256:/);
+  assert.match(incompleteRegistry, /data-map-details hidden/,
+    'unresolved registered authorities keep capability details closed');
+  const defaultInspection = registered.output
+    .filter((line) => String(line).includes('capability inspect-repository')).at(-1);
+  assert.ok(defaultInspection, 'the safe target reached the read-only inspector');
+  assert.doesNotMatch(defaultInspection, /\s--lead\s/,
+    'default inspection lets the backend account for every registered authority');
+
+  // A forged/queued explicit-authority message is guarded even before the no-authority controls
+  // become visible. This proves the guard lives before run(), not only in HTML validation.
+  await panel.post({ type: 'field', field: 'repositoryUrl', value: 'https://git.example/payments.git' });
+  await panel.post({ type: 'field', field: 'inspectionLeadUrl',
+    value: `https://alice:${authoritySecret}@git.example/platform.git?token=hidden` });
+  await panel.post({ type: 'inspectSelectedLead' });
+  const authorityRefusal = await until(() => panel.webview.html.includes('was rejected')
+    ? panel.webview.html : null);
+  assert.match(authorityRefusal, /Capability-map repository &#39;https:\/\/git\.example\/platform\.git&#39; was rejected/);
+  assert.doesNotMatch(authorityRefusal, new RegExp(authoritySecret));
+
+  await panel.post({ type: 'field', field: 'repositoryUrl',
+    value: `https://bob:${repositorySecret}@git.example/payments.git#hidden` });
+  await panel.post({ type: 'inspectRepository' });
+  const repositoryRefusal = await until(() => panel.webview.html.includes('Repository &#39;https://git.example/payments.git&#39; was rejected')
+    ? panel.webview.html : null);
+  assert.match(repositoryRefusal, /Repository &#39;https:\/\/git\.example\/payments\.git&#39; was rejected/);
+  assert.doesNotMatch(repositoryRefusal, new RegExp(repositorySecret));
+
+  const output = registered.output.join('\n');
+  assert.equal(registered.output
+    .filter((line) => String(line).includes('capability inspect-repository')).length, 1,
+    'credential-bearing follow-up values never start another inspection command');
+  assert.doesNotMatch(output, new RegExp(`${repositorySecret}|${authoritySecret}|${legacySecret}|token=hidden`));
 });
 
 test('a window with nothing open shows only real workspaces', async (t) => {

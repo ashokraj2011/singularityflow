@@ -11,7 +11,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 5
+version: 6
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -27,11 +27,12 @@ Use this topic when the current goal matches **capability management**. Start in
 
 ## Guided workflow
 
-1. Read the current map with `sflow capability organisation <LEAD-URL>`. Add `--refresh` when an explicit remote recheck is required.
-2. Create a governed proposal with `sflow capability map` or `sflow capability edit --lead <LEAD-URL>`. Local `capability add`, `set`, and `remove` author only the checkout and never publish governed state.
-3. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
-4. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
-5. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
+1. Begin with the exact credential-free Git URL and run `sflow capability inspect-repository <GIT-URL> --json`. Add `--lead <LEAD-URL>` only when that authority was explicitly selected and `--refresh` when a fresh remote check is required.
+2. Branch on the lookup result before asking for capability metadata. Reuse `already-mapped`; resolve every `ambiguous` match to one explicit lead; and treat `unreachable` or partial `inconclusive` results as unknown rather than new. With no registered authority, the target is also checked for a self-hosted approved map; an ungoverned target can become the first authority only after an explicit choice. `not-onboarded` is scoped to the approved maps reported in `checkedLeads`. `known-repository-unassigned` means the repository exists in the map but is not attached to a capability. A bounded pending-proposal scan returns matching unmerged proposals for review; partial or unavailable proposal coverage blocks a new mapping.
+3. Only after the contributor explicitly requests a new mapping, select the lead, read its current tree, and collect the capability ID, kind, parent, ownership, roots, clone policy, Jira, and team details. Create a governed proposal with `sflow capability map`. Use `sflow capability edit --lead <LEAD-URL>` for an existing capability. Local `capability add`, `set`, and `remove` author only the checkout and never publish governed state.
+4. Inspect the exact branch, commit, changed files, and diff with `sflow capability proposal` or **Configuration → Review proposals**.
+5. Activate the exact reviewed commit. A Git dry run does not execute receive hooks, so Flow never treats it as protection evidence. Merge through repository review, or explicitly add `--acknowledge-unprotected` before Flow attempts one real exact-CAS update to `sflow/config`.
+6. Verify the returned target commit, state projection, and activation-ledger receipt. Refresh the organisation view afterward.
 
 Run `singularity-flow capability fsck --lead <URL>` whenever proposal history or
 the state projection looks inconsistent, or a workspace says its selected capability
@@ -64,6 +65,10 @@ Organisation reads prefer the state mirror, fall back to `sflow/config`, and cac
 
 ## Troubleshooting
 
+- If repository inspection returns `already-mapped`, use the returned capability rather than creating a duplicate. If it returns `ambiguous`, select one exact lead and inspect again.
+- If `pendingMatches` is non-empty, review or activate the named proposal instead of creating another one. If `proposalCoverage` is not `complete`, repair authority access or reduce the pending proposal backlog and inspect again.
+- If repository inspection is `unreachable` or `inconclusive`, repair access and retry with `--refresh`; a failed lookup is not evidence that the repository is new.
+- If `not-onboarded` has no checked leads, select or register a lead before deciding whether to create a mapping.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.

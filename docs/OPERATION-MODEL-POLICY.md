@@ -91,6 +91,7 @@ Every public operation is classified before its implementation module is importe
 | capability.discard-proposal | mutation | never | — | — |
 | capability.edit | mutation | never | — | — |
 | capability.fsck | read | never | — | — |
+| capability.inspect-repository | read | never | — | — |
 | capability.leads | read | never | — | — |
 | capability.map | mutation | never | — | — |
 | capability.of | read | never | — | — |

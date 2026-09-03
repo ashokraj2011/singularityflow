@@ -21,6 +21,27 @@ function workspaceModule() {
 }
 
 export const ACTIVE_WORKSPACE_SCHEMA_VERSION = currentSchemaVersion('active-workspace');
+const ACTIVE_SELECTION_LOCK_TIMEOUT_MS = 10_000;
+
+async function withActiveSelectionLease(selectionFile, operation) {
+  // Use the same inode-bound, heartbeat-backed and generation-fenced lease as workspace.json and
+  // the local workspace registry. A content comparison followed by pathname deletion has an ABA
+  // window: another process can replace the stale lock between those calls and have its live lock
+  // removed. The shared lease retires only the exact observed inode and cleans up failed owner
+  // publication before another process can acquire it.
+  const { withRegistryFileLease } = await workspaceModule();
+  try {
+    return await withRegistryFileLease(selectionFile, operation, {
+      timeoutMs: ACTIVE_SELECTION_LOCK_TIMEOUT_MS
+    });
+  } catch (error) {
+    if (error?.code !== 'WORKSPACE_REGISTRY_BUSY') throw error;
+    throw new SingularityFlowError(
+      'The active workspace selection is busy in another process. Retry the command.',
+      { code: 'ACTIVE_WORKSPACE_SELECTION_BUSY' }
+    );
+  }
+}
 
 export function workspaceRegistryFile(env = process.env, home = os.homedir()) {
   return path.resolve(env.SINGULARITY_FLOW_WORKSPACE_REGISTRY
@@ -159,12 +180,14 @@ export async function discardUnsupportedWorkflowWorkspaces(registryFile, selecti
   }
 
   if (selectionFile && removed.length) {
-    let selected = null;
-    try { selected = JSON.parse(await readFile(selectionFile, 'utf8')); } catch { /* absent is fine */ }
-    if (selected && removed.some((entry) => entry.id === selected.workspaceId
-      && (!selected.workspacePath || path.resolve(entry.path) === path.resolve(selected.workspacePath)))) {
-      await rm(selectionFile, { force: true });
-    }
+    await withActiveSelectionLease(selectionFile, async () => {
+      let selected = null;
+      try { selected = JSON.parse(await readFile(selectionFile, 'utf8')); } catch { /* absent is fine */ }
+      if (selected && removed.some((entry) => entry.id === selected.workspaceId
+        && (!selected.workspacePath || path.resolve(entry.path) === path.resolve(selected.workspacePath)))) {
+        await rm(selectionFile, { force: true });
+      }
+    });
   }
   return { removed, remaining: await readWorkspaceRegistry(registryFile) };
 }
@@ -223,7 +246,10 @@ export async function buildWorkspaceContext(registryFile, reference, {
   const selectedRepositoryId = String(repositoryId ?? workspace.leadRepository).trim();
   const repository = status.repositories.find((item) => item.id === selectedRepositoryId);
   if (!repository) {
-    throw new SingularityFlowError(`Repository '${selectedRepositoryId}' is not part of workspace '${workspace.name}'.`);
+    throw new SingularityFlowError(
+      `Repository '${selectedRepositoryId}' is not part of workspace '${workspace.name}'.`,
+      { code: 'ACTIVE_WORKSPACE_REPOSITORY_REMOVED' }
+    );
   }
   const selectedStoryId = portableStoryId(storyId)
     ?? (detectStory ? await detectedStory(repository.absolutePath, repository.branch) : null);
@@ -256,9 +282,11 @@ export async function buildWorkspaceContext(registryFile, reference, {
 }
 
 export async function activateWorkspaceContext(registryFile, selectionFile, reference, options = {}) {
-  const context = await buildWorkspaceContext(registryFile, reference, options);
-  await writeAtomic(selectionFile, `${JSON.stringify(context, null, 2)}\n`, { mode: 0o600 });
-  return context;
+  return withActiveSelectionLease(selectionFile, async () => {
+    const context = await buildWorkspaceContext(registryFile, reference, options);
+    await writeAtomic(selectionFile, `${JSON.stringify(context, null, 2)}\n`, { mode: 0o600 });
+    return context;
+  });
 }
 
 export async function readActiveWorkspaceContext(selectionFile, registryFile, { refresh = true } = {}) {
@@ -273,11 +301,38 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
     throw new SingularityFlowError('The active workspace selection is invalid. Select the workspace again.');
   }
   if (!refresh) return { ...selected, prompt: workspacePromptLabel(selected) };
-  const context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
-    repositoryId: selected.repositoryId,
-    // The selected checkout, not the canonical clone's current branch, proves the Story below.
-    storyId: null
-  });
+  let context;
+  try {
+    context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
+      repositoryId: selected.repositoryId,
+      // The selected checkout, not the canonical clone's current branch, proves the Story below.
+      storyId: null
+    });
+  } catch (error) {
+    if (error?.code !== 'ACTIVE_WORKSPACE_REPOSITORY_REMOVED') throw error;
+    // A process can stop after an exact detach/drop transaction commits but before its CLI wrapper
+    // clears the machine-local selection. Never reroute that stale repository/Story authority to
+    // the lead checkout: a later lifecycle command could otherwise run in a different Story. Clear
+    // only the obsolete navigation pointer and require an explicit workspace/repository selection.
+    return withActiveSelectionLease(selectionFile, async () => {
+      let latest;
+      try { latest = readRecord('active-workspace', await readFile(selectionFile)).record; }
+      catch (readError) {
+        if (readError?.code === 'ENOENT') return null;
+        throw readError;
+      }
+      try {
+        const repaired = await buildWorkspaceContext(registryFile, latest.workspaceId, {
+          repositoryId: latest.repositoryId, storyId: null
+        });
+        return { ...repaired, prompt: workspacePromptLabel(repaired) };
+      } catch (latestError) {
+        if (latestError?.code !== 'ACTIVE_WORKSPACE_REPOSITORY_REMOVED') throw latestError;
+        await rm(selectionFile, { force: true });
+        return null;
+      }
+    });
+  }
   const canonicalRepositoryPath = context.repositoryPath;
   const selectedStoryId = portableStoryId(selected.storyId);
   const candidate = selected.checkoutPath ?? selected.repositoryPath;
@@ -338,45 +393,47 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, { 
 export async function activateWorkspaceStoryContext(
   selectionFile, registryFile, checkout, { storyId, selectionSource = 'session-attach' } = {}
 ) {
-  const selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
-  if (!selected) return null;
-  const base = await buildWorkspaceContext(registryFile, selected.workspaceId, {
-    repositoryId: selected.repositoryId,
-    storyId: null
+  return withActiveSelectionLease(selectionFile, async () => {
+    const selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
+    if (!selected) return null;
+    const base = await buildWorkspaceContext(registryFile, selected.workspaceId, {
+      repositoryId: selected.repositoryId,
+      storyId: null
+    });
+    const checkoutPath = await canonical(checkout);
+    const canonicalRepositoryPath = await canonical(base.repositoryPath);
+    if (await canonical(gitCommonDir(checkoutPath)) !== await canonical(gitCommonDir(canonicalRepositoryPath))) {
+      return null;
+    }
+    const checkoutBranch = branch(checkoutPath);
+    const actualStoryId = await detectedStory(checkoutPath, checkoutBranch);
+    const expectedStoryId = portableStoryId(storyId);
+    if (!actualStoryId || actualStoryId !== expectedStoryId) {
+      throw new SingularityFlowError(
+        `Cannot select Story '${expectedStoryId}': checkout '${checkoutPath}' resolves to '${actualStoryId ?? 'no Story'}'.`,
+        {
+          code: 'ACTIVE_SUBJECT_MISMATCH',
+          details: { expectedWorkId: expectedStoryId, actualWorkId: actualStoryId, checkoutPath }
+        }
+      );
+    }
+    const context = {
+      ...base,
+      repositoryPath: checkoutPath,
+      canonicalRepositoryPath,
+      checkoutPath,
+      branch: checkoutBranch,
+      head: head(checkoutPath),
+      storyId: actualStoryId,
+      storyWorktree: gitDir(checkoutPath) !== gitCommonDir(checkoutPath),
+      selectionSource,
+      selectionStatus: 'ready',
+      selectionError: null,
+      selectedAt: new Date().toISOString()
+    };
+    await writeAtomic(selectionFile, `${JSON.stringify(context, null, 2)}\n`, { mode: 0o600 });
+    return { ...context, prompt: workspacePromptLabel(context) };
   });
-  const checkoutPath = await canonical(checkout);
-  const canonicalRepositoryPath = await canonical(base.repositoryPath);
-  if (await canonical(gitCommonDir(checkoutPath)) !== await canonical(gitCommonDir(canonicalRepositoryPath))) {
-    return null;
-  }
-  const checkoutBranch = branch(checkoutPath);
-  const actualStoryId = await detectedStory(checkoutPath, checkoutBranch);
-  const expectedStoryId = portableStoryId(storyId);
-  if (!actualStoryId || actualStoryId !== expectedStoryId) {
-    throw new SingularityFlowError(
-      `Cannot select Story '${expectedStoryId}': checkout '${checkoutPath}' resolves to '${actualStoryId ?? 'no Story'}'.`,
-      {
-        code: 'ACTIVE_SUBJECT_MISMATCH',
-        details: { expectedWorkId: expectedStoryId, actualWorkId: actualStoryId, checkoutPath }
-      }
-    );
-  }
-  const context = {
-    ...base,
-    repositoryPath: checkoutPath,
-    canonicalRepositoryPath,
-    checkoutPath,
-    branch: checkoutBranch,
-    head: head(checkoutPath),
-    storyId: actualStoryId,
-    storyWorktree: gitDir(checkoutPath) !== gitCommonDir(checkoutPath),
-    selectionSource,
-    selectionStatus: 'ready',
-    selectionError: null,
-    selectedAt: new Date().toISOString()
-  };
-  await writeAtomic(selectionFile, `${JSON.stringify(context, null, 2)}\n`, { mode: 0o600 });
-  return { ...context, prompt: workspacePromptLabel(context) };
 }
 
 /**
@@ -438,18 +495,25 @@ export async function resolveWorkspaceExecutionContext(
 }
 
 /** Clear the local selection only when it points at the workspace being forgotten. */
-export async function clearActiveWorkspaceContext(selectionFile, workspacePath) {
-  let selected;
-  try { selected = readRecord('active-workspace', await readFile(selectionFile)).record; }
-  catch (error) {
-    if (error?.code === 'ENOENT') return false;
-    throw new SingularityFlowError(`Unable to read active workspace selection: ${error.message}`);
-  }
-  const selectedPath = selected?.workspacePath ? await canonical(selected.workspacePath) : null;
-  const forgottenPath = await canonical(workspacePath);
-  if (!selectedPath || selectedPath !== forgottenPath) return false;
-  await rm(selectionFile, { force: true });
-  return true;
+export async function clearActiveWorkspaceContext(selectionFile, workspacePath, {
+  expectedRepositoryId = null,
+  expectedSelectedAt = null
+} = {}) {
+  return withActiveSelectionLease(selectionFile, async () => {
+    let selected;
+    try { selected = readRecord('active-workspace', await readFile(selectionFile)).record; }
+    catch (error) {
+      if (error?.code === 'ENOENT') return false;
+      throw new SingularityFlowError(`Unable to read active workspace selection: ${error.message}`);
+    }
+    const selectedPath = selected?.workspacePath ? await canonical(selected.workspacePath) : null;
+    const forgottenPath = await canonical(workspacePath);
+    if (!selectedPath || selectedPath !== forgottenPath) return false;
+    if (expectedRepositoryId && selected.repositoryId !== expectedRepositoryId) return false;
+    if (expectedSelectedAt && selected.selectedAt !== expectedSelectedAt) return false;
+    await rm(selectionFile, { force: true });
+    return true;
+  });
 }
 
 export async function workspaceContextForRepository(repositoryRoot, selectionFile, registryFile, { strict = false } = {}) {

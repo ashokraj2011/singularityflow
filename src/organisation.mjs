@@ -22,7 +22,9 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
-import { mapLimit, removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT } from './util.mjs';
+import {
+  isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT
+} from './util.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
   validateCapabilities, capabilityTree
@@ -899,8 +901,16 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   // selectors from redirecting the operation and avoids repeating system/global config probes.
   const gitEnv = enterpriseGitEnvironment();
   const session = new GitRemoteSession({ env: gitEnv });
+  // A current state projection is a separately moving remote ref. Include the cached projection
+  // source in the same bounded observation as sflow/config so an unchanged configuration tip can
+  // never make a later state publication look current forever.
+  const cachedSourceBranch = String(cached?.organisation?.sourceBranch ?? '').trim();
+  const observedBranches = [CONFIGURATION_BRANCH];
+  if (isGitRefName(cachedSourceBranch) && cachedSourceBranch !== CONFIGURATION_BRANCH) {
+    observedBranches.push(cachedSourceBranch);
+  }
   const configurationObservation = await session.observeAsync(remote, {
-    includeHead: false, refs: [`refs/heads/${CONFIGURATION_BRANCH}`]
+    includeHead: false, refs: observedBranches.map((name) => `refs/heads/${name}`)
   });
   const tip = configurationBranchHead(remote, {
     session, observation: configurationObservation
@@ -938,7 +948,8 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   }
   if (!tip.exists) {
     const empty = {
-      url: remote, branch, sourceBranch: null, sourceCommit: null,
+      url: remote, branch, configurationBranch: branch, configurationCommit: null,
+      sourceBranch: null, sourceCommit: null,
       capabilities: [], repositories: {}, governed: false
     };
     await writeOrganisationCache(remote, null, empty);
@@ -946,9 +957,20 @@ export async function readOrganisation(url, { refresh = false } = {}) {
   }
   // Older cache records predate complete state-mirror verification. Refresh them once instead of
   // preserving a capability-only projection verdict indefinitely under an unchanged config tip.
-  if (!refresh && cached?.tipSha === tip.sha && cached.organisation?.stateProjection) {
+  const cachedSourceStillCurrent = !cachedSourceBranch
+    || cachedSourceBranch === CONFIGURATION_BRANCH
+    || (isGitRefName(cachedSourceBranch)
+      && configurationObservation.refs.get(`refs/heads/${cachedSourceBranch}`)
+        === cached?.organisation?.sourceCommit);
+  if (!refresh && cached?.tipSha === tip.sha && cached.organisation?.stateProjection
+      && cachedSourceStillCurrent) {
     return {
       ...cached.organisation,
+      // Older cache records did not expose the configuration authority separately from the state
+      // projection. The cache key is the freshly observed configuration tip, so it is safe to add
+      // that exact binding without cloning again.
+      configurationBranch: branch,
+      configurationCommit: tip.sha,
       cached: true,
       stale: false,
       cacheAgeMs: cacheAgeMs(cached),
@@ -1046,7 +1068,8 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       : null);
     if (!shown) {
       const empty = {
-        url: remote, branch, sourceBranch: null, sourceCommit: configurationCommit,
+        url: remote, branch, configurationBranch: branch, configurationCommit,
+        sourceBranch: null, sourceCommit: configurationCommit,
         capabilities: [], repositories: {}, governed: false, stateProjection
       };
       await writeOrganisationCache(remote, configurationCommit, empty);
@@ -1060,6 +1083,8 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     const organisation = {
       url: remote,
       branch,
+      configurationBranch: branch,
+      configurationCommit,
       sourceBranch: shown.branch,
       sourceCommit: shown.commit,
       stateProjection,

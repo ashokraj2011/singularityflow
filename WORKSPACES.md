@@ -46,21 +46,33 @@ Expand the selected workspace or open its details page to see:
 - world-model presence/staleness and diagnostics;
 - clone, fetch, and repair warnings.
 
-### Edit
+### Manage capabilities and local checkouts
 
-**Edit workspace** can safely change:
+Choose **Manage workspace & capabilities**. The capability picker lists the approved map from the
+lead repository; it never accepts a free-form capability identifier.
 
-- display name; and
-- selected capabilities already available within the workspace's materialized
-  repository boundary.
+- **Attach** recomputes the complete repository closure from the current approved Git revision. It
+  reuses a retained checkout and clones only a required repository that is missing.
+- **Detach** removes the local capability selection and clears that capability from its repository
+  entries, while keeping those registered checkouts on disk for fast reuse.
+- **Detach & drop local…** also removes a checkout only when no remaining capability uses it and it
+  is workspace-owned, non-lead, clean, published to its reviewed `origin`, free of ignored files,
+  active or retained submodule metadata, unverified Git LFS objects and active Stories, and has no
+  other linked worktree. Local branches and tags must have matching origin identities. It refuses
+  rather than stashing, resetting, or deleting uncertain work.
 
-The capability picker lists governed capabilities from the lead repository. It
-does not ask users to type arbitrary identifiers. Selecting a grouping capability
-can include the delivery descendants beneath it.
+Both detach choices show an exact, revision-bound preview before applying. A drop first moves the
+checkout into workspace-owned recovery staging, atomically updates `workspace.json`, and then
+cleans the staging area. `workspace repair` restores or completes an interrupted transaction based
+on the exact source/target manifest hashes and checkout fingerprint.
 
-An edit cannot silently move a workspace, change a clone URL, or introduce an
-unmaterialized repository. Choose **Copy workspace** when the directory or
-repository boundary must change; the preview shows every clone before creation.
+When **Map a capability** recognizes a Git URL that is already onboarded, choose **Attach existing
+capability to a workspace**. Select a workspace and use its Attach menu; the existing checkout is
+reused, or the approved URL is cloned again if it was previously dropped. Mapping is not repeated
+and the application main branch is never changed.
+
+Name edits remain separate from capability transitions. An edit cannot silently move a workspace
+or change a clone URL. Choose **Copy workspace** when the directory itself must change.
 
 ### Rename, archive, and restore
 
@@ -217,6 +229,11 @@ sflow workspace use payments-modernization
 sflow workspace status /path/to/payments-modernization
 sflow workspace sync /path/to/payments-modernization
 sflow workspace repair /path/to/payments-modernization
+sflow workspace attach-capability /path/to/payments-modernization payments --dry-run --json
+# Apply only the exact plan returned above:
+sflow workspace attach-capability /path/to/payments-modernization payments --confirm-plan wscp-...
+sflow workspace detach-capability /path/to/payments-modernization payments --dry-run --json
+sflow workspace detach-capability /path/to/payments-modernization payments --drop-local --dry-run --json
 sflow workspace rename /path/to/payments-modernization \
   --name "Payments delivery" --confirm payments-modernization
 sflow workspace archive-status /path/to/payments-modernization --fetch

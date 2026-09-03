@@ -475,6 +475,51 @@ export class BootstrapPanel {
       return;
     }
 
+    if (message?.type === 'attachExisting') {
+      if (this.form.inspectionStatus !== 'already-mapped'
+        || this.form.inspectionCompleteness !== 'complete'
+        || this.form.inspectionProposalCoverage !== 'complete'
+        || !this.inspectionIsBound(this.form.repositoryUrl, this.form.lead)) return;
+      // Repository inspection proved this is an existing approved mapping. Workspace attachment is
+      // a separate local action with its own preview and confirmation; do not turn this click into
+      // another capability proposal or pass a webview-supplied URL into a mutation.
+      const boundLead = this.form.inspectionBoundLeadUrl?.trim() ?? '';
+      const authorityMatches = this.form.inspectionMatches.filter((match) =>
+        match.lead?.trim() === boundLead
+        && match.repositoryUrl?.trim() === this.form.inspectionBoundRepositoryUrl?.trim()
+        && match.governed === true && match.cached !== true && match.stale !== true
+        && Boolean(match.sourceBranch?.trim())
+        && /^[0-9a-f]{40,64}$/i.test(match.sourceCommit?.trim() ?? ''));
+      const authorityIdentities = [...new Set(authorityMatches.map((match) =>
+        `${match.lead?.trim()}\n${match.sourceBranch?.trim()}\n${match.sourceCommit?.trim().toLowerCase()}`))];
+      if (authorityIdentities.length !== 1 || !authorityMatches[0]) {
+        this.update({
+          error: 'The existing mapping is not bound to one exact, current capability authority revision. Check the repository again before attaching it to a workspace.'
+        });
+        return;
+      }
+      const authorityMatch = authorityMatches[0];
+      const capabilityIds = [...new Set(authorityMatches
+        .flatMap((match) => match.capabilities ?? [])
+        .filter((id): id is string =>
+          typeof id === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)))];
+      if (!capabilityIds.length) {
+        this.update({
+          error: 'The approved repository mapping names no capability that can be attached. Review the capability map before opening Workspaces.'
+        });
+        return;
+      }
+      await vscode.commands.executeCommand('singularityFlow.openWorkspaces', {
+        capabilityIds,
+        authority: {
+          leadUrl: boundLead,
+          sourceBranch: authorityMatch.sourceBranch!.trim(),
+          sourceCommit: authorityMatch.sourceCommit!.trim().toLowerCase()
+        }
+      });
+      return;
+    }
+
     if (message?.type === 'useFirstAuthority') {
       if (this.form.inspectionStatus !== 'inconclusive'
         || this.form.inspectionCompleteness !== 'no-authorities'

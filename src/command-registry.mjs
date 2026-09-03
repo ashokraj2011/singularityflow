@@ -169,7 +169,8 @@ const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 export const SECRETS_SUBCOMMANDS = Object.freeze(['scan', 'protect']);
 const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
-  'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'status', 'sync', 'repair', 'documents', 'forget', 'use',
+  'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
+  'status', 'sync', 'repair', 'documents', 'forget', 'use',
   'prepare', 'doctor'
 ]);
 // `workspace switch` is a live alias the handler accepts. Resolved to the operation it aliases
@@ -828,6 +829,11 @@ function resolveWorkspaceOperation(definition, positionals, options) {
       ? never('workspace.refresh-configuration.preview', definition, 'read')
       : never('workspace.refresh-configuration', definition, 'mutation');
   }
+  if (subcommand === 'attach-capability' || subcommand === 'detach-capability') {
+    return optionBoolean(options, 'dry-run')
+      ? never(`workspace.${subcommand}.preview`, definition, 'read')
+      : never(`workspace.${subcommand}`, definition, 'mutation');
+  }
   if (WORKSPACE_NEVER_OPERATIONS.has(subcommand)) {
     return never(`workspace.${subcommand}`, definition, WORKSPACE_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   }
@@ -1026,6 +1032,8 @@ export function operationCatalog() {
   workspace.push(never('workspace.impact.analyze.preview', commandDefinition('workspace'), 'read'));
   workspace.push(never('workspace.refresh-configuration', commandDefinition('workspace'), 'mutation'));
   workspace.push(never('workspace.refresh-configuration.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.attach-capability.preview', commandDefinition('workspace'), 'read'));
+  workspace.push(never('workspace.detach-capability.preview', commandDefinition('workspace'), 'read'));
   const prDefinition = commandDefinition('pr');
   const pullRequest = [
     never('pr.plan', prDefinition),

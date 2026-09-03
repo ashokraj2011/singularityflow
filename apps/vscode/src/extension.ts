@@ -35,13 +35,17 @@ import type { DesignerMessage } from './views/designer.ts';
 import type { ConfigurationCenterMessage } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import type { HelpDocument } from './views/help-page.ts';
-import type { WorkspacesMessage } from './views/workspaces-panel.ts';
+import { WORKSPACE_ACTION_CANCELLED, type WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
 import {
-  archiveCommand, configurationRefreshCommand, restoreCommand, workspaceRows,
-  type WorkspaceConfigurationRefreshResult, type WorkspaceEntry, type WorkspaceStatus
+  archiveCommand, capabilityChangeCommand, configurationRefreshCommand, restoreCommand, workspaceRows,
+  type WorkspaceCapabilityChangePreview, type WorkspaceCapabilityChangeResult,
+  type WorkspaceCapabilityAttachScope,
+  type WorkspaceConfigurationRefreshResult,
+  type WorkspaceEntry, type WorkspaceStatus
 } from './views/workspaces-model.ts';
 import { capabilityChoices, type RemoteCapability } from './views/workspace-form.ts';
+import { gitRemoteProblem } from './views/map-capability-form.ts';
 import { capabilityProposalArgv } from './views/capability-model.ts';
 import { buildConfigurationTree, unavailableTree, type TreeNode } from './views/tree-model.ts';
 import { NodeTreeProvider } from './views/navigation.ts';
@@ -257,6 +261,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Home and its conversational answer share one generation. A slower read from a previous
   // workspace/request must never replace a newer projection in the full-width panel.
   let homeRequestGeneration = 0;
+  // Workspaces is a retained singleton, but its machine-wide reads are asynchronous. Bind every
+  // open request to one generation so an older authority handoff can never finish last and replace
+  // the scope selected by a newer click.
+  let openWorkspacesRequestGeneration = 0;
   let currentHelpWork: () => { id: string; kind?: string | null } | null = () => null;
 
   /**
@@ -1498,8 +1506,51 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * exactly the person who needs to find the workspace they already have.
    */
   context.subscriptions.push(vscode.commands.registerCommand(
-    'singularityFlow.openWorkspaces', async (request?: TreeNode | { upgrade?: boolean }) => {
+    'singularityFlow.openWorkspaces', async (
+      request?: TreeNode | {
+        upgrade?: boolean;
+        capabilityIds?: readonly string[];
+        authority?: { leadUrl?: string; sourceBranch?: string; sourceCommit?: string };
+      }
+    ) => {
+    const requestGeneration = ++openWorkspacesRequestGeneration;
+    const requestIsCurrent = (): boolean =>
+      requestGeneration === openWorkspacesRequestGeneration;
     const upgrade = Boolean(request && typeof request === 'object' && 'upgrade' in request && request.upgrade);
+    const requestedCapabilityIds = request && typeof request === 'object'
+      && 'capabilityIds' in request && Array.isArray(request.capabilityIds)
+      ? request.capabilityIds.filter((id): id is string =>
+        typeof id === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id))
+      : [];
+    const authoritySupplied = Boolean(request && typeof request === 'object' && 'authority' in request);
+    const rawAuthority = authoritySupplied
+      ? (request as { authority?: { leadUrl?: string; sourceBranch?: string; sourceCommit?: string } }).authority
+      : null;
+    const requestedAuthority = rawAuthority
+      && typeof rawAuthority.leadUrl === 'string'
+      && !gitRemoteProblem(rawAuthority.leadUrl, 'Capability authority')
+      && typeof rawAuthority.sourceBranch === 'string'
+      && rawAuthority.sourceBranch.trim() && !/[\u0000-\u001f\u007f\s]/u.test(rawAuthority.sourceBranch.trim())
+      && typeof rawAuthority.sourceCommit === 'string'
+      && /^[0-9a-f]{40,64}$/i.test(rawAuthority.sourceCommit.trim())
+      ? {
+          leadUrl: rawAuthority.leadUrl.trim(),
+          sourceBranch: rawAuthority.sourceBranch.trim(),
+          sourceCommit: rawAuthority.sourceCommit.trim().toLowerCase()
+        }
+      : null;
+    if (authoritySupplied && !requestedAuthority) {
+      void vscode.window.showWarningMessage(
+        'The capability attachment request has no valid verified authority revision. Check the repository mapping again; no workspace was selected.'
+      );
+      return;
+    }
+    if (requestedCapabilityIds.length && !requestedAuthority) {
+      void vscode.window.showWarningMessage(
+        'A capability can be preselected only with the exact authority revision that supplied it. Check the repository mapping again.'
+      );
+      return;
+    }
     const node = upgrade ? undefined : request as TreeNode | undefined;
     let location;
     try {
@@ -1512,23 +1563,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const registry = new SingularityFlowClient({
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
     });
-    const list = (): Promise<WorkspaceEntry[]> =>
-      registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']).catch(() => []);
-    const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
+    const readEntries = (): Promise<WorkspaceEntry[]> =>
+      registry.run<WorkspaceEntry[]>(['workspace', 'list', '--json']);
+    const list = (): Promise<WorkspaceEntry[]> => readEntries().catch(() => []);
+    const statusCache = new Map<string, WorkspaceStatus>();
+    const readWorkspaceStatus = (workspacePath: string): Promise<WorkspaceStatus> =>
+      registry.run<WorkspaceStatus>([
+        'workspace', 'status', workspacePath, '--archive-readiness', '--no-fetch', '--json'
+      ]);
+    const statusOnly = async (workspacePath: string): Promise<WorkspaceStatus> => {
+      const cached = statusCache.get(workspacePath);
+      if (cached) return cached;
       // Inspecting an archived workspace must not restore it as a side effect. `status` reads the
       // checkout and computes the immediate local archive proof from that same snapshot. The
       // mutating archive command refreshes remotes and verifies again before changing the registry.
-      const status = await registry.run<WorkspaceStatus>([
-        'workspace', 'status', workspacePath, '--archive-readiness', '--no-fetch', '--json'
-      ]);
+      const status = await readWorkspaceStatus(workspacePath);
+      statusCache.set(workspacePath, status);
+      return status;
+    };
+    let inspectedAuthorityOrganisation: {
+      governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
+      capabilities?: RemoteCapability[] | null;
+      repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+    } | null = null;
+    const details = async (workspacePath: string): Promise<WorkspaceStatus> => {
+      // Authority matching primes at most one read per candidate. Consume it once; a retained
+      // panel must not keep presenting that old manifest indefinitely.
+      const status = statusCache.get(workspacePath) ?? await readWorkspaceStatus(workspacePath);
+      statusCache.delete(workspacePath);
       const lead = status.repositories.find((repository) =>
         repository.id === status.workspace.leadRepository || repository.role === 'lead');
-      if (!lead?.url) return status;
+      const capabilityAuthorityUrl = status.workspace.capabilityAuthority?.url?.trim()
+        || lead?.url?.trim();
+      if (!capabilityAuthorityUrl) return status;
       try {
         const organisation = await registry.run<{
+          governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
           capabilities?: RemoteCapability[] | null;
           repositories?: Record<string, { url?: string; defaultBranch?: string }>;
-        }>(['capability', 'organisation', lead.url, '--json']);
+        }>(['capability', 'organisation', capabilityAuthorityUrl, '--json']);
         return {
           ...status,
           availableCapabilities: capabilityChoices(
@@ -1550,9 +1623,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     };
 
+    let entries: WorkspaceEntry[];
+    try {
+      entries = await readEntries();
+    } catch (error) {
+      if (requestIsCurrent()) showRefusal(error);
+      return;
+    }
+    if (!requestIsCurrent()) return;
+    let attachScope: WorkspaceCapabilityAttachScope | null = null;
+    if (requestedAuthority) {
+      let issue: string | null = null;
+      try {
+        inspectedAuthorityOrganisation = await registry.run<{
+          governed?: boolean; stale?: boolean; sourceBranch?: string; sourceCommit?: string;
+          capabilities?: RemoteCapability[] | null;
+          repositories?: Record<string, { url?: string; defaultBranch?: string }>;
+        }>(['capability', 'organisation', requestedAuthority.leadUrl, '--json']);
+        if (inspectedAuthorityOrganisation.governed !== true
+          || inspectedAuthorityOrganisation.stale === true
+          || inspectedAuthorityOrganisation.sourceBranch !== requestedAuthority.sourceBranch
+          || inspectedAuthorityOrganisation.sourceCommit?.toLowerCase() !== requestedAuthority.sourceCommit) {
+          issue = 'The capability authority changed after repository inspection. Check the repository mapping again; no local workspace was selected.';
+        }
+      } catch (error) {
+        issue = `The verified capability authority could not be re-read: ${(error as Error).message}`;
+      }
+      if (!requestIsCurrent()) return;
+      if (issue) {
+        void vscode.window.showWarningMessage(issue);
+        return;
+      }
+      const matchingPaths: string[] = [];
+      const candidates = entries.filter((entry) => !entry.archivedAt);
+      const observed = await Promise.all(candidates.map(async (entry) => {
+        try { return { entry, status: await statusOnly(entry.path), error: null }; }
+        catch (error) {
+          return { entry, status: null, error: (error as Error).message };
+        }
+      }));
+      if (!requestIsCurrent()) return;
+      const unreadable = observed.filter((entry) => entry.error);
+      if (unreadable.length) {
+        void vscode.window.showWarningMessage(
+          `Capability attachment could not safely match every local workspace. Repair or forget ${unreadable.map(({ entry }) => entry.name).join(', ')}, then retry. No workspace was selected.`
+        );
+        return;
+      }
+      for (const { entry, status } of observed) {
+        if (!status) continue;
+        const lead = status.repositories.find((repository) =>
+          repository.id === status.workspace.leadRepository || repository.role === 'lead');
+        const authorityUrl = status.workspace.capabilityAuthority?.url?.trim() || lead?.url?.trim();
+        if (authorityUrl === requestedAuthority.leadUrl) matchingPaths.push(entry.path);
+      }
+      if (!matchingPaths.length) {
+        issue = 'No local workspace is bound to the verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.';
+      }
+      attachScope = {
+        capabilityIds: requestedCapabilityIds,
+        authority: requestedAuthority,
+        matchingPaths,
+        issue
+      };
+    }
+
     const onMessage = async (message: WorkspacesMessage): Promise<string | null> => {
       if (message.type === 'create') {
-        await vscode.commands.executeCommand('singularityFlow.createWorkspace');
+        await vscode.commands.executeCommand('singularityFlow.createWorkspace', {
+          organisation: message.organisation,
+          capabilityId: message.capabilityId
+        });
         return null;
       }
       if (message.type === 'adopt') {
@@ -1572,7 +1713,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `Forget ${message.row.name}?`,
           { modal: true, detail: `Removes it from the workspace list. ${message.row.directory} is left exactly as it is.` },
           'Forget');
-        if (confirmed !== 'Forget') return null;
+        if (confirmed !== 'Forget') return WORKSPACE_ACTION_CANCELLED;
         message = { type: 'run', command: ['workspace', 'forget', message.row.directory, '--json'], title: 'Forgetting workspace' };
       }
       if (message.type === 'archive') {
@@ -1584,7 +1725,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           },
           'Archive workspace'
         );
-        if (confirmed !== 'Archive workspace') return null;
+        if (confirmed !== 'Archive workspace') return WORKSPACE_ACTION_CANCELLED;
         message = {
           type: 'run', command: archiveCommand(message.row), title: `Archiving ${message.row.name}`
         };
@@ -1593,6 +1734,144 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         message = {
           type: 'run', command: restoreCommand(message.row), title: `Restoring ${message.row.name}`
         };
+      }
+      if (message.type === 'repair') {
+        message = {
+          type: 'run', command: ['workspace', 'repair', message.row.directory, '--json'],
+          title: `Repairing ${message.row.name}`
+        };
+      }
+      if (message.type === 'attach-capability' || message.type === 'detach-capability') {
+        if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;
+        const action = message.type === 'attach-capability' ? 'attach' : 'detach';
+        const dropLocal = message.type === 'detach-capability' && message.dropLocal;
+        const previewCommand = capabilityChangeCommand(
+          message.row, message.capabilityId, action, { dropLocal }
+        );
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(previewCommand)}`);
+        let preview: WorkspaceCapabilityChangePreview;
+        try {
+          preview = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `${action === 'attach' ? 'Checking attachment' : 'Checking detach safety'} for ${message.capabilityId}`
+            },
+            () => registry.run<WorkspaceCapabilityChangePreview>(previewCommand)
+          );
+        } catch (error) {
+          output.appendLine(`  failed: ${(error as Error).message}`);
+          return (error as Error).message;
+        }
+        const previewValid = /^wscp-[0-9a-f]{24}$/.test(preview?.planId ?? '')
+          && preview.action === action
+          && preview.capabilityId === message.capabilityId
+          && preview.dropLocal === dropLocal
+          && preview.workspace?.path === message.row.directory
+          && preview.authority && typeof preview.authority.url === 'string'
+          && typeof preview.authority.sourceBranch === 'string'
+          && typeof preview.authority.sourceCommit === 'string'
+          && Array.isArray(preview.materializeRepositories)
+          && Array.isArray(preview.addedRepositories)
+          && Array.isArray(preview.dropRepositories)
+          && preview.dropRepositories.every((repository) => repository
+            && typeof repository.id === 'string' && typeof repository.path === 'string');
+        if (!previewValid) {
+          const error = 'The installed SFlow engine returned an incompatible capability-change preview. Reinstall the matching extension and engine before retrying.';
+          output.appendLine(`  failed: ${error}`);
+          return error;
+        }
+        const expectedAuthority = message.type === 'attach-capability'
+          ? message.expectedAuthority : null;
+        if (expectedAuthority && (preview.authority.url !== expectedAuthority.leadUrl
+          || preview.authority.sourceBranch !== expectedAuthority.sourceBranch
+          || preview.authority.sourceCommit.toLowerCase() !== expectedAuthority.sourceCommit.toLowerCase())) {
+          const error = 'The capability authority changed after repository inspection. Nothing was attached; check the repository mapping again before retrying.';
+          output.appendLine(`  failed: ${error}`);
+          return error;
+        }
+        if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;
+        const effects = [
+          `Workspace: ${message.row.name}`,
+          `Capability: ${message.capabilityId}`,
+          action === 'attach'
+            ? preview.materializeRepositories.length
+              ? `Repositories to materialize: ${preview.materializeRepositories.join(', ')}`
+              : 'Existing repository checkouts will be reused.'
+            : dropLocal
+              ? preview.dropRepositories.length
+                ? `Local checkouts to remove: ${preview.dropRepositories.map((repository) => repository.path).join(', ')}`
+                : 'No checkout can or needs to be removed; shared and lead repositories stay in place.'
+              : 'Repository checkouts will be retained.',
+          preview.preservedLeadRepository
+            ? `Lead repository '${preview.preservedLeadRepository}' will remain in the workspace.`
+            : null,
+          'The approved capability map is not changed.'
+        ].filter((line): line is string => Boolean(line));
+        const label = action === 'attach'
+          ? 'Attach capability'
+          : dropLocal ? 'Detach and drop local' : 'Detach capability';
+        const confirmed = await vscode.window.showWarningMessage(
+          `${label}: ${message.capabilityId}?`,
+          { modal: true, detail: effects.join('\n') },
+          label
+        );
+        if (confirmed !== label) return WORKSPACE_ACTION_CANCELLED;
+        // A modal can remain open while the user switches rows or closes Manage. Never apply a
+        // plan that no longer belongs to the visible, authoritative editor snapshot.
+        if (!message.isCurrent()) return WORKSPACE_ACTION_CANCELLED;
+        const applyCommand = capabilityChangeCommand(message.row, message.capabilityId, action, {
+          dropLocal, planId: preview.planId
+        });
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(applyCommand)}`);
+        try {
+          const applied = await vscode.window.withProgress(
+            {
+              location: vscode.ProgressLocation.Notification,
+              title: `${action === 'attach' ? 'Attaching' : 'Detaching'} ${message.capabilityId}`
+            },
+            () => registry.run<WorkspaceCapabilityChangeResult>(applyCommand)
+          );
+          if (applied.activeSelectionCleared) {
+            // The dropped participant was the repository every other extension surface still used.
+            // Re-select the preserved lead through the normal host-wide handoff so the CLI,
+            // repository clients, gateway handles, status bar, and retained panels move together.
+            const rebound = await selectWorkspace(
+              applied.workspace.path,
+              applied.status.leadRepositoryPath,
+              applied.workspace.name,
+              applied.workspace.leadRepository
+            );
+            if (!rebound) {
+              // `selectWorkspace` already surfaced the exact refusal. Retire gateway handles now,
+              // then reload so no repository-bound closure can keep using the removed directory.
+              setActiveRepositoryContext(null);
+              await vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+          }
+          if (applied.materializationError) {
+            const failure = `${applied.materializationError}${applied.repairCommand
+              ? ` Recover with: ${applied.repairCommand}` : ''}`;
+            output.appendLine(`  attachment recorded; materialization pending: ${failure}`);
+            void vscode.window.showWarningMessage(
+              'Capability attached, but a repository still needs repair. Open the workspace and choose Repair workspace.'
+            );
+            return null;
+          }
+          if (applied.retained?.length) {
+            const failure = `Capability detached, but ${applied.retained.length} checkout cleanup ${applied.retained.length === 1 ? 'item was' : 'items were'} retained for safe recovery.${applied.repairCommand
+              ? ` Recover with: ${applied.repairCommand}` : ''}`;
+            output.appendLine(`  ${failure}`);
+            void vscode.window.showWarningMessage(failure);
+            // This is a durable partial success, not a clean completion. Keeping a visible failure
+            // preserves Manage and its Repair workspace action instead of closing the only recovery
+            // surface after the manifest has already changed.
+            return failure;
+          }
+          return null;
+        } catch (error) {
+          output.appendLine(`  failed: ${(error as Error).message}`);
+          return (error as Error).message;
+        }
       }
       output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(message.command)}`);
       try {
@@ -1607,6 +1886,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
 
     const { WorkspacesPanel } = await import('./views/workspaces-panel.ts');
+    if (!requestIsCurrent()) return;
     const refreshConfiguration = async (
       workspacePath: string | null,
       request: Parameters<typeof configurationRefreshCommand>[1]
@@ -1637,12 +1917,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         throw error;
       }
     };
-    WorkspacesPanel.show(context, await list(), list, async (message) => {
+    WorkspacesPanel.show(context, entries, list, async (message) => {
       const failure = await onMessage(message);
       // Anything that changes the registry changes the tree beside it.
-      if (message.type !== 'switch') void refreshWorkspaceTree();
+      if (message.type !== 'switch') {
+        // Authority matching may have primed a status snapshot. Never reuse that pre-apply
+        // manifest after a workspace action (including a partial success or repair).
+        statusCache.clear();
+        void refreshWorkspaceTree();
+      }
       return failure;
-    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null, upgrade ? 'all' : null);
+    }, details, refreshConfiguration, workspacePathOf(node) ?? node?.path ?? null,
+    upgrade ? 'all' : null, attachScope);
   }));
 
   /** One discoverable post-install entry point: open the reviewed UI and check every workspace. */

@@ -390,8 +390,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
         : form.inspectionStatus === 'already-mapped'
           ? `<div class="warning-text">${icon('warning')}This repository is already onboarded.${inspectionMatches ? `<ul>${inspectionMatches}</ul>` : ''}
               ${form.inspectionCompleteness === 'complete'
-                ? '<button type="button" class="secondary" data-map-reuse>Map another capability using this repository</button>'
-                : '<p>One or more capability-map authorities were not current. Restore access and check again before changing this mapping.</p>'}</div>`
+                  && form.inspectionProposalCoverage === 'complete'
+                ? '<button type="button" data-map-attach>Attach existing capability to a workspace</button> <button type="button" class="secondary" data-map-reuse>Map another capability using this repository</button>'
+                : '<p>The approved map or pending-proposal coverage is incomplete. Restore access and check again before changing this mapping.</p>'}</div>`
           : form.inspectionStatus === 'ambiguous'
               ? `<div class="warning-text">${icon('warning')}This repository appears in more than one capability map. Check the intended authority explicitly before continuing.${ambiguousInspectionMatches ? `<ul>${ambiguousInspectionMatches}</ul>` : ''}</div>`
               : form.inspectionStatus === 'unreachable' || form.inspectionStatus === 'inconclusive'
@@ -580,6 +581,8 @@ export const MAP_CAPABILITY_SCRIPT = `
     if (collection) return vscode.postMessage({ type: 'toggleCollectionWithoutRepository' });
     const reuse = event.target.closest('[data-map-reuse]');
     if (reuse) return vscode.postMessage({ type: 'reuseRepository' });
+    const attach = event.target.closest('[data-map-attach]');
+    if (attach) return vscode.postMessage({ type: 'attachExisting' });
     const firstAuthority = event.target.closest('[data-map-first-authority]');
     if (firstAuthority) return vscode.postMessage({ type: 'useFirstAuthority' });
     const inspectLead = event.target.closest('[data-map-inspect-lead]');

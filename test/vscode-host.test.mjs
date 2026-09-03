@@ -3078,12 +3078,446 @@ test('a workspace can be renamed and copied from the editor, and never onto anot
   // Editing is explicit and keeps all current capabilities while changing the local label.
   await panel.post({ type: 'edit', path: workspaceRoot });
   assert.match(panel.webview.html, /data-field="edit-name"/);
-  assert.match(panel.webview.html, /data-edit-remove="payments"/);
+  assert.match(panel.webview.html, /data-capability-detach="payments"/);
+  assert.match(panel.webview.html, /data-capability-drop="payments"/);
   await panel.post({ type: 'edit-draft', field: 'edit-name', value: 'Commerce platform' });
   await panel.post({ type: 'edit-save', path: workspaceRoot });
   await until(() => (panel.webview.html.includes('Commerce platform') ? true : null));
   assert.match(readFileSync(path.join(workspaceRoot, 'workspace.json'), 'utf8'), /Commerce platform/);
   assert.equal(registered.inputBoxes.length, 0, 'nothing was asked through a prompt');
+});
+
+test('Attach existing offers only workspaces from the inspected capability authority', async (t) => {
+  if (!requireBundle(t)) return;
+  const first = await organisation();
+  const other = await organisation();
+  const registry = path.join(first.base, 'authority-workspaces.json');
+  const workspaces = path.join(first.base, 'authority-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'first-authority', '--base', workspaces,
+    '--organisation', first.lead, '--capability', 'storefront-web', '--confirm', 'first-authority',
+    '--no-clone'], { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const authority = (org) => ({
+    leadUrl: org.lead,
+    sourceBranch: 'sflow/config',
+    sourceCommit: run('git', ['rev-parse', 'refs/heads/sflow/config'], { cwd: org.lead }).stdout.trim()
+  });
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+
+  await registered.commands.get('singularityFlow.openWorkspaces')({
+    capabilityIds: ['payments-api'], authority: authority(first)
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  const matching = await until(() => panel.webview.html.includes('<option value="payments-api" selected>')
+    ? panel.webview.html : null);
+  assert.match(matching, /first-authority/);
+  assert.match(matching, /Showing only local workspaces bound to the verified capability authority/);
+
+  // The retained panel must replace the complete scope. Its currently selected workspace belongs
+  // to the first authority and must not become the "best available" choice for the second one.
+  await registered.commands.get('singularityFlow.openWorkspaces')({
+    capabilityIds: ['payments-api'], authority: authority(other)
+  });
+  const absent = await until(() => panel.webview.html.includes('No matching local workspaces are available')
+    ? panel.webview.html : null);
+  assert.doesNotMatch(absent, /<td><a[^>]*>first-authority<\/a>/);
+  assert.match(absent, /Nothing was selected outside the verified capability authority/);
+  await panel.post({ type: 'create' });
+  const create = registered.executedCommands.findLast((entry) =>
+    entry.id === 'singularityFlow.createWorkspace');
+  assert.deepEqual(create?.args, [{ organisation: other.lead, capabilityId: 'payments-api' }],
+    'the no-match recovery keeps the verified authority instead of defaulting to another map');
+
+  await registered.commands.get('singularityFlow.openWorkspaces')({
+    capabilityIds: ['payments-api'],
+    authority: { ...authority(other), sourceCommit: 'f'.repeat(40) }
+  });
+  assert.ok(registered.warnings.some((message) =>
+    /capability authority changed after repository inspection/i.test(message)),
+  `expected stale-authority warning, got: ${registered.warnings.join(' | ')}`);
+  assert.match(panel.webview.html, /No matching local workspaces are available/);
+  assert.doesNotMatch(panel.webview.html, /<td><a[^>]*>first-authority<\/a>/,
+    'a failed authority revalidation cannot replace the last verified workspace scope');
+
+  const firstWorkspace = path.join(await realpath(workspaces), 'first-authority');
+  const manifestFile = path.join(firstWorkspace, 'workspace.json');
+  const manifestBytes = await readFile(manifestFile, 'utf8');
+  await writeFile(manifestFile, '{ not valid workspace json\n');
+  try {
+    await registered.commands.get('singularityFlow.openWorkspaces')({
+      capabilityIds: ['payments-api'], authority: authority(first)
+    });
+    assert.ok(registered.warnings.some((message) =>
+      /could not safely match every local workspace/i.test(message)),
+    `expected incomplete-match warning, got: ${registered.warnings.join(' | ')}`);
+    assert.match(panel.webview.html, /No matching local workspaces are available/);
+    assert.doesNotMatch(panel.webview.html, /<td><a[^>]*>first-authority<\/a>/,
+      'an unreadable registered workspace cannot be treated as absence or enable duplicate creation');
+  } finally {
+    await writeFile(manifestFile, manifestBytes);
+  }
+});
+
+test('Attach existing rejects a preview whose authority moved after repository inspection', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'authority-preview-registry.json');
+  const workspaces = path.join(org.base, 'authority-preview-workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'authority-preview', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'storefront-web', '--confirm', 'authority-preview',
+    '--no-clone'], { encoding: 'utf8', env: process.env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const inspectedCommit = run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+    cwd: org.lead
+  }).stdout.trim();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')({
+    capabilityIds: ['payments-api'],
+    authority: {
+      leadUrl: org.lead, sourceBranch: 'sflow/config', sourceCommit: inspectedCommit
+    }
+  });
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  await until(() => panel.webview.html.includes('<option value="payments-api" selected>')
+    ? true : null);
+
+  // The repository inspection authorized the exact ref above. Moving that ref before the preview
+  // must invalidate the handoff instead of silently attaching from a different capability map.
+  const seed = path.join(org.base, 'platform.git-seed');
+  await writeFile(path.join(seed, 'AUTHORITY.md'), 'authority advanced\n');
+  run('git', ['add', 'AUTHORITY.md'], { cwd: seed });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Advance capability authority'], { cwd: seed });
+  run('git', ['push', '-q', org.lead, 'HEAD:sflow/config'], { cwd: seed });
+
+  let confirmationCount = 0;
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
+    if (/^Attach capability: payments-api\?/.test(message)) {
+      confirmationCount++;
+      return 'Attach capability';
+    }
+    return undefined;
+  };
+  const workspaceRoot = path.join(await realpath(workspaces), 'authority-preview');
+  await panel.post({ type: 'capability-attach', path: workspaceRoot, id: 'payments-api' });
+
+  assert.match(panel.webview.html, /capability authority changed after repository inspection/i);
+  assert.equal(confirmationCount, 0, 'a mismatched authority is rejected before confirmation');
+  const capabilityCommands = registered.output.filter((line) =>
+    String(line).includes('workspace attach-capability'));
+  assert.equal(capabilityCommands.length, 1, capabilityCommands.join('\n'));
+  assert.match(String(capabilityCommands[0]), /--dry-run/);
+  assert.doesNotMatch(registered.output.join('\n'), /workspace attach-capability[^\n]*--confirm-plan/);
+  const manifest = JSON.parse(await readFile(path.join(workspaceRoot, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['storefront-web']);
+});
+
+test('a capability preview expires when Manage is closed before confirmation returns', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'lease', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments', '--confirm', 'lease', '--no-clone'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  const workspaceRoot = path.join(await realpath(workspaces), 'lease');
+  await panel.post({ type: 'select', path: workspaceRoot });
+  await panel.post({ type: 'edit', path: workspaceRoot });
+  assert.match(panel.webview.html, /data-field="edit-name"/);
+  assert.match(panel.webview.html, /data-capability-detach="payments"/);
+
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
+    if (/^Detach capability: payments\?/.test(message)) {
+      await panel.post({ type: 'edit-cancel' });
+      return 'Detach capability';
+    }
+    return undefined;
+  };
+  await panel.post({
+    type: 'capability-detach', path: workspaceRoot, id: 'payments', dropLocal: false
+  });
+  const capabilityCommands = registered.output.filter((line) =>
+    String(line).includes('workspace detach-capability'));
+  assert.equal(capabilityCommands.length, 1, capabilityCommands.join('\n'));
+  assert.match(String(capabilityCommands[0]), /--dry-run/);
+  assert.doesNotMatch(registered.output.join('\n'), /workspace detach-capability[^\n]*--confirm-plan/,
+    'the plan is never applied after its panel-owned lease expires');
+  const manifest = JSON.parse(await readFile(path.join(workspaceRoot, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['payments']);
+});
+
+test('a completed capability apply cannot write a late error into an A to B to A editor', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  for (const [id, capability] of [['lease-a', 'payments'], ['lease-b', 'storefront-web']]) {
+    const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+      'workspace', 'create', '--local', '--json', '--id', id, '--base', workspaces,
+      '--organisation', org.lead, '--capability', capability, '--confirm', id, '--no-clone'], {
+      encoding: 'utf8', env: process.env
+    });
+    assert.equal(created.status, 0, created.stderr);
+  }
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  const a = path.join(await realpath(workspaces), 'lease-a');
+  const b = path.join(await realpath(workspaces), 'lease-b');
+  await panel.post({ type: 'select', path: a });
+  await panel.post({ type: 'edit', path: a });
+
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
+    return /^Detach capability: payments\?/.test(message) ? 'Detach capability' : undefined;
+  };
+  const normalProgress = api.window.withProgress;
+  api.window.withProgress = async (options, task) => {
+    const result = await normalProgress(options, task);
+    if (options.title === 'Detaching payments') {
+      // The exact apply completed, then the visible editor changed twice before its host promise
+      // settled. A path-only guard mistakes the new A editor for the authorizing A editor.
+      await panel.post({ type: 'select', path: b });
+      await panel.post({ type: 'select', path: a });
+      await panel.post({ type: 'edit', path: a });
+      throw new Error('late response belonged to the expired editor');
+    }
+    return result;
+  };
+  await panel.post({ type: 'capability-detach', path: a, id: 'payments', dropLocal: false });
+
+  const manifest = JSON.parse(await readFile(path.join(a, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, [], 'the exact applied transition remains durable');
+  assert.doesNotMatch(panel.webview.html, /late response belonged to the expired editor/,
+    'the old action cannot attach its late error to the replacement editor');
+  assert.match(panel.webview.html, /lease-a/,
+    'a durable refresh may safely return to the current workspace snapshot');
+});
+
+test('Manage can detach and safely drop an exact non-lead capability checkout', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'drop-web', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments', '--capability', 'storefront',
+    '--lead-capability', 'payments-api', '--confirm', 'drop-web'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+
+  const workspaceRoot = path.join(await realpath(workspaces), 'drop-web');
+  const selected = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'use', workspaceRoot, '--repository', 'web', '--json'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(selected.status, 0, selected.stderr);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  await panel.post({ type: 'select', path: workspaceRoot });
+  await panel.post({ type: 'edit', path: workspaceRoot });
+  assert.match(panel.webview.html, /data-capability-drop="storefront"/);
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    registered.warningActions.push(rest.filter((item) => typeof item === 'string'));
+    return /^Detach and drop local: storefront\?/.test(message) ? 'Detach and drop local' : undefined;
+  };
+  await panel.post({
+    type: 'capability-detach', path: workspaceRoot, id: 'storefront', dropLocal: true
+  });
+
+  const manifest = JSON.parse(await readFile(path.join(workspaceRoot, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['payments']);
+  assert.equal(existsSync(path.join(workspaceRoot, 'repos', 'web')), false);
+  assert.equal(existsSync(path.join(workspaceRoot, 'repos', 'api')), true,
+    'the selected lead checkout is preserved');
+  const current = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'current', '--json'], { encoding: 'utf8', env: process.env });
+  assert.equal(current.status, 0, current.stderr);
+  const active = JSON.parse(current.stdout);
+  assert.equal(active.repositoryId, 'api', 'the host rebinds to the preserved lead repository');
+  assert.equal(path.resolve(active.repositoryPath), path.resolve(workspaceRoot, 'repos', 'api'));
+  assert.ok(registered.executedCommands.some((entry) =>
+    entry.id === 'workbench.action.reloadWindow'),
+  'a host activated without repository services reloads so every surface binds to the new lead');
+  assert.doesNotMatch(panel.webview.html, /data-capability-detach="storefront"/);
+});
+
+test('a partial capability attachment refreshes details and reports repair without preserving stale edit state', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const seed = path.join(org.base, 'platform.git-seed');
+  const capabilityFile = path.join(seed, 'singularity/capabilities.yml');
+  const capabilityMap = YAML.parse(await readFile(capabilityFile, 'utf8'));
+  capabilityMap.capabilities.product = {
+    name: 'Product', kind: 'delivery', parent: null, repository: 'web'
+  };
+  await writeFile(capabilityFile, YAML.stringify(capabilityMap));
+  run('git', ['add', 'singularity/capabilities.yml'], { cwd: seed });
+  run('git', ['-c', 'user.email=org@example.com', '-c', 'user.name=Org',
+    'commit', '-qm', 'Add product delivery'], { cwd: seed });
+  run('git', ['push', '-q', org.lead, 'HEAD:main'], { cwd: seed });
+  run('git', ['push', '-q', org.lead, 'HEAD:sflow/config'], { cwd: seed });
+
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'partial', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments', '--confirm', 'partial'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  const workspaceRoot = path.join(await realpath(workspaces), 'partial');
+  await panel.post({ type: 'select', path: workspaceRoot });
+  await panel.post({ type: 'edit', path: workspaceRoot });
+  const manageSlice = panel.webview.html.slice(panel.webview.html.indexOf('Manage workspace &amp; capabilities'));
+  assert.match(manageSlice, /<option value="product"/);
+
+  let previewDetail = '';
+  api.window.showWarningMessage = async (message, ...rest) => {
+    registered.warnings.push(message);
+    const options = rest.find((item) => item && typeof item === 'object');
+    if (/^Attach capability: product\?/.test(message)) {
+      previewDetail = options?.detail ?? '';
+      await rm(org.web, { recursive: true, force: true });
+      return 'Attach capability';
+    }
+    return undefined;
+  };
+  await panel.post({ type: 'capability-attach', path: workspaceRoot, id: 'product' });
+
+  assert.match(previewDetail, /Repositories to materialize: web/,
+    'the confirmation uses the exact materialization set, not every newly registered repository');
+  const manifest = JSON.parse(await readFile(path.join(workspaceRoot, 'workspace.json'), 'utf8'));
+  assert.deepEqual(manifest.capabilities, ['payments', 'product'],
+    'attachment remains durably recorded even when clone repair is pending');
+  assert.doesNotMatch(panel.webview.html, /data-field="edit-name"/,
+    'the successful manifest transition closes the stale pre-apply editor');
+  assert.ok(registered.warnings.some((message) =>
+    /Capability attached, but a repository still needs repair/.test(message)),
+  `expected nonfatal repair warning, got: ${registered.warnings.join(' | ')}`);
+  assert.match(panel.webview.html, /product/,
+    'the details were reloaded from the changed workspace manifest');
+});
+
+test('workspace repair ignores double clicks and keeps its failure visible', async (t) => {
+  if (!requireBundle(t)) return;
+  const org = await organisation();
+  const registry = path.join(org.base, 'registry.json');
+  const workspaces = path.join(org.base, 'workspaces');
+  const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+  process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = registry;
+  t.after(() => {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
+    else process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY = previousRegistry;
+  });
+  const created = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'workspace', 'create', '--local', '--json', '--id', 'repair-once', '--base', workspaces,
+    '--organisation', org.lead, '--capability', 'payments', '--confirm', 'repair-once', '--no-clone'], {
+    encoding: 'utf8', env: process.env
+  });
+  assert.equal(created.status, 0, created.stderr);
+  await rm(org.api, { recursive: true, force: true });
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  const extension = loadExtension(api);
+  await extension.activate(context());
+  await registered.commands.get('singularityFlow.openWorkspaces')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.workspaces');
+  const workspaceRoot = path.join(await realpath(workspaces), 'repair-once');
+  await panel.post({ type: 'select', path: workspaceRoot });
+  assert.match(panel.webview.html, /data-repair=/);
+
+  const first = panel.post({ type: 'repair', path: workspaceRoot });
+  assert.match(panel.webview.html, /disabled>Repairing…<\/button>/);
+  const second = panel.post({ type: 'repair', path: workspaceRoot });
+  await Promise.all([first, second]);
+  const repairCommands = registered.output.filter((line) =>
+    String(line).includes('$ singularity-flow workspace repair'));
+  assert.equal(repairCommands.length, 1, repairCommands.join('\n'));
+  assert.match(panel.webview.html, /Could not|failed|Cannot read|does not exist/i,
+    'the repair refusal remains on the refreshed workspace page');
+  assert.match(panel.webview.html, /data-repair="[^"]+">Repair workspace<\/button>/,
+    'the action becomes available again after the failed attempt settles');
 });
 
 test('an open Workspaces panel follows the active workspace instead of retaining the previous one', async (t) => {
@@ -4017,6 +4451,21 @@ test('a new laptop can find an already-onboarded repository through an explicit 
     'finding an existing mapping does not silently begin another proposal');
   assert.match(result, /Map another capability using this repository/,
     'reuse remains an explicit secondary action');
+
+  await panel.post({ type: 'attachExisting' });
+  const workspaceNavigation = registered.executedCommands.findLast((entry) =>
+    entry.id === 'singularityFlow.openWorkspaces');
+  const authorityCommit = run('git', ['rev-parse', 'refs/heads/sflow/config'], {
+    cwd: org.lead
+  }).stdout.trim();
+  assert.deepEqual(workspaceNavigation?.args, [{
+    capabilityIds: ['payments-api'],
+    authority: {
+      leadUrl: org.lead,
+      sourceBranch: 'sflow/config',
+      sourceCommit: authorityCommit
+    }
+  }], 'repository inspection passes the approved capability and its exact authority into Workspaces');
 
   await panel.post({ type: 'reuseRepository' });
   await until(() => (!panel.webview.html.includes('data-map-details hidden')

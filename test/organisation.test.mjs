@@ -2200,6 +2200,19 @@ test('organisation reads prefer the state mirror and reuse a SHA-validated durab
   assert.equal(second.sourceCommit, first.sourceCommit);
   assert.deepEqual(second.capabilities, first.capabilities);
 
+  const stateAdvance = path.join(org.base, 'advance-state-only');
+  run('git', ['clone', '-q', '--branch', 'state', org.platform, stateAdvance], { cwd: org.base });
+  run('git', ['config', 'user.email', 'reviewer@example.com'], { cwd: stateAdvance });
+  run('git', ['config', 'user.name', 'Review User'], { cwd: stateAdvance });
+  run('git', ['commit', '--allow-empty', '-qm', 'Advance state receipt only'], { cwd: stateAdvance });
+  run('git', ['push', '-q', 'origin', 'HEAD:state'], { cwd: stateAdvance });
+  const advancedState = run('git', ['rev-parse', 'HEAD'], { cwd: stateAdvance }).stdout.trim();
+  const afterStateAdvance = await readOrganisation(org.platform);
+  assert.equal(afterStateAdvance.cached, false,
+    'the configuration cache must observe its independently moving state source');
+  assert.equal(afterStateAdvance.sourceCommit, advancedState);
+  assert.deepEqual(afterStateAdvance.capabilities, first.capabilities);
+
   const cacheFile = organisationCacheFile(org.platform);
   const cached = JSON.parse(await readFile(cacheFile, 'utf8'));
   cached.organisation.capabilities[0].name = 'Poisoned cache fixture';

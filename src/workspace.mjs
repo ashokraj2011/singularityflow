@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import YAML from 'yaml';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { localBranches, prepareRemoteBranchTracking, remoteBranches } from './git.mjs';
@@ -31,9 +32,18 @@ export const WORKSPACE_FILE = 'workspace.json';
 export const WORKSPACE_SCHEMA_VERSION = 1;
 export const MAX_RECENT_WORKSPACES = 20;
 const WORKSPACE_REGISTRY_SCHEMA_VERSION = currentSchemaVersion('workspace-registry');
+const WORKSPACE_CAPABILITY_DROP_SCHEMA_VERSION = currentSchemaVersion('workspace-capability-drop-transaction');
 const registryMutationTails = new Map();
+const workspaceDropGitEnvironments = new WeakSet();
 const REGISTRY_LOCK_TIMEOUT_MS = 10_000;
 const REGISTRY_LOCK_STALE_MS = 15 * 60_000;
+const REGISTRY_LOCK_ACQUISITION_GRACE_MS = 30_000;
+const REGISTRY_RECLAIM_GRACE_MS = 30_000;
+const REGISTRY_RECLAIM_GENERATIONS = 32;
+const REGISTRY_LEASE_PROCESS_STARTED_AT = Math.max(
+  0, Math.trunc(Date.now() - process.uptime() * 1_000)
+);
+const REGISTRY_LEASE_PROCESS_TOKEN = randomUUID();
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -305,36 +315,358 @@ export async function atomicJson(file, value) {
   }
 }
 
-async function withRegistryFileLease(file, operation) {
+function registryLeaseOwnerAlive(owner) {
+  if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return false;
+  // A process-local token distinguishes this process instance from an old lease whose PID the OS
+  // recycled back to us. Other PIDs cannot expose their token portably, so their heartbeat age is
+  // the authoritative cross-platform fence below; kill(0) only shortens recovery after a crash.
+  if (owner.host === os.hostname() && owner.pid === process.pid) {
+    return owner.processStartedAt === REGISTRY_LEASE_PROCESS_STARTED_AT
+      && owner.processToken === REGISTRY_LEASE_PROCESS_TOKEN;
+  }
+  if (owner.host && owner.host !== os.hostname()) return true;
+  try {
+    process.kill(owner.pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function registryLeaseReclaimIdentity(ownerBytes, info) {
+  return createHash('sha256').update(JSON.stringify({
+    ownerBytes: ownerBytes ?? null,
+    device: String(info?.dev ?? ''),
+    inode: String(info?.ino ?? ''),
+    birthtimeMs: Number(info?.birthtimeMs ?? 0),
+    mtimeMs: Number(info?.mtimeMs ?? 0)
+  })).digest('hex').slice(0, 32);
+}
+
+function registryLeaseAgeMs(info) {
+  return Math.max(0, Date.now() - Number(info?.mtimeMs ?? 0));
+}
+
+async function registryLeaseState(lock, {
+  staleMs = REGISTRY_LOCK_STALE_MS,
+  acquisitionGraceMs = REGISTRY_LOCK_ACQUISITION_GRACE_MS
+} = {}) {
+  let info;
+  try { info = await lstat(lock, { bigint: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  // The lease is a regular file. An unexpected path type is never interpreted as an abandoned
+  // lease because reclaiming it could move an unrelated directory or a symlink target selected by
+  // another process.
+  if (!info.isFile() || info.isSymbolicLink()) {
+    return { info, ownerBytes: null, owner: null, stale: false, reclaimIdentity: null };
+  }
+  const ownerBytes = await readFile(lock, 'utf8').catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (ownerBytes === null) return null;
+  let owner = null;
+  try { owner = JSON.parse(ownerBytes); } catch { /* malformed abandoned lock */ }
+  const ageMs = registryLeaseAgeMs(info);
+  const ownerAlive = registryLeaseOwnerAlive(owner);
+  // The inode-bound heartbeat is authoritative. A live recycled PID therefore cannot preserve an
+  // old lock forever, while a definitely dead owner permits recovery after the short acquisition
+  // grace used for a crash between open and owner-record publication.
+  const stale = ageMs > staleMs || (!ownerAlive && ageMs > acquisitionGraceMs);
+  return {
+    info,
+    ownerBytes,
+    owner,
+    ownerAlive,
+    ageMs,
+    stale,
+    reclaimIdentity: registryLeaseReclaimIdentity(ownerBytes, info)
+  };
+}
+
+function registryReclaimClaimPath(lock, identity, generation) {
+  return `${lock}.reclaimed-${identity}-${String(generation).padStart(4, '0')}`;
+}
+
+async function registryReclaimDestinationState(destination) {
+  let info;
+  try { info = await lstat(destination); }
+  catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return 'missing';
+    throw error;
+  }
+  if (info.isSymbolicLink()) return 'invalid';
+  if (info.isFile()) return 'retired';
+  if (info.isDirectory()) return 'fenced';
+  return 'invalid';
+}
+
+async function registryReclaimClaimState(claim, {
+  reclaimGraceMs = REGISTRY_RECLAIM_GRACE_MS,
+  acquisitionGraceMs = REGISTRY_LOCK_ACQUISITION_GRACE_MS
+} = {}) {
+  let info;
+  try { info = await lstat(claim, { bigint: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new SingularityFlowError(
+      `The local workspace registry reclaim marker is unsafe: ${claim}. Remove it only after inspection.`,
+      { code: 'WORKSPACE_REGISTRY_BUSY' }
+    );
+  }
+  const destination = path.join(claim, 'retired.lock');
+  const destinationState = await registryReclaimDestinationState(destination);
+  if (destinationState === 'invalid') {
+    throw new SingularityFlowError(
+      `The local workspace registry reclaim fence is unsafe: ${destination}. Remove it only after inspection.`,
+      { code: 'WORKSPACE_REGISTRY_BUSY' }
+    );
+  }
+  let owner = null;
+  try { owner = JSON.parse(await readFile(path.join(claim, 'claim.json'), 'utf8')); }
+  catch (error) {
+    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  const ageMs = registryLeaseAgeMs(info);
+  return {
+    destination,
+    destinationState,
+    stale: destinationState === 'missing'
+      && (ageMs > reclaimGraceMs
+        || (!registryLeaseOwnerAlive(owner) && ageMs > acquisitionGraceMs))
+  };
+}
+
+async function fenceAbandonedRegistryReclaimClaim(claimState, identity) {
+  try {
+    await mkdir(claimState.destination, { mode: 0o700 });
+  } catch (error) {
+    if (['EEXIST', 'EISDIR', 'ENOTDIR'].includes(error?.code)) {
+      return registryReclaimDestinationState(claimState.destination);
+    }
+    throw error;
+  }
+  // A non-empty directory is an atomic, permanent fence: POSIX and Windows rename cannot replace
+  // it with the old lock file if an abandoned claimant later resumes.
+  await writeFile(path.join(claimState.destination, 'fenced.claim'), `${identity}\n`, {
+    flag: 'wx', mode: 0o600
+  });
+  return 'fenced';
+}
+
+async function invokeRegistryLeaseHook(hooks, name, value) {
+  const hook = hooks?.[name];
+  if (typeof hook === 'function') await hook(value);
+}
+
+/**
+ * Reclaim exactly one observed stale lease without a compare-then-unlink successor race.
+ *
+ * Each deterministic claim generation has a unique `retired.lock` destination. A completed
+ * generation retains the old lock there. An abandoned generation is recovered by creating a
+ * directory at that destination before advancing to the next generation. That directory is the
+ * atomic fence: a paused old claimant can no longer rename either the old lease or a successor into
+ * its destination. Claims are never reused or deleted, so delayed contenders cannot regain stale
+ * authority over the acquisition pathname.
+ */
+async function reclaimRegistryFileLease(lock, observed, options = {}) {
+  if (!observed?.stale || !observed.reclaimIdentity) return false;
+  for (let generation = 0; generation < REGISTRY_RECLAIM_GENERATIONS; generation += 1) {
+    const claim = registryReclaimClaimPath(lock, observed.reclaimIdentity, generation);
+    let created = false;
+    try {
+      await mkdir(claim, { mode: 0o700 });
+      created = true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    if (!created) {
+      const claimState = await registryReclaimClaimState(claim, options);
+      if (!claimState) continue;
+      if (claimState.destinationState === 'retired') return false;
+      if (claimState.destinationState === 'fenced') continue;
+      if (!claimState.stale) return false;
+      const fenced = await fenceAbandonedRegistryReclaimClaim(
+        claimState, observed.reclaimIdentity
+      );
+      if (fenced === 'retired') return false;
+      if (fenced === 'fenced') continue;
+      return false;
+    }
+
+    const claimToken = randomUUID();
+    await writeFile(path.join(claim, 'claim.json'), `${JSON.stringify({
+      pid: process.pid,
+      host: os.hostname(),
+      processStartedAt: REGISTRY_LEASE_PROCESS_STARTED_AT,
+      processToken: REGISTRY_LEASE_PROCESS_TOKEN,
+      claimToken,
+      reclaimIdentity: observed.reclaimIdentity,
+      createdAt: nowIso()
+    })}\n`, { flag: 'wx', mode: 0o600 });
+    await invokeRegistryLeaseHook(options.hooks, 'afterClaimCreated', {
+      claim, claimToken, generation, observed
+    });
+
+    const current = await registryLeaseState(lock, options);
+    if (!current || !current.stale
+        || current.reclaimIdentity !== observed.reclaimIdentity
+        || current.ownerBytes !== observed.ownerBytes
+        || String(current.info.dev) !== String(observed.info.dev)
+        || String(current.info.ino) !== String(observed.info.ino)) return false;
+    const destination = path.join(claim, 'retired.lock');
+    await invokeRegistryLeaseHook(options.hooks, 'beforeRetire', {
+      claim, destination, claimToken, generation, observed
+    });
+    try {
+      await rename(lock, destination);
+      return true;
+    } catch (error) {
+      if (['ENOENT', 'EEXIST', 'ENOTEMPTY', 'EISDIR', 'ENOTDIR'].includes(error?.code)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+  throw new SingularityFlowError(
+    'The local workspace registry contains too many interrupted reclaim generations. Inspect the retained reclaim markers before retrying.',
+    { code: 'WORKSPACE_REGISTRY_BUSY' }
+  );
+}
+
+function startRegistryLeaseHeartbeat(handle, {
+  staleMs = REGISTRY_LOCK_STALE_MS,
+  acquisitionGraceMs = REGISTRY_LOCK_ACQUISITION_GRACE_MS
+} = {}) {
+  const renewalWindowMs = Math.max(40, Math.min(staleMs, acquisitionGraceMs));
+  const intervalMs = Math.max(10, Math.min(30_000, Math.floor(renewalWindowMs / 4)));
+  const worker = new Worker(`
+    const { futimesSync } = require('node:fs');
+    const { parentPort, workerData } = require('node:worker_threads');
+    const stop = () => { clearInterval(timer); parentPort.close(); };
+    const beat = () => {
+      try {
+        const now = new Date();
+        futimesSync(workerData.fd, now, now);
+      } catch {
+        stop();
+      }
+    };
+    const timer = setInterval(beat, workerData.intervalMs);
+    parentPort.on('message', stop);
+  `, {
+    eval: true,
+    execArgv: [],
+    workerData: { fd: handle.fd, intervalMs }
+  });
+  // A worker startup failure must not become an unhandled process exception. The bounded lease
+  // still expires fail-safe; ordinary asynchronous operations also complete well inside its TTL.
+  worker.on('error', () => {});
+  worker.unref();
+  return worker;
+}
+
+async function removeOwnedRegistryLeaseCandidate(lock, handle, acquiredInfo) {
+  await handle?.close().catch(() => {});
+  let current;
+  try { current = await lstat(lock, { bigint: true }); }
+  catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+  if (String(current.dev) === String(acquiredInfo?.dev)
+      && String(current.ino) === String(acquiredInfo?.ino)) {
+    await rm(lock, { force: true });
+  }
+}
+
+/** @internal Cross-process manifest lease; exported so its race contract can be process-tested. */
+export async function withRegistryFileLease(file, operation, options = {}) {
   const lock = `${path.resolve(file)}.lock`;
   await mkdir(path.dirname(lock), { recursive: true });
   const started = Date.now();
+  const token = randomUUID();
+  const timeoutMs = options.timeoutMs ?? REGISTRY_LOCK_TIMEOUT_MS;
   let handle;
+  let acquiredInfo;
+  let heartbeat = null;
   while (!handle) {
+    let candidate;
+    let candidateHeartbeat = null;
     try {
-      handle = await open(lock, 'wx', 0o600);
-      await handle.writeFile(`${JSON.stringify({ pid: process.pid, createdAt: nowIso() })}\n`);
+      candidate = await open(lock, 'wx', 0o600);
     } catch (error) {
       if (error?.code !== 'EEXIST') throw error;
-      const info = await stat(lock).catch(() => null);
-      if (info && Date.now() - info.mtimeMs > REGISTRY_LOCK_STALE_MS) {
-        await rm(lock, { force: true });
-        continue;
+      const observed = await registryLeaseState(lock, options);
+      if (observed?.stale) {
+        await invokeRegistryLeaseHook(options.hooks, 'afterStaleObserved', { lock, observed });
       }
-      if (Date.now() - started >= REGISTRY_LOCK_TIMEOUT_MS) {
+      if (observed?.stale) {
+        const reclaimed = await reclaimRegistryFileLease(lock, observed, options);
+        await invokeRegistryLeaseHook(options.hooks, 'afterReclaimAttempt', {
+          lock, observed, reclaimed
+        });
+        if (reclaimed) continue;
+      }
+      if (Date.now() - started >= timeoutMs) {
         throw new SingularityFlowError(
           'The local workspace registry is busy in another process. Retry the same command.',
           { code: 'WORKSPACE_REGISTRY_BUSY' }
         );
       }
       await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 50)));
+      continue;
+    }
+    try {
+      acquiredInfo = await candidate.stat({ bigint: true });
+      // Acquisition creates the inode before it can publish owner bytes. Start the inode-bound
+      // heartbeat first so a stalled write can never age past the malformed-owner grace and be
+      // retired while this process still holds the original descriptor.
+      candidateHeartbeat = startRegistryLeaseHeartbeat(candidate, options);
+      await invokeRegistryLeaseHook(options.hooks, 'afterLockOpened', {
+        lock, token, acquiredInfo
+      });
+      await candidate.writeFile(`${JSON.stringify({
+        pid: process.pid,
+        host: os.hostname(),
+        processStartedAt: REGISTRY_LEASE_PROCESS_STARTED_AT,
+        processToken: REGISTRY_LEASE_PROCESS_TOKEN,
+        token,
+        createdAt: nowIso()
+      })}\n`);
+      await candidate.sync();
+      handle = candidate;
+      heartbeat = candidateHeartbeat;
+    } catch (error) {
+      if (candidateHeartbeat) await candidateHeartbeat.terminate().catch(() => {});
+      await removeOwnedRegistryLeaseCandidate(lock, candidate, acquiredInfo).catch(() => {});
+      throw error;
     }
   }
   try {
     return await operation();
   } finally {
+    if (heartbeat) await heartbeat.terminate().catch(() => {});
     await handle.close().catch(() => {});
-    await rm(lock, { force: true }).catch(() => {});
+    const current = await registryLeaseState(lock, options).catch(() => null);
+    if (current?.ownerBytes
+        && String(current.info.dev) === String(acquiredInfo?.dev)
+        && String(current.info.ino) === String(acquiredInfo?.ino)) {
+      try {
+        const owner = JSON.parse(current.ownerBytes);
+        if (owner?.token === token
+            && owner.processToken === REGISTRY_LEASE_PROCESS_TOKEN
+            && owner.processStartedAt === REGISTRY_LEASE_PROCESS_STARTED_AT) {
+          await rm(lock, { force: true }).catch(() => {});
+        }
+      } catch { /* A changed or malformed successor is never removed. */ }
+    }
   }
 }
 
@@ -1184,6 +1516,17 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository, 
   );
   const workspaceName = String(name ?? current.name).trim();
   if (!workspaceName) throw new SingularityFlowError('Workspace name is required.');
+  if (capabilities !== undefined) {
+    const before = [...new Set(current.capabilities ?? [])].sort();
+    const after = [...new Set(capabilities ?? [])].sort();
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      throw new SingularityFlowError(
+        'Workspace capability attachments cannot be changed through workspace update. '
+        + 'Use workspace attach-capability or workspace detach-capability so repository bindings, local clones, and recovery state change together.',
+        { code: 'WORKSPACE_CAPABILITY_TRANSITION_REQUIRED' }
+      );
+    }
+  }
   for (const [id, repository] of Object.entries(current.repositories)) {
     const replacement = normalized[id];
     if (!replacement) {
@@ -1196,6 +1539,21 @@ function workspaceUpdateManifest(current, { name, repositories, leadRepository, 
     }
     if (JSON.stringify(replacement.clone) !== JSON.stringify(repository.clone)) {
       throw new SingularityFlowError(`Workspace editing cannot change clone strategy for materialized repository '${id}'. Create a replacement workspace instead.`);
+    }
+    if (JSON.stringify([...(replacement.capabilities ?? [])].sort())
+        !== JSON.stringify([...(repository.capabilities ?? [])].sort())) {
+      throw new SingularityFlowError(
+        `Workspace editing cannot change capability bindings for repository '${id}'. Use workspace attach-capability or workspace detach-capability.`,
+        { code: 'WORKSPACE_CAPABILITY_TRANSITION_REQUIRED' }
+      );
+    }
+  }
+  for (const [id, repository] of Object.entries(normalized)) {
+    if (!current.repositories[id] && (repository.capabilities ?? []).length) {
+      throw new SingularityFlowError(
+        `Workspace editing cannot introduce capability bindings through new repository '${id}'. Use workspace attach-capability.`,
+        { code: 'WORKSPACE_CAPABILITY_TRANSITION_REQUIRED' }
+      );
     }
   }
   return validateWorkspaceManifest({
@@ -1213,6 +1571,7 @@ export async function previewWorkspaceUpdate(workspacePath, options) {
   const manifest = workspaceUpdateManifest(current, options);
   return {
     root: current.path,
+    sourceManifestSha256: workspaceCapabilityChangeSha256(current),
     manifest,
     operations: Object.values(manifest.repositories).map((repository) => ({
       action: current.repositories[repository.id] ? 'update' : 'clone',
@@ -1316,29 +1675,1896 @@ export async function updateWorkspaceConfiguration(workspacePath, options, { con
     || options.repositories !== undefined
     || options.leadRepository !== undefined;
   if (capabilityBoundaryChanged) await validateWorkspaceCapabilityRegistration(preview.manifest);
-  await atomicJson(path.join(preview.root, WORKSPACE_FILE), preview.manifest);
+  const manifestFile = path.join(preview.root, WORKSPACE_FILE);
+  await withRegistryFileLease(manifestFile, async () => {
+    const current = await readWorkspace(preview.root);
+    if (workspaceCapabilityChangeSha256(current) !== preview.sourceManifestSha256) {
+      throw new SingularityFlowError(
+        'Workspace configuration changed after the update preview. Nothing was changed; retry the update.',
+        { code: 'WORKSPACE_UPDATE_STALE' }
+      );
+    }
+    await atomicJson(manifestFile, preview.manifest);
+  });
+  const repaired = await repairWorkspaceCapabilityAttachment(preview.root, {
+    recoverCapabilityDrops: false
+  });
+  return {
+    updated: true,
+    workspace: repaired.status.workspace,
+    status: repaired.status,
+    repair: repaired.repaired,
+    materializationError: repaired.materializationError,
+    repairCommand: repaired.materializationError
+      ? `singularity-flow workspace repair ${JSON.stringify(preview.root)}` : null
+  };
+}
+
+function workspaceCapabilityChangeSha256(value) {
+  return `sha256:${createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex')}`;
+}
+
+function workspaceCapabilityTargetSha256(manifest) {
+  // updatedAt is written for human diagnostics, not authority. Excluding only that clock value
+  // keeps a preview confirmable when the same immutable source manifest and repository proofs are
+  // re-read by the apply command.
+  return workspaceCapabilityChangeSha256({ ...manifest, updatedAt: null });
+}
+
+function sealWorkspaceCapabilityDropTransaction(record) {
+  const unsigned = { ...record };
+  delete unsigned.transactionSha256;
+  return {
+    ...unsigned,
+    transactionSha256: workspaceCapabilityChangeSha256(unsigned)
+  };
+}
+
+function validWorkspaceCapabilityDropTransactionSeal(record) {
+  return /^sha256:[0-9a-f]{64}$/.test(String(record?.transactionSha256 ?? ''))
+    && sealWorkspaceCapabilityDropTransaction(record).transactionSha256
+      === record.transactionSha256;
+}
+
+function workspaceCapabilityAuthority(manifest) {
+  return manifest.capabilityAuthority?.url
+    ?? manifest.repositories?.[manifest.leadRepository]?.url
+    ?? null;
+}
+
+function dropDirectoryIdentity(info) {
+  return info ? { device: String(info.dev), inode: String(info.ino) } : null;
+}
+
+function sameDropDirectoryIdentity(left, right) {
+  return Boolean(left && right
+    && left.device === right.device
+    && left.inode === right.inode);
+}
+
+function workspaceCapabilityDropNamespaceCollision(repositoryIds) {
+  const names = new Map([['transaction.json', 'the transaction receipt']]);
+  for (const rawId of repositoryIds) {
+    const id = String(rawId ?? '');
+    for (const [name, description] of [
+      [id, `repository '${id}' staging path`],
+      [`${id}.deleting`, `repository '${id}' quarantine path`]
+    ]) {
+      // Recovery names must remain unambiguous when a workspace moves between case-sensitive and
+      // case-insensitive filesystems.
+      const key = name.toLowerCase();
+      const existing = names.get(key);
+      if (existing) return { name, existing, conflicting: description };
+      names.set(key, description);
+    }
+  }
+  return null;
+}
+
+function assertWorkspaceCapabilityDropNamespace(repositoryIds, {
+  code = 'WORKSPACE_CAPABILITY_DROP_UNSAFE_NAMESPACE'
+} = {}) {
+  const collision = workspaceCapabilityDropNamespaceCollision(repositoryIds);
+  if (!collision) return;
+  throw new SingularityFlowError(
+    `Local-drop recovery namespace collision at '${collision.name}' between ${collision.existing} and ${collision.conflicting}. Nothing was detached or deleted.`,
+    { code, details: collision }
+  );
+}
+
+function comparableWorkspaceDropPath(value) {
+  const resolved = path.resolve(value);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function workspaceDropPathsOverlap(left, right) {
+  const first = comparableWorkspaceDropPath(left);
+  const second = comparableWorkspaceDropPath(right);
+  return first === second
+    || first.startsWith(`${second}${path.sep}`)
+    || second.startsWith(`${first}${path.sep}`);
+}
+
+/**
+ * Resolve aliases through the deepest existing ancestor while preserving a missing suffix.
+ * Missing checkouts remain eligible for manifest-only detach, but an unreadable or dangling
+ * ancestor cannot safely prove that two repository paths are disjoint.
+ */
+function canonicalWorkspaceDropSafetyPath(target, label) {
+  const resolved = path.resolve(target);
+  const suffix = [];
+  let cursor = resolved;
+  while (true) {
+    try {
+      lstatSync(cursor);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw new SingularityFlowError(
+          `Local-drop safety could not inspect ${label} path ${resolved}: ${error.message}. Nothing was detached or deleted.`,
+          { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+        );
+      }
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        throw new SingularityFlowError(
+          `Local-drop safety could not resolve ${label} path ${resolved}. Nothing was detached or deleted.`,
+          { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+        );
+      }
+      suffix.unshift(path.basename(cursor));
+      cursor = parent;
+      continue;
+    }
+    try {
+      return path.resolve(realpathSync(cursor), ...suffix);
+    } catch (error) {
+      throw new SingularityFlowError(
+        `Local-drop safety could not resolve ${label} path ${resolved}: ${error.message}. Nothing was detached or deleted.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+      );
+    }
+  }
+}
+
+function assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates) {
+  if (!candidates.length) return;
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const candidatePaths = candidates.map((candidate) => ({
+    ...candidate,
+    resolved: path.resolve(candidate.path),
+    canonical: canonicalWorkspaceDropSafetyPath(
+      candidate.path, `repository '${candidate.id}' candidate`
+    )
+  }));
+  const retainedPaths = Object.entries(workspace.repositories ?? {})
+    .filter(([id]) => !candidateIds.has(id))
+    .map(([id, repository]) => {
+      const retainedPath = workspaceRepositoryPath(workspace, repository);
+      return {
+        id,
+        resolved: path.resolve(retainedPath),
+        canonical: canonicalWorkspaceDropSafetyPath(
+          retainedPath, `retained repository '${id}'`
+        )
+      };
+    });
+  for (let left = 0; left < candidatePaths.length; left += 1) {
+    for (let right = left + 1; right < candidatePaths.length; right += 1) {
+      const first = candidatePaths[left];
+      const second = candidatePaths[right];
+      if (!workspaceDropPathsOverlap(first.resolved, second.resolved)
+          && !workspaceDropPathsOverlap(first.canonical, second.canonical)) continue;
+      throw new SingularityFlowError(
+        `Repositories '${first.id}' and '${second.id}' cannot be dropped together because their checkout paths overlap. Nothing was detached or deleted.`,
+        {
+          code: 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH',
+          details: {
+            candidateRepository: first.id,
+            candidatePath: first.resolved,
+            conflictingRepository: second.id,
+            conflictingPath: second.resolved
+          }
+        }
+      );
+    }
+  }
+  for (const candidate of candidatePaths) {
+    for (const retained of retainedPaths) {
+      if (!workspaceDropPathsOverlap(candidate.resolved, retained.resolved)
+          && !workspaceDropPathsOverlap(candidate.canonical, retained.canonical)) continue;
+      throw new SingularityFlowError(
+        `Repository '${candidate.id}' cannot be dropped because its checkout path overlaps retained repository '${retained.id}'. Nothing was detached or deleted.`,
+        {
+          code: 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH',
+          details: {
+            candidateRepository: candidate.id,
+            candidatePath: candidate.resolved,
+            retainedRepository: retained.id,
+            retainedPath: retained.resolved
+          }
+        }
+      );
+    }
+  }
+}
+
+function workspaceDropGitEnvironment(env = null) {
+  const base = env ?? enterpriseGitEnvironment();
+  if (workspaceDropGitEnvironments.has(base)) return base;
+  // A deletion proof is read-only and must never hydrate a partial clone merely to inspect its
+  // object database. Besides avoiding an unexpected network side effect, this keeps an offline
+  // proof bounded when a promisor remote is unavailable. Disable repository-local filesystem
+  // monitor and untracked-cache shortcuts as well: those are performance hints whose stale or
+  // executable answers must never hide bytes from a destructive proof.
+  const offset = Number(base.GIT_CONFIG_COUNT ?? 0);
+  const configurationOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+  const overrides = [
+    ['core.fsmonitor', 'false'],
+    ['core.untrackedCache', 'false'],
+    ['core.ignorecase', 'false'],
+    ...(process.platform === 'win32' ? [] : [['core.filemode', 'true']]),
+    ['http.sslVerify', 'true'],
+    ['gc.auto', '0'],
+    ['maintenance.auto', 'false']
+  ];
+  const isolated = {
+    ...base,
+    GIT_NO_LAZY_FETCH: '1',
+    GIT_CONFIG_COUNT: String(configurationOffset + overrides.length)
+  };
+  overrides.forEach(([key, value], index) => {
+    isolated[`GIT_CONFIG_KEY_${configurationOffset + index}`] = key;
+    isolated[`GIT_CONFIG_VALUE_${configurationOffset + index}`] = value;
+  });
+  workspaceDropGitEnvironments.add(isolated);
+  return isolated;
+}
+
+async function workspaceDropLstat(target, options = undefined) {
   try {
-    const repaired = await repairWorkspace(preview.root);
+    return await lstat(target, options);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw new SingularityFlowError(
+      `Local-drop safety could not inspect ${target}: ${error.message}. Nothing was detached or deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+}
+
+async function assertWorkspaceDropLocalGitConfiguration(repository, target, {
+  env = null
+} = {}) {
+  const gitEnv = workspaceDropGitEnvironment(env);
+  const keys = [];
+  for (const scope of ['local', 'worktree']) {
+    const result = run('git', [
+      'config', `--${scope}`, '--includes', '--name-only', '--null', '--list'
+    ], { cwd: target, env: gitEnv, allowFailure: true });
+    if (result.status !== 0) {
+      throw new SingularityFlowError(
+        `Repository '${repository.id}' ${scope} Git configuration could not be inspected safely. Nothing was dropped.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+      );
+    }
+    keys.push(...result.stdout.split('\0'));
+  }
+  const unsafe = [...new Set(keys.map((key) => key.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((key) => (
+      key.startsWith('http.')
+      || key.startsWith('credential.')
+      || key.startsWith('url.')
+      || key.startsWith('protocol.')
+      || key.startsWith('include.')
+      || key.startsWith('includeif.')
+      || ['core.askpass', 'core.gitproxy', 'core.sshcommand', 'core.hookspath'].includes(key)
+      || (/^remote\.[^.]+\.(?:proxy|proxyauthmethod|uploadpack|receivepack|vcs)$/).test(key)
+    )))].sort();
+  if (unsafe.length) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has local Git transport or executable configuration (${unsafe.join(', ')}) that cannot participate in a destructive publication proof. Remove the repository-local override or detach without --drop-local. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_GIT_CONFIG', details: { keys: unsafe } }
+    );
+  }
+}
+
+async function gitWriterLocks(gitDirectory) {
+  const locks = [];
+  const rootEntries = await readdir(gitDirectory, { withFileTypes: true });
+  for (const entry of rootEntries) {
+    if (!entry.isSymbolicLink() && entry.name.endsWith('.lock')) locks.push(entry.name);
+  }
+  const roots = ['refs', 'logs', 'reftable', 'objects/pack', 'objects/info'];
+  const pending = roots.map((relative) => path.join(gitDirectory, relative));
+  let inspected = 0;
+  while (pending.length) {
+    const directory = pending.pop();
+    const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
+      if (error?.code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const entry of entries) {
+      inspected += 1;
+      if (inspected > 20_000) {
+        throw new SingularityFlowError(
+          'Git writer-lock inspection exceeded its bounded metadata inventory.',
+          { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+        );
+      }
+      const absolute = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.name.endsWith('.lock')) locks.push(path.relative(gitDirectory, absolute));
+      if (entry.isDirectory()) pending.push(absolute);
+    }
+  }
+  return [...new Set(locks)].sort();
+}
+
+function equalDropDirectoryIdentity(left, right) {
+  return (!left && !right) || sameDropDirectoryIdentity(left, right);
+}
+
+function gitRefRows(result, label) {
+  if (result.status !== 0) {
+    throw new SingularityFlowError(`${label} could not be verified. Nothing was dropped.`, {
+      code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED'
+    });
+  }
+  return result.stdout.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [ref, sha, upstream = ''] = line.split('\t');
+    if (!ref?.startsWith('refs/') || !/^[0-9a-f]{40,64}$/i.test(sha ?? '')) {
+      throw new SingularityFlowError(`${label} returned an invalid Git reference. Nothing was dropped.`, {
+        code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED'
+      });
+    }
+    return { ref, sha, upstream };
+  });
+}
+
+async function workspaceRepositoryReferenceProof(repository, target, {
+  env = enterpriseGitEnvironment()
+} = {}) {
+  const refs = gitRefRows(run('git', [
+    'for-each-ref', '--format=%(refname)%09%(objectname)%09%(upstream)', 'refs/'
+  ], { cwd: target, env, allowFailure: true }), `Repository '${repository.id}' local references`);
+  const localTags = new Map();
+  for (const entry of refs) {
+    if (entry.ref.startsWith('refs/heads/')) {
+      const branchName = entry.ref.slice('refs/heads/'.length);
+      const expectedUpstream = `refs/remotes/origin/${branchName}`;
+      const published = entry.upstream === expectedUpstream
+        && run('git', ['merge-base', '--is-ancestor', entry.sha, expectedUpstream], {
+          cwd: target, env, allowFailure: true
+        }).status === 0;
+      if (!published) {
+        throw new SingularityFlowError(
+          `Repository '${repository.id}' has local branch '${branchName}' that is not published under origin/${branchName}. Push or preserve it before using Detach & drop local.`,
+          { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+        );
+      }
+      continue;
+    }
+    if (entry.ref.startsWith('refs/tags/')) {
+      localTags.set(entry.ref, entry.sha);
+      continue;
+    }
+    if (entry.ref.startsWith('refs/remotes/origin/')) continue;
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has local Git reference '${entry.ref}' outside the reviewed origin namespace. Preserve or remove it before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+    );
+  }
+
+  const transport = frozenRemoteTransport(repository.url, { env });
+  const remoteTagResult = await runRemoteGitAsync([
+    'ls-remote', '--tags', '--refs', '--', transport.remote
+  ], { cwd: target, operation: 'remote-configuration', env: transport.env });
+  if (remoteTagResult.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' remote tags could not be verified. Nothing was dropped. ${remoteTagResult.failure?.advice ?? 'Restore Git access and retry.'}`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const remoteTags = new Map();
+  for (const line of remoteTagResult.stdout.split(/\r?\n/).filter(Boolean)) {
+    const [sha, ref] = line.split(/\s+/);
+    if (!ref?.startsWith('refs/tags/') || !/^[0-9a-f]{40,64}$/i.test(sha ?? '')) {
+      throw new SingularityFlowError(
+        `Repository '${repository.id}' remote tag inventory was invalid. Nothing was dropped.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+      );
+    }
+    remoteTags.set(ref, sha);
+  }
+  for (const [ref, sha] of localTags) {
+    if (remoteTags.get(ref) !== sha) {
+      throw new SingularityFlowError(
+        `Repository '${repository.id}' has local tag '${ref.slice('refs/tags/'.length)}' that is not published unchanged on origin. Preserve or push it before using Detach & drop local.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+      );
+    }
+  }
+  return workspaceCapabilityChangeSha256({
+    // Remote-tracking refs are live publication evidence, not local state identity. They are
+    // refreshed and checked above on every proof, but excluding them from the durable fingerprint
+    // lets recovery tolerate an unrelated origin branch advancing while still rejecting any local
+    // branch, tag, stash, or custom-ref change.
+    refs: refs.filter(({ ref }) => !ref.startsWith('refs/remotes/origin/'))
+      .map(({ ref, sha, upstream }) => ({ ref, sha, upstream })),
+    remoteTags: [...localTags.keys()].sort().map((ref) => ({ ref, sha: remoteTags.get(ref) }))
+  });
+}
+
+/**
+ * Prove that an owned repository checkout can be removed without discarding local work.
+ *
+ * A clean worktree is not enough: another linked worktree or a commit absent from every
+ * remote-tracking ref is local work too. Adopted repositories are never owned by the workspace and
+ * therefore can never be dropped through this operation.
+ */
+async function workspaceRepositoryDropProof(workspace, repository, status, {
+  targetPath = null,
+  env = null
+} = {}) {
+  const target = targetPath ? path.resolve(targetPath) : workspaceRepositoryPath(workspace, repository);
+  // Deletion authority must come from the checkout named by `target`, never from ambient Git
+  // selectors such as GIT_DIR, GIT_INDEX_FILE, alternates, namespaces, or replacement objects.
+  // The same isolated environment is reused by every local and remote proof in this invocation.
+  const gitEnv = workspaceDropGitEnvironment(env);
+  if (repository.adoption) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' is an adopted checkout and is not owned by this workspace. Detach the capability without --drop-local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_ADOPTED' }
+    );
+  }
+  await assertInside(workspace.path, target);
+  const info = await workspaceDropLstat(target, { bigint: true });
+  if (!info) {
     return {
-      updated: true,
+      id: repository.id, path: target, state: 'missing', head: null,
+      worktreeSha256: null, refsSha256: null, directoryIdentity: null, removable: false
+    };
+  }
+  if (info.isSymbolicLink() || !info.isDirectory() || status?.state !== 'ready') {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' cannot be dropped because its local checkout is ${status?.state ?? 'invalid'}. Repair or remove it manually after inspection.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH' }
+    );
+  }
+  const observedHead = gitValue(target, ['rev-parse', '--verify', 'HEAD'], { env: gitEnv });
+  if (!/^[0-9a-f]{40,64}$/i.test(String(observedHead ?? ''))) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' HEAD could not be verified from its own checkout. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const canonicalCheckout = await realpath(target);
+  await assertWorkspaceDropLocalGitConfiguration(repository, target, { env: gitEnv });
+  const configuredTopLevel = gitValue(target, ['rev-parse', '--show-toplevel'], {
+    env: gitEnv
+  });
+  const canonicalTopLevel = configuredTopLevel
+    ? await realpath(configuredTopLevel).catch(() => null) : null;
+  if (!canonicalTopLevel || canonicalTopLevel !== canonicalCheckout) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' Git worktree resolves outside its managed checkout. Detach it without --drop-local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_EXTERNAL_GIT_DIR' }
+    );
+  }
+  const fingerprint = worktreeFingerprint(target, {
+    fresh: true, env: gitEnv, exhaustive: true
+  });
+  if (fingerprint.dirty || status?.dirty) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has uncommitted or hidden work. Commit and push it, or preserve it outside this checkout, before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_DIRTY' }
+    );
+  }
+  const ignored = run('git', [
+    'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--ignore-submodules=none'
+  ], { cwd: target, env: gitEnv, allowFailure: true });
+  if (ignored.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' ignored-file safety could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  if (ignored.stdout.split(/\r?\n/).some((line) => line.startsWith('!! '))) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' contains ignored local files. Preserve or explicitly remove them before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_IGNORED' }
+    );
+  }
+  const submodules = run('git', ['submodule', 'status', '--recursive'], {
+    cwd: target, env: gitEnv, allowFailure: true
+  });
+  if (submodules.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' submodule state could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const initializedSubmodule = submodules.stdout.split(/\r?\n/)
+    .find((line) => line && !line.startsWith('-'));
+  if (initializedSubmodule) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has an initialized submodule. Deinitialize or preserve it before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_SUBMODULE' }
+    );
+  }
+  const absoluteGitDirectory = gitValue(target, ['rev-parse', '--absolute-git-dir'], { env: gitEnv });
+  if (!absoluteGitDirectory) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' Git object directory could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const canonicalGitDirectory = await realpath(absoluteGitDirectory).catch(() => null);
+  if (!canonicalGitDirectory
+      || (canonicalGitDirectory !== canonicalCheckout
+        && !canonicalGitDirectory.startsWith(`${canonicalCheckout}${path.sep}`))) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' stores Git metadata outside its checkout. Detach it without --drop-local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_EXTERNAL_GIT_DIR' }
+    );
+  }
+  const retainedModules = await readdir(path.join(canonicalGitDirectory, 'modules')).catch((error) => {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  });
+  if (retainedModules.length) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' retains submodule Git data under .git/modules. Deinitialize and remove or preserve that data explicitly before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_SUBMODULE' }
+    );
+  }
+  const graftsPath = path.join(canonicalGitDirectory, 'info', 'grafts');
+  const grafts = await workspaceDropLstat(graftsPath);
+  if (grafts && (!grafts.isFile() || grafts.isSymbolicLink() || grafts.size > 0)) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has a local Git graft map that can rewrite commit ancestry. Remove or preserve it before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_GIT_GRAPH_OVERRIDE' }
+    );
+  }
+  const operationStatePaths = [
+    'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'REBASE_HEAD', 'AUTO_MERGE',
+    'rebase-apply', 'rebase-merge', 'sequencer', 'BISECT_LOG', 'BISECT_START', 'BISECT_NAMES'
+  ];
+  const operationStates = [];
+  for (const relative of operationStatePaths) {
+    if (await workspaceDropLstat(path.join(canonicalGitDirectory, relative))) {
+      operationStates.push(relative);
+    }
+  }
+  if (operationStates.length) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has an unfinished Git operation (${operationStates.join(', ')}). Complete or abort it before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_GIT_OPERATION' }
+    );
+  }
+  const writerLocks = await gitWriterLocks(canonicalGitDirectory);
+  if (writerLocks.length) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has an active Git writer lock (${writerLocks.join(', ')}). Wait for the Git operation to finish, then preview Detach & drop local again.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_GIT_BUSY' }
+    );
+  }
+  const localLfsObjects = await readdir(path.join(canonicalGitDirectory, 'lfs', 'objects')).catch((error) => {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
+  });
+  if (localLfsObjects.length) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' contains local Git LFS objects whose remote publication cannot be proven by ordinary Git refs. Detach it without --drop-local, or remove the checkout manually after verifying LFS publication.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_LFS_UNVERIFIED' }
+    );
+  }
+  const configuredLfs = run('git', ['config', '--path', '--get', 'lfs.storage'], {
+    cwd: target, env: gitEnv, allowFailure: true
+  });
+  if (![0, 1].includes(configuredLfs.status)) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' configured Git LFS storage could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  if (configuredLfs.status === 0 && configuredLfs.stdout.trim()) {
+    const configuredPath = configuredLfs.stdout.trim();
+    const storage = path.resolve(canonicalGitDirectory, configuredPath);
+    const insideCheckout = storage === canonicalCheckout
+      || storage.startsWith(`${canonicalCheckout}${path.sep}`);
+    const retainedStorage = insideCheckout
+      ? await readdir(storage).catch((error) => {
+        if (error?.code === 'ENOENT') return [];
+        throw error;
+      })
+      : [];
+    if (retainedStorage.length) {
+      throw new SingularityFlowError(
+        `Repository '${repository.id}' contains configured Git LFS storage inside its checkout whose remote publication cannot be proven. Detach it without --drop-local, or verify and remove the checkout manually.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_LFS_UNVERIFIED' }
+      );
+    }
+  }
+  const worktrees = run('git', ['worktree', 'list', '--porcelain'], {
+    cwd: target, env: gitEnv, allowFailure: true
+  });
+  if (worktrees.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' linked worktrees could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const linked = worktrees.stdout.split(/\r?\n/)
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => path.resolve(line.slice('worktree '.length).trim()));
+  const canonicalTarget = await realpath(target);
+  if (linked.length !== 1
+      || (await realpath(linked[0]).catch(() => linked[0])) !== canonicalTarget) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has another linked worktree. Remove or relocate that worktree before dropping the workspace checkout.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_LINKED_WORKTREE' }
+    );
+  }
+  const unpublished = run('git', [
+    'rev-list', '--max-count=1', 'HEAD', '--all', '--not', '--remotes=origin', '--tags'
+  ], { cwd: target, env: gitEnv, allowFailure: true });
+  if (unpublished.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' local commit reachability could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  if (unpublished.stdout.trim()) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' contains local refs (a branch, tag, or stash) with commits that are not present on any remote-tracking branch. Push or preserve them outside this checkout before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+    );
+  }
+  const reflogOnly = run('git', [
+    'rev-list', '--max-count=1', '--reflog', '--not', '--remotes=origin', '--tags'
+  ], { cwd: target, env: gitEnv, allowFailure: true });
+  if (reflogOnly.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' reflog reachability could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  if (reflogOnly.stdout.trim()) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' contains commits retained only by local refs or reflogs and absent from remote-tracking branches. Push or preserve them before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+    );
+  }
+  const unreachable = run('git', [
+    'fsck', '--unreachable', '--no-reflogs', '--no-progress', '--no-dangling'
+  ], { cwd: target, env: gitEnv, allowFailure: true });
+  if (unreachable.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' unreachable Git object safety could not be verified. Nothing was dropped.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  if (/\bunreachable\s+(?:blob|commit|tag|tree)\s+[0-9a-f]{40,64}\b/i.test(unreachable.stdout)) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' contains unreachable Git objects that may retain local work. Preserve or remove them explicitly before using Detach & drop local.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNPUSHED' }
+    );
+  }
+  const refsSha256 = await workspaceRepositoryReferenceProof(repository, target, { env: gitEnv });
+  return {
+    id: repository.id,
+    path: target,
+    state: 'ready',
+    head: observedHead,
+    worktreeSha256: fingerprint.sha256,
+    refsSha256,
+    directoryIdentity: dropDirectoryIdentity(info),
+    removable: true
+  };
+}
+
+function approvedCapabilityIds(nodes, into = new Set()) {
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (node?.id) into.add(String(node.id));
+    approvedCapabilityIds(node?.children, into);
+  }
+  return into;
+}
+
+function mergeRequiredRepositoryPlans(base, addition) {
+  const repositories = { ...(base?.repositories ?? {}) };
+  for (const [id, repository] of Object.entries(addition?.repositories ?? {})) {
+    const current = repositories[id];
+    repositories[id] = current ? {
+      ...current,
+      capabilities: [...new Set([
+        ...(current.capabilities ?? []), ...(repository.capabilities ?? [])
+      ])].sort()
+    } : repository;
+  }
+  return { repositories };
+}
+
+/**
+ * Preview one local workspace capability transition.
+ *
+ * The approved organisation map remains the source of repository URLs and capability closure.
+ * Detach keeps unneeded checkouts registered but unbound; drop removes only repositories that are
+ * no longer needed by another selected capability, and never removes the lead repository.
+ */
+export async function previewWorkspaceCapabilityChange(workspacePath, capabilityId, {
+  action = 'attach',
+  dropLocal = false,
+  organisation: suppliedOrganisation = null,
+  readOrganisationOperation = null,
+  resolveWorkspacePlanOperation = null,
+  dropProofOperation = workspaceRepositoryDropProof
+} = {}) {
+  if (!['attach', 'detach'].includes(action)) {
+    throw new SingularityFlowError(`Unknown workspace capability action '${action}'.`);
+  }
+  if (dropLocal && action !== 'detach') {
+    throw new SingularityFlowError('--drop-local is available only when detaching a capability.');
+  }
+  const id = String(capabilityId ?? '').trim();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
+    throw new SingularityFlowError('Workspace capability must be a lower-case kebab-case identifier.');
+  }
+  const current = await readWorkspace(workspacePath);
+  const authorityUrl = workspaceCapabilityAuthority(current);
+  if (!authorityUrl) {
+    throw new SingularityFlowError(
+      `Workspace '${current.name}' has no capability authority. Repair its lead repository before changing capability attachments.`,
+      { code: 'WORKSPACE_CAPABILITY_CATALOG_UNAVAILABLE' }
+    );
+  }
+  let readOrganisation = readOrganisationOperation;
+  let resolveWorkspacePlan = resolveWorkspacePlanOperation;
+  if (!readOrganisation || !resolveWorkspacePlan) {
+    const organisationModule = await import('./organisation.mjs');
+    readOrganisation ??= organisationModule.readOrganisation;
+    resolveWorkspacePlan ??= organisationModule.resolveWorkspacePlan;
+  }
+  // readOrganisation always re-observes the approved ref. Its commit-validated cache avoids a
+  // second disposable configuration clone when preview and apply run back to back.
+  const organisation = suppliedOrganisation ?? await readOrganisation(authorityUrl, { refresh: false });
+  if (organisation?.stale) {
+    throw new SingularityFlowError(
+      'The approved capability authority is unreachable, so only a stale cached map is available. Nothing was changed; restore Git access and preview again.',
+      { code: 'WORKSPACE_CAPABILITY_AUTHORITY_STALE' }
+    );
+  }
+  const authorityConfigurationBranch = String(
+    organisation?.configurationBranch ?? organisation?.branch ?? 'sflow/config'
+  ).trim();
+  const authorityConfigurationCommit = String(
+    organisation?.configurationCommit
+      ?? (organisation?.sourceBranch === authorityConfigurationBranch
+        ? organisation?.sourceCommit : '')
+  ).trim();
+  const authoritySourceBranch = String(
+    organisation?.sourceBranch ?? authorityConfigurationBranch
+  ).trim();
+  const authoritySourceCommit = String(organisation?.sourceCommit ?? '').trim();
+  if (!isGitRefName(authorityConfigurationBranch)
+      || !/^[0-9a-f]{40,64}$/i.test(authorityConfigurationCommit)
+      || !isGitRefName(authoritySourceBranch)
+      || !/^[0-9a-f]{40,64}$/i.test(authoritySourceCommit)) {
+    throw new SingularityFlowError(
+      'The approved capability map is not bound to an exact readable Git revision. Nothing was changed; refresh the organisation map and retry.',
+      { code: 'WORKSPACE_CAPABILITY_AUTHORITY_UNBOUND' }
+    );
+  }
+  if (organisation?.url
+      && storableRemote(organisation.url) !== storableRemote(authorityUrl)) {
+    throw new SingularityFlowError(
+      'The resolved capability map belongs to a different authority repository. Nothing was changed.',
+      { code: 'WORKSPACE_CAPABILITY_AUTHORITY_MISMATCH' }
+    );
+  }
+  const before = [...new Set(current.capabilities ?? [])].sort();
+  const selected = new Set(before);
+  const selectionChanged = action === 'attach' ? !selected.has(id) : selected.has(id);
+  const knownCapabilities = approvedCapabilityIds(organisation?.capabilities);
+  let detachedCapabilityPlan;
+  if (knownCapabilities.has(id)) {
+    detachedCapabilityPlan = resolveWorkspacePlan(organisation, { capabilities: [id] });
+  } else if (action === 'attach') {
+    // Preserve the resolver's authoritative unknown-capability diagnostic.
+    detachedCapabilityPlan = resolveWorkspacePlan(organisation, { capabilities: [id] });
+  } else if (dropLocal && selected.has(id)) {
+    throw new SingularityFlowError(
+      `Capability '${id}' is no longer present in the approved map. Detach it without --drop-local; local checkout removal requires a current approved repository mapping.`,
+      { code: 'WORKSPACE_CAPABILITY_RETIRED_DROP_REFUSED' }
+    );
+  } else {
+    // A retired/renamed capability must remain removable from local selection. Its persisted
+    // bindings are evidence only for a non-destructive detach; they never authorize local deletion.
+    detachedCapabilityPlan = {
+      repositories: Object.fromEntries(Object.entries(current.repositories)
+        .filter(([, repository]) => (repository.capabilities ?? []).includes(id)))
+    };
+  }
+  if (action === 'attach') selected.add(id);
+  else selected.delete(id);
+  const after = [...selected].sort();
+  const knownAfter = after.filter((capability) => knownCapabilities.has(capability));
+  let required = knownAfter.length
+    ? resolveWorkspacePlan(organisation, { capabilities: knownAfter })
+    : { repositories: {} };
+  for (const retired of after.filter((capability) => !knownCapabilities.has(capability))) {
+    required = mergeRequiredRepositoryPlans(required, {
+      repositories: Object.fromEntries(Object.entries(current.repositories)
+        .filter(([, repository]) => (repository.capabilities ?? []).includes(retired))
+        .map(([repositoryId, repository]) => [repositoryId, {
+          ...repository,
+          capabilities: (repository.capabilities ?? []).filter((capability) => capability === retired)
+        }]))
+    });
+  }
+
+  const repositories = Object.fromEntries(Object.entries(current.repositories).map(([repositoryId, repository]) => [
+    repositoryId, { ...repository, capabilities: [] }
+  ]));
+  for (const [repositoryId, approved] of Object.entries(required.repositories ?? {})) {
+    const existing = repositories[repositoryId];
+    if (existing) {
+      if (existing.url !== approved.url || existing.defaultBranch !== approved.defaultBranch) {
+        throw new SingularityFlowError(
+          `Workspace repository '${repositoryId}' no longer matches the approved capability map. Refresh or repair the workspace before changing capability attachments.`,
+          { code: 'WORKSPACE_CAPABILITY_REPOSITORY_MISMATCH' }
+        );
+      }
+      repositories[repositoryId] = {
+        ...existing,
+        capabilities: [...new Set(approved.capabilities ?? [])].sort()
+      };
+    } else {
+      repositories[repositoryId] = approved;
+    }
+  }
+
+  const requiredIds = new Set(Object.keys(required.repositories ?? {}));
+  const capabilityRepositoryIds = new Set(Object.keys(detachedCapabilityPlan.repositories ?? {}));
+  const dropIds = action === 'detach' && dropLocal
+    ? [...capabilityRepositoryIds]
+      .filter((repositoryId) => !requiredIds.has(repositoryId)
+        && repositoryId !== current.leadRepository
+        && current.repositories[repositoryId])
+      .sort()
+    : [];
+  if (dropIds.length) {
+    assertWorkspaceCapabilityDropNamespace(dropIds);
+    assertWorkspaceCapabilityDropPathsIsolated(current, dropIds.map((repositoryId) => ({
+      id: repositoryId,
+      path: workspaceRepositoryPath(current, current.repositories[repositoryId])
+    })));
+  }
+  for (const repositoryId of dropIds) delete repositories[repositoryId];
+
+  const manifest = validateWorkspaceManifest({
+    ...current,
+    capabilities: after,
+    repositories,
+    updatedAt: nowIso()
+  }, { workspaceRoot: current.path });
+  const changed = selectionChanged
+    || workspaceCapabilityTargetSha256(manifest) !== workspaceCapabilityTargetSha256(current);
+  const sourceManifestSha256 = workspaceCapabilityChangeSha256(current);
+  const addedRepositories = Object.keys(repositories)
+    .filter((repositoryId) => !current.repositories[repositoryId]).sort();
+  for (const repositoryId of addedRepositories) {
+    const target = workspaceRepositoryPath(manifest, manifest.repositories[repositoryId]);
+    if (await lstat(target).catch(() => null)) {
+      throw new SingularityFlowError(
+        `Repository '${repositoryId}' already has an unregistered local path at ${target}. Nothing was changed. Adopt or move that checkout explicitly before attaching this capability.`,
+        { code: 'WORKSPACE_CAPABILITY_TARGET_EXISTS' }
+      );
+    }
+  }
+  const dropGitEnv = dropIds.length ? workspaceDropGitEnvironment() : null;
+  const status = dropIds.length || action === 'attach'
+    ? await workspaceStatus(current.path, {
+      level: 'summary', env: dropGitEnv ?? process.env
+    }) : null;
+  let archiveReadiness = null;
+  if (dropIds.length) {
+    // Local remote-tracking refs are not publication evidence until they have been refreshed. A
+    // bounded fetch/prune of only the deletion candidates prevents a force-pushed or deleted remote
+    // branch from turning the last local copy into apparently safe disposable data.
+    const presentDropIds = dropIds.filter((repositoryId) =>
+      status?.repositories.find((repository) => repository.id === repositoryId)?.state === 'ready');
+    for (const repositoryId of presentDropIds) {
+      await assertWorkspaceDropLocalGitConfiguration(
+        current.repositories[repositoryId],
+        workspaceRepositoryPath(current, current.repositories[repositoryId]),
+        { env: dropGitEnv }
+      );
+    }
+    archiveReadiness = await workspaceArchiveReadiness(current.path, {
+      fetch: true, status, repositoryIds: presentDropIds, env: dropGitEnv
+    });
+    const active = archiveReadiness.activeStories.filter((story) => dropIds.includes(story.repository));
+    if (active.length) {
+      throw new SingularityFlowError(
+        `Cannot drop local repository checkout${dropIds.length === 1 ? '' : 's'} while governed work is active: `
+          + active.map((story) => `${story.id} in ${story.repository} is ${story.status}`).join('; '),
+        { code: 'WORKSPACE_CAPABILITY_DROP_ACTIVE_STORY', details: { activeStories: active } }
+      );
+    }
+    const candidateBlockers = archiveReadiness.blockers.filter((message) =>
+      dropIds.some((repositoryId) => message.includes(`Repository '${repositoryId}'`)));
+    if (candidateBlockers.length) {
+      throw new SingularityFlowError(
+        `Cannot prove local drop safety: ${candidateBlockers.join(' | ')}`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+      );
+    }
+  }
+  const dropRepositories = [];
+  for (const repositoryId of dropIds) {
+    const repositoryStatus = status?.repositories.find((entry) => entry.id === repositoryId);
+    dropRepositories.push(await dropProofOperation(
+      current, current.repositories[repositoryId], repositoryStatus, { env: dropGitEnv }
+    ));
+  }
+  const materializeRepositories = action === 'attach'
+    ? [...capabilityRepositoryIds].filter((repositoryId) => {
+        if (addedRepositories.includes(repositoryId)) return true;
+        return status?.repositories.find((repository) => repository.id === repositoryId)?.state !== 'ready';
+      }).sort()
+    : [];
+  const materializationStates = Object.fromEntries(materializeRepositories.map((repositoryId) => [
+    repositoryId,
+    addedRepositories.includes(repositoryId)
+      ? 'missing'
+      : status?.repositories.find((repository) => repository.id === repositoryId)?.state ?? 'missing'
+  ]));
+  const planPayload = {
+    action,
+    capabilityId: id,
+    dropLocal,
+    workspace: { id: current.id, path: current.path },
+    authority: {
+      url: authorityUrl,
+      configurationBranch: authorityConfigurationBranch,
+      configurationCommit: authorityConfigurationCommit,
+      sourceBranch: authoritySourceBranch,
+      sourceCommit: authoritySourceCommit
+    },
+    sourceManifestSha256,
+    selectedBefore: before,
+    selectedAfter: after,
+    addedRepositories,
+    materializeRepositories,
+    materializationStates,
+    requestedRepositoryIds: [...capabilityRepositoryIds].sort(),
+    droppedRepositories: dropRepositories.map(({
+      id: repositoryId, head, worktreeSha256, refsSha256, directoryIdentity, state, removable
+    }) => ({
+      id: repositoryId,
+      relativePath: current.repositories[repositoryId].path,
+      url: current.repositories[repositoryId].url,
+      defaultBranch: current.repositories[repositoryId].defaultBranch,
+      head, worktreeSha256, refsSha256, directoryIdentity, state, removable
+    })),
+    targetManifestSha256: workspaceCapabilityTargetSha256(manifest)
+  };
+  const planId = `wscp-${workspaceCapabilityChangeSha256(planPayload).slice('sha256:'.length, 'sha256:'.length + 24)}`;
+  return {
+    schemaVersion: 1, // schema-transient: exact workspace capability preview, never persisted
+    planId,
+    changed,
+    action,
+    capabilityId: id,
+    dropLocal,
+    workspace: planPayload.workspace,
+    authority: planPayload.authority,
+    selectedBefore: before,
+    selectedAfter: after,
+    addedRepositories,
+    materializeRepositories,
+    materializationStates,
+    requestedRepositoryIds: planPayload.requestedRepositoryIds,
+    dropRepositories,
+    preservedRepositories: Object.keys(repositories).sort(),
+    preservedLeadRepository: dropLocal && capabilityRepositoryIds.has(current.leadRepository)
+      && !requiredIds.has(current.leadRepository) ? current.leadRepository : null,
+    sourceManifestSha256,
+    plan: planPayload,
+    manifest
+  };
+}
+
+/** Apply an exact previewed capability transition and materialize only newly required clones. */
+export async function changeWorkspaceCapability(workspacePath, capabilityId, options = {}, {
+  confirmation = null
+} = {}) {
+  await recoverWorkspaceCapabilityDropTransactions(workspacePath);
+  // Apply never accepts a caller-supplied organisation projection. Preview injection exists only
+  // for read-only callers; persisted bytes are always recomputed from the live approved authority.
+  const preview = await previewWorkspaceCapabilityChange(workspacePath, capabilityId, {
+    action: options?.action ?? 'attach',
+    dropLocal: options?.dropLocal === true
+  });
+  if (confirmation !== preview.planId) {
+    throw new SingularityFlowError(
+      `Workspace capability change requires exact plan confirmation '${preview.planId}'. Preview again if the workspace or repository changed.`,
+      { code: 'WORKSPACE_CAPABILITY_CONFIRMATION_REQUIRED', details: { plan: preview } }
+    );
+  }
+  if (!preview.changed) {
+    let repaired = { repaired: [], status: await workspaceStatus(workspacePath) };
+    let materializationError = null;
+    if (preview.action === 'attach') {
+      const manifestFile = path.join(preview.workspace.path, WORKSPACE_FILE);
+      await withRegistryFileLease(manifestFile, async () => {
+        const current = await readWorkspace(preview.workspace.path);
+        if (workspaceCapabilityChangeSha256(current) !== preview.sourceManifestSha256) {
+          throw new SingularityFlowError(
+            'Workspace configuration changed after the capability preview. Nothing was changed; create a fresh preview.',
+            { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+          );
+        }
+      });
+      ({ repaired, materializationError } = await repairWorkspaceCapabilityAttachment(
+        preview.workspace.path, {
+          recoverCapabilityDrops: false,
+          repositoryIds: preview.requestedRepositoryIds,
+          expectedMissingRepositoryIds: preview.materializeRepositories
+        }
+      ));
+    }
+    return {
+      changed: false,
+      planId: preview.planId,
       workspace: repaired.status.workspace,
       status: repaired.status,
       repair: repaired.repaired,
-      materializationError: null
+      materializationError,
+      repairCommand: materializationError
+        ? `singularity-flow workspace repair ${JSON.stringify(preview.workspace.path)}` : null,
+      dropped: [],
+      retained: [],
+      removedRepositoryIds: []
     };
+  }
+  const manifestFile = path.join(preview.workspace.path, WORKSPACE_FILE);
+  const staged = [];
+  const dropped = [];
+  const retained = [];
+  let dropRoot = null;
+  let attachmentRepair = null;
+  await withRegistryFileLease(manifestFile, async () => {
+    await assertWorkspaceCapabilityAuthorityCurrent(preview.authority);
+    const current = await readWorkspace(preview.workspace.path);
+    if (workspaceCapabilityChangeSha256(current) !== preview.sourceManifestSha256) {
+      throw new SingularityFlowError(
+        'Workspace configuration changed after the capability preview. Nothing was changed; create a fresh preview.',
+        { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+      );
+    }
+    if (preview.dropRepositories.length) {
+      const candidates = preview.dropRepositories.map(({ id }) => ({
+        id,
+        path: workspaceRepositoryPath(current, current.repositories[id])
+      }));
+      assertWorkspaceCapabilityDropNamespace(candidates.map(({ id }) => id));
+      assertWorkspaceCapabilityDropPathsIsolated(current, candidates);
+    }
+    if (preview.action === 'attach' && preview.materializeRepositories.length) {
+      const materializationStatus = await workspaceStatus(current.path, { level: 'summary' });
+      for (const repositoryId of preview.materializeRepositories) {
+        const actualState = materializationStatus.repositories
+          .find((repository) => repository.id === repositoryId)?.state ?? 'missing';
+        const expectedState = preview.materializationStates?.[repositoryId] ?? 'missing';
+        if (actualState !== expectedState) {
+          throw new SingularityFlowError(
+            `Repository '${repositoryId}' local target changed from ${expectedState} to ${actualState} after preview. Nothing was claimed; inspect it and preview again.`,
+            { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+          );
+        }
+      }
+    }
+    if (!preview.dropRepositories.some((repository) => repository.removable)) {
+      for (const planned of preview.dropRepositories) {
+        const repository = current.repositories[planned.id];
+        const target = workspaceRepositoryPath(current, repository);
+        const targetInfo = await workspaceDropLstat(target);
+        if (planned.state !== 'missing' || targetInfo) {
+          throw new SingularityFlowError(
+            `Repository '${planned.id}' local target changed after preview. Nothing was detached; inspect it and preview again.`,
+            { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+          );
+        }
+      }
+      for (const repositoryId of preview.addedRepositories) {
+        const target = workspaceRepositoryPath(preview.manifest, preview.manifest.repositories[repositoryId]);
+        if (await workspaceDropLstat(target)) {
+          throw new SingularityFlowError(
+            `Repository '${repositoryId}' local target appeared after preview. Nothing was changed; inspect ${target} and preview again.`,
+            { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+          );
+        }
+      }
+      await atomicJson(manifestFile, preview.manifest);
+      return;
+    }
+
+    // Re-run every local safety proof while the workspace capability lease is held. A concurrent
+    // attach/detach cannot cross this section, and the atomic rename below makes the checkout
+    // unavailable before the manifest stops naming it.
+    const dropGitEnv = workspaceDropGitEnvironment();
+    const currentStatus = await workspaceStatus(current.path, {
+      level: 'summary', env: dropGitEnv
+    });
+    const candidateIds = preview.dropRepositories.map((repository) => repository.id);
+    const presentCandidateIds = candidateIds.filter((repositoryId) =>
+      currentStatus.repositories.find((repository) => repository.id === repositoryId)?.state === 'ready');
+    for (const repositoryId of presentCandidateIds) {
+      await assertWorkspaceDropLocalGitConfiguration(
+        current.repositories[repositoryId],
+        workspaceRepositoryPath(current, current.repositories[repositoryId]),
+        { env: dropGitEnv }
+      );
+    }
+    const readiness = await workspaceArchiveReadiness(current.path, {
+      fetch: true, status: currentStatus, repositoryIds: presentCandidateIds,
+      env: dropGitEnv
+    });
+    const active = readiness.activeStories.filter((story) => candidateIds.includes(story.repository));
+    if (active.length) {
+      throw new SingularityFlowError(
+        `Governed work became active after preview: ${active.map((story) => `${story.id} in ${story.repository}`).join(', ')}. Nothing was dropped.`,
+        { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+      );
+    }
+    const candidateBlockers = readiness.blockers.filter((message) =>
+      candidateIds.some((repositoryId) => message.includes(`Repository '${repositoryId}'`)));
+    if (candidateBlockers.length) {
+      throw new SingularityFlowError(
+        `Local drop safety changed after preview: ${candidateBlockers.join(' | ')}. Nothing was dropped.`,
+        { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+      );
+    }
+    const currentProofs = [];
+    for (const planned of preview.dropRepositories) {
+      const repository = current.repositories[planned.id];
+      const repositoryStatus = currentStatus.repositories.find((entry) => entry.id === planned.id);
+      const proof = await workspaceRepositoryDropProof(current, repository, repositoryStatus, {
+        env: dropGitEnv
+      });
+      if (proof.state !== planned.state || proof.head !== planned.head
+          || proof.worktreeSha256 !== planned.worktreeSha256
+          || proof.refsSha256 !== planned.refsSha256
+          || !equalDropDirectoryIdentity(proof.directoryIdentity, planned.directoryIdentity)
+          || proof.removable !== planned.removable) {
+        throw new SingularityFlowError(
+          `Repository '${planned.id}' changed after preview. Nothing was dropped; create a fresh preview.`,
+          { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+        );
+      }
+      currentProofs.push(proof);
+    }
+
+    assertWorkspaceCapabilityDropPathsIsolated(current, currentProofs.map((proof) => ({
+      id: proof.id, path: proof.path
+    })));
+
+    dropRoot = path.join(current.path, '.singularity-flow', 'workspace-capability-drop', preview.planId);
+    await assertInside(current.path, dropRoot);
+    if (await workspaceDropLstat(dropRoot)) {
+      throw new SingularityFlowError(
+        `A retained local-drop transaction already exists for ${preview.planId}. Run singularity-flow workspace repair ${JSON.stringify(current.path)} before retrying.`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_REQUIRED' }
+      );
+    }
+    await mkdir(dropRoot, { recursive: true });
+    const transactionFile = path.join(dropRoot, 'transaction.json');
+    const transaction = sealWorkspaceCapabilityDropTransaction({
+      schemaVersion: WORKSPACE_CAPABILITY_DROP_SCHEMA_VERSION,
+      format: 'workspace-capability-drop-v1',
+      planId: preview.planId,
+      phase: 'prepared',
+      workspace: current.path,
+      sourceManifestSha256: preview.sourceManifestSha256,
+      targetManifestSha256: workspaceCapabilityTargetSha256(preview.manifest),
+      plan: preview.plan,
+      repositories: currentProofs.map((proof) => ({
+        id: proof.id,
+        relativePath: current.repositories[proof.id].path,
+        url: current.repositories[proof.id].url,
+        defaultBranch: current.repositories[proof.id].defaultBranch,
+        state: proof.state,
+        removable: proof.removable,
+        source: proof.path,
+        staged: path.join(dropRoot, proof.id),
+        head: proof.head,
+        worktreeSha256: proof.worktreeSha256,
+        refsSha256: proof.refsSha256 ?? null,
+        directoryIdentity: proof.directoryIdentity ?? null,
+        stagedIdentity: proof.directoryIdentity ?? null
+      }))
+    });
+    await atomicJson(transactionFile, transaction);
+    try {
+      for (const proof of currentProofs) {
+        if (!proof.removable) continue;
+        const target = path.join(dropRoot, proof.id);
+        await assertInside(current.path, target);
+        await rename(proof.path, target);
+        const repository = current.repositories[proof.id];
+        const stagedIdentity = dropDirectoryIdentity(await lstat(target, { bigint: true }));
+        staged.push({ id: proof.id, source: proof.path, target, repository, proof, stagedIdentity });
+        if (!sameDropDirectoryIdentity(proof.directoryIdentity, stagedIdentity)) {
+          throw new SingularityFlowError(
+            `Repository '${proof.id}' checkout identity changed between safety proof and staging. Nothing was deleted.`,
+            { code: 'WORKSPACE_CAPABILITY_PLAN_STALE' }
+          );
+        }
+      }
+      const stagedTransaction = sealWorkspaceCapabilityDropTransaction({
+        ...transaction,
+        phase: 'staged',
+        repositories: transaction.repositories.map((repository) => ({
+          ...repository,
+          stagedIdentity: staged.find((item) => item.id === repository.id)?.stagedIdentity ?? null
+        }))
+      });
+      await atomicJson(transactionFile, stagedTransaction);
+      await atomicJson(manifestFile, preview.manifest);
+      await atomicJson(transactionFile, sealWorkspaceCapabilityDropTransaction({
+        ...stagedTransaction, phase: 'manifest-updated'
+      }));
+    } catch (error) {
+      const persisted = await readWorkspace(preview.workspace.path).catch(() => null);
+      const manifestUpdated = persisted
+        && workspaceCapabilityTargetSha256(persisted)
+          === workspaceCapabilityTargetSha256(preview.manifest);
+      if (!manifestUpdated) {
+        for (const repository of [...staged].reverse()) {
+          await rename(repository.target, repository.source).catch(() => {});
+        }
+      }
+      throw error;
+    }
+    // Keep finalization under the same manifest lease used by staging. Recovery takes this exact
+    // lease as well, so it can never race the live command over a transaction or retained checkout.
+    if (dropRoot) {
+      const finalized = await finalizeWorkspaceCapabilityDropTransaction(
+        preview.manifest, dropRoot, staged
+      );
+      dropped.push(...finalized.dropped);
+      retained.push(...finalized.retained);
+    }
+  });
+
+  if (preview.action === 'attach') {
+    attachmentRepair = await repairWorkspaceCapabilityAttachment(preview.workspace.path, {
+      recoverCapabilityDrops: false,
+      repositoryIds: preview.requestedRepositoryIds,
+      expectedMissingRepositoryIds: preview.materializeRepositories
+    });
+  }
+
+  const repaired = attachmentRepair?.repaired
+    ? attachmentRepair
+    : { repaired: [], status: await workspaceStatus(preview.workspace.path) };
+  const materializationError = attachmentRepair?.materializationError ?? null;
+  return {
+    changed: true,
+    planId: preview.planId,
+    workspace: repaired.status.workspace,
+    status: repaired.status,
+    repair: repaired.repaired,
+    materializationError,
+    repairCommand: materializationError || retained.length
+      ? `singularity-flow workspace repair ${JSON.stringify(preview.workspace.path)}` : null,
+    dropped,
+    retained,
+    removedRepositoryIds: preview.dropRepositories.map((repository) => repository.id),
+    preservedLeadRepository: preview.preservedLeadRepository
+  };
+}
+
+async function assertWorkspaceCapabilityAuthorityCurrent(authority) {
+  const configurationBranch = String(authority?.configurationBranch ?? '').trim();
+  const configurationCommit = String(authority?.configurationCommit ?? '').trim();
+  const sourceBranch = String(authority?.sourceBranch ?? '').trim();
+  const sourceCommit = String(authority?.sourceCommit ?? '').trim();
+  if (!authority?.url
+      || !isGitRefName(configurationBranch)
+      || !/^[0-9a-f]{40,64}$/i.test(configurationCommit)
+      || !isGitRefName(sourceBranch)
+      || !/^[0-9a-f]{40,64}$/i.test(sourceCommit)) {
+    throw new SingularityFlowError(
+      'The capability transition is not bound to an exact approved authority revision. Preview again.',
+      { code: 'WORKSPACE_CAPABILITY_AUTHORITY_UNBOUND' }
+    );
+  }
+  const env = enterpriseGitEnvironment();
+  const session = new GitRemoteSession({ env });
+  const refs = [...new Set([
+    `refs/heads/${configurationBranch}`, `refs/heads/${sourceBranch}`
+  ])];
+  const observation = await session.observeAsync(authority.url, {
+    includeHead: false, refs
+  });
+  requireRemoteObservation(observation, 'workspace capability authority');
+  const actualConfiguration = observation.refs.get(`refs/heads/${configurationBranch}`) ?? null;
+  const actualSource = observation.refs.get(`refs/heads/${sourceBranch}`) ?? null;
+  if (actualConfiguration !== configurationCommit || actualSource !== sourceCommit) {
+    throw new SingularityFlowError(
+      `The approved capability authority moved after preview (${configurationCommit.slice(0, 12)} -> ${actualConfiguration?.slice(0, 12) ?? 'missing'}). Nothing was changed; create a fresh preview.`,
+      {
+        code: 'WORKSPACE_CAPABILITY_PLAN_STALE',
+        details: {
+          configurationBranch,
+          expectedConfigurationCommit: configurationCommit,
+          actualConfigurationCommit: actualConfiguration,
+          sourceBranch,
+          expectedSourceCommit: sourceCommit,
+          actualSourceCommit: actualSource
+        }
+      }
+    );
+  }
+}
+
+async function repairWorkspaceCapabilityAttachment(workspacePath, options = {}) {
+  try {
+    const repaired = await repairWorkspace(workspacePath, options);
+    return { ...repaired, materializationError: null };
   } catch (error) {
     return {
-      updated: true,
-      workspace: await readWorkspace(preview.root),
-      status: await workspaceStatus(preview.root),
-      repair: [],
+      repaired: [],
+      status: await workspaceStatus(workspacePath),
       materializationError: error?.message || String(error)
     };
   }
 }
 
-function gitValue(root, args) {
-  const result = run('git', args, { cwd: root, allowFailure: true });
+async function assertDropTransactionChildren(directory, repositoryIds) {
+  assertWorkspaceCapabilityDropNamespace(repositoryIds, {
+    code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+  });
+  const allowed = new Set([
+    'transaction.json',
+    ...repositoryIds,
+    ...repositoryIds.map((id) => `${id}.deleting`)
+  ]);
+  const entries = await readdir(directory, { withFileTypes: true });
+  const unexpected = entries.filter((entry) => !allowed.has(entry.name));
+  if (unexpected.length) {
+    throw new SingularityFlowError(
+      `Local-drop transaction contains unrecognized path${unexpected.length === 1 ? '' : 's'}: ${unexpected.map((entry) => entry.name).join(', ')}. Nothing in the retained transaction was deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  const receipt = entries.find((entry) => entry.name === 'transaction.json');
+  if (!receipt?.isFile() || receipt.isSymbolicLink()) {
+    throw new SingularityFlowError(
+      'Local-drop transaction receipt is missing or is not a regular file. Nothing was deleted.',
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  return entries;
+}
+
+async function refreshStagedDropOrigin(repository, target, {
+  env = enterpriseGitEnvironment()
+} = {}) {
+  await assertWorkspaceDropLocalGitConfiguration(repository, target, { env });
+  if (!prepareRemoteBranchTracking(target, 'origin', { env })) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' has no origin remote. Retained local-drop data was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+  const transport = frozenRemoteTransport(repository.url, { env });
+  const refreshed = await runRemoteGitAsync([
+    'fetch', '--prune', transport.remote, '+refs/heads/*:refs/remotes/origin/*'
+  ], { cwd: target, operation: 'remote-configuration', env: transport.env });
+  if (refreshed.status !== 0) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' could not refresh its reviewed origin before retained data deletion. ${refreshed.failure?.advice ?? 'Restore Git access and retry.'}`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED' }
+    );
+  }
+}
+
+async function verifyStagedDropRepository(workspace, repository, recorded, {
+  refreshOrigin = false,
+  env = null
+} = {}) {
+  const gitEnv = workspaceDropGitEnvironment(env);
+  await assertInside(workspace.path, recorded.staged);
+  const info = await workspaceDropLstat(recorded.staged, { bigint: true });
+  if (!info?.isDirectory() || info.isSymbolicLink()
+      || !sameDropDirectoryIdentity(recorded.directoryIdentity, recorded.stagedIdentity)
+      || !sameDropDirectoryIdentity(recorded.stagedIdentity, dropDirectoryIdentity(info))) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' retained checkout identity changed after staging. It was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  if (refreshOrigin) await refreshStagedDropOrigin(repository, recorded.staged, { env: gitEnv });
+  const observedHead = gitValue(recorded.staged, ['rev-parse', 'HEAD'], { env: gitEnv });
+  const proof = await workspaceRepositoryDropProof(workspace, repository, {
+    state: 'ready', dirty: false, head: observedHead
+  }, { targetPath: recorded.staged, env: gitEnv });
+  if (proof.head !== recorded.head
+      || proof.worktreeSha256 !== recorded.worktreeSha256
+      || proof.refsSha256 !== recorded.refsSha256) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' changed after it was staged for local drop. Its retained checkout was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  return proof;
+}
+
+function removeDropRepositoryFromQuarantine(workspace, repository, quarantine, recorded) {
+  const workspaceRoot = path.resolve(workspace.path);
+  const resolvedQuarantine = path.resolve(quarantine);
+  if (!resolvedQuarantine.startsWith(`${workspaceRoot}${path.sep}`)) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' final quarantine escaped its workspace. It was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  assertWorkspaceCapabilityDropPathsIsolated(workspace, [{
+    id: repository.id, path: resolvedQuarantine
+  }]);
+  let quarantinedInfo = null;
+  try { quarantinedInfo = lstatSync(resolvedQuarantine, { bigint: true }); }
+  catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  if (!quarantinedInfo?.isDirectory() || quarantinedInfo.isSymbolicLink()
+      || !sameDropDirectoryIdentity(
+        recorded.stagedIdentity, dropDirectoryIdentity(quarantinedInfo)
+      )) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' final quarantine identity did not match the proved checkout. It was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  // The final rename gives deletion a distinct transaction-owned path. Verify the moved inode
+  // immediately before recursive removal without yielding the JS event loop between those two
+  // operations; a replacement at the former staged path is never read.
+  rmSync(resolvedQuarantine, { recursive: true });
+}
+
+async function finalizeStagedDropRepository(workspace, repository, recorded, {
+  refreshOrigin = false,
+  env = null
+} = {}) {
+  const gitEnv = workspaceDropGitEnvironment(env);
+  assertWorkspaceCapabilityDropPathsIsolated(workspace, [{
+    id: repository.id, path: recorded.staged
+  }]);
+  await verifyStagedDropRepository(workspace, repository, recorded, {
+    refreshOrigin, env: gitEnv
+  });
+  const quarantine = `${recorded.staged}.deleting`;
+  await assertInside(workspace.path, quarantine);
+  if (await workspaceDropLstat(quarantine)) {
+    throw new SingularityFlowError(
+      `Repository '${repository.id}' final quarantine path already exists. Retained checkout data was not deleted.`,
+      { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+    );
+  }
+  await rename(recorded.staged, quarantine);
+  removeDropRepositoryFromQuarantine(workspace, repository, quarantine, recorded);
+  return quarantine;
+}
+
+async function finalizeWorkspaceCapabilityDropTransaction(workspace, dropRoot, staged) {
+  const dropped = [];
+  const retained = [];
+  let transaction = null;
+  try {
+    await assertInside(workspace.path, dropRoot);
+    transaction = readRecord(
+      'workspace-capability-drop-transaction',
+      await readFile(path.join(dropRoot, 'transaction.json'))
+    ).record;
+    await assertDropTransactionChildren(
+      dropRoot, transaction.repositories.map((item) => item.id)
+    );
+  } catch (error) {
+    retained.push({
+      id: 'transaction', path: dropRoot, recoveryPath: dropRoot,
+      reason: error?.message || String(error)
+    });
+  }
+  const gitEnv = workspaceDropGitEnvironment();
+  for (const repository of staged) {
+    if (retained.length) {
+      retained.push({
+        id: repository.id, path: repository.source, recoveryPath: repository.target,
+        reason: 'The local-drop transaction requires repair before any retained checkout can be deleted.'
+      });
+      continue;
+    }
+    const recorded = {
+      staged: repository.target,
+      directoryIdentity: repository.proof.directoryIdentity,
+      stagedIdentity: repository.stagedIdentity,
+      head: repository.proof.head,
+      worktreeSha256: repository.proof.worktreeSha256,
+      refsSha256: repository.proof.refsSha256
+    };
+    try {
+      await finalizeStagedDropRepository(workspace, repository.repository, recorded, {
+        env: gitEnv
+      });
+      dropped.push({ id: repository.id, path: repository.source });
+    } catch (error) {
+      const quarantine = `${repository.target}.deleting`;
+      const recoveryPath = await workspaceDropLstat(quarantine)
+        ? quarantine : repository.target;
+      retained.push({
+        id: repository.id, path: repository.source, recoveryPath,
+        reason: error?.message || String(error)
+      });
+    }
+  }
+  if (!retained.length) {
+    try {
+      await assertInside(workspace.path, dropRoot);
+      if (!(await removeCompletedDropTransaction(dropRoot, transaction))) {
+        retained.push({
+          id: 'transaction', path: dropRoot, recoveryPath: dropRoot,
+          reason: 'The checkout was safely dropped, but a concurrent path prevented transaction cleanup. Run workspace repair.'
+        });
+      }
+    } catch (error) {
+      retained.push({
+        id: 'transaction', path: dropRoot, recoveryPath: dropRoot,
+        reason: error?.message || String(error)
+      });
+    }
+  }
+  return { dropped, retained };
+}
+
+async function removeCompletedDropTransaction(directory, transaction) {
+  const entries = await assertDropTransactionChildren(directory, []);
+  if (entries.length !== 1) return false;
+  const receipt = path.join(directory, 'transaction.json');
+  await rm(receipt, { force: true });
+  try {
+    await rmdir(directory);
+    return true;
+  } catch {
+    // A new entry may have appeared after the exact child check. Restore the receipt so the
+    // transaction remains visible and recoverable; never recursively remove an unknown path.
+    await atomicJson(receipt, transaction).catch(() => {});
+    return false;
+  }
+}
+
+/**
+ * Recover only workspace-owned, hash-bound drop staging left by an interrupted local operation.
+ * If the current manifest still names a repository, restore it; otherwise the already-detached
+ * staging is the disposable side and can be removed. Unknown bytes are retained for inspection.
+ */
+async function recoverWorkspaceCapabilityDropTransactions(workspacePath) {
+  const initial = await readWorkspace(workspacePath);
+  const manifestFile = path.join(initial.path, WORKSPACE_FILE);
+  await withRegistryFileLease(manifestFile, async () => {
+    const workspace = await readWorkspace(initial.path);
+    const dropGitEnv = workspaceDropGitEnvironment();
+    const root = path.join(workspace.path, '.singularity-flow', 'workspace-capability-drop');
+    try { await assertInside(workspace.path, root); }
+    catch (error) {
+      throw new SingularityFlowError(
+        `Workspace capability-drop recovery root escaped its canonical workspace: ${error.message}`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+      );
+    }
+    const rootInfo = await workspaceDropLstat(root);
+    if (rootInfo?.isSymbolicLink() || (rootInfo && !rootInfo.isDirectory())) {
+      throw new SingularityFlowError(
+        `Workspace capability-drop recovery root is not a regular directory: ${root}`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+      );
+    }
+    let transactions;
+    try { transactions = await readdir(root, { withFileTypes: true }); }
+    catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw new SingularityFlowError(
+        `Workspace capability-drop recovery cannot inspect ${root}: ${error.message}`,
+        { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+      );
+    }
+    const recoveries = [];
+    const blockers = [];
+    for (const entry of transactions) {
+      if (!/^wscp-[0-9a-f]{24}$/.test(entry.name)) continue;
+      const directory = path.join(root, entry.name);
+      try { await assertInside(workspace.path, directory); }
+      catch (error) {
+        blockers.push(`${directory}: recovery directory escaped its canonical workspace (${error.message})`);
+        continue;
+      }
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        blockers.push(`${directory}: transaction path is not a regular directory`);
+        continue;
+      }
+      const file = path.join(directory, 'transaction.json');
+      let transaction;
+      try {
+        transaction = readRecord(
+          'workspace-capability-drop-transaction', await readFile(file)
+        ).record;
+      } catch (error) {
+        blockers.push(`${file}: ${error.message}`);
+        continue;
+      }
+      const planDigest = workspaceCapabilityChangeSha256(transaction?.plan ?? null);
+      const derivedPlanId = `wscp-${planDigest.slice('sha256:'.length, 'sha256:'.length + 24)}`;
+      if (transaction?.format !== 'workspace-capability-drop-v1'
+          || transaction?.planId !== entry.name
+          || derivedPlanId !== entry.name
+          || !validWorkspaceCapabilityDropTransactionSeal(transaction)
+          || !['prepared', 'staged', 'manifest-updated'].includes(transaction?.phase)
+          || transaction?.workspace !== workspace.path
+          || transaction?.plan?.workspace?.path !== workspace.path
+          || transaction?.plan?.action !== 'detach'
+          || transaction?.plan?.dropLocal !== true
+          || transaction?.plan?.sourceManifestSha256 !== transaction.sourceManifestSha256
+          || transaction?.plan?.targetManifestSha256 !== transaction.targetManifestSha256
+          || !Array.isArray(transaction.repositories)
+          || !transaction.repositories.length
+          || !Array.isArray(transaction?.plan?.droppedRepositories)) {
+        blockers.push(`${file}: transaction identity or digest is invalid`);
+        continue;
+      }
+      const recoveryMode = transaction.sourceManifestSha256
+          === workspaceCapabilityChangeSha256(workspace)
+        ? 'restore'
+        : transaction.targetManifestSha256 === workspaceCapabilityTargetSha256(workspace)
+          ? 'discard'
+          : null;
+      if (!recoveryMode) {
+        blockers.push(`${file}: workspace manifest matches neither the recorded source nor target`);
+        continue;
+      }
+      try {
+        await assertDropTransactionChildren(
+          directory,
+          transaction.repositories.map((repository) => String(repository?.id ?? ''))
+        );
+      } catch (error) {
+        blockers.push(`${file}: ${error.message}`);
+        continue;
+      }
+      const plannedDrops = new Map(transaction.plan.droppedRepositories
+        .map((repository) => [repository?.id, repository]));
+      const candidates = [];
+      let unsafe = null;
+      const seen = new Set();
+      for (const repository of transaction.repositories) {
+        const id = String(repository?.id ?? '');
+        const relativePath = String(repository?.relativePath ?? '');
+        const source = path.resolve(String(repository?.source ?? ''));
+        const staged = path.resolve(String(repository?.staged ?? ''));
+        const quarantine = `${staged}.deleting`;
+        const planned = plannedDrops.get(id);
+        if (seen.has(id)
+            || !planned
+            || planned.relativePath !== relativePath
+            || planned.url !== repository.url
+            || planned.defaultBranch !== repository.defaultBranch
+            || planned.head !== repository.head
+            || planned.worktreeSha256 !== repository.worktreeSha256
+            || planned.refsSha256 !== repository.refsSha256
+            || planned.state !== repository.state
+            || planned.removable !== repository.removable
+            || !equalDropDirectoryIdentity(
+              planned.directoryIdentity, repository.directoryIdentity
+            )) {
+          unsafe = `repository '${id || 'unknown'}' does not match the sealed plan`;
+          break;
+        }
+        seen.add(id);
+        let pathsCurrent = false;
+        try {
+          pathsCurrent = currentDropRecoveryPath(
+            workspace, id, relativePath, source, staged, quarantine, directory
+          );
+        } catch { pathsCurrent = false; }
+        try {
+          await assertInside(workspace.path, source);
+          await assertInside(workspace.path, staged);
+          await assertInside(workspace.path, quarantine);
+          await assertInside(workspace.path, directory);
+        } catch {
+          unsafe = `repository '${id || 'unknown'}' recovery path escaped its canonical workspace`;
+          break;
+        }
+        let sourceInfo;
+        let stagedInfo;
+        let quarantineInfo;
+        try {
+          sourceInfo = await workspaceDropLstat(source, { bigint: true });
+          stagedInfo = await workspaceDropLstat(staged, { bigint: true });
+          quarantineInfo = await workspaceDropLstat(quarantine, { bigint: true });
+        } catch (error) {
+          unsafe = `repository '${id || 'unknown'}' recovery path could not be inspected (${error.message})`;
+          break;
+        }
+        const presentPaths = [sourceInfo, stagedInfo, quarantineInfo].filter(Boolean).length;
+        if (!pathsCurrent
+            || (sourceInfo && (sourceInfo.isSymbolicLink() || !sourceInfo.isDirectory()))
+            || (stagedInfo && (stagedInfo.isSymbolicLink() || !stagedInfo.isDirectory()))
+            || (quarantineInfo
+              && (quarantineInfo.isSymbolicLink() || !quarantineInfo.isDirectory()))
+            || presentPaths > 1) {
+          unsafe = `repository '${id || 'unknown'}' has an unsafe or ambiguous recovery path`;
+          break;
+        }
+        if (sourceInfo && repository.directoryIdentity
+            && !sameDropDirectoryIdentity(
+              repository.directoryIdentity, dropDirectoryIdentity(sourceInfo)
+            )) {
+          unsafe = `repository '${id}' source checkout identity changed`;
+          break;
+        }
+        if (stagedInfo && (!sameDropDirectoryIdentity(
+          repository.directoryIdentity, repository.stagedIdentity
+        ) || !sameDropDirectoryIdentity(
+          repository.stagedIdentity, dropDirectoryIdentity(stagedInfo)
+        ))) {
+          unsafe = `repository '${id}' staged checkout identity changed`;
+          break;
+        }
+        if (quarantineInfo && (!sameDropDirectoryIdentity(
+          repository.directoryIdentity, repository.stagedIdentity
+        ) || !sameDropDirectoryIdentity(
+          repository.stagedIdentity, dropDirectoryIdentity(quarantineInfo)
+        ))) {
+          unsafe = `repository '${id}' final quarantine identity changed`;
+          break;
+        }
+        if (recoveryMode === 'restore' && !sourceInfo && !stagedInfo && !quarantineInfo) {
+          if (planned.state !== 'missing') {
+            unsafe = `repository '${id}' is absent from both its source and staging paths`;
+            break;
+          }
+        }
+        if (recoveryMode === 'discard' && sourceInfo) {
+          unsafe = `repository '${id}' reappeared at its source path after detach`;
+          break;
+        }
+        const observedPath = stagedInfo ? staged
+          : quarantineInfo ? quarantine
+            : sourceInfo ? source : null;
+        if (observedPath) {
+          if (!/^[0-9a-f]{40,64}$/i.test(String(repository.head ?? ''))
+              || !/^[0-9a-f]{64}$/.test(String(repository.worktreeSha256 ?? ''))) {
+            unsafe = `repository '${id}' is missing its exact checkout proof`;
+            break;
+          }
+          const observedHead = gitValue(observedPath, ['rev-parse', 'HEAD'], {
+            env: dropGitEnv
+          });
+          const observedFingerprint = worktreeFingerprint(observedPath, {
+            fresh: true, env: dropGitEnv, exhaustive: true
+          });
+          if (observedHead !== repository.head
+              || (repository.worktreeSha256
+                && observedFingerprint.sha256 !== repository.worktreeSha256)) {
+            unsafe = `repository '${id}' bytes no longer match the recorded checkout proof`;
+            break;
+          }
+        }
+        candidates.push({
+          id, source, staged, quarantine, sourceInfo, stagedInfo, quarantineInfo,
+          repository: {
+            ...workspace.repositories[id],
+            id,
+            url: repository.url,
+            defaultBranch: repository.defaultBranch
+          },
+          recorded: repository
+        });
+      }
+      if (seen.size !== plannedDrops.size && !unsafe) {
+        unsafe = 'recorded repositories do not exactly match the sealed drop plan';
+      }
+      if (!unsafe) {
+        try {
+          assertWorkspaceCapabilityDropPathsIsolated(workspace, candidates.flatMap((candidate) => [
+            { id: candidate.id, path: candidate.source },
+            ...(candidate.stagedInfo ? [{ id: candidate.id, path: candidate.staged }] : []),
+            ...(candidate.quarantineInfo ? [{ id: candidate.id, path: candidate.quarantine }] : [])
+          ]));
+        } catch (error) {
+          unsafe = error?.message || String(error);
+        }
+      }
+      if (unsafe) {
+        blockers.push(`${file}: ${unsafe}`);
+        continue;
+      }
+      recoveries.push({ directory, recoveryMode, candidates, transaction });
+    }
+    if (blockers.length) {
+      throw new SingularityFlowError(
+        `Workspace capability-drop recovery is blocked. Retained for manual inspection: ${blockers.join(' | ')}`,
+        {
+          code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED',
+          details: { blockers }
+        }
+      );
+    }
+    for (const recovery of recoveries) {
+      for (const repository of recovery.candidates) {
+        if (!repository.stagedInfo && !repository.quarantineInfo) continue;
+        await assertInside(workspace.path, recovery.directory);
+        await assertInside(workspace.path, repository.staged);
+        await assertInside(workspace.path, repository.quarantine);
+        await assertInside(workspace.path, repository.source);
+        const retainedPath = repository.quarantineInfo
+          ? repository.quarantine : repository.staged;
+        if (recovery.recoveryMode === 'restore') {
+          await rename(retainedPath, repository.source);
+        } else if (repository.quarantineInfo) {
+          const quarantinedRecord = { ...repository.recorded, staged: repository.quarantine };
+          await verifyStagedDropRepository(
+            workspace, repository.repository, quarantinedRecord, {
+              refreshOrigin: true, env: dropGitEnv
+            }
+          );
+          removeDropRepositoryFromQuarantine(
+            workspace, repository.repository, repository.quarantine, repository.recorded
+          );
+        } else {
+          await finalizeStagedDropRepository(
+            workspace, repository.repository, repository.recorded, {
+              refreshOrigin: true, env: dropGitEnv
+            }
+          );
+        }
+      }
+      try {
+        await assertInside(workspace.path, recovery.directory);
+        if (!(await removeCompletedDropTransaction(recovery.directory, recovery.transaction))) {
+          throw new Error('transaction directory changed during final cleanup');
+        }
+      } catch (error) {
+        throw new SingularityFlowError(
+          `Workspace capability-drop recovery completed its repository action but retained the transaction receipt: ${error.message}`,
+          { code: 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED' }
+        );
+      }
+    }
+  });
+}
+
+function currentDropRecoveryPath(
+  workspace, id, relativePath, source, staged, quarantine, transactionRoot
+) {
+  const resolvedWorkspace = path.resolve(workspace.path);
+  const inside = (candidate, parent) => candidate.startsWith(`${path.resolve(parent)}${path.sep}`);
+  const normalizedRelative = safeRelative(relativePath, `Workspace repository '${id}' recovery path`);
+  const expectedSource = path.resolve(workspace.path, normalizedRelative);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)
+    && normalizedRelative.startsWith('repos/')
+    && source === expectedSource
+    && inside(source, path.join(workspace.path, 'repos'))
+    && staged === path.resolve(transactionRoot, id)
+    && quarantine === `${path.resolve(transactionRoot, id)}.deleting`
+    && inside(transactionRoot, resolvedWorkspace);
+}
+
+function gitValue(root, args, { env = process.env } = {}) {
+  const result = run('git', args, { cwd: root, env, allowFailure: true });
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
@@ -2110,7 +4336,10 @@ async function repositoryWorldModelStatus(root) {
   }
 }
 
-async function repositoryStatus(root, repository, { level = 'full' } = {}) {
+async function repositoryStatus(root, repository, {
+  level = 'full',
+  env = process.env
+} = {}) {
   const absolute = repository.adoption?.canonicalPath ?? path.join(root, repository.path);
   if (repository.adoption) {
     const canonical = await realpath(absolute).catch(() => null);
@@ -2158,13 +4387,13 @@ async function repositoryStatus(root, repository, { level = 'full' } = {}) {
     readinessOnly
       ? Promise.resolve('')
       : gitValueAsync(absolute, ['status', '--porcelain=v1', level === 'summary'
-        ? '--untracked-files=no' : '--untracked-files=all']),
-    gitValueAsync(absolute, ['branch', '--show-current']),
+        ? '--untracked-files=no' : '--untracked-files=all'], { env }),
+    gitValueAsync(absolute, ['branch', '--show-current'], { env }),
     // Read the durable identity rather than Git's operationally rewritten URL. Workspace transports
     // freeze this exact value per invocation; ambient url.* rules are neither manifest authority nor
     // permission to make an otherwise correct clone look permanently misconfigured.
-    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url']),
-    gitValueAsync(absolute, ['rev-parse', 'HEAD'])
+    gitValueAsync(absolute, ['config', '--local', '--get', 'remote.origin.url'], { env }),
+    gitValueAsync(absolute, ['rev-parse', 'HEAD'], { env })
   ]);
   const dirty = Boolean(statusText);
   let operationalRemote = null;
@@ -2185,13 +4414,16 @@ async function repositoryStatus(root, repository, { level = 'full' } = {}) {
   };
 }
 
-export async function workspaceStatus(workspacePath, { level = 'full' } = {}) {
+export async function workspaceStatus(workspacePath, {
+  level = 'full',
+  env = process.env
+} = {}) {
   if (!['readiness', 'summary', 'full'].includes(level)) {
     throw new SingularityFlowError(`Unknown workspace status level '${level}'.`);
   }
   const workspace = await readWorkspace(workspacePath);
   const repositories = await Promise.all(Object.values(workspace.repositories).map((repository) =>
-    repositoryStatus(workspace.path, repository, { level })));
+    repositoryStatus(workspace.path, repository, { level, env })));
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
   const warnings = repositories
     .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)
@@ -2414,12 +4646,28 @@ export async function workspaceArchiveReadiness(workspacePath, {
   fetch = true,
   status: suppliedStatus = null,
   workers = null,
-  env = process.env
+  env = process.env,
+  repositoryIds = null
 } = {}) {
-  const status = suppliedStatus ?? await workspaceStatus(workspacePath);
+  const status = suppliedStatus ?? await workspaceStatus(workspacePath, { env });
+  const selectedRepositoryIds = repositoryIds == null
+    ? null : new Set(repositoryIds.map((id) => String(id)));
+  const repositoriesToInspect = selectedRepositoryIds
+    ? status.repositories.filter((repository) => selectedRepositoryIds.has(repository.id))
+    : status.repositories;
+  if (selectedRepositoryIds) {
+    const missing = [...selectedRepositoryIds]
+      .filter((id) => !status.repositories.some((repository) => repository.id === id));
+    if (missing.length) {
+      throw new SingularityFlowError(
+        `Workspace archive safety cannot inspect unknown repository ${missing.join(', ')}.`,
+        { code: 'WORKSPACE_REPOSITORY_UNKNOWN' }
+      );
+    }
+  }
   const inspected = await mapLimit(
-    status.repositories,
-    gitWorkerCount(status.repositories.length, { requested: workers }),
+    repositoriesToInspect,
+    gitWorkerCount(repositoriesToInspect.length, { requested: workers }),
     async (repository) => {
     const record = {
       id: repository.id,
@@ -2441,7 +4689,7 @@ export async function workspaceArchiveReadiness(workspacePath, {
         // Legacy and explicitly single-branch clones otherwise keep fetching only their original
         // branch. Persist the full branch refspec before the parallel network fetch so remote-only
         // Stories remain visible to the archive safety check.
-        if (!prepareRemoteBranchTracking(repository.absolutePath, 'origin')) {
+        if (!prepareRemoteBranchTracking(repository.absolutePath, 'origin', { env })) {
           blockers.push(`Repository '${repository.id}' has no origin remote; repair it before archiving the workspace.`);
           return { record, blockers, activeStories };
         }
@@ -2466,13 +4714,15 @@ export async function workspaceArchiveReadiness(workspacePath, {
 
     const definition = await repositoryWorkflowDefinition(repository.absolutePath);
     const refs = [
-      ...remoteBranches(repository.absolutePath, definition.git?.remote ?? 'origin')
+      ...remoteBranches(repository.absolutePath, definition.git?.remote ?? 'origin', { env })
         .map((branch) => ({ branch, ref: `${definition.git?.remote ?? 'origin'}/${branch}` })),
-      ...localBranches(repository.absolutePath).map((branch) => ({ branch, ref: branch }))
+      ...localBranches(repository.absolutePath, { env }).map((branch) => ({ branch, ref: branch }))
     ];
     const indexes = [
       await buildRepositorySubjectIndex(repository.absolutePath, { definition }),
-      await buildRepositorySubjectIndexFromRefs(repository.absolutePath, { definition, refs })
+      await buildRepositorySubjectIndexFromRefs(repository.absolutePath, {
+        definition, refs, env, fresh: true
+      })
     ];
     const seen = new Set();
     const active = new Map();
@@ -2563,14 +4813,43 @@ export async function repairWorkspace(workspacePath, {
   workers = null,
   env = process.env,
   cloneOperation = cloneIntoWorkspace,
-  adoptionOperation = verifyAdoptionOperation
+  adoptionOperation = verifyAdoptionOperation,
+  recoverCapabilityDrops = true,
+  repositoryIds = null,
+  expectedMissingRepositoryIds = []
 } = {}) {
+  // Finish or roll back a hash-bound local-drop transaction before classifying missing clones.
+  // Recovery uses the same manifest lease as detach, so repair cannot race a live transition.
+  if (recoverCapabilityDrops) await recoverWorkspaceCapabilityDropTransactions(workspacePath);
   const status = await workspaceStatus(workspacePath);
+  const sourceManifestSha256 = workspaceCapabilityChangeSha256(status.workspace);
+  const selectedRepositoryIds = repositoryIds == null
+    ? null : new Set(repositoryIds.map((id) => String(id)));
+  const expectedMissing = new Set(expectedMissingRepositoryIds.map((id) => String(id)));
+  if (selectedRepositoryIds) {
+    const missing = [...selectedRepositoryIds]
+      .filter((id) => !status.repositories.some((repository) => repository.id === id));
+    if (missing.length) {
+      throw new SingularityFlowError(
+        `Workspace repair cannot materialize repository ${missing.join(', ')} because it is no longer in the workspace manifest.`,
+        { code: 'WORKSPACE_REPAIR_PLAN_STALE' }
+      );
+    }
+  }
+  const unexpectedlyPresent = status.repositories.filter((repository) =>
+    expectedMissing.has(repository.id) && repository.state === 'ready');
+  if (unexpectedlyPresent.length) {
+    throw new SingularityFlowError(
+      `A local checkout appeared before SFlow could materialize ${unexpectedlyPresent.map((repository) => repository.id).join(', ')}. It was not adopted or claimed by this workspace; inspect or move it before retrying.`,
+      { code: 'WORKSPACE_CAPABILITY_TARGET_EXISTS' }
+    );
+  }
   const journal = await readRepairJournal(status.workspace, status.repositories);
   const repaired = [];
   const pending = status.repositories.map((repository, index) => ({
     repository, operation: journal.operations[index]
-  })).filter(({ repository }) => repository.state !== 'ready');
+  })).filter(({ repository }) => repository.state !== 'ready'
+    && (!selectedRepositoryIds || selectedRepositoryIds.has(repository.id)));
   const gitEnv = pending.length ? enterpriseGitEnvironment(env) : env;
   const unrepairable = pending.find(({ repository }) =>
     !repository.adoption && !['missing', 'empty'].includes(repository.state));
@@ -2639,7 +4918,21 @@ export async function repairWorkspace(workspacePath, {
     const { repository, operation } = pending[index];
     const stagedResult = staged[index];
     const result = stagedResult.status === 0 && stagedResult.claim
-      ? await stagedResult.claim() : stagedResult;
+      ? await withRegistryFileLease(path.join(status.workspace.path, WORKSPACE_FILE), async () => {
+          const current = await readWorkspace(status.workspace.path);
+          const currentRepository = current.repositories[repository.id];
+          if (workspaceCapabilityChangeSha256(current) !== sourceManifestSha256
+              || !currentRepository
+              || currentRepository.url !== repository.url
+              || currentRepository.defaultBranch !== repository.defaultBranch
+              || currentRepository.path !== repository.path) {
+            return {
+              status: 1,
+              error: `Workspace configuration changed while repository '${repository.id}' was cloning. Its staged clone was not claimed; run workspace repair again.`
+            };
+          }
+          return stagedResult.claim();
+        }) : stagedResult;
     if (stagedResult.status === 0 && stagedResult.claim && result.status === 0) {
       claimedStagedResults.add(stagedResult);
     }

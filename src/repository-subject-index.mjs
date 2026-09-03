@@ -215,12 +215,12 @@ function safeRefRoot(value, fallback) {
  * exact definition it was created under, so discovery reads only these two path settings from that
  * ref and still falls back to the caller's definition for legacy branches without a snapshot.
  */
-function localConfigurationAtRef(root, ref, relative) {
+function localConfigurationAtRef(root, ref, relative, env = process.env) {
   const observed = run('git', ['show', `${ref}:${relative}`], {
     cwd: root,
     allowFailure: true,
     env: {
-      ...process.env,
+      ...env,
       GIT_NO_LAZY_FETCH: '1',
       GIT_TERMINAL_PROMPT: '0',
       GCM_INTERACTIVE: 'Never'
@@ -239,9 +239,13 @@ function localConfigurationAtRef(root, ref, relative) {
   };
 }
 
-function rootsForRef(root, ref, { workRoot, initiativeRoot }) {
-  const definitionSource = localConfigurationAtRef(root, ref, 'singularity/workflow.yml');
-  const portfolioSource = localConfigurationAtRef(root, ref, 'singularity/portfolio.yml');
+function rootsForRef(root, ref, { workRoot, initiativeRoot, env = process.env }) {
+  const definitionSource = localConfigurationAtRef(
+    root, ref, 'singularity/workflow.yml', env
+  );
+  const portfolioSource = localConfigurationAtRef(
+    root, ref, 'singularity/portfolio.yml', env
+  );
   const unavailable = [definitionSource, portfolioSource].find((entry) => entry.status === 'unavailable');
   if (unavailable) return { status: 'unavailable', reason: unavailable.reason };
   try {
@@ -260,7 +264,9 @@ function rootsForRef(root, ref, { workRoot, initiativeRoot }) {
 export async function buildRepositorySubjectIndexFromRefs(root, {
   definition = {},
   portfolio = null,
-  refs = []
+  refs = [],
+  env = process.env,
+  fresh = false
 } = {}) {
   const index = new RepositorySubjectIndex();
   const workRoot = String(definition.workItemRoot ?? 'singularity/work-items').replace(/\/$/, '');
@@ -268,15 +274,23 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   for (const item of refs) {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
-    const commit = refHead(root, ref);
-    const cacheKey = JSON.stringify([path.resolve(root), commit, workRoot, initiativeRoot]);
-    const cached = cachedRefSubjects(cacheKey, () => {
-      const roots = rootsForRef(root, ref, { workRoot, initiativeRoot });
+    const commit = refHead(root, ref, { env });
+    const cacheKey = JSON.stringify([
+      path.resolve(root), commit, workRoot, initiativeRoot,
+      env === process.env ? 'ambient' : 'explicit-environment'
+    ]);
+    const load = () => {
+      const roots = rootsForRef(root, ref, { workRoot, initiativeRoot, env });
       const observed = roots.status === 'ok'
-        ? readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], { filter: isSubjectRecord })
+        ? readRefTreeResult(root, ref, [roots.workRoot, roots.initiativeRoot], {
+          filter: isSubjectRecord, env
+        })
         : null;
       return { roots, observed };
-    });
+    };
+    // Destructive-readiness checks explicitly request a fresh scan so neither stale branch bytes
+    // nor an earlier caller's environment-specific cache entry can authorize local deletion.
+    const cached = fresh ? load() : cachedRefSubjects(cacheKey, load);
     const { roots, observed } = cached;
     if (roots.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({

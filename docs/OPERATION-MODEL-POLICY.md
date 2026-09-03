@@ -492,6 +492,8 @@ Every public operation is classified before its implementation module is importe
 | workspace.adopt | mutation | never | — | — |
 | workspace.archive | mutation | never | — | — |
 | workspace.archive-status | read | never | — | — |
+| workspace.attach-capability | mutation | never | — | — |
+| workspace.attach-capability.preview | read | never | — | — |
 | workspace.bootstrap.abandon | mutation | never | — | — |
 | workspace.bootstrap.resume | mutation | never | — | — |
 | workspace.bootstrap.status | read | never | — | — |
@@ -501,6 +503,8 @@ Every public operation is classified before its implementation module is importe
 | workspace.copilot.preview | read | never | — | — |
 | workspace.create | mutation | never | — | — |
 | workspace.current | read | never | — | — |
+| workspace.detach-capability | mutation | never | — | — |
+| workspace.detach-capability.preview | read | never | — | — |
 | workspace.doctor | read | never | — | — |
 | workspace.documents | read | never | — | — |
 | workspace.duplicate | mutation | never | — | — |

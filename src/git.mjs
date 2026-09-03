@@ -313,8 +313,8 @@ export function refExists(root, ref) {
   return git(['show-ref', '--verify', '--quiet', ref], { cwd: root, allowFailure: true }).status === 0;
 }
 
-export function hasRemote(root, remote = 'origin') {
-  return git(['remote', 'get-url', remote], { cwd: root, allowFailure: true }).status === 0;
+export function hasRemote(root, remote = 'origin', { env = process.env } = {}) {
+  return git(['remote', 'get-url', remote], { cwd: root, env, allowFailure: true }).status === 0;
 }
 
 export function changes(root) {
@@ -325,8 +325,8 @@ export function assertClean(root) {
   if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }
 
-export function prepareRemoteBranchTracking(root, remote = 'origin') {
-  if (!hasRemote(root, remote)) return false;
+export function prepareRemoteBranchTracking(root, remote = 'origin', { env = process.env } = {}) {
+  if (!hasRemote(root, remote, { env })) return false;
   // Managed workspaces used to be cloned with --single-branch, leaving the configured fetch
   // refspec pinned to main. A normal `git fetch origin` then never discovered Epic and Story
   // branches created by another machine, so the desktop could create a conflicting local branch
@@ -334,10 +334,10 @@ export function prepareRemoteBranchTracking(root, remote = 'origin') {
   // fetch its branch namespace. Persisting the refspec is important: Git will not recognize a
   // fetched ref as a valid upstream if that ref is outside remote.<name>.fetch.
   const trackingProbe = `refs/remotes/${remote}/singularity-flow-probe`;
-  if (git(['check-ref-format', trackingProbe], { cwd: root, allowFailure: true }).status !== 0) {
+  if (git(['check-ref-format', trackingProbe], { cwd: root, env, allowFailure: true }).status !== 0) {
     throw new SingularityFlowError(`Git remote '${remote}' cannot be used as a remote-tracking namespace.`);
   }
-  git(['remote', 'set-branches', remote, '*'], { cwd: root });
+  git(['remote', 'set-branches', remote, '*'], { cwd: root, env });
   return true;
 }
 
@@ -426,8 +426,8 @@ export function checkout(root, name, {
   return `created-from-${baseRef}`;
 }
 
-export function refHead(root, ref) {
-  const result = git(['rev-parse', '--verify', ref], { cwd: root, allowFailure: true });
+export function refHead(root, ref, { env = process.env } = {}) {
+  const result = git(['rev-parse', '--verify', ref], { cwd: root, env, allowFailure: true });
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
@@ -436,10 +436,10 @@ export function fastForwardTo(root, ref) {
   return head(root);
 }
 
-export function remoteBranches(root, remote = 'origin') {
-  if (!hasRemote(root, remote)) return [];
+export function remoteBranches(root, remote = 'origin', { env = process.env } = {}) {
+  if (!hasRemote(root, remote, { env })) return [];
   const prefix = `refs/remotes/${remote}/`;
-  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root }).stdout
+  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
     .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
     .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== 'HEAD');
 }
@@ -451,10 +451,12 @@ export function remoteBranches(root, remote = 'origin') {
  * reachable — is otherwise invisible from every other branch: not in the working tree, not on the
  * remote, and so absent from the Epic list while `initiative start` still refuses to create it.
  */
-export function localBranches(root) {
+export function localBranches(root, { env = process.env } = {}) {
   const prefix = 'refs/heads/';
-  const current = branch(root);
-  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root }).stdout
+  const current = env === process.env
+    ? branch(root)
+    : git(['branch', '--show-current'], { cwd: root, env, allowFailure: true }).stdout.trim();
+  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
     .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
     .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== current);
 }

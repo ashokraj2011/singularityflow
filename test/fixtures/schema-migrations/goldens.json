@@ -209,6 +209,7 @@
   "repair-attempt": [{ "schemaVersion": 1 }],
   "local-work-journal": [{ "schemaVersion": 1 }],
   "workspace-registry": [{ "schemaVersion": 1 }],
+  "workspace-capability-drop-transaction": [{ "schemaVersion": 1 }],
   "active-workspace": [
     { "schemaVersion": 1 },
     { "schemaVersion": 2, "canonicalRepositoryPath": null, "checkoutPath": null, "head": null, "selectionSource": "workspace", "selectionStatus": "ready", "selectionError": null }

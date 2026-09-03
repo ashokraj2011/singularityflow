@@ -139,6 +139,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'workspace' && ['current', 'list', 'status', 'doctor', 'branches'].includes(args[1] ?? 'list')) return 'read';
   if (args[0] === 'workspace' && args[1] === 'refresh-configuration' && hasOption(args, 'dry-run')) return 'read';
+  if (args[0] === 'workspace' && ['attach-capability', 'detach-capability'].includes(args[1] ?? '')
+      && hasOption(args, 'dry-run')) return 'read';
   if (args[0] === 'goal') return ['list', 'show', 'status', 'next'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'fault') return (args[1] ?? 'list') === 'report' ? 'mutation' : 'read';
   if (args[0] === 'fix') return hasOption(args, 'plan-only') ? 'read' : 'mutation';
@@ -399,7 +401,7 @@ export class SingularityFlowClient {
     }
     if (args[0] === 'workspace' && [
       'prepare', 'create', 'duplicate', 'update', 'repair', 'sync', 'archive',
-      'refresh-configuration'
+      'refresh-configuration', 'attach-capability', 'detach-capability'
     ].includes(args[1] ?? '')) {
       return WORKSPACE_MUTATION_TIMEOUT_MS;
     }

@@ -17,17 +17,32 @@ import {
 import {
   duplicateCommand, duplicateProblems, renameCommand, updateCommand, workspaceRows,
   type WorkspaceConfigurationRefreshResult, type WorkspaceConfigurationResolution,
-  type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
+  type WorkspaceCapabilityAttachScope, type WorkspaceEntry, type WorkspaceRow, type WorkspaceStatus
 } from './workspaces-model.ts';
 
 export type WorkspacesMessage =
   | { type: 'switch'; row: WorkspaceRow }
-  | { type: 'create' }
+  | { type: 'create'; organisation: string | null; capabilityId: string | null }
   | { type: 'adopt' }
   | { type: 'forget'; row: WorkspaceRow }
   | { type: 'archive'; row: WorkspaceRow }
   | { type: 'restore'; row: WorkspaceRow }
+  | { type: 'repair'; row: WorkspaceRow }
+  | {
+      type: 'attach-capability'; row: WorkspaceRow; capabilityId: string;
+      /** Trusted repository-inspection authority, owned by the panel rather than the webview. */
+      expectedAuthority: WorkspaceCapabilityAttachScope['authority'] | null;
+      /** A panel-owned lease that expires when the visible workspace editor changes. */
+      isCurrent: () => boolean;
+    }
+  | {
+      type: 'detach-capability'; row: WorkspaceRow; capabilityId: string; dropLocal: boolean;
+      /** A panel-owned lease that expires when the visible workspace editor changes. */
+      isCurrent: () => boolean;
+    }
   | { type: 'run'; command: string[]; title: string };
+
+export const WORKSPACE_ACTION_CANCELLED = '__sflow_workspace_action_cancelled__';
 
 export class WorkspacesPanel {
   private static current: WorkspacesPanel | null = null;
@@ -54,6 +69,10 @@ export class WorkspacesPanel {
   private details: WorkspaceStatus | null = null;
   private detailsLoading = false;
   private detailRequest = 0;
+  private manageRevision = 0;
+  private repairPath: string | null = null;
+  private requestedCapabilityIds: string[] = [];
+  private attachScope: WorkspaceCapabilityAttachScope | null = null;
   private configuration: WorkspaceConfigurationRefreshView = {
     ...EMPTY_CONFIGURATION_REFRESH, resolutions: {}
   };
@@ -65,14 +84,17 @@ export class WorkspacesPanel {
     onMessage: (message: WorkspacesMessage) => Promise<string | null>,
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
-    selected: string | null
+    selected: string | null,
+    attachScope: WorkspaceCapabilityAttachScope | null = null
   ) {
     this.panel = panel;
     this.reload = reload;
     this.onMessage = onMessage;
     this.loadDetails = loadDetails;
     this.refreshConfiguration = refreshConfiguration;
-    this.rows = workspaceRows(entries);
+    this.attachScope = attachScope;
+    this.rows = this.scopedRows(entries);
+    this.requestedCapabilityIds = [...new Set(attachScope?.capabilityIds ?? [])];
     this.selected = this.initialSelection(selected);
     // Return the promise so sequential UI events (typing, then immediately saving) are observed in
     // order by hosts and test doubles that support async listeners. VS Code itself ignores the
@@ -97,9 +119,11 @@ export class WorkspacesPanel {
     loadDetails: (path: string) => Promise<WorkspaceStatus>,
     refreshConfiguration: WorkspacesPanel['refreshConfiguration'],
     selected: string | null = null,
-    upgradeScope: 'selected' | 'all' | null = null
+    upgradeScope: 'selected' | 'all' | null = null,
+    attachScope: WorkspaceCapabilityAttachScope | null = null
   ): WorkspacesPanel {
     if (WorkspacesPanel.current) {
+      WorkspacesPanel.current.setAttachScope(attachScope);
       WorkspacesPanel.current.panel.reveal(vscode.ViewColumn.Active);
       const upgradeSelection = upgradeScope
         ? selected ?? WorkspacesPanel.current.rows.find((row) => !row.archived)?.path ?? null
@@ -124,7 +148,8 @@ export class WorkspacesPanel {
       ? selected ?? entries.find((entry) => !entry.archivedAt)?.path ?? null
       : selected;
     WorkspacesPanel.current = new WorkspacesPanel(
-      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, upgradeSelection
+      panel, entries, reload, onMessage, loadDetails, refreshConfiguration, upgradeSelection,
+      attachScope
     );
     if (upgradeScope) {
       void WorkspacesPanel.current.refresh(upgradeSelection, true)
@@ -140,7 +165,8 @@ export class WorkspacesPanel {
 
   private initialSelection(selected: string | null): string | null {
     if (selected && this.rows.some((row) => row.path === selected)) return selected;
-    return this.rows.find((row) => row.active)?.path ?? null;
+    return this.rows.find((row) => row.active)?.path
+      ?? (this.requestedCapabilityIds.length ? this.rows.find((row) => !row.archived)?.path ?? null : null);
   }
 
   private render(): void {
@@ -149,7 +175,8 @@ export class WorkspacesPanel {
       'Workspaces',
       workspacesHtml(
         this.rows, this.selected, this.draft, this.error,
-        this.details, this.detailsLoading, this.detailError, this.edit, this.configuration
+        this.details, this.detailsLoading, this.detailError, this.edit, this.configuration,
+        this.repairPath === this.selected, this.attachScope
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,
@@ -158,12 +185,13 @@ export class WorkspacesPanel {
   }
 
   private async refresh(preferred: string | null = null, preferActive = false): Promise<void> {
-    this.rows = workspaceRows(await this.reload());
+    this.rows = this.scopedRows(await this.reload());
     const requested = preferred && this.rows.some((row) => row.path === preferred) ? preferred : null;
     const active = this.rows.find((row) => row.active)?.path ?? null;
     const retained = this.selected && this.rows.some((row) => row.path === this.selected)
       ? this.selected : null;
-    const next = requested ?? (preferActive ? active : retained ?? active);
+    const next = requested ?? (preferActive ? active : retained ?? active)
+      ?? (this.requestedCapabilityIds.length ? this.rows.find((row) => !row.archived)?.path ?? null : null);
     if (next) {
       await this.select(next);
     } else {
@@ -173,13 +201,44 @@ export class WorkspacesPanel {
     }
   }
 
-  private async select(path: string): Promise<void> {
+  /** Never let a repository-inspection handoff select or offer a workspace from another authority. */
+  private scopedRows(entries: WorkspaceEntry[]): WorkspaceRow[] {
+    const rows = workspaceRows(entries);
+    if (!this.attachScope) return rows;
+    const allowed = new Set(this.attachScope.matchingPaths);
+    return rows.filter((row) => allowed.has(row.path));
+  }
+
+  private setAttachScope(scope: WorkspaceCapabilityAttachScope | null): void {
+    this.attachScope = scope;
+    this.requestedCapabilityIds = [...new Set(scope?.capabilityIds ?? [])];
+    // A retained panel may still be loading details for a workspace which is outside the new
+    // authority boundary. Expire both that response and every open Manage action lease.
+    this.detailRequest++;
+    this.manageRevision++;
+    this.edit = { ...EMPTY_EDIT_DRAFT };
+    this.details = null;
+    this.detailError = null;
+    if (scope) {
+      const allowed = new Set(scope.matchingPaths);
+      this.rows = this.rows.filter((row) => allowed.has(row.path));
+      if (!this.selected || !allowed.has(this.selected)) this.selected = null;
+    }
+    // Do not leave the previously rendered authority on screen while the registry refresh runs.
+    this.render();
+  }
+
+  private async select(path: string, {
+    preserveError = false,
+    preserveEdit = false
+  }: { preserveError?: boolean; preserveEdit?: boolean } = {}): Promise<void> {
     if (!this.rows.some((row) => row.path === path)) return;
+    this.manageRevision++;
     const request = ++this.detailRequest;
     this.selected = path;
     this.draft = { ...EMPTY_DRAFT };
-    this.edit = { ...EMPTY_EDIT_DRAFT };
-    this.error = null;
+    if (!preserveEdit) this.edit = { ...EMPTY_EDIT_DRAFT };
+    if (!preserveError) this.error = null;
     this.detailError = null;
     this.details = null;
     this.detailsLoading = true;
@@ -189,6 +248,7 @@ export class WorkspacesPanel {
       const details = await this.loadDetails(path);
       if (request !== this.detailRequest) return;
       this.details = details;
+      this.openRequestedCapabilityManager(details);
     } catch (error) {
       if (request !== this.detailRequest) return;
       this.detailError = (error as Error).message;
@@ -202,6 +262,23 @@ export class WorkspacesPanel {
   /** The row a page message names — resolved from the list rather than taken from the page. */
   private rowFor(value: unknown): WorkspaceRow | null {
     return this.rows.find((row) => row.path === value) ?? null;
+  }
+
+  /** Open Manage only after the selected workspace's approved map proves the requested ID. */
+  private openRequestedCapabilityManager(details: WorkspaceStatus): void {
+    if (!this.requestedCapabilityIds.length) return;
+    const available = new Set((details.availableCapabilities ?? []).map((choice) => choice.id));
+    const preferred = this.requestedCapabilityIds.find((id) => available.has(id)) ?? null;
+    this.requestedCapabilityIds = [];
+    if (!preferred) return;
+    this.manageRevision++;
+    this.edit = {
+      open: true,
+      name: details.workspace.name,
+      capabilities: [...(details.workspace.capabilities ?? [])],
+      preferredCapabilityId: preferred,
+      busy: false
+    };
   }
 
   /**
@@ -237,9 +314,13 @@ export class WorkspacesPanel {
     },
     'edit-draft': (message) => {
       const value = stringField(message, 'value');
-      if (value !== null && stringField(message, 'field') === 'edit-name' && this.edit.open) this.edit.name = value;
+      if (value !== null && stringField(message, 'field') === 'edit-name' && this.edit.open) {
+        this.manageRevision++;
+        this.edit.name = value;
+      }
     },
     'edit-cancel': () => {
+      this.manageRevision++;
       this.edit = { ...EMPTY_EDIT_DRAFT };
       this.error = null;
       this.render();
@@ -250,6 +331,7 @@ export class WorkspacesPanel {
       const known = (this.details?.availableCapabilities ?? []).some((choice) => choice.id === id)
         || this.edit.capabilities.includes(id);
       if (!known) return;
+      this.manageRevision++;
       const capabilities = new Set(this.edit.capabilities);
       if (booleanField(message, 'selected')) capabilities.add(id);
       else capabilities.delete(id);
@@ -257,23 +339,43 @@ export class WorkspacesPanel {
       this.error = null;
       this.render();
     },
-    create: () => this.onMessage({ type: 'create' }).then(() => undefined),
+    create: () => this.onMessage({
+      type: 'create',
+      organisation: this.attachScope?.authority.leadUrl ?? null,
+      capabilityId: this.attachScope?.capabilityIds[0] ?? null
+    }).then(() => undefined),
     adopt: () => this.onMessage({ type: 'adopt' }).then(() => undefined),
     edit: (message) => this.withRow(message, (row) => {
+      if (row.path !== this.selected || this.details?.workspace.path !== row.path) return;
+      this.manageRevision++;
       this.edit = {
         open: true,
         name: this.details?.workspace.name ?? row.name,
         capabilities: [...(this.details?.workspace.capabilities ?? [])],
+        preferredCapabilityId: null,
         busy: false
       };
       this.error = null;
       this.render();
     }),
     'edit-save': (message) => this.withRow(message, (row) => this.saveEdit(row, stringField(message, 'name'))),
+    'capability-attach': (message) => this.withSelectedDetailsRow(message, (row) => {
+      const id = stringField(message, 'id');
+      const known = id && (this.details?.availableCapabilities ?? []).some((choice) => choice.id === id);
+      if (!known) return;
+      return this.actOnCapability(row, id, 'attach', false);
+    }, true),
+    'capability-detach': (message) => this.withSelectedDetailsRow(message, (row) => {
+      const id = stringField(message, 'id');
+      const attached = id && (this.details?.workspace.capabilities ?? []).includes(id);
+      if (!attached) return;
+      return this.actOnCapability(row, id, 'detach', booleanField(message, 'dropLocal'));
+    }, true),
     switch: (message) => this.withRow(message, (row) => this.onMessage({ type: 'switch', row }).then(() => undefined)),
     forget: (message) => this.withRow(message, (row) => this.actOnRow(row, 'forget', true)),
     archive: (message) => this.withRow(message, (row) => this.actOnRow(row, 'archive', true)),
     restore: (message) => this.withRow(message, (row) => this.actOnRow(row, 'restore', false)),
+    repair: (message) => this.withSelectedDetailsRow(message, (row) => this.repair(row)),
     'configuration-preview': (message) => {
       const scope = stringField(message, 'scope');
       if (scope !== 'selected' && scope !== 'all') return;
@@ -329,15 +431,26 @@ export class WorkspacesPanel {
     if (row) await action(row);
   }
 
+  /** Capability and repair actions are authorized by the detail snapshot currently on screen. */
+  private async withSelectedDetailsRow(
+    message: InboundMessage,
+    action: (row: WorkspaceRow) => unknown,
+    requireEdit = false
+  ): Promise<void> {
+    const row = this.rowFor(stringField(message, 'path') ?? undefined);
+    if (!row || this.detailsLoading || row.path !== this.selected
+      || this.details?.workspace.path !== row.path || (requireEdit && !this.edit.open)) return;
+    await action(row);
+  }
+
   private async saveEdit(row: WorkspaceRow, supplied: string | null): Promise<void> {
     const name = (supplied ?? this.edit.name).trim();
-    const capabilities = this.edit.capabilities.map((value) => value.trim()).filter(Boolean);
-    if (!this.edit.open || !name || !capabilities.length || this.edit.busy) return;
+    if (!this.edit.open || !name || this.edit.busy) return;
     this.edit.busy = true;
     this.error = null;
     this.render();
     const failure = await this.onMessage({
-      type: 'run', command: updateCommand(row, name, capabilities), title: `Updating ${row.name}`
+      type: 'run', command: updateCommand(row, name), title: `Updating ${row.name}`
     });
     this.error = failure;
     if (failure) {
@@ -347,6 +460,55 @@ export class WorkspacesPanel {
     }
     this.edit = { ...EMPTY_EDIT_DRAFT };
     await this.refresh();
+  }
+
+  private async actOnCapability(
+    row: WorkspaceRow,
+    capabilityId: string,
+    action: 'attach' | 'detach',
+    dropLocal: boolean
+  ): Promise<void> {
+    if (!this.edit.open || this.edit.busy || this.selected !== row.path) return;
+    const revision = this.manageRevision;
+    const isCurrent = (): boolean => this.manageRevision === revision
+      && this.edit.open && this.selected === row.path
+      && this.details?.workspace.path === row.path;
+    this.edit = { ...this.edit, busy: true };
+    this.error = null;
+    this.render();
+    let failure: string | null;
+    try {
+      failure = await this.onMessage(action === 'attach'
+        ? {
+            type: 'attach-capability', row, capabilityId,
+            expectedAuthority: this.attachScope?.authority ?? null, isCurrent
+          }
+        : { type: 'detach-capability', row, capabilityId, dropLocal, isCurrent });
+    } catch (error) {
+      failure = (error as Error).message;
+    }
+    // Selection may travel A → B → A while the CLI is applying. The path alone cannot prove that
+    // this is still the editor which authorized the operation; the panel-owned revision can.
+    if (!isCurrent()) {
+      // The command may have durably completed, but a newer Manage session owns the page now.
+      // Its selection, draft, and errors must not be replaced by this older response. The shared
+      // workspace tree is refreshed by the command host; the current page can be reloaded by its
+      // owner when desired.
+      return;
+    }
+    if (failure === WORKSPACE_ACTION_CANCELLED) {
+      this.edit = { ...this.edit, busy: false };
+      this.render();
+      return;
+    }
+    this.error = failure;
+    if (!failure) {
+      this.edit = { ...EMPTY_EDIT_DRAFT };
+      await this.select(row.path);
+      return;
+    }
+    this.edit = { ...this.edit, busy: false };
+    await this.select(row.path, { preserveError: true, preserveEdit: true });
   }
 
   private async previewConfiguration(scope: 'selected' | 'all'): Promise<void> {
@@ -399,9 +561,36 @@ export class WorkspacesPanel {
     }
   }
 
+  /** Repair is independently guarded because a double-click must not start two clone/fetch waves. */
+  private async repair(row: WorkspaceRow): Promise<void> {
+    if (this.repairPath) return;
+    this.repairPath = row.path;
+    this.error = null;
+    this.render();
+    let failure: string | null;
+    try {
+      failure = await this.onMessage({ type: 'repair', row });
+    } catch (error) {
+      failure = (error as Error).message;
+    } finally {
+      this.repairPath = null;
+    }
+    if (failure === WORKSPACE_ACTION_CANCELLED) {
+      this.render();
+      return;
+    }
+    if (this.selected !== row.path) {
+      this.render();
+      return;
+    }
+    this.error = failure;
+    await this.select(row.path, { preserveError: Boolean(failure), preserveEdit: Boolean(failure) });
+  }
+
   /** The three that differ only in verb and whether a success clears the selection. */
   private async actOnRow(row: WorkspaceRow, type: 'forget' | 'archive' | 'restore', clearsSelection: boolean): Promise<void> {
     const failure = await this.onMessage({ type, row });
+    if (failure === WORKSPACE_ACTION_CANCELLED) return;
     this.error = failure;
     if (clearsSelection && !failure && this.selected === row.path) this.selected = null;
     await this.refresh();
@@ -440,6 +629,9 @@ export class WorkspacesPanel {
   }
 
   dispose(): void {
+    this.manageRevision++;
+    this.edit = { ...EMPTY_EDIT_DRAFT };
+    this.detailRequest++;
     WorkspacesPanel.current = null;
     this.panel.dispose();
     for (const disposable of this.disposables) disposable.dispose();

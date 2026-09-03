@@ -125,6 +125,9 @@ test('VS Code classifies configuration publication as a mutation', () => {
   assert.equal(commandClass(['recover', 'WORK-1', '--apply', '--confirm', 'sha256:plan']), 'mutation');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--dry-run']), 'read');
   assert.equal(commandClass(['workspace', 'refresh-configuration', '/work/a', '--confirm-plan', 'cfgp-1']), 'mutation');
+  assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--dry-run']), 'read');
+  assert.equal(commandClass(['workspace', 'attach-capability', '/work/a', 'payments', '--confirm-plan', 'wscp-1']), 'mutation');
+  assert.equal(commandClass(['workspace', 'detach-capability', '/work/a', 'payments', '--drop-local', '--dry-run']), 'read');
 });
 
 test('VS Code command audit classification follows mixed read and mutation subcommands', () => {
@@ -2786,10 +2789,12 @@ test('capability mapping checks the Git URL before revealing capability details'
   const mapped = mapCapabilityHtml({
     ...EMPTY_MAP_FORM,
     repositoryUrl: 'https://git.example/payments.git', inspectionStatus: 'already-mapped',
-    inspectionCompleteness: 'complete',
+    inspectionCompleteness: 'complete', inspectionProposalCoverage: 'complete',
     inspectionMatches: [{ lead: 'https://git.example/platform.git', capabilities: ['payments'] }]
   });
   assert.match(mapped, /already onboarded/);
+  assert.match(mapped, /Attach existing capability to a workspace/);
+  assert.match(mapped, /data-map-attach/);
   assert.match(mapped, /Map another capability using this repository/);
   assert.match(mapped, /data-map-details hidden/);
 
@@ -2800,6 +2805,7 @@ test('capability mapping checks the Git URL before revealing capability details'
     inspectionMatches: [{ lead: 'https://git.example/platform.git', capabilities: ['payments'] }]
   });
   assert.doesNotMatch(partiallyChecked, /data-map-reuse/);
+  assert.doesNotMatch(partiallyChecked, /data-map-attach/);
   assert.match(partiallyChecked, /Restore access and check again/);
   assert.match(partiallyChecked, /pending review proposals are not included/);
 
@@ -4005,7 +4011,7 @@ test('a refused start is reported on the form that caused it', () => {
 });
 
 const {
-  archiveCommand, configurationRefreshCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
+  archiveCommand, capabilityChangeCommand, configurationRefreshCommand, duplicateCommand, duplicateDirectory, duplicateProblems,
   renameCommand, restoreCommand, updateCommand, workspaceRows
 } =
   await import(source('views/workspaces-model.ts'));
@@ -4077,9 +4083,14 @@ test('the copy and rename commands are what the engine expects', () => {
     ['workspace', 'archive', '/work/commerce', '--confirm', 'commerce', '--fetch', '--json']);
   assert.deepEqual(restoreCommand(commerce),
     ['workspace', 'restore', '/work/commerce', '--json']);
-  assert.deepEqual(updateCommand(commerce, ' Commerce platform ', ['payments', 'checkout', 'payments']),
+  assert.deepEqual(capabilityChangeCommand(commerce, 'payments', 'attach'),
+    ['workspace', 'attach-capability', '/work/commerce', 'payments', '--dry-run', '--json']);
+  assert.deepEqual(capabilityChangeCommand(commerce, 'payments', 'detach', {
+    dropLocal: true, planId: 'wscp-123'
+  }), ['workspace', 'detach-capability', '/work/commerce', 'payments', '--drop-local',
+    '--confirm-plan', 'wscp-123', '--json']);
+  assert.deepEqual(updateCommand(commerce, ' Commerce platform '),
     ['workspace', 'update', '/work/commerce', '--name', 'Commerce platform',
-      '--capability', 'checkout', '--capability', 'payments',
       '--confirm', 'commerce', '--json']);
 });
 
@@ -4248,18 +4259,53 @@ test('workspace details show its directory, capabilities, repositories and Jira 
     ]
   };
   const editing = workspacesHtml(rows, '/work/commerce', EMPTY_COPY, null, editStatus, false, null, {
-    open: true, name: 'Commerce delivery', capabilities: ['checkout'], busy: false
+    open: true, name: 'Commerce delivery', capabilities: ['checkout'],
+    preferredCapabilityId: 'settlement', busy: false
   });
-  assert.match(editing, /Edit workspace/);
+  assert.match(editing, /Manage workspace &amp; capabilities/);
   assert.match(editing, /data-field="edit-name"/);
-  assert.match(editing, /data-edit-remove="checkout"/);
+  assert.match(editing, /data-capability-detach="checkout"/);
+  assert.match(editing, /data-capability-drop="checkout"/);
   assert.doesNotMatch(editing, /<option value="payments"/,
     'a child already covered by a selected capability is not redundantly offered');
-  assert.match(editing, /<option value="settlement"/);
-  assert.doesNotMatch(editing, /<option value="risk"/,
-    'capabilities needing an unmaterialized repository are not offered as an unsafe in-place edit');
-  assert.match(editing, /needs repositories this workspace has not materialized/);
+  assert.match(editing, /<option value="settlement" selected>/,
+    'a trusted mapped capability opens Manage with the exact attach choice preselected');
+  assert.match(editing, /<option value="risk"/,
+    'a detached capability is offered even when its approved repository must be materialized');
+  assert.match(editing, /will be materialized/);
   assert.match(editing, /data-edit-save="\/work\/commerce"/);
+  assert.match(editing, /Workspace recovery &amp; consistency/);
+  assert.match(editing, /data-repair="\/work\/commerce">Repair workspace<\/button>/,
+    'Manage keeps interrupted detach/drop recovery discoverable even when the manifest looks healthy');
+
+  const repairStatus = {
+    ...editStatus,
+    healthy: false,
+    repositories: [{ ...editStatus.repositories[0], state: 'missing' }]
+  };
+  const repairing = workspacesHtml(
+    rows, '/work/commerce', EMPTY_COPY, null, repairStatus, false, null, undefined, undefined, true
+  );
+  assert.match(repairing, /data-repair="\/work\/commerce" disabled>Repairing…<\/button>/,
+    'a running repair disables its button before another click can start');
+});
+
+test('an attach-existing handoff explains its authority scope and has a distinct no-match state', () => {
+  const scope = {
+    capabilityIds: ['payments-api'],
+    authority: {
+      leadUrl: '/git/platform.git', sourceBranch: 'sflow/config', sourceCommit: 'a'.repeat(40)
+    },
+    matchingPaths: [],
+    issue: 'No local workspace is bound to the verified capability authority.'
+  };
+  const html = workspacesHtml([], null, EMPTY_COPY, null, null, false, null, undefined, undefined,
+    false, scope);
+  assert.match(html, /Attach existing capability/);
+  assert.match(html, /No local workspace is bound to the verified capability authority/);
+  assert.match(html, /No matching local workspaces are available/);
+  assert.doesNotMatch(html, /Choose a workspace name/,
+    'the empty authority scope never implies that an active or first workspace was selected');
 });
 
 test('the page carries the directories it needs to answer without a round trip', () => {

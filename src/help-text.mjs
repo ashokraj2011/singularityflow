@@ -679,8 +679,17 @@ Usage:
     (--readiness asks each remote whether its state branch and world model exist;
      --refresh bypasses the commit-validated organisation cache)
   singularity-flow capability leads [--json]
-  singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID] [--capability ID]
+  singularity-flow workspace update <DIRECTORY> [--name TEXT] [--lead ID]
     [--repository ID=URL] [--confirm KEY] [--dry-run] [--json]
+    (capability changes use attach-capability or detach-capability so bindings and clones stay consistent)
+  singularity-flow workspace attach-capability <DIRECTORY> <CAPABILITY-ID>
+    [--dry-run | --confirm-plan PLAN-ID] [--json]
+    (rebuilds repository bindings from the approved capability map; reuses an existing checkout
+     or clones only a missing required repository)
+  singularity-flow workspace detach-capability <DIRECTORY> <CAPABILITY-ID> [--drop-local]
+    [--dry-run | --confirm-plan PLAN-ID] [--json]
+    (detach keeps checkouts; --drop-local removes only workspace-owned, clean, fully published,
+     unshared non-lead checkouts after an exact safety preview)
   singularity-flow workspace rename <DIRECTORY> --name TEXT --confirm KEY [--json]
   singularity-flow workspace archive-status <DIRECTORY> [--fetch|--no-fetch] [--json]
   singularity-flow workspace archive <DIRECTORY> --confirm KEY [--fetch|--no-fetch] [--json]

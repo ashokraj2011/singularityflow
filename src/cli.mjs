@@ -165,7 +165,7 @@ import { completeEpicDelivery, epicDeliveryReadiness } from './epic-completion.m
 import {
   currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation
 } from './local-identity.mjs';
-import { adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
+import { adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
 import {
   captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, materializeConfigurationSnapshot,
   loadStoryConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority,
@@ -11025,6 +11025,63 @@ async function workspaceCommand(positionals, options) {
   }
   const workspacePath = positionals[subcommand === 'documents' && positionals[2] === 'import' ? 3 : 2];
   if (!workspacePath) throw new SingularityFlowError(`workspace ${subcommand} requires a workspace directory.`);
+  if (subcommand === 'attach-capability' || subcommand === 'detach-capability') {
+    const capabilityId = requirePositional(positionals, 3, 'capability ID');
+    const action = subcommand === 'attach-capability' ? 'attach' : 'detach';
+    const dropLocal = optionBoolean(options, 'drop-local');
+    if (dropLocal && action !== 'detach') {
+      throw new SingularityFlowError('--drop-local is available only with workspace detach-capability.');
+    }
+    if (optionBoolean(options, 'dry-run')) {
+      const preview = await previewWorkspaceCapabilityChange(workspacePath, capabilityId, {
+        action, dropLocal
+      });
+      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(preview, null, 2));
+      console.log(`${action === 'attach' ? 'Attach' : 'Detach'} capability '${capabilityId}' in ${preview.workspace.id}.`);
+      console.log(`  Selected: ${preview.selectedBefore.join(', ') || 'none'} -> ${preview.selectedAfter.join(', ') || 'none'}`);
+      for (const repositoryId of preview.addedRepositories) console.log(`  Clone or reuse: ${repositoryId}`);
+      for (const repository of preview.dropRepositories) console.log(`  Drop local checkout: ${repository.id} (${repository.path})`);
+      if (preview.preservedLeadRepository) {
+        console.log(`  Preserved lead repository: ${preview.preservedLeadRepository}`);
+      }
+      console.log(`Apply with --confirm-plan ${preview.planId}`);
+      return preview;
+    }
+    const result = await changeWorkspaceCapability(workspacePath, capabilityId, {
+      action, dropLocal
+    }, { confirmation: optionString(options, 'confirm-plan') });
+    const active = await readActiveWorkspaceContext(selectionFile, registry, { refresh: false })
+      .catch(() => null);
+    const removed = new Set(result.removedRepositoryIds ?? []);
+    result.activeSelectionCleared = Boolean(active
+      && path.resolve(active.workspacePath) === path.resolve(result.workspace.path)
+      && removed.has(active.repositoryId)
+      && await clearActiveWorkspaceContext(selectionFile, result.workspace.path, {
+        expectedRepositoryId: active.repositoryId,
+        expectedSelectedAt: active.selectedAt
+      }));
+    await rememberWorkspace(registry, result.workspace, result.status, { preserveArchived: true });
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`${action === 'attach' ? 'Attached' : 'Detached'} capability '${capabilityId}'${result.changed ? '' : ' (already current)'}.`);
+    for (const repository of result.dropped ?? []) console.log(`  Removed local checkout: ${repository.path}`);
+    for (const repository of result.retained ?? []) {
+      console.log(`  Checkout retained for safety: ${repository.path} (${repository.reason})`);
+    }
+    if (result.retained?.length && result.repairCommand) {
+      console.log(`  Recover with: ${result.repairCommand}`);
+    }
+    if (result.preservedLeadRepository) {
+      console.log(`  Lead repository '${result.preservedLeadRepository}' remains in the workspace.`);
+    }
+    if (result.activeSelectionCleared) {
+      console.log('  The active workspace selection was cleared because it named a removed repository. Select the workspace again to use its lead repository.');
+    }
+    if (result.materializationError) {
+      console.log(`  Attachment is recorded, but a required checkout could not be materialized: ${result.materializationError}`);
+      console.log(`  Recover with: ${result.repairCommand}`);
+    }
+    return renderWorkspaceStatus(result.status);
+  }
   if (subcommand === 'open') {
     const workspace = await readWorkspace(workspacePath);
     const status = await workspaceStatus(workspace.path);

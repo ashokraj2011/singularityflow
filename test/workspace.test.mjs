@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import {
-  adoptWorkspaceConfiguration, archiveWorkspace, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, gitValueAsync, listWorkspaceDocuments,
-  normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
+  adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, gitValueAsync, listWorkspaceDocuments,
+  normalizeWorkspaceAnchor, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, readWorkspace, readWorkspaceRegistry,
   rememberWorkspace, repairWorkspace, resolveWorkspaceDocument, restoreWorkspace, saveWorkspaceConfiguration, stageWorkspaceDocuments,
   updateWorkspaceConfiguration, validateWorkspaceCapabilityRegistration, validateWorkspaceManifest, workspaceArchiveReadiness, workspaceRepositoryPath,
-  workspaceRepositoryDefaults, workspaceStatus
+  workspaceRepositoryDefaults, workspaceStatus, withRegistryFileLease
 } from '../src/workspace.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, buildWorkspaceContext,
@@ -189,6 +190,190 @@ async function remoteRepository(base, name) {
   return bare;
 }
 
+async function approveCapabilityAuthority(base, leadRemote, capabilities, repositories) {
+  await ensureConfigurationBranch(leadRemote);
+  const checkout = await mkdtemp(path.join(base, 'capability-authority-'));
+  run('git', ['clone', '--quiet', '--branch', 'sflow/config', leadRemote, checkout], { cwd: base });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: checkout });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: checkout });
+  const portfolioFile = path.join(checkout, 'singularity', 'portfolio.yml');
+  const portfolio = YAML.parseDocument(await readFile(portfolioFile, 'utf8'));
+  for (const [id, repository] of Object.entries(repositories)) {
+    portfolio.setIn(['repositories', id], portfolio.createNode({
+      url: repository.url, defaultBranch: repository.defaultBranch ?? 'main', required: true
+    }));
+  }
+  await writeFile(portfolioFile, portfolio.toString(), 'utf8');
+  const capabilityFile = path.join(checkout, 'singularity', 'capabilities.yml');
+  await writeFile(capabilityFile, YAML.stringify({ version: 1, capabilities }), 'utf8');
+  run('git', ['add', 'singularity/portfolio.yml', 'singularity/capabilities.yml'], { cwd: checkout });
+  run('git', ['commit', '-m', 'approve workspace capability fixture'], { cwd: checkout });
+  run('git', ['push', 'origin', 'HEAD:refs/heads/sflow/config'], { cwd: checkout });
+  return run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+}
+
+function stableFixtureValue(value) {
+  if (Array.isArray(value)) return value.map(stableFixtureValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort()
+    .map((key) => [key, stableFixtureValue(value[key])]));
+}
+
+function workspaceFixtureSha256(value) {
+  return `sha256:${createHash('sha256').update(JSON.stringify(stableFixtureValue(value))).digest('hex')}`;
+}
+
+function resealWorkspaceDropFixture(transaction) {
+  const unsigned = structuredClone(transaction);
+  delete unsigned.transactionSha256;
+  return { ...unsigned, transactionSha256: workspaceFixtureSha256(unsigned) };
+}
+
+async function attachedCapabilityWorkspace(root, workspaceId) {
+  const platformRemote = await remoteRepository(root, `${workspaceId}-platform`);
+  const apiRemote = await remoteRepository(root, `${workspaceId}-api`);
+  await approveCapabilityAuthority(root, platformRemote, {
+    api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' }
+  }, {
+    platform: { url: platformRemote }, api: { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: workspaceId, name: workspaceId,
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] }
+    }
+  }, { confirmation: workspaceId, clone: true });
+  const attach = await previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+    action: 'attach'
+  });
+  await changeWorkspaceCapability(created.workspace.path, 'api', { action: 'attach' }, {
+    confirmation: attach.planId
+  });
+  return {
+    ...created,
+    platformRemote,
+    apiRemote,
+    apiCheckout: path.join(created.workspace.path, 'repos', 'api')
+  };
+}
+
+async function stagedCapabilityDropFixture(root, workspaceId) {
+  const fixture = await attachedCapabilityWorkspace(root, workspaceId);
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const sourceManifest = await readWorkspace(fixture.workspace.path);
+  const drop = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  const [proof] = drop.dropRepositories;
+  const sourceManifestSha256 = drop.sourceManifestSha256;
+  const targetManifest = drop.manifest;
+  const targetManifestSha256 = drop.plan.targetManifestSha256;
+  const plan = drop.plan;
+  const planId = drop.planId;
+  const transactionRoot = path.join(
+    fixture.workspace.path, '.singularity-flow', 'workspace-capability-drop', planId
+  );
+  const staged = path.join(transactionRoot, 'api');
+  await mkdir(transactionRoot, { recursive: true });
+  await rename(fixture.apiCheckout, staged);
+  const stagedInfo = await stat(staged);
+  const unsigned = {
+    schemaVersion: 1,
+    format: 'workspace-capability-drop-v1',
+    planId,
+    phase: 'staged',
+    workspace: fixture.workspace.path,
+    sourceManifestSha256,
+    targetManifestSha256,
+    plan,
+    repositories: [{
+      id: 'api', relativePath: 'repos/api', source: fixture.apiCheckout,
+      staged,
+      url: sourceManifest.repositories.api.url,
+      defaultBranch: sourceManifest.repositories.api.defaultBranch,
+      state: proof.state,
+      removable: proof.removable,
+      head: proof.head,
+      worktreeSha256: proof.worktreeSha256,
+      refsSha256: proof.refsSha256,
+      directoryIdentity: proof.directoryIdentity,
+      stagedIdentity: { device: String(stagedInfo.dev), inode: String(stagedInfo.ino) }
+    }]
+  };
+  return {
+    ...fixture,
+    manifestFile,
+    sourceManifest,
+    targetManifest,
+    transactionRoot,
+    transactionFile: path.join(transactionRoot, 'transaction.json'),
+    staged,
+    transaction: { ...unsigned, transactionSha256: workspaceFixtureSha256(unsigned) }
+  };
+}
+
+async function capabilityDropBoundaryFixture(root, {
+  candidateIds = ['candidate'],
+  paths = {},
+  leadAdoption = null
+} = {}) {
+  const workspacePath = path.join(root, 'workspace');
+  const authority = path.join(root, 'authority.git');
+  await mkdir(workspacePath, { recursive: true });
+  const repositories = {
+    platform: {
+      url: authority,
+      defaultBranch: 'main',
+      path: paths.platform ?? 'repos/platform',
+      capabilities: [],
+      ...(leadAdoption ? { adoption: leadAdoption } : {})
+    },
+    ...Object.fromEntries(candidateIds.map((id) => [id, {
+      url: path.join(root, `${id}.git`),
+      defaultBranch: 'main',
+      path: paths[id] ?? `repos/${id}`,
+      capabilities: ['retire']
+    }]))
+  };
+  const manifestFile = path.join(workspacePath, 'workspace.json');
+  await writeFile(manifestFile, `${JSON.stringify({
+    version: 1,
+    id: 'drop-boundary',
+    name: 'Drop boundary',
+    anchor: { provider: 'workspace', key: 'drop-boundary', title: 'Drop boundary' },
+    leadRepository: 'platform',
+    capabilities: ['retire'],
+    capabilityAuthority: { url: authority },
+    repositories
+  }, null, 2)}\n`);
+  const organisation = {
+    url: authority,
+    configurationBranch: 'sflow/config',
+    configurationCommit: 'a'.repeat(40),
+    sourceBranch: 'sflow/config',
+    sourceCommit: 'a'.repeat(40),
+    capabilities: [{ id: 'retire', children: [] }]
+  };
+  const options = {
+    action: 'detach',
+    dropLocal: true,
+    organisation,
+    resolveWorkspacePlanOperation: (_organisation, { capabilities = [] } = {}) => ({
+      repositories: capabilities.includes('retire')
+        ? Object.fromEntries(candidateIds.map((id) => [id, repositories[id]]))
+        : {}
+    })
+  };
+  return {
+    workspacePath,
+    manifestFile,
+    preview: () => previewWorkspaceCapabilityChange(
+      workspacePath, 'retire', options
+    )
+  };
+}
+
 test('workspace capability registration is approved before any workspace byte is persisted', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-boundary-'));
   const remote = await remoteRepository(root, 'platform');
@@ -238,7 +423,7 @@ test('workspace capability registration is approved before any workspace byte is
     () => updateWorkspaceConfiguration(created.workspace.path, {
       capabilities: ['missing-capability']
     }, { confirmation: 'valid-capability' }),
-    (error) => error?.code === 'WORKSPACE_CAPABILITY_UNKNOWN'
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_TRANSITION_REQUIRED'
   );
   assert.equal(await readFile(manifestFile, 'utf8'), before,
     'an invalid capability edit must preserve the last approved manifest exactly');
@@ -369,6 +554,1440 @@ test('a commit-bound capability receipt avoids a second catalog clone without wi
     'mutating a branded receipt cannot authorize observing claims from a different plan');
   assert.equal(bypassCatalogReads, 1,
     'mutating a branded receipt falls back to the approved catalog instead of bypassing it');
+});
+
+test('workspace capability detach preserves checkouts, drop is bounded, and attach restores from the approved map', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-attachment-'));
+  const platformRemote = await remoteRepository(root, 'platform');
+  const apiRemote = await remoteRepository(root, 'payments-api');
+  await approveCapabilityAuthority(root, platformRemote, {
+    'payments-api': {
+      name: 'Payments API', kind: 'delivery', parent: null, repository: 'payments-api'
+    }
+  }, {
+    platform: { url: platformRemote },
+    'payments-api': { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'),
+    id: 'commerce',
+    name: 'Commerce',
+    leadRepository: 'platform',
+    capabilities: [],
+    capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: {
+        url: platformRemote, defaultBranch: 'main', required: true,
+        path: 'repos/platform', capabilities: []
+      }
+    }
+  }, { confirmation: 'commerce', clone: true });
+  const attach = await previewWorkspaceCapabilityChange(
+    created.workspace.path, 'payments-api', { action: 'attach' }
+  );
+  assert.deepEqual(attach.addedRepositories, ['payments-api']);
+  const attached = await changeWorkspaceCapability(
+    created.workspace.path, 'payments-api', { action: 'attach' },
+    { confirmation: attach.planId }
+  );
+  assert.deepEqual(attached.workspace.capabilities, ['payments-api']);
+  assert.deepEqual(attached.workspace.repositories['payments-api'].capabilities, ['payments-api']);
+  const checkout = path.join(created.workspace.path, 'repos', 'payments-api');
+  assert.ok(await stat(path.join(checkout, '.git')));
+  const firstHead = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+
+  const detach = await previewWorkspaceCapabilityChange(
+    created.workspace.path, 'payments-api', { action: 'detach' }
+  );
+  assert.deepEqual(detach.dropRepositories, []);
+  const detached = await changeWorkspaceCapability(
+    created.workspace.path, 'payments-api', { action: 'detach' },
+    { confirmation: detach.planId }
+  );
+  assert.deepEqual(detached.workspace.capabilities, []);
+  assert.deepEqual(detached.workspace.repositories['payments-api'].capabilities, []);
+  assert.ok(await stat(path.join(checkout, '.git')), 'plain detach keeps the checkout');
+
+  const reuse = await previewWorkspaceCapabilityChange(
+    created.workspace.path, 'payments-api', { action: 'attach' }
+  );
+  assert.deepEqual(reuse.addedRepositories, [], 'a detached checkout remains registered for reuse');
+  await changeWorkspaceCapability(
+    created.workspace.path, 'payments-api', { action: 'attach' },
+    { confirmation: reuse.planId }
+  );
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), firstHead);
+
+  const drop = await previewWorkspaceCapabilityChange(
+    created.workspace.path, 'payments-api', { action: 'detach', dropLocal: true }
+  );
+  assert.deepEqual(drop.dropRepositories.map((repository) => repository.id), ['payments-api']);
+  const dropped = await changeWorkspaceCapability(
+    created.workspace.path, 'payments-api', { action: 'detach', dropLocal: true },
+    { confirmation: drop.planId }
+  );
+  assert.deepEqual(dropped.dropped.map((repository) => repository.id), ['payments-api']);
+  assert.equal(await stat(checkout).catch(() => null), null);
+  assert.equal(dropped.workspace.repositories['payments-api'], undefined);
+  assert.ok(dropped.workspace.repositories.platform, 'the lead repository is always preserved');
+
+  const restore = await previewWorkspaceCapabilityChange(
+    created.workspace.path, 'payments-api', { action: 'attach' }
+  );
+  assert.deepEqual(restore.addedRepositories, ['payments-api']);
+  const restored = await changeWorkspaceCapability(
+    created.workspace.path, 'payments-api', { action: 'attach' },
+    { confirmation: restore.planId }
+  );
+  assert.equal(restored.status.repositories.find((repository) => repository.id === 'payments-api').state, 'ready');
+  assert.ok(await stat(path.join(checkout, '.git')), 'reattach reclones only the missing checkout');
+});
+
+test('workspace capability drop refuses dirty and adopted repositories without changing the manifest', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-drop-safety-'));
+  const platformRemote = await remoteRepository(root, 'platform');
+  const apiRemote = await remoteRepository(root, 'api');
+  await approveCapabilityAuthority(root, platformRemote, {
+    api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' }
+  }, {
+    platform: { url: platformRemote }, api: { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'safe-drop', name: 'Safe drop',
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] }
+    }
+  }, { confirmation: 'safe-drop', clone: true });
+  const attach = await previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+    action: 'attach'
+  });
+  await changeWorkspaceCapability(created.workspace.path, 'api', {
+    action: 'attach'
+  }, { confirmation: attach.planId });
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  await writeFile(path.join(created.workspace.path, 'repos', 'api', 'local.txt'), 'keep me\n');
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+
+  const adoptedManifest = JSON.parse(before);
+  const adoptedPath = path.join(created.workspace.path, 'repos', 'api');
+  adoptedManifest.repositories.api.adoption = {
+    mode: 'existing-clone', canonicalPath: adoptedPath,
+    proofHash: `sha256:${'0'.repeat(64)}`, reviewedAt: new Date().toISOString()
+  };
+  await writeFile(manifestFile, `${JSON.stringify(adoptedManifest, null, 2)}\n`);
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_ADOPTED'
+  );
+});
+
+test('workspace capability drop refuses paths that overlap a retained repository', async (t) => {
+  for (const scenario of [
+    {
+      name: 'candidate contains the retained lead',
+      paths: { candidate: 'repos/bundle', platform: 'repos/bundle/platform' }
+    },
+    {
+      name: 'candidate is contained by the retained lead',
+      paths: { candidate: 'repos/platform/candidate', platform: 'repos/platform' }
+    }
+  ]) {
+    await t.test(scenario.name, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drop-overlap-'));
+      const fixture = await capabilityDropBoundaryFixture(root, { paths: scenario.paths });
+      const before = await readFile(fixture.manifestFile, 'utf8');
+
+      await assert.rejects(
+        fixture.preview,
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH'
+          && /overlaps retained repository 'platform'/i.test(error.message)
+      );
+      assert.equal(await readFile(fixture.manifestFile, 'utf8'), before);
+    });
+  }
+
+  await t.test('two drop candidates cannot contain one another', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drop-candidate-overlap-'));
+    const fixture = await capabilityDropBoundaryFixture(root, {
+      candidateIds: ['bundle', 'nested'],
+      paths: { bundle: 'repos/bundle', nested: 'repos/bundle/nested' }
+    });
+    const before = await readFile(fixture.manifestFile, 'utf8');
+
+    await assert.rejects(
+      fixture.preview,
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH'
+        && /'bundle' and 'nested'.*paths overlap/i.test(error.message)
+    );
+    assert.equal(await readFile(fixture.manifestFile, 'utf8'), before);
+  });
+
+  await t.test('a retained adopted path aliases the candidate', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drop-alias-'));
+    const candidate = path.join(root, 'workspace', 'repos', 'candidate');
+    const retainedAlias = path.join(root, 'retained-platform-alias');
+    const fixture = await capabilityDropBoundaryFixture(root, {
+      paths: { candidate: 'repos/candidate', platform: 'repos/platform' },
+      leadAdoption: {
+        mode: 'existing-clone',
+        canonicalPath: retainedAlias,
+        proofHash: `sha256:${'0'.repeat(64)}`,
+        reviewedAt: '2026-08-15T00:00:00.000Z'
+      }
+    });
+    await mkdir(candidate, { recursive: true });
+    await symlink(candidate, retainedAlias, 'dir');
+    const before = await readFile(fixture.manifestFile, 'utf8');
+
+    await assert.rejects(
+      fixture.preview,
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNSAFE_PATH'
+        && /overlaps retained repository 'platform'/i.test(error.message)
+    );
+    assert.equal(await readFile(fixture.manifestFile, 'utf8'), before);
+    assert.equal(await realpath(retainedAlias), await realpath(candidate));
+  });
+});
+
+test('workspace capability drop rejects colliding recovery namespace names before staging', async (t) => {
+  for (const scenario of [
+    { name: 'transaction receipt collision', candidateIds: ['transaction.json'] },
+    { name: 'case-variant transaction receipt collision', candidateIds: ['Transaction.json'] },
+    { name: 'staging and quarantine collision', candidateIds: ['foo', 'foo.deleting'] },
+    { name: 'case-variant staging and quarantine collision', candidateIds: ['foo', 'FOO.deleting'] }
+  ]) {
+    await t.test(scenario.name, async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-drop-namespace-'));
+      const fixture = await capabilityDropBoundaryFixture(root, {
+        candidateIds: scenario.candidateIds
+      });
+      const before = await readFile(fixture.manifestFile, 'utf8');
+
+      await assert.rejects(
+        fixture.preview,
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNSAFE_NAMESPACE'
+          && /recovery namespace collision/i.test(error.message)
+      );
+      assert.equal(await readFile(fixture.manifestFile, 'utf8'), before);
+      assert.equal(await stat(path.join(
+        fixture.workspacePath, '.singularity-flow', 'workspace-capability-drop'
+      )).catch(() => null), null);
+    });
+  }
+});
+
+test('workspace capability drop refuses ignored files and commits retained only by reflog', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-hidden-drop-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'hidden-drop');
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+
+  await writeFile(path.join(fixture.apiCheckout, '.git', 'info', 'exclude'), 'local-cache.bin\n');
+  await writeFile(path.join(fixture.apiCheckout, 'local-cache.bin'), 'irreplaceable cache\n');
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_IGNORED'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+
+  await rm(path.join(fixture.apiCheckout, 'local-cache.bin'));
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: fixture.apiCheckout });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: fixture.apiCheckout });
+  await writeFile(path.join(fixture.apiCheckout, 'reflog-only.txt'), 'retain this commit\n');
+  run('git', ['add', 'reflog-only.txt'], { cwd: fixture.apiCheckout });
+  run('git', ['commit', '-m', 'local commit retained only by reflog'], { cwd: fixture.apiCheckout });
+  const reflogOnlyCommit = run('git', ['rev-parse', 'HEAD'], { cwd: fixture.apiCheckout }).stdout.trim();
+  run('git', ['reset', '--hard', 'origin/main'], { cwd: fixture.apiCheckout });
+  assert.notEqual(reflogOnlyCommit,
+    run('git', ['rev-parse', 'HEAD'], { cwd: fixture.apiCheckout }).stdout.trim());
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNPUSHED'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+});
+
+test('workspace capability drop refuses retained submodule metadata and local Git LFS objects', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-git-data-drop-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'git-data-drop');
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  const gitDirectory = path.join(fixture.apiCheckout, '.git');
+
+  const retainedModule = path.join(gitDirectory, 'modules', 'retired-submodule');
+  await mkdir(retainedModule, { recursive: true });
+  await writeFile(path.join(retainedModule, 'config'), 'locally retained submodule metadata\n');
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_SUBMODULE'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+  assert.equal(await readFile(path.join(retainedModule, 'config'), 'utf8'),
+    'locally retained submodule metadata\n');
+
+  await rm(path.join(gitDirectory, 'modules'), { recursive: true, force: true });
+  const lfsObject = path.join(gitDirectory, 'lfs', 'objects', 'ab', 'cd', 'local-object');
+  await mkdir(path.dirname(lfsObject), { recursive: true });
+  await writeFile(lfsObject, 'local LFS payload\n');
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_LFS_UNVERIFIED'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+  assert.equal(await readFile(lfsObject, 'utf8'), 'local LFS payload\n');
+});
+
+test('workspace capability drop isolates Git evidence and retains non-ref local data', async (t) => {
+  await t.test('an ambient GIT_INDEX_FILE cannot hide index-only staged data', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-ambient-index-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'ambient-index');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const readme = path.join(fixture.apiCheckout, 'README.md');
+    const original = await readFile(readme, 'utf8');
+
+    await writeFile(readme, `${original}\nindex-only staged payload\n`);
+    run('git', ['add', 'README.md'], { cwd: fixture.apiCheckout });
+    await writeFile(readme, original);
+    assert.match(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, /^MM README\.md$/m, 'the real repository index retains staged data');
+
+    const alternateIndex = path.join(root, 'clean-ambient-index');
+    run('git', ['read-tree', 'HEAD'], {
+      cwd: fixture.apiCheckout,
+      env: { ...process.env, GIT_INDEX_FILE: alternateIndex }
+    });
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout,
+      env: { ...process.env, GIT_INDEX_FILE: alternateIndex }
+    }).stdout, '', 'the attacker-selected ambient index makes the checkout appear clean');
+
+    const previousIndex = process.env.GIT_INDEX_FILE;
+    process.env.GIT_INDEX_FILE = alternateIndex;
+    try {
+      await assert.rejects(
+        () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+          action: 'detach', dropLocal: true
+        }),
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+      );
+    } finally {
+      if (previousIndex === undefined) delete process.env.GIT_INDEX_FILE;
+      else process.env.GIT_INDEX_FILE = previousIndex;
+    }
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.match(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, /^MM README\.md$/m, 'the hidden staged data remains untouched');
+  });
+
+  await t.test('repository-local core.fsmonitor cannot hide modified tracked bytes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-fsmonitor-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'fsmonitor');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const hook = path.join(root, 'hide-all-fsmonitor.sh');
+    await writeFile(hook, "#!/bin/sh\nprintf 'sflow-token\\0'\n", { mode: 0o700 });
+    run('git', ['config', 'core.fsmonitor', hook], { cwd: fixture.apiCheckout });
+    run('git', ['config', 'core.fsmonitorHookVersion', '2'], { cwd: fixture.apiCheckout });
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'the malicious filesystem monitor is primed against a clean checkout');
+    run('git', ['update-index', '--fsmonitor-valid', 'README.md'], {
+      cwd: fixture.apiCheckout
+    });
+    const readme = path.join(fixture.apiCheckout, 'README.md');
+    const original = await readFile(readme, 'utf8');
+    const modified = original.replace(/^./, (character) => character === '#' ? '!' : '#');
+    assert.equal(Buffer.byteLength(modified), Buffer.byteLength(original));
+    await writeFile(readme, modified);
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'the configured executable incorrectly hides the tracked modification');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(readme, 'utf8'), modified,
+      'the tracked bytes hidden by the repository-local monitor remain untouched');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout is retained after the destructive proof refuses it');
+  });
+
+  await t.test('core.filemode=false cannot hide an executable-bit change', async (subtest) => {
+    if (process.platform === 'win32') {
+      subtest.skip('Windows filesystems do not reliably expose Git executable-bit changes');
+      return;
+    }
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-filemode-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'filemode');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const readme = path.join(fixture.apiCheckout, 'README.md');
+    const originalMode = (await stat(readme)).mode;
+    run('git', ['config', 'core.filemode', 'false'], { cwd: fixture.apiCheckout });
+    await chmod(readme, originalMode | 0o111);
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'repository-local core.filemode=false hides the mode-only change');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.notEqual((await stat(readme)).mode & 0o111, 0,
+      'the executable-bit change remains intact after refusal');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout containing the hidden mode change is retained');
+  });
+
+  await t.test('core.ignorecase=true cannot hide a distinct case-colliding path', async (subtest) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-ignorecase-'));
+    const probe = path.join(root, 'case-sensitivity-probe');
+    await mkdir(probe);
+    await writeFile(path.join(probe, 'foo'), 'lowercase probe\n');
+    await writeFile(path.join(probe, 'FOO'), 'uppercase probe\n');
+    const probeEntries = await readdir(probe);
+    if (!probeEntries.includes('foo') || !probeEntries.includes('FOO')) {
+      subtest.skip('the checkout filesystem cannot represent distinct case-colliding paths');
+      return;
+    }
+
+    const fixture = await attachedCapabilityWorkspace(root, 'ignorecase');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: fixture.apiCheckout });
+    run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: fixture.apiCheckout });
+    await writeFile(path.join(fixture.apiCheckout, 'foo'), 'tracked lowercase path\n');
+    run('git', ['add', 'foo'], { cwd: fixture.apiCheckout });
+    run('git', ['commit', '-m', 'publish lowercase path'], { cwd: fixture.apiCheckout });
+    run('git', ['push', 'origin', 'main'], { cwd: fixture.apiCheckout });
+    const before = await readFile(manifestFile, 'utf8');
+    run('git', ['config', 'core.ignorecase', 'true'], { cwd: fixture.apiCheckout });
+    const retained = path.join(fixture.apiCheckout, 'FOO');
+    await writeFile(retained, 'distinct uppercase local path\n');
+    assert.equal(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'repository-local core.ignorecase=true hides the distinct uppercase path');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(retained, 'utf8'), 'distinct uppercase local path\n');
+    assert.equal(await readFile(path.join(fixture.apiCheckout, 'foo'), 'utf8'),
+      'tracked lowercase path\n');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'both case-distinct paths remain in the retained checkout');
+  });
+
+  await t.test('restored stat-cache metadata cannot hide a same-size content mutation', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-stat-cache-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'stat-cache');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const readme = path.join(fixture.apiCheckout, 'README.md');
+    const original = await readFile(readme, 'utf8');
+    const modified = original.replace(/^./, (character) => character === '#' ? '!' : '#');
+    assert.equal(Buffer.byteLength(modified), Buffer.byteLength(original));
+    const stableTimestamp = 1_700_000_000;
+    run('git', ['config', 'core.trustctime', 'false'], { cwd: fixture.apiCheckout });
+    run('git', ['config', 'core.checkStat', 'minimal'], { cwd: fixture.apiCheckout });
+    await utimes(readme, stableTimestamp, stableTimestamp);
+    run('git', ['update-index', '--refresh'], { cwd: fixture.apiCheckout });
+    await writeFile(readme, modified);
+    await utimes(readme, stableTimestamp, stableTimestamp);
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'Git stat-cache hints hide the same-size, restored-mtime mutation');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_DIRTY'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(readme, 'utf8'), modified,
+      'the content mutation hidden by stat metadata remains intact');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout containing the hidden content mutation is retained');
+  });
+
+  await t.test('configured LFS storage retained inside the checkout is refused', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-lfs-storage-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'configured-lfs-storage');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const storage = path.join(fixture.apiCheckout, '.git', 'private-lfs-storage');
+    const retained = path.join(storage, 'objects', 'local-lfs-object');
+    run('git', ['config', 'lfs.storage', 'private-lfs-storage'], { cwd: fixture.apiCheckout });
+    await mkdir(path.dirname(retained), { recursive: true });
+    await writeFile(retained, 'locally retained configured LFS payload\n');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_LFS_UNVERIFIED'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(retained, 'utf8'), 'locally retained configured LFS payload\n');
+  });
+
+  await t.test('an unreachable Git object is treated as retained local work', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-unreachable-object-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'unreachable-object');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const payload = path.join(root, 'unreachable-payload.txt');
+    await writeFile(payload, 'Git object not named by any reference\n');
+    const objectId = run('git', ['hash-object', '-w', payload], {
+      cwd: fixture.apiCheckout
+    }).stdout.trim();
+    assert.match(run('git', [
+      'fsck', '--unreachable', '--no-reflogs', '--no-progress', '--no-dangling'
+    ], { cwd: fixture.apiCheckout }).stdout, new RegExp(`unreachable blob ${objectId}`));
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNPUSHED'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git', 'objects')),
+      'the object database containing the unreachable object remains');
+  });
+
+  await t.test('an active Git operation marker blocks local deletion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-git-operation-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'git-operation');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const marker = path.join(fixture.apiCheckout, '.git', 'MERGE_HEAD');
+    const head = run('git', ['rev-parse', 'HEAD'], { cwd: fixture.apiCheckout }).stdout.trim();
+    await writeFile(marker, `${head}\n`);
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_OPERATION'
+        && /MERGE_HEAD/.test(error.message)
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(marker, 'utf8'), `${head}\n`);
+  });
+
+  await t.test('a nonempty Git graft map blocks local deletion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-grafts-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'grafts');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const grafts = path.join(fixture.apiCheckout, '.git', 'info', 'grafts');
+    const head = run('git', ['rev-parse', 'HEAD'], { cwd: fixture.apiCheckout }).stdout.trim();
+    await writeFile(grafts, `${head}\n`);
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_GRAPH_OVERRIDE'
+        && /graft map/i.test(error.message)
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(grafts, 'utf8'), `${head}\n`);
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout carrying the graph override remains untouched');
+  });
+
+  await t.test('repository-local core.worktree cannot redirect proof away from managed bytes', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-core-worktree-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'core-worktree');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const externalWorktree = path.join(root, 'clean-external-worktree');
+    await mkdir(externalWorktree);
+    await writeFile(path.join(externalWorktree, 'README.md'),
+      await readFile(path.join(fixture.apiCheckout, 'README.md'), 'utf8'));
+    run('git', ['config', 'core.worktree', externalWorktree], { cwd: fixture.apiCheckout });
+    assert.equal(run('git', ['status', '--porcelain=v1'], {
+      cwd: fixture.apiCheckout
+    }).stdout, '', 'Git itself now reports only the redirected clean worktree');
+    const retained = path.join(fixture.apiCheckout, 'managed-checkout-only.txt');
+    await writeFile(retained, 'unique bytes Git cannot see through redirected core.worktree\n');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_EXTERNAL_GIT_DIR'
+        && /worktree resolves outside/i.test(error.message)
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(retained, 'utf8'),
+      'unique bytes Git cannot see through redirected core.worktree\n');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the managed checkout and its local Git configuration remain intact');
+  });
+
+  await t.test('an active Git writer lock blocks local deletion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-git-lock-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'git-lock');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const lock = path.join(fixture.apiCheckout, '.git', 'index.lock');
+    await writeFile(lock, 'active writer owns this lock\n');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_BUSY'
+        && /index\.lock/.test(error.message)
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(lock, 'utf8'), 'active writer owns this lock\n');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'a checkout with an active writer lock remains untouched');
+  });
+
+  await t.test('a nested reflog writer lock blocks local deletion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-reflog-lock-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'reflog-lock');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const lock = path.join(fixture.apiCheckout, '.git', 'logs', 'refs', 'heads', 'main.lock');
+    await writeFile(lock, 'active reflog writer owns this lock\n');
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_BUSY'
+        && /logs[/\\]refs[/\\]heads[/\\]main\.lock/.test(error.message)
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(await readFile(lock, 'utf8'), 'active reflog writer owns this lock\n');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'a checkout with a nested reflog lock remains untouched');
+  });
+});
+
+test('workspace capability drop rejects repository-local transport configuration before remote access', async (t) => {
+  await t.test('http.sslVerify=false is refused before an unavailable origin is contacted', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-local-http-config-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'local-http-config');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    run('git', ['config', '--local', 'http.sslVerify', 'false'], { cwd: fixture.apiCheckout });
+    const unavailableRemote = `${fixture.apiRemote}.offline`;
+    await rename(fixture.apiRemote, unavailableRemote);
+    try {
+      await assert.rejects(
+        () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+          action: 'detach', dropLocal: true
+        }),
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_CONFIG'
+          && error?.details?.keys?.includes('http.sslverify')
+      );
+    } finally {
+      await rename(unavailableRemote, fixture.apiRemote);
+    }
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(run('git', ['config', '--local', '--get', 'http.sslVerify'], {
+      cwd: fixture.apiCheckout
+    }).stdout.trim(), 'false');
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout remains even though the origin would have failed if contacted');
+  });
+
+  await t.test('a credential.helper executable is refused without invocation', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-local-helper-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'local-helper');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const marker = path.join(root, 'credential-helper-invoked.txt');
+    const helper = path.join(root, 'credential-helper.sh');
+    await writeFile(helper, `#!/bin/sh\nprintf invoked > ${JSON.stringify(marker)}\nexit 1\n`, {
+      mode: 0o700
+    });
+    run('git', ['config', '--local', 'credential.helper', helper], {
+      cwd: fixture.apiCheckout
+    });
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_CONFIG'
+        && error?.details?.keys?.includes('credential.helper')
+    );
+    assert.equal(await stat(marker).catch(() => null), null,
+      'local Git configuration is inspected as data and the helper is never executed');
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout carrying executable credential configuration is retained');
+  });
+
+  await t.test('unsafe worktree-scoped configuration is refused even when local scope is clean', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-worktree-config-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'worktree-config');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    run('git', ['config', '--local', 'extensions.worktreeConfig', 'true'], {
+      cwd: fixture.apiCheckout
+    });
+    run('git', ['config', '--worktree', 'http.https://office.example/.sslVerify', 'false'], {
+      cwd: fixture.apiCheckout
+    });
+    assert.equal(run('git', ['config', '--local', '--get',
+      'http.https://office.example/.sslVerify'], {
+      cwd: fixture.apiCheckout, allowFailure: true
+    }).status, 1, 'the unsafe key is absent from the ordinary local scope');
+    assert.equal(run('git', ['config', '--worktree', '--get',
+      'http.https://office.example/.sslVerify'], {
+      cwd: fixture.apiCheckout
+    }).stdout.trim(), 'false');
+
+    const unavailableRemote = `${fixture.apiRemote}.offline`;
+    await rename(fixture.apiRemote, unavailableRemote);
+    try {
+      await assert.rejects(
+        () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+          action: 'detach', dropLocal: true
+        }),
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_GIT_CONFIG'
+          && error?.details?.keys?.includes('http.https://office.example/.sslverify')
+      );
+    } finally {
+      await rename(unavailableRemote, fixture.apiRemote);
+    }
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+      'the checkout carrying worktree-scoped transport configuration is retained');
+  });
+});
+
+test('workspace capability drop refreshes remote evidence and refuses deleted or unavailable remotes', async (t) => {
+  await t.test('a remote branch deleted after attach leaves the local commit protected', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-remote-delete-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'remote-delete');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    run('git', ['update-ref', '-d', 'refs/heads/main'], { cwd: fixture.apiRemote });
+
+    await assert.rejects(
+      () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+        action: 'detach', dropLocal: true
+      }),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNPUSHED'
+    );
+    assert.equal(await readFile(manifestFile, 'utf8'), before);
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/main'], {
+      cwd: fixture.apiCheckout, allowFailure: true
+    }).status, 1, 'drop preview must fetch with prune instead of trusting stale remote-tracking refs');
+  });
+
+  await t.test('an unavailable remote cannot authorize local deletion', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-remote-offline-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'remote-offline');
+    const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+    const before = await readFile(manifestFile, 'utf8');
+    const unavailableRemote = `${fixture.apiRemote}.offline`;
+    await rename(fixture.apiRemote, unavailableRemote);
+    try {
+      await assert.rejects(
+        () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+          action: 'detach', dropLocal: true
+        }),
+        (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNVERIFIED'
+          && /could not refresh origin/i.test(error.message)
+      );
+      assert.equal(await readFile(manifestFile, 'utf8'), before);
+    } finally {
+      await rename(unavailableRemote, fixture.apiRemote);
+    }
+  });
+});
+
+test('workspace capability attach refuses a pre-existing unregistered checkout without changing the manifest', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-unregistered-'));
+  const platformRemote = await remoteRepository(root, 'unregistered-platform');
+  const apiRemote = await remoteRepository(root, 'unregistered-api');
+  await approveCapabilityAuthority(root, platformRemote, {
+    api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' }
+  }, {
+    platform: { url: platformRemote }, api: { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'unregistered', name: 'Unregistered',
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] }
+    }
+  }, { confirmation: 'unregistered', clone: true });
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  const unregistered = path.join(created.workspace.path, 'repos', 'api');
+  run('git', ['clone', '--quiet', apiRemote, unregistered], {
+    cwd: path.join(created.workspace.path, 'repos')
+  });
+
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(created.workspace.path, 'api', { action: 'attach' }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_TARGET_EXISTS'
+      && error.message.includes(unregistered)
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+  assert.ok(await stat(path.join(unregistered, '.git')), 'the unregistered checkout remains untouched');
+});
+
+test('workspace capability attach repairs only repositories in the requested capability closure', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-scoped-repair-'));
+  const platformRemote = await remoteRepository(root, 'scoped-platform');
+  const apiRemote = await remoteRepository(root, 'scoped-api');
+  const analyticsRemote = await remoteRepository(root, 'scoped-analytics');
+  await approveCapabilityAuthority(root, platformRemote, {
+    api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' },
+    analytics: { name: 'Analytics', kind: 'delivery', parent: null, repository: 'analytics' }
+  }, {
+    platform: { url: platformRemote },
+    api: { url: apiRemote },
+    analytics: { url: analyticsRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'scoped-repair', name: 'Scoped repair',
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] },
+      api: { url: apiRemote, defaultBranch: 'main', path: 'repos/api', capabilities: [] },
+      analytics: {
+        url: analyticsRemote, defaultBranch: 'main', path: 'repos/analytics', capabilities: []
+      }
+    }
+  }, { confirmation: 'scoped-repair', clone: true });
+  const apiCheckout = path.join(created.workspace.path, 'repos', 'api');
+  const analyticsCheckout = path.join(created.workspace.path, 'repos', 'analytics');
+  await rm(apiCheckout, { recursive: true, force: true });
+  await rm(analyticsCheckout, { recursive: true, force: true });
+
+  const attach = await previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+    action: 'attach'
+  });
+  assert.deepEqual(attach.requestedRepositoryIds, ['api']);
+  assert.deepEqual(attach.materializeRepositories, ['api']);
+  const attached = await changeWorkspaceCapability(created.workspace.path, 'api', {
+    action: 'attach'
+  }, { confirmation: attach.planId });
+  assert.deepEqual(attached.repair.map((entry) => entry.repository), ['api']);
+  assert.ok(await stat(path.join(apiCheckout, '.git')), 'the requested missing checkout is repaired');
+  assert.equal(await stat(analyticsCheckout).catch(() => null), null,
+    'an unrelated missing checkout is not cloned as a side effect');
+  assert.equal(attached.status.repositories.find((repository) => repository.id === 'analytics').state,
+    'missing');
+});
+
+test('workspace capability reattach refuses a concurrent checkout at a registered missing target', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-reattach-target-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'reattach-target');
+  const detach = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach'
+  });
+  await changeWorkspaceCapability(fixture.workspace.path, 'api', { action: 'detach' }, {
+    confirmation: detach.planId
+  });
+  await rm(fixture.apiCheckout, { recursive: true, force: true });
+  const reattach = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'attach'
+  });
+  assert.deepEqual(reattach.addedRepositories, [], 'the missing repository remains registered');
+  assert.deepEqual(reattach.materializeRepositories, ['api']);
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+
+  run('git', ['clone', '--quiet', fixture.apiRemote, fixture.apiCheckout], {
+    cwd: path.dirname(fixture.apiCheckout)
+  });
+  await assert.rejects(
+    () => changeWorkspaceCapability(fixture.workspace.path, 'api', { action: 'attach' }, {
+      confirmation: reattach.planId
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_CONFIRMATION_REQUIRED'
+      && error?.details?.plan?.materializeRepositories?.length === 0
+  );
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path, {
+      repositoryIds: reattach.requestedRepositoryIds,
+      expectedMissingRepositoryIds: reattach.materializeRepositories
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_TARGET_EXISTS'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before,
+    'the detached capability remains detached when another process creates its target');
+  assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+    'the concurrent checkout is never adopted or removed');
+});
+
+test('a capability retired from the approved map remains detachable but cannot authorize local deletion', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-retired-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'retired-capability');
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  await approveCapabilityAuthority(root, fixture.platformRemote, {
+    'platform-core': {
+      name: 'Platform core', kind: 'delivery', parent: null, repository: 'platform'
+    }
+  }, {
+    platform: { url: fixture.platformRemote }, api: { url: fixture.apiRemote }
+  });
+
+  await assert.rejects(
+    () => previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_RETIRED_DROP_REFUSED'
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+
+  const detach = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach'
+  });
+  const detached = await changeWorkspaceCapability(fixture.workspace.path, 'api', {
+    action: 'detach'
+  }, { confirmation: detach.planId });
+  assert.deepEqual(detached.workspace.capabilities, []);
+  assert.deepEqual(detached.workspace.repositories.api.capabilities, []);
+  assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+    'non-destructive detach keeps the retired capability checkout available for inspection');
+});
+
+test('workspace capability drop permits a manifest-only detach when its owned checkout is already missing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-missing-drop-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'missing-drop');
+  await rm(fixture.apiCheckout, { recursive: true, force: true });
+  const drop = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  assert.deepEqual(drop.dropRepositories.map((repository) => ({
+    id: repository.id, state: repository.state, removable: repository.removable
+  })), [{ id: 'api', state: 'missing', removable: false }]);
+
+  const detached = await changeWorkspaceCapability(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  }, { confirmation: drop.planId });
+  assert.deepEqual(detached.workspace.capabilities, []);
+  assert.equal(detached.workspace.repositories.api, undefined);
+  assert.deepEqual(detached.dropped, []);
+  assert.deepEqual(detached.removedRepositoryIds, ['api']);
+  assert.equal(await stat(fixture.apiCheckout).catch(() => null), null);
+});
+
+test('a manifest-only capability drop becomes stale when its checkout appears before apply', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-missing-race-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'missing-race');
+  await rm(fixture.apiCheckout, { recursive: true, force: true });
+  const manifestFile = path.join(fixture.workspace.path, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+  const drop = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  assert.deepEqual(drop.dropRepositories.map(({ state, removable }) => ({ state, removable })), [
+    { state: 'missing', removable: false }
+  ]);
+
+  run('git', ['clone', '--quiet', fixture.apiRemote, fixture.apiCheckout], {
+    cwd: path.dirname(fixture.apiCheckout)
+  });
+  await assert.rejects(
+    () => changeWorkspaceCapability(fixture.workspace.path, 'api', {
+      action: 'detach', dropLocal: true
+    }, { confirmation: drop.planId }),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_CONFIRMATION_REQUIRED'
+      && /Preview again/.test(error.message)
+  );
+  assert.equal(await readFile(manifestFile, 'utf8'), before);
+  assert.ok(await stat(path.join(fixture.apiCheckout, '.git')),
+    'the checkout that appeared after preview is never removed or adopted');
+});
+
+test('an active workspace selection is cleared after a direct backend capability drop', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-selection-heal-'));
+  const fixture = await attachedCapabilityWorkspace(root, 'selection-heal');
+  const registry = path.join(root, 'workspaces.json');
+  const selection = path.join(root, 'active-workspace.json');
+  await rememberWorkspace(registry, fixture.workspace, await workspaceStatus(fixture.workspace.path));
+  const selected = await activateWorkspaceContext(registry, selection, fixture.workspace.id, {
+    repositoryId: 'api', detectStory: false
+  });
+  assert.equal(selected.repositoryId, 'api');
+
+  const drop = await previewWorkspaceCapabilityChange(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  await changeWorkspaceCapability(fixture.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  }, { confirmation: drop.planId });
+
+  assert.equal(await readActiveWorkspaceContext(selection, registry), null,
+    'crash recovery must not silently change the user selection to another repository');
+  await assert.rejects(() => readFile(selection, 'utf8'), /ENOENT/,
+    'the stale machine-local navigation cursor is removed');
+});
+
+test('workspace capability detach preserves shared and lead repositories', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-shared-'));
+  const platformRemote = await remoteRepository(root, 'platform');
+  const apiRemote = await remoteRepository(root, 'api');
+  await approveCapabilityAuthority(root, platformRemote, {
+    'api-read': { name: 'API read', kind: 'delivery', parent: null, repository: 'api' },
+    'api-write': { name: 'API write', kind: 'delivery', parent: null, repository: 'api' },
+    platform: { name: 'Platform', kind: 'delivery', parent: null, repository: 'platform' }
+  }, {
+    platform: { url: platformRemote }, api: { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'shared', name: 'Shared',
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] }
+    }
+  }, { confirmation: 'shared', clone: true });
+  for (const capabilityId of ['api-read', 'api-write', 'platform']) {
+    const preview = await previewWorkspaceCapabilityChange(created.workspace.path, capabilityId, {
+      action: 'attach'
+    });
+    await changeWorkspaceCapability(created.workspace.path, capabilityId, { action: 'attach' }, {
+      confirmation: preview.planId
+    });
+  }
+  const apiCheckout = path.join(created.workspace.path, 'repos', 'api');
+  const shared = await previewWorkspaceCapabilityChange(created.workspace.path, 'api-read', {
+    action: 'detach', dropLocal: true
+  });
+  assert.deepEqual(shared.dropRepositories, []);
+  const detachedShared = await changeWorkspaceCapability(
+    created.workspace.path, 'api-read', { action: 'detach', dropLocal: true },
+    { confirmation: shared.planId }
+  );
+  assert.deepEqual(detachedShared.workspace.repositories.api.capabilities, ['api-write']);
+  assert.ok(await stat(path.join(apiCheckout, '.git')), 'a repository shared by another capability remains');
+
+  const lead = await previewWorkspaceCapabilityChange(created.workspace.path, 'platform', {
+    action: 'detach', dropLocal: true
+  });
+  assert.equal(lead.preservedLeadRepository, 'platform');
+  assert.deepEqual(lead.dropRepositories, []);
+  const detachedLead = await changeWorkspaceCapability(
+    created.workspace.path, 'platform', { action: 'detach', dropLocal: true },
+    { confirmation: lead.planId }
+  );
+  assert.ok(await stat(path.join(created.workspace.path, 'repos', 'platform', '.git')),
+    'the lead checkout remains even when its only capability is detached');
+  assert.deepEqual(detachedLead.workspace.repositories.platform.capabilities, []);
+});
+
+test('workspace repair resolves only exact interrupted capability-drop transactions', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-drop-recovery-'));
+  const platformRemote = await remoteRepository(root, 'platform');
+  const apiRemote = await remoteRepository(root, 'api');
+  await approveCapabilityAuthority(root, platformRemote, {
+    api: { name: 'API', kind: 'delivery', parent: null, repository: 'api' }
+  }, {
+    platform: { url: platformRemote }, api: { url: apiRemote }
+  });
+  const created = await createWorkspaceConfiguration({
+    baseDirectory: path.join(root, 'workspaces'), id: 'recover-drop', name: 'Recover drop',
+    leadRepository: 'platform', capabilities: [], capabilityAuthority: { url: platformRemote },
+    repositories: {
+      platform: { url: platformRemote, defaultBranch: 'main', path: 'repos/platform', capabilities: [] }
+    }
+  }, { confirmation: 'recover-drop', clone: true });
+  const attach = await previewWorkspaceCapabilityChange(created.workspace.path, 'api', { action: 'attach' });
+  await changeWorkspaceCapability(created.workspace.path, 'api', { action: 'attach' }, {
+    confirmation: attach.planId
+  });
+
+  const manifestFile = path.join(created.workspace.path, 'workspace.json');
+  const sourceManifest = await readWorkspace(created.workspace.path);
+  const checkout = path.join(created.workspace.path, 'repos', 'api');
+  const drop = await previewWorkspaceCapabilityChange(created.workspace.path, 'api', {
+    action: 'detach', dropLocal: true
+  });
+  const sourceManifestSha256 = drop.sourceManifestSha256;
+  const targetManifest = drop.manifest;
+  const targetManifestSha256 = drop.plan.targetManifestSha256;
+  const [proof] = drop.dropRepositories;
+  const plan = drop.plan;
+  const restorePlan = drop.planId;
+  const transaction = async (staged) => {
+    const stagedInfo = await stat(staged);
+    const unsigned = {
+      schemaVersion: 1,
+      format: 'workspace-capability-drop-v1',
+      planId: restorePlan,
+      phase: 'staged',
+      workspace: created.workspace.path,
+      sourceManifestSha256,
+      targetManifestSha256,
+      plan,
+      repositories: [{
+        id: 'api', relativePath: 'repos/api', source: checkout, staged,
+        url: sourceManifest.repositories.api.url,
+        defaultBranch: sourceManifest.repositories.api.defaultBranch,
+        state: proof.state,
+        removable: proof.removable,
+        head: proof.head,
+        worktreeSha256: proof.worktreeSha256,
+        refsSha256: proof.refsSha256,
+        directoryIdentity: proof.directoryIdentity,
+        stagedIdentity: { device: String(stagedInfo.dev), inode: String(stagedInfo.ino) }
+      }]
+    };
+    return { ...unsigned, transactionSha256: workspaceFixtureSha256(unsigned) };
+  };
+
+  const restoreRoot = path.join(
+    created.workspace.path, '.singularity-flow', 'workspace-capability-drop', restorePlan
+  );
+  const restoreStaged = path.join(restoreRoot, 'api');
+  await mkdir(restoreRoot, { recursive: true });
+  await rename(checkout, restoreStaged);
+  await writeFile(path.join(restoreRoot, 'transaction.json'),
+    `${JSON.stringify(await transaction(restoreStaged), null, 2)}\n`);
+  await repairWorkspace(created.workspace.path);
+  assert.ok(await stat(path.join(checkout, '.git')), 'source-manifest recovery restores the checkout');
+  assert.equal(await stat(restoreRoot).catch(() => null), null);
+
+  const discardPlan = restorePlan;
+  const discardRoot = path.join(
+    created.workspace.path, '.singularity-flow', 'workspace-capability-drop', discardPlan
+  );
+  const discardStaged = path.join(discardRoot, 'api');
+  await mkdir(discardRoot, { recursive: true });
+  await rename(checkout, discardStaged);
+  await writeFile(path.join(discardRoot, 'transaction.json'),
+    `${JSON.stringify(await transaction(discardStaged), null, 2)}\n`);
+  await writeFile(manifestFile, `${JSON.stringify(targetManifest, null, 2)}\n`);
+  await repairWorkspace(created.workspace.path);
+  assert.equal(await stat(discardStaged).catch(() => null), null,
+    'target-manifest recovery deletes only the exact staged checkout');
+  assert.equal(await stat(discardRoot).catch(() => null), null);
+  assert.equal((await readWorkspace(created.workspace.path)).repositories.api, undefined);
+});
+
+test('workspace repair retains malformed, tampered, and third-state capability-drop transactions', async (t) => {
+  await t.test('malformed transaction receipt', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-recovery-malformed-'));
+    const fixture = await stagedCapabilityDropFixture(root, 'recovery-malformed');
+    await writeFile(fixture.transactionFile, '{ malformed receipt\n');
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+    );
+    assert.ok(await stat(path.join(fixture.staged, '.git')),
+      'malformed recovery evidence must never authorize deleting or restoring staged bytes');
+    assert.ok(await stat(fixture.transactionFile), 'the malformed receipt remains for inspection');
+  });
+
+  await t.test('tampered sealed transaction receipt', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-recovery-tampered-'));
+    const fixture = await stagedCapabilityDropFixture(root, 'recovery-tampered');
+    const tampered = structuredClone(fixture.transaction);
+    tampered.repositories[0].head = 'f'.repeat(40);
+    await writeFile(fixture.transactionFile, `${JSON.stringify(tampered, null, 2)}\n`);
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+        && /identity or digest is invalid/i.test(error.message)
+    );
+    assert.ok(await stat(path.join(fixture.staged, '.git')),
+      'a broken transaction seal must retain the staged checkout');
+    assert.ok(await stat(fixture.transactionFile), 'the tampered receipt remains for inspection');
+  });
+
+  await t.test('workspace manifest in a third state', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-recovery-third-'));
+    const fixture = await stagedCapabilityDropFixture(root, 'recovery-third-state');
+    await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+    await writeFile(fixture.manifestFile, `${JSON.stringify({
+      ...fixture.sourceManifest,
+      name: 'Concurrent workspace edit',
+      updatedAt: new Date().toISOString()
+    }, null, 2)}\n`);
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+        && /matches neither the recorded source nor target/i.test(error.message)
+    );
+    assert.ok(await stat(path.join(fixture.staged, '.git')),
+      'an unrelated manifest state must retain the staged checkout');
+    assert.ok(await stat(fixture.transactionFile), 'the exact receipt remains for manual recovery');
+  });
+});
+
+test('workspace repair requires post-rename staged identity to equal the previewed checkout identity', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-staged-identity-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'staged-identity');
+  assert.deepEqual(fixture.transaction.repositories[0].stagedIdentity,
+    fixture.transaction.repositories[0].directoryIdentity,
+    'a plain atomic rename retains the exact previewed directory identity');
+  const changedIdentity = structuredClone(fixture.transaction);
+  changedIdentity.repositories[0].stagedIdentity = {
+    ...changedIdentity.repositories[0].stagedIdentity,
+    inode: String(BigInt(changedIdentity.repositories[0].stagedIdentity.inode) + 1n)
+  };
+  const resealed = resealWorkspaceDropFixture(changedIdentity);
+  await writeFile(fixture.transactionFile, `${JSON.stringify(resealed, null, 2)}\n`);
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+  );
+  assert.ok(await stat(path.join(fixture.staged, '.git')),
+    'a receipt claiming a different post-rename identity cannot move or delete the checkout');
+  assert.ok(await stat(fixture.transactionFile));
+});
+
+test('workspace repair never deletes a replacement at the final quarantine path', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-quarantine-replacement-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'quarantine-replacement');
+  await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+  await writeFile(fixture.manifestFile, `${JSON.stringify(fixture.targetManifest, null, 2)}\n`);
+  const quarantine = `${fixture.staged}.deleting`;
+  const preservedOriginal = path.join(root, 'preserved-original-checkout');
+  await rename(fixture.staged, quarantine);
+  await rename(quarantine, preservedOriginal);
+  await mkdir(quarantine);
+  const replacementMarker = path.join(quarantine, 'replacement-local-data.txt');
+  await writeFile(replacementMarker, 'replacement with a different directory identity\n');
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+      && /final quarantine identity changed/i.test(error.message)
+  );
+  assert.equal(await readFile(replacementMarker, 'utf8'),
+    'replacement with a different directory identity\n');
+  assert.ok(await stat(path.join(preservedOriginal, '.git')),
+    'the originally staged checkout is also retained outside the transaction path');
+  assert.ok(await stat(fixture.transactionFile),
+    'the transaction remains visible for manual inspection');
+});
+
+test('workspace repair retains drop staging when local work appears after the checkout rename', async (t) => {
+  await t.test('ignored local file appears after staging', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-staged-ignore-'));
+    const fixture = await stagedCapabilityDropFixture(root, 'staged-ignore');
+    await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+    await writeFile(fixture.manifestFile, `${JSON.stringify(fixture.targetManifest, null, 2)}\n`);
+    await writeFile(path.join(fixture.staged, '.git', 'info', 'exclude'), 'late-cache.bin\n');
+    await writeFile(path.join(fixture.staged, 'late-cache.bin'), 'created after rename\n');
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_IGNORED'
+    );
+    assert.ok(await stat(path.join(fixture.staged, 'late-cache.bin')),
+      'ignored bytes created after staging must be retained');
+    assert.ok(await stat(fixture.transactionFile), 'the transaction remains available for inspection');
+  });
+
+  await t.test('an unpublished local ref appears after staging', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-staged-ref-'));
+    const fixture = await stagedCapabilityDropFixture(root, 'staged-local-ref');
+    await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+    await writeFile(fixture.manifestFile, `${JSON.stringify(fixture.targetManifest, null, 2)}\n`);
+    run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: fixture.staged });
+    run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: fixture.staged });
+    await writeFile(path.join(fixture.staged, 'late-commit.txt'), 'local-only commit\n');
+    run('git', ['add', 'late-commit.txt'], { cwd: fixture.staged });
+    run('git', ['commit', '-m', 'retain after staging'], { cwd: fixture.staged });
+    run('git', ['branch', 'retain-local-only'], { cwd: fixture.staged });
+    run('git', ['reset', '--hard', fixture.transaction.repositories[0].head], { cwd: fixture.staged });
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_UNPUSHED'
+    );
+    assert.ok(await stat(path.join(fixture.staged, '.git')),
+      'a staged checkout with an unpublished ref must be retained');
+    assert.equal(run('git', ['show-ref', '--verify', '--quiet', 'refs/heads/retain-local-only'], {
+      cwd: fixture.staged, allowFailure: true
+    }).status, 0);
+  });
+});
+
+test('workspace repair refuses a capability-drop transaction root containing unknown children', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-recovery-extra-child-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'recovery-extra-child');
+  await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+  const unknown = path.join(fixture.transactionRoot, 'unknown-local-data.txt');
+  await writeFile(unknown, 'not covered by the sealed transaction\n');
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+  );
+  assert.ok(await stat(path.join(fixture.staged, '.git')),
+    'the staged checkout remains when its transaction directory has unknown content');
+  assert.equal(await readFile(unknown, 'utf8'), 'not covered by the sealed transaction\n');
+  assert.ok(await stat(fixture.transactionFile));
+});
+
+test('workspace repair rejects repository IDs that collide in the recovery namespace', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-recovery-namespace-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'recovery-namespace');
+  const receiptCollision = structuredClone(fixture.transaction);
+  receiptCollision.repositories[0].id = 'transaction.json';
+  await writeFile(fixture.transactionFile,
+    `${JSON.stringify(resealWorkspaceDropFixture(receiptCollision), null, 2)}\n`);
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+      && /recovery namespace collision at 'transaction\.json'/i.test(error.message)
+  );
+  assert.ok(await stat(path.join(fixture.staged, '.git')));
+
+  const quarantineCollision = structuredClone(fixture.transaction);
+  quarantineCollision.repositories.push({
+    ...structuredClone(quarantineCollision.repositories[0]),
+    id: 'api.deleting'
+  });
+  await writeFile(fixture.transactionFile,
+    `${JSON.stringify(resealWorkspaceDropFixture(quarantineCollision), null, 2)}\n`);
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+      && /recovery namespace collision at 'api\.deleting'/i.test(error.message)
+  );
+  assert.ok(await stat(path.join(fixture.staged, '.git')),
+    'colliding transaction names must never authorize recovery of the staged checkout');
+  assert.ok(await stat(fixture.transactionFile));
+});
+
+test('workspace repair does not delete a staged checkout aliased by a retained lead path', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-recovery-retained-alias-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'recovery-retained-alias');
+  await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+  await writeFile(fixture.manifestFile, `${JSON.stringify(fixture.targetManifest, null, 2)}\n`);
+  const lead = path.join(fixture.workspace.path, 'repos', 'platform');
+  const preservedLead = path.join(root, 'preserved-platform');
+  await rename(lead, preservedLead);
+  await symlink(fixture.staged, lead, 'dir');
+
+  await assert.rejects(
+    () => repairWorkspace(fixture.workspace.path),
+    (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+      && /overlaps retained repository 'platform'/i.test(error.message)
+  );
+  assert.ok(await stat(path.join(fixture.staged, '.git')),
+    'recursive recovery deletion must not remove bytes visible through a retained repository path');
+  assert.equal(await realpath(lead), await realpath(fixture.staged));
+  assert.ok(await stat(path.join(preservedLead, '.git')));
+  assert.ok(await stat(fixture.transactionFile));
+});
+
+test('workspace capability-drop recovery refuses symlinked roots and ancestors without touching outside data', async (t) => {
+  await t.test('the recovery root itself is a symlink', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-root-symlink-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'root-symlink');
+    const recoveryRoot = path.join(
+      fixture.workspace.path, '.singularity-flow', 'workspace-capability-drop'
+    );
+    const outside = path.join(root, 'outside-recovery-root');
+    const marker = path.join(outside, 'do-not-touch.txt');
+    await mkdir(outside);
+    await writeFile(marker, 'outside root data\n');
+    await mkdir(path.dirname(recoveryRoot), { recursive: true });
+    await rm(recoveryRoot, { recursive: true, force: true });
+    await symlink(outside, recoveryRoot, 'dir');
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+    );
+    assert.equal(await readFile(marker, 'utf8'), 'outside root data\n');
+    assert.equal((await stat(outside)).isDirectory(), true);
+  });
+
+  await t.test('a symlinked recovery-root ancestor is rejected', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-ancestor-symlink-'));
+    const fixture = await attachedCapabilityWorkspace(root, 'ancestor-symlink');
+    const sflowDirectory = path.join(fixture.workspace.path, '.singularity-flow');
+    const outside = path.join(root, 'outside-sflow-directory');
+    const marker = path.join(outside, 'do-not-touch.txt');
+    await rm(sflowDirectory, { recursive: true, force: true });
+    await mkdir(path.join(outside, 'workspace-capability-drop'), { recursive: true });
+    await writeFile(marker, 'outside ancestor data\n');
+    await symlink(outside, sflowDirectory, 'dir');
+
+    await assert.rejects(
+      () => repairWorkspace(fixture.workspace.path),
+      (error) => error?.code === 'WORKSPACE_CAPABILITY_DROP_RECOVERY_BLOCKED'
+    );
+    assert.equal(await readFile(marker, 'utf8'), 'outside ancestor data\n');
+    assert.equal((await stat(outside)).isDirectory(), true);
+  });
+});
+
+test('workspace capability-drop recovery tolerates an unrelated origin branch advancing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-capability-unrelated-origin-'));
+  const fixture = await stagedCapabilityDropFixture(root, 'unrelated-origin');
+  await writeFile(fixture.transactionFile, `${JSON.stringify(fixture.transaction, null, 2)}\n`);
+  await writeFile(fixture.manifestFile, `${JSON.stringify(fixture.targetManifest, null, 2)}\n`);
+
+  const originalHead = fixture.transaction.repositories[0].head;
+  run('git', ['update-ref', 'refs/heads/unrelated', originalHead], { cwd: fixture.apiRemote });
+  const publisher = path.join(root, 'unrelated-publisher');
+  run('git', ['clone', '--quiet', fixture.apiRemote, publisher], { cwd: root });
+  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: publisher });
+  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: publisher });
+  run('git', ['checkout', '-b', 'unrelated', 'origin/unrelated'], { cwd: publisher });
+  await writeFile(path.join(publisher, 'unrelated.txt'), 'advance only the unrelated branch\n');
+  run('git', ['add', 'unrelated.txt'], { cwd: publisher });
+  run('git', ['commit', '-m', 'advance unrelated branch'], { cwd: publisher });
+  run('git', ['push', 'origin', 'unrelated'], { cwd: publisher });
+
+  await repairWorkspace(fixture.workspace.path);
+  assert.equal(await stat(fixture.staged).catch(() => null), null,
+    'fresh unrelated remote-tracking evidence does not make the sealed checkout itself stale');
+  assert.equal(await stat(fixture.transactionRoot).catch(() => null), null);
+  assert.equal((await readWorkspace(fixture.workspace.path)).repositories.api, undefined);
 });
 
 test('local Git value reads are bounded and terminate a stalled child', async () => {
@@ -1367,6 +2986,385 @@ test('workspace editing updates Jira routing and metadata while archive remains 
   assert.equal((await readWorkspaceRegistry(registry))[0].archivedAt, null);
 });
 
+test('stale workspace-manifest lease recovery cannot retire its live successor', {
+  timeout: 15_000
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-reclaim-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const lock = `${manifest}.lock`;
+  const guard = path.join(root, 'inside-operation');
+  const events = path.join(root, 'events.log');
+  const firstObserved = path.join(root, 'first-observed-stale');
+  const releaseFirst = path.join(root, 'release-first-reaper');
+  const firstAttempted = path.join(root, 'first-reclaim-attempted');
+  const secondEntered = path.join(root, 'second-entered');
+  const releaseSecond = path.join(root, 'release-second-owner');
+  await writeFile(manifest, '{}\n');
+  await writeFile(lock, `${JSON.stringify({
+    pid: 2_147_483_647,
+    token: '00000000-0000-4000-8000-000000000001',
+    createdAt: '2000-01-01T00:00:00.000Z'
+  })}\n`, { mode: 0o600 });
+  const staleTime = new Date(Date.now() - (16 * 60_000));
+  await utimes(lock, staleTime, staleTime);
+
+  const workspaceModule = pathToFileURL(path.join(packageRoot, 'src', 'workspace.mjs')).href;
+  const childSource = `
+    import { appendFile, open, readFile, rm, writeFile } from 'node:fs/promises';
+    import { setTimeout as delay } from 'node:timers/promises';
+    import { withRegistryFileLease } from ${JSON.stringify(workspaceModule)};
+    const required = (name) => {
+      const value = process.env[name];
+      if (!value) throw new Error('missing ' + name);
+      return value;
+    };
+    const manifest = required('SFLOW_LEASE_TEST_MANIFEST');
+    const role = required('SFLOW_LEASE_TEST_ROLE');
+    const ready = required('SFLOW_LEASE_TEST_READY');
+    const guard = required('SFLOW_LEASE_TEST_GUARD');
+    const events = required('SFLOW_LEASE_TEST_EVENTS');
+    const firstObserved = required('SFLOW_LEASE_TEST_FIRST_OBSERVED');
+    const releaseFirst = required('SFLOW_LEASE_TEST_RELEASE_FIRST');
+    const firstAttempted = required('SFLOW_LEASE_TEST_FIRST_ATTEMPTED');
+    const secondEntered = required('SFLOW_LEASE_TEST_SECOND_ENTERED');
+    const releaseSecond = required('SFLOW_LEASE_TEST_RELEASE_SECOND');
+    const waitFor = async (file) => {
+      while (true) {
+        try { await readFile(file); return; }
+        catch (error) { if (error?.code !== 'ENOENT') throw error; }
+        await delay(5);
+      }
+    };
+    await writeFile(ready, String(process.pid));
+    let paused = false;
+    let attempted = false;
+    await withRegistryFileLease(manifest, async () => {
+      let handle;
+      try {
+        handle = await open(guard, 'wx', 0o600);
+      } catch (error) {
+        if (error?.code === 'EEXIST') throw new Error('registry lease operations overlapped');
+        throw error;
+      }
+      try {
+        await appendFile(events, 'enter:' + role + ':' + process.pid + '\\n');
+        if (role === 'second') {
+          await writeFile(secondEntered, String(process.pid));
+          await waitFor(releaseSecond);
+        } else {
+          await delay(25);
+        }
+        await appendFile(events, 'exit:' + role + ':' + process.pid + '\\n');
+      } finally {
+        await handle.close();
+        await rm(guard, { force: true });
+      }
+    }, {
+      hooks: {
+        afterStaleObserved: async () => {
+          if (role !== 'first' || paused) return;
+          paused = true;
+          await writeFile(firstObserved, String(process.pid));
+          await waitFor(releaseFirst);
+        },
+        afterReclaimAttempt: async () => {
+          if (role !== 'first' || attempted) return;
+          attempted = true;
+          await writeFile(firstAttempted, String(process.pid));
+        }
+      }
+    });
+  `;
+  const children = [];
+  const startChild = (role) => {
+    const ready = path.join(root, `ready-${role}`);
+    const child = spawn(process.execPath, ['--input-type=module', '--eval', childSource], {
+      cwd: packageRoot,
+      env: {
+        ...process.env,
+        SFLOW_LEASE_TEST_MANIFEST: manifest,
+        SFLOW_LEASE_TEST_ROLE: role,
+        SFLOW_LEASE_TEST_READY: ready,
+        SFLOW_LEASE_TEST_GUARD: guard,
+        SFLOW_LEASE_TEST_EVENTS: events,
+        SFLOW_LEASE_TEST_FIRST_OBSERVED: firstObserved,
+        SFLOW_LEASE_TEST_RELEASE_FIRST: releaseFirst,
+        SFLOW_LEASE_TEST_FIRST_ATTEMPTED: firstAttempted,
+        SFLOW_LEASE_TEST_SECOND_ENTERED: secondEntered,
+        SFLOW_LEASE_TEST_RELEASE_SECOND: releaseSecond
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    const completed = new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', (status, signal) => resolve({ status, signal, stdout, stderr }));
+    });
+    const result = { ready, child, completed };
+    children.push(result);
+    return result;
+  };
+  t.after(() => children.forEach(({ child }) => { if (child.exitCode === null) child.kill('SIGKILL'); }));
+
+  const waitForPath = async (file, message) => {
+    const deadline = Date.now() + 10_000;
+    while (!await stat(file).then(() => true).catch(() => false)) {
+      assert.ok(Date.now() < deadline, message);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  const first = startChild('first');
+  await waitForPath(first.ready, 'first child did not start');
+  await waitForPath(firstObserved, 'first child did not pause after observing the stale inode');
+  const second = startChild('second');
+  await waitForPath(second.ready, 'second child did not start');
+  await waitForPath(secondEntered, 'second child did not acquire the successor lease');
+  await writeFile(releaseFirst, 'resume\n');
+  await waitForPath(firstAttempted,
+    'the paused first reaper did not attempt its old reclaim while the successor was held');
+  assert.deepEqual((await readFile(events, 'utf8')).trim().split(/\r?\n/).map((line) =>
+    line.split(':').slice(0, 2).join(':')), ['enter:second'],
+  'the first reaper cannot enter while the second process holds the successor lease');
+  await writeFile(releaseSecond, 'exit\n');
+  const results = await Promise.all(children.map(({ completed }) => completed));
+  results.forEach((result) => assert.equal(result.status, 0,
+    `child lease process failed (${result.signal ?? 'no signal'}): ${result.stderr || result.stdout}`));
+
+  const observedEvents = (await readFile(events, 'utf8')).trim().split(/\r?\n/);
+  assert.deepEqual(observedEvents.map((line) => line.replace(/:\d+$/, '')), [
+    'enter:second', 'exit:second', 'enter:first', 'exit:first'
+  ]);
+  assert.equal(await stat(lock).then(() => true).catch(() => false), false,
+    'the final live lease is released');
+  const tombstones = (await readdir(root)).filter((entry) =>
+    entry.startsWith(`${path.basename(lock)}.reclaimed-`));
+  assert.equal(tombstones.length, 1,
+    'all contenders for one stale inode share one completed reaping generation');
+  assert.equal((await stat(path.join(root, tombstones[0], 'retired.lock'))).isFile(), true);
+});
+
+test('workspace-manifest lease expiry is not preserved by a recycled PID', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-pid-reuse-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const lock = `${manifest}.lock`;
+  await writeFile(manifest, '{}\n');
+  await writeFile(lock, `${JSON.stringify({
+    pid: process.pid,
+    host: os.hostname(),
+    processStartedAt: 0,
+    processToken: 'old-process-instance',
+    token: '00000000-0000-4000-8000-000000000002',
+    createdAt: '2000-01-01T00:00:00.000Z'
+  })}\n`, { mode: 0o600 });
+  const staleTime = new Date(Date.now() - (16 * 60_000));
+  await utimes(lock, staleTime, staleTime);
+
+  let entered = false;
+  await withRegistryFileLease(manifest, async () => { entered = true; });
+  assert.equal(entered, true);
+  assert.equal(await stat(lock).then(() => true).catch(() => false), false);
+});
+
+test('workspace-manifest lease fences and advances past an interrupted reclaim claim', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-interrupted-claim-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const lock = `${manifest}.lock`;
+  const ownerBytes = `${JSON.stringify({
+    pid: 2_147_483_647,
+    token: '00000000-0000-4000-8000-000000000003',
+    createdAt: '2000-01-01T00:00:00.000Z'
+  })}\n`;
+  await writeFile(manifest, '{}\n');
+  await writeFile(lock, ownerBytes, { mode: 0o600 });
+  const staleTime = new Date(Date.now() - (16 * 60_000));
+  await utimes(lock, staleTime, staleTime);
+  const info = await stat(lock, { bigint: true });
+  const identity = createHash('sha256').update(JSON.stringify({
+    ownerBytes,
+    device: String(info.dev),
+    inode: String(info.ino),
+    birthtimeMs: Number(info.birthtimeMs),
+    mtimeMs: Number(info.mtimeMs)
+  })).digest('hex').slice(0, 32);
+  const interruptedClaim = `${lock}.reclaimed-${identity}-0000`;
+  await mkdir(interruptedClaim);
+  await writeFile(path.join(interruptedClaim, 'claim.json'), `${JSON.stringify({
+    pid: 2_147_483_647,
+    host: os.hostname(),
+    processStartedAt: 0,
+    processToken: 'crashed-reaper',
+    claimToken: 'crashed-claim',
+    reclaimIdentity: identity,
+    createdAt: '2000-01-01T00:00:00.000Z'
+  })}\n`);
+  const abandonedTime = new Date(Date.now() - 31_000);
+  await utimes(interruptedClaim, abandonedTime, abandonedTime);
+
+  let entered = false;
+  await withRegistryFileLease(manifest, async () => { entered = true; });
+  assert.equal(entered, true);
+  assert.equal((await stat(path.join(interruptedClaim, 'retired.lock'))).isDirectory(), true,
+    'an atomic directory fence prevents the interrupted reaper from moving a successor');
+  assert.equal(await readFile(path.join(interruptedClaim, 'retired.lock', 'fenced.claim'), 'utf8'),
+    `${identity}\n`);
+  const nextClaim = `${lock}.reclaimed-${identity}-0001`;
+  assert.equal((await stat(path.join(nextClaim, 'retired.lock'))).isFile(), true,
+    'the next immutable claim generation retires the original stale inode');
+  assert.equal(await stat(lock).then(() => true).catch(() => false), false);
+});
+
+test('workspace-manifest lease removes its exact candidate after owner write failure', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-owner-write-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const lock = `${manifest}.lock`;
+  await writeFile(manifest, '{}\n');
+  await assert.rejects(
+    () => withRegistryFileLease(manifest, async () => {}, {
+      hooks: { afterLockOpened: () => { throw new Error('injected owner write failure'); } }
+    }),
+    /injected owner write failure/
+  );
+  assert.equal(await stat(lock).then(() => true).catch(() => false), false,
+    'the failed candidate is removed after its exact inode is rechecked');
+  let entered = false;
+  await withRegistryFileLease(manifest, async () => { entered = true; });
+  assert.equal(entered, true, 'the failure leaves no held descriptor or stale lease');
+});
+
+test('workspace-manifest lease heartbeat protects the unpublished acquisition inode', {
+  timeout: 10_000
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-acquiring-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const opened = path.join(root, 'opened');
+  const entered = path.join(root, 'entered');
+  const lock = `${manifest}.lock`;
+  await writeFile(manifest, '{}\n');
+  const workspaceModule = pathToFileURL(path.join(packageRoot, 'src', 'workspace.mjs')).href;
+  const childSource = `
+    import { writeFile } from 'node:fs/promises';
+    import { withRegistryFileLease } from ${JSON.stringify(workspaceModule)};
+    await withRegistryFileLease(process.env.SFLOW_LEASE_TEST_MANIFEST, async () => {
+      await writeFile(process.env.SFLOW_LEASE_TEST_ENTERED, String(process.pid));
+    }, {
+      staleMs: 1_000,
+      acquisitionGraceMs: 200,
+      timeoutMs: 3_000,
+      hooks: {
+        afterLockOpened: async () => {
+          await writeFile(process.env.SFLOW_LEASE_TEST_OPENED, String(process.pid));
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_200);
+        }
+      }
+    });
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', childSource], {
+    cwd: packageRoot,
+    env: {
+      ...process.env,
+      SFLOW_LEASE_TEST_MANIFEST: manifest,
+      SFLOW_LEASE_TEST_OPENED: opened,
+      SFLOW_LEASE_TEST_ENTERED: entered
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const completed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (status, signal) => resolve({ status, signal }));
+  });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  const deadline = Date.now() + 5_000;
+  while (!await stat(opened).then(() => true).catch(() => false)) {
+    assert.ok(Date.now() < deadline, 'child did not pause before publishing its owner record');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(await readFile(lock, 'utf8'), '',
+    'the acquisition hook runs while the newly created lease inode is still unpublished');
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  await assert.rejects(
+    () => withRegistryFileLease(manifest, async () => {
+      throw new Error('an unpublished but live acquisition inode must not be reclaimed');
+    }, { staleMs: 1_000, acquisitionGraceMs: 200, timeoutMs: 300 }),
+    (error) => error?.code === 'WORKSPACE_REGISTRY_BUSY'
+  );
+  assert.equal(await stat(entered).then(() => true).catch(() => false), false,
+    'the original owner remains paused until after the competing acquisition times out');
+  const result = await completed;
+  assert.equal(result.status, 0,
+    `acquisition heartbeat child failed (${result.signal ?? 'no signal'}): ${stderr}`);
+  assert.equal(await stat(entered).then(() => true).catch(() => false), true,
+    'the original owner publishes its record and enters after the acquisition stall');
+  assert.equal(await stat(lock).then(() => true).catch(() => false), false,
+    'the original owner releases the exact acquisition inode');
+});
+
+test('workspace-manifest lease heartbeat survives a blocked owner event loop', {
+  timeout: 10_000
+}, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-lease-heartbeat-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = path.join(root, 'workspace.json');
+  const entered = path.join(root, 'entered');
+  await writeFile(manifest, '{}\n');
+  const workspaceModule = pathToFileURL(path.join(packageRoot, 'src', 'workspace.mjs')).href;
+  const childSource = `
+    import { writeFile } from 'node:fs/promises';
+    import { withRegistryFileLease } from ${JSON.stringify(workspaceModule)};
+    await withRegistryFileLease(process.env.SFLOW_LEASE_TEST_MANIFEST, async () => {
+      await writeFile(process.env.SFLOW_LEASE_TEST_ENTERED, String(process.pid));
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_800);
+    }, { staleMs: 600, timeoutMs: 3_000 });
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '--eval', childSource], {
+    cwd: packageRoot,
+    env: {
+      ...process.env,
+      SFLOW_LEASE_TEST_MANIFEST: manifest,
+      SFLOW_LEASE_TEST_ENTERED: entered
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const completed = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (status, signal) => resolve({ status, signal }));
+  });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGKILL'); });
+  const deadline = Date.now() + 5_000;
+  while (!await stat(entered).then(() => true).catch(() => false)) {
+    assert.ok(Date.now() < deadline, 'blocked owner did not enter its leased operation');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  await assert.rejects(
+    () => withRegistryFileLease(manifest, async () => {
+      throw new Error('a live heartbeat must prevent successor entry');
+    }, { staleMs: 600, timeoutMs: 300 }),
+    (error) => error?.code === 'WORKSPACE_REGISTRY_BUSY'
+  );
+  const result = await completed;
+  assert.equal(result.status, 0,
+    `blocked heartbeat child failed (${result.signal ?? 'no signal'}): ${stderr}`);
+  let acquiredAfterRelease = false;
+  await withRegistryFileLease(manifest, async () => { acquiredAfterRelease = true; });
+  assert.equal(acquiredAfterRelease, true);
+});
+
 test('concurrent workspace registry updates preserve every workspace', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-registry-concurrent-'));
   const registry = path.join(root, 'registry.json');
@@ -1468,6 +3466,57 @@ test('workspace repair stages independent repositories concurrently before any c
     'repair probes every independent repository in one bounded staging wave');
   assert.deepEqual(await readdir(path.join(created.workspace.path, 'repos')), [],
     'a failed wave claims no repository directory');
+});
+
+test('workspace repair discards a staged clone when the manifest changes before final claim', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-repair-manifest-race-'));
+  const input = workspaceInput(path.join(root, 'workspaces'), {
+    platform: {
+      url: path.join(root, 'platform.git'), defaultBranch: 'main', required: true,
+      path: 'repos/platform'
+    }
+  });
+  const created = await createWorkspace(input, { confirmation: 'PAY-100', clone: false });
+  const target = path.join(created.workspace.path, 'repos', 'platform');
+  const staging = path.join(created.workspace.path, 'repos', '.private-platform-staging');
+  let claimCalls = 0;
+  let discardCalls = 0;
+  const cloneOperation = async () => {
+    await mkdir(staging);
+    await writeFile(path.join(staging, 'README.md'), '# privately staged clone\n');
+    const current = await readWorkspace(created.workspace.path);
+    await writeFile(path.join(created.workspace.path, 'workspace.json'), `${JSON.stringify({
+      ...current,
+      name: 'Concurrent manifest edit',
+      updatedAt: new Date().toISOString()
+    }, null, 2)}\n`);
+    return {
+      status: 0,
+      clone: { mode: 'full' },
+      fallbackUsed: false,
+      staging: { path: staging },
+      claim: async () => {
+        claimCalls += 1;
+        await rename(staging, target);
+        return { status: 0, clone: { mode: 'full' }, fallbackUsed: false };
+      },
+      discard: async () => {
+        discardCalls += 1;
+        await rm(staging, { recursive: true, force: true });
+        return { removed: true, path: staging };
+      }
+    };
+  };
+
+  await assert.rejects(
+    () => repairWorkspace(created.workspace.path, { cloneOperation }),
+    /Workspace configuration changed while repository 'platform' was cloning/
+  );
+  assert.equal(claimCalls, 0, 'a staged clone is never claimed under a different manifest');
+  assert.equal(discardCalls, 1, 'the still-private staging directory is discarded exactly once');
+  assert.equal(await stat(staging).catch(() => null), null);
+  assert.equal(await stat(target).catch(() => null), null);
+  assert.equal((await readWorkspace(created.workspace.path)).name, 'Concurrent manifest edit');
 });
 
 test('workspace repair stops when a required staged clone loses its final claim race', async () => {

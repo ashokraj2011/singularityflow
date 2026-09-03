@@ -2250,6 +2250,10 @@ const families = [
   }),
   family({ id: 'workspace-registry', currentVersion: 1, paths: [/^\$local\/workspaces\.json$/] }),
   family({
+    id: 'workspace-capability-drop-transaction', currentVersion: 1,
+    paths: [/^(?:\$workspace\/)?\.singularity-flow\/workspace-capability-drop\/wscp-[0-9a-f]{24}\/transaction\.json$/]
+  }),
+  family({
     id: 'help-metrics-settings', currentVersion: 1,
     paths: [/^(?:\$git|\$workspace)\/help-metrics\/settings\.json$/]
   }),

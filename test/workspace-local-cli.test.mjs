@@ -59,6 +59,31 @@ async function approveCapabilities(base, source, capabilityIds) {
   run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
 }
 
+async function approveDeliveryCapability(base, source, capabilityId) {
+  const seed = path.join(base, 'approve-delivery-capability');
+  run('git', ['clone', '-q', '-b', 'main', source, seed], { cwd: base });
+  run('git', ['config', 'user.name', 'T'], { cwd: seed });
+  run('git', ['config', 'user.email', 't@example.com'], { cwd: seed });
+  run('git', ['switch', '--orphan', 'sflow/config'], { cwd: seed });
+  run('git', ['rm', '-rf', '.'], { cwd: seed, allowFailure: true });
+  await mkdir(path.join(seed, 'singularity'), { recursive: true });
+  await writeFile(path.join(seed, 'singularity', 'capabilities.yml'), [
+    'version: 1',
+    'capabilities:',
+    `  ${capabilityId}: { name: ${JSON.stringify(capabilityId)}, kind: delivery, parent: null, repository: source }`,
+    ''
+  ].join('\n'));
+  await writeFile(path.join(seed, 'singularity', 'portfolio.yml'), [
+    'version: 1',
+    'repositories:',
+    `  source: { url: ${JSON.stringify(source)}, defaultBranch: main, required: true }`,
+    ''
+  ].join('\n'));
+  run('git', ['add', '-A'], { cwd: seed });
+  run('git', ['commit', '-qm', 'approve delivery capability'], { cwd: seed });
+  run('git', ['push', '-q', source, 'HEAD:sflow/config'], { cwd: seed });
+}
+
 test('a workspace can be created with no tracker at all', async () => {
   // The local anchor must remain reachable through the public CLI so a Jira-less team can
   // not create a workspace once the desktop is out of the picture.
@@ -92,6 +117,67 @@ test('--dry-run previews a local workspace without creating it', async () => {
   assert.equal(preview.manifest.anchor.key, 'dry-team');
   const listed = cli(['workspace', 'list'], env);
   assert.doesNotMatch(listed.stdout, /dry-team/, 'a preview must not register anything');
+});
+
+test('workspace capability preview and apply remain exact across CLI processes', async () => {
+  const { base, source, env } = await environment();
+  await approveDeliveryCapability(base, source, 'payments');
+  const workspaces = path.join(base, 'workspaces-capability');
+  const directory = path.join(workspaces, 'commerce');
+  cli(['workspace', 'create', '--local', '--id', 'commerce', '--base', workspaces,
+    '--lead', 'app', '--repository', `app=${source}`, '--confirm', 'commerce', '--no-clone'], env);
+  const manifestFile = path.join(directory, 'workspace.json');
+  const before = await readFile(manifestFile, 'utf8');
+
+  const preview = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--dry-run', '--json'
+  ], env).stdout);
+  assert.match(preview.planId, /^wscp-[0-9a-f]{24}$/);
+  assert.equal(await readFile(manifestFile, 'utf8'), before, 'preview writes nothing');
+  const wrong = cli([
+    'workspace', 'attach-capability', directory, 'payments', '--confirm-plan', 'wscp-000000000000000000000000', '--json'
+  ], env, { allowFailure: true });
+  assert.notEqual(wrong.status, 0);
+  assert.equal(await readFile(manifestFile, 'utf8'), before, 'wrong confirmation preserves the manifest');
+
+  const attached = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--confirm-plan', preview.planId, '--json'
+  ], env).stdout);
+  assert.deepEqual(attached.workspace.capabilities, ['payments']);
+  assert.equal(attached.status.repositories.find((repository) => repository.id === 'source')?.state, 'ready',
+    'the second process materializes the capability repository without repairing unrelated checkouts');
+  assert.equal(attached.status.repositories.find((repository) => repository.id === 'app')?.state, 'missing');
+
+  const detach = JSON.parse(cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local', '--dry-run', '--json'
+  ], env).stdout);
+  assert.deepEqual(detach.dropRepositories.map((repository) => repository.id), ['source']);
+  cli(['workspace', 'use', directory, '--repository', 'source', '--json'], env);
+  const detached = JSON.parse(cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local',
+    '--confirm-plan', detach.planId, '--json'
+  ], env).stdout);
+  assert.equal(detached.activeSelectionCleared, true);
+  assert.deepEqual(JSON.parse(cli(['workspace', 'current', '--json'], env).stdout), { active: false });
+  assert.equal(await readFile(path.join(directory, 'workspace.json'), 'utf8')
+    .then((text) => JSON.parse(text).repositories.source ?? null), null);
+
+  const reattach = JSON.parse(cli([
+    'workspace', 'attach-capability', directory, 'payments', '--dry-run', '--json'
+  ], env).stdout);
+  cli(['workspace', 'attach-capability', directory, 'payments', '--confirm-plan', reattach.planId, '--json'], env);
+  const staleDetach = JSON.parse(cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local', '--dry-run', '--json'
+  ], env).stdout);
+  cli(['workspace', 'rename', directory, '--name', 'Commerce renamed', '--confirm', 'commerce', '--json'], env);
+  const renamed = await readFile(manifestFile, 'utf8');
+  const stale = cli([
+    'workspace', 'detach-capability', directory, 'payments', '--drop-local',
+    '--confirm-plan', staleDetach.planId, '--json'
+  ], env, { allowFailure: true });
+  assert.notEqual(stale.status, 0);
+  assert.equal(await readFile(manifestFile, 'utf8'), renamed,
+    'a plan from before another process changed the manifest cannot apply');
 });
 
 test('archive and restore round-trip, and archiving demands exact confirmation', async () => {
@@ -444,11 +530,15 @@ test('a workspace can be renamed without restating everything about it', async (
   assert.equal(manifest.leadRepository, 'platform', 'untouched');
   assert.deepEqual(manifest.capabilities, ['payments'], 'untouched');
 
-  // What a workspace is for is a local decision, and it changes as work moves on.
-  cli(['workspace', 'update', workspace, '--capability', 'storefront', '--capability', 'checkout',
-    '--confirm', 'commerce', '--json'], env);
+  // Capability attachment is a repository-bound transition, not a generic metadata edit.
+  const legacyCapabilityEdit = cli([
+    'workspace', 'update', workspace, '--capability', 'storefront', '--capability', 'checkout',
+    '--confirm', 'commerce', '--json'
+  ], env, { allowFailure: true });
+  assert.notEqual(legacyCapabilityEdit.status, 0);
+  assert.match(legacyCapabilityEdit.stderr, /attach-capability or workspace detach-capability/);
   manifest = JSON.parse(await readFile(path.join(workspace, 'workspace.json'), 'utf8'));
-  assert.deepEqual(manifest.capabilities, ['checkout', 'storefront']);
+  assert.deepEqual(manifest.capabilities, ['payments'], 'the legacy path cannot desynchronize bindings');
   assert.equal(manifest.name, 'Commerce platform', 'untouched');
 
   // The directory never moves: it was fixed at creation, and moving it is a copy.

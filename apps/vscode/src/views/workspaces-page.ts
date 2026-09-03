@@ -9,7 +9,7 @@ import {
   duplicateDirectory, duplicateProblems, type WorkspaceRow, type WorkspaceStatus,
   type WorkspaceRepositoryStatus, type WorkspaceCapabilityChoice,
   type WorkspaceConfigurationConflict, type WorkspaceConfigurationRefreshResult,
-  type WorkspaceConfigurationResolution
+  type WorkspaceConfigurationResolution, type WorkspaceCapabilityAttachScope
 } from './workspaces-model.ts';
 import { escape, icon } from './webview.ts';
 
@@ -110,10 +110,17 @@ function detailHtml(
   status: WorkspaceStatus | null,
   loading: boolean,
   detailError: string | null,
-  configuration: WorkspaceConfigurationRefreshView
+  configuration: WorkspaceConfigurationRefreshView,
+  repairBusy: boolean
 ): string {
   const problems = duplicateProblems(row, draft.id, draft.base, rows);
   const target = duplicateDirectory(row, draft.id || '<identifier>', draft.base);
+  const missingCheckout = (status?.repositories ?? []).some((repository) =>
+    repository.state === 'missing' || repository.state === 'empty');
+  // Capability drop uses a private transaction directory outside workspace.json. A crash can leave
+  // recovery work even when every manifest repository looks healthy, so Manage always keeps the
+  // idempotent repair action discoverable.
+  const repairable = missingCheckout || edit.open;
   return `
   <div class="card-head">
     <h3>${icon('workspace')}${escape(row.name)}</h3>
@@ -124,6 +131,16 @@ function detailHtml(
 
   ${workspaceDetails(status, loading, detailError)}
 
+  ${repairable ? `<div class="card blocked">
+    <div class="card-head"><strong>${missingCheckout
+      ? 'A required checkout needs materialization'
+      : 'Workspace recovery &amp; consistency'}</strong><span class="grow"></span>
+      <button data-repair="${escape(row.path)}"${repairBusy ? ' disabled' : ''}>${repairBusy ? 'Repairing…' : 'Repair workspace'}</button></div>
+    <p class="muted">${missingCheckout
+      ? 'Retries missing or empty workspace-owned repositories and resumes an interrupted capability detach or drop.'
+      : 'Checks for an interrupted capability detach or drop and resumes only its verified transaction. Existing Git work is preserved.'}</p>
+  </div>` : ''}
+
   ${configurationRefreshHtml(row, configuration)}
 
   ${archiveWorkspaceHtml(row, status, loading)}
@@ -133,7 +150,7 @@ function detailHtml(
     ? workspaceEditHtml(row, status, edit)
     : `<div class="card">
       <div class="card-head"><strong>${escape(row.name)}</strong><span class="grow"></span>
-        <button data-edit="${escape(row.path)}">Edit workspace</button></div>
+        <button data-edit="${escape(row.path)}">Manage workspace &amp; capabilities</button></div>
       <p class="muted">Change its name or the capabilities this local working directory is for.
         Repository origins and the directory itself stay fixed after materialization.</p>
     </div>`}
@@ -207,12 +224,14 @@ export interface WorkspaceEditDraft {
   open: boolean;
   name: string;
   capabilities: string[];
+  /** Trusted preselection supplied by repository inspection, never by the webview. */
+  preferredCapabilityId?: string | null;
   busy: boolean;
 }
 
 export const EMPTY_DRAFT: DuplicateDraft = { id: '', base: '', busy: false };
 export const EMPTY_EDIT_DRAFT: WorkspaceEditDraft = {
-  open: false, name: '', capabilities: [], busy: false
+  open: false, name: '', capabilities: [], preferredCapabilityId: null, busy: false
 };
 
 export interface WorkspaceConfigurationRefreshView {
@@ -330,21 +349,21 @@ function workspaceEditHtml(
 ): string {
   const choices = status?.availableCapabilities ?? [];
   const selected = new Set(edit.capabilities);
-  const materializedRepositories = new Set((status?.repositories ?? []).map((repository) => repository.id));
+  const materializedRepositories = new Set((status?.repositories ?? [])
+    .filter((repository) => repository.state === 'ready')
+    .map((repository) => repository.id));
   const covered = (choice: WorkspaceCapabilityChoice): boolean =>
     selected.has(choice.id) || choice.ancestors.some((ancestor) => selected.has(ancestor));
   const withinBoundary = (choice: WorkspaceCapabilityChoice): boolean => choices
     .filter((entry) => entry.id === choice.id || entry.ancestors.includes(choice.id))
     .every((entry) => !entry.repository || materializedRepositories.has(entry.repository));
-  const offered = choices.filter((choice) => !covered(choice) && withinBoundary(choice));
-  const outsideBoundary = choices.filter((choice) => !covered(choice) && !withinBoundary(choice));
+  const offered = choices.filter((choice) => !covered(choice));
   const problems = [
-    ...(!edit.name.trim() ? ['Give the workspace a name.'] : []),
-    ...(!edit.capabilities.length ? ['Choose at least one capability.'] : [])
+    ...(!edit.name.trim() ? ['Give the workspace a name.'] : [])
   ];
 
   return `<div class="card yours">
-    <div class="card-head"><strong>Edit workspace</strong><span class="grow"></span>
+    <div class="card-head"><strong>Manage workspace &amp; capabilities</strong><span class="grow"></span>
       <span class="pill">local configuration</span></div>
     <div class="form-grid">
       <label class="field span-2"><span>Name</span>
@@ -353,8 +372,8 @@ function workspaceEditHtml(
       <label class="field span-2"><span>Add capability</span>
         <span class="card-foot"><select data-edit-capability-pick>
           <option value="">Choose a capability…</option>
-          ${offered.map((choice) => `<option value="${escape(choice.id)}">${'&nbsp;&nbsp;'.repeat(choice.depth)}${escape(choice.name)}${choice.repository ? ` (${escape(choice.repository)})` : ''}</option>`).join('')}
-        </select><button class="secondary" data-edit-add="1"${offered.length ? '' : ' disabled'}>Add</button></span>
+          ${offered.map((choice) => `<option value="${escape(choice.id)}"${choice.id === edit.preferredCapabilityId ? ' selected' : ''}>${'&nbsp;&nbsp;'.repeat(choice.depth)}${escape(choice.name)}${choice.repository ? ` (${escape(choice.repository)}${withinBoundary(choice) ? ', ready locally' : ', will be materialized'})` : ''}</option>`).join('')}
+        </select><button class="secondary" data-capability-attach="${escape(row.path)}"${offered.length && !edit.busy ? '' : ' disabled'}>Attach</button></span>
       </label>
     </div>
     ${edit.capabilities.length ? `<table>
@@ -364,19 +383,22 @@ function workspaceEditHtml(
         const beneath = choices.filter((entry) => entry.ancestors.includes(id));
         return `<tr><td>${icon('capability')}<strong>${escape(capabilityLabel(choice, id))}</strong></td>
           <td class="muted">${beneath.length ? `Includes ${beneath.length} beneath it` : (choice?.repository ? `Ships from ${escape(choice.repository)}` : 'Grouping')}</td>
-          <td><button class="link" data-edit-remove="${escape(id)}">Remove</button></td></tr>`;
+          <td><span class="card-foot">
+            <button class="secondary" data-capability-detach="${escape(id)}" data-workspace-path="${escape(row.path)}"${edit.busy ? ' disabled' : ''}>Detach</button>
+            <button class="link danger" data-capability-drop="${escape(id)}" data-workspace-path="${escape(row.path)}"${edit.busy ? ' disabled' : ''}>Detach &amp; drop local…</button>
+          </span></td></tr>`;
       }).join('')}</tbody>
-    </table>` : '<p class="blockers">Choose at least one capability.</p>'}
+    </table>` : '<p class="muted">No capabilities are attached. The lead checkout remains available and a capability can be attached above.</p>'}
     ${!choices.length ? `<p class="muted">The full capability map is not available right now.
       Existing selections can still be preserved while the workspace name is changed.</p>` : ''}
-    ${outsideBoundary.length ? `<p class="muted">${escape(outsideBoundary.length)} additional ${outsideBoundary.length === 1 ? 'capability needs' : 'capabilities need'} repositories this workspace has not materialized. Copy or replace the workspace to change that boundary.</p>` : ''}
     ${problems.length ? `<p class="blockers">${problems.map(escape).join(' ')}</p>` : ''}
     <p class="card-foot">
       <button data-edit-save="${escape(row.path)}"${problems.length || edit.busy ? ' disabled' : ''}>${edit.busy ? 'Saving…' : 'Save workspace'}</button>
       <button class="secondary" data-edit-cancel="1"${edit.busy ? ' disabled' : ''}>Cancel</button>
     </p>
-    <p class="muted">The working directory and existing repository checkouts cannot be changed in
-      place. Use Copy workspace when those boundaries need to move.</p>
+    <p class="muted">Detach keeps repository checkouts. Detach &amp; drop local permanently removes only checkouts after previewing every
+      affected checkout and refuses dirty, unpublished, adopted, linked-worktree, active-Story, shared,
+      or lead repository data. Attaching again reuses what exists and clones only what is missing.</p>
   </div>`;
 }
 
@@ -389,7 +411,9 @@ export function workspacesHtml(
   loading = false,
   detailError: string | null = null,
   edit: WorkspaceEditDraft = EMPTY_EDIT_DRAFT,
-  configuration: WorkspaceConfigurationRefreshView = EMPTY_CONFIGURATION_REFRESH
+  configuration: WorkspaceConfigurationRefreshView = EMPTY_CONFIGURATION_REFRESH,
+  repairBusy = false,
+  attachScope: WorkspaceCapabilityAttachScope | null = null
 ): string {
   const row = rows.find((entry) => entry.path === selected) ?? null;
   const collisions = rows.filter((entry) => entry.collides);
@@ -409,19 +433,31 @@ export function workspacesHtml(
       it somewhere of its own.</p>
   </section>` : ''}
 
+  ${attachScope ? `<section class="plain">
+    <p class="${attachScope.matchingPaths.length ? 'meta' : 'blockers'}"><strong>Attach existing capability</strong><br>
+      ${attachScope.matchingPaths.length
+        ? `Showing only local workspaces bound to the verified capability authority at <code>${escape(attachScope.authority.sourceBranch)}@${escape(attachScope.authority.sourceCommit.slice(0, 12))}</code>.`
+        : escape(attachScope.issue
+          ?? 'No local workspace is bound to this verified capability authority. Create a workspace for this authority, or use an existing clone, before attaching the capability.')}</p>
+  </section>` : ''}
+
   <section class="plain">
     ${rows.length ? `
     <table>
       <thead><tr><th></th><th>Workspace</th><th>Working directory</th><th>Lead</th><th></th></tr></thead>
       <tbody>${rows.map((entry) => rowHtml(entry, selected)).join('')}</tbody>
-    </table>` : '<p class="muted">No workspaces yet.</p>'}
+    </table>` : `<p class="muted">${attachScope
+      ? 'No matching local workspaces are available for this capability authority.'
+      : 'No workspaces yet.'}</p>`}
     <p><button class="secondary" data-create="new">Create a workspace</button>
       <button class="secondary" data-adopt="existing">Use an existing clone</button></p>
   </section>
 
   <section>${row
-    ? detailHtml(row, rows, draft, edit, status, loading, detailError, configuration)
-    : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>
+    ? detailHtml(row, rows, draft, edit, status, loading, detailError, configuration, repairBusy)
+    : attachScope
+      ? '<p class="muted">Nothing was selected outside the verified capability authority.</p>'
+      : '<p class="muted">Choose a workspace name to see its working directory, repositories, capabilities and Jira context.</p>'}</section>
   <div hidden data-context="${escape(JSON.stringify({
     parent: row ? row.directory.split('/').slice(0, -1).join('/') : '',
     taken: rows.map((entry) => entry.directory)
@@ -431,7 +467,7 @@ export function workspacesHtml(
 export const WORKSPACES_SCRIPT = `
   const vscode = window.__sfVscode;
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-add],[data-edit-remove],[data-edit-save],[data-edit-cancel],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-help-topic]');
+    const target = event.target.closest('[data-select],[data-switch],[data-rename],[data-duplicate],[data-forget],[data-create],[data-adopt],[data-edit],[data-edit-save],[data-edit-cancel],[data-capability-attach],[data-capability-detach],[data-capability-drop],[data-repair],[data-archive],[data-restore],[data-config-preview],[data-config-apply],[data-config-bundled],[data-config-agents],[data-help-topic]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
@@ -444,6 +480,7 @@ export const WORKSPACES_SCRIPT = `
     else if (data.forget !== undefined) vscode.postMessage({ type: 'forget', path: data.forget });
     else if (data.archive !== undefined) vscode.postMessage({ type: 'archive', path: data.archive });
     else if (data.restore !== undefined) vscode.postMessage({ type: 'restore', path: data.restore });
+    else if (data.repair !== undefined) vscode.postMessage({ type: 'repair', path: data.repair });
     else if (data.configPreview !== undefined) vscode.postMessage({ type: 'configuration-preview', scope: data.configPreview });
     else if (data.configApply !== undefined) vscode.postMessage({ type: 'configuration-apply' });
     else if (data.configBundled !== undefined) vscode.postMessage({ type: 'configuration-bundled-assets' });
@@ -451,11 +488,16 @@ export const WORKSPACES_SCRIPT = `
     else if (data.rename !== undefined) vscode.postMessage({ type: 'rename', path: data.rename, name: value('name') });
     else if (data.edit !== undefined) vscode.postMessage({ type: 'edit', path: data.edit });
     else if (data.editCancel !== undefined) vscode.postMessage({ type: 'edit-cancel' });
-    else if (data.editAdd !== undefined) {
+    else if (data.capabilityAttach !== undefined) {
       const pick = document.querySelector('[data-edit-capability-pick]');
-      if (pick && pick.value) vscode.postMessage({ type: 'edit-capability', id: pick.value, selected: true });
+      if (pick && pick.value) vscode.postMessage({ type: 'capability-attach', path: data.capabilityAttach, id: pick.value });
     }
-    else if (data.editRemove !== undefined) vscode.postMessage({ type: 'edit-capability', id: data.editRemove, selected: false });
+    else if (data.capabilityDetach !== undefined) vscode.postMessage({
+      type: 'capability-detach', path: data.workspacePath, id: data.capabilityDetach, dropLocal: false
+    });
+    else if (data.capabilityDrop !== undefined) vscode.postMessage({
+      type: 'capability-detach', path: data.workspacePath, id: data.capabilityDrop, dropLocal: true
+    });
     else if (data.editSave !== undefined) vscode.postMessage({
       type: 'edit-save', path: data.editSave, name: value('edit-name')
     });

@@ -97,8 +97,9 @@ Workspaces answers **where am I working?**
 - Select a saved workspace in the current VS Code window.
 - Inspect its local directory, lead repository, participating repositories,
   branches, dirty state, Jira routing, application metadata, and world-model health.
-- Edit the workspace display name and choose governed capabilities already
-  available within its materialized repository boundary.
+- Choose **Manage workspace & capabilities** to attach from the approved map, detach while keeping
+  checkouts, or preview **Detach & drop local…**. Reattaching reuses retained clones and recreates
+  only missing approved repositories; unsafe local deletion is refused.
 - Copy a workspace when a different local directory or repository boundary is
   required; an edit never silently redirects an existing clone.
 - Rename a workspace without changing governed state. Archive it only after the

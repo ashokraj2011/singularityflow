@@ -32,6 +32,8 @@ export interface WorkspaceStatus {
     name: string;
     path: string;
     leadRepository: string;
+    /** Credential-free Git authority persisted by the workspace manifest. */
+    capabilityAuthority?: { url?: string } | null;
     capabilities?: string[];
     anchor?: {
       provider?: string;
@@ -65,6 +67,24 @@ export interface WorkspaceStatus {
   archiveReadiness?: WorkspaceArchiveReadiness;
 }
 
+/**
+ * A repository inspection may open Workspaces for one exact capability authority. Keep the
+ * authority revision with the request so a retained panel cannot silently choose the active (or
+ * first) workspace from another organisation.
+ */
+export interface WorkspaceCapabilityAttachScope {
+  capabilityIds: string[];
+  authority: {
+    leadUrl: string;
+    sourceBranch: string;
+    sourceCommit: string;
+  };
+  /** Workspace registry paths whose manifests name this exact lead authority. */
+  matchingPaths: string[];
+  /** A bounded explanation when the authority moved or no local workspace matches it. */
+  issue?: string | null;
+}
+
 export interface WorkspaceArchiveReadiness {
   eligible: boolean;
   checkedAt: string;
@@ -86,6 +106,47 @@ export interface WorkspaceCapabilityChoice {
   depth: number;
   ancestors: string[];
   repository: string | null;
+}
+
+export interface WorkspaceCapabilityChangePreview {
+  planId: string;
+  changed: boolean;
+  action: 'attach' | 'detach';
+  capabilityId: string;
+  dropLocal: boolean;
+  authority: {
+    url: string;
+    configurationBranch: string;
+    configurationCommit: string;
+    sourceBranch: string;
+    sourceCommit: string;
+  };
+  selectedBefore: string[];
+  selectedAfter: string[];
+  /** Exact approved repositories that attachment will have to clone/materialize. */
+  materializeRepositories: string[];
+  addedRepositories: string[];
+  dropRepositories: Array<{
+    id: string;
+    path: string;
+    state: string;
+    removable: boolean;
+  }>;
+  preservedRepositories: string[];
+  preservedLeadRepository?: string | null;
+  workspace: { id: string; path: string };
+}
+
+export interface WorkspaceCapabilityChangeResult {
+  changed: boolean;
+  planId: string;
+  workspace: WorkspaceStatus['workspace'];
+  status: WorkspaceStatus;
+  materializationError?: string | null;
+  repairCommand?: string | null;
+  retained?: Array<{ id: string; path: string; recoveryPath: string; reason: string }>;
+  /** True when a dropped participant was the machine-wide active repository selection. */
+  activeSelectionCleared?: boolean;
 }
 
 export interface WorkspaceRepositoryStatus {
@@ -276,19 +337,28 @@ export function configurationRefreshCommand(
 /**
  * The one workspace edit exposed by the VS Code screen.
  *
- * A workspace may change its friendly name and the governed capabilities it includes. Its working
- * directory and already-materialized repository boundary remain fixed; changing either is a copy or
- * replacement, never an in-place mutation that strands checkouts.
+ * Name edits are deliberately separate from capability attachment transitions. The latter must use
+ * capabilityChangeCommand so repository bindings and checkout recovery cannot be bypassed.
  */
 export function updateCommand(
   row: WorkspaceRow,
-  name: string,
-  capabilities: string[]
+  name: string
 ): string[] {
-  const args = ['workspace', 'update', row.directory, '--name', name.trim()];
-  for (const capability of [...new Set(capabilities.map((value) => value.trim()).filter(Boolean))].sort()) {
-    args.push('--capability', capability);
-  }
-  args.push('--confirm', row.anchorKey, '--json');
+  return ['workspace', 'update', row.directory, '--name', name.trim(),
+    '--confirm', row.anchorKey, '--json'];
+}
+
+/** Preview and apply commands for one engine-owned capability attachment transition. */
+export function capabilityChangeCommand(
+  row: Pick<WorkspaceRow, 'directory'>,
+  capabilityId: string,
+  action: 'attach' | 'detach',
+  { dropLocal = false, planId = null }: { dropLocal?: boolean; planId?: string | null } = {}
+): string[] {
+  const args = ['workspace', `${action}-capability`, row.directory, capabilityId.trim()];
+  if (action === 'detach' && dropLocal) args.push('--drop-local');
+  if (planId) args.push('--confirm-plan', planId);
+  else args.push('--dry-run');
+  args.push('--json');
   return args;
 }

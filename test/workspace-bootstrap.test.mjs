@@ -10,7 +10,7 @@ import {
   abandonWorkspaceBootstrap, prepareWorkspaceBootstrap, readWorkspaceBootstrap,
   enterpriseGitDiagnostics, portableWorkspacePathFindings, preflightWorkspaceBootstrap,
   resumeWorkspaceBootstrap, retryWorkspaceBootstrap,
-  workspaceBootstrapRoot
+  workspaceBootstrapDoctor, workspaceBootstrapRoot
 } from '../src/workspace-bootstrap.mjs';
 import { run } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
@@ -603,6 +603,142 @@ test('enterprise Git diagnostics disclose configuration sources but never their 
     'NO_PROXY alone is a bypass rule, not evidence that a proxy endpoint is configured');
   assert.deepEqual(bypassOnly.proxyBypass, { configured: true, sources: ['no_proxy'] });
   assert.doesNotMatch(JSON.stringify(bypassOnly), /bypass-only-secret|example\.invalid/);
+});
+
+test('workspace doctor probes repeatable explicit URLs without a bootstrap session in the enterprise Git boundary', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-doctor-explicit-'));
+  const repositoryUrl = 'https://git.example.invalid/acme/application.git';
+  const secretProxy = 'https://employee:doctor-secret@proxy.example.invalid:8443';
+  const env = {
+    ...environment(root),
+    GIT_DIR: path.join(root, 'ambient-repository-selector'),
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'url.https://redirect.invalid/.insteadOf',
+    GIT_CONFIG_VALUE_0: 'https://git.example.invalid/'
+  };
+  const remoteCalls = [];
+  const result = (status, stdout = '', stderr = '') => ({
+    status, stdout, stderr, error: null, signal: null, timedOut: false, blocked: false
+  });
+  const report = await workspaceBootstrapDoctor({
+    network: true,
+    repositoryUrls: [repositoryUrl, repositoryUrl],
+    env,
+    home: root,
+    runCommand: (_command, args, options = {}) => {
+      if (args[0] === '--version') return result(0, 'git version 2.48.0\n');
+      if (args[0] === 'config' && args.includes('--get')) {
+        return result(0, args.at(-1) === 'user.name' ? 'Doctor Tester\n' : 'doctor@example.invalid\n');
+      }
+      if (args[0] === 'config' && args.includes('--null')) {
+        return args.includes('--system')
+          ? result(0, `http.proxy\n${secretProxy}\0credential.helper\nmanager-core\0`)
+          : result(1);
+      }
+      if (args[0] === 'config' && args.includes('--name-only')) return result(1);
+      if (args[0] === 'ls-remote') {
+        remoteCalls.push({ args, env: options.env });
+        return result(0, [
+          'ref: refs/heads/main\tHEAD',
+          `${'a'.repeat(40)}\tHEAD`,
+          `${'a'.repeat(40)}\trefs/heads/main`
+        ].join('\n'));
+      }
+      throw new Error(`Unexpected Git command: ${args.join(' ')}`);
+    }
+  });
+
+  assert.equal(report.state.records, 0);
+  assert.equal(report.state.active, 0);
+  assert.equal(report.remotes.length, 1, 'the repeatable URL is probed once');
+  assert.equal(report.remotes[0].explicit, true);
+  assert.equal(report.remotes[0].repository, null);
+  assert.equal(report.remotes[0].remote, repositoryUrl);
+  assert.equal(report.remotes[0].branch, null);
+  assert.equal(report.remotes[0].ok, true);
+  assert.equal(remoteCalls.length, 1);
+  const gitEnv = remoteCalls[0].env;
+  assert.equal(gitEnv.GIT_DIR, undefined, 'ambient repository selectors do not reach the probe');
+  assert.equal(gitEnv.GIT_CONFIG_GLOBAL, os.devNull);
+  assert.equal(gitEnv.GIT_CONFIG_SYSTEM, os.devNull);
+  assert.equal(gitEnv.GIT_CONFIG_NOSYSTEM, '1');
+  assert.equal(gitEnv.GIT_CONFIG_KEY_0, 'http.proxy');
+  assert.equal(gitEnv.GIT_CONFIG_VALUE_0, secretProxy,
+    'the reviewed system enterprise configuration reaches Git without entering the report');
+  assert.doesNotMatch(JSON.stringify(report), /doctor-secret|redirect\.invalid/);
+});
+
+test('workspace doctor deduplicates the same URL and branch but preserves distinct branch checks', async () => {
+  const fixture = await remoteFixture('trunk');
+  run('git', ['branch', 'release'], { cwd: fixture.source });
+  run('git', ['push', fixture.remote, 'release'], { cwd: fixture.source });
+  const env = environment(fixture.root);
+  const prepare = async (id, defaultBranch) => {
+    const createInput = input(fixture.root, fixture.remote, defaultBranch);
+    createInput.id = id;
+    createInput.name = id;
+    return prepareWorkspaceBootstrap({
+      source: { kind: 'remote', reference: fixture.remote }, createInput
+    }, { env });
+  };
+  await prepare('doctor-trunk-one', 'trunk');
+  await prepare('doctor-trunk-two', 'trunk');
+  await prepare('doctor-release', 'release');
+
+  const remoteCalls = [];
+  const report = await workspaceBootstrapDoctor({
+    network: true,
+    env,
+    home: fixture.root,
+    runCommand: (command, args, options) => {
+      if (command === 'git' && args[0] === 'ls-remote') remoteCalls.push(args);
+      return run(command, args, options);
+    }
+  });
+
+  assert.equal(report.state.active, 3);
+  assert.deepEqual(report.remotes.map((entry) => entry.branch).sort(), ['release', 'trunk']);
+  assert.ok(report.remotes.every((entry) => entry.ok));
+  assert.equal(remoteCalls.length, 2,
+    'one URL is checked once per distinct required branch, not once per session or once overall');
+});
+
+test('workspace doctor CLI probes an explicit URL with no recorded session and labels it safely', async () => {
+  const fixture = await remoteFixture('trunk');
+  const env = environment(fixture.root);
+  const cli = path.resolve('bin/singularity-flow.mjs');
+  const untargeted = run(process.execPath, [
+    cli, 'workspace', 'doctor', '--network'
+  ], { cwd: fixture.root, env }).stdout;
+  assert.match(untargeted, /No remote repositories were checked/,
+    'network mode without a session or explicit URL must not look like a conclusive remote check');
+
+  const report = JSON.parse(run(process.execPath, [
+    cli, 'workspace', 'doctor', '--network',
+    '--repository', fixture.remote, '--repository', fixture.remote, '--json'
+  ], { cwd: fixture.root, env }).stdout);
+  assert.equal(report.state.records, 0);
+  assert.equal(report.remotes.length, 1);
+  assert.equal(report.remotes[0].remote, fixture.remote);
+  assert.equal(report.remotes[0].explicit, true);
+
+  const human = run(process.execPath, [
+    cli, 'workspace', 'doctor', '--network', '--repository', fixture.remote
+  ], { cwd: fixture.root, env }).stdout;
+  assert.match(human, /application\.git: reachable/);
+  assert.doesNotMatch(human, /null: reachable/);
+
+  for (const scheme of ['https', 'ssh']) {
+    const secret = `doctor-${scheme}-malformed-secret`;
+    const malformed = `${scheme}://alice:${secret}@[invalid/repo`;
+    const refused = run(process.execPath, [
+      cli, 'workspace', 'doctor', '--network', '--repository', malformed, '--json'
+    ], { cwd: fixture.root, env, allowFailure: true });
+    assert.notEqual(refused.status, 0);
+    const diagnostic = `${refused.stdout}\n${refused.stderr}`;
+    assert.match(diagnostic, /credential-free URL/);
+    assert.doesNotMatch(diagnostic, new RegExp(secret));
+  }
 });
 
 test('session integrity detects local record tampering', async () => {

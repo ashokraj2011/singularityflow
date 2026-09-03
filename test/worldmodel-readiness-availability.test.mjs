@@ -58,6 +58,14 @@ test('World-Model availability classification never overrides a typed integrity 
     code: 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
     details: { classification: 'authentication-required' }
   })), true);
+  for (const classification of [
+    'credential-helper-unavailable', 'git-unavailable', 'sso-authorization-required',
+    'working-directory-unavailable'
+  ]) {
+    assert.equal(isWorldModelAvailabilityError(Object.assign(new Error(classification), {
+      code: 'WMB_STATE_AUTHORITY_REFRESH_FAILED', details: { classification }
+    })), true, `${classification} is optional remote-context unavailability, not integrity failure`);
+  }
   assert.equal(isWorldModelAvailabilityError(Object.assign(new Error('tracking ref race'), {
     code: 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
     details: { classification: 'tracking-ref-raced' }

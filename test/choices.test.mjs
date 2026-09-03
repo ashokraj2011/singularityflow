@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -225,4 +225,21 @@ test('selection receipt reads reject mismatched tokens, unsupported schemas, and
   file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
   await writeFile(file, JSON.stringify({ ...receipt, expiresAt: 'not-a-date' }));
   await assert.rejects(() => selectionReceiptStatus(root, receipt.token), /expiry.*invalid/i);
+});
+
+test('selection receipt storage failures never disclose the bearer token', async () => {
+  const root = await repository();
+  const receipt = await beginCustomSelectionReceipt(root, {
+    action: 'test',
+    workId: 'CHOICE-STORAGE',
+    choiceSets: [{ id: 'agent', label: 'Agent', options: [{ id: 'developer', label: 'Developer' }] }]
+  });
+  const file = path.join(root, '.git', 'singularity-flow', 'choices', `${receipt.token}.json`);
+  await rm(file);
+  await mkdir(file);
+  await assert.rejects(() => selectionReceiptStatus(root, receipt.token), (error) => {
+    assert.equal(error.code, 'SELECTION_RECEIPT_STORAGE_UNAVAILABLE');
+    assert.doesNotMatch(error.message, new RegExp(receipt.token));
+    return true;
+  });
 });

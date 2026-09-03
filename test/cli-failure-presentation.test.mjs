@@ -69,7 +69,9 @@ test('a mistyped command is corrected instead of merely rejected', () => {
 test('--verbose puts the diagnostics back on screen', () => {
   const quiet = runCli(['start']);
   const loud = runCli(['start', '--verbose']);
+  const explicitlyQuiet = runCli(['start', '--verbose=false']);
   assert.doesNotMatch(quiet.stderr, /command\.failed/);
+  assert.doesNotMatch(explicitlyQuiet.stderr, /command\.failed/);
   assert.match(loud.stderr, /command\.failed/);
   assert.ok(loud.stderr.length > quiet.stderr.length);
 });

@@ -619,7 +619,7 @@ Usage:
   singularity-flow workspace bootstrap resume <BOOTSTRAP-ID> --confirm WORKSPACE-ID [--json]
   singularity-flow workspace bootstrap retry <BOOTSTRAP-ID> --confirm WORKSPACE-ID --reason TEXT [--json]
   singularity-flow workspace bootstrap abandon <BOOTSTRAP-ID> --reason TEXT [--json]
-  singularity-flow workspace doctor [--network] [--json]
+  singularity-flow workspace doctor [--network] [--repository URL]... [--json]
   singularity-flow push status [INTENT-ID] [--all] [--json]
   singularity-flow push retry <INTENT-ID> [--json]
   singularity-flow workspace inspect <URL|DIRECTORY> [--state-branch NAME] [--json]

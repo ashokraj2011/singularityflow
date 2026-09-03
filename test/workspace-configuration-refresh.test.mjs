@@ -177,6 +177,213 @@ async function withGitUrlRewrite(from, to, callback) {
   }
 }
 
+function encodedGitConfiguration(entries) {
+  return `${entries.map(([key, value]) => `${key}\n${value}`).join('\0')}\0`;
+}
+
+function commandScopedGitConfiguration(env) {
+  return Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, index) => [
+    env[`GIT_CONFIG_KEY_${index}`], env[`GIT_CONFIG_VALUE_${index}`]
+  ]);
+}
+
+function snapshotWithRejectedEnterpriseScope(rejectedScope, reject) {
+  const acceptedScope = rejectedScope === 'system' ? 'global' : 'system';
+  const calls = [];
+  const isolated = isolatedCacheGitEnvironment({
+    PATH: process.env.PATH,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.hooksPath',
+    GIT_CONFIG_VALUE_0: '/must-not-survive'
+  }, {
+    runCommand(_command, args) {
+      const scope = args.includes('--system') ? 'system' : 'global';
+      calls.push(scope);
+      if (scope === rejectedScope) return reject();
+      return {
+        status: 0,
+        stdout: encodedGitConfiguration([
+          ['credential.helper', `${acceptedScope}-credential-manager`]
+        ]),
+        stderr: '', timedOut: false
+      };
+    }
+  });
+  assert.deepEqual(calls, ['system', 'global'],
+    `${rejectedScope} rejection must not prevent inspecting ${acceptedScope}`);
+  assert.deepEqual(commandScopedGitConfiguration(isolated), [],
+    `${rejectedScope} rejection must fail the ordered snapshot closed`);
+}
+
+test('enterprise Git configuration fails an indeterminate system or global scope closed', () => {
+  for (const rejectedScope of ['system', 'global']) {
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 128, stdout: '', stderr: 'unavailable', timedOut: false
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => {
+      throw new Error('launcher failed before returning a result');
+    });
+  }
+});
+
+test('enterprise Git configuration rejects overflowing scopes without changing Git precedence', () => {
+  for (const rejectedScope of ['system', 'global']) {
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 1,
+      stdout: encodedGitConfiguration([['http.proxy', 'http://partial.invalid']]),
+      stderr: '', timedOut: false, error: Object.assign(new Error('ENOBUFS'), { code: 'ENOBUFS' })
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 0,
+      stdout: encodedGitConfiguration([['http.proxy', 'x'.repeat((32 * 1024) + 1)]]),
+      stderr: '', timedOut: false
+    }));
+  }
+});
+
+test('enterprise Git configuration fails malformed scopes closed without changing Git precedence', () => {
+  for (const rejectedScope of ['system', 'global']) {
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 0,
+      stdout: `${encodedGitConfiguration([['http.proxy', 'http://partial.invalid']])}malformed\0`,
+      stderr: '', timedOut: false
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 0,
+      stdout: encodedGitConfiguration([
+        ['http.proxy', 'http://partial.invalid'],
+        ['core.hooksPath', '/must-not-enter-enterprise-environment']
+      ]),
+      stderr: '', timedOut: false
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 0, stdout: '', stderr: '', timedOut: false
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 1, stdout: 'unexpected wrapper output', stderr: '', timedOut: false
+    }));
+    snapshotWithRejectedEnterpriseScope(rejectedScope, () => ({
+      status: 1, stdout: '', stderr: 'unexpected wrapper diagnostic', timedOut: false
+    }));
+  }
+});
+
+test('enterprise Git configuration preserves the process-wide entry bound across both scopes', () => {
+  const entries = (prefix, count) => Array.from({ length: count }, (_, index) => [
+    'credential.helper', `${prefix}-${index}`
+  ]);
+  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+    runCommand(_command, args) {
+      return {
+        status: 0,
+        stdout: encodedGitConfiguration(args.includes('--system')
+          ? entries('system', 200) : entries('global', 100)),
+        stderr: '', timedOut: false
+      };
+    }
+  });
+  assert.equal(Number(isolated.GIT_CONFIG_COUNT), 0,
+    'an over-budget ordered snapshot fails closed instead of retaining a lower-precedence prefix');
+});
+
+test('an indeterminate global scope cannot reactivate a system credential helper that it may reset', () => {
+  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+    runCommand(_command, args) {
+      if (args.includes('--system')) {
+        return {
+          status: 0,
+          stdout: encodedGitConfiguration([['credential.helper', 'system-corporate-manager']]),
+          stderr: '', timedOut: false
+        };
+      }
+      return { status: 128, stdout: '', stderr: 'global configuration unreadable', timedOut: false };
+    }
+  });
+  assert.deepEqual(commandScopedGitConfiguration(isolated), []);
+});
+
+test('an indeterminate system scope cannot change URL-specific precedence', () => {
+  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+    runCommand(_command, args) {
+      if (args.includes('--system')) {
+        return { status: 128, stdout: '', stderr: 'system configuration unreadable', timedOut: false };
+      }
+      return {
+        status: 0,
+        stdout: encodedGitConfiguration([['http.proxy', 'http://generic-global.example.test']]),
+        stderr: '', timedOut: false
+      };
+    }
+  });
+  assert.deepEqual(commandScopedGitConfiguration(isolated), [],
+    'a generic global proxy cannot replace an unknown URL-specific system decision');
+});
+
+test('a known-empty global scope preserves verified system configuration', () => {
+  const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+    runCommand(_command, args) {
+      if (args.includes('--system')) {
+        return {
+          status: 0,
+          stdout: encodedGitConfiguration([['credential.helper', 'system-corporate-manager']]),
+          stderr: '', timedOut: false
+        };
+      }
+      return { status: 1, stdout: '', stderr: '', timedOut: false };
+    }
+  });
+  assert.deepEqual(commandScopedGitConfiguration(isolated), [
+    ['credential.helper', 'system-corporate-manager']
+  ]);
+});
+
+test('a signal-terminated empty scope is indeterminate and fails the whole snapshot closed', () => {
+  for (const interruptedScope of ['system', 'global']) {
+    const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+      runCommand(_command, args) {
+        const scope = args.includes('--system') ? 'system' : 'global';
+        if (scope === interruptedScope) {
+          return {
+            status: 1, stdout: '', stderr: '', signal: 'SIGTERM', timedOut: false
+          };
+        }
+        return {
+          status: 0,
+          stdout: encodedGitConfiguration([['credential.helper', `${scope}-manager`]]),
+          stderr: '', signal: null, timedOut: false
+        };
+      }
+    });
+    assert.deepEqual(commandScopedGitConfiguration(isolated), [], interruptedScope);
+  }
+});
+
+test('a successful-looking interrupted enterprise scope is still indeterminate', () => {
+  for (const interruption of [
+    { signal: 'SIGTERM' },
+    { aborted: true }
+  ]) {
+    for (const interruptedScope of ['system', 'global']) {
+      const isolated = isolatedCacheGitEnvironment({ PATH: process.env.PATH }, {
+        runCommand(_command, args) {
+          const scope = args.includes('--system') ? 'system' : 'global';
+          return {
+            status: 0,
+            stdout: encodedGitConfiguration([['credential.helper', `${scope}-manager`]]),
+            stderr: '',
+            timedOut: false,
+            signal: null,
+            aborted: false,
+            ...(scope === interruptedScope ? interruption : {})
+          };
+        }
+      });
+      assert.deepEqual(commandScopedGitConfiguration(isolated), [],
+        `${interruptedScope} ${Object.keys(interruption)[0]} must fail the snapshot closed`);
+    }
+  }
+});
+
 test('confirmed refresh preserves allowlisted enterprise Git transport and auth without leaking unsafe configuration', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-refresh-enterprise-git-'));
   t.after(() => rm(root, { recursive: true, force: true }));

@@ -60,7 +60,8 @@ import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import {
-  forgetLeadRepository, leadRegistryFile, listLeadRepositories, rememberLeadRepository
+  forgetLeadRepository, leadRegistryFile, listLeadRepositories, listLeadRepositoryRegistryRecords,
+  rememberLeadRepository
 } from './lead-repositories.mjs';
 
 export {
@@ -71,15 +72,25 @@ const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
 const CAPABILITY_INSPECTION_MAX_PROPOSALS = 64;
 
-function quoted(value) {
-  return JSON.stringify(String(value ?? ''));
+function quoted(value, fallback = 'VALUE') {
+  const text = String(value ?? '');
+  if (/^[A-Za-z0-9][A-Za-z0-9._/@:=,+-]*$/.test(text)) return text;
+  return fallback;
 }
 
 /** Preserve an executable authority exactly; unsafe input becomes a non-secret placeholder. */
-function commandRemote(value, fallback = '<LEAD-URL>') {
+function commandRemote(value, fallback = 'LEAD_URL') {
   const candidate = String(value ?? '').trim();
   if (!candidate) return fallback;
-  try { return assertCredentialFreeRemote(candidate); }
+  try {
+    const exact = assertCredentialFreeRemote(candidate);
+    // In SCP syntax `?` and `#` are valid path bytes, not URL query/fragment delimiters. Preserve
+    // that transport identity internally, but do not reflect a token-shaped suffix in a suggested
+    // shell command; the operator can supply the reviewed URL explicitly.
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/@:=,+-]*$/.test(exact)
+      || /^[^/\s@]+@[^:\s]+:.+[?#]/.test(exact)) return fallback;
+    return exact;
+  }
   catch { return fallback; }
 }
 
@@ -87,13 +98,21 @@ function capabilityCommand(action, {
   remote, branch = null, commit = null, acknowledge = false, reason = null
 } = {}) {
   const args = ['singularity-flow', 'capability', action];
-  if (branch) args.push(quoted(branch));
+  if (branch) args.push(quoted(branch, 'PROPOSAL_BRANCH'));
   if (remote) args.push('--lead', quoted(commandRemote(remote)));
-  if (commit) args.push('--confirm', quoted(commit));
-  if (reason) args.push('--reason', quoted(reason));
+  if (commit) args.push('--confirm', quoted(commit, 'COMMIT_SHA'));
+  if (reason) args.push('--reason', quoted(reason, 'REASON'));
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');
+}
+
+/** Executable-looking review guidance must remain safe in POSIX shells, cmd.exe, and PowerShell. */
+export function capabilityProposalCommands(lead, branch, commit) {
+  return {
+    review: capabilityCommand('proposal', { remote: lead, branch }),
+    activate: capabilityCommand('activate', { remote: lead, branch, commit })
+  };
 }
 
 function capabilityRecovery({
@@ -256,7 +275,9 @@ function proposalRepositoryInspection(root, ref, repositoryUrl, {
     const before = baseById.get(repositoryId);
     if (after?.repositoryUrl === before?.repositoryUrl
       && canonicalJson(after?.capabilities ?? []) === canonicalJson(before?.capabilities ?? [])) continue;
-    matches.push(after ?? before);
+    // A proposal that removes this URL (or moves the repository ID to another URL) is not a
+    // pending claim on the inspected repository. Only the proposed side can establish one.
+    if (after) matches.push(after);
   }
   return { complete: true, matches };
 }
@@ -885,24 +906,33 @@ export async function readOrganisation(url, { refresh = false } = {}) {
     session, observation: configurationObservation
   });
   if (!tip.reachable) {
+    const remoteFailure = publicRemoteFailure(tip.observation?.failure);
     if (cached) {
       return {
         ...cached.organisation,
         cached: true,
         stale: true,
         cacheAgeMs: cacheAgeMs(cached),
-        remoteError: tip.error || 'remote is unreachable'
+        remoteError: tip.error || 'remote is unreachable',
+        remoteFailure
       };
     }
     throw new SingularityFlowError(
       `Cannot read '${sanitizeRemote(remote)}': ${redactDiagnosticText(tip.error || 'the remote is unreachable and no cached organisation is available.')}`,
       {
         code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
-        details: capabilityRecovery({
-          stage: 'organisation-read', state: 'authority-unavailable', remote,
-          nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
-          preserved: ['lead-registry', 'validated-organisation-cache']
-        })
+        details: {
+          ...capabilityRecovery({
+            stage: 'organisation-read', state: 'authority-unavailable', remote,
+            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+            preserved: ['lead-registry', 'validated-organisation-cache']
+          }),
+          remoteFailure,
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+            skill: '/sf-capability-map'
+          }
+        }
       }
     );
   }
@@ -948,14 +978,25 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       cloned = await clone(false);
     }
     if (cloned.status !== 0) {
+      const remoteFailure = publicRemoteFailure(cloned.failure);
+      const diagnosis = remoteFailure
+        ? `Git configuration clone failed (${remoteFailure.classification}). ${remoteFailure.advice}`
+        : 'Git configuration clone failed. Correct Git access and retry.';
       throw new SingularityFlowError(
-        `Cannot read '${sanitizeRemote(remote)}'. Correct Git access and refresh the same organisation.`, {
+        `Cannot read '${sanitizeRemote(remote)}': ${diagnosis}`, {
           code: 'CAPABILITY_AUTHORITY_UNAVAILABLE',
-          details: capabilityRecovery({
-            stage: 'organisation-read', state: 'authority-unavailable', remote,
-            nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
-            preserved: ['lead-registry', 'validated-organisation-cache']
-          })
+          details: {
+            ...capabilityRecovery({
+              stage: 'organisation-read', state: 'authority-unavailable', remote,
+              nextAction: { command: `singularity-flow capability organisation ${quoted(commandRemote(remote))} --refresh --json`, skill: '/sf-capability-map' },
+              preserved: ['lead-registry', 'validated-organisation-cache']
+            }),
+            remoteFailure,
+            diagnosticAction: {
+              command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+              skill: '/sf-capability-map'
+            }
+          }
         });
     }
     // The authority can advance between the cache probe and this clone. Bind every comparison and
@@ -1053,6 +1094,30 @@ function registeredLeadDiagnosticReference(value) {
     .update(String(value ?? '').trim()).digest('hex').slice(0, 16)}`;
 }
 
+/** Preserve only the closed-vocabulary diagnosis and content-free correlation evidence. */
+function publicRemoteFailure(failure) {
+  if (!failure || typeof failure !== 'object') return null;
+  const rawEvidence = failure.evidence && typeof failure.evidence === 'object'
+    ? failure.evidence : null;
+  const evidence = rawEvidence ? {
+    exitCode: Number.isInteger(rawEvidence.exitCode) ? rawEvidence.exitCode : null,
+    signal: typeof rawEvidence.signal === 'string' ? rawEvidence.signal : null,
+    timedOut: rawEvidence.timedOut === true,
+    blocked: rawEvidence.blocked === true,
+    diagnosticSha256: /^[a-f0-9]{64}$/.test(String(rawEvidence.diagnosticSha256 ?? ''))
+      ? String(rawEvidence.diagnosticSha256) : null,
+    diagnosticBytes: Number.isInteger(rawEvidence.diagnosticBytes)
+      && rawEvidence.diagnosticBytes >= 0 ? rawEvidence.diagnosticBytes : null
+  } : null;
+  return {
+    code: String(failure.code ?? 'REMOTE_UNKNOWN'),
+    classification: String(failure.classification ?? 'unknown'),
+    retryable: failure.retryable === true,
+    advice: redactDiagnosticText(failure.advice ?? 'Inspect Git access and retry.'),
+    evidence
+  };
+}
+
 function registeredLeadFailure(value, error) {
   const reference = registeredLeadDiagnosticReference(value);
   let message = redactDiagnosticText(error?.message ?? String(error));
@@ -1066,8 +1131,36 @@ function registeredLeadFailure(value, error) {
   };
 }
 
+function proposalTransportFailuresForInspection(proposals, lead) {
+  const unique = new Map();
+  for (const proposal of proposals ?? []) {
+    const failure = proposal?.failure;
+    const remoteFailure = publicRemoteFailure(failure?.remoteFailure);
+    const diagnosticAction = failure?.diagnosticAction ?? null;
+    if (!remoteFailure && !diagnosticAction?.command) continue;
+    const row = {
+      lead: sanitizeRemote(lead),
+      code: failure?.code ?? remoteFailure?.code ?? 'CAPABILITY_PROPOSAL_INSPECTION_INCOMPLETE',
+      classification: failure?.classification ?? remoteFailure?.classification ?? null,
+      retryable: failure?.retryable === true || remoteFailure?.retryable === true,
+      evidence: failure?.evidence ?? remoteFailure?.evidence ?? null,
+      diagnosticAction,
+      message: redactDiagnosticText(failure?.message
+        ?? remoteFailure?.advice
+        ?? 'Capability proposal transport could not be inspected.')
+    };
+    const key = JSON.stringify([
+      row.code, row.classification, row.evidence?.diagnosticSha256 ?? null,
+      row.diagnosticAction?.command ?? null
+    ]);
+    if (!unique.has(key)) unique.set(key, row);
+  }
+  return [...unique.values()];
+}
+
 export async function inspectCapabilityRepository(repositoryUrl, {
-  leadUrl = null, leadUrls = [], refresh = false
+  leadUrl = null, leadUrls = [], refresh = false,
+  proposalRemoteCommand = runRemoteGitAsync
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryUrl);
   const suppliedLeads = [...(leadUrl == null ? [] : [leadUrl]), ...leadUrls]
@@ -1075,7 +1168,7 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const registeredLeads = [];
   const registeredLeadFailures = [];
   if (!suppliedLeads.length) {
-    for (const entry of await listLeadRepositories()) {
+    for (const entry of await listLeadRepositoryRegistryRecords()) {
       const candidate = String(entry?.url ?? '').trim();
       if (!candidate) continue;
       try {
@@ -1120,14 +1213,23 @@ export async function inspectCapabilityRepository(repositoryUrl, {
       // authority is offline. Cached absence is not proof of absence, however. Represent the stale
       // read as an incomplete authority check so callers cannot turn an outage into a new mapping.
       const failureLead = sanitizeRemote(url);
+      const staleRemoteFailure = publicRemoteFailure(organisation.remoteFailure);
       const failure = organisation.stale ? {
         lead: failureLead,
         code: 'CAPABILITY_AUTHORITY_STALE_CACHE',
+        classification: staleRemoteFailure?.classification ?? 'unknown',
+        retryable: staleRemoteFailure?.retryable ?? false,
+        evidence: staleRemoteFailure?.evidence ?? null,
+        diagnosticAction: {
+          command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(url))} --json`,
+          skill: '/sf-capability-map'
+        },
         message: `The approved capability map for '${failureLead}' could not be refreshed; the last validated cache was inspected.`
       } : null;
       let pendingProposals = [];
       let proposalCoverage = organisation.stale ? 'not-checked' : 'complete';
       let proposalFailure = null;
+      let proposalTransportFailures = [];
       let proposalInspection = { total: 0, inspected: 0 };
       // The first capability itself can still be waiting on a proposal before the approved
       // configuration branch exists, so even an otherwise ungoverned target must be checked.
@@ -1137,9 +1239,13 @@ export async function inspectCapabilityRepository(repositoryUrl, {
             includeDiff: false,
             repositoryUrl: repository,
             maximumProposals: CAPABILITY_INSPECTION_MAX_PROPOSALS,
-            withCoverage: true
+            withCoverage: true,
+            runRemoteCommand: proposalRemoteCommand
           });
           pendingProposals = catalog.proposals;
+          proposalTransportFailures = proposalTransportFailuresForInspection(
+            catalog.proposals, url
+          );
           proposalInspection = {
             total: catalog.coverage.total,
             inspected: catalog.coverage.inspected
@@ -1148,10 +1254,15 @@ export async function inspectCapabilityRepository(repositoryUrl, {
             && catalog.proposals.every((proposal) => proposal.repositoryInspectionComplete !== false)
             ? 'complete' : 'partial';
         } catch (error) {
+          const remoteFailure = publicRemoteFailure(error?.details?.remoteFailure);
           proposalCoverage = 'not-checked';
           proposalFailure = {
             lead: sanitizeRemote(url),
             code: error?.code ?? 'CAPABILITY_PROPOSAL_INSPECTION_INCOMPLETE',
+            classification: remoteFailure?.classification ?? null,
+            retryable: remoteFailure?.retryable ?? false,
+            evidence: remoteFailure?.evidence ?? null,
+            diagnosticAction: error?.details?.diagnosticAction ?? null,
             message: redactDiagnosticText(error?.message ?? String(error))
           };
         }
@@ -1169,13 +1280,15 @@ export async function inspectCapabilityRepository(repositoryUrl, {
           proposalValid: proposal.valid === true
         })));
       return {
-        lead: url, matches, pendingMatches, failure, proposalFailure, proposalCoverage,
+        lead: url, matches, pendingMatches, failure, proposalFailure,
+        proposalTransportFailures, proposalCoverage,
         proposalChecked: !organisation.stale,
         proposalInspection, stale: Boolean(organisation.stale),
         governed: Boolean(organisation.governed),
         candidate: repositoryCandidateAdded && url === repository
       };
     } catch (error) {
+      const remoteFailure = publicRemoteFailure(error?.details?.remoteFailure);
       return {
         lead: url, matches: [], pendingMatches: [], stale: false, governed: false,
         proposalCoverage: 'not-checked', proposalChecked: false,
@@ -1183,9 +1296,13 @@ export async function inspectCapabilityRepository(repositoryUrl, {
         candidate: repositoryCandidateAdded && url === repository,
         failure: {
           lead: sanitizeRemote(url), code: error?.code ?? null,
+          classification: remoteFailure?.classification ?? null,
+          retryable: remoteFailure?.retryable ?? false,
+          evidence: remoteFailure?.evidence ?? null,
+          diagnosticAction: error?.details?.diagnosticAction ?? null,
           message: redactDiagnosticText(error?.message ?? String(error))
         },
-        proposalFailure: null
+        proposalFailure: null, proposalTransportFailures: []
       };
     }
   });
@@ -1193,7 +1310,9 @@ export async function inspectCapabilityRepository(repositoryUrl, {
   const pendingMatches = inspected.flatMap((entry) => entry.pendingMatches ?? []);
   const failures = [
     ...registeredLeadFailures,
-    ...inspected.flatMap((entry) => [entry.failure, entry.proposalFailure]).filter(Boolean)
+    ...inspected.flatMap((entry) => [
+      entry.failure, entry.proposalFailure, ...(entry.proposalTransportFailures ?? [])
+    ]).filter(Boolean)
   ];
   const checkedLeads = inspected
     .filter((entry) => !entry.failure && (!entry.candidate || entry.governed))
@@ -1709,7 +1828,7 @@ export async function publishOrganisationCapabilityMap(url) {
       cloned = await clone(false);
     }
     if (cloned.status !== 0) {
-      const failure = classifyGitRemoteFailure(cloned);
+      const failure = cloned.failure ?? classifyGitRemoteFailure(cloned);
       throw new SingularityFlowError(
         `Cannot read '${sanitizeRemote(remote)}'. ${failure.advice}`, {
           code: failure.code,
@@ -1734,7 +1853,7 @@ export async function publishOrganisationCapabilityMap(url) {
 export async function listCapabilityProposals(url, {
   includeMerged = false, includeDiff = true,
   repositoryUrl = null, maximumProposals = null, withCoverage = false,
-  env = process.env, remoteSession = null
+  env = process.env, remoteSession = null, runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -1775,11 +1894,18 @@ export async function listCapabilityProposals(url, {
     throw new SingularityFlowError(
       `Cannot list capability proposals on '${sanitizeRemote(remote)}'. ${failure.advice}`, {
         code: failure.code,
-        details: capabilityRecovery({
-          stage: 'review', state: 'authority-unavailable', remote,
-          nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
-          preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
-        })
+        details: {
+          ...capabilityRecovery({
+            stage: 'review', state: 'authority-unavailable', remote,
+            nextAction: { command: capabilityCommand('proposals', { remote }), skill: '/sf-capability-map' },
+            preserved: ['approved-configuration', 'proposal-branches', 'application-branches']
+          }),
+          remoteFailure: publicRemoteFailure(failure),
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+            skill: '/sf-capability-map'
+          }
+        }
       });
   }
   if (!advertised.refs.has(`refs/heads/${CONFIGURATION_BRANCH}`)) return finish([]);
@@ -1794,7 +1920,7 @@ export async function listCapabilityProposals(url, {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-list-'));
   const proposals = [];
   try {
-    const clone = (filtered) => runRemoteGitAsync([
+    const clone = (filtered) => runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       ...(filtered ? ['--filter=blob:none'] : []),
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
@@ -1814,24 +1940,41 @@ export async function listCapabilityProposals(url, {
       cloned = await clone(false);
     }
     if (cloned.status !== 0) {
+      const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(`Cannot read '${sanitizeRemote(remote)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
-        code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE'
+        code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: {
+          remoteFailure,
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+            skill: '/sf-capability-map'
+          }
+        }
       });
     }
     const proposalRefspecs = proposalLimit == null
       ? [`+refs/heads/${CAPABILITY_PROPOSAL_PREFIX}*:refs/remotes/origin/${CAPABILITY_PROPOSAL_PREFIX}*`]
       : branches.map((entry) => `+refs/heads/${entry.branch}:refs/remotes/origin/${entry.branch}`);
-    let fetched = await runRemoteGitAsync([
+    let fetched = await runRemoteCommand([
       'fetch', '--quiet', '--no-tags', '--filter=blob:none', 'origin', ...proposalRefspecs
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     if (partialCloneFallbackDecision(fetched, { fallback: 'full' }).action === 'retry-full') {
-      fetched = await runRemoteGitAsync([
+      fetched = await runRemoteCommand([
         'fetch', '--quiet', '--no-tags', 'origin', ...proposalRefspecs
       ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     }
     const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
       `Capability proposals could not be fetched. ${fetched.failure?.advice ?? 'Git fetch failed.'}`,
-      { code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE' }
+      {
+        code: fetched.failure?.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+        details: {
+          remoteFailure: publicRemoteFailure(fetched.failure),
+          diagnosticAction: {
+            command: `singularity-flow workspace doctor --network --repository ${quoted(commandRemote(remote))} --json`,
+            skill: '/sf-capability-map'
+          }
+        }
+      }
     );
     for (const entry of branches) {
       const ref = `refs/remotes/origin/${entry.branch}`;
@@ -1852,9 +1995,24 @@ export async function listCapabilityProposals(url, {
         // One corrupt or stale proposal must remain visible without hiding every healthy proposal
         // on the same lead. Only the proven unrelated-history case gets the exact-SHA discard path;
         // every other unreadable state remains inspection-only.
-        const repositoryInspection = proposalRepositoryInspection(
-          scratch, ref, inspectedRepository, { env: transport.env }
-        );
+        // An unreadable tip is not itself evidence that this proposal introduced a repository
+        // claim: the same bytes may simply have been inherited from an unknown or replaced base.
+        // Preserve a pending match only when the immutable base encoded in the branch is still
+        // provable and the base-vs-tip comparison can therefore establish the exact delta.
+        let repositoryInspection = { complete: false, matches: [] };
+        try {
+          const proposalBase = proposalBaseCommit(scratch, entry.branch, ref, {
+            env: transport.env
+          });
+          // Replacement configuration roots make ancestry unavailable even when this proposal's
+          // exact delta is already approved. Comparing every changed path still proves that the
+          // proposal contributes no pending repository claim in that case.
+          repositoryInspection = proposalContentIsPresent(
+            scratch, proposalBase, ref, 'HEAD', { env: transport.env }
+          ) ? { complete: true, matches: [] } : proposalRepositoryInspection(
+              scratch, ref, inspectedRepository, { baseRef: proposalBase, env: transport.env }
+            );
+        } catch { /* the unreadable proposal remains visible, but contributes no unproven claim */ }
         proposals.push({
           remote: sanitizeRemote(remote), branch: entry.branch,
           targetBranch: CONFIGURATION_BRANCH, targetCommit: null,
@@ -1867,6 +2025,11 @@ export async function listCapabilityProposals(url, {
           failure: {
             code: error?.code ?? 'CAPABILITY_PROPOSAL_UNREADABLE',
             message: redactDiagnosticText(error?.message ?? String(error)),
+            remoteFailure: publicRemoteFailure(error?.details?.remoteFailure),
+            classification: error?.details?.remoteFailure?.classification ?? null,
+            retryable: error?.details?.remoteFailure?.retryable === true,
+            evidence: error?.details?.remoteFailure?.evidence ?? null,
+            diagnosticAction: error?.details?.diagnosticAction ?? null,
             nextAction: error?.code === 'CAPABILITY_PROPOSAL_HISTORY_INVALID'
               ? {
                   command: capabilityCommand('discard-proposal', {
@@ -2604,7 +2767,7 @@ export async function activateCapabilityProposal(url, branch, {
           }
         }
         if (pushed.status !== 0) {
-          const failure = classifyGitRemoteFailure(pushed);
+          const failure = pushed.failure ?? classifyGitRemoteFailure(pushed);
           const pushDiagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
           const nextAction = {
             command: capabilityCommand('activate', {

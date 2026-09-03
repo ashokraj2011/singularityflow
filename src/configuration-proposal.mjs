@@ -29,12 +29,16 @@ import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
 
-function quoted(value) { return JSON.stringify(String(value ?? '')); }
+function quoted(value, fallback = 'VALUE') {
+  const text = String(value ?? '');
+  if (/^[A-Za-z0-9][A-Za-z0-9._/@:=,+-]*$/.test(text)) return text;
+  return fallback;
+}
 
 function workflowProposalCommand(action, branch, commit = null, acknowledge = false) {
   const args = ['singularity-flow', 'workflow', action];
-  if (branch) args.push(quoted(branch));
-  if (commit) args.push('--confirm', quoted(commit));
+  if (branch) args.push(quoted(branch, 'PROPOSAL_BRANCH'));
+  if (commit) args.push('--confirm', quoted(commit, 'COMMIT_SHA'));
   if (acknowledge) args.push('--acknowledge-unprotected');
   args.push('--json');
   return args.join(' ');
@@ -347,7 +351,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         }
       }
       if (pushed.status !== 0) {
-        const failure = classifyGitRemoteFailure(pushed);
+        const failure = pushed.failure ?? classifyGitRemoteFailure(pushed);
         const diagnostic = `${pushed.stderr ?? ''}\n${pushed.stdout ?? ''}`;
         const reviewRequired = ['authorization-denied', 'unknown'].includes(failure.classification)
           && /protected branch|branch protection|review required|pull request|required reviews?/i

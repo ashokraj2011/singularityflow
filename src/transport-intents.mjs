@@ -232,7 +232,7 @@ async function withIntentLease(outbox, intentId, operation) {
 }
 
 function classified(result) {
-  const failure = classifyGitRemoteFailure(result);
+  const failure = result?.failure ?? classifyGitRemoteFailure(result);
   const text = `${result?.stderr ?? ''}\n${result?.stdout ?? ''}`;
   if (/non-fast-forward|fetch first|stale info/i.test(text)) return { ...failure, classification: 'remote-diverged', retryable: false };
   if (/hook declined|pre-receive hook|protected branch|branch protection|GH006/i.test(text)) {

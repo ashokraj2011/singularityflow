@@ -18,23 +18,30 @@ function authorizationPath(root, token) {
   return path.join(authorizationDirectory(root), `${token}.json`);
 }
 
+function authorizationStorageFailure(action) {
+  return new SingularityFlowError(
+    `Action authorization storage could not ${action}. Review and authorize a fresh action.`,
+    { code: 'ACTION_AUTHORIZATION_STORAGE_UNAVAILABLE' }
+  );
+}
+
 function validate(record, token) {
   record = readRecord('action-authorization', record).record;
   if (record?.kind !== 'governed-action-authorization') {
-    throw new SingularityFlowError(`Action authorization '${token}' has an unsupported schema.`);
+    throw new SingularityFlowError('The action authorization has an unsupported schema.');
   }
-  if (record.token !== token) throw new SingularityFlowError(`Action authorization '${token}' does not match its filename.`);
+  if (record.token !== token) throw new SingularityFlowError('The action authorization does not match its filename.');
   const created = Date.parse(record.createdAt ?? '');
   const expires = Date.parse(record.expiresAt ?? '');
   if (!Number.isFinite(created) || !Number.isFinite(expires) || expires <= created
     || expires - created > AUTHORIZATION_TTL_MS) {
-    throw new SingularityFlowError(`Action authorization '${token}' has invalid timestamps.`);
+    throw new SingularityFlowError('The action authorization has invalid timestamps.');
   }
-  if (expires <= Date.now()) throw new SingularityFlowError(`Action authorization '${token}' expired; review the action again.`);
+  if (expires <= Date.now()) throw new SingularityFlowError('The action authorization expired; review the action again.');
   const expectedQuestionId = recordSha256({ planId: record.planId, actionId: record.actionId, channel: record.channel }).slice(0, 24);
   const expectedAnswerReceipt = recordSha256({ token, authorizationId: record.authorizationId, planHash: record.planHash, actionId: record.actionId });
   if (record.questionId !== expectedQuestionId || record.answerReceipt !== expectedAnswerReceipt || !record.authorizationId) {
-    throw new SingularityFlowError(`Action authorization '${token}' failed its question and answer-receipt binding.`);
+    throw new SingularityFlowError('The action authorization failed its question and answer-receipt binding.');
   }
   return record;
 }
@@ -73,8 +80,12 @@ export async function issueActionAuthorization(root, plan, action, {
     createdAt,
     expiresAt: new Date(Date.parse(createdAt) + AUTHORIZATION_TTL_MS).toISOString()
   };
-  await mkdir(authorizationDirectory(root), { recursive: true, mode: 0o700 });
-  await writeAtomic(authorizationPath(root, token), canonicalJson(record), { mode: 0o600 });
+  try {
+    await mkdir(authorizationDirectory(root), { recursive: true, mode: 0o700 });
+    await writeAtomic(authorizationPath(root, token), canonicalJson(record), { mode: 0o600 });
+  } catch {
+    throw authorizationStorageFailure('write the local authorization');
+  }
   return record;
 }
 
@@ -86,28 +97,29 @@ export async function consumeActionAuthorization(root, token, plan, action) {
     await rename(source, claimed);
   } catch (error) {
     if (error?.code === 'ENOENT') {
-      throw new SingularityFlowError(`Action authorization '${token}' was not found or was already consumed.`);
+      throw new SingularityFlowError('The action authorization was not found or was already consumed.');
     }
-    throw error;
+    throw authorizationStorageFailure('claim the local authorization');
   }
   try {
     let record;
     try { record = JSON.parse(await readFile(claimed, 'utf8')); }
     catch (error) {
-      if (error instanceof SyntaxError) throw new SingularityFlowError(`Action authorization '${token}' is invalid JSON.`);
-      throw error;
+      if (error instanceof SyntaxError) throw new SingularityFlowError('The action authorization is invalid JSON.');
+      throw authorizationStorageFailure('read the local authorization');
     }
     record = validate(record, token);
     if (record.planId !== plan.planId || record.planHash !== plan.planHash || record.actionId !== action.actionId) {
-      throw new SingularityFlowError(`Action authorization '${token}' is not bound to this exact plan and action.`);
+      throw new SingularityFlowError('The action authorization is not bound to this exact plan and action.');
     }
     if (!actorKey(record.actor) || actorKey(record.actor) !== actorKey(identity(root))) {
-      throw new SingularityFlowError(`Action authorization '${token}' belongs to a different local Git identity.`);
+      throw new SingularityFlowError('The action authorization belongs to a different local Git identity.');
     }
     return record;
   } finally {
     // Claiming is the consumption boundary. A failed action requires a fresh human review rather
     // than silently reusing consent that may no longer describe the next attempt.
-    await rm(claimed, { force: true });
+    try { await rm(claimed, { force: true }); }
+    catch { throw authorizationStorageFailure('remove the consumed local authorization'); }
   }
 }

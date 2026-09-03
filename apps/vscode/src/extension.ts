@@ -15,7 +15,7 @@ import { access, lstat, readFile, rm } from 'node:fs/promises';
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, type CliLocation } from './cli/client.ts';
 import {
-  RepositoryAuthorityUnavailableError, validateRepositoryDirectory,
+  formatCliArgsForDisplay, RepositoryAuthorityUnavailableError, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
 } from './cli/runner.ts';
 import { WorkspaceStore } from './state.ts';
@@ -1435,7 +1435,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       location, repository: process.cwd(), onOutput: (text) => output.append(text)
     });
     const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
-      output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
       try {
         return { result: await registry.run<unknown>(argv), error: null };
       } catch (error) {
@@ -1478,7 +1478,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         location, repository: process.cwd(), onOutput: (text) => output.append(text)
       });
       const run = async (argv: string[]): Promise<{ result: unknown; error: string | null }> => {
-        output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
         try { return { result: await registry.run<unknown>(argv), error: null }; }
         catch (error) { return { result: null, error: (error as Error).message }; }
       };
@@ -1594,7 +1594,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           type: 'run', command: restoreCommand(message.row), title: `Restoring ${message.row.name}`
         };
       }
-      output.appendLine(`\n$ singularity-flow ${message.command.join(' ')}`);
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(message.command)}`);
       try {
         await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: message.title },
@@ -1617,7 +1617,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         workspacePath ? { directory: workspacePath } : null,
         request
       );
-      output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
       try {
         return await vscode.window.withProgress(
           {
@@ -3048,7 +3048,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const ran = await runGovernedAction(client, {
       command: argv,
-      title: node.confirmation?.summary ?? `singularity-flow ${argv.join(' ')}`,
+      title: node.confirmation?.summary ?? `singularity-flow ${formatCliArgsForDisplay(argv)}`,
       ...(node.confirmation ? { confirmation: node.confirmation } : {})
     }, output);
     if (ran) await refreshAfterKnownMutation();
@@ -3482,7 +3482,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (confirmed !== 'Detach evidence') return;
 
     const command = evidenceDetachCommand(item, scope, reason.trim());
-    output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
     try {
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Detaching ${target}`, cancellable: false },
@@ -3705,7 +3705,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         message.type === 'remove'
           ? { reparentChildrenTo: message.reparentChildrenTo }
           : {});
-      output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
       const proposed = await client.run<{
         branch?: string | null; reviewRequired?: boolean; capabilityId?: string
       }>(argv);
@@ -3715,7 +3715,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const run = async (command: string[]): Promise<{ result: unknown; error: string | null }> => {
-        output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
         try { return { result: await client.run<unknown>(command), error: null }; }
         catch (error) {
           output.appendLine(`  failed: ${(error as Error).message}`);
@@ -3817,7 +3817,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         '--self-approval', message.allowSelfApproval ? 'on' : 'off',
         '--auto-enroll', message.autoEnrollNewIdentities ? 'on' : 'off'
       ];
-      output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
+      output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
       try {
         const result = await client.run<{
           changed: boolean; pushed: boolean; commit: string;
@@ -4403,7 +4403,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // incoherent profile is one implementation rather than two that drift.
       if (message.type === 'run') {
         const command = [...message.command, '--propose', '--json'];
-        output.appendLine(`\n$ singularity-flow ${command.join(' ')}`);
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
         try {
           const proposal = await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
@@ -4551,7 +4551,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           if (refreshRequired && choice === refreshAction) {
             const refreshArgs = worldModelAuthorityRefreshArguments(outcome.capabilityId ?? null);
-            output.appendLine(`\n$ singularity-flow ${refreshArgs.join(' ')}`);
+            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(refreshArgs)}`);
             await client.runText([...refreshArgs]);
             await refreshAfterSurfaceMutation();
             await vscode.commands.executeCommand(

@@ -8,17 +8,22 @@
  * same provider error.
  */
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, redactDiagnosticText,
+  assertCredentialFreeRemote, classifyGitRemoteFailure, failureEvidence, redactDiagnosticText,
   frozenRemoteTransport, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { spawn } from 'node:child_process';
+import { statSync } from 'node:fs';
 import { networkDisabled, run, signalProcessTree, SingularityFlowError } from './util.mjs';
 
 const positive = (value, fallback) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
+
+function workingDirectoryAvailable(cwd) {
+  try { return statSync(cwd).isDirectory(); } catch { return false; }
+}
 
 /** Timeouts are read per invocation so tests and managed installations can tune them safely. */
 export function gitTimeouts(env = process.env) {
@@ -95,7 +100,8 @@ function throwRemoteFailure(observed) {
         classification: failure.classification,
         retryable: failure.retryable,
         timedOut: timedOut === true,
-        outputOverflow: outputOverflow === true
+        outputOverflow: outputOverflow === true,
+        evidence: failure.evidence
       }
     }
   );
@@ -122,7 +128,10 @@ export function runRemoteGit(args, {
       status: 1, stdout: '', stderr: '', error: undefined,
       timedOut: false, blocked: true
     };
-    const failure = classifyGitRemoteFailure(blocked);
+    const failure = {
+      ...classifyGitRemoteFailure(blocked),
+      evidence: failureEvidence(blocked)
+    };
     const observed = { ...blocked, failure, operation, timeoutMs };
     recordRemoteGitOutcome(observed);
     if (!allowFailure) throwRemoteFailure(observed);
@@ -135,7 +144,10 @@ export function runRemoteGit(args, {
     allowFailure: true,
     ...(maxBuffer === undefined ? {} : { maxBuffer })
   });
-  const failure = result.status === 0 ? null : classifyGitRemoteFailure(result);
+  const failure = result.status === 0 ? null : {
+    ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
+    evidence: failureEvidence(result)
+  };
   const observed = { ...result, failure, operation, timeoutMs };
   recordRemoteGitOutcome(observed);
   if (result.status !== 0 && !allowFailure) throwRemoteFailure(observed);
@@ -341,11 +353,15 @@ export async function runRemoteGitAsync(args, {
   });
   const classified = result.status === 0 && !result.outputOverflow
     ? null
-    : classifyGitRemoteFailure(result);
+    : {
+        ...classifyGitRemoteFailure(result, { cwdAvailable: workingDirectoryAvailable(cwd) }),
+        evidence: failureEvidence(result)
+      };
   const failure = result.aborted
-    ? {
+      ? {
         code: 'REMOTE_OPERATION_ABORTED', classification: 'cancelled', retryable: true,
-        advice: 'The Git operation was cancelled before it completed. Retry when ready.'
+        advice: 'The Git operation was cancelled before it completed. Retry when ready.',
+        evidence: failureEvidence(result)
       }
     : result.outputOverflow
       ? {

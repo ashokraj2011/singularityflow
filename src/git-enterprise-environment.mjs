@@ -20,6 +20,7 @@ const ENTERPRISE_GIT_CONFIG_PATTERN = [
 const MAX_ENTRIES = 256;
 const MAX_BYTES = 256 * 1024;
 const ENTERPRISE_ENVIRONMENTS = new WeakSet();
+const ENTERPRISE_GIT_CONFIG_KEY = new RegExp(`^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`, 'u');
 
 /** Remove process/repository authority while retaining ordinary proxy and CA environment values. */
 export function withoutGitProcessOverrides(source = process.env) {
@@ -55,6 +56,34 @@ export function withoutGitProcessOverrides(source = process.env) {
   return env;
 }
 
+function parseEnterpriseGitConfiguration(stdout) {
+  const output = String(stdout ?? '');
+  // Status zero means Git found at least one matching key. Empty output is therefore a malformed or
+  // truncated launcher response, not a trustworthy empty scope.
+  if (!output) return null;
+  // A successful `git config --null` response terminates every record. A missing terminator can be
+  // truncated output even when a wrapper incorrectly reports status zero, so never admit its
+  // apparently complete prefix.
+  if (Buffer.byteLength(output, 'utf8') > MAX_BYTES || !output.endsWith('\0')) return null;
+  const records = output.slice(0, -1).split('\0');
+  if (records.length > MAX_ENTRIES) return null;
+  const entries = [];
+  for (const record of records) {
+    const separator = record.indexOf('\n');
+    if (separator <= 0) return null;
+    const key = record.slice(0, separator);
+    const value = record.slice(separator + 1);
+    // Recheck Git's requested allowlist at the trust boundary. Besides defending against malformed
+    // wrapper output, this keeps one bad record from turning a partially parsed scope into ambient
+    // command authority.
+    if (!ENTERPRISE_GIT_CONFIG_KEY.test(key)
+      || Buffer.byteLength(key, 'utf8') > 1024
+      || Buffer.byteLength(value, 'utf8') > 32 * 1024) return null;
+    entries.push([key, value]);
+  }
+  return entries;
+}
+
 function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
   const queryEnv = withoutGitProcessOverrides(sourceEnv);
   // This is a local trust snapshot, but it still executes the configured Git binary. Bound it by
@@ -65,30 +94,53 @@ function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
   const timeoutMs = Number.isFinite(requestedTimeout) && requestedTimeout > 0
     ? Math.max(25, Math.min(2_000, Math.trunc(requestedTimeout)))
     : 2_000;
-  const entries = [];
+  const observedScopes = new Map();
   for (const scope of ['system', 'global']) {
-    const observed = runCommand('git', [
-      'config', `--${scope}`, '--includes', '--null', '--get-regexp',
-      `^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`
-    ], {
-      cwd: os.tmpdir(), env: queryEnv, allowFailure: true, timeoutMs,
-      killSignal: 'SIGKILL', maxBuffer: MAX_BYTES
-    });
-    if (observed.status === 1 && !observed.error && observed.timedOut !== true) continue;
-    if (observed.status !== 0) return [];
-    for (const record of String(observed.stdout ?? '').split('\0')) {
-      if (!record) continue;
-      const separator = record.indexOf('\n');
-      if (separator <= 0) continue;
-      const key = record.slice(0, separator);
-      const value = record.slice(separator + 1);
-      if (entries.length >= MAX_ENTRIES
-        || Buffer.byteLength(key, 'utf8') > 1024
-        || Buffer.byteLength(value, 'utf8') > 32 * 1024) return [];
-      entries.push([key, value]);
+    let observed;
+    try {
+      observed = runCommand('git', [
+        'config', `--${scope}`, '--includes', '--null', '--get-regexp',
+        `^(${ENTERPRISE_GIT_CONFIG_PATTERN})$`
+      ], {
+        cwd: os.tmpdir(), env: queryEnv, allowFailure: true, timeoutMs,
+        killSignal: 'SIGKILL', maxBuffer: MAX_BYTES
+      });
+    } catch {
+      // A custom Git launcher can throw before `allowFailure` has a chance to normalize the result.
+      // Record an indeterminate scope, but still inspect the other scope for a complete diagnostic
+      // pass. No partial snapshot is admitted below.
+      observedScopes.set(scope, null);
+      continue;
     }
+    if (observed?.status === 1 && !observed.error && observed.timedOut !== true
+      && observed.outputOverflow !== true && observed.blocked !== true
+      && observed.aborted !== true && observed.signal == null
+      && String(observed.stdout ?? '') === '' && String(observed.stderr ?? '') === '') {
+      observedScopes.set(scope, []);
+      continue;
+    }
+    if (observed?.status !== 0 || observed.error || observed.timedOut === true
+      || observed.outputOverflow === true || observed.blocked === true
+      || observed.aborted === true || observed.signal != null) {
+      observedScopes.set(scope, null);
+      continue;
+    }
+    const scopeEntries = parseEnterpriseGitConfiguration(observed.stdout);
+    observedScopes.set(scope, scopeEntries);
   }
-  return entries;
+
+  const systemEntries = observedScopes.get('system');
+  const globalEntries = observedScopes.get('global');
+  // Git configuration precedence depends on both file scope and URL specificity. A global empty
+  // credential.helper can reset system helpers, while a URL-specific system HTTP value can outrank a
+  // generic global value. Therefore neither scope is meaningful in isolation: if either observation
+  // is indeterminate, fail the complete snapshot closed.
+  if (systemEntries === null || systemEntries === undefined
+    || globalEntries === null || globalEntries === undefined) return [];
+  const entries = [...systemEntries, ...globalEntries];
+  // Never retain a lower-precedence prefix when the exact ordered snapshot exceeds its process-wide
+  // bound; doing so would change Git's override/reset semantics.
+  return entries.length <= MAX_ENTRIES ? entries : [];
 }
 
 /**

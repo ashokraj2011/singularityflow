@@ -22,7 +22,7 @@ import YAML from 'yaml';
 import { removeTemporaryTree, run } from '../src/util.mjs';
 import { outsideBuilderScratch } from '../src/worldmodel.mjs';
 import {
-  activateCapabilityProposal, addCapabilityRepository, capabilityFsck, discardStaleCapabilityProposal,
+  activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
   organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
@@ -30,6 +30,7 @@ import {
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readConfigurationSource } from '../src/configuration-branch.mjs';
+import { runRemoteGitAsync } from '../src/git-execution.mjs';
 
 /** Bare repositories with one commit each, standing in for an organisation's remotes. */
 async function remotes(...names) {
@@ -368,6 +369,87 @@ test('repository inspection finds an exact URL in registered capability maps wit
   assert.equal(unreachable.status, 'inconclusive');
   assert.equal(unreachable.completeness, 'partial');
   assert.equal(unreachable.failures.length, 1);
+  assert.equal(unreachable.failures[0].classification, 'remote-not-found');
+  assert.equal(unreachable.failures[0].retryable, false);
+  assert.match(unreachable.failures[0].evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+  assert.match(unreachable.failures[0].diagnosticAction.command,
+    /workspace doctor --network --repository/);
+
+  await assert.rejects(readOrganisation(`${org.unmapped}.authority-offline`, { refresh: true }),
+    (error) => {
+      assert.equal(error.code, 'CAPABILITY_AUTHORITY_UNAVAILABLE');
+      assert.equal(error.details.remoteFailure.classification, 'remote-not-found');
+      assert.equal(error.details.remoteFailure.retryable, false);
+      assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+      assert.match(error.details.diagnosticAction.command,
+        /workspace doctor --network --repository/);
+      assert.doesNotMatch(JSON.stringify(error.details), /stderr|does not appear to be/);
+      return true;
+  });
+});
+
+test('suggested Git diagnostic commands use portable placeholders for unsafe remote operands', async () => {
+  const remote = path.join(os.tmpdir(), 'missing-$(printf injected)-`printf tick`-& whoami.git');
+  let command = null;
+  await assert.rejects(readOrganisation(remote, { refresh: true }), (error) => {
+    command = error.details.diagnosticAction.command;
+    assert.match(command, /--repository\s+LEAD_URL/);
+    assert.doesNotMatch(command, /printf|injected|tick|whoami|[`$()&]/);
+    return true;
+  });
+
+  const parsed = spawnSync('sh', ['-c', `set -- ${command}; printf '%s\\n' "$@"`], {
+    encoding: 'utf8'
+  });
+  assert.equal(parsed.status, 0, parsed.stderr);
+  assert.equal(parsed.stderr, '');
+  assert.ok(parsed.stdout.split('\n').includes('LEAD_URL'), parsed.stdout);
+});
+
+test('the machine lead registry never returns or newly stores credential-bearing remotes', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-safe-leads-'));
+  const file = registry(root);
+  const secret = 'legacy-registry-secret';
+  await writeFile(file, `${JSON.stringify({
+    schemaVersion: 1,
+    leads: [
+      { url: 'https://git.example/safe.git', usedAt: '2026-01-01T00:00:00.000Z' },
+      { url: `https://alice:${secret}@git.example/unsafe.git`, usedAt: '2026-01-01T00:00:00.000Z' }
+    ]
+  })}\n`);
+  const {
+    listLeadRepositories: listSafeLeads,
+    listLeadRepositoryRegistryRecords,
+    rememberLeadRepository
+  } = await import('../src/lead-repositories.mjs');
+  assert.deepEqual((await listSafeLeads(file)).map((lead) => lead.url),
+    ['https://git.example/safe.git']);
+  assert.equal((await listLeadRepositoryRegistryRecords(file)).length, 2,
+    'the corrupt entry remains available to bounded integrity diagnosis');
+  await assert.rejects(rememberLeadRepository(
+    `https://bob:${secret}@git.example/new.git`, file
+  ), (error) => error.code === 'BOOTSTRAP_REMOTE_CONTAINS_CREDENTIAL');
+  assert.doesNotMatch(JSON.stringify(await listSafeLeads(file)), new RegExp(secret));
+});
+
+test('capability review commands use placeholders for shell-special lead paths', () => {
+  const commands = capabilityProposalCommands(
+    '/tmp/lead;echo-owned',
+    'sflow/config-change/capability/map-safe',
+    'a'.repeat(40)
+  );
+  assert.match(commands.review, /--lead LEAD_URL/);
+  assert.match(commands.activate, /--lead LEAD_URL/);
+  assert.doesNotMatch(JSON.stringify(commands), /echo-owned|[;&`$()]/);
+
+  const powershellSplat = capabilityProposalCommands(
+    '@args',
+    'sflow/config-change/capability/map-safe',
+    'a'.repeat(40)
+  );
+  assert.match(powershellSplat.review, /--lead LEAD_URL/);
+  assert.match(powershellSplat.activate, /--lead LEAD_URL/);
+  assert.doesNotMatch(JSON.stringify(powershellSplat), /@args/);
 });
 
 test('repository inspection blocks duplicate onboarding while an exact mapping awaits review', async () => {
@@ -447,6 +529,124 @@ test('an unrelated proposal does not claim every repository inherited from its b
     'unchanged repository bytes inherited by another proposal are not a pending repository claim');
 });
 
+test('a proposal that removes a repository does not remain a pending claim on its old URL', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+
+  const authoring = path.join(org.base, 'remove-service-proposal');
+  run('git', ['clone', '-q', '--branch', 'sflow/config', org.platform, authoring]);
+  run('git', ['config', 'user.email', 'proposal@example.com'], { cwd: authoring });
+  run('git', ['config', 'user.name', 'Proposal Author'], { cwd: authoring });
+  const branch = 'sflow/config-change/capability/remove-calculator-repository';
+  run('git', ['switch', '-q', '-c', branch], { cwd: authoring });
+  const capabilitiesFile = path.join(authoring, 'singularity/capabilities.yml');
+  const capabilities = YAML.parse(await readFile(capabilitiesFile, 'utf8'));
+  delete capabilities.capabilities.calculator;
+  await writeFile(capabilitiesFile, YAML.stringify(capabilities));
+  const portfolioFile = path.join(authoring, 'singularity/portfolio.yml');
+  const portfolio = YAML.parse(await readFile(portfolioFile, 'utf8'));
+  delete portfolio.repositories.service;
+  await writeFile(portfolioFile, YAML.stringify(portfolio));
+  run('git', ['add', '-A'], { cwd: authoring });
+  run('git', ['commit', '-qm', 'Remove calculator repository'], { cwd: authoring });
+  run('git', ['push', '-q', 'origin', `HEAD:${branch}`], { cwd: authoring });
+
+  const result = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.equal(result.status, 'already-mapped');
+  assert.deepEqual(result.matches[0].capabilities, ['calculator']);
+  assert.deepEqual(result.pendingMatches, [],
+    'the proposal no longer claims the URL just because its base did');
+});
+
+test('a merged mapping does not remain pending after configuration is re-rooted to identical content', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapAndMerge(org.platform, {
+    capabilityId: 'platform-runtime', kind: 'delivery', repositoryUrl: org.platform
+  });
+  const mergedConfiguration = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const tree = run('git', ['rev-parse', 'sflow/config^{tree}'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const fixtureIdentity = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Configuration Recovery', GIT_AUTHOR_EMAIL: 'recovery@example.invalid',
+    GIT_COMMITTER_NAME: 'Configuration Recovery', GIT_COMMITTER_EMAIL: 'recovery@example.invalid'
+  };
+  const replacement = run('git', [
+    'commit-tree', tree, '-m', 'Re-root approved configuration without changing its content'
+  ], { cwd: org.platform, env: fixtureIdentity }).stdout.trim();
+  run('git', ['update-ref', 'refs/heads/sflow/config', replacement, mergedConfiguration], {
+    cwd: org.platform
+  });
+
+  const catalog = await listCapabilityProposals(org.platform, {
+    includeDiff: false, repositoryUrl: org.platform
+  });
+  const historical = catalog.find((entry) => entry.branch === proposed.branch);
+  assert.ok(historical, 'the history-invalid proposal remains visible for exact-SHA cleanup');
+  assert.equal(historical.status, 'unreadable');
+  assert.equal(historical.failure.code, 'CAPABILITY_PROPOSAL_HISTORY_INVALID');
+  assert.equal(historical.repositoryInspectionComplete, true);
+  assert.deepEqual(historical.repositoryMatches, [],
+    'content already approved under a replacement root is not a pending claim');
+
+  const result = await inspectCapabilityRepository(org.platform, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.equal(result.status, 'already-mapped');
+  assert.deepEqual(result.matches[0].capabilities, ['platform-runtime']);
+  assert.deepEqual(result.pendingMatches, []);
+  assert.equal(result.proposalCoverage, 'complete');
+});
+
+test('an unreadable proposal without a provable base does not claim repositories from its tip', async () => {
+  const org = await remotes('platform', 'service');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  const proposed = await mapCapability(org.platform, {
+    capabilityId: 'calculator', kind: 'delivery', repositoryUrl: org.service
+  });
+  const tree = run('git', ['rev-parse', `${proposed.commit}^{tree}`], {
+    cwd: org.platform
+  }).stdout.trim();
+  const fixtureIdentity = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Unrelated Proposal', GIT_AUTHOR_EMAIL: 'proposal@example.invalid',
+    GIT_COMMITTER_NAME: 'Unrelated Proposal', GIT_COMMITTER_EMAIL: 'proposal@example.invalid'
+  };
+  const unrelatedTip = run('git', [
+    'commit-tree', tree, '-m', 'Re-root proposal without its reviewed base'
+  ], { cwd: org.platform, env: fixtureIdentity }).stdout.trim();
+  run('git', ['update-ref', `refs/heads/${proposed.branch}`, unrelatedTip, proposed.commit], {
+    cwd: org.platform
+  });
+
+  const catalog = await listCapabilityProposals(org.platform, {
+    includeDiff: false, repositoryUrl: org.service
+  });
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].status, 'unreadable');
+  assert.equal(catalog[0].repositoryInspectionComplete, false);
+  assert.deepEqual(catalog[0].repositoryMatches, [],
+    'a tip snapshot cannot stand in for a missing base-vs-tip delta');
+
+  const result = await inspectCapabilityRepository(org.service, {
+    leadUrl: org.platform, refresh: true
+  });
+  assert.deepEqual(result.matches, []);
+  assert.deepEqual(result.pendingMatches, [],
+    'unrelated proposal history must not block onboarding with an unproven pending claim');
+  assert.equal(result.proposalCoverage, 'partial');
+  assert.equal(result.status, 'inconclusive');
+});
+
 test('bounded proposal lookup marks truncated coverage incomplete', async () => {
   const org = await remotes('platform', 'first-service', 'second-service');
   process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
@@ -476,7 +676,12 @@ test('repository inspection never returns a rejected registered lead URL', async
   const { rememberLeadRepository } = await import('../src/lead-repositories.mjs');
   await rememberLeadRepository(org.platform);
   const rejected = 'https://alice:super-secret@example.test/private.git';
-  await rememberLeadRepository(rejected);
+  // Simulate a registry written by an older release. New writes reject this value at the boundary,
+  // but inspection still has to diagnose a pre-existing corrupt entry without reflecting it.
+  const registryPath = registry(org.base);
+  const legacy = JSON.parse(await readFile(registryPath, 'utf8'));
+  legacy.leads.push({ url: rejected, usedAt: new Date(0).toISOString() });
+  await writeFile(registryPath, `${JSON.stringify(legacy, null, 2)}\n`);
 
   const result = await inspectCapabilityRepository(org.unmapped, { refresh: true });
   const serialized = JSON.stringify(result);
@@ -621,6 +826,45 @@ test('capability inspect-repository CLI emits the read-only discovery result', a
   assert.match(partial.stdout, /already-mapped/);
   assert.match(partial.stderr, /pending proposal coverage: partial/);
   assert.match(partial.stderr, /no new mapping is authorized/);
+  assert.match(partial.stderr, /Diagnose: singularity-flow workspace doctor --network --repository/);
+});
+
+test('capability proposal transport failures emit structured JSON diagnostics', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-proposal-cli-failure-'));
+  const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
+  const unavailable = path.join(root, 'missing-authority.git');
+  const result = spawnSync(process.execPath, [
+    cli, 'capability', 'proposals', '--lead', unavailable, '--json'
+  ], {
+    cwd: root,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(root), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.notEqual(result.status, 0);
+  const failure = JSON.parse(result.stderr);
+  assert.equal(failure.status, 'failed');
+  assert.equal(failure.error.code, 'REMOTE_REMOTE_NOT_FOUND');
+  assert.match(failure.error.diagnosticAction.command,
+    /workspace doctor --network --repository/);
+
+  const human = spawnSync(process.execPath, [
+    cli, 'capability', 'proposals', '--lead', unavailable, '--json=false'
+  ], {
+    cwd: root,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(root), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.match(human.stderr, /Singularity Flow error:/);
+  assert.doesNotMatch(human.stderr, /^\s*\{/);
+
+  const lastFlagWins = spawnSync(process.execPath, [
+    cli, 'capability', 'proposals', '--lead', unavailable, '--json=false', '--json'
+  ], {
+    cwd: root,
+    env: { ...process.env, SINGULARITY_FLOW_LEAD_REGISTRY: registry(root), NO_COLOR: '1' },
+    encoding: 'utf8'
+  });
+  assert.equal(JSON.parse(lastFlagWins.stderr).error.code, 'REMOTE_REMOTE_NOT_FOUND');
 });
 
 test('an exact capability proposal can be reviewed, activated, and projected without touching main', async () => {
@@ -1347,7 +1591,7 @@ test('delivery repository reachability is proven before mapping mutates any auth
   }).stdout, before, 'an empty delivery repository must not be guessed as main');
 });
 
-test('capability mapping preserves distinct literal remote identities in probes and recovery commands', async (t) => {
+test('capability mapping preserves literal remote identities while keeping recovery commands portable', async (t) => {
   const org = await remotes('platform');
   // A local receive-pack can launch transient Git auto-maintenance while a bare repository is
   // being removed. Use the same bounded-retry cleanup as production scratch repositories so
@@ -1385,8 +1629,10 @@ test('capability mapping preserves distinct literal remote identities in probes 
   ].sort(), 'each exact authority keeps its own observation and default branch');
 
   await assert.rejects(() => mapCapability(blue, { capabilityId: '' }), (error) => {
-    assert.ok(error.details.nextAction.command.includes(blue),
-      'the executable remediation retains literal local-path characters');
+    assert.match(error.details.nextAction.command, /--lead\s+LEAD_URL/,
+      'a remote with shell-special path bytes uses an explicit portable placeholder');
+    assert.doesNotMatch(error.details.nextAction.command, /\?blue/,
+      'the suggested command cannot reinterpret literal path bytes in a shell');
     return true;
   });
 });
@@ -1425,6 +1671,81 @@ test('a repeated mapping points to the preserved proposal instead of becoming a 
     return true;
   });
   assert.equal((await listCapabilityProposals(org.platform)).length, 1);
+});
+
+test('proposal clone and fetch failures retain structured remote diagnosis and an exact doctor action', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  await mapAndMerge(org.platform, { capabilityId: 'commerce', kind: 'collection' });
+  const configurationCommit = run('git', ['rev-parse', 'sflow/config'], {
+    cwd: org.platform
+  }).stdout.trim();
+  const proposalBranch = 'sflow/config-change/capability/missing-proposal';
+  const advertisedOnly = {
+    env: process.env,
+    async observeAsync() {
+      return {
+        ok: true,
+        refs: new Map([
+          ['refs/heads/sflow/config', configurationCommit],
+          [`refs/heads/${proposalBranch}`, 'a'.repeat(40)]
+        ])
+      };
+    }
+  };
+  const failProposalFetch = (args, options) => {
+    if (args[0] !== 'fetch') return runRemoteGitAsync(args, options);
+    return Promise.resolve({
+      status: 128, stdout: '', stderr: '', signal: null, timedOut: false, blocked: false,
+      failure: {
+        code: 'REMOTE_BRANCH_NOT_FOUND', classification: 'branch-not-found', retryable: false,
+        branch: null, advice: 'Choose a branch that exists on the remote or publish the expected branch, then retry.',
+        evidence: {
+          exitCode: 128, signal: null, timedOut: false, blocked: false,
+          diagnosticSha256: 'b'.repeat(64), diagnosticBytes: 37
+        }
+      }
+    });
+  };
+
+  const unavailable = path.join(org.base, 'authority-does-not-exist.git');
+  await assert.rejects(listCapabilityProposals(unavailable, {
+    remoteSession: advertisedOnly
+  }), (error) => {
+    assert.equal(error.details.remoteFailure.classification, 'remote-not-found');
+    assert.match(error.details.remoteFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+    assert.match(error.details.diagnosticAction.command,
+      /workspace doctor --network --repository/);
+    return true;
+  });
+
+  const proposals = await listCapabilityProposals(org.platform, {
+    remoteSession: advertisedOnly,
+    runRemoteCommand: failProposalFetch
+  });
+  assert.equal(proposals.length, 1);
+  assert.equal(proposals[0].status, 'unreadable');
+  assert.equal(proposals[0].failure.classification, 'branch-not-found',
+    JSON.stringify(proposals[0].failure));
+  assert.equal(proposals[0].failure.remoteFailure.classification, 'branch-not-found');
+  assert.match(proposals[0].failure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+  assert.match(proposals[0].failure.diagnosticAction.command,
+    /workspace doctor --network --repository/);
+  assert.doesNotMatch(JSON.stringify(proposals[0].failure), /stderr|couldn't find remote ref/i);
+
+  await mapCapability(org.platform, { capabilityId: 'pending-review', kind: 'collection' });
+  const inspection = await inspectCapabilityRepository(org.platform, {
+    leadUrl: org.platform,
+    proposalRemoteCommand: failProposalFetch
+  });
+  assert.equal(inspection.proposalCoverage, 'partial');
+  const transportFailure = inspection.failures.find(
+    (failure) => failure.classification === 'branch-not-found'
+  );
+  assert.ok(transportFailure, 'the shared proposal transport failure reaches repository inspection');
+  assert.match(transportFailure.evidence.diagnosticSha256, /^[a-f0-9]{64}$/);
+  assert.match(transportFailure.diagnosticAction.command,
+    /workspace doctor --network --repository/);
 });
 
 test('one unreadable proposal remains visible without hiding healthy proposals', async () => {

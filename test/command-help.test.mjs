@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -85,6 +85,19 @@ test('capability help starts repository onboarding with a read-only URL lookup',
   assert.match(page, /capability inspect-repository https:\/\/git\.example\/payments\.git --json/);
   assert.match(page, /Repository onboarding starts from an exact credential-free Git URL/);
   assert.match(page, /Only an explicit new-mapping choice proceeds to metadata/);
+});
+
+test('workspace help exposes an exact remote doctor without requiring a bootstrap session', () => {
+  const page = renderCommandHelp('workspace');
+  assert.match(page, /workspace doctor \[--network\] \[--repository URL\]\.\.\./);
+  assert.match(page, /workspace doctor --network --repository https:\/\/git\.example\/payments\.git/);
+  assert.match(page, /credential-free `--repository` URLs/);
+});
+
+test('capability proposal text output exposes its structured transport diagnostic', async () => {
+  const cli = await readFile(path.join(packageRoot, 'src', 'cli.mjs'), 'utf8');
+  assert.match(cli, /proposal\.failure\?\.diagnosticAction\?\.command/);
+  assert.match(cli, /diagnose: \$\{proposal\.failure\.diagnosticAction\.command\}/);
 });
 
 test('process help describes the installed parallel adapters and operational inspection surface', () => {

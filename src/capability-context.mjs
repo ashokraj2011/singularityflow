@@ -70,7 +70,8 @@ const LEGACY_CAPABILITY_AVAILABILITY_REFRESH = new Set([
   'offline-cached', 'offline-no-state-copy', 'remote-absent', 'timeout-cached', 'unavailable'
 ]);
 const LEGACY_CAPABILITY_AVAILABILITY_CLASSIFICATIONS = new Set([
-  'authentication-required', 'authorization-denied',
+  'authentication-required', 'authorization-denied', 'credential-helper-unavailable',
+  'git-unavailable', 'sso-authorization-required', 'working-directory-unavailable',
   'branch-not-found', 'network-transient', 'offline', 'proxy-configuration', 'rate-limited',
   'remote-not-found', 'tls-trust'
 ]);

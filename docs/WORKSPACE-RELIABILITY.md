@@ -33,11 +33,13 @@ are persisted, while the local commit is always retained.
 
 ## Diagnostics and surfaces
 
-`workspace doctor` is local by default and `--network` is explicit. Proxy and certificate checks
-report source names only and leave credentials and trust configuration to Git and the operating
-system. My Work renders without a repository and offers the same sealed recovery destinations used
-by other gateway hosts: continue setup, use an existing clone, prepare a workspace, run diagnostics,
-or explore registered workspaces. VS Code owns the forms; lifecycle and recovery law remains in core.
+`workspace doctor` is local by default and `--network` is explicit. With `--network`, a repeatable
+`--repository` option can name exact credential-free URLs when there is no unfinished bootstrap
+session. Proxy and certificate checks report source names only and leave credentials and trust
+configuration to Git and the operating system. My Work renders without a repository and offers the
+same sealed recovery destinations used by other gateway hosts: continue setup, use an existing clone,
+prepare a workspace, run diagnostics, or explore registered workspaces. VS Code owns the forms;
+lifecycle and recovery law remains in core.
 
 Native CI exercises the reliability contracts on Windows, macOS, and Linux with Node 20 and the
 current supported Node release. Network fixtures use local bare remotes and never live credentials.

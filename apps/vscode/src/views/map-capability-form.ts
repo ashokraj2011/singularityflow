@@ -11,9 +11,62 @@
  * and a workspace is made for doing work rather than for describing what exists. There is no state
  * branch either — it is `state`, and it is created when a workspace is initialised.
  */
+import { createHash } from 'node:crypto';
 import { CAPABILITY_KINDS } from './capability-model.ts';
 import { escape, icon } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
+
+const SSH_USERNAME_PROTOCOLS = new Set(['ssh:', 'git+ssh:', 'ssh+git:']);
+const BUILTIN_HIERARCHICAL_PROTOCOLS = new Set([
+  'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'
+]);
+const MAX_REMOTE_INPUT_CHARS = 8 * 1024;
+const REMOTE_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;
+
+function containsSecretAssignment(value: string): boolean {
+  value = value.replace(/\\+(["'=:])/g, '$1');
+  let index = 0;
+  while (index < value.length) {
+    if (!/[A-Za-z]/.test(value[index] ?? '')) { index += 1; continue; }
+    const keyStart = index;
+    index += 1;
+    while (index < value.length && /[A-Za-z0-9_.-]/.test(value[index] ?? '')) index += 1;
+    const key = value.slice(keyStart, index);
+    let separator = index;
+    while (separator < value.length && /\s/.test(value[separator] ?? '')) separator += 1;
+    const quotedHeader = ['"', "'"].includes(value[keyStart - 1] ?? '') && value[separator] === ':';
+    if ((value[separator] === '=' || quotedHeader) && REMOTE_SECRET_KEY.test(key)) return true;
+    index = Math.max(index + 1, separator + 1);
+  }
+  return false;
+}
+
+function containsEmbeddedHierarchicalCredential(value: string): boolean {
+  for (const match of value.matchAll(/((?:[a-z][a-z0-9+.-]*:)?\/\/)([^/@\s]+)@/gi)) {
+    const protocol = match[1]?.includes(':')
+      ? match[1].slice(0, -2).toLowerCase() : null;
+    const userInfo = match[2] ?? '';
+    if (protocol && SSH_USERNAME_PROTOCOLS.has(protocol)
+        && !userInfo.includes(':') && !/%[0-9a-f]{2}/i.test(userInfo)) continue;
+    return true;
+  }
+  return /(?:^|[/\\])(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[\\/]*[^/@\s:]+:[^/@\s]*@/i.test(value);
+}
+
+function containsEmbeddedRemoteSecret(value: string): boolean {
+  return /\b(?:ghp_|github_pat_|gh[pousr]_)[A-Za-z0-9_]{20,}\b/i.test(value)
+    || /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/i.test(value)
+    || /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/.test(value)
+    || /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/i.test(value)
+    || /\bAIza[A-Za-z0-9_-]{30,}\b/.test(value)
+    // A legacy registry entry can be a path-shaped string while still containing a complete URL.
+    // Inspect the embedded authority too: `new URL()` rejects the outer path and would otherwise
+    // leave its user-info available to the command logger before the engine can refuse it.
+    || containsEmbeddedHierarchicalCredential(value)
+    || (!/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)
+      && /(?:^|[/\\])[^/\\\s@:]+:[^/\\\s@]+@[^/\\\s]+[/\\]/.test(value))
+    || containsSecretAssignment(value);
+}
 
 /** A capability already in the map, offered as a parent. */
 export interface ParentChoice { id: string; name: string; depth: number; ships: boolean }
@@ -116,31 +169,81 @@ export const EMPTY_MAP_FORM: MapCapabilityForm = {
 export function gitRemoteProblem(value: string, label = 'Repository'): string | null {
   const remote = value.trim();
   if (!remote) return null;
-  let rejected = /[\0\r\n]/.test(remote) || remote.startsWith('-')
-    || /^[a-z][a-z0-9+.-]*::/i.test(remote)
+  if (remote.length > MAX_REMOTE_INPUT_CHARS) {
+    return `${label} URL is too long to validate safely. Use the stable credential-free Git remote.`;
+  }
+  const malformedBuiltinCredential = /^(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[\\/]*[^/@\s:]+:[^/@\s]+@/i.test(remote);
+  const hierarchicalSyntax = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(remote);
+  const hierarchicalUserInfo = /^((?:[a-z][a-z0-9+.-]*:)?\/\/)([^/@\s]+)@/i.exec(remote);
+  const userInfoProtocol = hierarchicalUserInfo?.[1]?.includes(':')
+    ? hierarchicalUserInfo[1].slice(0, -2).toLowerCase() : null;
+  const unsafeControl = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/.test(remote);
+  const externalHelper = /^[a-z][a-z0-9+.-]*::/i.test(remote);
+  const scpCredential = /^[^/@\s:]+:[^/@\s]+@[^:\s]+:.+/.test(remote);
+  const embeddedSecret = containsEmbeddedRemoteSecret(remote);
+  let rejected = unsafeControl || remote.startsWith('-')
+    || externalHelper
+    || malformedBuiltinCredential
+    || scpCredential
+    || embeddedSecret
     // Keep the guard fail-closed even when URL parsing rejects malformed percent escapes or host
-    // syntax. An HTTP user-info prefix or ephemeral suffix must still never reach command logging.
-    || /^https?:\/\/[^/\s@]+@/i.test(remote)
-    || (/^https?:\/\//i.test(remote) && /[?#]/.test(remote));
+    // syntax. User-info credentials or an ephemeral suffix must still never reach command logging.
+    || Boolean(hierarchicalUserInfo
+      && (hierarchicalUserInfo[2]?.includes(':') === true
+        || /%[0-9a-f]{2}/i.test(hierarchicalUserInfo[2] ?? '')
+        || userInfoProtocol == null
+        || !SSH_USERNAME_PROTOCOLS.has(userInfoProtocol)))
+    || (hierarchicalSyntax && /[?#]/.test(remote));
   let safe = '';
   try {
     const parsed = new URL(remote);
+    const unsupportedProtocol = hierarchicalSyntax && !BUILTIN_HIERARCHICAL_PROTOCOLS.has(parsed.protocol);
+    rejected ||= unsupportedProtocol;
     rejected ||= Boolean(parsed.password)
-      || (['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.username))
+      || (Boolean(parsed.username) && !SSH_USERNAME_PROTOCOLS.has(parsed.protocol))
+      || (hierarchicalSyntax && Boolean(parsed.search || parsed.hash))
       || (['http:', 'https:'].includes(parsed.protocol) && Boolean(parsed.search || parsed.hash));
     parsed.username = '';
     parsed.password = '';
     parsed.search = '';
     parsed.hash = '';
-    safe = parsed.toString();
+    const embeddedPathSecret = containsEmbeddedRemoteSecret(parsed.pathname);
+    safe = unsafeControl || externalHelper || scpCredential || embeddedPathSecret
+      || malformedBuiltinCredential || unsupportedProtocol
+      ? '' : parsed.toString();
   } catch {
     // Local paths and SCP-like SSH remotes are valid Git identities. Their diagnostic form drops
     // query/fragment-shaped suffixes, and unsafe control/option/helper forms stay fully redacted.
+    rejected ||= /^[a-z][a-z0-9+.-]*:\/\//i.test(remote);
     safe = rejected ? '' : remote.replace(/[?#].*$/, '');
   }
   if (!rejected) return null;
-  const displayed = safe && !/[\0\r\n]/.test(safe) && !safe.startsWith('-') ? ` '${safe}'` : '';
+  const displayed = safe && !/[\u0000-\u001f\u007f]/.test(safe) && !safe.startsWith('-') ? ` '${safe}'` : '';
   return `${label}${displayed} was rejected. Use a credential-free Git URL and configure authentication through Git or the operating system; embedded credentials, query parameters, and fragments are not accepted.`;
+}
+
+export interface ScreenedGitRemotes {
+  accepted: string[];
+  rejected: Array<{ fingerprint: string; message: string }>;
+}
+
+/** Keep corrupt legacy registry entries out of CLI argv, output channels, and rendered panels. */
+export function screenGitRemotes(values: unknown[], label = 'Registered lead'): ScreenedGitRemotes {
+  const accepted = new Set<string>();
+  const rejected: ScreenedGitRemotes['rejected'] = [];
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const remote = value.trim();
+    if (!gitRemoteProblem(remote, label)) {
+      accepted.add(remote);
+      continue;
+    }
+    rejected.push({
+      fingerprint: createHash('sha256').update(remote).digest('hex'),
+      message: 'A stored lead URL is unsafe and was not opened. Remove or remap this legacy registry entry using a credential-free Git URL.'
+    });
+  }
+  return { accepted: [...accepted], rejected };
 }
 
 export function capabilityIdentifierProblem(form: MapCapabilityForm): string | null {

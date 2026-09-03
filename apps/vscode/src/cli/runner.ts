@@ -31,6 +31,363 @@ export const WORK_START_TIMEOUT_MS = 15 * 60_000;
 export const VALIDATION_TIMEOUT_MS = 30 * 60_000;
 /** Governed image/PDF previews may carry a 25 MiB document encoded as base64. */
 const MAX_OUTPUT_BYTES = 40 * 1024 * 1024;
+const MAX_DISPLAY_ARG_CHARS = 2_000;
+const MAX_DISPLAY_ERROR_CHARS = 8 * 1024;
+const DISPLAY_REDACTION_OVERLAP_CHARS = 1024;
+const DISPLAY_UNSAFE_CONTROLS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/;
+const DISPLAY_UNSAFE_CONTROLS_GLOBAL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g;
+const DISPLAY_ASSIGNMENT_BREAKING_CONTROLS_GLOBAL = /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e]/g;
+const DISPLAY_ZERO_WIDTH_FORMATS_GLOBAL = /[\u200b-\u200f\u2060-\u206f\ufeff]/g;
+const DISPLAY_ANSI_ESCAPE_SEQUENCE_GLOBAL = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?|\u001b\][^\u0007\r\n]*(?:\u0007|\u001b\\)?/g;
+
+function displayNormalizeSensitiveSyntax(value: string): string {
+  return value
+    .replace(DISPLAY_ANSI_ESCAPE_SEQUENCE_GLOBAL, '')
+    .replace(DISPLAY_ZERO_WIDTH_FORMATS_GLOBAL, '')
+    .replace(DISPLAY_ASSIGNMENT_BREAKING_CONTROLS_GLOBAL, '')
+    .replace(/\\+(["'=:])/g, '$1');
+}
+
+function displayBoundedRedactionInput(source: string): string {
+  const boundary = MAX_DISPLAY_ERROR_CHARS + DISPLAY_REDACTION_OVERLAP_CHARS;
+  if (source.length <= boundary) return source;
+  let start = boundary - 1;
+  while (start >= 0 && !/\s/.test(source[start]!)) start -= 1;
+  start += 1;
+  let end = boundary;
+  while (end < source.length && !/\s/.test(source[end]!)) end += 1;
+  const at = source.indexOf('@', boundary);
+  const colon = source.indexOf(':', start);
+  return at >= boundary && at < end && colon >= start && colon < at
+    ? `${source.slice(0, start)}[redacted-remote]`
+    : source.slice(0, boundary);
+}
+
+// Kept as a packaged snapshot because the extension deliberately does not import engine modules.
+// A parity test compares it with util.mjs so a new engine boolean cannot silently shift a receipt.
+export const DISPLAY_BOOLEAN_OPTIONS = new Set([
+  'archive-readiness',
+  'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
+  'assisted', 'auto', 'automatic', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
+  'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
+  'diagnose-only', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'intake', 'json',
+  'include-existing', 'independent', 'isolated-worktree',
+  'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
+  'opt-out', 'optional', 'parallel', 'polish', 'probe', 'propose', 'push',
+  'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote',
+  'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
+  'semantic', 'skip-checks', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
+  'yes', 'verbose', 'show-artifact', 'brief'
+]);
+
+const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;
+function displayIsSecretOptionKey(value: string): boolean {
+  const key = value.replace(/^--/, '');
+  return DISPLAY_SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
+}
+const DISPLAY_REMOTE_OPTION = /^--(?:repository|repository-url|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
+const DISPLAY_CAPABILITY_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DISPLAYABLE_REMOTE_PROTOCOLS = new Set([
+  'http:', 'https:', 'ssh:', 'git+ssh:', 'ssh+git:', 'git:', 'file:', 'ftp:', 'ftps:'
+]);
+
+// Git accepts arbitrary path-form remotes. Do not mistake that acceptance for permission to echo a
+// token-shaped path or a path containing an embedded URL into the output channel/recovery command.
+function displayRemoteContainsSensitiveMaterial(value: string): boolean {
+  for (const match of value.matchAll(/((?:[a-z][a-z0-9+.-]*:)?\/\/)([^/@\s]+)@/gi)) {
+    const protocol = match[1]?.includes(':') ? match[1].slice(0, -2).toLowerCase() : null;
+    const userInfo = match[2] ?? '';
+    if (protocol && ['ssh:', 'git+ssh:', 'ssh+git:'].includes(protocol)
+        && !userInfo.includes(':') && !/%[0-9a-f]{2}/i.test(userInfo)) continue;
+    return true;
+  }
+  if (/\b(?:ghp_|github_pat_|gh[pousr]_)[A-Za-z0-9_]{20,}\b/i.test(value)
+      || /\bxox[abposr]-[A-Za-z0-9-]{10,}\b/i.test(value)
+      || /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/.test(value)
+      || /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/i.test(value)
+      || /\bAIza[A-Za-z0-9_-]{30,}\b/.test(value)
+      || /(?:^|[/\\])[^/\s@:]+:[^/\s@]+@[^:\s]+:[^\s]+/.test(value)
+      || /(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):[\\/]*[^/@\s:]+:[^/@\s]+@/i.test(value)
+      || (!/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value)
+        && /(?:^|[/\\])[^/\s@:]+:[^/\s@]+@[^/\s]+[/\\]/.test(value))
+      || (() => {
+        const assignmentText = displayNormalizeSensitiveSyntax(value);
+        return displayRedactSecretAssignments(assignmentText, { allowColon: false }) !== assignmentText;
+      })()) {
+    return true;
+  }
+  for (const match of value.matchAll(/[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi)) {
+    if (!displayRemoteIsAccepted(match[0])) return true;
+  }
+  return false;
+}
+
+function displayRedactSecretAssignments(value: string, { allowColon = true } = {}): string {
+  const text = value;
+  const parts: string[] = [];
+  let cursor = 0;
+  let index = 0;
+  while (index < text.length) {
+    const quoted = text[index] === '"' || text[index] === "'" ? text[index] : null;
+    const keyStart = quoted ? index + 1 : index;
+    if (!/[A-Za-z]/.test(text[keyStart] ?? '')) { index += 1; continue; }
+    let keyEnd = keyStart + 1;
+    while (keyEnd < text.length && /[A-Za-z0-9_.-]/.test(text[keyEnd]!)) keyEnd += 1;
+    let separator = keyEnd;
+    let quotedHeader = false;
+    if (quoted) {
+      if (text[separator] === quoted) separator += 1;
+      else if (text[separator] === ':') quotedHeader = true;
+      else { index = keyEnd; continue; }
+    }
+    while (separator < text.length && /\s/.test(text[separator]!)) separator += 1;
+    if (text[separator] !== '=' && !((allowColon || quotedHeader) && text[separator] === ':')) {
+      index = keyEnd;
+      continue;
+    }
+    let valueStart = separator + 1;
+    while (valueStart < text.length && /[ \t]/.test(text[valueStart]!)) valueStart += 1;
+    const key = text.slice(keyStart, keyEnd);
+    if (!displayIsSecretOptionKey(key)) { index = valueStart; continue; }
+    const valueEnd = text.length;
+    parts.push(text.slice(cursor, index), `${key}=[redacted]`);
+    cursor = valueEnd;
+    index = valueEnd;
+  }
+  if (parts.length === 0) return text;
+  parts.push(text.slice(cursor));
+  return parts.join('');
+}
+
+function displayRemoteIsAccepted(value: string): boolean {
+  if (!value || /[\u0000-\u001f\u007f]/.test(value) || value.startsWith('-')
+      || /^[a-z][a-z0-9+.-]*::/i.test(value)
+      || /^[^/@\s]*:[^/@\s]*@[^:\s]+:.+/.test(value)) return false;
+  const hierarchicalSyntax = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value);
+  const userInfo = /^((?:[a-z][a-z0-9+.-]*:)?\/\/)([^/@\s]+)@/i.exec(value);
+  const userInfoProtocol = userInfo?.[1]?.includes(':')
+    ? userInfo[1].slice(0, -2).toLowerCase() : null;
+  if (userInfo && (userInfo[2]?.includes(':') === true
+      || /%[0-9a-f]{2}/i.test(userInfo[2] ?? '')
+      || userInfoProtocol == null || !['ssh:', 'git+ssh:', 'ssh+git:'].includes(userInfoProtocol))) return false;
+  if (hierarchicalSyntax && /[?#]/.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    if (hierarchicalSyntax && !DISPLAYABLE_REMOTE_PROTOCOLS.has(parsed.protocol)) return false;
+    if (parsed.password || (parsed.username
+      && !['ssh:', 'git+ssh:', 'ssh+git:'].includes(parsed.protocol))) return false;
+    return !(hierarchicalSyntax && Boolean(parsed.search || parsed.hash));
+  } catch {
+    return !/^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  }
+}
+
+function displayRemoteOperand(value: string, allowKeyedPrefix = true): string {
+  const normalized = value.trim();
+  if (/[\u0000-\u001f\u007f]/.test(normalized) || normalized.startsWith('-') || /^[a-z][a-z0-9+.-]*::/i.test(normalized)
+      || /^[^/@\s]*:[^/@\s]*@[^:\s]+:.+/.test(normalized)) return '[redacted-remote]';
+  if (normalized.length > MAX_DISPLAY_ARG_CHARS) {
+    const prefix = /^([A-Za-z0-9][A-Za-z0-9._-]*)=/.exec(normalized)?.[1];
+    return prefix ? `${prefix}=[redacted-remote]` : '[redacted-remote]';
+  }
+  void allowKeyedPrefix;
+  const scpWithSuffix = !normalized.includes('://') && !normalized.startsWith('//')
+    && /^(?:[^/@\s]+@)?[^/:\\\s]+:.+[?#]/.test(normalized);
+  if (!scpWithSuffix && displayRemoteIsAccepted(normalized)) {
+    return displayRemoteContainsSensitiveMaterial(normalized) ? '[redacted-remote]' : normalized;
+  }
+  if (/^[A-Za-z]:(?:\\|\/(?!\/))/.test(normalized)) return normalized;
+  const scpPrefix = normalized.slice(0, Math.max(0, normalized.indexOf(':'))).toLowerCase();
+  if (DISPLAYABLE_REMOTE_PROTOCOLS.has(`${scpPrefix}:`) && !normalized.toLowerCase().startsWith(`${scpPrefix}://`)) {
+    return '[redacted-remote]';
+  }
+  if (!normalized.includes('://') && !normalized.startsWith('//')
+    && !DISPLAYABLE_REMOTE_PROTOCOLS.has(`${scpPrefix}:`)
+    && /^(?:[^/@\s]+@)?[^/:\\\s]+:.+/.test(normalized)) {
+    const suffix = normalized.search(/[?#]/);
+    return suffix >= 0
+      ? `${normalized.slice(0, suffix)}[redacted-url-suffix]`
+      : normalized;
+  }
+  if (normalized.startsWith('//')) {
+    const withoutSuffix = normalized.replace(/[?#].*$/, '');
+    const match = /^\/\/([^/\s]*)(.*)$/s.exec(withoutSuffix);
+    if (!match) return '[redacted-remote]';
+    const authority = match[1]!.includes('@')
+      ? match[1]!.slice(match[1]!.lastIndexOf('@') + 1) : match[1]!;
+    return `//${authority}${match[2]}`;
+  }
+  try {
+    const parsed = new URL(normalized);
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)
+      && !DISPLAYABLE_REMOTE_PROTOCOLS.has(parsed.protocol)) return '[redacted-remote]';
+    parsed.username = '';
+    parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) return '[redacted-remote]';
+  }
+  const suffix = normalized.search(/[?#]/);
+  return suffix >= 0 ? `${normalized.slice(0, suffix)}[redacted-url-suffix]` : normalized;
+}
+
+function positionalReceiptIndex(argv: readonly string[]): number {
+  const indexes: number[] = [];
+  let passthrough = false;
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = String(argv[index]);
+    if (passthrough) { indexes.push(index); continue; }
+    if (token === '--') { passthrough = true; continue; }
+    if (!token.startsWith('--')) { indexes.push(index); continue; }
+    if (token.startsWith('--no-') || token.includes('=')) continue;
+    // Receipt command families accept presentation booleans only. Treat every other option as a
+    // value-taking pair so an option value can never be mistaken for the live receipt positional.
+    if (!DISPLAY_BOOLEAN_OPTIONS.has(token.slice(2)) && index + 1 < argv.length
+        && !String(argv[index + 1]).startsWith('--')) index += 1;
+  }
+  const positionals = indexes.map((index) => String(argv[index]));
+  const offset = positionals[0] === 'singularity-flow' ? 1 : 0;
+  if (positionals[offset] === 'choices' && ['answer', 'status'].includes(positionals[offset + 1] ?? '')) return indexes[offset + 2] ?? -1;
+  if (positionals[offset] === 'initiative' && positionals[offset + 1] === 'choices'
+      && ['answer', 'status'].includes(positionals[offset + 2] ?? '')) return indexes[offset + 3] ?? -1;
+  if (positionals[offset] === 'epic' && positionals[offset + 1] === 'review-choice'
+      && ['answer', 'status'].includes(positionals[offset + 2] ?? '')) return indexes[offset + 3] ?? -1;
+  return -1;
+}
+
+export function redactCliArgsForDisplay(argv: readonly string[]): string[] {
+  const safe: string[] = [];
+  const pending: Array<'secret' | 'remote'> = [];
+  const receiptIndex = positionalReceiptIndex(argv);
+  // This projection precedes command validation. Mask capability-shaped UUIDs conservatively when
+  // any secret option or receipt family is present, including malformed invocations where an
+  // intervening option would otherwise shift the positional parser.
+  const capabilityBearing = argv.some((value) => {
+    const token = displayNormalizeSensitiveSyntax(String(value).slice(0, MAX_DISPLAY_ARG_CHARS));
+    const equals = token.startsWith('--') ? token.indexOf('=') : -1;
+    return displayIsSecretOptionKey(equals >= 0 ? token.slice(0, equals) : token);
+  });
+  const receiptFamily = argv.some((value) => ['choices', 'review-choice'].includes(String(value)))
+    && argv.some((value) => ['answer', 'status'].includes(String(value)));
+  let secretIntervened = false;
+  for (const [index, raw] of argv.entries()) {
+    const token = String(raw);
+    if (token.length > MAX_DISPLAY_ARG_CHARS || DISPLAY_UNSAFE_CONTROLS.test(token)) {
+      if (pending.length > 0) {
+        safe.push(pending.pop() === 'remote' ? '[redacted-remote]' : '[redacted]');
+        continue;
+      }
+      safe.push('[redacted]');
+      const classificationToken = displayNormalizeSensitiveSyntax(token.slice(0, MAX_DISPLAY_ARG_CHARS));
+      const equals = classificationToken.indexOf('=');
+      const flag = equals >= 0 ? classificationToken.slice(0, equals) : classificationToken;
+      if (classificationToken.startsWith('--') && equals < 0 && displayIsSecretOptionKey(flag)) pending.push('secret');
+      if (equals < 0 && DISPLAY_REMOTE_OPTION.test(flag)) pending.push('remote');
+      continue;
+    }
+    if ((capabilityBearing || receiptFamily) && DISPLAY_CAPABILITY_UUID.test(token)) {
+      safe.push('[redacted]');
+      continue;
+    }
+    if (index === receiptIndex) { safe.push('[redacted]'); continue; }
+    if (secretIntervened && !token.startsWith('--')) { safe.push('[redacted]'); continue; }
+    if (token === '--' && pending.includes('secret')) {
+      secretIntervened = true;
+      safe.push('--');
+      continue;
+    }
+    if (pending.includes('secret') && token.startsWith('--')) {
+      secretIntervened = true;
+      const interveningEquals = token.indexOf('=');
+      if (interveningEquals >= 0) {
+        safe.push(`${token.slice(0, interveningEquals)}=[redacted]`);
+        continue;
+      }
+      if (DISPLAY_CAPABILITY_UUID.test(token.slice(2))) {
+        safe.push('--[redacted]');
+        continue;
+      }
+      safe.push('[redacted]');
+      continue;
+    }
+    if (pending.length > 0 && !token.startsWith('--')) {
+      safe.push(pending.pop() === 'secret' ? '[redacted]' : displayRemoteOperand(token));
+      continue;
+    }
+    const bareEquals = !token.startsWith('--') ? token.indexOf('=') : -1;
+    if (bareEquals > 0 && displayIsSecretOptionKey(token.slice(0, bareEquals))) {
+      safe.push(`${token.slice(0, bareEquals)}=[redacted]`);
+      continue;
+    }
+    const equals = token.startsWith('--') ? token.indexOf('=') : -1;
+    const flag = equals >= 0 ? token.slice(0, equals) : token;
+    if (token.startsWith('--') && displayIsSecretOptionKey(flag)) {
+      safe.push(equals >= 0 ? `${flag}=[redacted]` : token);
+      if (equals < 0) pending.push('secret');
+      continue;
+    }
+    if (DISPLAY_REMOTE_OPTION.test(flag)) {
+      safe.push(equals >= 0 ? `${flag}=${displayRemoteOperand(token.slice(equals + 1))}` : token);
+      if (equals < 0) pending.push('remote');
+      continue;
+    }
+    const normalized = token.trim();
+    const remoteShaped = normalized.startsWith('//')
+      || /^[a-z][a-z0-9+.-]*:/i.test(normalized)
+      || /^[^/\s@]+@[^:\s]+:.+/.test(normalized);
+    const assignmentText = displayNormalizeSensitiveSyntax(token);
+    if (displayRemoteContainsSensitiveMaterial(token)
+      || (!remoteShaped && displayRedactSecretAssignments(assignmentText) !== assignmentText)) {
+      safe.push('[redacted]');
+      continue;
+    }
+    safe.push(remoteShaped
+      ? displayRemoteOperand(normalized) : token.replace(/[\u0000-\u001f\u007f]/g, '[control]'));
+  }
+  return safe;
+}
+
+/** Render a command without exposing rejected registry entries or credentials in VS Code output. */
+export function formatCliArgsForDisplay(argv: readonly string[]): string {
+  return redactCliArgsForDisplay(argv).join(' ');
+}
+
+/** Bound and scrub provider/CLI prose before it reaches an extension error or Output channel. */
+function safeDisplayDiagnosticText(value: unknown): string {
+  const source = String(value ?? '');
+  const omitted = Math.max(0, source.length - MAX_DISPLAY_ERROR_CHARS);
+  let text = displayNormalizeSensitiveSyntax(displayBoundedRedactionInput(source))
+    .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*/gi, '[redacted private key]')
+    .replace(/\b[a-z][a-z0-9+.-]*::[^\r\n]*/gi, '[redacted-remote]')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/(?=[^/\s@]*:[^/\s@]*@)[^\s]+/gi, '[redacted-remote]')
+    .replace(/\b(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)(?=[^\s@]*:[^\s@]*@)[^\s]+/gi,
+      '[redacted-remote]')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"']+/gi, (remote) => displayRemoteOperand(remote))
+    .replace(/\b(?:https?|ssh|git\+ssh|ssh\+git|git|file|ftp|ftps):(?!\/\/)[^\s<>"']+/gi,
+      '[redacted-remote]')
+    .replace(/\b[^/\s@:]+:[^/\s@]+@[^\s<>"']+/g, '[redacted-remote]')
+    .replace(/(^|[\s("'=])(?=[^\s<>"']*[\\/])(?=[^\s<>"']*[^/\\\s@:]+:[^/\\\s@]+@)[^\s<>"']+/g,
+      '$1[redacted-remote]');
+  text = displayRedactSecretAssignments(text)
+    .replace(/\b(?:ghp_|github_pat_|gh[pousr]_)[A-Za-z0-9_]{20,}\b/gi, '[redacted]')
+    .replace(/\bxox[abposr]-[A-Za-z0-9-]{10,}\b/gi, '[redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '[redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, '[redacted]')
+    .replace(/\bAIza[A-Za-z0-9_-]{30,}\b/g, '[redacted]');
+  text = text.replace(/\S+/g,
+    (token) => displayRemoteContainsSensitiveMaterial(token) ? '[redacted]' : token);
+  text = text.replace(DISPLAY_UNSAFE_CONTROLS_GLOBAL, ' ');
+  text = text.slice(0, MAX_DISPLAY_ERROR_CHARS);
+  return omitted ? `${text}…[truncated ${omitted} chars]` : text;
+}
+
+function cliArgsAreReplaySafe(argv: readonly string[]): boolean {
+  const projected = redactCliArgsForDisplay(argv);
+  return projected.length === argv.length
+    && projected.every((value, index) => value === String(argv[index]));
+}
 
 /** Remote Git launched by the extension must never wait for an invisible credential prompt. */
 function nonInteractiveGitEnvironment(): NodeJS.ProcessEnv {
@@ -415,13 +772,15 @@ export function terminalCommand(
 export class CliTimeoutError extends Error {
   readonly code = 'SINGULARITY_FLOW_CLI_TIMEOUT';
   readonly timeoutMs: number;
-  readonly terminalCommand: string;
+  readonly terminalCommand: string | null;
   readonly summary: string;
-  constructor(timeoutMs: number, command: string) {
+  constructor(timeoutMs: number, command: string | null) {
     const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
     const summary = `The Singularity Flow CLI did not finish within ${seconds} seconds. `
       + 'The interrupted operation may have retained recoverable transaction state.';
-    super(`${summary}\n\nRun this exact command from a terminal:\n${command}`);
+    super(command
+      ? `${summary}\n\nRun this exact command from a terminal:\n${command}`
+      : `${summary}\n\nThis invocation carried ephemeral authorization and cannot be safely replayed. Return to Continue safely and authorize a fresh action.`);
     this.name = 'CliTimeoutError';
     this.timeoutMs = timeoutMs;
     this.terminalCommand = command;
@@ -960,14 +1319,32 @@ export async function validatedRepositoryGitCommonDirectory(
  * still better than none.
  */
 export function humanError(stderr: string): string {
+  try {
+    const structured = JSON.parse(stderr.trim()) as {
+      rendered?: { headline?: unknown };
+      error?: { message?: unknown; diagnosticAction?: { command?: unknown } };
+      next?: Array<{ command?: unknown }>;
+    };
+    const headline = String(structured.rendered?.headline ?? structured.error?.message ?? '').trim();
+    const diagnostic = String(structured.error?.diagnosticAction?.command ?? '').trim();
+    const next = String(structured.next?.find((entry) => entry?.command)?.command ?? '').trim();
+    if (headline) {
+      const safeHeadline = safeDisplayDiagnosticText(headline);
+      if (diagnostic) return `${safeHeadline}\nDiagnose: ${safeDisplayDiagnosticText(diagnostic)}`;
+      if (next) return `${safeHeadline}\nNext: ${safeDisplayDiagnosticText(next)}`;
+      return safeHeadline;
+    }
+  } catch { /* ordinary terminal diagnostics continue through the line-oriented path */ }
   const lines = stderr.split('\n').map((line) => line.trim()).filter(Boolean);
   const stated = lines.filter((line) => line.startsWith('Singularity Flow error:'));
-  if (stated.length) return stated.at(-1)!.replace(/^Singularity Flow error:\s*/, '');
+  if (stated.length) return safeDisplayDiagnosticText(
+    stated.at(-1)!.replace(/^Singularity Flow error:\s*/, '')
+  );
   // A structured line starts with an ISO timestamp and a level; nothing a reader wants is in it that
   // is not also in the sentence beside it.
   const readable = lines.filter((line) =>
     !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(ERROR|WARN|INFO|DEBUG)\b/.test(line));
-  return readable.join('\n').trim();
+  return safeDisplayDiagnosticText(readable.join('\n').trim());
 }
 
 export type OutputStream = 'stdout' | 'stderr';
@@ -1100,8 +1477,6 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         return;
       }
       const text = (stream === 'stdout' ? stdoutDecoder : stderrDecoder).write(chunk);
-      // A progress observer that throws must never take the command down with it.
-      try { onOutput?.(text, stream); } catch { /* ignored on purpose */ }
       if (text) target.push(text);
     };
 
@@ -1118,9 +1493,12 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
     }
 
     timer = setTimeout(() => {
+      const recoveryCommand = cliArgsAreReplaySafe(args) ? terminalCommand(
+        repository, args, process.platform, { executable, cli }
+      ) : null;
       terminate(new CliTimeoutError(
         timeoutMs,
-        terminalCommand(repository, args, process.platform, { executable, cli })
+        recoveryCommand
       ), 'error');
     }, timeoutMs);
     signal?.addEventListener('abort', onAbort, { once: true });
@@ -1141,6 +1519,14 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
       if (stderrTail) stderrChunks.push(stderrTail);
       const stdout = stdoutChunks.join('');
       const stderr = stderrChunks.join('');
+      // Provider and hook output is untrusted and may split a credential across arbitrary child
+      // chunks (`pass` + `word=value`). Buffering already occurs for parsing, so publish only the
+      // bounded, scrubbed streams once their complete lexical context is available. Raw bytes never
+      // reach VS Code's Output channel. An observer that throws must not take the command down.
+      try {
+        if (stdout) onOutput?.(safeDisplayDiagnosticText(stdout), 'stdout');
+        if (stderr) onOutput?.(safeDisplayDiagnosticText(stderr), 'stderr');
+      } catch { /* diagnostic observer only */ }
       if (code !== 0) {
         let result: unknown = null;
         if (json && stdout.trim()) {
@@ -1150,9 +1536,11 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
           ? String((result as { status?: unknown }).status ?? '').trim()
           : '';
         const message = humanError(stderr)
-          || (structuredStatus ? `The Singularity Flow command reported ${structuredStatus}.` : stdout.trim())
+          || (structuredStatus
+            ? `The Singularity Flow command reported ${structuredStatus}.`
+            : safeDisplayDiagnosticText(stdout.trim()))
           || `The Singularity Flow CLI exited with ${code}.`;
-        return fail(new CliError(message, code, stderr, result));
+        return fail(new CliError(message, code, safeDisplayDiagnosticText(stderr), result));
       }
       if (!json) {
         reportTiming('success', code);
@@ -1163,7 +1551,7 @@ export function invokeCli<T = unknown>(options: InvokeOptions): Promise<T> {
         reportTiming('success', code);
         succeed(value);
       } catch {
-        fail(new Error(`The CLI returned data this extension could not read: ${stdout.slice(0, 500)}`));
+        fail(new Error(`The CLI returned data this extension could not read: ${safeDisplayDiagnosticText(stdout.slice(0, 500))}`));
       }
     });
 

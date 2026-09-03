@@ -4,6 +4,7 @@ import {
   brandLockup, contentSecurityPolicy, escape, icon, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter } from './messages.ts';
+import { screenGitRemotes } from './map-capability-form.ts';
 
 interface LeadRepository { url: string }
 
@@ -15,7 +16,11 @@ interface CapabilityProposalSummary {
   merged?: boolean;
   status?: string;
   discardable?: boolean;
-  failure?: { code?: string; message?: string; nextAction?: { command?: string } };
+  failure?: {
+    code?: string; message?: string;
+    diagnosticAction?: { command?: string } | null;
+    nextAction?: { command?: string };
+  };
 }
 
 interface ProposalEntry extends CapabilityProposalSummary { lead: string }
@@ -58,6 +63,7 @@ function proposalsHtml(entries: ProposalEntry[], leads: number, failures: LeadFa
         <strong>${escape(shortName(entry.branch))}</strong>
         <small>${escape(entry.proposalCommit.slice(0, 12))} · ${entry.changedFiles.length} changed file${entry.changedFiles.length === 1 ? '' : 's'} · ${entry.merged ? 'merged history' : entry.valid ? 'ready for exact review' : escape(entry.status ?? 'blocked by validation')}</small>
         ${entry.failure?.message ? `<small class="error-text">${escape(entry.failure.message)}</small>` : ''}
+        ${entry.failure?.diagnosticAction?.command ? `<small>Diagnostic: <code>${escape(entry.failure.diagnosticAction.command)}</code></small>` : ''}
         ${entry.failure?.nextAction?.command ? `<small>Recovery: <code>${escape(entry.failure.nextAction.command)}</code></small>` : ''}
       </button>${entry.discardable ? `<button class="secondary" data-discard="${index}" aria-label="Discard stale proposal ${escape(shortName(entry.branch))}">${icon('remove')} Discard stale proposal</button>` : ''}</div>`).join('')}</div>
   </section>`).join('');
@@ -187,9 +193,15 @@ export class CapabilityProposalsPanel {
       this.failures = [{ lead: 'Capability lead registry', message: leadsResponse.error }];
       this.busy = false; this.render(); return;
     }
-    const leads = Array.isArray(leadsResponse.result)
-      ? (leadsResponse.result as LeadRepository[]).filter((lead) => typeof lead?.url === 'string') : [];
-    this.leadUrls = leads.map((lead) => lead.url);
+    const rawLeads = Array.isArray(leadsResponse.result)
+      ? (leadsResponse.result as LeadRepository[]).map((lead) => lead?.url) : [];
+    const screened = screenGitRemotes(rawLeads, 'Registered capability-map repository');
+    const leads = screened.accepted.map((url) => ({ url }));
+    const registryFailures: LeadFailure[] = screened.rejected.map((entry) => ({
+      lead: `Rejected registry entry · sha256:${entry.fingerprint.slice(0, 12)}`,
+      message: entry.message
+    }));
+    this.leadUrls = screened.accepted;
     this.leadCount = leads.length;
     const results = await Promise.all(leads.map(async (lead) => {
       const response = await this.run([
@@ -203,8 +215,8 @@ export class CapabilityProposalsPanel {
     this.entries = results.flatMap((result) => result.proposals
       .filter((proposal) => this.includeMerged || !proposal.merged)
       .map((proposal) => ({ ...proposal, lead: result.lead })));
-    this.failures = results.filter((result) => result.error)
-      .map((result) => ({ lead: result.lead, message: result.error as string }));
+    this.failures = [...registryFailures, ...results.filter((result) => result.error)
+      .map((result) => ({ lead: result.lead, message: result.error as string }))];
     this.busy = false; this.render();
   }
 

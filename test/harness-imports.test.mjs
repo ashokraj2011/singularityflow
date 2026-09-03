@@ -13,6 +13,7 @@ import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from
 import { currentSchemaVersion, familyForStoredPath } from '../src/schema-migrations.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { schemaCensus } from '../src/schema-census.mjs';
+import { canonicalJson, recordSha256 } from '../src/records.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -193,6 +194,26 @@ test('harness reports exact engine evidence and honest unavailable host coverage
   assert.equal(report.hostObservations.status, 'unavailable');
   assert.equal(report.hostObservations.coverage, 0);
   assert.match(report.hostObservations.reason, /no exact model\/tool-loop observation/);
+});
+
+test('harness reports redact verified legacy command capabilities at the read boundary', async () => {
+  const { root } = await repository();
+  const completed = await completeHarnessInvocation(root, beginHarnessInvocation({
+    command: ['singularity-flow', 'status']
+  }), { exitCode: 0 });
+  const stored = JSON.parse(await readFile(completed.path, 'utf8'));
+  const { eventId: _oldEventId, ...legacy } = stored;
+  legacy.command = [
+    'singularity-flow', 'choices', 'status', 'legacy-receipt-secret',
+    '--authorization', 'legacy-authorization-secret',
+    '--repository=https://alice:legacy-url-secret@example.test/repo.git?signature=x'
+  ];
+  await writeFile(completed.path, canonicalJson({ ...legacy, eventId: recordSha256(legacy) }));
+
+  const report = await harnessReport(root);
+  assert.equal(report.events[0].command[3], '[redacted]');
+  assert.doesNotMatch(JSON.stringify(report),
+    /legacy-receipt-secret|legacy-authorization-secret|legacy-url-secret|signature=x/);
 });
 
 test('persisted harness events are a registered immutable schema family', () => {

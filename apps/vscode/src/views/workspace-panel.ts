@@ -20,6 +20,7 @@ import {
   type CapabilityChoice, type RemoteCapability, type WorkspaceForm
 } from './workspace-form.ts';
 import { SingularityFlowClient, type CliLocation } from '../cli/client.ts';
+import { formatCliArgsForDisplay } from '../cli/runner.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 
 export interface WorkspaceCreated {
@@ -340,7 +341,7 @@ export class WorkspacePanel {
     this.update({ busy: true, error: null });
 
     const args = formPrepareCommand(this.form);
-    this.output.appendLine(`\n$ singularity-flow ${args.join(' ')}`);
+    this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(args)}`);
     try {
       const client = new SingularityFlowClient({
         location: this.location,
@@ -390,7 +391,7 @@ export class WorkspacePanel {
         'workspace', 'bootstrap', 'resume', prepared.bootstrapId,
         '--confirm', prepared.plan.workspace.confirmation, '--json'
       ];
-      this.output.appendLine(`\n$ singularity-flow ${resumeArgs.join(' ')}`);
+      this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(resumeArgs)}`);
       const result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,

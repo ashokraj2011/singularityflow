@@ -13,7 +13,7 @@
  */
 import * as vscode from 'vscode';
 import type { SingularityFlowClient } from './cli/client.ts';
-import { CliError } from './cli/runner.ts';
+import { CliError, formatCliArgsForDisplay } from './cli/runner.ts';
 import { commandPlaceholders, fillPlaceholders, placeholderPrompt } from './commands.ts';
 import { showRefusal } from './views/result-panel.ts';
 import type { ApprovalChecklistDecision } from './views/approval-review.ts';
@@ -188,7 +188,7 @@ export async function runGovernedAction(
   }
 
   const run = async (argv: string[]): Promise<boolean> => {
-    output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.title, cancellable: false },
       () => client.runText(argv)
@@ -330,7 +330,7 @@ export async function runPlannedAction(
     }
     argv.push('--authorization', authorization.token);
   }
-  output.appendLine(`\n$ singularity-flow ${argv.join(' ')}`);
+  output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: choice.action.reason, cancellable: false },
@@ -451,7 +451,7 @@ export async function approveWithReceipt(
     }
   }
   const run = async (extra: string[] = []): Promise<boolean> => {
-    output.appendLine(`\n$ singularity-flow ${[...argv, ...extra].join(' ')}`);
+    output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay([...argv, ...extra])}`);
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.summary, cancellable: false },
       () => client.runText([...argv, ...extra])

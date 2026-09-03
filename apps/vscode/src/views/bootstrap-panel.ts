@@ -34,7 +34,10 @@ interface RepositoryInspection {
     proposalStatus?: string; proposalValid?: boolean;
   }>;
   checkedLeads?: string[];
-  failures?: Array<string | { lead?: string; code?: string; message?: string }>;
+  failures?: Array<string | {
+    lead?: string; code?: string; classification?: string; retryable?: boolean; message?: string;
+    diagnosticAction?: { command?: string; skill?: string } | null;
+  }>;
   authorityScope?: string;
   completeness?: string;
   proposalCoverage?: string;
@@ -298,7 +301,9 @@ export class BootstrapPanel {
     const failures = (inspected.failures ?? []).map((failure) => {
       if (typeof failure === 'string') return failure;
       const message = failure?.message ?? failure?.code ?? 'Capability-map authority could not be inspected.';
-      return failure?.lead ? `${failure.lead}: ${message}` : message;
+      const action = failure?.diagnosticAction?.command
+        ? ` Diagnostic: ${failure.diagnosticAction.command}` : '';
+      return `${failure?.lead ? `${failure.lead}: ` : ''}${message}${action}`;
     });
     const availableLeads = explicitLead
       ? [...new Set([...this.form.leads, explicitLead])]

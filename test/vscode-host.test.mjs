@@ -4056,7 +4056,13 @@ test('capability mapping refuses credential-bearing URLs before command logging'
   run('git', ['init', '--quiet', '--bare', safeLead], { cwd: base });
   run('git', ['init', '--quiet', '--bare', repository], { cwd: base });
   await rememberLeadRepository(safeLead);
-  await rememberLeadRepository(`https://legacy:${legacySecret}@git.example/old-map.git`);
+  const storedLeads = JSON.parse(await readFile(process.env.SINGULARITY_FLOW_LEAD_REGISTRY, 'utf8'));
+  storedLeads.leads.unshift({
+    url: `https://legacy:${legacySecret}@git.example/old-map.git`,
+    usedAt: '2026-01-01T00:00:00.000Z'
+  });
+  await writeFile(process.env.SINGULARITY_FLOW_LEAD_REGISTRY,
+    `${JSON.stringify(storedLeads, null, 2)}\n`);
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = undefined;
   const extension = loadExtension(api);

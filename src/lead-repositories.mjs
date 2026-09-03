@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 import { readJson, writeAtomic } from './util.mjs';
 
 /** Where the machine-local lead pointers live. Overridable so tests stay isolated. */
@@ -11,7 +12,7 @@ export function leadRegistryFile() {
 }
 
 /** The lead repositories this machine knows about, most recently used first. */
-export async function listLeadRepositories(file = leadRegistryFile()) {
+export async function listLeadRepositoryRegistryRecords(file = leadRegistryFile()) {
   let stored;
   try { stored = readRecord('capability-lead-registry', await readJson(file)).record; }
   catch (error) {
@@ -19,6 +20,18 @@ export async function listLeadRepositories(file = leadRegistryFile()) {
     throw error;
   }
   return Array.isArray(stored?.leads) ? stored.leads : [];
+}
+
+/** Operational callers receive only entries that pass the current remote trust boundary. */
+export async function listLeadRepositories(file = leadRegistryFile()) {
+  const accepted = [];
+  for (const lead of await listLeadRepositoryRegistryRecords(file)) {
+    try {
+      const url = assertCredentialFreeRemote(lead?.url);
+      if (!accepted.some((entry) => entry.url === url)) accepted.push({ ...lead, url });
+    } catch { /* legacy/corrupt entries remain on disk for explicit diagnosis or removal */ }
+  }
+  return accepted;
 }
 
 async function writeLeads(file, leads) {
@@ -30,17 +43,18 @@ async function writeLeads(file, leads) {
 export async function rememberLeadRepository(url, file = leadRegistryFile()) {
   const remote = String(url ?? '').trim();
   if (!remote) return listLeadRepositories(file);
-  const existing = await listLeadRepositories(file);
+  assertCredentialFreeRemote(remote);
+  const existing = await listLeadRepositoryRegistryRecords(file);
   const leads = [
     { url: remote, usedAt: new Date().toISOString() },
     ...existing.filter((lead) => lead.url !== remote)
   ].slice(0, 20);
   await writeLeads(file, leads);
-  return leads;
+  return listLeadRepositories(file);
 }
 
 export async function forgetLeadRepository(url, file = leadRegistryFile()) {
-  const leads = (await listLeadRepositories(file)).filter((lead) => lead.url !== url);
+  const leads = (await listLeadRepositoryRegistryRecords(file)).filter((lead) => lead.url !== url);
   await writeLeads(file, leads);
-  return leads;
+  return listLeadRepositories(file);
 }

@@ -7,6 +7,7 @@ import { nowIso, writeText } from './util.mjs';
 import { evaluateEngineConformance } from './harness-conformance.mjs';
 import { primarySkillForCommand } from './command-skills.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
+import { redactCommandArgv } from './logging.mjs';
 
 function registeredHarnessSkill(command) {
   const registered = primarySkillForCommand(command?.[1]);
@@ -21,7 +22,7 @@ export function beginHarnessInvocation({ subject = null, skill = null, contractC
     subject,
     skill: skill ?? registeredHarnessSkill(command),
     contractClass,
-    command,
+    command: redactCommandArgv(command),
     startedAt: nowIso()
   };
 }
@@ -46,7 +47,10 @@ export async function harnessReport(root) {
       const { eventId, ...core } = stored;
       // Verify the exact stored bytes' logical record before any future in-memory migration. The
       // eventId is an immutable receipt for that historical shape, not for its upgraded projection.
-      if (recordSha256(core) === eventId) events.push(readRecord('harness-event', stored).record);
+      if (recordSha256(core) === eventId) {
+        const migrated = readRecord('harness-event', stored).record;
+        events.push({ ...migrated, command: redactCommandArgv(migrated.command) });
+      }
     } catch { /* corrupt local projections are omitted and surfaced in counts below */ }
   }
   const verdicts = { pass: 0, fail: 0, 'not-observed': 0 };

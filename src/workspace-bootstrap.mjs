@@ -1434,8 +1434,11 @@ export async function abandonWorkspaceBootstrap(bootstrapId, {
 }
 
 export async function workspaceBootstrapDoctor({
-  network = false, env = process.env, home = os.homedir(), runCommand = run
+  network = false, repositoryUrls = [], env = process.env, home = os.homedir(), runCommand = run
 } = {}) {
+  const explicitRepositories = (Array.isArray(repositoryUrls) ? repositoryUrls : [repositoryUrls])
+    .filter((value) => value != null)
+    .map((value) => assertCredentialFreeRemote(value));
   const root = workspaceBootstrapRoot(env, home);
   const stateInfo = await lstat(root).catch(() => null);
   const recordsDirectory = path.join(root, 'sessions');
@@ -1458,18 +1461,55 @@ export async function workspaceBootstrapDoctor({
   const remotes = [];
   if (network) {
     const unique = new Map();
+    const addTarget = ({ repository = null, actual, branch = null, explicit = false }) => {
+      const exact = assertCredentialFreeRemote(actual);
+      const requestedBranch = branch == null ? null : String(branch).trim() || null;
+      // A URL can legitimately occur in several bootstrap plans with different required branches.
+      // Deduplicating the URL alone hid a missing branch whenever another session happened to be
+      // read later. Explicit doctor targets have no required branch and are therefore a distinct
+      // observation from a session-bound URL + branch pair.
+      const key = JSON.stringify([remoteFingerprint(exact), requestedBranch]);
+      const existing = unique.get(key);
+      if (existing) {
+        if (repository && !existing.repositories.includes(repository)) {
+          existing.repositories.push(repository);
+        }
+        existing.explicit ||= explicit;
+        return;
+      }
+      unique.set(key, {
+        repository,
+        repositories: repository ? [repository] : [],
+        actual: exact,
+        branch: requestedBranch,
+        explicit
+      });
+    };
     for (const session of sessions.filter((entry) => ACTIVE.has(entry.status))) {
       for (const repository of session.plan.repositories) {
         const actual = session.plan.createInput.repositories[repository.id].url;
-        unique.set(remoteFingerprint(actual), { repository: repository.id, actual, branch: repository.defaultBranch });
+        addTarget({ repository: repository.id, actual, branch: repository.defaultBranch });
       }
     }
+    for (const actual of explicitRepositories) addTarget({ actual, explicit: true });
+    // Match capability inspection's boundary: retain reviewed system/global enterprise transport
+    // and credential-helper configuration, while stripping repository selectors, executable Git
+    // overrides, URL rewrites, trace sinks, and other ambient process authority. Build it once for
+    // the whole doctor run so every target sees the same configuration snapshot.
+    const gitEnv = unique.size
+      ? enterpriseGitEnvironment(env, { runCommand })
+      : env;
     for (const entry of unique.values()) {
-      const probe = probeGitRemote(entry.actual, { branch: entry.branch, env, runCommand });
+      const probe = probeGitRemote(entry.actual, {
+        branch: entry.branch, env: gitEnv, runCommand
+      });
       remotes.push({
         repository: entry.repository,
+        repositories: entry.repositories,
+        explicit: entry.explicit,
         remote: probe.remote,
         remoteFingerprint: probe.remoteFingerprint,
+        branch: entry.branch,
         ok: probe.ok,
         classification: probe.failure?.classification ?? null,
         advice: probe.failure?.advice ?? null

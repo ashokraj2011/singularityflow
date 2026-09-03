@@ -19,7 +19,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { run } from '../src/util.mjs';
+import { BOOLEAN_OPTIONS, run } from '../src/util.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
@@ -27,7 +27,7 @@ const source = (name) => path.join(packageRoot, 'apps', 'vscode', 'src', name);
 const {
   invokeCli, CliError, CliTimeoutError, terminalCommand, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory, localGit, remoteGit, UninitializedRepositoryError,
-  RepositoryAuthorityUnavailableError
+  RepositoryAuthorityUnavailableError, formatCliArgsForDisplay, DISPLAY_BOOLEAN_OPTIONS
 } =
   await import(source('cli/runner.ts'));
 const { resolveCli, SingularityFlowClient, commandClass } = await import(source('cli/client.ts'));
@@ -37,6 +37,10 @@ const { renderReworkRollForwardPreview } = await import(source('views/rework-rol
 
 const snapshot = JSON.parse(await readFile(
   path.join(packageRoot, 'apps', 'vscode', 'test', 'fixtures', 'snapshot-initiative-lite.json'), 'utf8'));
+
+test('VS Code receipt parsing stays aligned with engine boolean options', () => {
+  assert.deepEqual([...DISPLAY_BOOLEAN_OPTIONS].sort(), [...BOOLEAN_OPTIONS].sort());
+});
 
 test('rework roll-forward preview renders every path without truncation', () => {
   const paths = Array.from({ length: 75 }, (_, index) => `src/generated/rework-${index}.mjs`);
@@ -225,6 +229,17 @@ test('a non-zero exit rejects with the CLI message, stripped of its prefix', asy
   );
 });
 
+test('a non-zero stdout-only failure never reflects credential-shaped output', async () => {
+  await assert.rejects(invoke({
+    spawnImpl: fakeSpawn({ stdout: 'password=LEAKMARK', code: 1 })
+  }), (error) => {
+    assert.ok(error instanceof CliError);
+    assert.doesNotMatch(error.message, /LEAKMARK/);
+    assert.match(error.message, /redacted/);
+    return true;
+  });
+});
+
 test('a structured non-zero result remains available without turning JSON into the error message', async () => {
   await assert.rejects(
     invoke({ spawnImpl: fakeSpawn({
@@ -279,7 +294,99 @@ test('a run that exceeds its timeout is killed and reports the timeout', async (
   );
 });
 
+test('a timed-out invocation never exposes or advertises replay of ephemeral authorization', async () => {
+  const secret = 'ephemeral-authorization-secret';
+  await assert.rejects(
+    invoke({
+      args: ['action', 'execute', 'plan-1', '--authorization', secret],
+      timeoutMs: 20,
+      spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+    }),
+    (error) => {
+      assert.ok(error instanceof CliTimeoutError);
+      assert.equal(error.terminalCommand, null);
+      assert.match(error.message, /cannot be safely replayed/);
+      assert.doesNotMatch(error.message, new RegExp(secret));
+      assert.doesNotMatch(error.message, /Run this exact command/);
+      return true;
+    }
+  );
+});
+
+test('a timed-out invocation suppresses recovery for signed URLs and selection receipts', async () => {
+  const capability = '9ac6d4a8-3c90-4bdb-9fed-43441dc3a79f';
+  for (const args of [
+    ['evidence', 'add', '--url', 'https://alice:url-secret@example.test/evidence?signature=signed'],
+    ['workspace', 'doctor', '--repository', 'foo://host/password=scheme-secret'],
+    ['workspace', 'doctor', '--repository', 'x://MARKER@host/one-letter-secret'],
+    ['workspace', 'doctor', '--repository', './https://alice:embedded-secret@example.test/repo?signature=signed'],
+    ['workspace', 'doctor', '--repository', '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
+    ['workspace', 'doctor', '--repository', '/tmp/cache/password=path-secret'],
+    ['workspace', 'doctor', '--repository', './x//protocol-relative-secret@host/repo'],
+    ['workspace', 'doctor', '--repository', '/tmp/cache/cookie=path-secret'],
+    ['workspace', 'doctor', '--repository', '/tmp/cache/cookie = path-secret'],
+    ['workspace', 'doctor', '--repository', 'password=keyed-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '--repository', 'https://git.example/safe.git', 'actual-auth-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '--title', 'SAFE', 'actual-auth-secret'],
+    ['workspace', 'doctor', '--repository', '--ext::password=malformed-option-secret'],
+    ['status', '--x=https://alice:generic-secret@example.test/path?secret=x'],
+    ['status', 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456'],
+    ['status', '--client-secret=client-secret-value'],
+    ['status', '--jira-token', 'jira-secret-value'],
+    ['status', 'client_secret=assignment-secret-value'],
+    ['status', '--proxy-password=proxy-secret-value'],
+    ['status', '--aws-access-key', 'access-key-secret-value'],
+    ['status', '--label=x=password=nested-secret-value'],
+    ['status', '--label={"password":"json-secret-value"}'],
+    ['status', '--label={"access_token":"json-token-value"}'],
+    ['status', 'http.extraHeader="Authorization: Basic header-secret-value"'],
+    ['status', 'pass\u200bword=zero-width-secret'],
+    ['status', '--pass\u200bword', 'zero-width-option-secret'],
+    ['status', '--pass\u0000word', 'nul-option-secret'],
+    ['status', '--pass\u0085word', 'c1-option-secret'],
+    ['status', '--pass\u202eword', 'bidi-option-secret'],
+    ['status', '--pass\u001b[31mword', 'ansi-option-secret'],
+    ['choices', 'status', '--brief', 'not-a-valid-but-sensitive-receipt'],
+    ['choices', 'status', '--show-artifact', 'show-artifact-sensitive-receipt'],
+    ['choices', 'status', '--network', 'network-sensitive-receipt'],
+    ['action', 'execute', 'plan-1', '--authorization', '--title=9ac6d4a8-4b84-4cd4-9b17-4b10eaab8899'],
+    ['action', 'execute', 'plan-1', '--authorization', '--title=arbitrary-auth-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '--', 'delimiter-auth-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '--client_secret', 'underscored-auth-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '--option-shaped-secret'],
+    ['action', 'execute', 'plan-1', '--authorization', '---triple-option-secret'],
+    ['bootstrap', ' https://example.test/repo?signature=leading-space-secret'],
+    ['choices', 'status', 'selection-receipt-secret'],
+    ['choices', '--bogus', 'status', capability],
+    ['approve', 'WRK-1', '--selection-receipt', '--json', capability],
+    ['action', 'execute', 'plan-1', '--authorization', '--json', capability],
+    ['action', 'execute', 'plan-1', '--authorization', '--json', 'arbitrary-auth-secret']
+  ]) {
+    await assert.rejects(invoke({
+      args, timeoutMs: 20, spawnImpl: fakeSpawn({ stdout: '{}', delayMs: 5_000 })
+    }), (error) => {
+      assert.ok(error instanceof CliTimeoutError);
+      assert.equal(error.terminalCommand, null);
+      assert.match(error.message, /cannot be safely replayed/);
+      assert.doesNotMatch(error.message, /url-secret|signature=signed|scheme-secret|one-letter-secret|embedded-secret|ghp_|path-secret|protocol-relative-secret|keyed-secret|actual-auth-secret|delimiter-auth-secret|underscored-auth-secret|option-shaped-secret|triple-option-secret|malformed-option-secret|generic-secret|client-secret-value|jira-secret-value|assignment-secret-value|proxy-secret-value|access-key-secret-value|nested-secret-value|json-secret-value|json-token-value|header-secret-value|zero-width-secret|zero-width-option-secret|nul-option-secret|c1-option-secret|bidi-option-secret|ansi-option-secret|sensitive-receipt|show-artifact-sensitive|network-sensitive|leading-space-secret|selection-receipt-secret|9ac6d4a8|arbitrary-auth-secret/);
+      return true;
+    });
+  }
+});
+
 test('terminal timeout recovery is safely quoted for POSIX and PowerShell', () => {
+  assert.equal(formatCliArgsForDisplay(['status', 'A'.repeat(100_000)]), 'status [redacted]');
+  assert.equal(formatCliArgsForDisplay([
+    'workspace', 'doctor', '--repository', 'C:\\Work\\Repo',
+    '--repository', 'Git.Example:team/repo.git',
+    '--repository', '/tmp/repo#release', '--repository', '../repo?literal',
+    '--repository', 'ssh://git@Git.Example/repo.git',
+    '--repository', 'HTTPS://Git.Example:443/repo.git',
+    '--repository', 'https://git.example'
+  ]), 'workspace doctor --repository C:\\Work\\Repo --repository Git.Example:team/repo.git'
+    + ' --repository /tmp/repo#release --repository ../repo?literal'
+    + ' --repository ssh://git@Git.Example/repo.git --repository HTTPS://Git.Example:443/repo.git'
+    + ' --repository https://git.example');
   assert.equal(
     terminalCommand("/work/Rule Engine's UI", ['start', 'WRK-17', '--title', 'Fix $HOME'], 'darwin'),
     "cd '/work/Rule Engine'\"'\"'s UI' && 'singularity-flow' 'start' 'WRK-17' '--title' 'Fix $HOME'"
@@ -397,13 +504,37 @@ test('a progress observer that throws does not take the command down', async () 
   assert.deepEqual(result, { ok: true });
 });
 
-test('progress is reported per stream as it arrives', async () => {
+test('progress is reported per stream after complete-context redaction', async () => {
   const seen = [];
   await invoke({
     onOutput: (text, stream) => seen.push([stream, text.trim()]),
     spawnImpl: fakeSpawn({ stdout: '{"ok":true}', stderr: 'building world model' })
   });
   assert.deepEqual(seen, [['stdout', '{"ok":true}'], ['stderr', 'building world model']]);
+});
+
+test('progress observers never receive raw secrets split across process chunks', async () => {
+  const seen = [];
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin = { end() {} };
+    child.kill = () => true;
+    queueMicrotask(() => {
+      child.stderr.emit('data', Buffer.from('provider pass'));
+      child.stderr.emit('data', Buffer.from('word=LEAKMARK\n'));
+      child.stdout.emit('data', Buffer.from('{"ok":true}'));
+      child.emit('close', 0);
+    });
+    return child;
+  };
+  assert.deepEqual(await invoke({
+    onOutput: (text, stream) => seen.push([stream, text]), spawnImpl
+  }), { ok: true });
+  const rendered = JSON.stringify(seen);
+  assert.doesNotMatch(rendered, /LEAKMARK/);
+  assert.match(rendered, /redacted/);
 });
 
 test('the VS Code client keeps structured stdout out of the Output channel', async () => {
@@ -2592,7 +2723,7 @@ const { capabilityDetail, capabilityArgv, capabilityProposalArgv, parentChoices,
 const { bodyHtml: capabilitiesHtml, readEdits, SCRIPT: CAPABILITY_SCRIPT } =
   await import(source('views/capability-page.ts'));
 const { buildCapabilityDashboard } = await import(source('views/capability-dashboard-model.ts'));
-const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems } =
+const { EMPTY_MAP_FORM, MAP_CAPABILITY_SCRIPT, capabilityIdentifierProblem, gitRemoteProblem, mapCapabilityHtml, mapCommand, mapProblems, screenGitRemotes } =
   await import(source('views/map-capability-form.ts'));
 
 /** The tree the engine emits, with both policies on every node, as capabilityTree() produces it. */
@@ -2740,6 +2871,147 @@ test('capability mapping rejects credential-bearing remotes without reflecting t
   };
   assert.match(mapProblems(unsafe)[0], /was rejected/);
   assert.doesNotMatch(mapProblems(unsafe)[0], /super-secret|also-secret/);
+
+  for (const nonHttp of [
+    'ssh://git@git.example/repository.git?access_token=ssh-secret',
+    'git+ssh://git@git.example/repository.git#fragment-secret',
+    'ssh://alice:office-secret@[invalid/repository.git'
+  ]) {
+    const problem = gitRemoteProblem(nonHttp, 'Repository');
+    assert.match(problem, /was rejected/);
+    assert.doesNotMatch(problem, /ssh-secret|fragment-secret|office-secret|access_token/);
+  }
+
+  for (const malformed of [
+    'https:/alice:malformed-secret@[invalid/repository.git',
+    'https:alice:malformed-secret@[invalid/repository.git',
+    'http:\\alice:malformed-secret@[invalid/repository.git',
+    'ssh:/alice:malformed-secret@[invalid/repository.git'
+  ]) {
+    const problem = gitRemoteProblem(malformed, 'Repository');
+    assert.match(problem, /was rejected/);
+    assert.doesNotMatch(problem, /malformed-secret/);
+  }
+
+  for (const credentialShaped of [
+    'git://private-login@git.example/repository.git',
+    'ftp://private-login@git.example/repository.git',
+    'alice:office-secret@git.example:repository.git',
+    '//alice:office-secret@git.example/repository.git?access_token=secret'
+  ]) {
+    const problem = gitRemoteProblem(credentialShaped, 'Repository');
+    assert.match(problem, /was rejected/);
+    assert.doesNotMatch(problem, /private-login|office-secret/);
+  }
+  assert.equal(gitRemoteProblem('ssh://git@git.example/repository.git', 'Repository'), null);
+  assert.equal(gitRemoteProblem('git@git.example:repository.git', 'Repository'), null);
+  for (const encoded of [
+    'ssh://user%3Apass@git.example/repository.git',
+    'ssh://user%2Fname@git.example/repository.git',
+    'git+ssh://user%40name@git.example/repository.git'
+  ]) {
+    const problem = gitRemoteProblem(encoded, 'Repository');
+    assert.match(problem, /was rejected/);
+    assert.doesNotMatch(problem, /user%/);
+  }
+  assert.match(gitRemoteProblem('A'.repeat(100_000), 'Repository'), /too long/);
+  const externalHelperProblem = gitRemoteProblem(
+    'foo://git.example/password=external-helper-secret', 'Repository'
+  );
+  assert.match(externalHelperProblem, /was rejected/);
+  assert.doesNotMatch(externalHelperProblem, /external-helper-secret|password=/);
+  const legacyHelperProblem = gitRemoteProblem('ext::password=LEAKMARK', 'Repository');
+  assert.match(legacyHelperProblem, /was rejected/);
+  assert.doesNotMatch(legacyHelperProblem, /LEAKMARK|password=/);
+  for (const embedded of [
+    '/tmp/ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
+    '/tmp/password=LEAKMARK',
+    `/tmp/Bearer ${'A'.repeat(20)}`,
+    `/tmp/AIza${'A'.repeat(35)}`,
+    '/tmp/eyJabcdefghijk.abcdefghijk.abcdefghijk',
+    'https://git.example/password=LEAKMARK',
+    './https://alice:LEAKMARK@example.test/repository.git',
+    '/tmp/ssh://alice:LEAKMARK@example.test/repository.git',
+    './git+ssh://alice%3ALEAKMARK@example.test/repository.git',
+    './https:/alice:LEAKMARK@example.test/repository.git',
+    '/tmp//alice:LEAKMARK@example.test/repository.git'
+  ]) {
+    const screened = screenGitRemotes([embedded]);
+    assert.deepEqual(screened.accepted, []);
+    assert.equal(screened.rejected.length, 1);
+    assert.doesNotMatch(JSON.stringify(screened), /LEAKMARK|ghp_|eyJ/);
+  }
+
+  for (const accepted of [
+    '/tmp/path=repo', '/tmp/pattern=repo', '/tmp/patch=repo', '/tmp/compatible=repo',
+    'https://git.example/path=repo'
+  ]) assert.equal(gitRemoteProblem(accepted, 'Repository'), null, accepted);
+  for (const rejected of [
+    'git@host:password=LEAKMARK', 'host:password=LEAKMARK',
+    './foo:password=LEAKMARK', 'https://host/repo:password=LEAKMARK',
+    'git@host:password\\=LEAKMARK', './password\\=LEAKMARK',
+    'https://host/password\\=LEAKMARK',
+    'http.extraHeader="Authorization: Basic LEAKMARK"'
+  ]) {
+    const screened = screenGitRemotes([rejected]);
+    assert.deepEqual(screened.accepted, [], rejected);
+    assert.doesNotMatch(JSON.stringify(screened), /LEAKMARK/, rejected);
+  }
+  for (const malformedUrl of [
+    'https://host:repo', 'ssh://git@host:repo', 'foo://host:repo', 'file://@host/repo',
+    'https:/host/repo?x=LEAKMARK', 'https:\\host\\repo#LEAKMARK',
+    'http:host/path?x=LEAKMARK'
+  ]) assert.match(gitRemoteProblem(malformedUrl, 'Repository'), /was rejected/, malformedUrl);
+
+  for (const control of ['\u001b]0;spoofed\u0007', '\u007f']) {
+    const problem = gitRemoteProblem(`https://git.example/${control}/repository.git`, 'Repository');
+    assert.match(problem, /was rejected/);
+    assert.doesNotMatch(problem, /spoofed/);
+  }
+
+  assert.equal(gitRemoteProblem('C:\\work\\repository#release', 'Repository'), null,
+    'Windows local paths preserve literal hash bytes just like the engine boundary');
+});
+
+test('VS Code command output and capability proposal discovery exclude unsafe registry remotes', () => {
+  const unsafe = 'https://alice:office-secret@git.example/platform.git';
+  const screened = screenGitRemotes([
+    'https://git.example/safe.git', unsafe, 'https://git.example/safe.git'
+  ]);
+  assert.deepEqual(screened.accepted, ['https://git.example/safe.git']);
+  assert.equal(screened.rejected.length, 1);
+  assert.match(screened.rejected[0].fingerprint, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(screened), /alice|office-secret/);
+
+  const displayed = formatCliArgsForDisplay([
+    'capability', 'proposals', '--lead', unsafe, '--access-token=another-secret',
+    '--lead-repository=ext::password=lead-secret', '--json'
+  ]);
+  assert.equal(displayed,
+    'capability proposals --lead https://git.example/platform.git --access-token=[redacted] --lead-repository=[redacted-remote] --json');
+  assert.doesNotMatch(displayed, /alice|office-secret|another-secret|lead-secret/);
+  assert.equal(formatCliArgsForDisplay([
+    'choices', 'answer', 'selection-receipt-secret', 'phase-confirmation', 'yes'
+  ]), 'choices answer [redacted] phase-confirmation yes');
+  assert.equal(formatCliArgsForDisplay([
+    'workspace', 'doctor', '--repository', 'foo=bar=baz', '--repository', 'a//b',
+    '--repository', 'git@example.test:repo@v2.git',
+    '--repository', 'https://example.test/team:release@candidate.git',
+    '--repository', '/tmp/team:release@candidate.git'
+  ]), 'workspace doctor --repository foo=bar=baz --repository a//b'
+    + ' --repository git@example.test:repo@v2.git'
+    + ' --repository https://example.test/team:release@candidate.git'
+    + ' --repository /tmp/team:release@candidate.git');
+  for (const controlled of [
+    '//host/path\npassword=office-secret',
+    '/tmp/repo\u001b]0;PWN\u0007'
+  ]) {
+    const command = formatCliArgsForDisplay([
+      'workspace', 'doctor', '--repository', controlled
+    ]);
+    assert.match(command, /--repository \[redacted-remote\]$/);
+    assert.doesNotMatch(command, /office-secret|PWN|[\u0000-\u001f\u007f]/);
+  }
 });
 
 test('only zero-authority discovery can explicitly establish the first capability map', () => {
@@ -3360,6 +3632,44 @@ test('a failure shows the sentence, not the log line that carries it', () => {
     'Something broke.');
   // And an unrecognised message is passed through, because it beats saying nothing.
   assert.equal(humanError('  fatal: not a git repository  '), 'fatal: not a git repository');
+  assert.equal(humanError(JSON.stringify({
+    schemaVersion: 1,
+    status: 'failed',
+    error: {
+      message: 'Git access is unavailable.',
+      diagnosticAction: { command: 'singularity-flow workspace doctor --network --repository URL --json' }
+    }
+  })), [
+    'Git access is unavailable.',
+    'Diagnose: singularity-flow workspace doctor --network --repository URL --json'
+  ].join('\n'));
+  assert.equal(humanError(JSON.stringify({
+    rendered: { headline: 'Publication pending' },
+    next: [{ command: 'singularity-flow sync' }]
+  })), 'Publication pending\nNext: singularity-flow sync');
+  for (const unsafe of [
+    'Singularity Flow error: {"password":"LEAKMARK"}',
+    'Singularity Flow error: http.extraHeader="Authorization: Basic LEAKMARK"',
+    `Singularity Flow error: {${'\\'.repeat(3)}"password${'\\'.repeat(3)}":${'\\'.repeat(3)}"LEAKMARK${'\\'.repeat(3)}"}`,
+    'Singularity Flow error: password\u0000=LEAKMARK',
+    'Singularity Flow error: pass\u0000word=LEAKMARK',
+    'Singularity Flow error: pass\u0085word=LEAKMARK',
+    'Singularity Flow error: pass\u202eword=LEAKMARK',
+    'Singularity Flow error: pass\u001b[31mword=LEAKMARK',
+    'Singularity Flow error: password\\=LEAKMARK',
+    'Singularity Flow error: password\\:LEAKMARK',
+    "Singularity Flow error: fatal https://alice:PREFIX'LEAKMARK@example.test/repo",
+    "Singularity Flow error: fatal https:alice:PREFIX'LEAKMARK@example.test/repo",
+    'Singularity Flow error: fatal ssh:alice:PREFIX<LEAKMARK@example.test/repo',
+    'Singularity Flow error: fatal remote "ext::sh -c echo LEAKMARK" failed',
+    'Singularity Flow error: fatal https:alice:LEAKMARK@host',
+    'Singularity Flow error: fatal alice:LEAKMARK@host:repo',
+    'Singularity Flow error: fatal ./x//LEAKMARK@host/repo',
+    'Singularity Flow error: -----BEGIN PRIVATE KEY-----\nLEAKMARK'
+  ]) assert.doesNotMatch(humanError(unsafe), /LEAKMARK|BEGIN PRIVATE KEY|ext::/);
+  assert.doesNotMatch(humanError(
+    `Singularity Flow error: ${'A'.repeat(8100)} alice:LEAKMARK${'X'.repeat(1200)}@host:repo`
+  ), /LEAKMARK/);
 });
 
 const {
@@ -4646,9 +4956,13 @@ test('capability proposals have an exact review and activation UI', async () => 
     'the dashboard discovers every registered organisation lead');
   assert.match(dashboard, /capability', 'proposals'/,
     'the dashboard lists pending proposals for each lead');
+  assert.match(dashboard, /screenGitRemotes/,
+    'legacy credential-bearing registry entries are rejected before they become CLI arguments');
   assert.match(dashboard, /No proposals waiting/);
   assert.match(dashboard, /ready for exact review/);
   assert.match(dashboard, /blocked by validation/);
+  assert.match(dashboard, /failure\?\.diagnosticAction\?\.command/,
+    'proposal transport failures expose their exact safe diagnostic command');
   assert.match(dashboard, /Show merged history/);
   assert.match(dashboard, /'--all'/,
     'the same UI can inspect retained merged proposal branches without making them actionable');

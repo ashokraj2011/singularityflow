@@ -108,7 +108,7 @@ import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
 import { publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
 import { verifyGroundingRecord } from './grounding.mjs';
-import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, repositoryLogger, resolveLogging } from './logging.mjs';
+import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
 import { GitRemoteSession, runRemoteGit } from './git-execution.mjs';
@@ -193,7 +193,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -8236,7 +8236,12 @@ async function capabilityCommand(positionals, options) {
       const total = result.proposalInspection?.total ?? 0;
       console.warn(`  pending proposal coverage: ${result.proposalCoverage} (${inspected}/${total} inspected); no new mapping is authorized`);
     }
-    for (const failure of result.failures) console.warn(`  ${failure.lead}: ${failure.message}`);
+    for (const failure of result.failures) {
+      console.warn(`  ${failure.lead}: ${failure.message}`);
+      if (failure.diagnosticAction?.command) {
+        console.warn(`    Diagnose: ${failure.diagnosticAction.command}`);
+      }
+    }
     return;
   }
 
@@ -8258,10 +8263,11 @@ async function capabilityCommand(positionals, options) {
     });
     await rememberLeadRepository(leadUrl);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ lead: leadUrl, ...proposed }, null, 2));
+    const commands = capabilityProposalCommands(leadUrl, proposed.branch, proposed.commit);
     console.log(`Proposed repository ${proposed.repositoryId} for capability ${capabilityId}.`);
     console.log(`  review branch: ${proposed.branch}`);
-    console.log(`  review: singularity-flow capability proposal ${proposed.branch} --lead ${leadUrl}`);
-    console.log(`  activate: singularity-flow capability activate ${proposed.branch} --lead ${leadUrl} --confirm ${proposed.commit}`);
+    console.log(`  review: ${commands.review}`);
+    console.log(`  activate: ${commands.activate}`);
     return;
   }
 
@@ -8316,13 +8322,14 @@ async function capabilityCommand(positionals, options) {
       : '';
     console.log(`Proposed capability ${mapped.capabilityId}${ships} in ${leadUrl}.`);
     if (mapped.commit) {
+      const commands = capabilityProposalCommands(leadUrl, mapped.branch, mapped.commit);
       console.log(`  review branch: ${mapped.branch}`);
       console.log(`  base: ${mapped.baseBranch}@${mapped.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${mapped.commit.slice(0, 8)}`);
       console.log(`  approved ${mapped.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
-      console.log(`  review: singularity-flow capability proposal ${mapped.branch} --lead ${leadUrl}`);
-      console.log(`  activate: singularity-flow capability activate ${mapped.branch} --lead ${leadUrl} --confirm ${mapped.commit}`);
+      console.log(`  review: ${commands.review}`);
+      console.log(`  activate: ${commands.activate}`);
       console.log('  if branch protection requires external review, merge there first and run the same activate command to publish the projection.');
     }
     return;
@@ -8357,13 +8364,14 @@ async function capabilityCommand(positionals, options) {
     const action = mode === 'add' ? 'addition of' : mode === 'remove' ? 'removal of' : 'update to';
     console.log(`Proposed the ${action} ${id} in ${leadUrl}.`);
     if (edited.commit) {
+      const commands = capabilityProposalCommands(leadUrl, edited.branch, edited.commit);
       console.log(`  review branch: ${edited.branch}`);
       console.log(`  base: ${edited.baseBranch}@${edited.baseCommit.slice(0, 8)}`);
       console.log(`  commit: ${edited.commit.slice(0, 8)}`);
       console.log(`  approved ${edited.baseBranch} was not changed.`);
       console.log('  the application default branch is not part of this configuration change.');
-      console.log(`  review: singularity-flow capability proposal ${edited.branch} --lead ${leadUrl}`);
-      console.log(`  activate: singularity-flow capability activate ${edited.branch} --lead ${leadUrl} --confirm ${edited.commit}`);
+      console.log(`  review: ${commands.review}`);
+      console.log(`  activate: ${commands.activate}`);
       console.log('  if branch protection requires external review, merge there first and run the same activate command to publish the projection.');
     }
     return;
@@ -8445,6 +8453,9 @@ async function capabilityCommand(positionals, options) {
       console.log(`${proposal.branch}  ${proposal.proposalCommit.slice(0, 12)}  `
         + `${proposal.merged ? 'merged' : proposal.valid ? 'ready for review' : proposal.status ?? 'invalid'}`);
       if (proposal.failure?.message) console.log(`  blocked: ${proposal.failure.message}`);
+      if (proposal.failure?.diagnosticAction?.command) {
+        console.log(`  diagnose: ${proposal.failure.diagnosticAction.command}`);
+      }
       if (proposal.failure?.nextAction?.command) console.log(`  recover: ${proposal.failure.nextAction.command}`);
     }
     return;
@@ -10435,15 +10446,26 @@ async function workspaceCommand(positionals, options) {
   }
   if (subcommand === 'doctor') {
     const { workspaceBootstrapDoctor } = await import('./workspace-bootstrap.mjs');
-    const result = await workspaceBootstrapDoctor({ network: optionBoolean(options, 'network') });
+    const repositoryUrls = optionStrings(options, 'repository');
+    const result = await workspaceBootstrapDoctor({
+      network: optionBoolean(options, 'network'), repositoryUrls
+    });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Workspace reliability: ${result.healthy ? 'healthy' : 'needs attention'}`);
     for (const item of result.machine.findings) console.log(`  ${item.severity}: ${item.message}`);
     for (const item of result.remotes) {
-      console.log(`  ${item.repository}: ${item.ok ? 'reachable' : item.classification}`);
+      const subject = item.repository ?? item.remote;
+      const branch = item.branch ? ` [${item.branch}]` : '';
+      console.log(`  ${subject}${branch}: ${item.ok ? 'reachable' : item.classification}`);
       if (item.advice) console.log(`    ${item.advice}`);
     }
-    if (!result.networkChecked) console.log('Network remotes were not contacted. Add --network to test pending bootstrap remotes.');
+    if (!result.networkChecked) {
+      console.log(repositoryUrls.length
+        ? 'Network remotes were not contacted. Add --network to probe the supplied --repository URLs and pending bootstrap remotes.'
+        : 'Network remotes were not contacted. Add --network to test pending bootstrap remotes, or add a repeatable --repository URL to probe an exact remote.');
+    } else if (!result.remotes.length) {
+      console.log('No remote repositories were checked. Add one or more --repository URLs when no pending bootstrap session names the remote.');
+    }
     for (const session of result.sessions) console.log(`  ${session.bootstrapId}: ${session.status} · ${session.workspaceName ?? session.workspaceId}`);
     return result;
   }
@@ -12606,10 +12628,13 @@ export async function main(argv) {
   if (command === 'version') return console.log(VERSION);
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall'].includes(command)) {
-    const log = await commandLogger(command, argv, { json: options.json, verbose: options.verbose });
-    const harness = await harnessInvocation(command, argv);
+    const persistedArgv = redactCommandArgv(argv);
+    const log = await commandLogger(command, argv, {
+      json: optionBoolean(options, 'json'), verbose: optionBoolean(options, 'verbose')
+    });
+    const harness = await harnessInvocation(command, persistedArgv);
     const started = Date.now();
-    log.info('command.start', null, { argv: argv.slice(0, 24) });
+    log.info('command.start', null, { argv: persistedArgv.slice(0, 24) });
     try {
       const result = await dispatch(command, positionals, options);
       log.info('command.ok', null, { durationMs: Date.now() - started });

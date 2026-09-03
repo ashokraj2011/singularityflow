@@ -358,7 +358,8 @@ test('the CLI requires explicit deletion confirmation and applies retention and 
   await recordPromptAudit(root, { agent: 'developer', phase: 'intake', prompt: 'delete through the CLI' });
   const refused = promptCli(root, ['prompt-log', 'clear', '--json'], { allowFailure: true });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /requires --confirm "DELETE PROMPT AUDIT"/);
+  assert.match(JSON.parse(refused.stderr).error.message,
+    /requires --confirm "DELETE PROMPT AUDIT"/);
   const cleared = JSON.parse(promptCli(root, [
     'prompt-log', 'clear', '--confirm', 'DELETE PROMPT AUDIT', '--json'
   ]).stdout);

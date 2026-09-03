@@ -39,6 +39,8 @@ const AVAILABILITY_FILESYSTEM_CODES = new Set([
 
 const AUTHORITY_ACCESS_FAILURES = new Set([
   'authentication-required', 'authorization-denied', 'branch-not-found',
+  'credential-helper-unavailable', 'git-unavailable', 'sso-authorization-required',
+  'working-directory-unavailable',
   'network-transient', 'offline', 'proxy-configuration', 'rate-limited',
   'remote-not-found', 'tls-trust'
 ]);

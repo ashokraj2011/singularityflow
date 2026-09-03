@@ -15,7 +15,7 @@ import {
   type BaseBranchChoice, type InFlight, type IntakeForm, type ProfileChoice, type Shape, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
-import { CliTimeoutError, terminalCommand } from '../cli/runner.ts';
+import { CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 
 /** What was started, so the caller can take the reader straight to it. */
@@ -459,7 +459,7 @@ export class IntakePanel {
     const args = intakeCommand(this.form);
     this.output.appendLine(`\n$ ${terminalCommand(
       this.client.repository,
-      args,
+      redactCliArgsForDisplay(args),
       process.platform,
       this.client.location
     )}`);

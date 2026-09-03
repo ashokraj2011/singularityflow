@@ -1452,7 +1452,8 @@ async function verifyAdoptionOperation(operation) {
  */
 function cloneFailure(operation, result) {
   const remote = sanitizeRemote(operation.url);
-  const classified = classifyGitRemoteFailure(result, { branch: operation.branch });
+  const classified = result?.failure
+    ?? classifyGitRemoteFailure(result, { branch: operation.branch });
   if (classified.classification === 'branch-not-found') {
     return `Repository '${operation.repository}' cannot clone branch '${operation.branch}' from '${remote}': `
       + `the remote does not have that branch. Configure a valid default branch or create '${operation.branch}', then repair again.`;

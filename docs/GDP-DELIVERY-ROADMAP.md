@@ -180,7 +180,14 @@ Rollback boundary: disable the projection reader; no durable GDP records exist y
 
 ### [x] GDP-M2 — Shadow Change Passport
 
+**Landing commit:** `8d1f74fc`
+
 **Implemented:** 2026-09-04
+
+**Evidence:** 8 M2 shadow/CLI tests and the combined 19-test GDP M0–M2 suite passed;
+cross-platform compatibility passed 319 checks; model-free boundaries passed 8 checks; repository
+conformance passed 1,282 checks; VS Code typechecking and VSIX packaging passed. The packaged VSIX
+contains the M2 command, schemas, documentation, and secondary diagnostic view.
 
 **Implementation guide:** [`GDP-M2-SHADOW-PASSPORT.md`](GDP-M2-SHADOW-PASSPORT.md)
 

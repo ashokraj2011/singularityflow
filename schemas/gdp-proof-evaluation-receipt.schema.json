@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-evaluation-receipt.schema.json",
+  "title": "GDP Proof Evaluation Receipt v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "resultSha256", "startedAt", "completedAt", "durationMilliseconds", "cacheStatus", "deadlineMilliseconds", "deadlineExceeded", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "proof-evaluation-receipt" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" },
+    "resultSha256": { "$ref": "#/$defs/digest" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "durationMilliseconds": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+    "cacheStatus": { "enum": ["hit", "miss", "reused"] },
+    "deadlineMilliseconds": { "type": "integer", "minimum": 1, "maximum": 10000 },
+    "deadlineExceeded": { "type": "boolean" },
+    "receiptSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "x-sflow-selfHash": "receiptSha256",
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

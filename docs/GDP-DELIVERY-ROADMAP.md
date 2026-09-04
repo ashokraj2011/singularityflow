@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M2 implemented; later milestones remain planning only
+**Status:** GDP-M0 through GDP-M3 implemented; later milestones remain planning only
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -227,7 +227,31 @@ Exit evidence:
 Rollback boundary: turn off shadow generation and delete only disposable local projections. Existing
 Candidates and lifecycle state remain authoritative.
 
-### [ ] GDP-M3 — Deterministic proof kernel in observe mode
+### [x] GDP-M3 — Deterministic proof kernel in observe mode
+
+**Implemented:** 2026-09-04
+
+**Evidence:** 11 focused M3 kernel/store/CLI tests and the combined 74-test GDP, command, help,
+migration, and model-boundary suite passed; repository conformance passed 1,287 checks; the
+no-model suite passed 8 checks; cross-platform compatibility passed 319 checks; VS Code
+typechecking, npm dry packaging, and VSIX packaging passed.
+
+**Implementation guide:** [`GDP-M3-DETERMINISTIC-PROOF.md`](GDP-M3-DETERMINISTIC-PROOF.md)
+
+Delivered:
+
+- registered nine immutable v1 proof record families with closed schemas and migration ownership;
+- added a pure deterministic kernel with exact self-hashed inputs, outputs, reason codes, and
+  transitive invalidation;
+- implemented the accepted four-valued contract: `pass`, `fail`, `unavailable`, and
+  `not-applicable` (correcting the stale `inconclusive` label previously present in this roadmap);
+- separated semantic results from operational evaluation clocks and cache observations;
+- added bounded append/retry/recovery storage on the existing subject transaction and private
+  sidecar writers;
+- exposed model-free `proof status`, `proof explain`, `proof gaps`, and `proof signals` diagnostics
+  through the CLI, `/sf-inspect`, help, and the secondary VS Code Shadow Passport view;
+- kept Signals, gaps, World Model absence, and all M3 observations outside lifecycle, approval,
+  gate, recovery, and publication authority.
 
 **Planning range:** 3–5 person-weeks  
 **Depends on:** GDP-M2 and MIG schema registration
@@ -236,7 +260,7 @@ Deliver:
 
 - add Predicate Specification, Predicate Result, Evaluation Receipt, Gap, Signal, Invalidation, and
   Proof Summary families using the Proof Subject identity;
-- implement the four-valued result lattice: `pass`, `fail`, `inconclusive`, and `unavailable`;
+- implement the four-valued result lattice: `pass`, `fail`, `unavailable`, and `not-applicable`;
 - separate semantic identity from timestamps, latency, storage handles, and other operational data;
 - enforce finite predicate count, input bytes, recursion, fan-out, fuel, deadline, and output limits;
 - implement transitive invalidation and append-safe recovery through the existing durable writer

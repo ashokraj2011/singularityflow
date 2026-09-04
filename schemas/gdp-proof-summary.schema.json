@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-summary.schema.json",
+  "title": "GDP Proof Summary v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "proofProfile", "predicateResults", "signals", "gapRegisterSha256", "gapDecisionRefs", "verdict", "summarySha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "proof-summary" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "proofProfile": { "$ref": "#/$defs/profile" },
+    "predicateResults": { "$ref": "#/$defs/resultSets" },
+    "signals": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+    "gapRegisterSha256": { "$ref": "#/$defs/nullableDigest" },
+    "gapDecisionRefs": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+    "verdict": { "enum": ["proof-satisfied", "proof-satisfied-with-authorized-gaps", "proof-failed", "proof-unavailable", "proof-stale", "proof-decision-required"] },
+    "summarySha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "summarySha256",
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "profile": { "enum": ["standard", "high-assurance", "regulated", "custom-registered"] },
+    "digestSet": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+    "resultSets": {
+      "type": "object", "required": ["passed", "failed", "unavailable", "notApplicable"],
+      "properties": { "passed": { "$ref": "#/$defs/digestSet" }, "failed": { "$ref": "#/$defs/digestSet" }, "unavailable": { "$ref": "#/$defs/digestSet" }, "notApplicable": { "$ref": "#/$defs/digestSet" } },
+      "additionalProperties": false
+    }
+  }
+}

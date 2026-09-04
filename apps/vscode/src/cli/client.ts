@@ -75,7 +75,7 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 
 const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
-  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change'
+  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck', 'change', 'proof'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'

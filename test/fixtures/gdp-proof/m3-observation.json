@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-m3-proof-golden",
+  "observationSha256": "sha256:cff162432cbf26f4800837e2ec88d22e659a348fdc16254712bfc6311682aa31",
+  "summarySha256": "sha256:f326bdf947405ce83b6f1499f878eeaa0d9c1a6cb698e28e2272088ab7212519",
+  "resultSha256s": [
+    "sha256:90ffbd7287f63cc4980567aad4a00417b146e5a342e90bb8688c9cef7d2cf8fa",
+    "sha256:06b1c8ba079cf9d40d1b21e0331970b5a50c29c29c92b9f9f851120d4e39f4ce"
+  ]
+}

@@ -158,7 +158,7 @@ test('GDP M1 rejects unknown sources and malformed recovery instead of inventing
   assert.ok(unknownStatus.gaps.some((entry) => entry.code === 'GDP_LIFECYCLE_STATUS_UNAVAILABLE'));
 });
 
-test('GDP M1 defaults remain off while GDP M2 registers only its two shadow identities', async () => {
+test('GDP feature defaults remain off while M3 registers only admitted shadow and proof identities', async () => {
   assert.ok(Object.isFrozen(GDP_FEATURE_DEFAULTS));
   assert.ok(Object.values(GDP_FEATURE_DEFAULTS).every((value) => value === false));
   const inventory = await json('docs/contracts/gdp/compatibility-inventory.json');
@@ -167,7 +167,10 @@ test('GDP M1 defaults remain off while GDP M2 registers only its two shadow iden
     .map((entry) => entry.id);
   const registered = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
   assert.deepEqual(GDP_FAMILIES.filter((family) => registered.has(family)).sort(), [
-    'change-passport', 'proof-subject'
+    'change-passport', 'proof-evaluation-receipt', 'proof-evidence-invalidation',
+    'proof-gap-item', 'proof-gap-register', 'proof-predicate-result',
+    'proof-predicate-specification', 'proof-profile-selection', 'proof-signal-observation',
+    'proof-subject', 'proof-summary'
   ]);
 });
 

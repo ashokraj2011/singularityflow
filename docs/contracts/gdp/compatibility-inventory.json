@@ -79,7 +79,7 @@
     {
       "id": "proof",
       "paths": ["src/delivery-evidence.mjs", "src/sgos/process-evidence.mjs"],
-      "gdpTreatment": "unavailable-until-gdp-m2-and-m3"
+      "gdpTreatment": "m3-observe-only-no-lifecycle-authority"
     }
   ],
   "featureDefaults": {

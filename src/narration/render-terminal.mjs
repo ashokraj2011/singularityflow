@@ -187,6 +187,36 @@ function shadowPassportText(result) {
   ].filter(Boolean).join('\n');
 }
 
+function proofObservationText(result) {
+  const proof = result.data ?? {};
+  const summary = proof.summary ?? null;
+  const predicateResults = proof.results ?? (proof.result ? [proof.result] : []);
+  const resultRows = predicateResults.map((entry) => ({
+    predicate: entry.predicate?.id ?? 'unknown',
+    verdict: entry.verdict ?? 'unavailable',
+    reason: entry.reasonCode ?? 'PFC_REQUIRED_INPUT_UNAVAILABLE'
+  }));
+  return [
+    style.heading(headline(result)),
+    'Mode: observe · Authority: none',
+    summary ? `Proof Summary: ${summary.summarySha256} · ${summary.verdict}` : null,
+    ...(resultRows.length ? ['', table(resultRows, [
+      { key: 'predicate', label: 'PREDICATE' },
+      { key: 'verdict', label: 'VERDICT' },
+      { key: 'reason', label: 'REASON' }
+    ])] : []),
+    ...(Array.isArray(proof.gaps) && proof.gaps.length
+      ? ['', style.heading('Known gaps:'), ...proof.gaps.map((gap) => `  - ${gap.gapId}: ${gap.proposition}`)]
+      : []),
+    ...(Array.isArray(proof.signals) && proof.signals.length
+      ? ['', style.heading('Signals (non-authoritative):'), ...proof.signals.map((signal) => `  - ${signal.signalId}: ${String(signal.value)} ${signal.unit}`)]
+      : []),
+    ...(proof.explanation ? ['', style.heading('Explanation:'), `  ${proof.explanation}`] : []),
+    '', style.detail('Observe only: this output cannot approve, gate, publish, or change Story lifecycle state.'),
+    style.detail(preservationLine(result))
+  ].filter(Boolean).join('\n');
+}
+
 const REST_STATE_LINES = Object.freeze({
   complete: 'This work is complete. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
@@ -206,6 +236,7 @@ export function renderCommandResult(result) {
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
   if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
+  if (result.operation.id.startsWith('proof.')) return proofObservationText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();

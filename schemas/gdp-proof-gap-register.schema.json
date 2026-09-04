@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-gap-register.schema.json",
+  "title": "GDP Proof Gap Register v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "gapRefs", "gapRegisterSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "proof-gap-register" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" },
+    "gapRefs": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+    "gapRegisterSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "gapRegisterSha256",
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

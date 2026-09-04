@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-predicate-result.schema.json",
+  "title": "GDP Proof Predicate Result v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "predicate", "proofSubjectSha256", "proofProfile", "inputs", "verdict", "reasonCode", "findings", "fuel", "resultSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "proof-predicate-result" },
+    "predicate": { "$ref": "#/$defs/predicate" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" },
+    "proofProfile": { "$ref": "#/$defs/profile" },
+    "inputs": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/input" } },
+    "verdict": { "enum": ["pass", "fail", "unavailable", "not-applicable"] },
+    "reasonCode": { "$ref": "#/$defs/reason" },
+    "findings": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "maxLength": 512 } },
+    "fuel": { "$ref": "#/$defs/fuel" },
+    "resultSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "x-sflow-selfHash": "resultSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,95}$" },
+    "profile": { "enum": ["standard", "high-assurance", "regulated", "custom-registered"] },
+    "predicate": {
+      "type": "object", "required": ["id", "version", "implementationSha256"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^pfc\\.[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+        "implementationSha256": { "$ref": "#/$defs/digest" }
+      }, "additionalProperties": false
+    },
+    "input": {
+      "type": "object", "required": ["kind", "sha256"],
+      "properties": { "kind": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/digest" } },
+      "additionalProperties": false
+    },
+    "fuel": {
+      "type": "object", "required": ["maximumSteps", "consumedSteps"],
+      "properties": {
+        "maximumSteps": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "consumedSteps": { "type": "integer", "minimum": 0, "maximum": 100000 }
+      }, "additionalProperties": false
+    }
+  }
+}

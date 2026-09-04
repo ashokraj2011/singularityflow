@@ -104,6 +104,7 @@ const entries = {
   clarification: ['sf-phase'],
   comprehension: ['sf-inspect'],
   change: ['sf-inspect'],
+  proof: ['sf-inspect'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
   reopen: ['sf-reject'],

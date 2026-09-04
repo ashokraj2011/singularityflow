@@ -114,7 +114,7 @@ function mutate(record, dottedPath, value) {
   return copy;
 }
 
-test('GDP M0 frozen shapes remain closed as M2 activates only its two runtime identities', async () => {
+test('GDP M0 frozen shapes remain closed as M3 activates only admitted proof identities', async () => {
   const schema = await json(schemaPath);
   const chain = await json(path.join(fixtureRoot, 'valid-chain.json'));
   const definitions = definitionByKind(schema);
@@ -132,8 +132,8 @@ test('GDP M0 frozen shapes remain closed as M2 activates only its two runtime id
     assert.equal(definition.additionalProperties, false, record.kind);
     assert.equal(record[definition['x-sflow-selfHash']], semanticHash(definition, record), record.kind);
     assert.equal(productionFamilies.has(record.kind),
-      ['proof-subject', 'change-passport'].includes(record.kind),
-      `${record.kind} has the wrong runtime registration state after M2`);
+      ['proof-subject', 'change-passport', 'proof-predicate-result', 'proof-summary'].includes(record.kind),
+      `${record.kind} has the wrong runtime registration state after M3`);
   }
 
   assert.equal(chain.predicateResult.proofSubjectSha256, chain.proofSubject.proofSubjectSha256);
@@ -177,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm2-shadow-two-families-mig-registered');
+  assert.equal(catalog.status, 'm3-observe-proof-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -187,7 +187,12 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
     'semantic-content', 'operational-receipt', 'signal', 'gap', 'decision', 'projection'
   ]);
   const productionFamilies = new Set(migrationRegistrySnapshot().map((family) => family.id));
-  assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), ['change-passport', 'proof-subject']);
+  assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), [
+    'change-passport', 'proof-evaluation-receipt', 'proof-evidence-invalidation',
+    'proof-gap-item', 'proof-gap-register', 'proof-predicate-result',
+    'proof-predicate-specification', 'proof-profile-selection',
+    'proof-signal-observation', 'proof-subject', 'proof-summary'
+  ]);
   for (const family of catalog.families) {
     assert.match(family.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.ok(classifications.has(family.classification), family.id);

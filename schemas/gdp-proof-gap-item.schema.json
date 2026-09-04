@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-gap-item.schema.json",
+  "title": "GDP Proof Gap Item v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "gapId", "category", "proposition", "owner", "mitigation", "status", "gapSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "proof-gap-item" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "gapId": { "$ref": "#/$defs/id" }, "category": { "$ref": "#/$defs/id" },
+    "proposition": { "$ref": "#/$defs/text" }, "owner": { "$ref": "#/$defs/id" }, "mitigation": { "$ref": "#/$defs/text" },
+    "status": { "enum": ["open", "mitigated", "unavailable"] }, "gapSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "gapSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }
+  }
+}

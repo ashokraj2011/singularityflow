@@ -1649,6 +1649,45 @@ const families = [
     id: 'change-passport', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/change-passport\/[a-f0-9]{64}\.json$/]
   }),
+  // GDP-M3 observe-mode proof records. All are immutable v1 identities with an explicit
+  // no-predecessor boundary. Registration authorizes only the bounded proof store; lifecycle,
+  // approval, gates, and publication do not consume these families.
+  family({
+    id: 'proof-profile-selection', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-profile-selection\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-predicate-specification', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-predicate-specification\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-predicate-result', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-predicate-result\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-evaluation-receipt', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/gdp\/operations\/[a-f0-9]{64}\/proof-evaluation-receipt\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-signal-observation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-signal-observation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-summary', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-summary\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-evidence-invalidation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/proof-evidence-invalidation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-gap-item', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-gap-item\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-gap-register', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-gap-register\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

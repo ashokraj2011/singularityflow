@@ -220,6 +220,32 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['comprehension', 'candidate', 'status', 'doctor']
   },
+  proof: {
+    summary: 'Inspect GDP-M3 deterministic proof results, gaps, and non-authoritative Signals.',
+    description: [
+      'GDP-M3 evaluates a closed set of deterministic predicates over the GDP-M2 Proof Subject.',
+      'It returns pass, fail, unavailable, or not-applicable and preserves exact reason codes.',
+      'Missing, stale, contradictory, malformed, timed-out, or oversized evidence cannot become',
+      'pass. Signals are displayed separately and can never satisfy a predicate or gate work.',
+      '',
+      'This milestone is observe only. These commands are read-only and model-free. Their results,',
+      'gaps, and explanations grant no approval or publication authority and cannot change Story',
+      'duration, lifecycle state, gates, or publication. A missing World Model remains a visible,',
+      'non-blocking gap. In VS Code, the observation appears below the M2 Passport in Diagnostics.'
+    ],
+    options: [
+      ['--proof-profile PROFILE', 'Evaluate the bounded observation using an admitted profile identity; it remains non-authoritative in M3.'],
+      ['--work-id WORK-ID', 'Select an exact Story when it is not supplied positionally.'],
+      ['--json', 'Emit the complete bounded, path-free proof observation or selected view.']
+    ],
+    examples: [
+      ['singularity-flow proof status WRK-123 --json', 'Show the Proof Subject, deterministic predicate results, summary, gaps, and guarantees.'],
+      ['singularity-flow proof explain WRK-123 pfc.candidate-binding --json', 'Explain one exact predicate result and reason code.'],
+      ['singularity-flow proof gaps WRK-123', 'List explicit proof gaps without trying to repair or accept them.'],
+      ['singularity-flow proof signals WRK-123', 'Show observations separately from authoritative predicate results.']
+    ],
+    seeAlso: ['change', 'comprehension', 'receipt', 'status']
+  },
   adhoc: {
     summary: 'Start with local work and later land it through an exact reverse-converged record.',
     description: [

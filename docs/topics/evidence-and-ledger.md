@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 8
+version: 9
 aliases:
   - ledger
   - worldline
@@ -13,6 +13,7 @@ commands:
   - spec
   - comprehension
   - change
+  - proof
 related:
   - approvals
   - impact-framework
@@ -23,15 +24,17 @@ The first comprehension pilot is deliberately read-only. `sflow comprehension re
 
 GDP-M2 adds an equally bounded shadow view: `sflow change show <WORK-ID> --shadow`. It derives an in-memory Proof Subject and Change Passport only when an existing exact Candidate is available. The view shows legacy policy projections, evidence availability, World Model status, known gaps, provenance hashes, and a privacy-safe lifecycle comparison. It never writes the records or allows a gate, approval, publisher, or lifecycle decision to consume them. Missing World Model or AST remains visible and non-blocking.
 
+GDP-M3 adds a deterministic proof observation over that Proof Subject. `sflow proof status <WORK-ID>` shows the complete bounded observation; `proof explain` explains one exact predicate; `proof gaps` and `proof signals` keep missing authority and non-authoritative observations visibly separate. Predicate results use the frozen total lattice `pass`, `fail`, `unavailable`, and `not-applicable`. Signals never satisfy a predicate or gate, and stale, missing, contradictory, malformed, timed-out, or oversized evidence cannot become pass. M3 is observe only: no result changes lifecycle, approval, publication, or Story duration.
+
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **evidence and ledger**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, `sflow comprehension check`, or `sflow change show <WORK-ID> --shadow`. Run the command with `--help` for the exact forms supported by this build.
-- **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, or `/sf-inspect <WORK-ID> passport` for the M2 shadow Passport. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** open Diagnostics and select the final **Shadow Passport** tab. It is intentionally secondary; existing Lifecycle views remain authoritative and unchanged.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, `sflow comprehension check`, `sflow change show <WORK-ID> --shadow`, or `sflow proof status <WORK-ID>`. Run the command with `--help` for the exact forms supported by this build.
+- **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, `/sf-inspect <WORK-ID> passport` for M2, or `/sf-inspect <WORK-ID> proof` for M3. The skill must preserve the CLI result and ask before any governed mutation.
+- **VS Code:** open Diagnostics and select the final **Shadow Passport** tab. Its **Deterministic proof observation** section shows M3 results and gaps. It is intentionally secondary; existing Lifecycle views remain authoritative and unchanged.
 
 ## Guided workflow
 

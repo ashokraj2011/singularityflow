@@ -172,6 +172,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
     preserves: true
   },
+  'proof.observation-reported': {
+    headline: (s) => `Proof ${slot(s.action, 'status')} for ${slot(s.workId)} is ${slot(s.status)}.`,
+    preserves: true
+  },
   'resume.succeeded': {
     headline: (s) => `Resumed ${slot(s.workId)} on ${slot(s.branch)}.`,
     preserves: false

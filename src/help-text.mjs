@@ -400,6 +400,8 @@ Usage:
   singularity-flow comprehension check [--work-id WORK-ID] [--phase PHASE] [--base REVISION]
     [--bindings REPOSITORY-FILE] [--dispositions REPOSITORY-FILE] [--json]
   singularity-flow change show [WORK-ID] --shadow [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
+  singularity-flow proof status|gaps|signals [WORK-ID] [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
+  singularity-flow proof explain [WORK-ID] <PREDICATE-ID> [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow agents list
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]

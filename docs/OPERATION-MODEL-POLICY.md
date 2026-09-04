@@ -331,6 +331,10 @@ Every public operation is classified before its implementation module is importe
 | program.what-if | read | never | — | — |
 | progress | read | never | — | — |
 | prompt-log | mutation | never | — | — |
+| proof.explain | read | never | — | — |
+| proof.gaps | read | never | — | — |
+| proof.signals | read | never | — | — |
+| proof.status | read | never | — | — |
 | push.retry | mutation | never | — | — |
 | push.status | read | never | — | — |
 | quickstart | mutation | never | — | — |

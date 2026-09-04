@@ -127,6 +127,16 @@ Every public operation is classified before its implementation module is importe
 | converge | read | never | — | — |
 | copilot.launch | mutation | required | — | copilot-cli |
 | copilot.preview | read | never | — | — |
+| delivery.assurance-evaluate | read | never | — | — |
+| delivery.execution-status | read | never | — | — |
+| delivery.promotion-apply | mutation | never | — | — |
+| delivery.promotion-preview | read | never | — | — |
+| delivery.promotion-status | read | never | — | — |
+| delivery.provenance-status | read | never | — | — |
+| delivery.readiness | read | never | — | — |
+| delivery.recommend | read | never | — | — |
+| delivery.select | mutation | never | — | — |
+| delivery.workflow-status | read | never | — | — |
 | device.doctor | read | never | — | — |
 | device.intent | read | never | — | — |
 | device.invoke | mutation | never | — | — |

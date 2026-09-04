@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "e09c86e19db447a0248ad59a6b8bd4d54cd51d31",
-  "topicCount": 60,
-  "contentSha256": "a7146ad0648152a512c44f37349846a3999813b1b849c40228908b7916ba8270",
+  "sourceCommit": "4b1a31cb55acf7eeb3d892308b41f030999bb8e5",
+  "topicCount": 61,
+  "contentSha256": "d88dd348629a3d4b128b44cc6f644a60c6f6b348a891fdc7ce38c04e38aee66a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -108,6 +108,14 @@
       "sha256": "21b500a49479957b12c53e4f6f4fafab1c8cc8dcd5fe88b1237e389d3c9e4674",
       "routingSha256": "1797df65f3cc35268579d41981bfd4d03a74eea328ede27a0156869e856c06ca",
       "file": "copilot-and-surfaces.md"
+    },
+    {
+      "id": "delivery-and-proof",
+      "title": "Governed Delivery and Proof",
+      "version": 1,
+      "sha256": "afbba468c8a009be451c4146315950002ec9d1f9713258d801d3496d6981756f",
+      "routingSha256": "50fe51fde59f58a3a2685e84eb13987d273f1b70e6f4dd46f32df823e3d8f341",
+      "file": "delivery-and-proof.md"
     },
     {
       "id": "developer-home",

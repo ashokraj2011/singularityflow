@@ -53,6 +53,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `GDP provenance is ${slot(s.status)} (configured: ${slot(s.configured)}, verifier: ${slot(s.verifier)}).`,
     preserves: true
   },
+  'delivery.readiness-reported': {
+    headline: (s) => `GDP GA readiness is ${slot(s.status)} with ${slot(s.blockers, '0')} blocker(s) (ready: ${slot(s.gaReady)}).`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

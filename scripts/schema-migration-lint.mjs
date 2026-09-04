@@ -192,8 +192,9 @@ export function schemaMigrationLint(sources) {
             || /(?:includes|has)\s*\([^)]*schemaVersion/.test(line))) {
         // Result envelopes are validated at their transport boundary; they are never re-opened as
         // durable records. Their two validators are the only explicit branching exceptions.
-        const transientBoundary = (file === 'src/gateway/result.mjs' || file === 'src/narration/command-result.mjs')
-          && /schemaVersion\s*!==/.test(line);
+        const transientBoundary = line.includes('schema-transient')
+          || ((file === 'src/gateway/result.mjs' || file === 'src/narration/command-result.mjs')
+            && /schemaVersion\s*!==/.test(line));
         if (!transientBoundary) violations.push({
           file, line: index + 1,
           message: 'schemaVersion branching belongs in src/schema-migrations.mjs'

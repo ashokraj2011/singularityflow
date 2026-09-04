@@ -4,8 +4,9 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M8 implemented; M9 local observation and M10 provider-neutral
-contracts implemented; enforcement, provider pilots, and GA remain constrained readiness work
+**Status:** GDP-M0 through GDP-M8 implemented; M9 local observation, M10 provider-neutral
+contracts, and M11 readiness reporting implemented; enforcement, provider pilots, and GA evidence
+remain external readiness work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -582,7 +583,27 @@ Exit evidence:
 Rollback boundary: stop accepting new provider attestations; historical records remain readable and
 their expiry/revocation state remains enforceable.
 
-### [ ] GDP-M11 — General availability and duplicate-path sunset
+### [~] GDP-M11 — General availability and duplicate-path sunset
+
+**Readiness reporting implemented:** 2026-09-04
+
+**Operator guide:** [`GDP-M11-READINESS.md`](GDP-M11-READINESS.md)
+
+Delivered without claiming GA:
+
+- read-only `delivery readiness` with a closed support matrix and per-milestone implementation
+  state;
+- explicit non-GA blockers for runner evidence, provider pilots, platform/package receipts,
+  migration exercises, the observation window, and duplicate-path dependency proof;
+- current runtime labels marked as labels rather than platform release receipts;
+- hard `status: not-ready`, `gaReady: false`, `authority: report-only`, plus explicit prohibitions
+  against enabling enforcement, accepting unverifiable attestations, sunsetting compatibility
+  paths, or claiming GA from local tests;
+- no legacy reader or writer removal.
+
+Still required before M11 can be marked complete: every external blocker in the readiness report,
+the agreed support-window evidence, reviewed release receipts, and an explicit GA decision by the
+named authorities.
 
 **Planning range:** 4–8 person-weeks after the support window  
 **Depends on:** all milestones selected for the GA profile
@@ -646,6 +667,7 @@ passing suite on one unsupported development runtime.
 
 GDP-M0 through M8 are implemented. The M9 local observation profile is available for contract and
 integration exercises but cannot authorize a gate. M10 provider-neutral contracts are fail-closed
-until an external approved verifier is configured. The next eligible increment is M11 readiness
-reporting; authenticated provider pilots, M9 enforcement, and GA evidence remain external work and
-must not be inferred from local tests.
+until an external approved verifier is configured. M11 readiness reporting is implemented and
+continues to report not-ready. The next work is external evidence collection and explicit review;
+authenticated provider pilots, M9 enforcement, and GA evidence must not be inferred from local
+tests.

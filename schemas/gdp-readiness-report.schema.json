@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-readiness-report.schema.json",
+  "title": "GDP General Availability Readiness Report v1", "type": "object",
+  "required": ["schemaVersion", "kind", "status", "gaReady", "authority", "implementation", "supportMatrix", "observedRuntime", "provenance", "blockers", "prohibitions", "nextDecision"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "gdp-readiness-report" },
+    "status": { "const": "not-ready" }, "gaReady": { "const": false },
+    "authority": { "const": "report-only" },
+    "implementation": { "type": "array", "minItems": 12, "maxItems": 12, "items": { "$ref": "#/$defs/milestone" } },
+    "supportMatrix": { "$ref": "#/$defs/supportMatrix" },
+    "observedRuntime": { "$ref": "#/$defs/runtime" },
+    "provenance": { "type": "object" },
+    "blockers": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/blocker" } },
+    "prohibitions": { "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" } },
+    "nextDecision": { "type": "string", "minLength": 1, "maxLength": 500 }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "milestone": { "type": "object", "required": ["milestone", "status", "scope"], "properties": { "milestone": { "pattern": "^GDP-M(?:[0-9]|10|11)$" }, "status": { "enum": ["implemented", "partial"] }, "scope": { "$ref": "#/$defs/id" } }, "additionalProperties": false },
+    "matrixEntry": { "type": "object", "required": ["id", "status"], "properties": { "id": { "$ref": "#/$defs/id" }, "status": { "$ref": "#/$defs/id" } }, "additionalProperties": false },
+    "matrixEntries": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/matrixEntry" } },
+    "supportMatrix": { "type": "object", "required": ["deliveryModes", "workflowMappings", "assuranceProfiles", "adapters", "ciProviders", "packages"], "properties": { "deliveryModes": { "$ref": "#/$defs/matrixEntries" }, "workflowMappings": { "$ref": "#/$defs/matrixEntries" }, "assuranceProfiles": { "$ref": "#/$defs/matrixEntries" }, "adapters": { "$ref": "#/$defs/matrixEntries" }, "ciProviders": { "$ref": "#/$defs/matrixEntries" }, "packages": { "$ref": "#/$defs/matrixEntries" } }, "additionalProperties": false },
+    "runtime": { "type": "object", "required": ["platform", "architecture", "nodeVersion", "assurance"], "properties": { "platform": { "$ref": "#/$defs/id" }, "architecture": { "$ref": "#/$defs/id" }, "nodeVersion": { "$ref": "#/$defs/id" }, "assurance": { "const": "runtime-label-only-not-a-platform-receipt" } }, "additionalProperties": false },
+    "blocker": { "type": "object", "required": ["code", "owner", "requirement"], "properties": { "code": { "pattern": "^GDP_GA_[A-Z0-9_]+$" }, "owner": { "$ref": "#/$defs/id" }, "requirement": { "type": "string", "minLength": 1, "maxLength": 500 } }, "additionalProperties": false }
+  }
+}

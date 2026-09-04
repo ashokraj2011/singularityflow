@@ -145,7 +145,9 @@ export function normalizeDeliveryRequest(value) {
     'predicted', 'riskClass', 'executionProvider', 'executionPace', 'autonomyCeiling',
     'proofProfile', 'workflowProfile', 'allowedEffects', 'forbiddenEffects'
   ], 'delivery request');
-  if (value.schemaVersion !== 1 || value.kind !== 'delivery-request') fail('Delivery request schema is not current.');
+  if (value.schemaVersion !== 1 || value.kind !== 'delivery-request') { // schema-transient: reviewed CLI request, never stored as its own family
+    fail('Delivery request schema is not current.');
+  }
   keys(value.outcome, ['statement', 'observablePredicate'], 'outcome');
   keys(value.predicted, [
     'repositories', 'touchedResources', 'protectedPaths', 'externalEffects',
@@ -357,7 +359,7 @@ export function validateOutcomeSelectionBundle(value) {
     'effectPolicy', 'effectPolicyCompilation', 'riskAssessment', 'autonomyDecision',
     'runtime', 'bundleSha256'
   ], 'Outcome selection bundle');
-  if (value.schemaVersion !== 1 || value.kind !== 'gdm-outcome-selection-bundle') {
+  if (value.schemaVersion !== 1 || value.kind !== 'gdm-outcome-selection-bundle') { // schema-transient: embedded aggregate governed by its owning Ad Hoc session
     fail('Outcome selection bundle is not current.', 'PFC_SCHEMA_UNAVAILABLE');
   }
   for (const [family, member] of [

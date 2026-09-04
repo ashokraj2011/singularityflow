@@ -18,6 +18,7 @@ import {
 } from '../delivery-modes/promotion.mjs';
 import { evaluateLocalHermeticEvidence } from '../delivery-modes/high-assurance.mjs';
 import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
+import { buildGdpReadiness } from '../delivery-modes/readiness.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
@@ -290,6 +291,23 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'readiness') {
+    const providerFile = optionString(options, 'provider-file');
+    const readiness = buildGdpReadiness({
+      platform: process.platform, architecture: process.arch, nodeVersion: process.version,
+      providerConfiguration: providerFile
+        ? await jsonFile(root, providerFile, 'Provenance provider file') : null
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.readiness', classification: 'read' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.readiness-reported', {
+        status: readiness.status, blockers: readiness.blockers.length,
+        gaReady: readiness.gaReady
+      }),
+      effects: effects(), restState: 'informational', data: readiness
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'recommend') {
     const request = normalizeDeliveryRequest(await jsonFile(
       root, optionString(options, 'request-file'), 'Delivery request file'
@@ -317,7 +335,8 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   if (action !== 'select') throw new SingularityFlowError(
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
-      + 'delivery promotion-status, delivery assurance-evaluate, or delivery provenance-status.',
+      + 'delivery promotion-status, delivery assurance-evaluate, delivery provenance-status, '
+      + 'or delivery readiness.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
   const envelope = await jsonFile(root, optionString(options, 'plan'), 'Delivery plan');

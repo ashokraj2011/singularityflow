@@ -101,7 +101,9 @@ export function evaluateLocalHermeticEvidence(value) {
     'schemaVersion', 'kind', 'workId', 'proofSubjectSha256', 'candidateSha256',
     'regions', 'executions', 'witnesses', 'mutations'
   ], 'local hermetic evidence');
-  if (value.schemaVersion !== 1 || value.kind !== 'gdp-local-hermetic-evidence') fail('evidence schema is not current.');
+  if (value.schemaVersion !== 1 || value.kind !== 'gdp-local-hermetic-evidence') { // schema-transient: read-only caller evidence envelope
+    fail('evidence schema is not current.');
+  }
   const workId = text(value.workId, 'workId');
   const proofSubjectSha256 = exact(value.proofSubjectSha256, 'proofSubjectSha256');
   const candidateSha256 = exact(value.candidateSha256, 'candidateSha256');

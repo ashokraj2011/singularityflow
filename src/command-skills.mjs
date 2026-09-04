@@ -105,6 +105,7 @@ const entries = {
   comprehension: ['sf-inspect'],
   change: ['sf-inspect'],
   proof: ['sf-inspect'],
+  delivery: ['sf-inspect', 'sf-adhoc'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
   reopen: ['sf-reject'],

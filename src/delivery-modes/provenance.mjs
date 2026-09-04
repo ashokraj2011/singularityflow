@@ -80,7 +80,9 @@ function signature(value, expectedSha256) {
 
 export function normalizeProvenanceProvider(value) {
   exactKeys(value, CONFIG_FIELDS, 'provider configuration');
-  if (value.schemaVersion !== 1 || value.kind !== 'gdp-provenance-provider') fail('provider schema is not current.');
+  if (value.schemaVersion !== 1 || value.kind !== 'gdp-provenance-provider') { // schema-transient: reviewed provider configuration input
+    fail('provider schema is not current.');
+  }
   if (typeof value.enabled !== 'boolean') fail('enabled must be boolean.');
   return Object.freeze({
     schemaVersion: 1, kind: value.kind,

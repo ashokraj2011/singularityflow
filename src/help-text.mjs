@@ -402,6 +402,16 @@ Usage:
   singularity-flow change show [WORK-ID] --shadow [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof status|gaps|signals [WORK-ID] [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
   singularity-flow proof explain [WORK-ID] <PREDICATE-ID> [--proof-profile standard|high-assurance|regulated|custom-registered] [--json]
+  singularity-flow delivery recommend --request-file FILE [--json]
+  singularity-flow delivery select --plan FILE --confirm-plan SHA256 --mode outcome [--json]
+  singularity-flow delivery workflow-status [WORK-ID] [--proof-profile PROFILE] [--json]
+  singularity-flow delivery execution-status <PROCESS-ID> [--work-id WORK-ID] [--proof-profile PROFILE] [--json]
+  singularity-flow delivery promotion-preview <SESSION-ID> --workflow feature|bugfix --work-id WORK-ID [--json]
+  singularity-flow delivery promotion-apply --plan FILE --confirm-plan SHA256 [--json]
+  singularity-flow delivery promotion-status <SESSION-ID> [--json]
+  singularity-flow delivery assurance-evaluate --evidence-file FILE [--json]
+  singularity-flow delivery provenance-status [--provider-file FILE] [--json]
+  singularity-flow delivery readiness [--provider-file FILE] [--json]
   singularity-flow agents list
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]

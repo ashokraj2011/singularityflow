@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 and GDP-M1 implemented; later milestones remain planning only
+**Status:** GDP-M0 through GDP-M2 implemented; later milestones remain planning only
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -178,7 +178,25 @@ Exit evidence:
 
 Rollback boundary: disable the projection reader; no durable GDP records exist yet.
 
-### [ ] GDP-M2 — Shadow Change Passport
+### [x] GDP-M2 — Shadow Change Passport
+
+**Implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M2-SHADOW-PASSPORT.md`](GDP-M2-SHADOW-PASSPORT.md)
+
+Delivered:
+
+- registered only immutable v1 `proof-subject` and `change-passport` identities in MIG;
+- added a deterministic, path-free in-memory Passport projection over verified M1 compatibility
+  records and existing Candidates;
+- exposed `change show [WORK-ID] --shadow` as an explicit read-only, never-model command;
+- added the final, non-primary **Shadow Passport** tab to VS Code Diagnostics and `/sf-inspect`
+  routing in Copilot;
+- retained missing Candidate, policy, proof, AST, and World Model facts as non-authoritative gaps;
+- added closed privacy-safe comparison summaries, 64 KiB output admission, 256-reference ceilings,
+  schema/current-version checks, and reviewed lifecycle goldens.
+
+No gate, approval, lifecycle writer, recovery service, or publisher consumes the M2 records.
 
 **Planning range:** 2–3 person-weeks  
 **Depends on:** GDP-M1 and the SGOS Candidate contract

@@ -1637,6 +1637,18 @@ function family({
 }
 
 const families = [
+  // GDP-M2 registers only the two immutable identities needed by the opt-in shadow Passport.
+  // The M2 reader creates these records in memory and never writes them; the paths reserve the
+  // eventual governed subject locations so a future durable writer cannot invent another layout.
+  // Version 1 is the explicit no-predecessor boundary required for frozen semantic identities.
+  family({
+    id: 'proof-subject', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-subject\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'change-passport', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/change-passport\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

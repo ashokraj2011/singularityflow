@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-m2-shadow-golden-corpus",
+  "cases": [
+    {
+      "id": "active-workflow",
+      "status": "candidate-ready",
+      "proofSubjectSha256": "sha256:1439785e199ecb86e89ce34f75e821702afee1401f1329d8fcffb76d64dcecf8",
+      "passportSha256": "sha256:405ef1179e2c9b92673b26c63d326cdfc863327fa5c4c06a99c7b2c3e54acd69",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "completed-workflow",
+      "status": "published",
+      "proofSubjectSha256": "sha256:b677239422ec4be9d63d7b45ced52135870627e8f629f9dcb03cbc835c17fe5f",
+      "passportSha256": "sha256:d5d5a25bfc25fb1e7eef96c541736e6218c7ae1873cd4387d807c8eb2bce1584",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "reopened-workflow",
+      "status": "candidate-ready",
+      "proofSubjectSha256": "sha256:b3183dc6ebbdcf88233fe0596e379f6d863fcf72ce25fdcc1b6ad9d7413ec220",
+      "passportSha256": "sha256:f064c52881054001d5d1bda2633a93c3ec56fad8b9425046913b45af53a58ec7",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "cancelled-adhoc",
+      "status": "cancelled",
+      "proofSubjectSha256": "sha256:dfd81bf4d05c0cb56a32cf55928e51ff0d2ef083338ba74fc953678e719cedb4",
+      "passportSha256": "sha256:bb026dfbea0d6e0807431d63d10bfe1157f1e81266e6e47cbf2175d4fbba92e2",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "interrupted-auto",
+      "status": "recovery-required",
+      "proofSubjectSha256": "sha256:926922ad73abbbd81864cb52e6c5f65e4233c69ac4fd36dbc637e6eb5b6dcc97",
+      "passportSha256": "sha256:9279d640c02f0e1b52ae31cf096ec66740ffab583ea4e5525f0227ee072446e0",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "partially-published-workflow",
+      "status": "publication-pending",
+      "proofSubjectSha256": "sha256:d1c7b13326b172b960efd3b02eaa2280c8373f8741b8b75067bc2b8135ef2a84",
+      "passportSha256": "sha256:882c617a141c284b6358e888f38ca936f5c01c682fd6699dbebc75a46e9651f0",
+      "comparisonCategory": "aligned"
+    },
+    {
+      "id": "running-sgos",
+      "status": "candidate-ready",
+      "proofSubjectSha256": "sha256:7ac046fc4b7c482c6d317ca1dae50186a7438b55c8002dc6b25add04ecd1af1b",
+      "passportSha256": "sha256:7129f5a6b8f0b55b4b9be96a1a2d059dd3efc96ec7d7d69d5cc38e854c56bed5",
+      "comparisonCategory": "aligned"
+    }
+  ]
+}

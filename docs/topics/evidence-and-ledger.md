@@ -1,7 +1,7 @@
 ---
 id: evidence-and-ledger
 title: Evidence, the ledger, and traceability
-version: 7
+version: 8
 aliases:
   - ledger
   - worldline
@@ -12,6 +12,7 @@ commands:
   - receipt
   - spec
   - comprehension
+  - change
 related:
   - approvals
   - impact-framework
@@ -20,15 +21,17 @@ Everything consequential is hash-linked: artifacts, inputs, approvals, checks, r
 
 The first comprehension pilot is deliberately read-only. `sflow comprehension regions` derives conservative, material resource regions from the existing exact repository change set; `sflow comprehension check` evaluates bounded caller-supplied cause bindings and dispositions as untrusted diagnostics without writing, approving, publishing, or invoking a model. The compatibility subject is not the universal Candidate, and this pilot cannot mint authority or authorize publication. A result at resource granularity is observational evidence, not semantic proof. Enforcement remains unavailable until ordinary Story delivery and SGOS share one universal Candidate authority.
 
+GDP-M2 adds an equally bounded shadow view: `sflow change show <WORK-ID> --shadow`. It derives an in-memory Proof Subject and Change Passport only when an existing exact Candidate is available. The view shows legacy policy projections, evidence availability, World Model status, known gaps, provenance hashes, and a privacy-safe lifecycle comparison. It never writes the records or allows a gate, approval, publisher, or lifecycle decision to consume them. Missing World Model or AST remains visible and non-blocking.
+
 ## Purpose and prerequisites
 
 Use this topic when the current goal matches **evidence and ledger**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
 ## Use it from each surface
 
-- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, or `sflow comprehension check`. Run the command with `--help` for the exact forms supported by this build.
-- **Copilot:** `/sf-ledger` for durable evidence, or `/sf-inspect comprehension` for the read-only CMP pilot. The skill must preserve the CLI result and ask before any governed mutation.
-- **VS Code:** there is no CMP-specific panel in this pilot. Existing Lifecycle views remain unchanged; a leased Comprehension Center is planned only after kernel authority integration.
+- **Shell:** `sflow ledger`, `sflow receipt show`, `sflow spec`, `sflow comprehension regions`, `sflow comprehension check`, or `sflow change show <WORK-ID> --shadow`. Run the command with `--help` for the exact forms supported by this build.
+- **Copilot:** `/sf-ledger` for durable evidence, `/sf-inspect comprehension` for the CMP pilot, or `/sf-inspect <WORK-ID> passport` for the M2 shadow Passport. The skill must preserve the CLI result and ask before any governed mutation.
+- **VS Code:** open Diagnostics and select the final **Shadow Passport** tab. It is intentionally secondary; existing Lifecycle views remain authoritative and unchanged.
 
 ## Guided workflow
 

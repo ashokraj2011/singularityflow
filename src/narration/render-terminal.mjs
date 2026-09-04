@@ -170,6 +170,23 @@ function comprehensionText(result) {
   return [style.heading(headline(result)), preservationLine(result)].filter(Boolean).join('\n\n');
 }
 
+function shadowPassportText(result) {
+  const passport = result.data ?? {};
+  return [
+    style.heading(headline(result)),
+    'Authority: none (read-only diagnostic)',
+    `Candidate: ${passport.candidate?.candidateSha256 ?? 'unavailable'}`,
+    `Proof Subject: ${passport.records?.proofSubject?.proofSubjectSha256 ?? 'unavailable'}`,
+    `Change Passport: ${passport.records?.passport?.passportSha256 ?? 'unavailable'}`,
+    `Legacy comparison: ${passport.comparison?.category ?? 'unavailable'}`,
+    `World Model: ${passport.worldModel?.status ?? 'unavailable'} (never blocking in this view)`,
+    '', style.heading('Known gaps:'),
+    ...(passport.gaps ?? []).map((gap) => `  - ${gap.code} · ${gap.status}: ${gap.message}`),
+    '', style.detail('This shadow record is not consumed by a gate, approval, publisher, or lifecycle decision.'),
+    style.detail(preservationLine(result))
+  ].filter(Boolean).join('\n');
+}
+
 const REST_STATE_LINES = Object.freeze({
   complete: 'This work is complete. There is nothing further to do.',
   cancelled: 'This work is cancelled and archived.',
@@ -188,6 +205,7 @@ export function renderCommandResult(result) {
     ].filter(Boolean).join('\n');
   }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
+  if (result.operation.id === 'change.show.shadow') return shadowPassportText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {
     return approvalChainText(result.data.approvalChain).trimEnd();

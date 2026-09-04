@@ -168,6 +168,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Comprehension assessment: ${slot(s.verdict)} with ${slot(s.unresolved, '0')} unresolved material region(s).`,
     preserves: true
   },
+  'change.shadow-reported': {
+    headline: (s) => `Shadow Change Passport for ${slot(s.workId)} is ${slot(s.status)} with ${slot(s.gaps, '0')} explicit gap(s).`,
+    preserves: true
+  },
   'resume.succeeded': {
     headline: (s) => `Resumed ${slot(s.workId)} on ${slot(s.branch)}.`,
     preserves: false

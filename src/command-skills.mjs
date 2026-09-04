@@ -103,6 +103,7 @@ const entries = {
   submit: ['sf-submit'],
   clarification: ['sf-phase'],
   comprehension: ['sf-inspect'],
+  change: ['sf-inspect'],
   approve: ['sf-approve'],
   reject: ['sf-reject'],
   reopen: ['sf-reject'],

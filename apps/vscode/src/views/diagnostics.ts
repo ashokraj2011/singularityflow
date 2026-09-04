@@ -7,12 +7,25 @@ import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter } from './messages.ts';
 import { SCHEMA_REMEDIES, schemaRecordRemedy } from './surface-contracts.ts';
 
-type Tab = 'repository' | 'capabilities' | 'workspace' | 'schema';
+type Tab = 'repository' | 'capabilities' | 'workspace' | 'schema' | 'passport';
 interface Check { id?: string; status?: string; state?: string; title?: string; message?: string; detail?: string; remedy?: string }
 interface SchemaRecord { family?: string; path?: string; storedVersion?: number; schemaVersion?: number; error?: string; reason?: string }
 interface SchemaFamily { family?: string; currentVersion?: number; readable?: { minimum?: number; maximum?: number }; records?: number; versions?: Record<string, number> | Array<{ version?: number; count?: number }>; outsideRange?: SchemaRecord[]; unreadable?: SchemaRecord[] }
 interface SchemaCensus { scanned?: number; scannedFiles?: number; truncated?: boolean; healthy?: boolean; totals?: Record<string, number>; families?: SchemaFamily[]; unregistered?: SchemaRecord[]; unreadable?: SchemaRecord[] }
 interface DoctorResult { healthy?: boolean; repository?: string; branch?: string; head?: string; workId?: string | null; checks?: Check[]; schemaCensus?: SchemaCensus }
+interface ShadowGap { code?: string; status?: string; message?: string }
+interface ShadowPassport {
+  mode?: string; authority?: string; status?: string;
+  subject?: { kind?: string; id?: string };
+  candidate?: { status?: string; candidateSha256?: string | null };
+  records?: { proofSubject?: { proofSubjectSha256?: string }; passport?: { passportId?: string; passportSha256?: string } } | null;
+  policies?: { status?: string; proofProfile?: { value?: string; status?: string } };
+  evidence?: { status?: string; proofSummarySha256?: string | null; decisionRefs?: string[]; publicationRefs?: string[] };
+  worldModel?: { status?: string; reasonCode?: string | null };
+  gaps?: ShadowGap[];
+  comparison?: { category?: string; explained?: boolean; legacyLifecycleStatus?: string; shadowStatus?: string };
+  guarantees?: { consumedByLifecycle?: boolean; noWrites?: boolean; noModel?: boolean; worldModelRequired?: boolean };
+}
 
 const SCRIPT = `
   const vscode = window.__sfVscode;
@@ -54,20 +67,35 @@ export function schemaHealth(census: SchemaCensus | null | undefined): string {
     <div class="callout"><h3>Exact remedies</h3><ul><li><strong>Future version:</strong> ${escape(SCHEMA_REMEDIES.future)}</li><li><strong>Older unreadable version:</strong> ${escape(SCHEMA_REMEDIES.older)}</li><li><strong>Unregistered family:</strong> ${escape(SCHEMA_REMEDIES.unregistered)}</li></ul></div></section>`;
 }
 
-export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capabilities: unknown, workspace: unknown, errors: Partial<Record<Tab, string>>): string {
-  const tabs: Array<[Tab, string]> = [['repository', 'Repository'], ['capabilities', 'Capabilities'], ['workspace', 'Workspace Reliability'], ['schema', 'Schema Health']];
+function digestLabel(value: unknown): string {
+  const source = typeof value === 'string' ? value : '';
+  return /^sha256:[a-f0-9]{64}$/.test(source) ? `${source.slice(0, 19)}…` : 'unavailable';
+}
+
+export function shadowPassportHealth(passport: ShadowPassport | null | undefined): string {
+  if (!passport) return '<div class="empty"><p>No active Story is available for the optional shadow Passport diagnostic.</p></div>';
+  const gaps = list<ShadowGap>(passport.gaps);
+  return `<section class="warning"><strong>Diagnostic only — no authority</strong><p>This GDP-M2 shadow view is read-only. Gates, approvals, publishers, and lifecycle decisions do not consume it.</p></section>
+  <section class="plain"><div class="summary-grid"><div class="summary-card"><strong>${escape(passport.status ?? 'unavailable')}</strong><span>shadow status</span></div><div class="summary-card"><strong>${escape(passport.subject?.id ?? 'No Story')}</strong><span>${escape(passport.subject?.kind ?? 'subject')}</span></div><div class="summary-card"><strong>${escape(passport.comparison?.category ?? 'unavailable')}</strong><span>legacy comparison</span></div><div class="summary-card"><strong>${escape(passport.worldModel?.status ?? 'unavailable')}</strong><span>World Model · never blocking</span></div></div></section>
+  <section><h2>Identity</h2><div class="table-wrap"><table><tbody><tr><th>Candidate</th><td><code>${escape(digestLabel(passport.candidate?.candidateSha256))}</code></td></tr><tr><th>Proof Subject</th><td><code>${escape(digestLabel(passport.records?.proofSubject?.proofSubjectSha256))}</code></td></tr><tr><th>Change Passport</th><td><code>${escape(digestLabel(passport.records?.passport?.passportSha256))}</code></td></tr><tr><th>Proof profile</th><td>${escape(passport.policies?.proofProfile?.value ?? 'standard')} · ${escape(passport.policies?.proofProfile?.status ?? 'shadow')}</td></tr><tr><th>Evidence</th><td>${escape(passport.evidence?.status ?? 'unavailable')} · Proof Summary ${passport.evidence?.proofSummarySha256 ? escape(digestLabel(passport.evidence.proofSummarySha256)) : 'unavailable'}</td></tr></tbody></table></div></section>
+  <section><h2>Known gaps</h2>${gaps.length ? `<ul>${gaps.map((gap) => `<li><strong>${escape(gap.code ?? 'GDP_GAP')}</strong> · ${escape(gap.status ?? 'unavailable')} · ${escape(bounded(gap.message ?? '', 500))}</li>`).join('')}</ul>` : '<p>No shadow gaps were reported.</p>'}</section>`;
+}
+
+export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capabilities: unknown, workspace: unknown, passport: ShadowPassport | null, errors: Partial<Record<Tab, string>>): string {
+  const tabs: Array<[Tab, string]> = [['repository', 'Repository'], ['capabilities', 'Capabilities'], ['workspace', 'Workspace Reliability'], ['schema', 'Schema Health'], ['passport', 'Shadow Passport']];
   const error = errors[tab];
   const body = tab === 'repository' ? `${repository ? `<section class="plain"><div class="summary-grid"><div class="summary-card ${repository.healthy ? '' : 'important'}"><strong>${repository.healthy ? 'Healthy' : 'Needs attention'}</strong><span>repository</span></div><div class="summary-card"><strong>${escape(repository.branch ?? '—')}</strong><span>branch</span></div><div class="summary-card"><strong>${escape(repository.workId ?? 'No active work')}</strong><span>work item</span></div></div></section>${checks(repository.checks)}` : '<div class="empty"><p>No governed repository is selected. Workspace and capability diagnostics remain available.</p></div>'}`
     : tab === 'capabilities' ? checks(genericChecks(capabilities))
-      : tab === 'workspace' ? checks(genericChecks(workspace)) : schemaHealth(repository?.schemaCensus);
-  return `<header><p class="eyebrow">Help</p><h1>${icon('statusCurrent', { size: 24 })} Diagnostics</h1><p class="meta">Repository, capability, workspace-reliability, and schema compatibility checks in one read-only view.</p></header>
+      : tab === 'workspace' ? checks(genericChecks(workspace))
+        : tab === 'schema' ? schemaHealth(repository?.schemaCensus) : shadowPassportHealth(passport);
+  return `<header><p class="eyebrow">Help</p><h1>${icon('statusCurrent', { size: 24 })} Diagnostics</h1><p class="meta">Repository, capability, workspace-reliability, schema compatibility, and optional shadow Passport checks in one read-only view.</p></header>
     <nav class="tabs" aria-label="Diagnostic scopes">${tabs.map(([id, label]) => `<button class="${id === tab ? 'active' : ''}" data-message="tab" data-tab="${id}">${label}</button>`).join('')}</nav>
     <p class="card-foot"><button class="secondary" data-message="refresh">Run diagnostics again</button></p>${error ? `<section class="warning"><strong>${escape(tab)} diagnostics unavailable</strong><p>${escape(error)}</p></section>` : ''}${body}`;
 }
 
 export class DiagnosticsPanel {
   private static current: DiagnosticsPanel | null = null;
-  private tab: Tab = 'repository'; private repository: DoctorResult | null = null; private capabilities: unknown = null; private workspace: unknown = null;
+  private tab: Tab = 'repository'; private repository: DoctorResult | null = null; private capabilities: unknown = null; private workspace: unknown = null; private passport: ShadowPassport | null = null;
   private errors: Partial<Record<Tab, string>> = {};
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
@@ -85,20 +113,21 @@ export class DiagnosticsPanel {
   }
   static refreshCurrent(): void { if (DiagnosticsPanel.current) void DiagnosticsPanel.current.refresh(); }
   private router = registerMessageRouter('singularityFlow.diagnostics', {
-    tab: (m) => { const tab = enumField(m, 'tab', ['repository', 'capabilities', 'workspace', 'schema'] as const); if (tab) { this.tab = tab; this.render(); } },
+    tab: (m) => { const tab = enumField(m, 'tab', ['repository', 'capabilities', 'workspace', 'schema', 'passport'] as const); if (tab) { this.tab = tab; this.render(); } },
     refresh: () => { void this.refresh(); }
   });
   async refresh(): Promise<void> {
     this.errors = {};
     const read = async (tab: Tab, args: string[]): Promise<unknown> => { try { return commandData(await this.client.run(args)); } catch (error) { this.errors[tab] = (error as Error).message; return null; } };
-    const [repository, capabilities, workspace] = await Promise.all([
+    const [repository, capabilities, workspace, passport] = await Promise.all([
       this.hasRepository() ? read('repository', ['doctor', '--offline', '--json']) : null,
       read('capabilities', ['capabilities', 'doctor', '--offline', '--json']),
-      read('workspace', ['workspace', 'doctor', '--json'])
+      read('workspace', ['workspace', 'doctor', '--json']),
+      this.hasRepository() ? read('passport', ['change', 'show', '--shadow', '--json']) : null
     ]);
-    this.repository = repository as DoctorResult | null; this.capabilities = capabilities; this.workspace = workspace;
+    this.repository = repository as DoctorResult | null; this.capabilities = capabilities; this.workspace = workspace; this.passport = passport as ShadowPassport | null;
     if (this.errors.repository) this.errors.schema = this.errors.repository;
     this.render();
   }
-  private render(): void { const token = nonce(); this.panel.webview.html = page('Diagnostics', diagnosticsBody(this.tab, this.repository, this.capabilities, this.workspace, this.errors), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'doctor' }); }
+  private render(): void { const token = nonce(); this.panel.webview.html = page('Diagnostics', diagnosticsBody(this.tab, this.repository, this.capabilities, this.workspace, this.passport, this.errors), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'doctor' }); }
 }

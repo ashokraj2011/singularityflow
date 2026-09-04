@@ -1,10 +1,14 @@
 {
   "schemaVersion": 1,
   "kind": "gdp-contract-family-catalog",
-  "status": "design-only-not-mig-registered",
+  "status": "m2-shadow-two-families-mig-registered",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "migrationOwner": "MIG",
   "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
+  "runtimeRegisteredFamilies": [
+    "proof-subject",
+    "change-passport"
+  ],
   "pathTemplates": {
     "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",
     "evidence": "singularity/work-items/<WORK-ID>/gdp/evidence/<family>/<sha256>.json",
@@ -83,6 +87,15 @@
       "writer": "gdm-autonomy-service",
       "storagePlane": "decision",
       "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "proof-subject",
+      "classification": "semantic-content",
+      "authorityOwner": "pfc-subject-builder",
+      "writer": "pfc-subject-builder",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M2",
       "immutable": true
     },
     {

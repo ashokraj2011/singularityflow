@@ -114,7 +114,7 @@ function mutate(record, dottedPath, value) {
   return copy;
 }
 
-test('GDP M0 freezes five closed acyclic design shapes without activating a runtime family', async () => {
+test('GDP M0 frozen shapes remain closed as M2 activates only its two runtime identities', async () => {
   const schema = await json(schemaPath);
   const chain = await json(path.join(fixtureRoot, 'valid-chain.json'));
   const definitions = definitionByKind(schema);
@@ -131,7 +131,9 @@ test('GDP M0 freezes five closed acyclic design shapes without activating a runt
     const definition = definitions.get(record.kind);
     assert.equal(definition.additionalProperties, false, record.kind);
     assert.equal(record[definition['x-sflow-selfHash']], semanticHash(definition, record), record.kind);
-    assert.equal(productionFamilies.has(record.kind), false, `${record.kind} was activated in MIG during M0`);
+    assert.equal(productionFamilies.has(record.kind),
+      ['proof-subject', 'change-passport'].includes(record.kind),
+      `${record.kind} has the wrong runtime registration state after M2`);
   }
 
   assert.equal(chain.predicateResult.proofSubjectSha256, chain.proofSubject.proofSubjectSha256);
@@ -163,7 +165,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   const expected = [
     'delivery-selection', 'delivery-recommendation', 'delivery-mode-transition',
     'completion-contract', 'effect-policy', 'effect-policy-compilation', 'change-risk-assessment',
-    'autonomy-decision', 'change-passport', 'workflow-checkpoint-satisfaction',
+    'autonomy-decision', 'proof-subject', 'change-passport', 'workflow-checkpoint-satisfaction',
     'agent-execution-binding', 'agent-steering-decision', 'agent-execution-checkpoint',
     'proof-profile-selection', 'proof-predicate-specification', 'proof-predicate-result',
     'proof-evaluation-receipt', 'proof-signal-observation', 'proof-summary',
@@ -175,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'design-only-not-mig-registered');
+  assert.equal(catalog.status, 'm2-shadow-two-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -185,6 +187,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
     'semantic-content', 'operational-receipt', 'signal', 'gap', 'decision', 'projection'
   ]);
   const productionFamilies = new Set(migrationRegistrySnapshot().map((family) => family.id));
+  assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), ['change-passport', 'proof-subject']);
   for (const family of catalog.families) {
     assert.match(family.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
     assert.ok(classifications.has(family.classification), family.id);
@@ -193,7 +196,8 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
     assert.ok(Object.hasOwn(catalog.pathTemplates, family.storagePlane), family.id);
     assert.match(family.firstMilestone, /^GDP-M(?:[2-9]|10)$/);
     assert.equal(family.immutable, true, family.id);
-    assert.equal(productionFamilies.has(family.id), false, `${family.id} is prematurely MIG-registered`);
+    assert.equal(productionFamilies.has(family.id), catalog.runtimeRegisteredFamilies.includes(family.id),
+      `${family.id} has the wrong MIG registration state`);
   }
 });
 

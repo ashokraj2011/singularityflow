@@ -158,15 +158,17 @@ test('GDP M1 rejects unknown sources and malformed recovery instead of inventing
   assert.ok(unknownStatus.gaps.some((entry) => entry.code === 'GDP_LIFECYCLE_STATUS_UNAVAILABLE'));
 });
 
-test('GDP M1 installs every GDP feature default off and registers no durable family', async () => {
+test('GDP M1 defaults remain off while GDP M2 registers only its two shadow identities', async () => {
   assert.ok(Object.isFrozen(GDP_FEATURE_DEFAULTS));
   assert.ok(Object.values(GDP_FEATURE_DEFAULTS).every((value) => value === false));
   const inventory = await json('docs/contracts/gdp/compatibility-inventory.json');
   assert.deepEqual(inventory.featureDefaults, GDP_FEATURE_DEFAULTS);
   const GDP_FAMILIES = (await json('docs/contracts/gdp/record-family-catalog.json')).families
     .map((entry) => entry.id);
-  const registered = new Set(migrationRegistrySnapshot().map((entry) => entry.family));
-  assert.deepEqual(GDP_FAMILIES.filter((family) => registered.has(family)), []);
+  const registered = new Set(migrationRegistrySnapshot().map((entry) => entry.id));
+  assert.deepEqual(GDP_FAMILIES.filter((family) => registered.has(family)).sort(), [
+    'change-passport', 'proof-subject'
+  ]);
 });
 
 test('GDP M1 inventory resolves every owner path and covers every projection adapter once', async () => {

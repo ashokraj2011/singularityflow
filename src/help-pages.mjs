@@ -196,6 +196,30 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['spec', 'receipt', 'review', 'explain']
   },
+  change: {
+    summary: 'Inspect the opt-in GDP-M2 shadow Change Passport for an existing Candidate.',
+    description: [
+      'The M2 surface derives a path-free Proof Subject and Change Passport from verified legacy',
+      'Story and Candidate state. It is read-only, model-free, bounded, and deliberately secondary.',
+      'The shadow records grant no authority and are not persisted or consumed by gates, approvals,',
+      'publishers, recovery, or lifecycle decisions. Missing Candidate, proof, World Model, or policy',
+      'authority is shown as an explicit gap; none is silently upgraded.',
+      '',
+      'Use the explicit --shadow flag because the ordinary Change Passport command family remains',
+      'reserved for later GDP milestones. In VS Code, the same data appears as the final, non-primary',
+      'Shadow Passport tab in Diagnostics.'
+    ],
+    options: [
+      ['--shadow', 'Opt into the GDP-M2 non-authoritative diagnostic. Required.'],
+      ['--proof-profile PROFILE', 'Choose the shadow comparison profile; the choice is labelled non-authoritative.'],
+      ['--json', 'Emit the bounded, path-free diagnostic and its reproducible hashes.']
+    ],
+    examples: [
+      ['singularity-flow change show WRK-123 --shadow --json', 'Inspect one existing Candidate without writing or changing lifecycle state.'],
+      ['singularity-flow change show --shadow', 'Resolve the Story from the current governed branch and render its known gaps.']
+    ],
+    seeAlso: ['comprehension', 'candidate', 'status', 'doctor']
+  },
   adhoc: {
     summary: 'Start with local work and later land it through an exact reverse-converged record.',
     description: [

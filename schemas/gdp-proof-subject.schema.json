@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-proof-subject.schema.json",
+  "title": "GDP Proof Subject v1",
+  "$comment": "GDP-M2 immutable identity. Registration does not authorize persistence or lifecycle use.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "kind", "workId", "candidateSha256", "completionContractSha256",
+    "effectPolicySha256", "proofPolicySha256", "proofProfile", "worldModel",
+    "proofSubjectSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "proof-subject" },
+    "workId": { "$ref": "#/$defs/boundedId" },
+    "candidateSha256": { "$ref": "#/$defs/digest" },
+    "completionContractSha256": { "$ref": "#/$defs/digest" },
+    "effectPolicySha256": { "$ref": "#/$defs/digest" },
+    "proofPolicySha256": { "$ref": "#/$defs/digest" },
+    "proofProfile": { "enum": ["standard", "high-assurance", "regulated", "custom-registered"] },
+    "worldModel": { "$ref": "#/$defs/worldModelBinding" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "x-sflow-selfHash": "proofSubjectSha256",
+  "x-sflow-semanticFields": [
+    "schemaVersion", "kind", "workId", "candidateSha256", "completionContractSha256",
+    "effectPolicySha256", "proofPolicySha256", "proofProfile", "worldModel"
+  ],
+  "$defs": {
+    "boundedId": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[^\\u0000-\\u001f\\u007f]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "reasonCode": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^[A-Z0-9]+(?:_[A-Z0-9]+)*$" },
+    "worldModelBinding": {
+      "type": "object",
+      "required": ["status", "baselineSha256", "candidateDeltaSha256", "reasonCode"],
+      "properties": {
+        "status": { "enum": ["ready", "unavailable", "not-required"] },
+        "baselineSha256": { "$ref": "#/$defs/nullableDigest" },
+        "candidateDeltaSha256": { "$ref": "#/$defs/nullableDigest" },
+        "reasonCode": { "oneOf": [{ "$ref": "#/$defs/reasonCode" }, { "type": "null" }] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

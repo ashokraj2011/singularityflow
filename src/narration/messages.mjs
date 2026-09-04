@@ -25,6 +25,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Outcome work ${slot(s.workId)} started in Ad Hoc session ${slot(s.sessionId)}.`,
     preserves: false
   },
+  'delivery.workflow-reported': {
+    headline: (s) => `Workflow delivery view for ${slot(s.workId)} (${slot(s.profile)}; ${slot(s.checkpoints, '0')} checkpoint(s)).`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

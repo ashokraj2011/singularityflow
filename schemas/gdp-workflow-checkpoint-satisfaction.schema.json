@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-workflow-checkpoint-satisfaction.schema.json",
+  "title": "GDP Workflow Checkpoint Satisfaction v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "workflowProfile", "phaseId", "generation", "phaseStatus", "status", "sourceRecordSha256", "completionContractSha256", "proofSubjectSha256", "inputs", "gaps", "satisfactionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "workflow-checkpoint-satisfaction" },
+    "workId": { "$ref": "#/$defs/id" },
+    "workflowProfile": { "enum": ["feature", "bugfix"] },
+    "phaseId": { "$ref": "#/$defs/id" },
+    "generation": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "phaseStatus": { "$ref": "#/$defs/id" },
+    "status": { "enum": ["satisfied", "pending", "unavailable", "not-applicable"] },
+    "sourceRecordSha256": { "$ref": "#/$defs/digest" },
+    "completionContractSha256": { "$ref": "#/$defs/digest" },
+    "proofSubjectSha256": { "$ref": "#/$defs/nullableDigest" },
+    "inputs": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/input" } },
+    "gaps": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "$ref": "#/$defs/reason" } },
+    "satisfactionSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "x-sflow-selfHash": "satisfactionSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "reason": { "type": "string", "minLength": 1, "maxLength": 96, "pattern": "^[A-Z0-9]+(?:_[A-Z0-9]+)*$" },
+    "input": { "type": "object", "required": ["role", "sha256"], "properties": { "role": { "enum": ["artifact", "phase-input", "grounding", "delivery-evidence", "approval"] }, "sha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false }
+  }
+}

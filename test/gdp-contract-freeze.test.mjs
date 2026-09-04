@@ -177,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm5-outcome-families-mig-registered');
+  assert.equal(catalog.status, 'm6-workflow-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -195,7 +195,8 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
     'impact-disposition', 'impact-should-set', 'nondeterminism-profile',
     'proof-evaluation-receipt', 'proof-evidence-invalidation', 'proof-gap-item',
     'proof-gap-register', 'proof-predicate-result', 'proof-predicate-specification',
-    'proof-profile-selection', 'proof-signal-observation', 'proof-subject', 'proof-summary'
+    'proof-profile-selection', 'proof-signal-observation', 'proof-subject', 'proof-summary',
+    'workflow-checkpoint-satisfaction'
   ]);
   for (const family of catalog.families) {
     assert.match(family.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);

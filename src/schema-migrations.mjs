@@ -1741,6 +1741,10 @@ const families = [
     id: 'autonomy-decision', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/autonomy-decision\/[a-f0-9]{64}\.json$/]
   }),
+  family({
+    id: 'workflow-checkpoint-satisfaction', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/workflow-checkpoint-satisfaction\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

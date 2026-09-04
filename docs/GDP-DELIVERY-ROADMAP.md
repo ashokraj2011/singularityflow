@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M5 implemented; later milestones remain opt-in delivery work
+**Status:** GDP-M0 through GDP-M6 implemented; later milestones remain opt-in delivery work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -368,7 +368,22 @@ Exit evidence:
 Rollback boundary: prevent new Outcome selections and let retained pilots finish or explicitly land
 through the existing Ad Hoc recovery path.
 
-### [ ] GDP-M6 — Workflow Passport and checkpoint compression
+### [x] GDP-M6 — Workflow Passport and checkpoint compression
+
+**Implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M6-WORKFLOW-PASSPORT.md`](GDP-M6-WORKFLOW-PASSPORT.md)
+
+Delivered:
+
+- added an opt-in, read-only `delivery workflow-status <WORK-ID>` projection for creation-pinned
+  Feature and Bugfix workflows;
+- derives the same Completion Contract, Effect Policy, Risk record, Proof Subject, and Change
+  Passport shapes used by Outcome mode when exact inputs are identical;
+- registers immutable Workflow Checkpoint Satisfaction receipts containing only bounded semantic
+  hashes—never artifact content or repository paths;
+- leaves custom, Chore, POC, benchmarking, and Initiative workflows unmapped and creation-pinned;
+- keeps lifecycle, gates, approvals, publisher, World Model, and AST behavior unchanged.
 
 **Planning range:** 3–5 person-weeks  
 **Depends on:** GDP-M5

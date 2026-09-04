@@ -6,6 +6,8 @@ import {
   buildOutcomeSelectionBundle, normalizeDeliveryRequest, recommendDelivery,
   validateRecommendationPlan
 } from '../delivery-modes/delivery-kernel.mjs';
+import { buildWorkflowDeliveryProjection } from '../delivery-modes/workflow-delivery.mjs';
+import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
@@ -73,6 +75,50 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   const root = repoRoot();
   const definition = await loadDefinition(root);
   const policy = deliveryPolicy(definition);
+  if (action === 'workflow-status') {
+    const workId = positionals?.[2] ?? optionString(options, 'work-id') ?? branch(root);
+    const { workflow, diagnostic } = await resolveShadowPassportDiagnostic(
+      root, definition, workId, { proofProfile: optionString(options, 'proof-profile') ?? 'standard' }
+    );
+    const workflowProfile = workflow.resolution?.workflowId ?? workflow.workItem?.workType;
+    const workflowSha256 = sha(workflow);
+    const projection = buildWorkflowDeliveryProjection({
+      workflow,
+      request: {
+        schemaVersion: 1, kind: 'delivery-request', workId: workflow.workItem.id,
+        outcome: {
+          statement: workflow.workItem.title ?? workflow.workItem.summary ?? `Complete ${workflow.workItem.id}`,
+          observablePredicate: 'All creation-pinned workflow obligations are satisfied.'
+        },
+        acceptanceClauses: [], nonGoals: [],
+        predicted: {
+          repositories: 1, touchedResources: 0, protectedPaths: false,
+          externalEffects: false, credentialUse: false, architectureDecision: false,
+          publicContractChange: false, databaseMigration: false
+        },
+        riskClass: 'unknown', executionProvider: 'governed-agent',
+        executionPace: workflow.executionOrigin?.mode === 'auto' ? 'auto' : 'assisted',
+        autonomyCeiling: 'A2', proofProfile: optionString(options, 'proof-profile') ?? 'standard',
+        workflowProfile, allowedEffects: ['repository-file-write'],
+        forbiddenEffects: ['credential-read', 'external-network']
+      },
+      candidateSha256: diagnostic.candidate.candidateSha256,
+      worldModel: diagnostic.worldModel, sourceRecordSha256: workflowSha256,
+      configurationSha256: configurationIdentity(definition, policy),
+      proofPolicySha256: sha({ profile: 'standard', source: 'installed-gdp-m6' }),
+      gapAcceptancePolicySha256: sha({ mode: 'none', milestone: 'GDP-M6' }),
+      promotionPolicySha256: sha(policy.outcomeBounds)
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.workflow-status', classification: 'read' },
+      subject: { kind: 'story', id: workflow.workItem.id },
+      outcome: succeeded('delivery.workflow-reported', {
+        workId: workflow.workItem.id, profile: workflowProfile,
+        checkpoints: projection.checkpoints.length
+      }),
+      effects: effects(), restState: 'informational', data: projection
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'recommend') {
     const request = normalizeDeliveryRequest(await jsonFile(
       root, optionString(options, 'request-file'), 'Delivery request file'

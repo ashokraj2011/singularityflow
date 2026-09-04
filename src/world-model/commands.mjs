@@ -171,6 +171,31 @@ function scopeOptions(root, config) {
   const policy = config.definition?.worldModel ?? {};
   const activeCapability = configuredWorldModelV4CapabilityId(config)
     ?? path.basename(root);
+  const pinnedCapability = config.workflow?.resolution?.capability ?? null;
+  const repositoryCapability = config.repositoryCapability ?? null;
+  const pinnedHasExactResolution = Boolean(
+    pinnedCapability?.effectiveResolution || pinnedCapability?.resolutionSha256
+  );
+  const selectedCapability = pinnedHasExactResolution
+    ? pinnedCapability
+    : (!pinnedCapability || pinnedCapability.id === repositoryCapability?.id)
+      ? repositoryCapability
+      : pinnedCapability;
+  const effective = selectedCapability?.effectiveResolution ?? null;
+  // Bind every capability component that can alter World-Model scope or trust. The full PCD
+  // resolution also binds the byte-exact approved workflow; excluding that outer digest here keeps
+  // semantically equivalent path spellings and unrelated workflow controls reusable.
+  const effectiveCapabilitySnapshotSha256 = effective
+    ? sha256({
+        repository: effective.repository,
+        capabilityId: effective.capability?.id ?? selectedCapability?.id ?? null,
+        policySha256: effective.policySha256,
+        sourceScopeSha256: effective.sourceScopeSha256,
+        approvalRequirementSha256: effective.approvalRequirementSha256,
+        dependencyContractSha256: effective.dependencyContractSha256,
+        resolver: effective.resolver
+      })
+    : selectedCapability?.resolutionSha256 ?? null;
   const canonicalPatterns = (values, label) => [...new Set(values.map(
     (value, index) => normalizeScopePattern(value, `${label}[${index}]`)
   ))].sort();
@@ -192,6 +217,7 @@ function scopeOptions(root, config) {
     version: 1,
     format: 'registered-v4',
     capabilityId: activeCapability,
+    effectiveCapabilitySnapshotSha256,
     allowedPaths,
     sharedPaths,
     excludedPaths: excluded,

@@ -18,6 +18,7 @@ is not part of the current product.
 | Need | Read |
 |---|---|
 | Install and initialize a repository | [README](../README.md) |
+| Start with one implicit capability and add detail only when needed | [Progressive capability disclosure](PROGRESSIVE-CAPABILITIES.md) |
 | Run a complete Story locally | [Local runbook](../LOCAL-RUNBOOK.md) |
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |

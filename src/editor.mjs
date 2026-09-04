@@ -24,7 +24,10 @@ import { MODEL_TASKS } from './model-tasks.mjs';
 import { templateReferences } from './template-catalog.mjs';
 import { loadModelTiers, MODEL_TIERS_PATH, tierLadder } from './model-tiers.mjs';
 import { documentCatalog, evidenceIsActive } from './documents.mjs';
-import { CAPABILITIES_PATH, capabilityTree, loadCapabilities, validateCapabilities } from './capabilities.mjs';
+import {
+  CAPABILITIES_PATH, capabilityMapMode, capabilityTree, IMPLICIT_CAPABILITY_ID,
+  loadCapabilities, validateCapabilities
+} from './capabilities.mjs';
 import { progressSnapshot } from './progress.mjs';
 import { loadSession, setAgentSession } from './session.mjs';
 import {
@@ -746,11 +749,30 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     // stored form is a flat map with parent pointers and every reader wants the hierarchy. Absent
     // until the lead repository describes itself, which is a normal state rather than a fault.
     capabilityMap: await (async () => {
-      const definition = await loadCapabilities(root);
-      if (!definition) return null;
+      const capabilityDefinition = await loadCapabilities(root);
+      if (!capabilityDefinition) {
+        const repositories = Object.keys(portfolio?.repositories ?? {});
+        const repository = repositories.length === 1 ? repositories[0] : null;
+        return {
+          mode: 'implicit',
+          capabilities: [{
+            id: IMPLICIT_CAPABILITY_ID,
+            name: 'This repository',
+            kind: 'delivery',
+            delivery: true,
+            repository,
+            repositories: repository ? [repository] : [],
+            sourceRoots: [], sharedRoots: [], teams: [], owns: [],
+            policy: {}, effectivePolicy: {}, children: []
+          }]
+        };
+      }
       try {
-        validateCapabilities(definition, portfolio);
-        return { capabilities: capabilityTree(definition) };
+        validateCapabilities(capabilityDefinition, portfolio);
+        return {
+          mode: capabilityMapMode(capabilityDefinition),
+          capabilities: capabilityTree(capabilityDefinition)
+        };
       } catch (error) {
         return { error: error.message };
       }

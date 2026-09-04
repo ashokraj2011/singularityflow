@@ -1,34 +1,24 @@
 ---
 name: sflow-capabilities
-description: Inspect the configured Singularity capability tree and explain the effective inherited policy for a selected capability.
+description: Explain the effective repository capability, ownership, scope, and approvals without requiring a configured hierarchy.
 disable-model-invocation: true
 
 ---
 
-# Singularity Flow capability policy
+# Singularity Flow capabilities
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Return the named CLI command output verbatim; do not elaborate, re-narrate, or hide errors.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-What an organisation builds is one or more capability trees. A capability may be
-top-level or linked under another capability. A **delivery** capability ships from
-one or more repositories; a **collection** groups related capabilities and names no
-repository. Either kind may contain children.
+1. Run `singularity-flow capability show [PATH] --json`. Omit `PATH` for the repository root.
+2. Relay the deterministic owner, permitted Story scope, required people, reason, and resolution digest.
+3. Do not ask for a capability selection when the result is the implicit `repository-root`; call it **This repository**.
+4. Do not calculate ownership, policy, or approvals yourself and do not invoke a model.
+5. Never edit `singularity/capabilities.yml`. For a requested distinction, use the corresponding
+   `/sf-capability-add`, `/sf-capability-protect`, or `/sf-capability-depend` skill. Those commands
+   create review proposals and do not activate them.
 
-1. Run `singularity-flow capabilities list`.
-2. Ask which configured capability to inspect when it is not clear from context.
-3. Run `singularity-flow capabilities show <ID> --json`.
-4. Explain the root-to-leaf path and effective restrictions.
-5. Do not edit `singularity/capabilities.yml` by hand. When the contributor asks
-   to change the map, use `/sf-capability-map`, which validates every write
-   and pushes to the lead repository that holds the map.
-
-Missing values inherit. Empty allowlists deny all. Required checks and protected
-paths accumulate. Every fold is monotonic: a child may tighten what an ancestor
-set and can never loosen it.
-
-These commands read the map in the repository you are standing in. To read the
-map of an organisation without a checkout, use
-`singularity-flow capability organisation <LEAD-URL> --json`.
+Use `singularity-flow capability organisation <LEAD-URL> --json` only when the contributor explicitly
+asks for the organisation-wide advanced view.

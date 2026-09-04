@@ -19,7 +19,11 @@ import { RetainedPanelRenderGate } from '../single-flight.ts';
 export type CapabilitiesMessage =
   | { type: 'save'; id: string; edits: Record<string, string> }
   | { type: 'remove'; id: string; reparentChildrenTo?: string | null; childCount: number }
-  | { type: 'review-proposals' };
+  | { type: 'review-proposals' }
+  | { type: 'progressive-start' }
+  | { type: 'progressive-add' }
+  | { type: 'progressive-protect' }
+  | { type: 'progressive-why' };
 
 export class CapabilitiesPanel {
   private static current: CapabilitiesPanel | null = null;
@@ -91,6 +95,10 @@ export class CapabilitiesPanel {
         });
       }
       if (message?.type === 'review-proposals') return onMessage({ type: 'review-proposals' });
+      if (message?.type === 'progressive-start') return onMessage({ type: 'progressive-start' });
+      if (message?.type === 'progressive-add') return onMessage({ type: 'progressive-add' });
+      if (message?.type === 'progressive-protect') return onMessage({ type: 'progressive-protect' });
+      if (message?.type === 'progressive-why') return onMessage({ type: 'progressive-why' });
       if (message?.type === 'save' && typeof message.id === 'string') {
         return onMessage({ type: 'save', id: message.id, edits: readEdits(message.edits) });
       }
@@ -164,7 +172,7 @@ export class CapabilitiesPanel {
       'Capabilities',
       bodyHtml(
         map?.capabilities ?? [], this.selected,
-        this.error ?? map?.error ?? null, dashboard
+        this.error ?? map?.error ?? null, dashboard, map?.mode
       ),
       contentSecurityPolicy(this.panel.webview, token),
       token,

@@ -39,7 +39,7 @@ export const ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS = new Set([
  */
 export const REPOSITORY_INDEPENDENT_CAPABILITY_SUBCOMMANDS = new Set([
   'map', 'edit', 'publish', 'proposals', 'proposal', 'activate',
-  'world-model', 'organisation', 'leads', 'inspect-repository'
+  'world-model', 'organisation', 'leads', 'inspect-repository', 'adopt-managed'
 ]);
 
 export function excludesActiveWorkspaceRouting(command, subcommand = null, options = {}) {

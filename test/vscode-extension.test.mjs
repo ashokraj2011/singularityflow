@@ -3377,6 +3377,18 @@ test('a repository with no capability map offers to describe the first capabilit
   assert.match(refused, /which the portfolio does not declare/);
 });
 
+test('the progressive capability page starts an implicit repository without setup ceremony', () => {
+  const html = capabilitiesHtml([], null, null, undefined, 'implicit');
+  assert.match(html, /This repository is one capability|This repository/);
+  assert.match(html, /You can start a Story now|Ready with no setup/);
+  assert.match(html, /data-progressive-start/);
+  assert.match(html, /Start Story/);
+  assert.match(html, /data-progressive-why/);
+  assert.match(html, /Show ownership/);
+  assert.doesNotMatch(html, /Describe the first capability/);
+  assert.match(CAPABILITY_SCRIPT, /type: 'progressive-start'/);
+});
+
 test('a delivery capability is rendered as shipping from its declared repository', () => {
   const withMap = structuredClone(snapshot);
   withMap.capabilityMap = {

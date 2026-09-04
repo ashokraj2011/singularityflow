@@ -514,6 +514,9 @@ async function initCommand(options) {
   console.log(wrote.length
     ? `${repair ? 'Repaired' : 'Created'} ${wrote.join(', ')}`
     : `Verified ${WORKFLOW_PATH}, templates, prompts, and governed agents; nothing needed repair.`);
+  if (!existsSync(path.join(root, 'singularity/capabilities.yml'))) {
+    console.log('Capability: this repository. No capability setup is required.');
+  }
   if (workId) {
     console.log(`Initialized Singularity Flow on Work-ID branch ${workId}; the base branch was not modified.`);
     console.log(`After reviewing, committing and pushing singularity/, run: singularity-flow start ${workId}`);
@@ -12786,6 +12789,7 @@ async function dispatch(command, positionals, options) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
+    why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct
     // commands so tripwires, help and the operation catalog treat them individually.
     ...Object.fromEntries(['specify', 'plan', 'implement', 'verify', 'converge'].map((verb) => [

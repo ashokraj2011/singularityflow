@@ -3952,6 +3952,107 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const onCapabilitiesMessage = async (message: CapabilitiesMessage): Promise<void> => {
     const { CapabilitiesPanel } = await import('./views/capabilities.ts');
     const panel = await CapabilitiesPanel.show(context, store, (next) => { void onCapabilitiesMessage(next); });
+    if (message.type === 'progressive-start') {
+      await vscode.commands.executeCommand('singularityFlow.startWork');
+      return;
+    }
+    if (message.type === 'progressive-why') {
+      try {
+        const explanation = await client.run<{
+          capability?: { label?: string }; approvalProfile?: string;
+          selfApprovalAllowed?: boolean; explanationSha256?: string
+        }>(['capability', 'show', '--json', '--verbose']);
+        await vscode.window.showInformationMessage(
+          `${explanation.capability?.label ?? 'This repository'} owns the current path. `
+          + `Approval uses the ${explanation.approvalProfile ?? 'team'} profile`
+          + `${explanation.selfApprovalAllowed ? ' and self-approval is allowed.' : '.'}`,
+          { modal: true, detail: `Deterministic explanation: ${explanation.explanationSha256 ?? 'unavailable'}` }
+        );
+      } catch (error) {
+        panel.report((error as Error).message);
+      }
+      return;
+    }
+    if (message.type === 'progressive-add' || message.type === 'progressive-protect') {
+      try {
+        let argv: string[];
+        if (message.type === 'progressive-add') {
+          const id = await vscode.window.showInputBox({
+            title: 'Add a narrower capability',
+            prompt: 'Permanent lower-case kebab-case identifier',
+            placeHolder: 'payments',
+            ignoreFocusOut: true,
+            validateInput: (value) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim())
+              ? null : 'Use lower-case kebab-case.'
+          });
+          if (!id) return;
+          const owns = await vscode.window.showInputBox({
+            title: `What does ${id} own?`,
+            prompt: 'One repository-relative directory. A trailing /** is optional.',
+            placeHolder: 'services/payments/**',
+            ignoreFocusOut: true,
+            validateInput: (value) => value.trim() && !value.includes('..') && !/[*?]/.test(value.replace(/\/\*\*$/, ''))
+              ? null : 'Enter one safe repository-relative directory; only a trailing /** is allowed.'
+          });
+          if (!owns) return;
+          const name = await vscode.window.showInputBox({
+            title: 'Display name', placeHolder: id, value: id,
+            prompt: 'Optional human-readable label', ignoreFocusOut: true
+          });
+          if (name === undefined) return;
+          argv = ['capability', 'add', id, '--owns', owns, '--name', name.trim() || id, '--json'];
+        } else {
+          const protectedPath = await vscode.window.showInputBox({
+            title: 'Protect a path',
+            prompt: 'Changes under this repository-relative directory will require approval.',
+            placeHolder: 'ledger/**',
+            ignoreFocusOut: true,
+            validateInput: (value) => value.trim() && !value.includes('..') && !/[*?]/.test(value.replace(/\/\*\*$/, ''))
+              ? null : 'Enter one safe repository-relative directory; only a trailing /** is allowed.'
+          });
+          if (!protectedPath) return;
+          const authorities = Object.entries(store.current.snapshot?.definition?.approvalAuthorities ?? {})
+            .map(([id, authority]) => ({ label: authority.label ?? id, description: id, id }));
+          const authority = authorities.length === 1 ? authorities[0] : await vscode.window.showQuickPick(authorities, {
+            title: 'Who must approve changes?',
+            placeHolder: 'Choose one approved authority group',
+            ignoreFocusOut: true
+          });
+          if (!authority) return;
+          const reason = await vscode.window.showInputBox({
+            title: 'Reason for protection',
+            prompt: 'Optional explanation recorded in the change receipt',
+            ignoreFocusOut: true
+          });
+          if (reason === undefined) return;
+          argv = ['capability', 'protect', protectedPath, '--approver', authority.id,
+            ...(reason.trim() ? ['--reason', reason.trim()] : []), '--json'];
+        }
+        output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
+        const proposed = await client.run<{
+          lead?: string; branch?: string | null; reviewRequired?: boolean;
+          capabilityId?: string; receipt?: { changeId?: string }
+        }>(argv);
+        if (!proposed.reviewRequired || !proposed.branch || !proposed.lead) {
+          await refreshAfterKnownMutation();
+          return;
+        }
+        const run = async (command: string[]): Promise<{ result: unknown; error: string | null }> => {
+          output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+          try { return { result: await client.run<unknown>(command), error: null }; }
+          catch (error) { return { result: null, error: (error as Error).message }; }
+        };
+        const { CapabilityProposalPanel } = await import('./views/capability-proposal.ts');
+        CapabilityProposalPanel.show(context, proposed.lead, proposed.branch, run, async () => {
+          await refreshAfterKnownMutation();
+          panel.settled(proposed.capabilityId ?? 'repository-root');
+        });
+      } catch (error) {
+        output.appendLine(`  refused: ${(error as Error).message}`);
+        panel.report((error as Error).message);
+      }
+      return;
+    }
     if (message.type === 'review-proposals') {
       await vscode.commands.executeCommand('singularityFlow.reviewCapabilityProposals');
       return;

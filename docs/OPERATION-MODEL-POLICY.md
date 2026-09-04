@@ -88,6 +88,8 @@ Every public operation is classified before its implementation module is importe
 | capabilities | mutation | never | — | — |
 | capability.activate | mutation | never | — | — |
 | capability.add | mutation | never | — | — |
+| capability.adopt-managed | mutation | never | — | — |
+| capability.depend | mutation | never | — | — |
 | capability.discard-proposal | mutation | never | — | — |
 | capability.edit | mutation | never | — | — |
 | capability.fsck | read | never | — | — |
@@ -98,6 +100,7 @@ Every public operation is classified before its implementation module is importe
 | capability.organisation | read | never | — | — |
 | capability.proposal | read | never | — | — |
 | capability.proposals | read | never | — | — |
+| capability.protect | mutation | never | — | — |
 | capability.publish | mutation | never | — | — |
 | capability.remove | mutation | never | — | — |
 | capability.repository | mutation | never | — | — |
@@ -425,6 +428,7 @@ Every public operation is classified before its implementation module is importe
 | visual.compare | mutation | never | — | — |
 | visual.status | read | never | — | — |
 | watch | mutation | never | — | — |
+| why | read | never | — | — |
 | wm.ast.build | mutation | never | — | — |
 | wm.ast.cache.clear | mutation | never | — | — |
 | wm.ast.cache.prune | mutation | never | — | — |

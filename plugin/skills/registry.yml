@@ -100,6 +100,9 @@ skills:
   sflow-auto: { class: interactive, kernelModelPolicy: conditional, executionBoundary: repository }
   sflow-cancel: { class: mutation }
   sflow-capabilities: { class: echo, executionBoundary: repository }
+  sflow-capability-add: { class: interactive, executionBoundary: repository }
+  sflow-capability-depend: { class: interactive, executionBoundary: repository }
+  sflow-capability-protect: { class: interactive, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
   sflow-code: { class: generative }

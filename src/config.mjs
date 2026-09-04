@@ -76,7 +76,6 @@ export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md'
 const INITIALIZATION_MAPPINGS = [
   ['workflow.yml', WORKFLOW_PATH],
   ['portfolio.yml', 'singularity/portfolio.yml'],
-  ['capabilities.yml', 'singularity/capabilities.yml'],
   ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
   ['impact.yml', 'singularity/impact.yml'],
   ['modelTiers.yml', 'singularity/modelTiers.yml'],

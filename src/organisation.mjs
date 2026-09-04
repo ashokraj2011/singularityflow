@@ -23,14 +23,17 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import {
-  isGitRefName, mapLimit, removeTemporaryTree, SingularityFlowError, run, readJson, YAML_OUTPUT
+  isGitRefName, mapLimit, removeTemporaryTree, secureRepositoryPath, SingularityFlowError,
+  run, readJson, YAML_OUTPUT
 } from './util.mjs';
 import {
   CAPABILITIES_PATH, capabilityRepositories, editCapability, loadCapabilities,
-  validateCapabilities, capabilityTree
+  validateCapabilities, capabilityTree, capabilityPath, foldCapabilityPolicy,
+  materializeImplicitCapability, normalizeCapabilityOwnership, resolveCapabilityOwner,
+  resolveImplicitCapability
 } from './capabilities.mjs';
 import { atomicJson, workspaceRepositoryPath } from './workspace.mjs';
-import { canonicalJson } from './records.mjs';
+import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { defaultBranchName, gitCommitIdentity, head, identity } from './git.mjs';
 import { GOVERNED_ROOTS, WORKFLOW_PATH, initializeDefinition, loadDefinition } from './config.mjs';
@@ -54,7 +57,7 @@ import {
 } from './clone-strategy.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import {
-  assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport,
+  assertCredentialFreeRemote, classifyGitRemoteFailure, frozenRemoteTransport, remoteFingerprint,
   redactDiagnosticText, safeGitDiagnosticReference, sanitizeRemote
 } from './git-remote-diagnostics.mjs';
 import { enterpriseGitEnvironment } from './git-enterprise-environment.mjs';
@@ -212,6 +215,126 @@ function proposalConfigurationError(root, ref, { env = process.env } = {}) {
     return null;
   } catch (error) {
     return redactDiagnosticText(error?.message ?? String(error));
+  }
+}
+
+function validateManagedCapabilityMutation(root, baseRef, proposalRef, changedNames, {
+  env = process.env
+} = {}) {
+  const proposed = run('git', ['show', `${proposalRef}:${CAPABILITIES_PATH}`], {
+    cwd: root, env, allowFailure: true
+  });
+  if (proposed.status !== 0) return;
+  const definition = validateCapabilities(YAML.parse(proposed.stdout));
+  const base = run('git', ['show', `${baseRef}:${CAPABILITIES_PATH}`], {
+    cwd: root, env, allowFailure: true
+  });
+  const baseDefinition = base.status === 0
+    ? validateCapabilities(YAML.parse(base.stdout)) : null;
+  const managedBefore = baseDefinition?.version === 2
+    && baseDefinition.management?.mode === 'sflow-cli';
+  const managedAfter = definition.version === 2
+    && definition.management?.mode === 'sflow-cli';
+  if (!managedBefore && !managedAfter) return;
+  if (managedBefore && !managedAfter) {
+    throw new SingularityFlowError(
+      'A managed capability map cannot be downgraded or returned to direct editing. Use a supported capability command.',
+      { code: 'PCD_MANAGED_EDIT_REQUIRED' }
+    );
+  }
+  const receipts = changedNames.filter((file) => /^singularity\/capability-changes\/[^/]+\.json$/.test(file));
+  if (receipts.length !== 1) {
+    throw new SingularityFlowError(
+      `Managed capability proposal must contain exactly one matching mutation receipt; found ${receipts.length}.`,
+      { code: 'PCD_MANAGED_EDIT_REQUIRED' }
+    );
+  }
+  const loaded = run('git', ['show', `${proposalRef}:${receipts[0]}`], {
+    cwd: root, env, allowFailure: true
+  });
+  let receipt;
+  try { receipt = JSON.parse(loaded.stdout); }
+  catch {
+    throw new SingularityFlowError('Managed capability mutation receipt is not valid JSON.', {
+      code: 'PCD_MUTATION_RECEIPT_INVALID'
+    });
+  }
+  const family = receipt.kind === 'capability-change'
+    ? 'capability-change'
+    : receipt.kind === 'capability-managed-adoption' ? 'capability-managed-adoption' : null;
+  if (!family) {
+    throw new SingularityFlowError('Managed capability mutation receipt has an unsupported contract.', {
+      code: 'PCD_MUTATION_RECEIPT_INVALID'
+    });
+  }
+  try { receipt = readRecord(family, receipt, { path: receipts[0] }).record; }
+  catch {
+    throw new SingularityFlowError('Managed capability mutation receipt has an unsupported schema.', {
+      code: 'PCD_MUTATION_RECEIPT_INVALID'
+    });
+  }
+  const progressiveChange = receipt.kind === 'capability-change'
+    && ['add', 'protect', 'depend'].includes(receipt.operation);
+  const managedAdoption = receipt.kind === 'capability-managed-adoption'
+    && receipt.operation === 'adopt-managed';
+  if (!progressiveChange && !managedAdoption) {
+    throw new SingularityFlowError('Managed capability mutation receipt has an unsupported contract.', {
+      code: 'PCD_MUTATION_RECEIPT_INVALID'
+    });
+  }
+  const receiptCore = structuredClone(receipt);
+  delete receiptCore.receiptSha256;
+  if (receipt.receiptSha256 !== capabilityDigest(receiptCore)
+      || receipt.afterSha256 !== capabilityDigest(definition)) {
+    throw new SingularityFlowError('Managed capability mutation receipt does not match the proposed map.', {
+      code: 'PCD_MUTATION_RECEIPT_MISMATCH'
+    });
+  }
+  if (baseDefinition) {
+    if (receipt.beforeSha256 !== capabilityDigest(baseDefinition)) {
+      throw new SingularityFlowError('Managed capability mutation receipt does not bind the approved base map.', {
+        code: 'PCD_MUTATION_RECEIPT_MISMATCH'
+      });
+    }
+  } else if (managedAdoption) {
+    throw new SingularityFlowError('Managed adoption requires an existing explicit capability map.', {
+      code: 'PCD_MANAGED_ADOPTION_INVALID'
+    });
+  } else {
+    const origin = run('git', ['config', '--get', 'remote.origin.url'], {
+      cwd: root, env, allowFailure: true
+    }).stdout.trim();
+    const workflow = run('git', ['show', `${baseRef}:${WORKFLOW_PATH}`], {
+      cwd: root, env, allowFailure: true
+    });
+    if (!origin || workflow.status !== 0) {
+      throw new SingularityFlowError('First managed capability proposal cannot prove its implicit approved base.', {
+        code: 'PCD_MATERIALIZATION_NOT_EQUIVALENT'
+      });
+    }
+    let approved;
+    try { approved = YAML.parse(workflow.stdout) ?? {}; }
+    catch {
+      throw new SingularityFlowError('First managed capability proposal has an unreadable approved workflow base.', {
+        code: 'PCD_MATERIALIZATION_NOT_EQUIVALENT'
+      });
+    }
+    const implicit = resolveImplicitCapability({
+      repositoryId: repositoryIdFromUrl(origin),
+      repositoryIdentitySha256: `sha256:${remoteFingerprint(assertCredentialFreeRemote(origin))}`,
+      approvedConfigurationSha256: `sha256:${createHash('sha256').update(workflow.stdout).digest('hex')}`,
+      approvalProfile: approved.approvalSecurity?.profile ?? 'team',
+      basePolicy: {}
+    });
+    const equivalence = materializationEquivalence(implicit, definition.capabilities['repository-root']);
+    if (receipt.beforeSha256 !== implicit.resolutionSha256
+        || receipt.materialization?.implicitResolutionSha256 !== implicit.resolutionSha256
+        || receipt.materialization?.equivalenceSha256 !== equivalence.equivalenceSha256
+        || receipt.materialization?.equivalent !== true) {
+      throw new SingularityFlowError('First managed capability proposal lacks valid materialization-equivalence evidence.', {
+        code: 'PCD_MATERIALIZATION_NOT_EQUIVALENT'
+      });
+    }
   }
 }
 
@@ -1089,6 +1212,9 @@ export async function readOrganisation(url, { refresh = false } = {}) {
       sourceCommit: shown.commit,
       stateProjection,
       capabilities: capabilityTree(definition),
+      capabilityMapMode: definition.version === 2
+        ? definition.management?.mode ?? 'legacy-mixed' : 'legacy-mixed',
+      capabilityMapSha256: capabilityDigest(definition),
       repositories: portfolio.status === 0 ? (YAML.parse(portfolio.stdout)?.repositories ?? {}) : {},
       governed: true
     };
@@ -1539,7 +1665,9 @@ export async function mapCapability(leadUrl, {
     }
 
     const file = path.join(root, CAPABILITIES_PATH);
-    const document = YAML.parseDocument(await readFile(file, 'utf8'));
+    const document = governed
+      ? YAML.parseDocument(await readFile(file, 'utf8'))
+      : YAML.parseDocument('version: 1\ncapabilities: {}\n');
     const before = document.toJS() ?? {};
     if (before.capabilities?.[capabilityId]) {
       throw new SingularityFlowError(`Capability '${capabilityId}' already exists in this map.`);
@@ -2108,7 +2236,11 @@ function inspectCapabilityProposalCheckout(root, remote, proposalBranch, ref, {
   const changed = proposalChangedFiles(root, reviewBase, ref, { env });
   const policy = proposalAssetPolicyInEnvironment(root, [reviewBase, ref], env);
   const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
-  const configurationError = proposalConfigurationError(root, ref, { env });
+  let configurationError = proposalConfigurationError(root, ref, { env });
+  if (!configurationError) {
+    try { validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env }); }
+    catch (error) { configurationError = redactDiagnosticText(error?.message ?? String(error)); }
+  }
   const valid = invalidFiles.length === 0 && changed.names.length > 0 && !configurationError;
   const repositoryInspection = proposalRepositoryInspection(
     root, ref, repositoryUrl, { baseRef: reviewBase, env }
@@ -2671,6 +2803,20 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
+      const proposedConfigurationError = proposalConfigurationError(root, ref, { env });
+      if (proposedConfigurationError) {
+        const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
+        throw new SingularityFlowError(
+          `Capability proposal is not operational: ${proposedConfigurationError}. Nothing was changed; correct the preserved proposal and review it again.`, {
+            code: 'CAPABILITY_PROPOSAL_CONFIGURATION_INVALID',
+            details: capabilityRecovery({
+              stage: 'activation', state: 'proposal-invalid', remote,
+              branch: proposalBranch, commit: proposalCommit, nextAction,
+              preserved: ['proposal-branch', 'approved-configuration', 'application-branches']
+            })
+          });
+      }
+      validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env });
       const definition = await loadDefinition(root);
       if (!definition.ledger?.enabled) {
         const nextAction = { command: 'singularity-flow workspace refresh-configuration --dry-run --json', skill: '/sf-workspace' };
@@ -3021,6 +3167,312 @@ export async function editCapabilityInOrganisation(leadUrl, capabilityId, change
       state: { published: false, reason: 'awaiting review and merge' }
     };
   });
+}
+
+function capabilityDigest(value) {
+  return `sha256:${recordSha256(value)}`;
+}
+
+function capabilityChangeReceipt({ operation, beforeSha256, afterSha256, parameters, materialization }) {
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-change'),
+    kind: 'capability-change',
+    operation,
+    beforeSha256,
+    afterSha256,
+    parameters,
+    materialization: materialization ?? null
+  };
+  const identitySha256 = capabilityDigest(core);
+  const receipt = {
+    ...core,
+    changeId: `CAP-CHANGE-${identitySha256.slice(7, 19).toUpperCase()}`
+  };
+  return { ...receipt, receiptSha256: capabilityDigest(receipt) };
+}
+
+function managedAdoptionPlan(definitionOrSha256) {
+  const beforeSha256 = typeof definitionOrSha256 === 'string'
+    ? definitionOrSha256 : capabilityDigest(definitionOrSha256);
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-managed-adoption'),
+    kind: 'capability-managed-adoption-plan',
+    beforeSha256,
+    targetVersion: 2,
+    targetManagementMode: 'sflow-cli',
+    preserves: ['effective-policies', 'ownership', 'dependencies', 'active-story-pins', 'comments']
+  };
+  return { ...core, planSha256: capabilityDigest(core) };
+}
+
+function managedAdoptionReceipt(plan, afterSha256) {
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-managed-adoption'),
+    kind: 'capability-managed-adoption',
+    operation: 'adopt-managed',
+    planSha256: plan.planSha256,
+    beforeSha256: plan.beforeSha256,
+    afterSha256,
+    preserved: plan.preserves
+  };
+  const identitySha256 = capabilityDigest(core);
+  const receipt = { ...core, changeId: `CAP-ADOPT-${identitySha256.slice(7, 19).toUpperCase()}` };
+  return { ...receipt, receiptSha256: capabilityDigest(receipt) };
+}
+
+/** Read-only expert preview. It never bootstraps or updates an authority branch. */
+export async function previewManagedCapabilityAdoption(leadUrl) {
+  const organisation = await readOrganisation(leadUrl, { refresh: true });
+  if (!organisation.governed || !organisation.capabilityMapSha256) {
+    throw new SingularityFlowError('No approved explicit capability map is available to adopt.', {
+      code: 'PCD_MANAGED_ADOPTION_UNAVAILABLE'
+    });
+  }
+  return {
+    adopted: false,
+    alreadyManaged: organisation.capabilityMapMode === 'sflow-cli',
+    preview: true,
+    plan: managedAdoptionPlan(organisation.capabilityMapSha256)
+  };
+}
+
+/** Propose explicit adoption of a legacy map into receipt-managed mode. */
+export async function adoptManagedCapabilityMap(leadUrl, { confirm = null } = {}) {
+  if (!confirm) throw new SingularityFlowError('Managed adoption requires an exact preview plan confirmation.', {
+    code: 'PCD_MANAGED_ADOPTION_CONFIRMATION_REQUIRED'
+  });
+  return withLeadCheckout(leadUrl, 'Adopt managed capability authority',
+    'capability/adopt-managed', async (root) => {
+      assertGovernanceVisible(root, [CAPABILITIES_PATH]);
+      const capabilityFile = path.join(root, CAPABILITIES_PATH);
+      const source = await readFile(capabilityFile, 'utf8');
+      const document = YAML.parseDocument(source);
+      const definition = validateCapabilities(document.toJS());
+      if (definition.version === 2 && definition.management?.mode === 'sflow-cli') {
+        return { adopted: false, alreadyManaged: true, plan: managedAdoptionPlan(definition) };
+      }
+      const plan = managedAdoptionPlan(definition);
+      if (String(confirm).trim() !== plan.planSha256) {
+        throw new SingularityFlowError(
+          `Managed-adoption confirmation must equal the current plan ${plan.planSha256}. Nothing was changed.`,
+          { code: 'PCD_MANAGED_ADOPTION_STALE', details: { expected: plan.planSha256 } }
+        );
+      }
+      document.set('version', 2);
+      document.set('management', document.createNode({ mode: 'sflow-cli' }));
+      const after = validateCapabilities(document.toJS());
+      const afterSha256 = capabilityDigest(after);
+      const receipt = managedAdoptionReceipt(plan, afterSha256);
+      await writeFile(capabilityFile, document.toString(YAML_OUTPUT), 'utf8');
+      const receiptPath = `singularity/capability-changes/${receipt.changeId.toLowerCase()}.json`;
+      await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
+      await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');
+      return { adopted: true, preview: false, plan, receipt, receiptPath };
+    });
+}
+
+function materializationEquivalence(implicit, explicitRoot) {
+  const core = {
+    schemaVersion: currentSchemaVersion('capability-materialization-equivalence'),
+    kind: 'capability-materialization-equivalence',
+    implicitResolutionSha256: implicit.resolutionSha256,
+    explicitCapabilityId: 'repository-root',
+    policySha256: implicit.policySha256,
+    fallbackScope: [],
+    equivalent: explicitRoot?.kind === 'delivery'
+      && explicitRoot?.parent == null
+      && (explicitRoot?.sourceRoots ?? []).length === 0
+      && capabilityDigest(foldCapabilityPolicy({}, explicitRoot?.policy ?? {})) === implicit.policySha256
+  };
+  if (!core.equivalent) {
+    throw new SingularityFlowError('The managed capability map would change repository-root policy or fallback ownership.', {
+      code: 'PCD_MATERIALIZATION_NOT_EQUIVALENT'
+    });
+  }
+  return { ...core, equivalenceSha256: capabilityDigest(core) };
+}
+
+function inferredProtectionAuthority(definition, capabilityId, workflow, requested) {
+  if (requested) {
+    if (!workflow.approvalAuthorities?.[requested]) {
+      throw new SingularityFlowError(`Unknown approval authority '${requested}'.`, {
+        code: 'PCD_APPROVER_UNKNOWN'
+      });
+    }
+    return requested;
+  }
+  const effective = capabilityPath(definition, capabilityId)
+    .reduce((policy, id) => foldCapabilityPolicy(policy, definition.capabilities[id].policy ?? {}), {});
+  if ((effective.requiredAuthorityGroups ?? []).length === 1) return effective.requiredAuthorityGroups[0];
+  const choices = Object.keys(workflow.approvalAuthorities ?? {});
+  if (choices.length === 1) return choices[0];
+  throw new SingularityFlowError(
+    `Choose an approval authority with --approver. Available: ${choices.join(', ') || 'none'}.`,
+    { code: 'PCD_APPROVER_REQUIRED', details: { choices } }
+  );
+}
+
+/**
+ * Produce one reviewed PCD change on the existing capability proposal rail.
+ * Approved configuration and application branches are unchanged until normal activation.
+ */
+export async function proposeProgressiveCapabilityChange(leadUrl, {
+  operation,
+  capabilityId = null,
+  name = null,
+  ownership = null,
+  teams = [],
+  parent = null,
+  subjectPath = null,
+  approver = null,
+  reason = null,
+  dependency = null
+} = {}) {
+  if (!['add', 'protect', 'depend'].includes(operation)) {
+    throw new SingularityFlowError(`Unsupported progressive capability operation '${operation}'.`);
+  }
+  const safeSubject = operation === 'add'
+    ? normalizeCapabilityOwnership(ownership, 'Capability ownership')
+    : operation === 'protect'
+      ? normalizeCapabilityOwnership(subjectPath, 'Protected path')
+      : null;
+  if ((operation === 'add' || operation === 'protect') && !safeSubject) {
+    throw new SingularityFlowError('Repository-root ownership or protection is too broad for this command.', {
+      code: 'PCD_PATH_INVALID'
+    });
+  }
+  return withLeadCheckout(leadUrl, `${operation[0].toUpperCase()}${operation.slice(1)} capability policy`,
+    `capability/pcd-${operation}-${capabilityId ?? 'current'}`, async (root) => {
+      assertGovernanceVisible(root, [PORTFOLIO_PATH, WORKFLOW_PATH]);
+      const workflow = await loadDefinition(root);
+      const repositoryId = repositoryIdFromUrl(leadUrl);
+      const capabilityFile = path.join(root, CAPABILITIES_PATH);
+      const existing = existsSync(capabilityFile)
+        ? validateCapabilities(YAML.parse(await readFile(capabilityFile, 'utf8')))
+        : null;
+      const implicit = existing ? null : resolveImplicitCapability({
+        repositoryId,
+        repositoryIdentitySha256: `sha256:${remoteFingerprint(assertCredentialFreeRemote(leadUrl))}`,
+        approvedConfigurationSha256: `sha256:${createHash('sha256')
+          .update(await readFile(path.join(root, WORKFLOW_PATH))).digest('hex')}`,
+        approvalProfile: workflow.approvalSecurity?.profile ?? 'team',
+        basePolicy: {}
+      });
+      const definition = existing ?? materializeImplicitCapability(implicit);
+      const equivalence = implicit
+        ? materializationEquivalence(implicit, definition.capabilities['repository-root'])
+        : null;
+      const beforeSha256 = existing
+        ? capabilityDigest(existing)
+        : implicit.resolutionSha256;
+      let selectedCapabilityId = capabilityId;
+      const parameters = { capabilityId: capabilityId ?? null };
+
+      if (safeSubject) {
+        await secureRepositoryPath(root, safeSubject, {
+          label: operation === 'protect' ? 'Protected path' : 'Capability ownership'
+        });
+      }
+
+      if (operation === 'add') {
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(capabilityId ?? '')) {
+          throw new SingularityFlowError('Capability ID must be lower-case kebab-case.', { code: 'PCD_CAPABILITY_ID_INVALID' });
+        }
+        if (definition.capabilities[capabilityId]) {
+          throw new SingularityFlowError(`Capability '${capabilityId}' already exists.`, { code: 'PCD_CAPABILITY_EXISTS' });
+        }
+        const inferred = resolveCapabilityOwner(definition, safeSubject).capabilityId;
+        if (parent && parent !== inferred && !capabilityPath(definition, inferred).includes(parent)) {
+          throw new SingularityFlowError(
+            `--parent '${parent}' is not the current owner or one of its ancestors; '${inferred}' owns '${safeSubject}/**'.`,
+            { code: 'PCD_PARENT_INVALID' }
+          );
+        }
+        const actualParent = parent ?? inferred;
+        const parentNode = definition.capabilities[actualParent];
+        const repositories = capabilityRepositories(parentNode);
+        if (repositories.length !== 1) {
+          throw new SingularityFlowError(
+            `Capability '${actualParent}' does not resolve to one repository. Use the expert mapping flow.`,
+            { code: 'PCD_REPOSITORY_AMBIGUOUS' }
+          );
+        }
+        definition.capabilities[capabilityId] = {
+          name: name ?? capabilityId,
+          kind: 'delivery',
+          parent: actualParent,
+          repository: repositories[0],
+          sourceRoots: [safeSubject],
+          ...(teams.length ? { teams: [...new Set(teams)] } : {}),
+          policy: {},
+          dependencies: []
+        };
+        Object.assign(parameters, { ownership: safeSubject, parent: actualParent, teams: [...new Set(teams)] });
+      } else if (operation === 'protect') {
+        const coveredOwners = Object.entries(definition.capabilities)
+          .filter(([, candidate]) => candidate.kind === 'delivery')
+          .flatMap(([id, candidate]) => (candidate.sourceRoots ?? []).map((raw) => ({
+            id, prefix: normalizeCapabilityOwnership(raw, `Capability '${id}'.sourceRoots`)
+          })))
+          .filter(({ prefix }) => prefix && (prefix === safeSubject || prefix.startsWith(`${safeSubject}/`)));
+        const coveredIds = [...new Set(coveredOwners.map(({ id }) => id))];
+        if (!capabilityId && coveredIds.length > 1) {
+          throw new SingularityFlowError(
+            `'${safeSubject}/**' spans more than one capability (${coveredIds.join(', ')}). Choose the reviewed owner explicitly with --capability. Nothing was changed.`,
+            { code: 'PCD_PROTECTION_SPANS_CAPABILITIES', details: { path: safeSubject, capabilityIds: coveredIds } }
+          );
+        }
+        selectedCapabilityId ??= resolveCapabilityOwner(definition, safeSubject).capabilityId;
+        if (!selectedCapabilityId || !definition.capabilities[selectedCapabilityId]) {
+          throw new SingularityFlowError('The protected path does not resolve to one capability.', {
+            code: 'PCD_CAPABILITY_SELECTION_REQUIRED'
+          });
+        }
+        const authority = inferredProtectionAuthority(definition, selectedCapabilityId, workflow, approver);
+        const node = definition.capabilities[selectedCapabilityId];
+        const policy = node.policy ?? {};
+        node.policy = {
+          ...policy,
+          protectedPaths: [...new Set([...(policy.protectedPaths ?? []), safeSubject])],
+          requiredAuthorityGroups: [...new Set([...(policy.requiredAuthorityGroups ?? []), authority])]
+        };
+        Object.assign(parameters, { capabilityId: selectedCapabilityId, path: safeSubject, approver: authority, reason: reason ?? null });
+      } else {
+        if (!dependency || !dependency.capability || !dependency.contract?.id) {
+          throw new SingularityFlowError('A complete immutable published-contract resolution is required.', {
+            code: 'PCD_DEPENDENCY_CONTRACT_REQUIRED'
+          });
+        }
+        selectedCapabilityId ??= 'repository-root';
+        const node = definition.capabilities[selectedCapabilityId];
+        if (!node) throw new SingularityFlowError(`Unknown source capability '${selectedCapabilityId}'.`, { code: 'CAPABILITY_UNKNOWN' });
+        node.dependencies ??= [];
+        if (!node.dependencies.some((item) => item.contract?.sha256 === dependency.contract.sha256
+          && item.capability === dependency.capability)) node.dependencies.push(dependency);
+        Object.assign(parameters, { capabilityId: selectedCapabilityId, dependency });
+      }
+
+      validateCapabilities(definition, existsSync(path.join(root, PORTFOLIO_PATH))
+        ? YAML.parse(await readFile(path.join(root, PORTFOLIO_PATH), 'utf8')) : null);
+      const afterSha256 = capabilityDigest(definition);
+      if (beforeSha256 === afterSha256) return {
+        operation, capabilityId: selectedCapabilityId, changed: false, idempotent: true,
+        beforeSha256, afterSha256
+      };
+      const receipt = capabilityChangeReceipt({
+        operation, beforeSha256, afterSha256, parameters, materialization: equivalence
+      });
+      const document = YAML.parseDocument(YAML.stringify(definition));
+      await writeFile(capabilityFile, document.toString(YAML_OUTPUT), 'utf8');
+      const receiptPath = `singularity/capability-changes/${receipt.changeId.toLowerCase()}.json`;
+      await mkdir(path.dirname(path.join(root, receiptPath)), { recursive: true });
+      await writeFile(path.join(root, receiptPath), canonicalJson(receipt), 'utf8');
+      return {
+        operation, capabilityId: selectedCapabilityId, beforeSha256, afterSha256,
+        receipt, receiptPath, materialized: Boolean(implicit),
+        state: { published: false, reason: 'awaiting review and activation' }
+      };
+    });
 }
 
 /**

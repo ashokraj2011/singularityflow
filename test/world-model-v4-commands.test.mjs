@@ -374,6 +374,24 @@ test('semantically equivalent source-scope spellings keep one reusable policy id
   assert.deepEqual(second.excludedPaths, first.excludedPaths);
 });
 
+test('registered world-model reuse binds the exact effective capability resolution', async (t) => {
+  const root = await registeredRepository(t);
+  const config = await loadWorldModelConfig(root);
+  const first = worldModelV4GatewayDefaults(root, config);
+  const changed = worldModelV4GatewayDefaults(root, {
+    ...config,
+    repositoryCapability: {
+      ...config.repositoryCapability,
+      effectiveResolution: {
+        ...config.repositoryCapability.effectiveResolution,
+        dependencyContractSha256: `sha256:${'9'.repeat(64)}`
+      }
+    }
+  });
+  assert.notEqual(changed.policySnapshotSha256, first.policySnapshotSha256,
+    'ownership, approval, or dependency changes invalidate reuse even when path prefixes are unchanged');
+});
+
 test('a storyless registered build reuses the repository capability scope in a later Story', async (t) => {
   const root = await registeredRepository(t);
   await writeFile(path.join(root, 'singularity', 'capabilities.yml'), [

@@ -38,6 +38,12 @@ Then, on a repository you care about:
 | Land a small change without creating a Story first | `singularity-flow adhoc start` / `singularity-flow land` |
 | See what a command does, with examples | `singularity-flow <command> --help` |
 
+`init` deliberately asks no organisation question and writes no capability map. Until a reviewed
+map is activated, the repository is the single implicit capability **This repository**
+(`repository-root`). Start the first Story normally. Add structure later only when a narrower owner,
+protected path, or published dependency is real; see
+[Progressive capability disclosure](./docs/PROGRESSIVE-CAPABILITIES.md).
+
 The full documentation map is in [docs/README.md](./docs/README.md).
 The additive, model-free SGOS compiler/runtime profile and its explicit staged boundaries are in
 [the SGOS guide](./docs/SGOS.md).
@@ -678,10 +684,11 @@ The CLI accepts repeatable `--metadata KEY=VALUE`; the VS Code capability screen
 provide matching key/value rows. These values are stored with the capability in
 `singularity/capabilities.yml`—the approved authority is the lead repository's
 `sflow/config` branch, and the reviewed map is projected to the orphan state branch.
-Use `--metadata KEY=` with remote `capability edit` to remove one key. Local
-`capability add`, `set`, and `remove` edit only the checkout; they never publish
-governed configuration or move the state branch. Use `capability map` or remote
-`capability edit --lead <URL>` to create a governed proposal.
+Use `--metadata KEY=` with the legacy expert `capability edit` flow to remove one key. New
+CLI-managed maps are changed through `capability add`, `capability protect`, and
+`capability depend`; each command creates a receipt-bound review proposal and never edits an
+application branch. Version-1 maps retain their legacy behavior until an explicit reviewed
+`capability adopt-managed` operation is approved.
 
 When a Story starts, Flow copies one exact approved `sflow/config` revision onto
 the new Story branch and commits `singularity/configuration-source.json`. That

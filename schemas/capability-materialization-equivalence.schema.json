@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capability-materialization-equivalence.schema.json",
+  "title": "Capability Materialization Equivalence v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "implicitResolutionSha256", "explicitCapabilityId", "policySha256", "fallbackScope", "equivalent", "equivalenceSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "capability-materialization-equivalence" },
+    "implicitResolutionSha256": { "$ref": "#/$defs/hash" },
+    "explicitCapabilityId": { "const": "repository-root" },
+    "policySha256": { "$ref": "#/$defs/hash" },
+    "fallbackScope": { "type": "array", "maxItems": 0 },
+    "equivalent": { "const": true },
+    "equivalenceSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

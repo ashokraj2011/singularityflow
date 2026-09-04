@@ -701,6 +701,7 @@ export interface RepositorySnapshot {
    * built is not the shape of where it is stored.
    */
   capabilityMap?: {
+    mode?: 'implicit' | 'explicit-legacy' | 'explicit-managed';
     capabilities?: CapabilityNode[];
     repositories?: string[];
     error?: string;

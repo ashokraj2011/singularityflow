@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capability-explanation.schema.json",
+  "title": "Capability Explanation v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "capability", "ownership", "permission", "approvals", "approvalProfile", "selfApprovalAllowed", "resolutionSha256", "explanationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "capability-explanation" },
+    "subject": { "type": "object" }, "capability": { "type": "object" },
+    "ownership": { "type": "object" }, "permission": { "type": "object" },
+    "approvals": { "type": "array" }, "approvalProfile": { "type": "string" },
+    "selfApprovalAllowed": { "type": "boolean" },
+    "resolutionSha256": { "type": ["string", "null"] },
+    "explanationSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

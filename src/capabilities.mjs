@@ -1,11 +1,22 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSourceRoots } from './source-scope.mjs';
 import { exists, secureRepositoryPath, SingularityFlowError, YAML_OUTPUT } from './util.mjs';
 import { foldCapabilityAutoPolicy, normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
+import { recordSha256 } from './records.mjs';
+import { currentSchemaVersion } from './schema-migrations.mjs';
 
 export const CAPABILITIES_PATH = 'singularity/capabilities.yml';
+export const IMPLICIT_CAPABILITY_ID = 'repository-root';
+export const EFFECTIVE_CAPABILITY_RESOLVER = Object.freeze({
+  id: 'sflow-effective-capability',
+  version: 1,
+  implementationSha256: `sha256:${createHash('sha256')
+    .update('sflow-effective-capability:v1:longest-canonical-prefix:repository-root-fallback')
+    .digest('hex')}`
+});
 
 const GATE_ORDER = ['off', 'warn', 'block'];
 const GROUNDING_ORDER = ['off', 'warn', 'enforce'];
@@ -22,6 +33,229 @@ function uniqueStrings(value, label) {
   if (value == null) return null;
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) throw new SingularityFlowError(`${label} must be an array of non-empty strings.`);
   return [...new Set(value.map((item) => item.trim()))];
+}
+
+/**
+ * Convert the one user-facing ownership shorthand into the existing source-root contract.
+ * Only a trailing `/**` is accepted; every other glob would make prefix ownership ambiguous.
+ */
+export function normalizeCapabilityOwnership(value, label = 'Capability ownership') {
+  let candidate = String(value ?? '').trim().replaceAll('\\', '/');
+  if (candidate.endsWith('/**')) candidate = candidate.slice(0, -3);
+  candidate = candidate.replace(/^\.\//, '').replace(/\/$/, '');
+  if (!candidate || candidate === '.') return '';
+  if (candidate.startsWith('/') || /^[A-Za-z]:\//.test(candidate)
+      || candidate.split('/').includes('..') || /[*?\[\]{}]/.test(candidate)) {
+    throw new SingularityFlowError(
+      `${label} must be one repository-relative directory prefix; only a trailing /** shorthand is allowed.`,
+      { code: 'PCD_PATH_INVALID' }
+    );
+  }
+  return candidate.split('/').filter((segment) => segment && segment !== '.').join('/');
+}
+
+export function capabilityMapMode(definition) {
+  if (!definition) return 'implicit';
+  return definition.version === 2 && definition.management?.mode === 'sflow-cli'
+    ? 'explicit-managed'
+    : 'explicit-legacy';
+}
+
+function sha(value) { return `sha256:${recordSha256(value)}`; }
+
+function capabilityRepositoryIdentity(repositoryId, repositoryIdentitySha256) {
+  const id = String(repositoryId ?? '').trim();
+  const identitySha256 = String(repositoryIdentitySha256 ?? '').trim();
+  if (!id || !/^sha256:[a-f0-9]{64}$/.test(identitySha256)) {
+    throw new SingularityFlowError(
+      'The repository identity is not complete enough to resolve its implicit capability.',
+      { code: 'PCD_REPOSITORY_IDENTITY_REQUIRED' }
+    );
+  }
+  return { id, identitySha256 };
+}
+
+/** Stable, clone-independent zero-configuration capability record. */
+export function resolveImplicitCapability({
+  repositoryId,
+  repositoryIdentitySha256,
+  approvedConfigurationSha256,
+  approvalProfile = 'team',
+  basePolicy = {}
+} = {}) {
+  const repository = capabilityRepositoryIdentity(repositoryId, repositoryIdentitySha256);
+  const policy = foldCapabilityPolicy({}, basePolicy);
+  const core = {
+    schemaVersion: currentSchemaVersion('effective-capability-resolution'),
+    kind: 'effective-capability-resolution',
+    mode: 'implicit',
+    repository,
+    capability: {
+      id: IMPLICIT_CAPABILITY_ID,
+      label: 'This repository',
+      kind: 'delivery',
+      sourceRoots: [],
+      sharedRoots: [],
+      teams: [],
+      dependencies: []
+    },
+    approvedConfigurationSha256: approvedConfigurationSha256 ?? null,
+    approvalProfileSha256: sha({ profile: approvalProfile || 'team' }),
+    policySha256: sha(policy),
+    sourceScopeSha256: sha({ sourceRoots: [], sharedRoots: [] }),
+    approvalRequirementSha256: sha({ requiredAuthorityGroups: policy.requiredAuthorityGroups ?? [] }),
+    dependencyContractSha256: sha([]),
+    resolver: EFFECTIVE_CAPABILITY_RESOLVER
+  };
+  return Object.freeze({ ...core, resolutionSha256: sha(core), policy });
+}
+
+/** Build the same immutable Story pin for an approved explicit map. */
+export function resolveExplicitCapability({
+  mode = 'explicit-legacy', repositoryId, repositoryIdentitySha256,
+  approvedConfigurationSha256 = null, capabilityStateSha256,
+  capabilityId, label, kind = 'delivery', sourceScope = {}, teams = [], dependencies = [],
+  policy = {}, approvalProfile = 'team'
+} = {}) {
+  const repository = capabilityRepositoryIdentity(repositoryId, repositoryIdentitySha256);
+  if (!['explicit-legacy', 'explicit-managed'].includes(mode)) {
+    throw new SingularityFlowError(`Unsupported explicit capability mode '${mode}'.`);
+  }
+  if (!capabilityId || !/^sha256:[a-f0-9]{64}$/.test(capabilityStateSha256 ?? '')) {
+    throw new SingularityFlowError('Explicit capability resolution requires an ID and exact capability-state digest.', {
+      code: 'PCD_CAPABILITY_STATE_REQUIRED'
+    });
+  }
+  const normalizedScope = {
+    sourceRoots: normalizeSourceRoots(sourceScope?.sourceRoots),
+    sharedRoots: normalizeSourceRoots(sourceScope?.sharedRoots)
+  };
+  const exactDependencies = structuredClone(dependencies ?? []);
+  const effectivePolicy = foldCapabilityPolicy({}, policy);
+  const core = {
+    schemaVersion: currentSchemaVersion('effective-capability-resolution'),
+    kind: 'effective-capability-resolution',
+    mode,
+    repository,
+    capability: {
+      id: capabilityId, label: label ?? capabilityId, kind,
+      ...normalizedScope, teams: [...teams], dependencies: exactDependencies
+    },
+    capabilityStateSha256,
+    approvedConfigurationSha256,
+    approvalProfileSha256: sha({ profile: approvalProfile || 'team' }),
+    policySha256: sha(effectivePolicy),
+    sourceScopeSha256: sha(normalizedScope),
+    approvalRequirementSha256: sha({
+      requiredAuthorityGroups: effectivePolicy.requiredAuthorityGroups ?? [],
+      approvalMinimum: effectivePolicy.approvalMinimum ?? null,
+      allowSelfApproval: effectivePolicy.allowSelfApproval ?? null
+    }),
+    dependencyContractSha256: sha(exactDependencies),
+    resolver: EFFECTIVE_CAPABILITY_RESOLVER
+  };
+  return Object.freeze({ ...core, resolutionSha256: sha(core), policy: effectivePolicy });
+}
+
+/** Materialize the implicit root without changing its ID, fallback scope, or policy. */
+export function materializeImplicitCapability(resolution) {
+  if (resolution?.mode !== 'implicit' || resolution.capability?.id !== IMPLICIT_CAPABILITY_ID) {
+    throw new SingularityFlowError('Only an implicit repository-root capability can be materialized.', {
+      code: 'PCD_MATERIALIZATION_INVALID'
+    });
+  }
+  return {
+    version: 2,
+    management: {
+      mode: 'sflow-cli',
+      materializedFrom: {
+        kind: 'implicit-repository',
+        resolutionSha256: resolution.resolutionSha256
+      }
+    },
+    capabilities: {
+      [IMPLICIT_CAPABILITY_ID]: {
+        name: resolution.capability.label,
+        kind: 'delivery',
+        parent: null,
+        repository: resolution.repository.id,
+        sourceRoots: [],
+        sharedRoots: [],
+        teams: [],
+        policy: resolution.policy,
+        dependencies: []
+      }
+    }
+  };
+}
+
+function prefixMatches(prefix, subject) {
+  return !prefix || subject === prefix || subject.startsWith(`${prefix}/`);
+}
+
+/** Resolve a path owner by the one canonical longest-prefix rule. */
+export function resolveCapabilityOwner(definition, subject = '') {
+  validateCapabilities(definition);
+  const canonicalPath = normalizeCapabilityOwnership(subject, 'Capability path');
+  const candidates = [];
+  for (const [id, capability] of Object.entries(definition.capabilities)) {
+    if (capability.kind !== 'delivery') continue;
+    for (const raw of capability.sourceRoots ?? []) {
+      const prefix = normalizeCapabilityOwnership(raw, `Capability '${id}'.sourceRoots`);
+      if (prefix && prefixMatches(prefix, canonicalPath)) candidates.push({ id, prefix });
+    }
+  }
+  candidates.sort((left, right) => right.prefix.length - left.prefix.length || left.id.localeCompare(right.id));
+  const best = candidates[0] ?? null;
+  if (best) {
+    const tied = candidates.filter((entry) => entry.prefix.length === best.prefix.length);
+    if (new Set(tied.map((entry) => entry.id)).size > 1) {
+      throw new SingularityFlowError(
+        `Capability ownership is ambiguous for '${canonicalPath || '.'}': ${tied.map((entry) => entry.id).join(', ')}.`,
+        { code: 'PCD_OWNERSHIP_AMBIGUOUS', details: { path: canonicalPath, candidates: tied } }
+      );
+    }
+    return { capabilityId: best.id, canonicalPath, canonicalPrefix: best.prefix, resolution: 'most-specific-prefix' };
+  }
+  if (definition.capabilities[IMPLICIT_CAPABILITY_ID]?.kind === 'delivery') {
+    return { capabilityId: IMPLICIT_CAPABILITY_ID, canonicalPath, canonicalPrefix: '', resolution: 'repository-root-fallback' };
+  }
+  const deliveries = Object.entries(definition.capabilities)
+    .filter(([, capability]) => capability.kind === 'delivery')
+    .map(([id]) => id);
+  if (deliveries.length === 1) {
+    return { capabilityId: deliveries[0], canonicalPath, canonicalPrefix: '', resolution: 'only-delivery' };
+  }
+  return { capabilityId: null, canonicalPath, canonicalPrefix: null, resolution: 'unowned' };
+}
+
+function validateDependency(id, dependency) {
+  object(dependency, `Capability '${id}' dependency`);
+  const allowed = new Set(['capability', 'contract']);
+  for (const key of Object.keys(dependency)) if (!allowed.has(key)) {
+    throw new SingularityFlowError(`Capability '${id}' dependency contains unknown key '${key}'.`);
+  }
+  if (typeof dependency.capability !== 'string' || !dependency.capability.trim()) {
+    throw new SingularityFlowError(`Capability '${id}' dependency requires capability.`);
+  }
+  const contract = object(dependency.contract, `Capability '${id}' dependency contract`);
+  const contractKeys = new Set(['id', 'version', 'sha256', 'publicationSha256', 'publisherAuthority']);
+  for (const key of Object.keys(contract)) if (!contractKeys.has(key)) {
+    throw new SingularityFlowError(`Capability '${id}' dependency contract contains unknown key '${key}'.`);
+  }
+  for (const key of contractKeys) if (typeof contract[key] !== 'string' || !contract[key].trim()) {
+    throw new SingularityFlowError(`Capability '${id}' dependency contract requires ${key}.`);
+  }
+  if (/^(?:latest|current|next|head|main|master)$/i.test(contract.version.trim())
+      || /[*~^<>=]/.test(contract.version)) {
+    throw new SingularityFlowError(
+      `Capability '${id}' dependency contract version must be an exact published version, not '${contract.version}'.`,
+      { code: 'PCD_MOVABLE_REFERENCE_UNRESOLVED' }
+    );
+  }
+  for (const key of ['sha256', 'publicationSha256']) if (!/^sha256:[a-f0-9]{64}$/.test(contract[key])) {
+    throw new SingularityFlowError(`Capability '${id}' dependency contract ${key} must be an exact SHA-256 identity.`);
+  }
 }
 
 function stricterEnum(parent, child, order, label) {
@@ -241,7 +475,23 @@ function validateCapabilityDelivery(id, capability, capabilities, portfolio) {
  */
 export function validateCapabilities(definition, portfolio = null) {
   object(definition, 'capabilities.yml');
-  if (definition.version !== 1) throw new SingularityFlowError('capabilities.yml version must be 1.');
+  if (![1, 2].includes(definition.version)) throw new SingularityFlowError('capabilities.yml version must be 1 or 2.');
+  if (definition.version === 1 && definition.management != null) {
+    throw new SingularityFlowError('capabilities.yml version 1 cannot declare management metadata.');
+  }
+  if (definition.version === 2) {
+    object(definition.management, 'capabilities.yml management');
+    if (!['sflow-cli', 'legacy-mixed'].includes(definition.management.mode)) {
+      throw new SingularityFlowError("capabilities.yml management.mode must be 'sflow-cli' or 'legacy-mixed'.");
+    }
+    if (definition.management.materializedFrom != null) {
+      object(definition.management.materializedFrom, 'capabilities.yml management.materializedFrom');
+      if (definition.management.materializedFrom.kind !== 'implicit-repository'
+          || !/^sha256:[a-f0-9]{64}$/.test(definition.management.materializedFrom.resolutionSha256 ?? '')) {
+        throw new SingularityFlowError('Managed capability materialization requires an exact implicit resolution digest.');
+      }
+    }
+  }
   const capabilities = object(definition.capabilities, 'capabilities');
   if (!Object.keys(capabilities).length) throw new SingularityFlowError('capabilities must define at least one node.');
   for (const [id, capability] of Object.entries(capabilities)) {
@@ -250,6 +500,16 @@ export function validateCapabilities(definition, portfolio = null) {
     if (!capability.kind || typeof capability.kind !== 'string') throw new SingularityFlowError(`Capability '${id}' requires kind.`);
     if (capability.parent != null && !capabilities[capability.parent]) throw new SingularityFlowError(`Capability '${id}' references unknown parent '${capability.parent}'.`);
     uniqueStrings(capability.owns, `Capability '${id}'.owns`);
+    for (const sourceRoot of capability.sourceRoots ?? []) {
+      normalizeCapabilityOwnership(sourceRoot, `Capability '${id}'.sourceRoots`);
+    }
+    if (capability.dependencies != null) {
+      if (!Array.isArray(capability.dependencies)) throw new SingularityFlowError(`Capability '${id}'.dependencies must be an array.`);
+      if (definition.version === 1 && capability.dependencies.length) {
+        throw new SingularityFlowError(`Capability '${id}' dependencies require capabilities.yml version 2.`);
+      }
+      for (const dependency of capability.dependencies) validateDependency(id, dependency);
+    }
     foldCapabilityPolicy({}, capability.policy ?? {});
     validateCapabilityDelivery(id, capability, capabilities, portfolio);
   }
@@ -260,6 +520,66 @@ export function validateCapabilities(definition, portfolio = null) {
       if (visited.has(cursor)) throw new SingularityFlowError(`Capability tree contains a cycle at '${cursor}'.`);
       visited.add(cursor);
       cursor = capabilities[cursor]?.parent ?? null;
+    }
+  }
+  if (definition.version === 2) {
+    const visiting = new Set();
+    const visitedDependencies = new Set();
+    const visit = (id, trail = []) => {
+      if (visiting.has(id)) {
+        throw new SingularityFlowError(
+          `Capability dependency cycle is prohibited: ${[...trail, id].join(' -> ')}.`,
+          { code: 'PCD_DEPENDENCY_CYCLE', details: { capabilityIds: [...trail, id] } }
+        );
+      }
+      if (visitedDependencies.has(id)) return;
+      visiting.add(id);
+      for (const dependency of capabilities[id]?.dependencies ?? []) {
+        if (capabilities[dependency.capability]) visit(dependency.capability, [...trail, id]);
+      }
+      visiting.delete(id);
+      visitedDependencies.add(id);
+    };
+    for (const id of Object.keys(capabilities)) visit(id);
+  }
+  if (definition.version === 2) {
+    const owners = [];
+    for (const [id, capability] of Object.entries(capabilities)) {
+      if (capability.kind !== 'delivery') continue;
+      for (const raw of capability.sourceRoots ?? []) {
+        const prefix = normalizeCapabilityOwnership(raw, `Capability '${id}'.sourceRoots`);
+        if (prefix) owners.push({ id, prefix });
+      }
+    }
+    for (let leftIndex = 0; leftIndex < owners.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < owners.length; rightIndex += 1) {
+        const left = owners[leftIndex];
+        const right = owners[rightIndex];
+        if (left.prefix === right.prefix) {
+          throw new SingularityFlowError(
+            `Capabilities '${left.id}' and '${right.id}' both own '${left.prefix}/**'.`,
+            { code: 'PCD_OWNERSHIP_AMBIGUOUS', details: { prefix: left.prefix, capabilityIds: [left.id, right.id].sort() } }
+          );
+        }
+        const [broader, narrower] = prefixMatches(left.prefix, right.prefix)
+          ? [left, right]
+          : prefixMatches(right.prefix, left.prefix) ? [right, left] : [null, null];
+        let cursor = narrower?.id ?? null;
+        let nestedUnderBroader = false;
+        while (cursor) {
+          if (cursor === broader?.id) nestedUnderBroader = true;
+          cursor = capabilities[cursor]?.parent ?? null;
+        }
+        if (broader && !nestedUnderBroader) {
+          throw new SingularityFlowError(
+            `Capability '${narrower.id}' owns '${narrower.prefix}/**' inside unrelated owner '${broader.id}'.`,
+            {
+              code: 'PCD_OWNERSHIP_AMBIGUOUS',
+              details: { broader, narrower, reason: 'nested-owners-are-unrelated' }
+            }
+          );
+        }
+      }
     }
   }
   return definition;
@@ -293,7 +613,7 @@ export async function loadCapabilities(root, { required = false } = {}) {
  *   knows which it meant, and a typo that silently creates a sibling is the expensive mistake.
  */
 export async function editCapability(root, capabilityId, changes = {}, {
-  mode = 'set', portfolio = null, reparentChildrenTo = undefined
+  mode = 'set', portfolio = null, reparentChildrenTo = undefined, managedMutation = false
 } = {}) {
   const file = path.join(root, CAPABILITIES_PATH);
   const existing = (await exists(file)) ? await readFile(file, 'utf8') : null;
@@ -302,6 +622,12 @@ export async function editCapability(root, capabilityId, changes = {}, {
     : YAML.parseDocument(existing);
 
   const before = document.toJS() ?? {};
+  if (before.version === 2 && before.management?.mode === 'sflow-cli' && !managedMutation) {
+    throw new SingularityFlowError(
+      'This capability map is managed by SFlow. Use capability add, capability protect, or capability depend so the change carries a reviewed mutation receipt.',
+      { code: 'PCD_MANAGED_EDIT_REQUIRED' }
+    );
+  }
   const present = Boolean(before.capabilities?.[capabilityId]);
   if (mode === 'add' && present) throw new SingularityFlowError(`Capability '${capabilityId}' already exists.`);
   if (mode !== 'add' && !present) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);

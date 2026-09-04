@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capability-managed-adoption.schema.json",
+  "title": "Capability Managed Adoption v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "operation", "planSha256", "beforeSha256", "afterSha256", "preserved", "changeId", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "capability-managed-adoption" },
+    "operation": { "const": "adopt-managed" },
+    "planSha256": { "$ref": "#/$defs/hash" }, "beforeSha256": { "$ref": "#/$defs/hash" },
+    "afterSha256": { "$ref": "#/$defs/hash" }, "preserved": { "type": "array", "items": { "type": "string" } },
+    "changeId": { "type": "string", "pattern": "^CAP-ADOPT-[A-F0-9]+$" },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

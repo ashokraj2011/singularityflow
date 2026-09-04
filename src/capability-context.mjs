@@ -9,11 +9,15 @@ import {
   capabilityDeliveries,
   capabilityForRepository,
   capabilityPath,
+  IMPLICIT_CAPABILITY_ID,
+  resolveCapabilityOwner,
+  resolveImplicitCapability,
+  resolveExplicitCapability,
   resolveEffectiveCapabilityPolicy,
   resolveCapabilitySourceScope,
   validateCapabilities
 } from './capabilities.mjs';
-import { loadDefinition } from './config.mjs';
+import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import {
   CONFIGURATION_SOURCE_PATH, readConfigurationSource
 } from './configuration-branch.mjs';
@@ -45,6 +49,7 @@ import {
   posix, run, secureRepositoryPath, SingularityFlowError, snapshot, writeBytes, writeJson
 } from './util.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
+import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
 const CAPABILITY_WORLD_MODEL_UNAVAILABLE = 'world_model.capability_unavailable';
@@ -166,6 +171,70 @@ async function sourceForRepository(root) {
 
 function normalizedRemote(value) {
   return String(value ?? '').trim().replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
+}
+
+function implicitRepositoryId(source, remoteUrl) {
+  if (source.repositoryId) return source.repositoryId;
+  const tail = String(remoteUrl ?? '').replaceAll('\\', '/').replace(/\/+$/, '')
+    .split('/').pop()?.replace(/\.git$/i, '') ?? '';
+  const normalized = tail.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized || 'repository';
+}
+
+async function implicitLifecycleCapability(root, source, {
+  pinnedConfiguration = null, configurationRoot = root
+} = {}) {
+  const config = await loadDefinition(root);
+  const remote = configuredRemoteIdentity(root, 'origin');
+  // A remote is the strongest repository identity, but local-only Git repositories are a supported
+  // first-Story path. Their exact HEAD is clone/path/user independent and is therefore a safe
+  // deterministic fallback; an unborn repository falls back to the approved workflow bytes.
+  const repositoryHead = run('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: root, allowFailure: true
+  }).stdout.trim();
+  const workflowBytes = await readFile(path.join(configurationRoot, WORKFLOW_PATH));
+  const repositoryIdentitySha256 = remote.fingerprint
+    ? `sha256:${remote.fingerprint}`
+    : `sha256:${createHash('sha256').update(repositoryHead || workflowBytes).digest('hex')}`;
+  const resolution = resolveImplicitCapability({
+    repositoryId: implicitRepositoryId(source, remote.url),
+    repositoryIdentitySha256,
+    approvedConfigurationSha256: `sha256:${createHash('sha256')
+      .update(workflowBytes)
+      .digest('hex')}`,
+    approvalProfile: config.approvalSecurity?.profile ?? 'team',
+    basePolicy: {}
+  });
+  return {
+    schemaVersion: CAPABILITY_CONTEXT_SCHEMA,
+    mode: 'implicit',
+    id: IMPLICIT_CAPABILITY_ID,
+    name: resolution.capability.label,
+    kind: resolution.capability.kind,
+    path: [IMPLICIT_CAPABILITY_ID],
+    repositoryId: resolution.repository.id,
+    deliveries: [{
+      id: IMPLICIT_CAPABILITY_ID,
+      name: resolution.capability.label,
+      repository: resolution.repository.id,
+      repositories: [resolution.repository.id]
+    }],
+    map: {
+      path: null,
+      sha256: null,
+      authority: pinnedConfiguration ? 'pinned-story-configuration' : 'implicit-approved-configuration',
+      repository: remote.url,
+      branch: pinnedConfiguration?.branch ?? null,
+      commit: pinnedConfiguration?.commit ?? null
+    },
+    effectiveResolution: resolution,
+    resolutionSha256: resolution.resolutionSha256,
+    basePolicy: resolution.policy,
+    policy: resolution.policy,
+    sourceScope: { sourceRoots: [], sharedRoots: [] },
+    leases: [],
+    warnings: []
+  };
 }
 
 function soleDelivery(definition) {
@@ -297,6 +366,7 @@ async function readRetainedCapabilityMap(root) {
  */
 export async function resolveLifecycleCapability(root, {
   capabilityId = null,
+  subjectPath = null,
   required = false,
   offline = false,
   expectedMapSha256 = null,
@@ -341,21 +411,23 @@ export async function resolveLifecycleCapability(root, {
         }
       );
     }
-    if (required || capabilityId) throw new SingularityFlowError(
-      `No approved capability is available because ${CAPABILITIES_PATH} is absent for this repository and its active workspace.`,
-      {
-        code: 'CAPABILITY_REGISTRATION_REQUIRED',
-        details: {
-          mapPath: CAPABILITIES_PATH,
-          nextAction: 'Open People & approvals → Capabilities in VS Code, or run `singularity-flow capability map <lower-case-kebab-id> --repository <REPOSITORY-URL>`.'
-        }
-      }
-    );
-    return null;
+    if (capabilityId && capabilityId !== IMPLICIT_CAPABILITY_ID) {
+      throw new SingularityFlowError(
+        `Unknown capability '${capabilityId}'. This repository currently uses the implicit '${IMPLICIT_CAPABILITY_ID}' capability.`,
+        { code: 'CAPABILITY_UNKNOWN', details: { capabilityId, available: [IMPLICIT_CAPABILITY_ID] } }
+      );
+    }
+    return implicitLifecycleCapability(root, source, {
+      pinnedConfiguration,
+      configurationRoot: scopedConfigurationRoot
+    });
   }
 
   const { definition, snapshot: mapSnapshot } = loadedMap;
   let selected = capabilityId;
+  if (!selected && subjectPath != null) {
+    selected = resolveCapabilityOwner(definition, subjectPath).capabilityId;
+  }
   if (!selected && source.repositoryId) selected = capabilityForRepository(definition, source.repositoryId)?.id ?? null;
   if (!selected && source.workspace?.capabilities?.length === 1) selected = source.workspace.capabilities[0];
   if (!selected) selected = soleDelivery(definition);
@@ -469,8 +541,30 @@ export async function resolveLifecycleCapability(root, {
           }).stdout.trim() || null,
           authority: 'working-tree'
       };
+  const mode = definition.version === 2 && definition.management?.mode === 'sflow-cli'
+    ? 'explicit-managed' : 'explicit-legacy';
+  const sourceScope = resolveCapabilitySourceScope(definition, selected);
+  const repositoryIdentity = configuredRemoteIdentity(root, 'origin');
+  const effectiveResolution = resolveExplicitCapability({
+    mode,
+    repositoryId: source.repositoryId ?? authorityProvenance.repository ?? path.basename(root),
+    repositoryIdentitySha256: repositoryIdentity.fingerprint
+      ? `sha256:${repositoryIdentity.fingerprint}`
+      : `sha256:${createHash('sha256').update(String(source.repositoryId ?? authorityProvenance.repository ?? path.basename(root))).digest('hex')}`,
+    approvedConfigurationSha256: `sha256:${mapSnapshot.sha256}`,
+    capabilityStateSha256: `sha256:${mapSnapshot.sha256}`,
+    capabilityId: selected,
+    label: node.name ?? selected,
+    kind: node.kind,
+    sourceScope,
+    teams: node.teams ?? [],
+    dependencies: node.dependencies ?? [],
+    policy: effective.policy,
+    approvalProfile: config?.approvalSecurity?.profile ?? 'team'
+  });
   return {
     schemaVersion: 1,
+    mode,
     id: selected,
     name: node.name ?? selected,
     kind: node.kind,
@@ -484,7 +578,9 @@ export async function resolveLifecycleCapability(root, {
     },
     basePolicy: effective.basePolicy,
     policy: effective.policy,
-    sourceScope: resolveCapabilitySourceScope(definition, selected),
+    sourceScope,
+    effectiveResolution,
+    resolutionSha256: effectiveResolution.resolutionSha256,
     leases: effective.leases.map((lease) => ({
       leaseId: lease.leaseId,
       capabilityId: lease.capabilityId,

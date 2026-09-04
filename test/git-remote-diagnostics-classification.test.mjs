@@ -30,7 +30,7 @@ const classificationCases = [
   },
   {
     name: 'Git terminal prompts are disabled',
-    result: failed("fatal: could not read Username for 'https://github.com': terminal prompts disabled"),
+    result: failed("fatal: could not read Username for 'https://git.example': terminal prompts disabled"),
     classification: 'authentication-required',
     advice: /credential helper/
   },
@@ -138,7 +138,7 @@ const classificationCases = [
   },
   {
     name: 'office DNS cannot resolve the Git host',
-    result: failed('fatal: unable to access repository: Could not resolve host: github.com'),
+    result: failed('fatal: unable to access repository: Could not resolve host: git.example'),
     classification: 'network-transient',
     advice: /DNS/
   },
@@ -150,7 +150,7 @@ const classificationCases = [
   },
   {
     name: 'the remote repository does not exist for this identity',
-    result: failed("fatal: repository 'https://github.com/acme/missing.git/' not found"),
+    result: failed("fatal: repository 'https://git.example/acme/missing.git/' not found"),
     classification: 'remote-not-found',
     advice: /repository URL/
   }
@@ -207,7 +207,7 @@ test('provider-controlled helper and organisation names do not override structur
   for (const repository of ['rate-limit', 'tls']) {
     const failure = classifyGitRemoteFailure(failed([
       `remote: Permission to acme/${repository}.git denied to alice.`,
-      `fatal: unable to access 'https://github.com/acme/${repository}.git/': The requested URL returned error: 403`
+      `fatal: unable to access 'https://git.example/acme/${repository}.git/': The requested URL returned error: 403`
     ].join('\n')));
     assert.equal(failure.classification, 'authorization-denied', repository);
   }
@@ -227,7 +227,7 @@ test('diagnostic words inside repository names do not change a not-found classif
     'credential-helper-not-found'
   ]) {
     const failure = classifyGitRemoteFailure(failed(
-      `fatal: repository 'https://github.com/acme/${repository}.git/' not found`
+      `fatal: repository 'https://git.example/acme/${repository}.git/' not found`
     ));
     assert.equal(failure.classification, 'remote-not-found', repository);
     assert.equal(failure.retryable, false, repository);
@@ -256,12 +256,12 @@ test('diagnostic words inside missing branch names remain branch-not-found', () 
 
 test('diagnostic words inside quoted Git URL paths remain data', () => {
   const tlsPath = classifyGitRemoteFailure(failed(
-    "fatal: unable to access 'https://github.com/acme/O'Brien/tls-client.git/': Failed to connect to github.com"
+    "fatal: unable to access 'https://git.example/acme/O'Brien/tls-client.git/': Failed to connect to git.example"
   ));
   assert.equal(tlsPath.classification, 'network-transient');
 
   const ratePath = classifyGitRemoteFailure(failed(
-    "fatal: could not read Username for 'https://github.com/acme/O'Brien/rate-limit.git': terminal prompts disabled"
+    "fatal: could not read Username for 'https://git.example/acme/O'Brien/rate-limit.git': terminal prompts disabled"
   ));
   assert.equal(ratePath.classification, 'authentication-required');
 });

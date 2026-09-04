@@ -97,6 +97,53 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
   </section>`;
 }
 
+function implicitCapabilityHtml(error: string | null): string {
+  return `<header>
+    <h1>${icon('capability', { size: 20 })}Capability</h1>
+    <p class="meta">Start with the repository as one capability. Add detail only when ownership or approval rules differ.</p>
+  </header>
+  ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
+  <section class="plain">
+    <div class="card-head">
+      <div><p class="eyebrow">Ready with no setup</p><h2>This repository</h2></div>
+      <span class="grow"></span><span class="pill ok">ready</span>
+    </div>
+    <p>All application files currently belong to this repository. The approved team profile and repository rules apply.</p>
+    <p class="remedy">No capability setup is required. New Stories keep an exact copy of these rules.</p>
+  </section>
+  <section class="plain">
+    <h2>Make governance more specific</h2>
+    <p class="muted">These actions create a review proposal. Existing Stories keep their pinned rules and nothing is activated automatically.</p>
+    <div class="action-grid">
+      <button type="button" data-progressive-start>${icon('start')}Start Story</button>
+      <button type="button" class="secondary" data-progressive-why>${icon('search')}Show ownership</button>
+      <button type="button" class="secondary" data-progressive-add>${icon('add')}Add a team-owned area</button>
+      <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
+    </div>
+  </section>`;
+}
+
+function managedCapabilityHtml(
+  tree: CapabilityNode[], selected: string | null, error: string | null,
+  dashboard?: CapabilityDashboard
+): string {
+  return `<header>
+    <h1>${icon('capability', { size: 20 })}Capabilities</h1>
+    <p class="meta">Approved ownership at a glance. Add detail only when a boundary or approval differs.</p>
+  </header>
+  ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
+  ${dashboard ? dashboardHtml(dashboard) : ''}
+  <section class="plain">
+    ${treeHtml(tree, selected)}
+    <p class="remedy">This map is receipt-managed. Changes are proposed for review; direct form edits are disabled.</p>
+    <div class="action-grid">
+      <button type="button" data-progressive-add>${icon('add')}Add a narrower capability</button>
+      <button type="button" class="secondary" data-progressive-protect>${icon('approval')}Protect a path</button>
+      <button type="button" class="secondary" data-progressive-why>${icon('search')}Explain current ownership</button>
+    </div>
+  </section>`;
+}
+
 function kindSelect(current = 'collection'): string {
   return `<select data-field="kind" aria-label="Capability kind">
     ${CAPABILITY_KINDS.map((kind) => `<option value="${escape(kind)}"${kind === current ? ' selected' : ''}>${kind === 'collection' ? 'Collection' : 'Delivery'}</option>`).join('')}
@@ -258,8 +305,11 @@ export function bodyHtml(
   tree: CapabilityNode[],
   selected: string | null,
   error: string | null,
-  dashboard?: CapabilityDashboard
+  dashboard?: CapabilityDashboard,
+  mode: 'implicit' | 'explicit-legacy' | 'explicit-managed' = 'explicit-legacy'
 ): string {
+  if (mode === 'implicit') return implicitCapabilityHtml(error);
+  if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard);
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Capabilities</h1>
@@ -321,11 +371,15 @@ export const SCRIPT = `
     if (event.target.dataset?.field === 'kind') synchronizeKind();
   });
   document.addEventListener('click', (event) => {
-    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove]');
+    const target = event.target.closest('[data-select],[data-add],[data-save],[data-remove],[data-review-proposals],[data-metadata-add],[data-metadata-remove],[data-progressive-start],[data-progressive-add],[data-progressive-protect],[data-progressive-why]');
     if (!target) return;
     event.preventDefault();
     const data = target.dataset;
-    if (data.metadataAdd !== undefined) {
+    if (data.progressiveStart !== undefined) vscode.postMessage({ type: 'progressive-start' });
+    else if (data.progressiveAdd !== undefined) vscode.postMessage({ type: 'progressive-add' });
+    else if (data.progressiveProtect !== undefined) vscode.postMessage({ type: 'progressive-protect' });
+    else if (data.progressiveWhy !== undefined) vscode.postMessage({ type: 'progressive-why' });
+    else if (data.metadataAdd !== undefined) {
       document.querySelector('[data-metadata-list]')?.insertAdjacentHTML('beforeend', ${JSON.stringify(METADATA_ROW_HTML)});
     } else if (data.metadataRemove !== undefined) {
       const row = target.closest('[data-metadata-row]');

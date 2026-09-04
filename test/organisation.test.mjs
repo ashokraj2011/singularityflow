@@ -25,7 +25,7 @@ import {
   activateCapabilityProposal, addCapabilityRepository, capabilityFsck, capabilityProposalCommands, discardStaleCapabilityProposal,
   editCapabilityInOrganisation, initializeWorkspaceState,
   inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, mapCapability, readOrganisation,
-  organisationCacheFile, publishOrganisationCapabilityMap, resolveWorkspacePlan
+  organisationCacheFile, proposeProgressiveCapabilityChange, publishOrganisationCapabilityMap, resolveWorkspacePlan
 } from '../src/organisation.mjs';
 import { listTransportIntents, retryTransportIntent } from '../src/transport-intents.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -173,6 +173,39 @@ async function recordNativeAgentDisplayName(remote, agentId, displayName) {
     await rm(checkout, { recursive: true, force: true });
   }
 }
+
+test('the first progressive capability command materializes only a reviewed managed proposal', async () => {
+  const org = await remotes('platform');
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+
+  const proposal = await proposeProgressiveCapabilityChange(org.platform, {
+    operation: 'add', capabilityId: 'payments', name: 'Payments',
+    ownership: 'services/payments/**', teams: ['payments-team']
+  });
+
+  assert.equal(proposal.materialized, true);
+  assert.equal(proposal.reviewRequired, true);
+  assert.match(proposal.receipt.changeId, /^CAP-CHANGE-/);
+  assert.equal(run('git', ['cat-file', '-e', 'sflow/config:singularity/capabilities.yml'], {
+    cwd: org.platform, allowFailure: true
+  }).status, 128, 'the approved configuration remains unchanged before review');
+
+  const map = YAML.parse(run('git', [
+    'show', `${proposal.commit}:singularity/capabilities.yml`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(map.version, 2);
+  assert.equal(map.management.mode, 'sflow-cli');
+  assert.equal(map.capabilities['repository-root'].repository, 'platform');
+  assert.deepEqual(map.capabilities['repository-root'].sourceRoots, []);
+  assert.deepEqual(map.capabilities.payments.sourceRoots, ['services/payments']);
+
+  const receipt = JSON.parse(run('git', [
+    'show', `${proposal.commit}:${proposal.receiptPath}`
+  ], { cwd: org.platform }).stdout);
+  assert.equal(receipt.operation, 'add');
+  assert.equal(receipt.afterSha256, proposal.afterSha256);
+  assert.equal(receipt.materialization.equivalent, true);
+});
 
 test('the branch a capability is mapped on is not recorded as the repository default branch', async () => {
   /**

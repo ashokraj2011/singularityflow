@@ -981,9 +981,11 @@ parent. The relink and removal are validated and proposed atomically. Removal af
 the current map only—older approved map revisions remain auditable in Git and can be
 inspected from **Review proposals**.
 
-Local `capability add`, `capability set`, and `capability remove` author only the
-current checkout. They do not move `sflow/config` or the orphan state branch. Use
-`capability map` or remote `capability edit --lead <URL>` for governed changes.
+In a repository with no explicit map, `capability show` and `sflow why` resolve the stable implicit
+`repository-root`. `capability add`, `capability protect`, and `capability depend` materialize a
+version-2 managed map only inside an exact review proposal; they do not change application branches
+or existing Story pins. Version-1 maps keep legacy editing semantics until the expert
+`capability adopt-managed --preview` / `--confirm sha256:<PLAN>` flow is reviewed and activated.
 
 **Configuration → Review proposals** opens a dashboard of pending changes across
 every registered lead repository; it is available even when no workspace is active.

@@ -14,7 +14,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'intent', 'journal', 'land', 'learn', 'local-reset', 'memory', 'meta-tool', 'pack',
   'plan', 'policy', 'prepare', 'process', 'program', 'push', 'quickstart', 'receipt', 'recommend',
   'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'secrets', 'specify',
-  'start', 'submit', 'task', 'tokens', 'verify'
+  'start', 'submit', 'task', 'tokens', 'verify', 'why'
 ]);
 
 export const LEGACY_NARRATION_COMMANDS = Object.freeze([

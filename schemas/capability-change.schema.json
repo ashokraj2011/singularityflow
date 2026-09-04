@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capability-change.schema.json",
+  "title": "Capability Change v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "operation", "beforeSha256", "afterSha256", "parameters", "materialization", "changeId", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "capability-change" },
+    "operation": { "enum": ["add", "protect", "depend"] },
+    "beforeSha256": { "$ref": "#/$defs/hash" },
+    "afterSha256": { "$ref": "#/$defs/hash" },
+    "parameters": { "type": "object" },
+    "materialization": { "type": ["object", "null"] },
+    "changeId": { "type": "string", "pattern": "^CAP-CHANGE-[A-F0-9]+$" },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": false
+}

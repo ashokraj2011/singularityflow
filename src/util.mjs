@@ -93,7 +93,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'diagnose-only', 'drop-local', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'initialize', 'intake', 'json',
   'include-existing', 'independent', 'isolated-worktree',
   'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
-  'opt-out', 'optional', 'parallel', 'polish', 'probe', 'propose', 'push',
+  'opt-out', 'optional', 'parallel', 'polish', 'preview', 'probe', 'propose', 'push',
   'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
   'semantic', 'skip-checks', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',

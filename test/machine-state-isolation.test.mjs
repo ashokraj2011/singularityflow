@@ -138,10 +138,13 @@ test('a workspace selected on this machine does not govern an unrelated reposito
     'the selected workspace forced publication on a repository whose own configuration disables it');
 });
 
-test('capability resolution declines to answer for a repository it does not own', async () => {
-  // The direct form of the same rule: with a workspace selected elsewhere, a repository that has no
-  // capability map of its own resolves to nothing, rather than borrowing the selected one's.
+test('capability resolution gives an unrelated governed repository its own implicit root', async () => {
+  // A selected workspace elsewhere is never borrowed. Under progressive disclosure, an otherwise
+  // governed repository with no map still has its own deterministic repository-root capability.
   const { unrelated } = await scenario();
   const { resolveLifecycleCapability } = await import('../src/capability-context.mjs');
-  assert.equal(await resolveLifecycleCapability(unrelated), null);
+  const capability = await resolveLifecycleCapability(unrelated);
+  assert.equal(capability.mode, 'implicit');
+  assert.equal(capability.id, 'repository-root');
+  assert.notEqual(capability.map.authority, 'approved-configuration');
 });

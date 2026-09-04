@@ -136,7 +136,11 @@ const entries = {
   workspace: ['sf-workspace', 'sf-workspace-bootstrap', 'sf-workspaces', 'sf-workspace-session', 'sf-workspace-impact'],
   copilot: ['sf-workspace-session'],
   knowledge: ['sf-knowledge'],
-  capability: ['sf-capability-map', 'sf-capabilities', 'sf-capability-doctor'],
+  capability: [
+    'sf-capability-map', 'sf-capabilities', 'sf-capability-doctor',
+    'sf-capability-add', 'sf-capability-protect', 'sf-capability-depend'
+  ],
+  why: ['sf-capabilities'],
   hook: ['sf-hook'],
   bootstrap: ['sf-capability-map', 'sf-quickstart'],
   secrets: ['sf-secrets'],

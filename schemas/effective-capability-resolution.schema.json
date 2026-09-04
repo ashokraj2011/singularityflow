@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/effective-capability-resolution.schema.json",
+  "title": "Effective Capability Resolution v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "mode", "repository", "capability", "approvedConfigurationSha256", "approvalProfileSha256", "policySha256", "sourceScopeSha256", "approvalRequirementSha256", "dependencyContractSha256", "resolver", "resolutionSha256", "policy"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "effective-capability-resolution" },
+    "mode": { "enum": ["implicit", "explicit-legacy", "explicit-managed"] },
+    "repository": { "type": "object" },
+    "capability": { "type": "object" },
+    "capabilityStateSha256": { "$ref": "#/$defs/hash" },
+    "approvedConfigurationSha256": { "type": ["string", "null"] },
+    "approvalProfileSha256": { "$ref": "#/$defs/hash" },
+    "policySha256": { "$ref": "#/$defs/hash" },
+    "sourceScopeSha256": { "$ref": "#/$defs/hash" },
+    "approvalRequirementSha256": { "$ref": "#/$defs/hash" },
+    "dependencyContractSha256": { "$ref": "#/$defs/hash" },
+    "resolver": { "type": "object" },
+    "resolutionSha256": { "$ref": "#/$defs/hash" },
+    "policy": { "type": "object" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+  "additionalProperties": true
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/capability-map.schema.json",
+  "title": "Capability Map v2",
+  "type": "object",
+  "required": ["version", "management", "capabilities"],
+  "properties": {
+    "version": { "const": 2 },
+    "management": {
+      "type": "object", "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["sflow-cli", "legacy-mixed"] },
+        "materializedFrom": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": { "type": "object", "minProperties": 1 }
+  },
+  "additionalProperties": true
+}

@@ -2489,6 +2489,16 @@ const families = [
   }),
   family({ id: 'organisation-cache', currentVersion: 1, paths: [/^\$local\/organisation-cache\/[^/]+\.json$/] }),
   family({ id: 'capability-lead-registry', currentVersion: 1, paths: [/^\$local\/leads\.json$/] }),
+  family({ id: 'effective-capability-resolution', currentVersion: 1 }),
+  family({ id: 'capability-map', currentVersion: 2, minimumReadableVersion: 1, steps: [migration(1, 2, identity(2))] }),
+  family({
+    id: 'capability-change', currentVersion: 1,
+    paths: [/^singularity\/capability-changes\/[^/]+\.json$/], immutable: true
+  }),
+  family({ id: 'capability-materialization-equivalence', currentVersion: 1 }),
+  family({ id: 'capability-dependency-resolution', currentVersion: 1 }),
+  family({ id: 'capability-explanation', currentVersion: 1 }),
+  family({ id: 'capability-managed-adoption', currentVersion: 1 }),
   family({ id: 'reinstall-plan', currentVersion: 1, paths: [/^\$temp\/singularity-flow-reinstall-plans\/.+\/reinstall-plan\.json$/] }),
   family({ id: 'story-stack', currentVersion: 1, paths: [/^\$state\/orchestration\/stacks\/[^/]+\.json$/], immutable: true }),
   family({ id: 'workspace-impact-report', currentVersion: 1, paths: [/^\$workspace\/.+\/impact\/[^/]+\/report\.json$/] }),

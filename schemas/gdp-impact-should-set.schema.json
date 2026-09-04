@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-impact-should-set.schema.json",
+  "title": "GDP Impact Should Set v1",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "policySha256", "worldModel", "items", "assurance", "authority", "gateEligible", "shouldSetSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "impact-should-set" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "policySha256": { "$ref": "#/$defs/digest" },
+    "worldModel": { "$ref": "#/$defs/worldModel" },
+    "items": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/item" } },
+    "assurance": { "$ref": "#/$defs/id" }, "authority": { "const": "none" },
+    "gateEligible": { "const": false }, "shouldSetSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "shouldSetSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "reason": { "oneOf": [{ "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,95}$" }, { "type": "null" }] },
+    "worldModel": {
+      "type": "object", "required": ["status", "baselineSha256", "candidateDeltaSha256", "reasonCode"],
+      "properties": { "status": { "enum": ["ready", "unavailable", "not-required"] }, "baselineSha256": { "$ref": "#/$defs/nullableDigest" }, "candidateDeltaSha256": { "$ref": "#/$defs/nullableDigest" }, "reasonCode": { "$ref": "#/$defs/reason" } },
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object", "required": ["itemId", "resource", "basisSha256", "status"],
+      "properties": { "itemId": { "$ref": "#/$defs/id" }, "resource": { "type": "string", "minLength": 1, "maxLength": 512 }, "basisSha256": { "$ref": "#/$defs/digest" }, "status": { "enum": ["observed", "unavailable"] } },
+      "additionalProperties": false
+    }
+  }
+}

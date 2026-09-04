@@ -281,12 +281,23 @@ Exit evidence:
 Rollback boundary: stop producing new observations; immutable records remain readable but
 non-authoritative.
 
-### [ ] GDP-M4 — Intent, testability, and impact observations
+### [x] GDP-M4 — Intent, testability, and impact observations
 
 **Planning range:** 4–8 person-weeks  
 **Depends on:** GDP-M3, WEL-P0-001 alignment, and CAB-R0 ownership decisions
 
-Deliver:
+Delivered in `GDP-M4-INTENT-TESTABILITY-IMPACT.md`:
+
+- registered five closed, immutable observation families and added bounded, deterministic builders;
+- exposed clause/checklist/impact/environment/Surefire observations under the existing read-only
+  `proof status` surface;
+- added a narrow JUnit 5 binder that requires one unique source declaration, body digest,
+  recognized oracle, and matching Surefire occurrence before reporting an exact witness;
+- preserved skip, retry, lifecycle-hook, oracle, collision, unsupported-source, and rerun gaps;
+- kept World Model, AST, unsupported frameworks, and missing evidence explicitly unavailable and
+  non-blocking.
+
+Original delivery contract:
 
 - bind clause provenance, ambiguity, consistency, testability, boundary conditions, and declared
   non-functional intent to the Proof Subject;

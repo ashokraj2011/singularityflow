@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-impact-disposition.schema.json",
+  "title": "GDP Impact Disposition v1", "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "shouldSetSha256", "decidedBy", "items", "dispositionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "impact-disposition" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "shouldSetSha256": { "$ref": "#/$defs/digest" },
+    "decidedBy": { "$ref": "#/$defs/actor" },
+    "items": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/item" } },
+    "dispositionSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "dispositionSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "actor": { "type": "object", "required": ["kind", "identitySha256", "authoritySha256"], "properties": { "kind": { "enum": ["human", "policy"] }, "identitySha256": { "$ref": "#/$defs/nullableDigest" }, "authoritySha256": { "$ref": "#/$defs/nullableDigest" } }, "additionalProperties": false },
+    "item": { "type": "object", "required": ["itemId", "disposition", "reason"], "properties": { "itemId": { "$ref": "#/$defs/id" }, "disposition": { "enum": ["claimed", "excluded", "deferred", "requires-workflow"] }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } }, "additionalProperties": false }
+  }
+}

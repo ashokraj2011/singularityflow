@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "gdp-contract-family-catalog",
-  "status": "m3-observe-proof-families-mig-registered",
+  "status": "m4-observation-families-mig-registered",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "migrationOwner": "MIG",
   "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
@@ -16,7 +16,12 @@
     "proof-summary",
     "proof-evidence-invalidation",
     "proof-gap-item",
-    "proof-gap-register"
+    "proof-gap-register",
+    "impact-should-set",
+    "impact-disposition",
+    "environment-profile",
+    "environment-attestation",
+    "nondeterminism-profile"
   ],
   "pathTemplates": {
     "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",

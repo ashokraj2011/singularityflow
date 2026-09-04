@@ -1688,6 +1688,28 @@ const families = [
     id: 'proof-gap-register', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/proof-gap-register\/[a-f0-9]{64}\.json$/]
   }),
+  // GDP-M4 observe-mode inputs. These immutable records describe bounded observations only.
+  // Lifecycle, approvals, gates and publication deliberately do not consume them.
+  family({
+    id: 'impact-should-set', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/impact-should-set\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'impact-disposition', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/impact-disposition\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'environment-profile', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/environment-profile\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'environment-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/environment-attestation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'nondeterminism-profile', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/nondeterminism-profile\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

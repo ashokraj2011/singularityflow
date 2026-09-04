@@ -1,12 +1,151 @@
+import { readFile } from 'node:fs/promises';
+
 import { loadDefinition } from '../config.mjs';
 import { observeShadowProof } from '../delivery-modes/proof-kernel.mjs';
+import {
+  bindReviewedJunit5Witnesses, observeProofInputs
+} from '../delivery-modes/proof-observations.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, repoRoot } from '../git.mjs';
 import { commandResult, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
+import { recordSha256 } from '../records.mjs';
+import { extractClauses } from '../specifications.mjs';
+import { optionBoolean, optionString, secureRepositoryPath, SingularityFlowError } from '../util.mjs';
 
 const ACTIONS = new Set(['status', 'explain', 'gaps', 'signals']);
+
+function prefixed(value) {
+  const text = String(value ?? '');
+  return /^sha256:[a-f0-9]{64}$/.test(text) ? text
+    : /^[a-f0-9]{64}$/.test(text) ? `sha256:${text}` : null;
+}
+
+async function readGovernedJson(root, relative) {
+  if (!relative) return null;
+  try {
+    const secured = await secureRepositoryPath(root, relative, {
+      label: 'GDP observation source', mustExist: true, type: 'file'
+    });
+    return JSON.parse(await readFile(secured.absolute, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function observedClauses(root, workflow) {
+  const bound = new Set(Object.values(workflow.phases ?? {}).flatMap((phase) => (
+    phase.deliveryEvidence?.acceptanceCriteria?.tagged
+      ?? phase.deliveryEvidence?.acceptanceCriteria?.bound
+      ?? []
+  )));
+  const clauses = [];
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    if (!['approved', 'awaiting_approval', 'in_progress'].includes(phase.status)) continue;
+    for (const artifact of phase.artifacts ?? []) {
+      if (artifact.kind !== 'requirements' && !/specification|requirements/u.test(phase.id)) continue;
+      try {
+        const secured = await secureRepositoryPath(root, artifact.path, {
+          label: 'GDP specification source', mustExist: true, type: 'file'
+        });
+        const parsed = extractClauses(await readFile(secured.absolute, 'utf8'), {
+          sourcePath: artifact.path
+        });
+        clauses.push(...parsed.map((clause) => ({
+          clauseId: clause.id,
+          bodySha256: prefixed(clause.bodySha256),
+          structural: true,
+          witnessed: bound.has(clause.id)
+        })));
+      } catch {
+        // An unreadable or malformed source cannot become a positive observation. The M4 aggregate
+        // remains available and reports the resulting absence instead of blocking ordinary work.
+      }
+    }
+  }
+  return clauses;
+}
+
+function observedChecklist(workflow) {
+  const latest = new Map();
+  for (const phase of Object.values(workflow.phases ?? {})) {
+    for (const approval of phase.approvals ?? []) {
+      if (approval.invalidatedAt || approval.decision !== 'approved') continue;
+      for (const entry of approval.checklist ?? []) latest.set(entry.article, {
+        article: entry.article, decision: entry.decision
+      });
+    }
+  }
+  return [...latest.values()];
+}
+
+async function observedJunit(root, workflow) {
+  for (const phaseId of [...(workflow.phaseOrder ?? [])].reverse()) {
+    const delivery = workflow.phases?.[phaseId]?.deliveryEvidence;
+    const receipt = await readGovernedJson(root, delivery?.receiptPath);
+    for (const execution of receipt?.testExecutions ?? []) {
+      const test = await readGovernedJson(root, execution.receiptPath);
+      if (!test || test.adapter !== 'junit-xml') continue;
+      const commandSha256 = prefixed(test.argvSha256)
+        ?? `sha256:${recordSha256({ adapter: test.adapter, commandId: test.commandId })}`;
+      const resultSha256 = prefixed(test.result?.sha256);
+      const counts = test.tests ?? {};
+      const observation = test.testcaseObservation ?? {};
+      const sources = [];
+      for (const relative of receipt.changeSet?.executableTestPaths ?? []) {
+        try {
+          const secured = await secureRepositoryPath(root, relative, {
+            label: 'GDP JUnit source', mustExist: true, type: 'file'
+          });
+          sources.push({ path: relative, contents: await readFile(secured.absolute, 'utf8') });
+        } catch {
+          // Missing source is represented by the exact binder's incomplete-coverage gap.
+        }
+      }
+      const exactBinding = bindReviewedJunit5Witnesses(sources, observation.occurrences ?? []);
+      return {
+        adapter: exactBinding.exact
+          ? exactBinding.adapter
+          : observation.profile ?? test.adapterIdentity?.id ?? 'junit5-surefire-v1',
+        commandSha256, resultSha256,
+        discovered: Number(counts.discovered ?? 0), failed: Number(counts.failed ?? 0),
+        skipped: Number(counts.skipped ?? 0), exact: exactBinding.exact,
+        retriesObserved: exactBinding.retriesObserved,
+        teardownProven: exactBinding.teardownProven, oracleProven: exactBinding.oracleProven,
+        gaps: exactBinding.exact ? [] : [
+          ...(observation.bindingGaps ?? []).map((gap) => String(gap).toUpperCase().replaceAll('-', '_')),
+          ...exactBinding.gaps
+        ],
+        outcomes: resultSha256 ? [{
+          attempt: 1, resultSha256,
+          outcome: test.status === 'passed' ? 'passed'
+            : test.status === 'skipped' ? 'skipped'
+              : test.status === 'failed' ? 'failed' : 'unavailable'
+        }] : []
+      };
+    }
+  }
+  return null;
+}
+
+async function m4Observation(root, workflow, diagnostic) {
+  if (!diagnostic.records?.proofSubject) return null;
+  const junit = await observedJunit(root, workflow);
+  return observeProofInputs({
+    proofSubject: diagnostic.records.proofSubject,
+    policySha256: diagnostic.policies.sourcePolicySha256,
+    clauses: await observedClauses(root, workflow),
+    checklistDecisions: observedChecklist(workflow),
+    shouldSetItems: [],
+    environment: junit ? {
+      platform: process.platform, architecture: process.arch,
+      runtime: `node-${process.versions.node.split('.')[0]}`,
+      toolchainSha256: null, dependencyLockSha256: null,
+      localePolicy: 'uncontrolled', clockPolicy: 'uncontrolled'
+    } : null,
+    junit
+  });
+}
 
 function selectData(action, observation, predicateId) {
   if (action === 'status') return observation;
@@ -76,7 +215,9 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     proofProfile: optionString(options, 'proof-profile') ?? 'standard'
   });
   const observation = observeShadowProof(diagnostic);
-  const data = selectData(action, observation, predicateId);
+  const observations = await m4Observation(root, workflow, diagnostic);
+  const combined = observations ? { ...observation, observations } : observation;
+  const data = selectData(action, combined, predicateId);
   return emitCommandResult(commandResult({
     operation: suppliedOperation ?? { id: `proof.${action}`, classification: 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },

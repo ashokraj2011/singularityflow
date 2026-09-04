@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-environment-attestation.schema.json",
+  "title": "GDP Environment Attestation v1", "type": "object",
+  "required": ["schemaVersion", "kind", "proofSubjectSha256", "candidateSha256", "environmentProfileSha256", "commandSha256", "adapter", "resultSha256", "status", "gaps", "attestationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "environment-attestation" },
+    "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "candidateSha256": { "$ref": "#/$defs/digest" },
+    "environmentProfileSha256": { "$ref": "#/$defs/digest" }, "commandSha256": { "$ref": "#/$defs/digest" },
+    "adapter": { "$ref": "#/$defs/id" }, "resultSha256": { "$ref": "#/$defs/nullableDigest" },
+    "status": { "enum": ["passed", "failed", "unavailable"] },
+    "gaps": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "attestationSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "attestationSha256",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }
+  }
+}

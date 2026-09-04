@@ -17,7 +17,8 @@ const FILES = Object.freeze({
   verificationResult: ['adhoc-verification-result', 'verification-result.json', 'resultSha256'],
   eligibility: ['adhoc-landing-eligibility', 'eligibility.json', 'resultSha256'],
   packet: ['adhoc-landing-packet', 'landing-packet.json', 'packetSha256'],
-  receipt: ['adhoc-landing-receipt', 'landing-receipt.json', 'receiptSha256']
+  receipt: ['adhoc-landing-receipt', 'landing-receipt.json', 'receiptSha256'],
+  deliveryTransition: ['delivery-mode-transition', 'delivery-transition.json', 'transitionSha256']
 });
 
 function safeId(value) {

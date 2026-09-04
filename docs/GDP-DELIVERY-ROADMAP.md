@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M7 implemented; later milestones remain opt-in delivery work
+**Status:** GDP-M0 through GDP-M8 implemented; M9–M11 are constrained readiness/profile work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -449,7 +449,23 @@ Exit evidence:
 Rollback boundary: stop enrolling new GEU v2 processes; retain readers and recovery for already
 created processes.
 
-### [ ] GDP-M8 — Promotion, migration, and primary product UX
+### [x] GDP-M8 — Promotion, migration, and primary product UX
+
+**Implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M8-PROMOTION-AND-UX.md`](GDP-M8-PROMOTION-AND-UX.md)
+
+Delivered:
+
+- added read-only promotion preview, exact digest-confirmed handoff, and recovery/status commands;
+- binds session, branch, HEAD, baseline, effect set, Delivery Selection, Completion Contract,
+  destination Work ID, and Feature/Bugfix profile into an immutable transition record;
+- reuses the existing Ad Hoc promotion checkpoint and preserves all application bytes; apply does
+  not start a Story, commit, push, or weaken obligations;
+- added a Delivery & Proof diagnostics tab showing delivery mode, profile, Contract, Proof Subject,
+  Passport, checkpoint states, identities, and non-blocking gaps;
+- retains an exact argv array for the reviewed Story start, avoiding shell-string execution and
+  making interrupted handoff locally recoverable.
 
 **Planning range:** 3–5 person-weeks  
 **Depends on:** GDP-M6 and GDP-M7

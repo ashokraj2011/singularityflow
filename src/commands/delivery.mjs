@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 
-import { startAdhocSession } from '../adhoc/session.mjs';
+import { readAdhocSession, startAdhocSession } from '../adhoc/session.mjs';
+import { promoteAdhocSession } from '../adhoc/landing.mjs';
+import { readSessionRecord, writeSessionRecord } from '../adhoc/session-store.mjs';
 import { loadDefinition } from '../config.mjs';
 import {
   buildOutcomeSelectionBundle, normalizeDeliveryRequest, recommendDelivery,
@@ -10,6 +12,9 @@ import { buildWorkflowDeliveryProjection } from '../delivery-modes/workflow-deli
 import {
   buildAgentExecutionBinding, buildAgentExecutionCheckpoint
 } from '../delivery-modes/execution-bridge.mjs';
+import {
+  applyPromotionPlan, buildPromotionPlan, validateDeliveryModeTransition
+} from '../delivery-modes/promotion.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
@@ -168,6 +173,79 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
           stop: `singularity-flow process stop ${processId}`,
           recover: `singularity-flow process recover ${processId}`
         }
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'promotion-preview') {
+    const session = await readAdhocSession(root, positionals?.[2] ?? null);
+    const preview = await readSessionRecord(root, session.sessionId, 'preview', { required: false });
+    const targetWorkId = optionString(options, 'work-id');
+    const targetWorkflowProfile = optionString(options, 'workflow');
+    const plan = buildPromotionPlan({
+      session, targetWorkId, targetWorkflowProfile, expectedHead: head(root),
+      changeSetSha256: preview?.changeSetSha256 ?? null
+    });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.promotion-preview', classification: 'read' },
+      subject: { kind: 'adhoc', id: session.sessionId },
+      outcome: succeeded('delivery.promotion-previewed', {
+        workId: plan.workId, workflow: plan.targetWorkflowProfile
+      }),
+      effects: effects(), restState: 'informational',
+      data: {
+        schemaVersion: 1, kind: 'gdp-promotion-plan', plan, nothingChanged: true,
+        nextAction: `singularity-flow delivery promotion-apply --plan <PLAN-FILE> --confirm-plan ${plan.transitionSha256}`
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'promotion-apply') {
+    const envelope = await jsonFile(root, optionString(options, 'plan'), 'Promotion plan');
+    const plan = validateDeliveryModeTransition(envelope?.data?.plan ?? envelope?.plan ?? envelope);
+    if (optionString(options, 'confirm-plan') !== plan.transitionSha256) {
+      throw new SingularityFlowError(
+        `Promotion requires --confirm-plan ${plan.transitionSha256}. Nothing changed.`,
+        { code: 'GDM_PROMOTION_CONFIRMATION_INVALID' }
+      );
+    }
+    const session = await readAdhocSession(root, plan.sessionId);
+    const preview = await readSessionRecord(root, session.sessionId, 'preview', { required: false });
+    const transition = applyPromotionPlan({
+      plan, session, expectedHead: head(root), changeSetSha256: preview?.changeSetSha256 ?? null
+    });
+    const checkpoint = await promoteAdhocSession(root, session.sessionId);
+    const stored = await writeSessionRecord(
+      root, session.sessionId, 'deliveryTransition', transition
+    );
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.promotion-apply', classification: 'mutation' },
+      subject: { kind: 'adhoc', id: session.sessionId },
+      outcome: succeeded('delivery.promotion-applied', {
+        workId: transition.workId, workflow: transition.targetWorkflowProfile
+      }),
+      effects: effects({ stateChanged: true }), restState: 'informational',
+      data: {
+        schemaVersion: 1, kind: 'gdp-promotion-handoff', transition: stored, checkpoint,
+        nextArgv: transition.targetArgv
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'promotion-status') {
+    const session = await readAdhocSession(root, positionals?.[2] ?? null);
+    const transition = await readSessionRecord(
+      root, session.sessionId, 'deliveryTransition', { required: false }
+    );
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.promotion-status', classification: 'read' },
+      subject: { kind: 'adhoc', id: session.sessionId },
+      outcome: succeeded('delivery.promotion-reported', {
+        sessionId: session.sessionId, status: transition?.status ?? 'not-started'
+      }),
+      effects: effects(), restState: 'informational',
+      data: {
+        schemaVersion: 1, kind: 'gdp-promotion-status', session, transition,
+        recover: transition?.status === 'handoff-ready' ? transition.targetArgv
+          : ['singularity-flow', 'delivery', 'promotion-preview', session.sessionId,
+            '--workflow', '<feature|bugfix>', '--work-id', '<WORK-ID>']
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }

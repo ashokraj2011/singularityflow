@@ -1757,6 +1757,10 @@ const families = [
     id: 'agent-execution-checkpoint', currentVersion: 1, immutable: true,
     paths: [/^\$git\/gdp\/operations\/[^/]+\/agent-execution-checkpoint\/[A-Za-z0-9._:-]+\.json$/]
   }),
+  family({
+    id: 'delivery-mode-transition', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/singularity-flow\/adhoc\/AHS-[A-Z0-9-]{8,80}\/delivery-transition\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

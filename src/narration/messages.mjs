@@ -33,6 +33,18 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `GDP execution view for ${slot(s.processId)} is ${slot(s.status)} (quiescent: ${slot(s.quiescent)}).`,
     preserves: true
   },
+  'delivery.promotion-previewed': {
+    headline: (s) => `Promotion plan for ${slot(s.workId)} to ${slot(s.workflow)} is ready for exact review.`,
+    preserves: true
+  },
+  'delivery.promotion-applied': {
+    headline: (s) => `Outcome work is ready to hand off to ${slot(s.workflow)} Story ${slot(s.workId)}.`,
+    preserves: false
+  },
+  'delivery.promotion-reported': {
+    headline: (s) => `Promotion for ${slot(s.sessionId)} is ${slot(s.status)}.`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

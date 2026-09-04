@@ -7,7 +7,7 @@ import { navigateTo } from './navigate.ts';
 import { enumField, registerMessageRouter } from './messages.ts';
 import { SCHEMA_REMEDIES, schemaRecordRemedy } from './surface-contracts.ts';
 
-type Tab = 'repository' | 'capabilities' | 'workspace' | 'schema' | 'passport';
+type Tab = 'repository' | 'capabilities' | 'workspace' | 'schema' | 'passport' | 'delivery';
 interface Check { id?: string; status?: string; state?: string; title?: string; message?: string; detail?: string; remedy?: string }
 interface SchemaRecord { family?: string; path?: string; storedVersion?: number; schemaVersion?: number; error?: string; reason?: string }
 interface SchemaFamily { family?: string; currentVersion?: number; readable?: { minimum?: number; maximum?: number }; records?: number; versions?: Record<string, number> | Array<{ version?: number; count?: number }>; outsideRange?: SchemaRecord[]; unreadable?: SchemaRecord[] }
@@ -41,6 +41,15 @@ interface ProofObservation {
   gaps?: Array<ShadowGap & { gapId?: string; proposition?: string }>;
   signals?: unknown[];
   guarantees?: { consumedByLifecycle?: boolean; noWrites?: boolean; noModel?: boolean; signalsGateEligible?: boolean };
+}
+interface DeliveryProjection {
+  mode?: string; authority?: string; workId?: string; workflowProfile?: string;
+  selection?: { deliveryMode?: string; executionPace?: string; autonomyCeiling?: string; selectionSha256?: string };
+  completionContract?: { contractSha256?: string; proofProfile?: string; acceptanceClauses?: unknown[] };
+  proofSubject?: { proofSubjectSha256?: string } | null;
+  passport?: { passportSha256?: string; status?: string } | null;
+  checkpoints?: Array<{ phaseId?: string; generation?: number; status?: string; inputs?: unknown[]; satisfactionSha256?: string }>;
+  gaps?: string[];
 }
 
 const SCRIPT = `
@@ -100,13 +109,23 @@ export function shadowPassportHealth(passport: ShadowPassport | null | undefined
   <section><h2>Deterministic proof observation</h2>${proof?.summary ? `<div class="summary-grid"><div class="summary-card"><strong>${escape(proof.summary.verdict ?? proof.status ?? 'unavailable')}</strong><span>proof verdict</span></div><div class="summary-card"><strong>${proofResults.length}</strong><span>bounded predicates</span></div><div class="summary-card"><strong>${proofGaps.length}</strong><span>explicit gaps</span></div><div class="summary-card"><strong>${list(proof.signals).length}</strong><span>signals · never verdicts</span></div></div><div class="table-wrap"><table><thead><tr><th>Predicate</th><th>Result</th><th>Reason</th><th>Identity</th></tr></thead><tbody>${proofResults.map((result) => `<tr><td>${escape(result.predicate?.id ?? 'unknown')}@${escape(result.predicate?.version ?? '?')}</td><td>${escape(result.verdict ?? 'unavailable')}</td><td>${escape(result.reasonCode ?? 'PFC_RESULT_UNAVAILABLE')}</td><td><code>${escape(digestLabel(result.resultSha256))}</code></td></tr>`).join('')}</tbody></table></div>${proofGaps.length ? `<h3>Proof gaps</h3><ul>${proofGaps.map((gap) => `<li><strong>${escape(gap.gapId ?? gap.code ?? 'GDP_GAP')}</strong> · ${escape(gap.status ?? 'unavailable')} · ${escape(bounded(gap.proposition ?? gap.message ?? '', 500))}</li>`).join('')}</ul>` : ''}<p class="callout"><strong>Observe only:</strong> deterministic results and Signals cannot approve, publish, or change Story state in GDP-M3. Summary <code>${escape(digestLabel(proof.summary.summarySha256))}</code>.</p>` : '<div class="empty"><p>No GDP-M3 proof observation is available for this Story.</p></div>'}</section>`;
 }
 
-export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capabilities: unknown, workspace: unknown, passport: ShadowPassport | null, proof: ProofObservation | null, errors: Partial<Record<Tab, string>>): string {
-  const tabs: Array<[Tab, string]> = [['repository', 'Repository'], ['capabilities', 'Capabilities'], ['workspace', 'Workspace Reliability'], ['schema', 'Schema Health'], ['passport', 'Shadow Passport']];
+export function deliveryHealth(delivery: DeliveryProjection | null | undefined): string {
+  if (!delivery) return '<div class="empty"><p>No mapped Feature or Bugfix Story is selected. Existing workflows remain available.</p></div>';
+  const checkpoints = list<NonNullable<DeliveryProjection['checkpoints']>[number]>(delivery.checkpoints);
+  return `<section class="plain"><div class="summary-grid"><div class="summary-card"><strong>${escape(delivery.selection?.deliveryMode ?? delivery.mode ?? 'workflow')}</strong><span>delivery mode</span></div><div class="summary-card"><strong>${escape(delivery.workflowProfile ?? 'unmapped')}</strong><span>creation-pinned profile</span></div><div class="summary-card"><strong>${escape(delivery.passport?.status ?? 'unavailable')}</strong><span>Change Passport</span></div><div class="summary-card"><strong>${checkpoints.length}</strong><span>bounded checkpoints</span></div></div></section>
+  <section><h2>Exact identities</h2><div class="table-wrap"><table><tbody><tr><th>Selection</th><td><code>${escape(digestLabel(delivery.selection?.selectionSha256))}</code></td></tr><tr><th>Completion Contract</th><td><code>${escape(digestLabel(delivery.completionContract?.contractSha256))}</code></td></tr><tr><th>Proof Subject</th><td><code>${escape(digestLabel(delivery.proofSubject?.proofSubjectSha256))}</code></td></tr><tr><th>Change Passport</th><td><code>${escape(digestLabel(delivery.passport?.passportSha256))}</code></td></tr></tbody></table></div></section>
+  <section><h2>Workflow checkpoints</h2>${checkpoints.length ? `<div class="table-wrap"><table><thead><tr><th>Phase</th><th>Generation</th><th>Status</th><th>Bound inputs</th><th>Receipt</th></tr></thead><tbody>${checkpoints.map((checkpoint) => `<tr><td>${escape(checkpoint.phaseId ?? 'unknown')}</td><td>${escape(checkpoint.generation ?? '?')}</td><td>${escape(checkpoint.status ?? 'unavailable')}</td><td>${list(checkpoint.inputs).length}</td><td><code>${escape(digestLabel(checkpoint.satisfactionSha256))}</code></td></tr>`).join('')}</tbody></table></div>` : '<p>No checkpoints are available.</p>'}</section>
+  <section><h2>Gaps and boundaries</h2>${list<string>(delivery.gaps).length ? `<ul>${list<string>(delivery.gaps).map((gap) => `<li><code>${escape(gap)}</code></li>`).join('')}</ul>` : '<p>No projection gaps reported.</p>'}<p class="callout"><strong>Read-only:</strong> this view does not approve, publish, rebuild the World Model, or require AST.</p></section>`;
+}
+
+export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capabilities: unknown, workspace: unknown, passport: ShadowPassport | null, proof: ProofObservation | null, delivery: DeliveryProjection | null, errors: Partial<Record<Tab, string>>): string {
+  const tabs: Array<[Tab, string]> = [['repository', 'Repository'], ['capabilities', 'Capabilities'], ['workspace', 'Workspace Reliability'], ['schema', 'Schema Health'], ['passport', 'Shadow Passport'], ['delivery', 'Delivery & Proof']];
   const error = errors[tab];
   const body = tab === 'repository' ? `${repository ? `<section class="plain"><div class="summary-grid"><div class="summary-card ${repository.healthy ? '' : 'important'}"><strong>${repository.healthy ? 'Healthy' : 'Needs attention'}</strong><span>repository</span></div><div class="summary-card"><strong>${escape(repository.branch ?? '—')}</strong><span>branch</span></div><div class="summary-card"><strong>${escape(repository.workId ?? 'No active work')}</strong><span>work item</span></div></div></section>${checks(repository.checks)}` : '<div class="empty"><p>No governed repository is selected. Workspace and capability diagnostics remain available.</p></div>'}`
     : tab === 'capabilities' ? checks(genericChecks(capabilities))
       : tab === 'workspace' ? checks(genericChecks(workspace))
-        : tab === 'schema' ? schemaHealth(repository?.schemaCensus) : shadowPassportHealth(passport, proof);
+        : tab === 'schema' ? schemaHealth(repository?.schemaCensus)
+          : tab === 'delivery' ? deliveryHealth(delivery) : shadowPassportHealth(passport, proof);
   return `<header><p class="eyebrow">Help</p><h1>${icon('statusCurrent', { size: 24 })} Diagnostics</h1><p class="meta">Repository, capability, workspace-reliability, schema compatibility, and optional shadow Passport checks in one read-only view.</p></header>
     <nav class="tabs" aria-label="Diagnostic scopes">${tabs.map(([id, label]) => `<button class="${id === tab ? 'active' : ''}" data-message="tab" data-tab="${id}">${label}</button>`).join('')}</nav>
     <p class="card-foot"><button class="secondary" data-message="refresh">Run diagnostics again</button></p>${error ? `<section class="warning"><strong>${escape(tab)} diagnostics unavailable</strong><p>${escape(error)}</p></section>` : ''}${body}`;
@@ -114,7 +133,7 @@ export function diagnosticsBody(tab: Tab, repository: DoctorResult | null, capab
 
 export class DiagnosticsPanel {
   private static current: DiagnosticsPanel | null = null;
-  private tab: Tab = 'repository'; private repository: DoctorResult | null = null; private capabilities: unknown = null; private workspace: unknown = null; private passport: ShadowPassport | null = null; private proof: ProofObservation | null = null;
+  private tab: Tab = 'repository'; private repository: DoctorResult | null = null; private capabilities: unknown = null; private workspace: unknown = null; private passport: ShadowPassport | null = null; private proof: ProofObservation | null = null; private delivery: DeliveryProjection | null = null;
   private errors: Partial<Record<Tab, string>> = {};
   private readonly panel: vscode.WebviewPanel;
   private readonly client: SingularityFlowClient;
@@ -132,22 +151,23 @@ export class DiagnosticsPanel {
   }
   static refreshCurrent(): void { if (DiagnosticsPanel.current) void DiagnosticsPanel.current.refresh(); }
   private router = registerMessageRouter('singularityFlow.diagnostics', {
-    tab: (m) => { const tab = enumField(m, 'tab', ['repository', 'capabilities', 'workspace', 'schema', 'passport'] as const); if (tab) { this.tab = tab; this.render(); } },
+    tab: (m) => { const tab = enumField(m, 'tab', ['repository', 'capabilities', 'workspace', 'schema', 'passport', 'delivery'] as const); if (tab) { this.tab = tab; this.render(); } },
     refresh: () => { void this.refresh(); }
   });
   async refresh(): Promise<void> {
     this.errors = {};
     const read = async (tab: Tab, args: string[]): Promise<unknown> => { try { return commandData(await this.client.run(args)); } catch (error) { this.errors[tab] = (error as Error).message; return null; } };
-    const [repository, capabilities, workspace, passport, proof] = await Promise.all([
+    const [repository, capabilities, workspace, passport, proof, delivery] = await Promise.all([
       this.hasRepository() ? read('repository', ['doctor', '--offline', '--json']) : null,
       read('capabilities', ['capabilities', 'doctor', '--offline', '--json']),
       read('workspace', ['workspace', 'doctor', '--json']),
       this.hasRepository() ? read('passport', ['change', 'show', '--shadow', '--json']) : null,
-      this.hasRepository() ? read('passport', ['proof', 'status', '--json']) : null
+      this.hasRepository() ? read('passport', ['proof', 'status', '--json']) : null,
+      this.hasRepository() ? read('delivery', ['delivery', 'workflow-status', '--json']) : null
     ]);
-    this.repository = repository as DoctorResult | null; this.capabilities = capabilities; this.workspace = workspace; this.passport = passport as ShadowPassport | null; this.proof = proof as ProofObservation | null;
+    this.repository = repository as DoctorResult | null; this.capabilities = capabilities; this.workspace = workspace; this.passport = passport as ShadowPassport | null; this.proof = proof as ProofObservation | null; this.delivery = delivery as DeliveryProjection | null;
     if (this.errors.repository) this.errors.schema = this.errors.repository;
     this.render();
   }
-  private render(): void { const token = nonce(); this.panel.webview.html = page('Diagnostics', diagnosticsBody(this.tab, this.repository, this.capabilities, this.workspace, this.passport, this.proof, this.errors), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'doctor' }); }
+  private render(): void { const token = nonce(); this.panel.webview.html = page('Diagnostics', diagnosticsBody(this.tab, this.repository, this.capabilities, this.workspace, this.passport, this.proof, this.delivery, this.errors), contentSecurityPolicy(this.panel.webview, token), token, SCRIPT, { nav: 'doctor' }); }
 }

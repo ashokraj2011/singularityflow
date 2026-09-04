@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-delivery-mode-transition.schema.json",
+  "title": "GDP Delivery Mode Transition v1", "type": "object",
+  "required": ["schemaVersion", "kind", "transitionId", "workId", "sessionId", "fromMode", "targetMode", "targetWorkflowProfile", "preservedBranch", "expectedHead", "baselineSha256", "changeSetSha256", "selectionSha256", "completionContractSha256", "sourceTransitionSha256", "status", "targetArgv", "transitionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "delivery-mode-transition" }, "transitionId": { "$ref": "#/$defs/id" }, "workId": { "$ref": "#/$defs/id" }, "sessionId": { "$ref": "#/$defs/id" },
+    "fromMode": { "const": "outcome" }, "targetMode": { "const": "workflow" }, "targetWorkflowProfile": { "enum": ["feature", "bugfix"] }, "preservedBranch": { "$ref": "#/$defs/text" }, "expectedHead": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "baselineSha256": { "$ref": "#/$defs/digest" }, "changeSetSha256": { "$ref": "#/$defs/nullableDigest" }, "selectionSha256": { "$ref": "#/$defs/digest" }, "completionContractSha256": { "$ref": "#/$defs/digest" }, "sourceTransitionSha256": { "$ref": "#/$defs/nullableDigest" },
+    "status": { "enum": ["planned", "handoff-ready"] }, "targetArgv": { "type": "array", "minItems": 8, "maxItems": 8, "items": { "type": "string", "minLength": 1, "maxLength": 320 } }, "transitionSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "transitionSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "text": { "type": "string", "minLength": 1, "maxLength": 320 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] } }
+}

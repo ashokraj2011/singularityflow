@@ -38,6 +38,7 @@ credential-helper evidence.
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
 | Witnessed Engineering Loop | Observe-only baseline shipped; exact/authenticated testcase claims and enforcement are unavailable | `WEL-P0-001` | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | Corrected design only; implementation is not authorized | `CAB-R0` design alignment | [CAB roadmap](CAB-ROADMAP.md) |
+| Governed Delivery and Proof | Source proposal validated; identity graph, ownership, storage, CLI, and migration contracts require correction before runtime work | `GDP-M0` contract repair | [GDP milestone roadmap](GDP-DELIVERY-ROADMAP.md) |
 
 Completed work is not repeated in this tracker. In particular, the
 [VS Code UI remediation contract](UI-REMEDIATION-PLAN.md) is implemented and regression-backed; a

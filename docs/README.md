@@ -23,6 +23,7 @@ is not part of the current product.
 | Learn the normal day-to-day flow | [How-to guide](../HOW-TO.md) |
 | Use SGOS for normal Stories, explicit Programs, recovery, and cross-laptop Pack authority | [How to use SGOS](SGOS-USAGE-GUIDE.md) |
 | Track deliberately deferred work and the next eligible increment | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
+| Plan Governed Delivery and Proof as reversible release milestones | [GDP milestone delivery roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Land bounded work that began without a Story | [Ad hoc work and governed landing](../README-AD-HOC-WORK.md) |
 | Understand the terms | [Glossary](GLOSSARY.md) |
 | Use the VS Code extension | [VS Code guide](VS-CODE.md) |
@@ -50,6 +51,7 @@ is not part of the current product.
 | Which state plane owns each fact | [State authority](STATE-AUTHORITY.md) |
 | Approved clause-driven specification architecture | [Clause-driven specifications](CLAUSE-DRIVEN-SPECIFICATIONS.md) |
 | Witnessed clauses, bounded knowledge, and observe-only testcase evidence | [Witnessed Engineering Loop](WEL-SPEC.md) |
+| Govern Workflow and Outcome delivery through one Candidate and proof system | [Governed Delivery and Proof roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Review the cross-product pending-work dashboard | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
 | Track deferred Witnessed Engineering Loop delivery and prerequisites | [WEL pending work](WEL-PENDING-WORK.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |

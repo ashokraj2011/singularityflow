@@ -1745,6 +1745,18 @@ const families = [
     id: 'workflow-checkpoint-satisfaction', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/workflow-checkpoint-satisfaction\/[a-f0-9]{64}\.json$/]
   }),
+  family({
+    id: 'agent-execution-binding', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/agent-execution-binding\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'agent-steering-decision', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/agent-steering-decision\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'agent-execution-checkpoint', currentVersion: 1, immutable: true,
+    paths: [/^\$git\/gdp\/operations\/[^/]+\/agent-execution-checkpoint\/[A-Za-z0-9._:-]+\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

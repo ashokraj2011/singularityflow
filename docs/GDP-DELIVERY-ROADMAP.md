@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M6 implemented; later milestones remain opt-in delivery work
+**Status:** GDP-M0 through GDP-M7 implemented; later milestones remain opt-in delivery work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -408,7 +408,22 @@ Exit evidence:
 Rollback boundary: disable Passport consumption for new workflows; existing workflow state remains
 the source of lifecycle authority.
 
-### [ ] GDP-M7 — Durable GEU v2 and Auto convergence
+### [x] GDP-M7 — Durable GEU v2 and Auto convergence
+
+**Implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M7-SGOS-EXECUTION-BRIDGE.md`](GDP-M7-SGOS-EXECUTION-BRIDGE.md)
+
+Delivered:
+
+- bound GDP Delivery Selection and Completion Contract identities to the existing durable SGOS
+  process, checkpoint, lease, stop/quiescence, retry, and recovery runtime;
+- registered immutable Agent Execution Binding, Execution Checkpoint, and Steering Decision records;
+- exposed `delivery execution-status <PROCESS-ID> --work-id <WORK-ID>` as a model-free view with
+  the exact existing SGOS pause, stop, and recovery commands;
+- permits steering records only as wrappers over an already-recorded SGOS control event—GDP cannot
+  issue pause, halt, narrow, or success decisions by itself;
+- kept old Auto sessions and non-enrolled work on their creation-pinned protocols.
 
 **Planning range:** 4–8 person-weeks  
 **Depends on:** GDP-M5, SGOS portable authority, and SGOS durable execution decisions

@@ -29,6 +29,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Workflow delivery view for ${slot(s.workId)} (${slot(s.profile)}; ${slot(s.checkpoints, '0')} checkpoint(s)).`,
     preserves: true
   },
+  'delivery.execution-reported': {
+    headline: (s) => `GDP execution view for ${slot(s.processId)} is ${slot(s.status)} (quiescent: ${slot(s.quiescent)}).`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

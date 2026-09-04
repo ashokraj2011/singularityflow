@@ -177,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm6-workflow-families-mig-registered');
+  assert.equal(catalog.status, 'm7-execution-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -188,6 +188,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ]);
   const productionFamilies = new Set(migrationRegistrySnapshot().map((family) => family.id));
   assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), [
+    'agent-execution-binding', 'agent-execution-checkpoint', 'agent-steering-decision',
     'autonomy-decision', 'change-passport', 'change-risk-assessment',
     'completion-contract', 'delivery-recommendation', 'delivery-selection',
     'effect-policy', 'effect-policy-compilation',

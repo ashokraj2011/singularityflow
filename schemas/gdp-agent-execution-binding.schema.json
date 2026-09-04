@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-agent-execution-binding.schema.json",
+  "title": "GDP Agent Execution Binding v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "deliverySelectionSha256", "completionContractSha256", "processId", "processRevision", "programSha256", "policySnapshotSha256", "candidateSha256", "executionUnitManifestSha256", "sourceProcessSha256", "runtime", "status", "gaps", "bindingSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "agent-execution-binding" },
+    "workId": { "$ref": "#/$defs/id" }, "deliverySelectionSha256": { "$ref": "#/$defs/digest" }, "completionContractSha256": { "$ref": "#/$defs/digest" },
+    "processId": { "$ref": "#/$defs/id" }, "processRevision": { "type": "integer", "minimum": 0 }, "programSha256": { "$ref": "#/$defs/digest" }, "policySnapshotSha256": { "$ref": "#/$defs/digest" },
+    "candidateSha256": { "$ref": "#/$defs/nullableDigest" }, "executionUnitManifestSha256": { "$ref": "#/$defs/nullableDigest" }, "sourceProcessSha256": { "$ref": "#/$defs/digest" },
+    "runtime": { "const": "sgos-durable-v2-bridge" }, "status": { "enum": ["bound", "partial"] }, "gaps": { "$ref": "#/$defs/reasons" }, "bindingSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "bindingSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "reasons": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z0-9]+(?:_[A-Z0-9]+)*$" } } }
+}

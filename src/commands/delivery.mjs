@@ -7,11 +7,15 @@ import {
   validateRecommendationPlan
 } from '../delivery-modes/delivery-kernel.mjs';
 import { buildWorkflowDeliveryProjection } from '../delivery-modes/workflow-delivery.mjs';
+import {
+  buildAgentExecutionBinding, buildAgentExecutionCheckpoint
+} from '../delivery-modes/execution-bridge.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { recordSha256 } from '../records.mjs';
+import { readSgosCheckpoint, readSgosProcess } from '../sgos/index.mjs';
 import {
   optionBoolean, optionString, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
@@ -70,6 +74,41 @@ function effects({ stateChanged = false } = {}) {
   };
 }
 
+async function workflowDeliveryFor(root, definition, policy, workId, proofProfile = 'standard') {
+  const { workflow, diagnostic } = await resolveShadowPassportDiagnostic(
+    root, definition, workId, { proofProfile }
+  );
+  const workflowProfile = workflow.resolution?.workflowId ?? workflow.workItem?.workType;
+  const projection = buildWorkflowDeliveryProjection({
+    workflow,
+    request: {
+      schemaVersion: 1, kind: 'delivery-request', workId: workflow.workItem.id,
+      outcome: {
+        statement: workflow.workItem.title ?? workflow.workItem.summary ?? `Complete ${workflow.workItem.id}`,
+        observablePredicate: 'All creation-pinned workflow obligations are satisfied.'
+      },
+      acceptanceClauses: [], nonGoals: [],
+      predicted: {
+        repositories: 1, touchedResources: 0, protectedPaths: false,
+        externalEffects: false, credentialUse: false, architectureDecision: false,
+        publicContractChange: false, databaseMigration: false
+      },
+      riskClass: 'unknown', executionProvider: 'governed-agent',
+      executionPace: workflow.executionOrigin?.mode === 'auto' ? 'auto' : 'assisted',
+      autonomyCeiling: 'A2', proofProfile, workflowProfile,
+      allowedEffects: ['repository-file-write'],
+      forbiddenEffects: ['credential-read', 'external-network']
+    },
+    candidateSha256: diagnostic.candidate.candidateSha256,
+    worldModel: diagnostic.worldModel, sourceRecordSha256: sha(workflow),
+    configurationSha256: configurationIdentity(definition, policy),
+    proofPolicySha256: sha({ profile: proofProfile, source: 'installed-gdp-m6' }),
+    gapAcceptancePolicySha256: sha({ mode: 'none', milestone: 'GDP-M6' }),
+    promotionPolicySha256: sha(policy.outcomeBounds)
+  });
+  return { workflow, diagnostic, workflowProfile, projection };
+}
+
 export async function run(_argv, { positionals, options, operation: suppliedOperation = null } = {}) {
   const action = positionals?.[1] ?? 'recommend';
   const root = repoRoot();
@@ -77,38 +116,9 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   const policy = deliveryPolicy(definition);
   if (action === 'workflow-status') {
     const workId = positionals?.[2] ?? optionString(options, 'work-id') ?? branch(root);
-    const { workflow, diagnostic } = await resolveShadowPassportDiagnostic(
-      root, definition, workId, { proofProfile: optionString(options, 'proof-profile') ?? 'standard' }
+    const { workflow, workflowProfile, projection } = await workflowDeliveryFor(
+      root, definition, policy, workId, optionString(options, 'proof-profile') ?? 'standard'
     );
-    const workflowProfile = workflow.resolution?.workflowId ?? workflow.workItem?.workType;
-    const workflowSha256 = sha(workflow);
-    const projection = buildWorkflowDeliveryProjection({
-      workflow,
-      request: {
-        schemaVersion: 1, kind: 'delivery-request', workId: workflow.workItem.id,
-        outcome: {
-          statement: workflow.workItem.title ?? workflow.workItem.summary ?? `Complete ${workflow.workItem.id}`,
-          observablePredicate: 'All creation-pinned workflow obligations are satisfied.'
-        },
-        acceptanceClauses: [], nonGoals: [],
-        predicted: {
-          repositories: 1, touchedResources: 0, protectedPaths: false,
-          externalEffects: false, credentialUse: false, architectureDecision: false,
-          publicContractChange: false, databaseMigration: false
-        },
-        riskClass: 'unknown', executionProvider: 'governed-agent',
-        executionPace: workflow.executionOrigin?.mode === 'auto' ? 'auto' : 'assisted',
-        autonomyCeiling: 'A2', proofProfile: optionString(options, 'proof-profile') ?? 'standard',
-        workflowProfile, allowedEffects: ['repository-file-write'],
-        forbiddenEffects: ['credential-read', 'external-network']
-      },
-      candidateSha256: diagnostic.candidate.candidateSha256,
-      worldModel: diagnostic.worldModel, sourceRecordSha256: workflowSha256,
-      configurationSha256: configurationIdentity(definition, policy),
-      proofPolicySha256: sha({ profile: 'standard', source: 'installed-gdp-m6' }),
-      gapAcceptancePolicySha256: sha({ mode: 'none', milestone: 'GDP-M6' }),
-      promotionPolicySha256: sha(policy.outcomeBounds)
-    });
     return emitCommandResult(commandResult({
       operation: suppliedOperation ?? { id: 'delivery.workflow-status', classification: 'read' },
       subject: { kind: 'story', id: workflow.workItem.id },
@@ -117,6 +127,48 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
         checkpoints: projection.checkpoints.length
       }),
       effects: effects(), restState: 'informational', data: projection
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
+  if (action === 'execution-status') {
+    const processId = positionals?.[2];
+    if (!processId) throw new SingularityFlowError(
+      'Execution status requires a Process ID: delivery execution-status <PROCESS-ID> [--work-id <WORK-ID>].',
+      { code: 'GDM_EXECUTION_BINDING_INVALID' }
+    );
+    const process = await readSgosProcess(root, processId);
+    const workId = optionString(options, 'work-id') ?? process.authorityBinding?.subjectId;
+    if (!workId) throw new SingularityFlowError(
+      'The SGOS Process does not identify a governed Story. Pass --work-id explicitly.',
+      { code: 'GDM_EXECUTION_BINDING_INVALID' }
+    );
+    const { projection } = await workflowDeliveryFor(
+      root, definition, policy, workId, optionString(options, 'proof-profile') ?? 'standard'
+    );
+    const binding = buildAgentExecutionBinding({
+      workId, selection: projection.selection,
+      completionContract: projection.completionContract, process,
+      executionUnitManifestSha256: process.executionUnitManifestSha256 ?? null
+    });
+    const checkpointRecord = process.currentCheckpointSha256
+      ? (await readSgosCheckpoint(root, process.processId, process.currentCheckpointSha256)).record
+      : null;
+    const checkpoint = buildAgentExecutionCheckpoint({ binding, process, checkpoint: checkpointRecord });
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.execution-status', classification: 'read' },
+      subject: { kind: 'story', id: workId },
+      outcome: succeeded('delivery.execution-reported', {
+        processId, status: checkpoint.status, quiescent: checkpoint.quiescent
+      }),
+      effects: effects(), restState: 'informational',
+      data: {
+        schemaVersion: 1, kind: 'gdp-execution-status', binding, checkpoint,
+        authority: 'existing-sgos-runtime',
+        controls: {
+          pause: `singularity-flow process pause ${processId}`,
+          stop: `singularity-flow process stop ${processId}`,
+          recover: `singularity-flow process recover ${processId}`
+        }
+      }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
   if (action === 'recommend') {
@@ -144,7 +196,8 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
   if (action !== 'select') throw new SingularityFlowError(
-    `Unknown delivery action '${action}'. Use: delivery recommend or delivery select.`,
+    `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
+      + 'delivery workflow-status, or delivery execution-status.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
   const envelope = await jsonFile(root, optionString(options, 'plan'), 'Delivery plan');

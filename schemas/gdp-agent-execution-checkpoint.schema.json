@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-agent-execution-checkpoint.schema.json",
+  "title": "GDP Agent Execution Checkpoint v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "bindingSha256", "processId", "processRevision", "processStatus", "checkpointSha256", "sourceCheckpointSha256", "activeExecutionRefs", "quiescent", "recoveryRequired", "status", "gaps", "executionCheckpointSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "agent-execution-checkpoint" }, "workId": { "$ref": "#/$defs/id" }, "bindingSha256": { "$ref": "#/$defs/digest" }, "processId": { "$ref": "#/$defs/id" }, "processRevision": { "type": "integer", "minimum": 0 },
+    "processStatus": { "enum": ["queued", "running", "waiting-human", "blocked", "paused", "succeeded", "failed", "cancelled", "recovery-required"] }, "checkpointSha256": { "$ref": "#/$defs/nullableDigest" }, "sourceCheckpointSha256": { "$ref": "#/$defs/nullableDigest" },
+    "activeExecutionRefs": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } }, "quiescent": { "type": "boolean" }, "recoveryRequired": { "type": "boolean" }, "status": { "enum": ["observed", "unavailable", "recovery-required"] }, "gaps": { "$ref": "#/$defs/reasons" }, "executionCheckpointSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "executionCheckpointSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "reasons": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z0-9]+(?:_[A-Z0-9]+)*$" } } }
+}

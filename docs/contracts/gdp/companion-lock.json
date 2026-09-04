@@ -72,7 +72,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:ff7b4453251e193a60aa1298b7aac8f0f43dd65272cb54b054e6aace13f25eb0"
+      "sha256": "sha256:170c4a3d8592bcc605d3e7869c6ade5d364196f5ff578cfd2fcb0b0f4d7644cd"
     },
     {
       "id": "smart-initialization-v1",

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "gdp-contract-family-catalog",
-  "status": "m6-workflow-families-mig-registered",
+  "status": "m7-execution-families-mig-registered",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "migrationOwner": "MIG",
   "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
@@ -29,7 +29,10 @@
     "effect-policy-compilation",
     "change-risk-assessment",
     "autonomy-decision",
-    "workflow-checkpoint-satisfaction"
+    "workflow-checkpoint-satisfaction",
+    "agent-execution-binding",
+    "agent-steering-decision",
+    "agent-execution-checkpoint"
   ],
   "pathTemplates": {
     "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",

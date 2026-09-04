@@ -247,7 +247,7 @@ const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze(['regions', 'check']);
-const DELIVERY_SUBCOMMANDS = Object.freeze(['recommend', 'select', 'workflow-status']);
+const DELIVERY_SUBCOMMANDS = Object.freeze(['recommend', 'select', 'workflow-status', 'execution-status']);
 const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
@@ -480,7 +480,7 @@ function resolveDeliveryOperation(definition, positionals) {
   }
   return never(
     `delivery.${subcommand}`, definition,
-    ['recommend', 'workflow-status'].includes(subcommand) ? 'read' : 'mutation'
+    ['recommend', 'workflow-status', 'execution-status'].includes(subcommand) ? 'read' : 'mutation'
   );
 }
 
@@ -1222,6 +1222,7 @@ export function operationCatalog() {
     never('delivery.recommend', deliveryDefinition, 'read'),
     never('delivery.select', deliveryDefinition, 'mutation'),
     never('delivery.workflow-status', deliveryDefinition, 'read'),
+    never('delivery.execution-status', deliveryDefinition, 'read'),
     never('visual.status', visualDefinition, 'read'),
     never('visual.compare', visualDefinition, 'mutation'),
     ...['list', 'status', 'doctor', 'probe', 'serve'].map((name) => never(`mcp.${name}`, mcpDefinition, 'read')),

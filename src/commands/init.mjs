@@ -55,6 +55,12 @@ function digest(bytes) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+function shellQuote(value) {
+  const text = String(value);
+  if (/^[A-Za-z0-9._/@:=,+-]+$/.test(text)) return text;
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
 async function currentSmartPolicy(root) {
   try {
     const workflowBytes = await readFile(path.join(root, 'singularity', 'workflow.yml'));
@@ -178,7 +184,7 @@ async function smartInit(positionals, options) {
     '--dry-run cannot be combined with --confirm or --yes.', { code: 'INI_CONFIGURATION_INVALID' }
   );
   if (dryRun && options.output != null) throw new SingularityFlowError(
-    '--dry-run never writes files and cannot be combined with --output. Use --activation proposal-only --output <FILE> to export a proposal.',
+    '--dry-run never writes files and cannot be combined with --output. Use --output <FILE> without --dry-run to export a non-active proposal.',
     { code: 'INI_CONFIGURATION_INVALID' }
   );
   const snapshot = await captureSmartInitSnapshot(root);
@@ -272,6 +278,19 @@ async function smartInit(positionals, options) {
     return { status: 'proposal', proposal: rendered.proposal, output: null };
   }
   const written = outputPath ? await writeProposal(root, outputPath, rendered.proposal) : null;
+  if (written && !accepted
+      && rendered.proposal.governance.activationChannel === 'local-confirmation'
+      && !yes && options.confirm == null) {
+    const result = {
+      status: 'proposal-only',
+      proposalSha256: rendered.proposal.proposalSha256,
+      output: written,
+      nextCommand: `singularity-flow init --smart-detect --accept-proposal ${shellQuote(written)} --confirm ${rendered.proposal.proposalSha256}`
+    };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`${renderCard(rendered.proposal)}\n\nProposal written: ${written}. No repository law was activated.\nNext: ${result.nextCommand}`);
+    return result;
+  }
   if (rendered.proposal.governance.activationChannel !== 'local-confirmation') {
     if (!written) throw new SingularityFlowError(
       `${rendered.proposal.governance.activationChannel} requires --output <repository-relative-proposal.json>; active configuration was not changed.`,

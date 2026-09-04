@@ -1348,7 +1348,7 @@ const PAGES = Object.freeze({
     options: [
       ['--smart-detect', 'Build a bounded, reproducible initialization proposal for the current Git repository.'],
       ['--dry-run', 'Return the complete proposal without writing files, Git state, logs, or receipts.'],
-      ['--output REPOSITORY-FILE', 'Store a proposal at a secure repository-relative path in proposal-only or review mode; incompatible with effect-free dry-run.'],
+      ['--output REPOSITORY-FILE', 'Write a non-active proposal with its eventual activation channel to a secure repository-relative path; incompatible with effect-free dry-run and never overwrites.'],
       ['--accept-proposal FILE', 'Re-read an earlier proposal, regenerate it from current bytes, and require canonical equality.'],
       ['--confirm SHA256', 'Activate only the exact regenerated proposal digest.'],
       ['--yes', 'Accept only visible unambiguous defaults; never resolve ambiguity or accept a missing verifier.'],
@@ -1359,6 +1359,7 @@ const PAGES = Object.freeze({
     examples: [
       ['singularity-flow init', 'Initialise governance manually in the current repository.'],
       ['singularity-flow init --smart-detect --dry-run --json', 'Inspect the byte-identical proposal with no side effects.'],
+      ['singularity-flow init --smart-detect --output init-proposal.json --json', 'Export a non-active proposal that can later be accepted by exact digest.'],
       ['singularity-flow init --smart-detect --yes', 'Activate only when all defaults and verification are unambiguous.'],
       ['singularity-flow init --smart-detect --accept-proposal init-proposal.json --confirm sha256:<PROPOSAL>', 'Regenerate and activate one exact reviewed proposal.'],
       ['singularity-flow init --recover --proposal sha256:<PROPOSAL>', 'Prove an interrupted activation complete or restore only its exact unchanged managed paths.']

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "b4b4124f21cf1f7e41285f51365121c73ed74d80",
+  "sourceCommit": "19b2bc58249d06243dceb7096d608913b7642dbf",
   "topicCount": 60,
-  "contentSha256": "b652c71c861345051b17f57a24f3e2e6220ed73035538a9dc0b5add968ce6dd6",
+  "contentSha256": "8910269345c3b31b398eb4deb4e6e97cf68cd2add673691ae9af81e4e452e79f",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -392,8 +392,8 @@
     {
       "id": "smart-initialization",
       "title": "Smart repository initialization",
-      "version": 1,
-      "sha256": "c6b59b535f50401a747b557d0b269a4301dd22e18052eeebc9298e58384558f6",
+      "version": 2,
+      "sha256": "ee3ac6f90ac74d8dad0650b8d8a823a25913003a56f1b6de8da0c02a1aefecd6",
       "routingSha256": "e090e2b732fd9a3a198bc89359fb479e0fc8302cf1806c9c61891e0e019c12bf",
       "file": "smart-initialization.md"
     },

@@ -38,6 +38,7 @@ Usage:
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
   singularity-flow init --smart-detect --dry-run [--json]
+  singularity-flow init --smart-detect --output REPOSITORY-FILE [--json]
   singularity-flow init --smart-detect --activation proposal-only|review-proposal --output REPOSITORY-FILE [--json]
     [--yes | --accept-proposal REPOSITORY-FILE --confirm SHA256]
   singularity-flow init --recover --proposal SHA256 [--json]

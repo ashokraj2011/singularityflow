@@ -276,7 +276,7 @@ repository law without running the repository, contacting the network, or callin
 singularity-flow init --smart-detect --dry-run --json
 
 # Save a reviewable, non-active proposal, then regenerate and activate only that exact proposal.
-singularity-flow init --smart-detect --activation proposal-only --output init-proposal.json
+singularity-flow init --smart-detect --output init-proposal.json --json
 singularity-flow init --smart-detect \
   --accept-proposal init-proposal.json \
   --confirm sha256:<PROPOSAL-HASH>

@@ -310,7 +310,7 @@ test('accepted proposal becomes stale when a manifest changes and unknown verifi
   assert.equal(proposal.proof.readiness, 'unavailable');
   assert.equal(proposal.commands.verification.length, 0);
   const output = 'review/init-proposal.json';
-  flow(root, ['init', '--smart-detect', '--activation', 'proposal-only', '--output', output]);
+  flow(root, ['init', '--smart-detect', '--output', output]);
   await writeFile(path.join(root, 'go.mod'), 'module example.invalid/new\n');
   const stale = flow(root, [
     'init', '--smart-detect', '--accept-proposal', output, '--confirm', proposal.proposalSha256,
@@ -318,6 +318,28 @@ test('accepted proposal becomes stale when a manifest changes and unknown verifi
   ], { allowFailure: true });
   assert.notEqual(stale.status, 0);
   assert.match(stale.stderr, /no longer matches current repository/i);
+});
+
+test('a plain proposal export remains non-active and can be accepted by exact digest', async () => {
+  const root = await repository({
+    'package.json': `${JSON.stringify({ scripts: { test: 'node --test' } }, null, 2)}\n`,
+    'test/example.test.mjs': 'import test from "node:test";\ntest("example", () => {});\n'
+  });
+  const output = 'review/init-proposal.json';
+  const exported = JSON.parse(flow(root, [
+    'init', '--smart-detect', '--output', output, '--json'
+  ]).stdout);
+  assert.equal(exported.status, 'proposal-only');
+  assert.equal(await import('node:fs').then(({ existsSync }) => existsSync(path.join(root, 'singularity'))), false);
+  const proposal = JSON.parse(await readFile(path.join(root, output), 'utf8'));
+  assert.equal(proposal.governance.activationChannel, 'local-confirmation');
+  assert.equal(exported.proposalSha256, proposal.proposalSha256);
+  const activated = JSON.parse(flow(root, [
+    'init', '--smart-detect', '--accept-proposal', output,
+    '--confirm', proposal.proposalSha256, '--json'
+  ]).stdout);
+  assert.equal(activated.status, 'activated');
+  assert.equal(activated.proposalSha256, proposal.proposalSha256);
 });
 
 test('INI durable record families are registered before writers use them', () => {

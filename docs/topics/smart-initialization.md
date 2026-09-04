@@ -13,7 +13,7 @@ related:
   - workspaces-and-sessions
   - capability-management
   - recovery
-version: 1
+version: 2
 ---
 Smart initialization turns a fresh local Git repository into an explicitly accepted Singularity
 Flow repository without asking people to hand-author commands or capability maps. It is a bounded,
@@ -54,7 +54,7 @@ target byte, and one proposal SHA-256. The same input identity produces the same
 For a reviewed file journey, write the proposal inside the repository and later accept it:
 
 ```text
-sflow init --smart-detect --activation proposal-only --output init-proposal.json
+sflow init --smart-detect --output init-proposal.json --json
 sflow init --smart-detect --accept-proposal init-proposal.json --confirm sha256:<PROPOSAL>
 ```
 
@@ -64,9 +64,11 @@ for visible, unambiguous defaults; it never selects optional protections or acce
 verification. Use `--allow-unavailable-verification` only after reviewing the disclosed proof gap.
 
 Local activation writes and commits only the declared SFlow paths plus its activation receipt. It
-does not stage unrelated application changes. `review-proposal` and `proposal-only` produce a
-candidate file and never make it active repository law. `--dry-run` is strictly effect-free and
-therefore refuses `--output`.
+does not stage unrelated application changes. Plain `--output` writes a proposal that can later be
+accepted through exact local confirmation; writing it is never itself confirmation. The
+`review-proposal` and `proposal-only` channels produce candidates for external review and never make
+their contents active repository law. `--dry-run` is strictly effect-free and therefore refuses
+`--output`.
 
 ### Verify and explain
 

@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-compatibility-fixture-corpus",
+  "cases": [
+    {
+      "id": "active-workflow",
+      "sourceKind": "workflow-story",
+      "record": {
+        "schemaVersion": 12,
+        "kind": "story-workflow",
+        "workItem": { "id": "WRK-ACTIVE", "workType": "feature" },
+        "status": "in_progress",
+        "currentPhase": "implementation",
+        "phaseOrder": ["intake", "implementation", "verification"],
+        "phases": {
+          "intake": { "status": "approved" },
+          "implementation": { "status": "in_progress" },
+          "verification": { "status": "pending" }
+        },
+        "resolution": { "workflowId": "feature" },
+        "history": [{ "event": "work_started", "phase": "intake" }]
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-ACTIVE",
+        "normalizedStatus": "active",
+        "requiresRecovery": false,
+        "publicationStatus": "not-observed"
+      }
+    },
+    {
+      "id": "completed-workflow",
+      "sourceKind": "workflow-story",
+      "record": {
+        "schemaVersion": 12,
+        "kind": "story-workflow",
+        "workItem": { "id": "WRK-COMPLETE", "workType": "quick-fix" },
+        "status": "complete",
+        "currentPhase": null,
+        "phaseOrder": ["implementation", "verification"],
+        "phases": {
+          "implementation": { "status": "approved" },
+          "verification": { "status": "approved" }
+        },
+        "resolution": { "workflowId": "quick-fix" },
+        "history": [{ "event": "work_completed", "phase": "verification" }]
+      },
+      "recovery": {
+        "status": "published",
+        "commit": "1111111111111111111111111111111111111111",
+        "recoveryId": null
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-COMPLETE",
+        "normalizedStatus": "completed",
+        "requiresRecovery": false,
+        "publicationStatus": "published"
+      }
+    },
+    {
+      "id": "reopened-workflow",
+      "sourceKind": "workflow-story",
+      "record": {
+        "schemaVersion": 12,
+        "kind": "story-workflow",
+        "workItem": { "id": "WRK-REOPENED", "workType": "feature" },
+        "status": "in_progress",
+        "currentPhase": "convergence",
+        "phaseOrder": ["implementation", "convergence", "verification"],
+        "phases": {
+          "implementation": { "status": "approved" },
+          "convergence": { "status": "in_progress" },
+          "verification": { "status": "pending" }
+        },
+        "resolution": { "workflowId": "feature" },
+        "history": [
+          { "event": "work_completed", "phase": "verification" },
+          { "event": "workflow_reopened", "phase": "release" }
+        ]
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-REOPENED",
+        "normalizedStatus": "reopened",
+        "requiresRecovery": false,
+        "publicationStatus": "not-observed"
+      }
+    },
+    {
+      "id": "cancelled-adhoc",
+      "sourceKind": "adhoc-session",
+      "record": {
+        "schemaVersion": 1,
+        "kind": "adhoc-session",
+        "sessionId": "ADH-01J8EXAMPLE0000000000000",
+        "generation": 1,
+        "subject": { "kind": "repository", "id": "payments" },
+        "mode": "in-place",
+        "status": "cancelled"
+      },
+      "expected": {
+        "subjectKind": "outcome",
+        "subjectId": "ADH-01J8EXAMPLE0000000000000",
+        "normalizedStatus": "cancelled",
+        "requiresRecovery": false,
+        "publicationStatus": "not-observed"
+      }
+    },
+    {
+      "id": "interrupted-auto",
+      "sourceKind": "auto-flight",
+      "record": {
+        "schemaVersion": 2,
+        "kind": "auto-flight-state",
+        "mode": "auto",
+        "flightId": "AFL-00000000000000000000000000",
+        "status": "recovery-required",
+        "story": { "workId": "WRK-AUTO", "phase": "implementation" },
+        "candidate": {
+          "candidateSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "worldModelReference": {
+          "manifestSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "stopRequested": { "kind": "pause" }
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-AUTO",
+        "normalizedStatus": "interrupted",
+        "requiresRecovery": true,
+        "publicationStatus": "not-observed"
+      }
+    },
+    {
+      "id": "partially-published-workflow",
+      "sourceKind": "workflow-story",
+      "record": {
+        "schemaVersion": 12,
+        "kind": "story-workflow",
+        "workItem": { "id": "WRK-PARTIAL", "workType": "bugfix" },
+        "status": "in_progress",
+        "currentPhase": "implementation",
+        "phaseOrder": ["intake", "implementation", "verification"],
+        "phases": {
+          "intake": { "status": "approved" },
+          "implementation": { "status": "awaiting_approval" },
+          "verification": { "status": "pending" }
+        },
+        "resolution": { "workflowId": "bugfix" },
+        "history": [{ "event": "publication_failed", "phase": "implementation" }]
+      },
+      "recovery": {
+        "status": "pending",
+        "commit": "2222222222222222222222222222222222222222",
+        "recoveryId": "PUB-WRK-PARTIAL-IMPLEMENTATION-1"
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-PARTIAL",
+        "normalizedStatus": "interrupted",
+        "requiresRecovery": true,
+        "publicationStatus": "pending"
+      }
+    },
+    {
+      "id": "running-sgos",
+      "sourceKind": "sgos-process",
+      "record": {
+        "schemaVersion": 2,
+        "kind": "gvm-process",
+        "processId": "PROC-00000000000000000000000000",
+        "status": "running",
+        "authorityBinding": { "kind": "story", "subjectId": "WRK-SGOS" },
+        "taskInstances": {},
+        "activeExecutions": [],
+        "openHumanRequests": [],
+        "activeLeases": []
+      },
+      "expected": {
+        "subjectKind": "story",
+        "subjectId": "WRK-SGOS",
+        "normalizedStatus": "active",
+        "requiresRecovery": false,
+        "publicationStatus": "not-observed"
+      }
+    }
+  ]
+}

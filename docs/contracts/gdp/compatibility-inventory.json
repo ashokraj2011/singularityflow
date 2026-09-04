@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-m1-compatibility-inventory",
+  "status": "projection-only-disabled",
+  "baselineCommit": "5fa71dbf7d4a6ed452d08027915c491909f7706f",
+  "projection": {
+    "module": "src/delivery-modes/compatibility-projection.mjs",
+    "schema": "schemas/gdp-compatibility-projection.schema.json",
+    "durable": false,
+    "migrationRegistered": false,
+    "integratedWithCommands": false,
+    "integratedWithProductSurfaces": false
+  },
+  "systems": [
+    {
+      "id": "workflow",
+      "sourceKind": "workflow-story",
+      "recordFamilies": ["story-workflow"],
+      "authority": "creation-pinned-story-workflow",
+      "readerWriter": "src/state.mjs",
+      "executionRuntime": "direct-phase-v1",
+      "projectionOnly": true
+    },
+    {
+      "id": "auto",
+      "sourceKind": "auto-flight",
+      "recordFamilies": ["auto-flight-state", "auto-candidate-binding"],
+      "authority": "machine-local-auto-flight-and-story-workflow",
+      "readerWriter": "src/auto/auto-flight-store.mjs",
+      "candidateAuthority": "src/auto/auto-candidate.mjs",
+      "executionRuntime": "auto-v2",
+      "projectionOnly": true
+    },
+    {
+      "id": "adhoc",
+      "sourceKind": "adhoc-session",
+      "recordFamilies": ["adhoc-session", "adhoc-receipt"],
+      "authority": "machine-local-adhoc-session",
+      "readerWriter": "src/adhoc/session.mjs",
+      "landingAuthority": "src/adhoc/landing.mjs",
+      "executionRuntime": "adhoc-v1",
+      "projectionOnly": true
+    },
+    {
+      "id": "sgos",
+      "sourceKind": "sgos-process",
+      "recordFamilies": ["gvm-process", "gvm-task-attempt", "sgos-candidate"],
+      "authority": "gvm-process-and-pinned-program",
+      "readerWriter": "src/sgos/store.mjs",
+      "candidateAuthority": "src/sgos/candidate-lifecycle.mjs",
+      "executionRuntime": "gvm-v1",
+      "projectionOnly": true
+    }
+  ],
+  "crossCuttingAuthorities": [
+    {
+      "id": "approval",
+      "paths": ["src/approval-authority.mjs", "src/approval-chain.mjs", "src/state.mjs"],
+      "gdpTreatment": "legacy-authority-preserved"
+    },
+    {
+      "id": "evidence",
+      "paths": ["src/delivery-evidence.mjs", "src/evidence-receipt.mjs", "src/sgos/evidence.mjs"],
+      "gdpTreatment": "legacy-assurance-preserved"
+    },
+    {
+      "id": "candidate",
+      "paths": ["src/auto/auto-candidate.mjs", "src/sgos/candidate-lifecycle.mjs"],
+      "gdpTreatment": "legacy-identity-observed-only"
+    },
+    {
+      "id": "publication",
+      "paths": [
+        "src/publication-unit-of-work.mjs", "src/publication-pending.mjs",
+        "src/publication-recovery.mjs"
+      ],
+      "gdpTreatment": "existing-recovery-authority-preserved"
+    },
+    {
+      "id": "proof",
+      "paths": ["src/delivery-evidence.mjs", "src/sgos/process-evidence.mjs"],
+      "gdpTreatment": "unavailable-until-gdp-m2-and-m3"
+    }
+  ],
+  "featureDefaults": {
+    "compatibilityProjectionSurface": false,
+    "shadowChangePassport": false,
+    "proofObservation": false,
+    "outcomeMode": false,
+    "workflowPassport": false,
+    "automaticEnrollment": false,
+    "enforcement": false
+  },
+  "rollback": {
+    "action": "remove-or-stop-calling-the-pure-projection-module",
+    "durableRecordsToMigrate": 0,
+    "legacyStateChanges": 0
+  }
+}

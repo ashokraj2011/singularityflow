@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-compatibility-projection.schema.json",
+  "title": "GDP M1 transient legacy compatibility projection",
+  "description": "A read-only projection. This is not a durable record family and is intentionally absent from MIG.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "kind", "classification", "sourceKind", "subject", "lifecycle",
+    "delivery", "runtimes", "candidate", "worldModel", "publication", "availability",
+    "gaps", "guarantees", "projectionSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "gdp-compatibility-projection" },
+    "classification": { "const": "legacy" },
+    "sourceKind": {
+      "enum": ["workflow-story", "auto-flight", "adhoc-session", "sgos-process"]
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["story", "outcome"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceStatus", "normalizedStatus", "active", "terminal", "reopened",
+        "interrupted", "requiresRecovery", "currentPhase"
+      ],
+      "properties": {
+        "sourceStatus": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "normalizedStatus": {
+          "enum": ["active", "completed", "reopened", "cancelled", "interrupted", "failed", "unavailable"]
+        },
+        "active": { "type": "boolean" },
+        "terminal": { "type": "boolean" },
+        "reopened": { "type": "boolean" },
+        "interrupted": { "type": "boolean" },
+        "requiresRecovery": { "type": "boolean" },
+        "currentPhase": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 160 }
+          ]
+        }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "workflowProfile", "executionPace", "selectionStatus"],
+      "properties": {
+        "mode": { "enum": ["workflow", "outcome"] },
+        "workflowProfile": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 160 }
+          ]
+        },
+        "executionPace": { "enum": ["manual", "auto", "unavailable"] },
+        "selectionStatus": { "const": "legacy" }
+      }
+    },
+    "runtimes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow", "execution", "evidence"],
+      "properties": {
+        "workflow": {
+          "oneOf": [{ "type": "null" }, { "enum": ["phase-workflow-v1"] }]
+        },
+        "execution": { "enum": ["direct-phase-v1", "auto-v2", "adhoc-v1", "gvm-v1"] },
+        "evidence": { "enum": ["delivery-evidence-v2", "adhoc-v1", "sgos-evidence-v1"] }
+      }
+    },
+    "candidate": { "$ref": "#/$defs/legacyReference" },
+    "worldModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sha256", "required", "blocks"],
+      "properties": {
+        "status": { "enum": ["legacy", "unavailable"] },
+        "sha256": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }]
+        },
+        "required": { "const": false },
+        "blocks": { "const": false }
+      }
+    },
+    "publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "commit", "recoveryId"],
+      "properties": {
+        "status": {
+          "enum": ["not-observed", "published", "pending", "recovery-required", "unavailable"]
+        },
+        "commit": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{40,64}$" }]
+        },
+        "recoveryId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 160 }
+          ]
+        }
+      }
+    },
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proofSubject", "changePassport", "proofSummary"],
+      "properties": {
+        "proofSubject": { "$ref": "#/$defs/unavailable" },
+        "changePassport": { "$ref": "#/$defs/unavailable" },
+        "proofSummary": { "$ref": "#/$defs/unavailable" }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "status", "owner", "detail"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^GDP_[A-Z0-9_]+$" },
+          "status": { "enum": ["unavailable", "legacy", "sunset-blocked"] },
+          "owner": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "detail": { "type": "string", "minLength": 1, "maxLength": 240 }
+        }
+      }
+    },
+    "guarantees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectionOnly", "sourceRemainsAuthority", "noEvidenceUpgraded", "noWrites",
+        "noModel", "astRequired", "worldModelRequired"
+      ],
+      "properties": {
+        "projectionOnly": { "const": true },
+        "sourceRemainsAuthority": { "const": true },
+        "noEvidenceUpgraded": { "const": true },
+        "noWrites": { "const": true },
+        "noModel": { "const": true },
+        "astRequired": { "const": false },
+        "worldModelRequired": { "const": false }
+      }
+    },
+    "projectionSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "legacyReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sha256", "assurance"],
+      "properties": {
+        "status": { "enum": ["legacy", "unavailable"] },
+        "sha256": {
+          "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }]
+        },
+        "assurance": { "enum": ["legacy", "unavailable"] }
+      }
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reasonCode"],
+      "properties": {
+        "status": { "const": "unavailable" },
+        "reasonCode": { "const": "GDP_RUNTIME_NOT_INSTALLED" }
+      }
+    }
+  }
+}

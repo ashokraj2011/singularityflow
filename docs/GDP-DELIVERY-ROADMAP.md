@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** planning only; implementation is not authorized by this roadmap
+**Status:** GDP-M0 and GDP-M1 implemented; later milestones remain planning only
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -146,7 +146,15 @@ Exit evidence:
 Rollback boundary: documentation and unused schema fixtures can be removed without migrating user
 state.
 
-### [ ] GDP-M1 — Compatibility inventory and runtime projections
+### [x] GDP-M1 — Compatibility inventory and runtime projections
+
+- **Landing commit:** `7551d94f`
+- **Completed:** 2026-09-04
+- **Evidence:** 6 M1 projection tests and 5 M0 contract tests passed; repository conformance passed
+  1,279 checks; no-model and cross-platform suites passed 27 checks; npm and VSIX packages contain
+  the dormant projection module, schema, inventory, and documentation. Production CLI, API, and VS
+  Code entry points do not import it, every GDP switch remains off, and no MIG family or durable
+  record was added.
 
 **Planning range:** 1–2 person-weeks  
 **Depends on:** GDP-M0

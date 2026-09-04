@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/smart-init-proposal.schema.json",
+  "title": "Deterministic smart initialization proposal",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "subject", "sourceManifestSha256", "detectorRegistrySha256", "presetCatalogSha256", "rendererSha256", "commands", "proof", "capability", "writeSet", "writeSetSha256", "proposalSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "smart-init-proposal" },
+    "proposalSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sourceManifestSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "detectorRegistrySha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "presetCatalogSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "rendererSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "subject": { "type": "object" },
+    "commands": { "type": "object" },
+    "proof": { "type": "object" },
+    "capability": { "type": "object" },
+    "writeSet": { "type": "array" },
+    "writeSetSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": true
+}

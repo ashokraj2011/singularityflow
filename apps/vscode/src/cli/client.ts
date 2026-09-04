@@ -75,10 +75,10 @@ function flattenSnapshot(envelope: SnapshotEnvelope): RepositorySnapshot {
 
 const READ_ONLY_COMMANDS = new Set([
   'about', 'help', 'show', 'choices', 'inbox', 'home', 'recommend', 'status', 'progress',
-  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate'
+  'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'precheck'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
-  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview'
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
   'map', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',
@@ -106,6 +106,8 @@ function enabledBooleanOption(args: string[], name: string): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'init' && enabledBooleanOption(args, 'smart-detect')
+      && enabledBooleanOption(args, 'dry-run') && !hasOption(args, 'output')) return 'read';
   // Configuration inventory and previews are read-only. Every other configuration subcommand is
   // conservative-by-default because it either writes a governed file, changes the local session,
   // promotes planning output, materializes Jira/Git state, or commits and pushes. The previous

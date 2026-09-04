@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/smart-init-precheck-receipt.schema.json",
+  "title": "Smart initialization quick-precheck result",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "checks", "proofReadiness", "status", "observedAt", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "smart-init-precheck-receipt" },
+    "checks": { "type": "array" },
+    "proofReadiness": { "enum": ["ready", "unavailable"] },
+    "status": { "enum": ["pass", "fail", "unavailable", "not-applicable"] },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "receiptSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": true
+}

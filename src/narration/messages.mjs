@@ -17,6 +17,10 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'precheck.reported': {
+    headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
+    preserves: true
+  },
   'sgos.reported': {
     headline: (s) => slot(s.summary, 'Singularity Flow governed execution result is ready.'),
     preserves: true

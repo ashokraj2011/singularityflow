@@ -113,7 +113,8 @@ Every public operation is classified before its implementation module is importe
 | clarification.status | read | never | — | — |
 | comprehension.check | read | never | — | — |
 | comprehension.regions | read | never | — | — |
-| configuration | mutation | never | — | — |
+| configuration.edit | mutation | never | — | — |
+| configuration.explain | read | never | — | — |
 | constitution.check | read | never | — | — |
 | constitution.except | mutation | never | — | — |
 | constitution.generate | mutation | never | — | — |
@@ -207,7 +208,10 @@ Every public operation is classified before its implementation module is importe
 | impact.verify | read | never | — | — |
 | implement | read | never | — | — |
 | inbox | read | never | — | — |
-| init | mutation | never | — | — |
+| init.legacy | mutation | never | — | — |
+| init.smart-detect.activate | mutation | never | — | — |
+| init.smart-detect.preview | read | never | — | — |
+| init.smart-detect.recover | mutation | never | — | — |
 | initiative | mutation | never | — | — |
 | inputs.dry-run | read | never | — | — |
 | inputs.prepare | mutation | never | — | — |
@@ -293,6 +297,8 @@ Every public operation is classified before its implementation module is importe
 | pr.describe | mutation | never | — | — |
 | pr.describe.polish | mutation | optional | pr.describe | copilot-cli |
 | pr.plan | mutation | never | — | — |
+| precheck | read | never | — | — |
+| precheck.quick | read | never | — | — |
 | prepare | mutation | never | — | — |
 | process.archive | mutation | never | — | — |
 | process.fork | mutation | never | — | — |

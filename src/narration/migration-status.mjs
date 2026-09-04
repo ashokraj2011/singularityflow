@@ -13,7 +13,7 @@ export const MIGRATED_NARRATION_COMMANDS = Object.freeze([
   'evidence', 'execution-unit', 'explain', 'fault', 'fix', 'goal', 'help-metrics', 'implement',
   'intent', 'journal', 'land', 'learn', 'local-reset', 'memory', 'meta-tool', 'pack',
   'plan', 'policy', 'prepare', 'process', 'program', 'push', 'quickstart', 'receipt', 'recommend',
-  'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'secrets', 'specify',
+  'reinstall', 'reject', 'repair', 'request', 'resume', 'return', 'secrets', 'specify', 'precheck',
   'start', 'submit', 'task', 'tokens', 'verify', 'why'
 ]);
 

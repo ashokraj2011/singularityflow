@@ -1330,14 +1330,55 @@ const PAGES = Object.freeze({
     seeAlso: ['validate', 'doctor', 'submit']
   },
   init: {
-    summary: 'Initialise Singularity Flow inside a repository you already have.',
+    summary: 'Initialise Singularity Flow inside a repository you already have, manually or from a deterministic repository proposal.',
     description: [
-      'Writes the governed definition, templates, and agent prompts. It stages and commits nothing —',
-      'review what it wrote, then commit it yourself. Use `bootstrap` to govern a repository from its',
-      'URL instead.'
+      'The compatible manual form writes missing governed definition, template, and agent assets.',
+      'It stages and commits nothing. Use `bootstrap` to govern a repository from its URL instead.',
+      '',
+      '`--smart-detect` is a separate deterministic operation for a fresh local repository. It',
+      'reads only bounded manifest and Git metadata, runs no project command, calls no model, and',
+      'uses no network. Its proposal names every inferred command, proof gap, optional protection,',
+      'and exact byte it would create. Dry-run has no side effects. Activation requires the exact',
+      'proposal digest (or unambiguous `--yes` defaults), commits only its declared paths, records',
+      'the accepted origins, and preserves unrelated staged and working-tree changes.',
+      '',
+      'Smart detection refuses an already governed repository. Change existing law through the',
+      'configuration authority instead of replacing it with a fresh initialization.'
     ],
-    examples: [['singularity-flow init', 'Initialise governance in the current repository.']],
-    seeAlso: ['bootstrap', 'doctor', 'start']
+    options: [
+      ['--smart-detect', 'Build a bounded, reproducible initialization proposal for the current Git repository.'],
+      ['--dry-run', 'Return the complete proposal without writing files, Git state, logs, or receipts.'],
+      ['--output REPOSITORY-FILE', 'Store a proposal at a secure repository-relative path in proposal-only or review mode; incompatible with effect-free dry-run.'],
+      ['--accept-proposal FILE', 'Re-read an earlier proposal, regenerate it from current bytes, and require canonical equality.'],
+      ['--confirm SHA256', 'Activate only the exact regenerated proposal digest.'],
+      ['--yes', 'Accept only visible unambiguous defaults; never resolve ambiguity or accept a missing verifier.'],
+      ['--allow-unavailable-verification', 'Accept the disclosed verification gap without treating it as proof readiness.'],
+      ['--protect ID', 'Select one surfaced repository-specific protection suggestion; repeat for more than one.'],
+      ['--activation local-confirmation|review-proposal|proposal-only', 'Choose the activation channel. Proposal modes never make their contents active law.']
+    ],
+    examples: [
+      ['singularity-flow init', 'Initialise governance manually in the current repository.'],
+      ['singularity-flow init --smart-detect --dry-run --json', 'Inspect the byte-identical proposal with no side effects.'],
+      ['singularity-flow init --smart-detect --yes', 'Activate only when all defaults and verification are unambiguous.'],
+      ['singularity-flow init --smart-detect --accept-proposal init-proposal.json --confirm sha256:<PROPOSAL>', 'Regenerate and activate one exact reviewed proposal.'],
+      ['singularity-flow init --recover --proposal sha256:<PROPOSAL>', 'Prove an interrupted activation complete or restore only its exact unchanged managed paths.']
+    ],
+    seeAlso: ['precheck', 'bootstrap', 'doctor', 'start']
+  },
+  precheck: {
+    summary: 'Inspect whether smart-initialized repository law and its configured tools are ready without running project code.',
+    description: [
+      'Quick precheck validates the activation receipt, workflow binding, configuration origins,',
+      'implicit repository capability, wrapper or PATH metadata, and declared proof readiness.',
+      'It never executes a verifier, build, package-manager script, or model. `--run` is reserved',
+      'for a future separately classified evidence-producing operation and is refused today.'
+    ],
+    options: [
+      ['--quick', 'Run metadata-only readiness inspection. Required.'],
+      ['--json', 'Return a structured CommandResult containing the precheck receipt.']
+    ],
+    examples: [['singularity-flow precheck --quick --json', 'Inspect activated initialization law without executing repository commands.']],
+    seeAlso: ['init', 'doctor', 'configuration']
   },
   resume: {
     summary: 'Return to a Story already in flight.',

@@ -2878,6 +2878,7 @@ records, and current pilot limits, read
 
 ```text
 singularity-flow explain [TOPIC|ALIAS] [--here] [--section HEADING] [--max-bytes N] [--json]
+singularity-flow why [QUESTION] [--json]
 ```
 
 `explain` serves the shipped documentation topics. It never invokes a model and never needs a repository, so it answers from a global install with no clone at all. With no argument it lists every topic. Resolution is exact id, then alias, then unique prefix; an ambiguous prefix returns the candidates rather than guessing, and an unknown topic returns the nearest ids. Every response carries the topic id, its version, and the commit the docs manifest was stamped from. `--here` adds the current work item's situation as a second, separately cited part, and degrades to the concept alone when no work item resolves. In Copilot use `/sf-docs`.
@@ -2896,6 +2897,11 @@ singularity-flow about
 sflow-about
 singularity-flow help [TOPIC] [--json]
 singularity-flow init [--work-id ID --base BRANCH --fetch] [--check|--repair]
+singularity-flow init --smart-detect --dry-run [--json]
+singularity-flow init --smart-detect [--yes | --confirm SHA256] [--json]
+singularity-flow init --smart-detect --activation proposal-only|review-proposal --output REPOSITORY-FILE [--json]
+singularity-flow init --recover --proposal SHA256 [--json]
+singularity-flow precheck --quick [--json]
 singularity-flow factory-reset [--dry-run | --confirm TEXT] [--allow-dirty]
 singularity-flow reset-all [--yes]
 sf-reset-all [--yes]

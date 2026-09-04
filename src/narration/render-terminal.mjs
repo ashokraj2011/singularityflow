@@ -178,6 +178,15 @@ const REST_STATE_LINES = Object.freeze({
 });
 
 export function renderCommandResult(result) {
+  if (result.operation.id === 'precheck.quick' && result.data?.precheck) {
+    const precheck = result.data.precheck;
+    return [
+      style.heading(headline(result)),
+      ...precheck.checks.map((check) => `${check.status === 'pass' ? style.pass('✓') : check.status === 'fail' ? style.failure('✖') : style.pending('~')} ${check.id}: ${check.subject}${check.reason ? ` (${check.reason})` : ''}`),
+      `Proof readiness: ${precheck.proofReadiness}. No project command was run.`,
+      style.detail(preservationLine(result))
+    ].filter(Boolean).join('\n');
+  }
   if (result.operation.id.startsWith('comprehension.')) return comprehensionText(result);
   if (result.operation.id.startsWith('auto.') && result.data?.card) return result.data.card;
   if (result.operation.id === 'approvals' && result.data?.approvalChain) {

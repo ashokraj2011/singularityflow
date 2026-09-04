@@ -9635,7 +9635,10 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
   let result;
-  if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
+  if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
+    explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })
+  ));
+  else if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
   else if (subcommand === 'validate') result = await withApprovedConfigurationRead(
     root, () => validateEditorConfiguration(root)
   );
@@ -12721,6 +12724,7 @@ async function dispatch(command, positionals, options) {
     show: () => showCommand(positionals, options),
     harness: () => harnessCommand(positionals, options),
     init: () => initCommand(options),
+    precheck: async () => (await import('./commands/precheck.mjs')).run(argv, { positionals, options }),
     'factory-reset': () => factoryResetCommand(options),
     'reset-all': () => resetAllCommand(options),
     'local-reset': () => localResetCommand(options),

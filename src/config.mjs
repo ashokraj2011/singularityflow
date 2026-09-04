@@ -68,30 +68,14 @@ import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import {
+  governedInitializationRoot, INITIALIZATION_MAPPINGS
+} from './initialization-assets.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
 const LEGACY_CONTROL_ROOT = '.singularity';
 export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
-const INITIALIZATION_MAPPINGS = [
-  ['workflow.yml', WORKFLOW_PATH],
-  ['portfolio.yml', 'singularity/portfolio.yml'],
-  ['agent-mappings.yml', 'singularity/agent-mappings.yml'],
-  ['impact.yml', 'singularity/impact.yml'],
-  ['modelTiers.yml', 'singularity/modelTiers.yml'],
-  ['artifacts', 'singularity/templates'],
-  ['agents', '.github/agents'],
-  ['worldmodel-builder.md', 'singularity/prompts/worldmodel-builder.md'],
-  ['copilot-planning.md', DEFAULT_PLANNING_PROMPT]
-];
-
-function governedRoot(destination) {
-  // `.github` also holds files Singularity Flow does not own, so its governed root is one level
-  // deeper. Every other destination is owned wholesale by its first segment.
-  const segments = destination.split('/');
-  return segments[0] === '.github' ? segments.slice(0, 2).join('/') : segments[0];
-}
-
 /**
  * Everything `initializeDefinition` writes, expressed as the paths a caller must stage to commit
  * all of it. Derived from the mappings rather than restated beside them: `.github/agents` was
@@ -101,7 +85,7 @@ function governedRoot(destination) {
  * stager automatically.
  */
 export const GOVERNED_ROOTS = Object.freeze([
-  ...new Set(INITIALIZATION_MAPPINGS.map(([, destination]) => governedRoot(destination)))
+  ...new Set(INITIALIZATION_MAPPINGS.map(([, destination]) => governedInitializationRoot(destination)))
 ]);
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/smart-init-activation.schema.json",
+  "title": "Smart initialization activation receipt",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "proposalSha256", "subject", "decision", "installed", "capability", "proof", "git", "activatedAt", "receiptSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "smart-init-activation" },
+    "proposalSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "subject": { "type": "object", "required": ["repositoryFingerprint", "baseCommit", "checkedOutRef"] },
+    "decision": { "type": "object" },
+    "installed": { "type": "object" },
+    "capability": { "type": "object" },
+    "proof": { "type": "object" },
+    "git": { "type": "object" },
+    "activatedAt": { "type": "string", "format": "date-time" },
+    "receiptSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": true
+}

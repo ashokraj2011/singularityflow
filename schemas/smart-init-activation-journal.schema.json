@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/smart-init-activation-journal.schema.json",
+  "title": "Git-private smart initialization activation journal",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "status", "proposalSha256", "baseCommit", "checkedOutRef"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "smart-init-activation-journal" },
+    "status": { "enum": ["planned", "validated", "complete", "rolled-back"] },
+    "proposalSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "baseCommit": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "checkedOutRef": { "type": "string", "pattern": "^refs/heads/" },
+    "activationCommit": { "type": "string" },
+    "installed": { "type": "array", "items": { "type": "string" } },
+    "writeSet": { "type": "array" },
+    "errorCode": { "type": "string" }
+  },
+  "additionalProperties": false
+}

@@ -86,7 +86,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
  * guessing wrong would swallow a real value, which is the worse failure.
  */
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
-  'archive-readiness',
+  'archive-readiness', 'allow-unavailable-verification',
   'accept-bundled-conflicts', 'accept-partial', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'check', 'churn', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'dry-run', 'evidence',
@@ -94,9 +94,9 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'include-existing', 'independent', 'isolated-worktree',
   'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'polish', 'preview', 'probe', 'propose', 'push',
-  'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote',
+  'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run',
   'repair-projections', 'replace', 'replace-server', 'resume', 'set', 'sign', 'solo',
-  'semantic', 'skip-checks', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
+  'semantic', 'skip-checks', 'smart-detect', 'staged', 'stale', 'strict', 'terminal', 'timings', 'today', 'update', 'write',
   'yes',
   // Presentation flags introduced with the narration and output work. They are parsed here before
   // any command reads them, so they must be declared here too.

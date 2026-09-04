@@ -1637,6 +1637,21 @@ function family({
 }
 
 const families = [
+  // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
+  // changed detection or a changed decision is a new content-addressed record, never an in-place
+  // rewrite of repository law.
+  family({ id: 'smart-init-proposal', currentVersion: 1, immutable: true }),
+  family({ id: 'smart-init-policy', currentVersion: 1, immutable: true }),
+  family({ id: 'smart-init-preset-snapshot', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/presets\/sflow\.outcome-standard\.v1\.yml$/] }),
+  family({ id: 'smart-init-activation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/receipts\/initialization\/[a-f0-9]{12}\.json$/] }),
+  family({ id: 'smart-init-activation-journal', currentVersion: 1,
+    paths: [/^\$git\/singularity-flow\/journals\/init\/[a-f0-9]{12}\.json$/] }),
+  family({ id: 'configuration-origin-map', currentVersion: 1,
+    paths: [/^singularity\/configuration-origin\.json$/] }),
+  family({ id: 'smart-init-precheck-receipt', currentVersion: 1, immutable: true,
+    paths: [/^\.sflow\/precheck\/[^/]+\.json$/] }),
   family({
     id: 'session-registry', currentVersion: 2,
     steps: [migration(1, 2, identity(2))],

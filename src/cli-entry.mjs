@@ -6,7 +6,7 @@ import {
   commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
 } from './dx-command-timing.mjs';
 import { repoRoot } from './git.mjs';
-import { parseArgs, run, SingularityFlowError } from './util.mjs';
+import { optionBoolean, parseArgs, run, SingularityFlowError } from './util.mjs';
 import { VERSION } from './version.mjs';
 import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
@@ -381,7 +381,9 @@ export async function main(argv) {
      * workspace registration cannot turn a successful publish into a failed command, and retrying
      * journal capture can never replay the governed operation.
      */
-    if (operation.classification === 'mutation') {
+    const smartInitDryRun = definition.name === 'init'
+      && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
+    if (operation.classification === 'mutation' && !smartInitDryRun) {
       await import('./local-work-journal.mjs').then(({ captureCommandOutcome }) => captureCommandOutcome({
         root,
         operationId: operation.id,
@@ -396,13 +398,15 @@ export async function main(argv) {
       });
     }
     const event = timer.finish({ outcome: 'success' });
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name)) await recordCommandTiming(root, event);
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
     timer.stage('execute');
     const event = timer.finish({ outcome: 'error', errorClass: error?.name ?? 'Error' });
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name)) await recordCommandTiming(root, event);
+    const smartInitDryRun = definition.name === 'init'
+      && optionBoolean(options, 'smart-detect') && optionBoolean(options, 'dry-run');
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && !smartInitDryRun) await recordCommandTiming(root, event);
     if (options.timings === true) writeCommandTimings(event);
     throw error;
   }

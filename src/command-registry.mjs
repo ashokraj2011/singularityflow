@@ -1,11 +1,11 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 
-const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension']);
-const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension']);
+const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
+const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'init', 'precheck', 'configuration']);
 // `secrets` is here because `resolveOperation` returns `definition.operation` before it consults
 // any resolver, so a command with a single registered operation never reaches its own resolver.
 // Without this line `resolveSecretsOperation` is unreachable and the scan/protect split is inert.
-const MODEL_FREE_MIXED_COMMANDS = new Set(['report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension']);
+const MODEL_FREE_MIXED_COMMANDS = new Set(['init', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension']);
 
 const LAZY_MODULES = Object.freeze({
   // The five verbs share one dispatcher; each is a registered command in its own right so the
@@ -49,7 +49,9 @@ const LAZY_MODULES = Object.freeze({
   comprehension: './commands/comprehension.mjs',
   // `explain` must answer from a global install with no repository, so it must never reach the
   // legacy dispatcher, which resolves a repository root before it does anything else.
-  explain: './commands/explain.mjs'
+  explain: './commands/explain.mjs',
+  init: './commands/init.mjs',
+  precheck: './commands/precheck.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -84,7 +86,7 @@ function command([name, aliases = []]) {
 
 export const COMMAND_REGISTRY = Object.freeze([
   ['specify'], ['plan'], ['implement'], ['verify'], ['converge'],
-  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
+  ['about'], ['help'], ['explain', ['docs']], ['show'], ['why'], ['harness'], ['init'], ['precheck'], ['factory-reset'], ['reset-all'], ['local-reset'], ['fresh-install'], ['reinstall'], ['choices'], ['start'], ['resume'], ['return'], ['agent'], ['session'],
   ['adhoc'], ['land'],
   ['intent'], ['program'], ['process'], ['policy'], ['task'], ['request'], ['evidence'],
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
@@ -94,7 +96,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['agents'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'],
   ['approve'], ['reject'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
-  ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration'], ['constitution'], ['initiative'], ['epic'],
+  ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['hook'], ['bootstrap'], ['secrets'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
   // in the product, buried behind a flag on a verb that also means something else. This is the front
@@ -951,6 +953,19 @@ function resolveSgosOperation(definition, positionals, options) {
 export function resolveOperation({ requestedCommand, positionals, options = {}, context = {} }) {
   const definition = commandDefinition(requestedCommand);
   if (definition.operation) return definition.operation;
+  if (definition.name === 'init') {
+    if (optionBoolean(options, 'recover')) return never('init.smart-detect.recover', definition, 'mutation');
+    if (!optionBoolean(options, 'smart-detect')) return never('init.legacy', definition, 'mutation');
+    return optionBoolean(options, 'dry-run') && optionString(options, 'output') == null
+      ? never('init.smart-detect.preview', definition, 'read')
+      : never('init.smart-detect.activate', definition, 'mutation');
+  }
+  if (definition.name === 'configuration') {
+    return positionals[1] === 'explain'
+      ? never('configuration.explain', definition, 'read')
+      : never('configuration.edit', definition, 'mutation');
+  }
+  if (definition.name === 'precheck') return never('precheck.quick', definition, 'read');
   if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options, context);
   if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
@@ -1080,6 +1095,9 @@ export function operationCatalog() {
   const contextDefinition = commandDefinition('context');
   const tokensDefinition = commandDefinition('tokens');
   const autoDefinition = commandDefinition('auto');
+  const initDefinition = commandDefinition('init');
+  const precheckDefinition = commandDefinition('precheck');
+  const configurationDefinition = commandDefinition('configuration');
   const sgos = Object.entries(SGOS_SUBCOMMANDS).flatMap(([name, actions]) => {
     const definition = commandDefinition(name);
     return [
@@ -1108,6 +1126,13 @@ export function operationCatalog() {
   sgos.push(never('authority-store.publish.plan', commandDefinition('authority-store'), 'read'));
   sgos.push(never('authority-store.sync.plan', commandDefinition('authority-store'), 'read'));
   const modelFreeMixed = [
+    never('init.legacy', initDefinition, 'mutation'),
+    never('init.smart-detect.preview', initDefinition, 'read'),
+    never('init.smart-detect.activate', initDefinition, 'mutation'),
+    never('init.smart-detect.recover', initDefinition, 'mutation'),
+    never('precheck.quick', precheckDefinition, 'read'),
+    never('configuration.explain', configurationDefinition, 'read'),
+    never('configuration.edit', configurationDefinition, 'mutation'),
     never('copilot.preview', commandDefinition('copilot'), 'read'),
     required('copilot.launch'),
     required('auto.plan'),

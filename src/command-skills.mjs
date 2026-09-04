@@ -24,6 +24,7 @@ const entries = {
   show: ['sf-show'],
   harness: ['sf-harness'],
   init: ['sf-init'],
+  precheck: ['sf-init'],
   'factory-reset': ['sf-factory-reset'],
   'reset-all': ['sf-reset-all'],
   'local-reset': ['sf-local-reset'],

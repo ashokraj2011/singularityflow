@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/singularity-flow/configuration-origin-map.schema.json",
+  "title": "Smart initialization configuration origins",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "configurationSha256", "entries", "originMapSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "configuration-origin-map" },
+    "configurationSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "entries": { "type": "array" },
+    "originMapSha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "additionalProperties": true
+}

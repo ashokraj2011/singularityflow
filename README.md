@@ -268,6 +268,39 @@ singularity-flow init --check
 singularity-flow init --repair
 ```
 
+For a fresh repository, deterministic smart initialization can propose the commands and minimum
+repository law without running the repository, contacting the network, or calling a model:
+
+```bash
+# Effect-free: inspect stacks, commands, proof gaps, origins, suggestions, and exact target bytes.
+singularity-flow init --smart-detect --dry-run --json
+
+# Save a reviewable, non-active proposal, then regenerate and activate only that exact proposal.
+singularity-flow init --smart-detect --activation proposal-only --output init-proposal.json
+singularity-flow init --smart-detect \
+  --accept-proposal init-proposal.json \
+  --confirm sha256:<PROPOSAL-HASH>
+
+# Metadata-only validation; this does not run tests, builds, scripts, or models.
+singularity-flow precheck --quick
+singularity-flow config explain --pointer /commands/verification/0
+```
+
+If initialization is interrupted, use the exact proposal hash reported by the CLI; recovery never
+deletes application work or adopts an unrelated commit:
+
+```bash
+singularity-flow init --recover --proposal sha256:<PROPOSAL>
+```
+
+`--yes` accepts only visible, unambiguous defaults. It never selects optional protected-path
+suggestions and refuses unavailable verification unless `--allow-unavailable-verification` is
+explicit. Smart activation commits only its declared SFlow paths and preserves unrelated staged,
+unstaged, and untracked work. It creates the implicit `repository-root` capability, so a fresh
+repository does not need `singularity/capabilities.yml`. An identical rerun reports `no-change`;
+an existing non-smart configuration is never overwritten. In Copilot, `/sf-init` provides the same
+proposal-first journey. See `sflow explain smart-initialization` for the complete safety model.
+
 Repair copies only missing packaged files and never overwrites repository
 customizations. It therefore does **not** convert or overwrite a version-1
 `workflow.yml`. That YAML configuration format is separate from durable JSON record migration.

@@ -2445,7 +2445,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // one without leaving the editor. Registered before any early return, since that is exactly when
   // it is the only useful thing to do.
   context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.init', async () => {
-    const target = vscode.workspace.workspaceFolders?.[0];
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    let target = folders[0];
+    if (folders.length > 1) {
+      const selected = await vscode.window.showQuickPick(
+        folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath, folder })),
+        {
+          title: 'Repository to smart initialize',
+          placeHolder: 'Choose the exact repository; multi-root workspaces are never inferred',
+          ignoreFocusOut: true
+        }
+      );
+      target = selected?.folder;
+    }
     if (!target) return;
     const confirmed = await vscode.window.showWarningMessage(
       'Initialize Singularity Flow in this repository?',
@@ -2462,6 +2474,120 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
     } catch (error) {
       showRefusal(error);
+    }
+  }));
+
+  // The smart path is deliberately a separate command. Legacy Initialize keeps its compatible
+  // behavior, while this command renders the engine's deterministic proposal and sends back only
+  // choices the person actually made. VS Code never invents a command or supplies confirmation
+  // merely because it already knows the digest.
+  context.subscriptions.push(vscode.commands.registerCommand('singularityFlow.smartInit', async () => {
+    type SmartProposal = {
+      proposalSha256: string;
+      detectedStacks: string[];
+      commands: Record<'verification' | 'quality' | 'build', Array<{
+        id: string; launcher: string; args: string[]; workingDirectory: string; confidence: string;
+      }>>;
+      proof: { profile: string; readiness: string; gaps: Array<{ statement: string; blockingAt: string }> };
+      ambiguities: Array<{ id: string; reason: string; candidates?: string[] }>;
+      suggestions: Array<{ id: string; pattern: string; reason: string; selected: boolean }>;
+      writeSet: Array<{ path: string; bytes: number; sha256: string }>;
+    };
+    const target = vscode.workspace.workspaceFolders?.[0];
+    if (!target) return;
+    try {
+      const settings = vscode.workspace.getConfiguration('singularityFlow');
+      const location = resolveCli({
+        configuredCli: settings.get<string>('cliPath'),
+        configuredNode: settings.get<string>('nodePath'),
+        extensionPath: context.extensionPath
+      });
+      const client = new SingularityFlowClient({
+        location, repository: target.uri.fsPath, environment: cliEnvironment,
+        onOutput: (text) => output.append(text)
+      });
+      const preview = (protect: string[] = []) => client.run<SmartProposal>([
+        'init', '--smart-detect', '--dry-run', '--json',
+        ...protect.flatMap((id) => ['--protect', id])
+      ]);
+      let proposal = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Inspecting repository manifests (no scripts or model)' },
+        () => preview()
+      );
+      if (proposal.ambiguities.length) {
+        const detail = proposal.ambiguities.map((item) =>
+          `${item.id}: ${item.reason}${item.candidates?.length ? `\n  ${item.candidates.join(', ')}` : ''}`).join('\n');
+        await vscode.window.showWarningMessage(
+          'Smart initialization found choices it cannot make safely.',
+          { modal: true, detail: `${detail}\n\nResolve the manifest ambiguity and preview again. Nothing was changed.` }
+        );
+        return;
+      }
+      const applicable = proposal.suggestions.filter((item) => !item.selected);
+      if (applicable.length) {
+        const selected = await vscode.window.showQuickPick(
+          applicable.map((item) => ({ label: item.pattern, description: item.id, detail: item.reason, id: item.id })),
+          {
+            title: 'Optional repository protections',
+            placeHolder: 'Select only protections you want to become repository law; leave empty to decline all',
+            canPickMany: true,
+            ignoreFocusOut: true
+          }
+        );
+        if (selected === undefined) return;
+        if (selected.length) proposal = await preview(selected.map((item) => item.id));
+      }
+      const commandLines = (['verification', 'quality', 'build'] as const).flatMap((purpose) =>
+        proposal.commands[purpose].map((item) =>
+          `${purpose}: ${item.launcher} ${item.args.join(' ')} (${item.workingDirectory}; ${item.confidence})`));
+      const detail = [
+        `Repository: ${target.uri.fsPath}`,
+        `Detected: ${proposal.detectedStacks.join(', ') || 'unknown'}`,
+        ...commandLines,
+        `Proof: ${proposal.proof.profile} · ${proposal.proof.readiness}`,
+        ...proposal.proof.gaps.map((gap) => `Gap: ${gap.statement} (blocks at ${gap.blockingAt})`),
+        `Will create ${proposal.writeSet.length} declared SFlow file(s).`,
+        'Will not run project commands, call a model, install dependencies, access the network, or stage unrelated work.',
+        `Proposal: ${proposal.proposalSha256}`
+      ].join('\n');
+      const reviewed = await vscode.window.showInformationMessage(
+        'Review the exact smart-initialization proposal.', { modal: true, detail }, 'Continue to exact confirmation'
+      );
+      if (reviewed !== 'Continue to exact confirmation') return;
+      let acceptsUnavailableVerification = false;
+      if (proposal.proof.readiness === 'unavailable') {
+        const acceptedGap = await vscode.window.showWarningMessage(
+          'No structured verifier is available. This remains a visible proof gap and will block candidate admission.',
+          { modal: true, detail: proposal.proof.gaps.map((gap) => gap.statement).join('\n') },
+          'Accept disclosed gap'
+        );
+        if (acceptedGap !== 'Accept disclosed gap') return;
+        acceptsUnavailableVerification = true;
+      }
+      const confirmation = await vscode.window.showInputBox({
+        title: 'Confirm smart initialization',
+        prompt: `Paste the exact proposal digest: ${proposal.proposalSha256}`,
+        placeHolder: proposal.proposalSha256,
+        ignoreFocusOut: true,
+        validateInput: (value) => value === proposal.proposalSha256 ? null : 'The digest must match the reviewed proposal exactly.'
+      });
+      if (confirmation !== proposal.proposalSha256) return;
+      const activationArgs = ['init', '--smart-detect', '--confirm', confirmation, '--json'];
+      const selectedProtections = proposal.suggestions.filter((item) => item.selected).map((item) => item.id);
+      for (const id of selectedProtections) activationArgs.push('--protect', id);
+      if (acceptsUnavailableVerification) activationArgs.push('--allow-unavailable-verification');
+      const activated = await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Activating exact repository law' },
+        () => client.run<{ activationCommit: string; nextCommand: string }>(activationArgs)
+      );
+      const precheck = await client.run<{ data?: { precheck?: { status?: string } } }>(['precheck', '--quick', '--json']);
+      const reload = await vscode.window.showInformationMessage(
+        `Smart initialization committed at ${activated.activationCommit.slice(0, 12)}. Quick precheck: ${precheck.data?.precheck?.status ?? 'unavailable'}.`,
+        'Reload'
+      );
+      if (reload === 'Reload') await vscode.commands.executeCommand('workbench.action.reloadWindow');
+    } catch (error) {
+      showRefusal(error, { headline: 'Smart initialization did not complete' });
     }
   }));
 

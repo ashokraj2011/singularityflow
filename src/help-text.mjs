@@ -37,6 +37,11 @@ Usage:
     [--state-branch NAME | --no-state-branch] [--grounding off|warn|enforce] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
+  singularity-flow init --smart-detect --dry-run [--json]
+  singularity-flow init --smart-detect --activation proposal-only|review-proposal --output REPOSITORY-FILE [--json]
+    [--yes | --accept-proposal REPOSITORY-FILE --confirm SHA256]
+  singularity-flow init --recover --proposal SHA256 [--json]
+  singularity-flow precheck --quick [--json]
   singularity-flow refresh-branch [--remote origin] [--branch CURRENT] [--json]
   singularity-flow factory-reset [--dry-run] [--confirm "RESET REPOSITORY COMMIT"] [--allow-dirty] [--json]
   sflow reset-all [--yes] [--json]
@@ -497,6 +502,7 @@ Usage:
   singularity-flow plugin uninstall | list | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] --json
   singularity-flow configuration validate --json
+  singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
   singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]
   singularity-flow state planes [WORK-ID] [--json]

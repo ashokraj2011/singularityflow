@@ -234,6 +234,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "singularityFlow.smartInit",
+        "title": "Singularity Flow: Smart Initialize This Repository",
+        "icon": "$(sparkle)"
+      },
+      {
         "command": "singularityFlow.reinitialize",
         "title": "Singularity Flow: Reset & Reinitialize Repository (Workflow v2)",
         "icon": "$(debug-restart)"

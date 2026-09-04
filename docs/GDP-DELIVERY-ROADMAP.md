@@ -4,7 +4,8 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M8 implemented; M9–M11 are constrained readiness/profile work
+**Status:** GDP-M0 through GDP-M8 implemented; M9 local observation profile implemented; M9
+enforcement and M10–M11 remain constrained readiness/provider work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -492,7 +493,25 @@ Exit evidence:
 Rollback boundary: hide new promotion entry points and retain exact recovery/read support for prior
 records.
 
-### [ ] GDP-M9 — Opt-in high-assurance profiles
+### [~] GDP-M9 — Opt-in high-assurance profiles
+
+**Local observe profile implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M9-LOCAL-HERMETIC-OBSERVE.md`](GDP-M9-LOCAL-HERMETIC-OBSERVE.md)
+
+Delivered without claiming enforcement readiness:
+
+- a path-free, digest-only evaluator for executable change maps, changed-region coverage, witness
+  independence, and mutation observations;
+- five immutable v1 families registered with MIG, including explicit expiring human gap decisions;
+- read-only `delivery assurance-evaluate`, which executes no product code, model, network, writer,
+  lifecycle action, gate, or publisher;
+- permanent `authority: none`, `mode: observe`, and `RUNNER_AUTHENTICATION_UNAVAILABLE` results
+  until an authenticated runner provider is configured and separately approved.
+
+Still required before M9 can be marked complete: authenticated runner isolation, signer/trust-root
+validation, controlled reruns and N-version adapters, enforce-mode enrollment, multi-platform
+security exercises, and accepted performance/false-result budgets.
 
 **Planning range:** 6–12+ person-weeks  
 **Depends on:** CAB-R1–R3, WEL-P0/P1, GDP-M8, and an authenticated hermetic runner
@@ -606,6 +625,7 @@ passing suite on one unsupported development runtime.
 
 ## Immediate next decision
 
-GDP-M0 is complete at `cb46359c`. The only eligible next increment is **GDP-M1**: compatibility
-inventory, fixtures, and pure read-only runtime projections. Durable GDP writers, commands, UI,
-proof evaluation, Outcome execution, and enforcement remain unavailable.
+GDP-M0 through M8 are implemented. The M9 local observation profile is available for contract and
+integration exercises but cannot authorize a gate. The next eligible increment is the M10
+provider-neutral contract surface in fail-closed mode; authenticated provider pilots and M9
+enforcement remain external readiness work and must not be inferred from local tests.

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-executable-change-map.schema.json", "title": "GDP Executable Change Map v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "proofSubjectSha256", "candidateSha256", "regions", "profile", "changeMapSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "executable-change-map" }, "workId": { "$ref": "#/$defs/id" }, "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "candidateSha256": { "$ref": "#/$defs/digest" }, "regions": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/region" } }, "profile": { "const": "local-hermetic-v1" }, "changeMapSha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false, "x-sflow-selfHash": "changeMapSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "region": { "type": "object", "required": ["resourceIdSha256", "regionSha256", "executable", "required"], "properties": { "resourceIdSha256": { "$ref": "#/$defs/digest" }, "regionSha256": { "$ref": "#/$defs/digest" }, "executable": { "type": "boolean" }, "required": { "type": "boolean" } }, "additionalProperties": false } }
+}

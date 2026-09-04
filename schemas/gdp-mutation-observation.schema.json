@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-mutation-observation.schema.json", "title": "GDP Mutation Observation v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "proofSubjectSha256", "mutationIdSha256", "targetRegionSha256", "resultSha256", "outcome", "authority", "gateEligible", "observationSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "mutation-observation" }, "workId": { "$ref": "#/$defs/id" }, "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "mutationIdSha256": { "$ref": "#/$defs/digest" }, "targetRegionSha256": { "$ref": "#/$defs/digest" }, "resultSha256": { "$ref": "#/$defs/digest" }, "outcome": { "enum": ["killed", "survived", "unavailable"] }, "authority": { "const": "none" }, "gateEligible": { "const": false }, "observationSha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false, "x-sflow-selfHash": "observationSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+}

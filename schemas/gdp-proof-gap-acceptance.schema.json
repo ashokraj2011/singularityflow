@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-proof-gap-acceptance.schema.json", "title": "GDP Proof Gap Acceptance v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "proofSubjectSha256", "gapSha256", "decision", "reasonSha256", "decidedBy", "expiresAt", "acceptanceSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "proof-gap-acceptance" }, "workId": { "$ref": "#/$defs/id" }, "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "gapSha256": { "$ref": "#/$defs/digest" }, "decision": { "enum": ["accepted-with-exception", "rejected"] }, "reasonSha256": { "$ref": "#/$defs/digest" }, "decidedBy": { "$ref": "#/$defs/actor" }, "expiresAt": { "type": "string", "format": "date-time" }, "acceptanceSha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false, "x-sflow-selfHash": "acceptanceSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "actor": { "type": "object", "required": ["kind", "identitySha256", "authoritySha256"], "properties": { "kind": { "const": "human" }, "identitySha256": { "$ref": "#/$defs/digest" }, "authoritySha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false } }
+}

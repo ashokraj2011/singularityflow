@@ -45,6 +45,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Promotion for ${slot(s.sessionId)} is ${slot(s.status)}.`,
     preserves: true
   },
+  'delivery.assurance-reported': {
+    headline: (s) => `Local assurance observation for ${slot(s.workId)} is ${slot(s.verdict)} (coverage: ${slot(s.coverage)}).`,
+    preserves: true
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

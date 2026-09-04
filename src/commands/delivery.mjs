@@ -15,6 +15,7 @@ import {
 import {
   applyPromotionPlan, buildPromotionPlan, validateDeliveryModeTransition
 } from '../delivery-modes/promotion.mjs';
+import { evaluateLocalHermeticEvidence } from '../delivery-modes/high-assurance.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
@@ -249,6 +250,25 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'assurance-evaluate') {
+    const evidence = await jsonFile(
+      root, optionString(options, 'evidence-file'), 'Local hermetic evidence file'
+    );
+    const evaluation = evaluateLocalHermeticEvidence(evidence);
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.assurance-evaluate', classification: 'read' },
+      subject: { kind: 'story', id: evaluation.workId },
+      outcome: succeeded('delivery.assurance-reported', {
+        workId: evaluation.workId, verdict: evaluation.verdict,
+        coverage: evaluation.coverage.status
+      }),
+      effects: effects(), restState: 'informational',
+      data: {
+        ...evaluation,
+        warning: 'Local observations are non-authoritative until an authenticated hermetic runner provider is configured.'
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'recommend') {
     const request = normalizeDeliveryRequest(await jsonFile(
       root, optionString(options, 'request-file'), 'Delivery request file'
@@ -275,7 +295,8 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   }
   if (action !== 'select') throw new SingularityFlowError(
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
-      + 'delivery workflow-status, or delivery execution-status.',
+      + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
+      + 'delivery promotion-status, or delivery assurance-evaluate.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
   const envelope = await jsonFile(root, optionString(options, 'plan'), 'Delivery plan');

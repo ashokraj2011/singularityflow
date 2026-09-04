@@ -1761,6 +1761,29 @@ const families = [
     id: 'delivery-mode-transition', currentVersion: 1, immutable: true,
     paths: [/^\$git\/singularity-flow\/adhoc\/AHS-[A-Z0-9-]{8,80}\/delivery-transition\.json$/]
   }),
+  // GDP-M9 local high-assurance observations. These identities are path-free, immutable evidence
+  // and decisions. The local evaluator never executes product code and no lifecycle, gate,
+  // approval, or publisher consumes them as authority.
+  family({
+    id: 'executable-change-map', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/executable-change-map\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'changed-region-coverage', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/changed-region-coverage\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'witness-independence', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/witness-independence\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'mutation-observation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/mutation-observation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'proof-gap-acceptance', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-gap-acceptance\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

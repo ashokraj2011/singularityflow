@@ -177,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm8-promotion-families-mig-registered');
+  assert.equal(catalog.status, 'm9-local-observation-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -190,14 +190,16 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), [
     'agent-execution-binding', 'agent-execution-checkpoint', 'agent-steering-decision',
     'autonomy-decision', 'change-passport', 'change-risk-assessment',
+    'changed-region-coverage',
     'completion-contract', 'delivery-mode-transition', 'delivery-recommendation', 'delivery-selection',
     'effect-policy', 'effect-policy-compilation',
     'environment-attestation', 'environment-profile',
-    'impact-disposition', 'impact-should-set', 'nondeterminism-profile',
-    'proof-evaluation-receipt', 'proof-evidence-invalidation', 'proof-gap-item',
+    'executable-change-map', 'impact-disposition', 'impact-should-set', 'mutation-observation',
+    'nondeterminism-profile',
+    'proof-evaluation-receipt', 'proof-evidence-invalidation', 'proof-gap-acceptance', 'proof-gap-item',
     'proof-gap-register', 'proof-predicate-result', 'proof-predicate-specification',
     'proof-profile-selection', 'proof-signal-observation', 'proof-subject', 'proof-summary',
-    'workflow-checkpoint-satisfaction'
+    'witness-independence', 'workflow-checkpoint-satisfaction'
   ]);
   for (const family of catalog.families) {
     assert.match(family.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/);

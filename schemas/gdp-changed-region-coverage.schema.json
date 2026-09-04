@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-changed-region-coverage.schema.json", "title": "GDP Changed Region Coverage v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "proofSubjectSha256", "changeMapSha256", "requiredRegionRefs", "coveredRegionRefs", "uncoveredRegionRefs", "failedRegionRefs", "status", "executionRefs", "coverageSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "changed-region-coverage" }, "workId": { "$ref": "#/$defs/id" }, "proofSubjectSha256": { "$ref": "#/$defs/digest" }, "changeMapSha256": { "$ref": "#/$defs/digest" }, "requiredRegionRefs": { "$ref": "#/$defs/digests" }, "coveredRegionRefs": { "$ref": "#/$defs/digests" }, "uncoveredRegionRefs": { "$ref": "#/$defs/digests" }, "failedRegionRefs": { "$ref": "#/$defs/digests" }, "status": { "enum": ["passed", "failed", "unavailable"] }, "executionRefs": { "$ref": "#/$defs/digests" }, "coverageSha256": { "$ref": "#/$defs/digest" } }, "additionalProperties": false, "x-sflow-selfHash": "coverageSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160 }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "digests": { "type": "array", "maxItems": 1024, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } } }
+}

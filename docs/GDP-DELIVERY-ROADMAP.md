@@ -229,6 +229,8 @@ Candidates and lifecycle state remain authoritative.
 
 ### [x] GDP-M3 — Deterministic proof kernel in observe mode
 
+**Landing commit:** `6087ceea`
+
 **Implemented:** 2026-09-04
 
 **Evidence:** 11 focused M3 kernel/store/CLI tests and the combined 74-test GDP, command, help,

@@ -108,7 +108,13 @@ deployment claims.
 
 ## Milestones
 
-### [ ] GDP-M0 — Contract repair and ownership freeze
+### [x] GDP-M0 — Contract repair and ownership freeze
+
+- **Landing commit:** `cb46359c`
+- **Completed:** 2026-09-04
+- **Evidence:** 5 GDP contract tests and 28 SGOS/Smart Init compatibility tests passed; repository
+  conformance passed 1,277 checks; npm dry packaging included every contract, ADR, catalog, fixture,
+  and schema. No runtime source, workflow, command, gate, or default changed.
 
 **Planning range:** 1–2 person-weeks  
 **Mutation boundary:** documentation, ADRs, schemas, fixtures, and failing contract tests only
@@ -467,7 +473,6 @@ passing suite on one unsupported development runtime.
 
 ## Immediate next decision
 
-The only eligible implementation increment is **GDP-M0**. It should produce a corrected, reviewed
-specification and contract tests. Runtime schemas, commands, UI, proof evaluation, and enforcement
-must wait until the hash graph, ownership matrix, storage planes, CLI grammar, and migration policy
-are approved.
+GDP-M0 is complete at `cb46359c`. The only eligible next increment is **GDP-M1**: compatibility
+inventory, fixtures, and pure read-only runtime projections. Durable GDP writers, commands, UI,
+proof evaluation, Outcome execution, and enforcement remain unavailable.

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "recommend-is-not-a-delivery-mode",
+    "record": "selection",
+    "path": "deliveryMode",
+    "value": "recommend"
+  },
+  {
+    "id": "workflow-mode-requires-a-workflow-profile",
+    "record": "selection",
+    "path": "deliveryMode",
+    "value": "workflow"
+  },
+  {
+    "id": "predicate-result-cannot-reference-passport",
+    "record": "predicateResult",
+    "path": "passportSha256",
+    "value": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "id": "proof-summary-cannot-reference-passport",
+    "record": "proofSummary",
+    "path": "passportSha256",
+    "value": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  {
+    "id": "semantic-result-cannot-contain-clock",
+    "record": "predicateResult",
+    "path": "evaluatedAt",
+    "value": "2026-09-04T10:00:00.000Z"
+  },
+  {
+    "id": "passport-cannot-embed-predicate-results",
+    "record": "passport",
+    "path": "predicateResultRefs",
+    "value": [
+      "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    ]
+  },
+  {
+    "id": "model-cannot-select-delivery-authority",
+    "record": "selection",
+    "path": "selectedBy",
+    "value": {
+      "kind": "agent",
+      "identity": "copilot",
+      "authoritySha256": null
+    }
+  }
+]

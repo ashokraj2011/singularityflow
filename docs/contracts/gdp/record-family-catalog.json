@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-contract-family-catalog",
+  "status": "design-only-not-mig-registered",
+  "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
+  "migrationOwner": "MIG",
+  "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
+  "pathTemplates": {
+    "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",
+    "evidence": "singularity/work-items/<WORK-ID>/gdp/evidence/<family>/<sha256>.json",
+    "decision": "singularity/work-items/<WORK-ID>/gdp/decisions/<family>/<sha256>.json",
+    "operational": "$GIT_COMMON_DIR/singularity-flow/gdp/operations/<SUBJECT>/<family>/<id>.json",
+    "projection": ".singularity-flow/gdp/cache/<SUBJECT>/<family>/<id>.json"
+  },
+  "families": [
+    {
+      "id": "delivery-selection",
+      "classification": "decision",
+      "authorityOwner": "existing-configuration-or-human-authority",
+      "writer": "gdm-selection-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "delivery-recommendation",
+      "classification": "projection",
+      "authorityOwner": "none",
+      "writer": "gdm-recommendation-service",
+      "storagePlane": "projection",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "delivery-mode-transition",
+      "classification": "decision",
+      "authorityOwner": "existing-workflow-and-human-authority",
+      "writer": "gdm-promotion-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M8",
+      "immutable": true
+    },
+    {
+      "id": "completion-contract",
+      "classification": "semantic-content",
+      "authorityOwner": "gdm-contract-kernel",
+      "writer": "gdm-contract-service",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "effect-policy",
+      "classification": "semantic-content",
+      "authorityOwner": "existing-configuration-and-action-authorization",
+      "writer": "gdm-effect-policy-service",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "effect-policy-compilation",
+      "classification": "projection",
+      "authorityOwner": "none",
+      "writer": "gdm-effect-policy-service",
+      "storagePlane": "projection",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "change-risk-assessment",
+      "classification": "semantic-content",
+      "authorityOwner": "existing-impact-policy",
+      "writer": "gdm-risk-service",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "autonomy-decision",
+      "classification": "decision",
+      "authorityOwner": "existing-configuration-or-human-authority",
+      "writer": "gdm-autonomy-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M5",
+      "immutable": true
+    },
+    {
+      "id": "change-passport",
+      "classification": "projection",
+      "authorityOwner": "none",
+      "writer": "gdm-passport-builder",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M2",
+      "immutable": true
+    },
+    {
+      "id": "workflow-checkpoint-satisfaction",
+      "classification": "decision",
+      "authorityOwner": "creation-pinned-workflow-runtime",
+      "writer": "gdm-workflow-mapping-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M6",
+      "immutable": true
+    },
+    {
+      "id": "agent-execution-binding",
+      "classification": "semantic-content",
+      "authorityOwner": "sgos",
+      "writer": "sgos-geu-v2",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M7",
+      "immutable": true
+    },
+    {
+      "id": "agent-steering-decision",
+      "classification": "decision",
+      "authorityOwner": "sgos-human-authority",
+      "writer": "sgos-geu-v2",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M7",
+      "immutable": true
+    },
+    {
+      "id": "agent-execution-checkpoint",
+      "classification": "operational-receipt",
+      "authorityOwner": "sgos",
+      "writer": "sgos-geu-v2",
+      "storagePlane": "operational",
+      "firstMilestone": "GDP-M7",
+      "immutable": true
+    },
+    {
+      "id": "proof-profile-selection",
+      "classification": "decision",
+      "authorityOwner": "existing-configuration-or-human-authority",
+      "writer": "pfc-profile-resolver",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-predicate-specification",
+      "classification": "semantic-content",
+      "authorityOwner": "pfc-proof-kernel",
+      "writer": "pfc-predicate-registry",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-predicate-result",
+      "classification": "semantic-content",
+      "authorityOwner": "pfc-proof-kernel",
+      "writer": "pfc-predicate-engine",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-evaluation-receipt",
+      "classification": "operational-receipt",
+      "authorityOwner": "pfc-proof-kernel",
+      "writer": "pfc-predicate-engine",
+      "storagePlane": "operational",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-signal-observation",
+      "classification": "signal",
+      "authorityOwner": "none",
+      "writer": "pfc-signal-service",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-summary",
+      "classification": "projection",
+      "authorityOwner": "none",
+      "writer": "pfc-proof-summary-builder",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-evidence-invalidation",
+      "classification": "operational-receipt",
+      "authorityOwner": "pfc-proof-kernel",
+      "writer": "pfc-invalidation-service",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-gap-item",
+      "classification": "gap",
+      "authorityOwner": "pfc-gap-register",
+      "writer": "pfc-gap-register",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-gap-register",
+      "classification": "gap",
+      "authorityOwner": "pfc-gap-register",
+      "writer": "pfc-gap-register",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M3",
+      "immutable": true
+    },
+    {
+      "id": "proof-gap-acceptance",
+      "classification": "decision",
+      "authorityOwner": "existing-human-approval-authority",
+      "writer": "pfc-gap-decision-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "impact-should-set",
+      "classification": "semantic-content",
+      "authorityOwner": "existing-impact-policy",
+      "writer": "pfc-impact-service",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M4",
+      "immutable": true
+    },
+    {
+      "id": "impact-disposition",
+      "classification": "decision",
+      "authorityOwner": "existing-impact-authority",
+      "writer": "pfc-impact-service",
+      "storagePlane": "decision",
+      "firstMilestone": "GDP-M4",
+      "immutable": true
+    },
+    {
+      "id": "executable-change-map",
+      "classification": "semantic-content",
+      "authorityOwner": "cab",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "changed-region-coverage",
+      "classification": "semantic-content",
+      "authorityOwner": "cab",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "witness-independence",
+      "classification": "semantic-content",
+      "authorityOwner": "wel-and-cab",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "mutation-observation",
+      "classification": "signal",
+      "authorityOwner": "none",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M9",
+      "immutable": true
+    },
+    {
+      "id": "environment-profile",
+      "classification": "semantic-content",
+      "authorityOwner": "pfc-proof-kernel",
+      "writer": "pfc-environment-service",
+      "storagePlane": "subject",
+      "firstMilestone": "GDP-M4",
+      "immutable": true
+    },
+    {
+      "id": "environment-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "cab",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M4",
+      "immutable": true
+    },
+    {
+      "id": "nondeterminism-profile",
+      "classification": "semantic-content",
+      "authorityOwner": "wel-and-cab",
+      "writer": "cab-exact-checker",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M4",
+      "immutable": true
+    },
+    {
+      "id": "build-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "registered-enterprise-build-provider",
+      "writer": "registered-build-attestor",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M10",
+      "immutable": true
+    },
+    {
+      "id": "deployment-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "registered-enterprise-deployment-provider",
+      "writer": "registered-deployment-attestor",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M10",
+      "immutable": true
+    }
+  ]
+}

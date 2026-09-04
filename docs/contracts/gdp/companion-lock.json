@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "kind": "gdp-companion-lock",
+  "status": "contract-only",
+  "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
+  "companions": [
+    {
+      "id": "workflow-configuration",
+      "path": "templates/workflow.yml",
+      "sha256": "sha256:d303a575b9ca5de8e541a9150242394e629515027c8d7b446924791379305f15"
+    },
+    {
+      "id": "sgos-portable-schema",
+      "path": "schemas/sgos-contract.schema.json",
+      "sha256": "sha256:b657ad54d00d8d56d350b751b492015710c3dffef48489ebd2e18745ff7279d5"
+    },
+    {
+      "id": "sgos-contract",
+      "path": "docs/SGOS.md",
+      "sha256": "sha256:cafc10d5b01a2a3f75d00ca46a9d60ebfc05c0704c465c42e5803d9aad5d81e6"
+    },
+    {
+      "id": "sgos-delivery-status",
+      "path": "docs/SGOS-PENDING-WORK.md",
+      "sha256": "sha256:e0b9568598f91e3a2caa4c304745e39444c47f555671231cb92d45208e672d39"
+    },
+    {
+      "id": "world-model-v4",
+      "path": "docs/WORLD-MODEL-BUILDER-V4.md",
+      "sha256": "sha256:7b858a8d5a2db09c5fd80df84d321489ecbb20d3026d4adec031f6a48a0e5f8d"
+    },
+    {
+      "id": "witnessed-engineering-loop",
+      "path": "docs/WEL-SPEC.md",
+      "sha256": "sha256:289a781354b64c6b53e168e656939f661f6dae04ed5d66c71e7551dab4b124c8"
+    },
+    {
+      "id": "witnessed-engineering-delivery-status",
+      "path": "docs/WEL-PENDING-WORK.md",
+      "sha256": "sha256:3bd895296f04a3638959cf8cecf0087823591ba036ee109b781db65863242388"
+    },
+    {
+      "id": "code-assurance-bridge",
+      "path": "docs/CAB-ROADMAP.md",
+      "sha256": "sha256:8f096ae91e4be3a9c97a9543ff2421811b160076c6f84353c2de1bfbfd92bc36"
+    },
+    {
+      "id": "sgos-record-contracts",
+      "path": "src/sgos/contracts.mjs",
+      "sha256": "sha256:deca639dc213c427815170ba58b07b9792654d35559ff0209688e059edb9692e"
+    },
+    {
+      "id": "sgos-execution-unit-v1",
+      "path": "src/sgos/execution-units.mjs",
+      "sha256": "sha256:a6f3db4ed2278c183d7d50fd792036234bd1032e83f62fc0a2fdc4b5fc38d12f"
+    },
+    {
+      "id": "candidate-custody",
+      "path": "src/auto/auto-candidate.mjs",
+      "sha256": "sha256:967f5348dfcb6481b205135f26fa75f7261e3d6be526daeb78eae26d29cbe1c7"
+    },
+    {
+      "id": "publication-unit-of-work",
+      "path": "src/publication-unit-of-work.mjs",
+      "sha256": "sha256:e78ab7b77d5bfe8f071adf0c2999ebb4369e26e0643e7f60bf92c80ac48507bc"
+    },
+    {
+      "id": "action-authorization",
+      "path": "src/action-authorization.mjs",
+      "sha256": "sha256:3e54ed8cdeced17401b318a164e0812f1277afaacebc0e92c880bd3cb1231dd3"
+    },
+    {
+      "id": "migration-registry",
+      "path": "src/schema-migrations.mjs",
+      "sha256": "sha256:9591a57d314cf787b5da7d8c609feeec5ede65774ca835e8ff7f362a622e23a9"
+    },
+    {
+      "id": "smart-initialization-v1",
+      "path": "src/initialization/proposal.mjs",
+      "sha256": "sha256:d2c8282f05f616c978d6a3886258459ee7452b2db79173f22e1499b30971be6b"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "selection": {
+    "schemaVersion": 1,
+    "kind": "delivery-selection",
+    "workId": "GDP-M0-FIXTURE",
+    "selectionStrategy": "recommend",
+    "deliveryMode": "outcome",
+    "workflowProfile": null,
+    "executionProvider": "human",
+    "executionPace": "manual",
+    "autonomyCeiling": "A2",
+    "proofProfile": "standard",
+    "proofPolicySha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "policySnapshotSha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "selectedBy": {
+      "kind": "human",
+      "identity": "maintainer@example.test",
+      "authoritySha256": null
+    },
+    "selectionReason": "human-confirmed-recommendation",
+    "selectionSha256": "sha256:08aff9158ef66e0b56447583b79596d4ce2742b684395a8de210235b965edf74"
+  },
+  "proofSubject": {
+    "schemaVersion": 1,
+    "kind": "proof-subject",
+    "workId": "GDP-M0-FIXTURE",
+    "candidateSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "completionContractSha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "effectPolicySha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "proofPolicySha256": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "proofProfile": "standard",
+    "worldModel": {
+      "status": "ready",
+      "baselineSha256": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "candidateDeltaSha256": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "reasonCode": null
+    },
+    "proofSubjectSha256": "sha256:f09c967bcc06869b1bba408c576b8b5e48547483a5a06703f9e3c70daa6d4c44"
+  },
+  "predicateResult": {
+    "schemaVersion": 1,
+    "kind": "proof-predicate-result",
+    "predicate": {
+      "id": "pfc.candidate-binding",
+      "version": 1,
+      "implementationSha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "proofSubjectSha256": "sha256:f09c967bcc06869b1bba408c576b8b5e48547483a5a06703f9e3c70daa6d4c44",
+    "proofProfile": "standard",
+    "inputs": [
+      {
+        "kind": "candidate",
+        "sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "verdict": "pass",
+    "reasonCode": "EXACT_CANDIDATE_BOUND",
+    "findings": [],
+    "fuel": {
+      "maximumSteps": 1000,
+      "consumedSteps": 12
+    },
+    "resultSha256": "sha256:381203528d81b808ab02d27e2057f849626d6fca3eabfb87e78afc2477c1d3ee"
+  },
+  "proofSummary": {
+    "schemaVersion": 1,
+    "kind": "proof-summary",
+    "proofSubjectSha256": "sha256:f09c967bcc06869b1bba408c576b8b5e48547483a5a06703f9e3c70daa6d4c44",
+    "proofProfile": "standard",
+    "predicateResults": {
+      "passed": [
+        "sha256:381203528d81b808ab02d27e2057f849626d6fca3eabfb87e78afc2477c1d3ee"
+      ],
+      "failed": [],
+      "unavailable": [],
+      "notApplicable": []
+    },
+    "signals": [],
+    "gapRegisterSha256": null,
+    "gapDecisionRefs": [],
+    "verdict": "proof-satisfied",
+    "summarySha256": "sha256:b868f41b5ff18c994b4cc33be6f4a33a0fd10a9a58a5de0e4ece9c3867369a6a"
+  },
+  "passport": {
+    "schemaVersion": 1,
+    "kind": "change-passport",
+    "passportId": "CP-GDP-M0-FIXTURE",
+    "revision": 1,
+    "priorPassportSha256": null,
+    "subject": {
+      "kind": "story",
+      "id": "GDP-M0-FIXTURE"
+    },
+    "selectionSha256": "sha256:08aff9158ef66e0b56447583b79596d4ce2742b684395a8de210235b965edf74",
+    "candidateSha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "proofSubjectSha256": "sha256:f09c967bcc06869b1bba408c576b8b5e48547483a5a06703f9e3c70daa6d4c44",
+    "proofSummarySha256": "sha256:b868f41b5ff18c994b4cc33be6f4a33a0fd10a9a58a5de0e4ece9c3867369a6a",
+    "decisionRefs": [],
+    "publicationRefs": [],
+    "status": "admitted",
+    "passportSha256": "sha256:243477b36d3d943cf7f1770a4f7dc81bd86c69ce1c6b28a3e10983036aaeb5e2"
+  }
+}

@@ -17,6 +17,14 @@ function slot(value, fallback = '') {
 }
 
 export const MESSAGES = Object.freeze({
+  'delivery.recommendation-created': {
+    headline: (s) => `Delivery recommendation: ${slot(s.recommendation)} (${slot(s.reasons, '0')} reason(s)).`,
+    preserves: true
+  },
+  'delivery.outcome-started': {
+    headline: (s) => `Outcome work ${slot(s.workId)} started in Ad Hoc session ${slot(s.sessionId)}.`,
+    preserves: false
+  },
   'precheck.reported': {
     headline: (s) => `Singularity Flow quick precheck is ${slot(s.status)} across ${slot(s.checks, '0')} check(s).`,
     preserves: true

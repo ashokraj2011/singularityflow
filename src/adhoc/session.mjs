@@ -5,6 +5,7 @@ import {
   branch, changes, gitCommitIdentity, gitCommonDir, head
 } from '../git.mjs';
 import { canonicalJson } from '../records.mjs';
+import { validateOutcomeSelectionBundle } from '../delivery-modes/delivery-kernel.mjs';
 import { currentSchemaVersion } from '../schema-migrations.mjs';
 import { nowIso, run } from '../util.mjs';
 import { adhocError, assertSessionMutable } from './contracts.mjs';
@@ -52,7 +53,8 @@ function workArea(root) {
 }
 
 export async function startAdhocSession(root, definition, {
-  note = '', from = 'HEAD', includeExisting = false, mode = null, unstartedLanding = false
+  note = '', from = 'HEAD', includeExisting = false, mode = null, unstartedLanding = false,
+  gdp = null
 } = {}) {
   const policy = normalizeAdhocPolicy(definition.adhoc);
   if (!policy.enabled) {
@@ -115,6 +117,7 @@ export async function startAdhocSession(root, definition, {
   });
   const principal = gitCommitIdentity(root);
   const effectivePolicySha256 = sha256(canonicalJson(policy));
+  const delivery = gdp == null ? null : validateOutcomeSelectionBundle(gdp);
   const session = await writeSessionRecord(root, id, 'session', {
     kind: 'adhoc-session',
     sessionId: id,
@@ -135,6 +138,7 @@ export async function startAdhocSession(root, definition, {
     branch: branch(root),
     status: 'working',
     origin: unstartedLanding ? 'observed-existing-work' : 'explicit-start',
+    ...(delivery ? { gdp: delivery } : {}),
     startedAt: now,
     updatedAt: now
   });

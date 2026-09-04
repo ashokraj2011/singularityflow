@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-autonomy-decision.schema.json",
+  "title": "GDP Autonomy Decision v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "requestedCeiling", "effectiveCeiling", "executionPace", "decisionBasis", "selectedBy", "autonomyDecisionSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "autonomy-decision" }, "workId": { "$ref": "#/$defs/id" }, "requestedCeiling": { "enum": ["A0", "A1", "A2", "A3"] }, "effectiveCeiling": { "enum": ["A0", "A1", "A2", "A3"] }, "executionPace": { "enum": ["manual", "assisted", "auto"] }, "decisionBasis": { "$ref": "#/$defs/id" }, "selectedBy": { "$ref": "#/$defs/actor" }, "autonomyDecisionSha256": { "$ref": "#/$defs/digest" } },
+  "additionalProperties": false, "x-sflow-selfHash": "autonomyDecisionSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "actor": { "type": "object", "required": ["kind", "identity", "authoritySha256"], "properties": { "kind": { "enum": ["human", "policy"] }, "identity": { "type": ["string", "null"], "maxLength": 320 }, "authoritySha256": { "$ref": "#/$defs/nullableDigest" } }, "additionalProperties": false } }
+}

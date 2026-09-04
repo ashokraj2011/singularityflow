@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-delivery-selection.schema.json",
+  "title": "GDP Delivery Selection v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "selectionStrategy", "deliveryMode", "workflowProfile", "executionProvider", "executionPace", "autonomyCeiling", "proofProfile", "proofPolicySha256", "policySnapshotSha256", "selectedBy", "selectionReason", "recommendationSha256", "selectionSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "delivery-selection" }, "workId": { "$ref": "#/$defs/id" },
+    "selectionStrategy": { "enum": ["recommend", "fixed", "human-choice"] }, "deliveryMode": { "enum": ["workflow", "outcome"] },
+    "workflowProfile": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }, "executionProvider": { "$ref": "#/$defs/id" },
+    "executionPace": { "enum": ["manual", "assisted", "auto"] }, "autonomyCeiling": { "enum": ["A0", "A1", "A2", "A3"] },
+    "proofProfile": { "enum": ["standard", "high-assurance", "regulated", "custom-registered"] },
+    "proofPolicySha256": { "$ref": "#/$defs/digest" }, "policySnapshotSha256": { "$ref": "#/$defs/digest" },
+    "selectedBy": { "$ref": "#/$defs/actor" }, "selectionReason": { "$ref": "#/$defs/id" },
+    "recommendationSha256": { "$ref": "#/$defs/digest" }, "selectionSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "selectionSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "nullableDigest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] }, "actor": { "type": "object", "required": ["kind", "identity", "authoritySha256"], "properties": { "kind": { "enum": ["human", "policy"] }, "identity": { "type": ["string", "null"], "maxLength": 320 }, "authoritySha256": { "$ref": "#/$defs/nullableDigest" } }, "additionalProperties": false } }
+}

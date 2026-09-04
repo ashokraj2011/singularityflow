@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-change-risk-assessment.schema.json",
+  "title": "GDP Change Risk Assessment v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "riskClass", "repositoryCount", "predictedResourceCount", "triggers", "basisSha256", "riskAssessmentSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "change-risk-assessment" }, "workId": { "$ref": "#/$defs/id" }, "riskClass": { "enum": ["low", "medium", "high", "critical", "unknown"] }, "repositoryCount": { "type": "integer", "minimum": 0, "maximum": 100 }, "predictedResourceCount": { "type": "integer", "minimum": 0, "maximum": 10000 }, "triggers": { "$ref": "#/$defs/ids" }, "basisSha256": { "$ref": "#/$defs/digest" }, "riskAssessmentSha256": { "$ref": "#/$defs/digest" } },
+  "additionalProperties": false, "x-sflow-selfHash": "riskAssessmentSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "ids": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } } }
+}

@@ -1710,6 +1710,37 @@ const families = [
     id: 'nondeterminism-profile', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/nondeterminism-profile\/[a-f0-9]{64}\.json$/]
   }),
+  // GDP-M5 bounded Outcome records. Recommendations and compiled policy are disposable
+  // projections; decisions and semantic contracts are written only by the existing Ad Hoc
+  // publication unit when an exact landing packet is confirmed.
+  family({
+    id: 'delivery-recommendation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/projections\/delivery-recommendation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'delivery-selection', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/delivery-selection\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'completion-contract', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/completion-contract\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'effect-policy', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/effect-policy\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'effect-policy-compilation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/projections\/effect-policy-compilation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'change-risk-assessment', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/subjects\/change-risk-assessment\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'autonomy-decision', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/autonomy-decision\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

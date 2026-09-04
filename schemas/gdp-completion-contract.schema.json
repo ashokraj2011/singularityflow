@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-completion-contract.schema.json",
+  "title": "GDP Completion Contract v1", "type": "object",
+  "required": ["schemaVersion", "kind", "contractId", "subject", "outcome", "acceptanceClauses", "nonGoals", "humanDecisions", "effectPolicySha256", "proofProfile", "proofPolicySha256", "gapAcceptancePolicySha256", "riskAssessmentSha256", "promotionPolicySha256", "contractSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "completion-contract" }, "contractId": { "$ref": "#/$defs/id" },
+    "subject": { "type": "object", "required": ["kind", "id"], "properties": { "kind": { "const": "outcome" }, "id": { "$ref": "#/$defs/id" } }, "additionalProperties": false },
+    "outcome": { "type": "object", "required": ["statement", "observablePredicate"], "properties": { "statement": { "$ref": "#/$defs/text" }, "observablePredicate": { "$ref": "#/$defs/text" } }, "additionalProperties": false },
+    "acceptanceClauses": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/clause" } },
+    "nonGoals": { "$ref": "#/$defs/texts" }, "humanDecisions": { "type": "array", "maxItems": 128 },
+    "effectPolicySha256": { "$ref": "#/$defs/digest" }, "proofProfile": { "enum": ["standard", "high-assurance", "regulated", "custom-registered"] },
+    "proofPolicySha256": { "$ref": "#/$defs/digest" }, "gapAcceptancePolicySha256": { "$ref": "#/$defs/digest" }, "riskAssessmentSha256": { "$ref": "#/$defs/digest" }, "promotionPolicySha256": { "$ref": "#/$defs/digest" }, "contractSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "contractSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "text": { "type": "string", "minLength": 1, "maxLength": 2048 }, "texts": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } }, "clause": { "type": "object", "required": ["clauseId", "bodySha256", "required", "witnessPolicy"], "properties": { "clauseId": { "$ref": "#/$defs/id" }, "bodySha256": { "$ref": "#/$defs/digest" }, "required": { "type": "boolean" }, "witnessPolicy": { "$ref": "#/$defs/id" } }, "additionalProperties": false } }
+}

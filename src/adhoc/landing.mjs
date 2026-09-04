@@ -14,6 +14,7 @@ import {
   buildRepositoryChangeSet, changeSetPaths, evaluateProtectedPaths
 } from '../repository-change-set.mjs';
 import { canonicalJson } from '../records.mjs';
+import { validateDeliveryRecord } from '../delivery-modes/delivery-kernel.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import {
   nowIso, optionString, optionStrings, run, SingularityFlowError, writeJson
@@ -240,6 +241,7 @@ function executeTest(root, id, argv, changeSetSha256) {
 }
 
 function workId(session, intent) {
+  if (session.gdp?.workId) return session.gdp.workId;
   const date = String(session.startedAt).slice(0, 10).replaceAll('-', '');
   const slug = intent.objective.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32) || 'work';
   return `ADH-${date}-${slug}-${session.sessionId.slice(-6).toLowerCase()}`;
@@ -395,7 +397,7 @@ async function writeAuthorityRecord(root, directory, file, family, value, hashFi
 function exactAdhocRecoveryMetadata(record, sessionId) {
   const metadata = record?.adhoc;
   const payload = record?.event?.payload;
-  const validWorkId = /^ADH-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*-[a-z0-9]{6}$/.test(
+  const validWorkId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(
     String(metadata?.workId ?? '')
   );
   if (metadata?.sessionId !== sessionId
@@ -566,8 +568,11 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
     decidedAt: nowIso()
   }, 'decisionSha256');
   const authorityDirectory = `singularity/adhoc-work/${packet.workId}`;
+  const gdpDirectory = `singularity/work-items/${packet.workId}/gdp`;
   const applicationResources = packet.publication.allowedResources;
-  const allowedPaths = [...new Set([...applicationResources, authorityDirectory])];
+  const allowedPaths = [...new Set([
+    ...applicationResources, authorityDirectory, ...(session.gdp ? [gdpDirectory] : [])
+  ])];
   const initialFingerprint = await resourceFingerprint(root, applicationResources);
   const authoritativeReceipt = stampRecord('adhoc-landing-receipt', {
     kind: 'adhoc-landing-receipt',
@@ -650,6 +655,21 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
           decisionSha256: decision.decisionSha256,
           status: 'published'
         }, 'recordSha256');
+        if (session.gdp) {
+          for (const [family, plane, hashField, record] of [
+            ['delivery-recommendation', 'projections', 'recommendationSha256', session.gdp.recommendation],
+            ['delivery-selection', 'decisions', 'selectionSha256', session.gdp.selection],
+            ['autonomy-decision', 'decisions', 'autonomyDecisionSha256', session.gdp.autonomyDecision],
+            ['completion-contract', 'subjects', 'contractSha256', session.gdp.completionContract],
+            ['effect-policy', 'subjects', 'effectPolicySha256', session.gdp.effectPolicy],
+            ['effect-policy-compilation', 'projections', 'compilationSha256', session.gdp.effectPolicyCompilation],
+            ['change-risk-assessment', 'subjects', 'riskAssessmentSha256', session.gdp.riskAssessment]
+          ]) {
+            validateDeliveryRecord(family, record);
+            const relative = `${gdpDirectory}/${plane}/${family}/${record[hashField].slice(7)}.json`;
+            await writeJson(path.join(root, relative), record);
+          }
+        }
       },
       validate: async () => {
         for (const [file, family, hashField] of [
@@ -663,6 +683,25 @@ export async function publishAdhocLanding(root, definition, requested, { confirm
         ]) {
           const record = readRecord(family, await readFile(path.join(root, authorityDirectory, file), 'utf8')).record;
           assertRecordHash(record, hashField, file);
+        }
+        if (session.gdp) {
+          for (const [family, plane, hashField, expected] of [
+            ['delivery-recommendation', 'projections', 'recommendationSha256', session.gdp.recommendation],
+            ['delivery-selection', 'decisions', 'selectionSha256', session.gdp.selection],
+            ['autonomy-decision', 'decisions', 'autonomyDecisionSha256', session.gdp.autonomyDecision],
+            ['completion-contract', 'subjects', 'contractSha256', session.gdp.completionContract],
+            ['effect-policy', 'subjects', 'effectPolicySha256', session.gdp.effectPolicy],
+            ['effect-policy-compilation', 'projections', 'compilationSha256', session.gdp.effectPolicyCompilation],
+            ['change-risk-assessment', 'subjects', 'riskAssessmentSha256', session.gdp.riskAssessment]
+          ]) {
+            const relative = `${gdpDirectory}/${plane}/${family}/${expected[hashField].slice(7)}.json`;
+            const stored = JSON.parse(await readFile(path.join(root, relative), 'utf8'));
+            validateDeliveryRecord(family, stored);
+            if (stored[hashField] !== expected[hashField]) throw new SingularityFlowError(
+              `GDP ${family} changed while preparing the existing Ad Hoc publication.`,
+              { code: 'GDM_PUBLICATION_RECOVERY_REQUIRED' }
+            );
+          }
         }
       }
     },

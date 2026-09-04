@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-effect-policy-compilation.schema.json",
+  "title": "GDP Effect Policy Compilation v1", "type": "object",
+  "required": ["schemaVersion", "kind", "effectPolicySha256", "repositoryRevisionSha256", "allowedPathPrefixes", "forbiddenPathPrefixes", "externalEffectsAllowed", "credentialsAllowed", "compilationSha256"],
+  "properties": { "schemaVersion": { "const": 1 }, "kind": { "const": "effect-policy-compilation" }, "effectPolicySha256": { "$ref": "#/$defs/digest" }, "repositoryRevisionSha256": { "$ref": "#/$defs/digest" }, "allowedPathPrefixes": { "$ref": "#/$defs/paths" }, "forbiddenPathPrefixes": { "$ref": "#/$defs/paths" }, "externalEffectsAllowed": { "const": false }, "credentialsAllowed": { "const": false }, "compilationSha256": { "$ref": "#/$defs/digest" } },
+  "additionalProperties": false, "x-sflow-selfHash": "compilationSha256",
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "paths": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "maxLength": 512 } } }
+}

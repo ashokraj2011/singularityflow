@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "gdp-contract-family-catalog",
-  "status": "m4-observation-families-mig-registered",
+  "status": "m5-outcome-families-mig-registered",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "migrationOwner": "MIG",
   "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
@@ -21,7 +21,14 @@
     "impact-disposition",
     "environment-profile",
     "environment-attestation",
-    "nondeterminism-profile"
+    "nondeterminism-profile",
+    "delivery-recommendation",
+    "delivery-selection",
+    "completion-contract",
+    "effect-policy",
+    "effect-policy-compilation",
+    "change-risk-assessment",
+    "autonomy-decision"
   ],
   "pathTemplates": {
     "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",

@@ -114,7 +114,7 @@ function mutate(record, dottedPath, value) {
   return copy;
 }
 
-test('GDP M0 frozen shapes remain closed as M3 activates only admitted proof identities', async () => {
+test('GDP M0 frozen shapes remain closed as later milestones activate only admitted identities', async () => {
   const schema = await json(schemaPath);
   const chain = await json(path.join(fixtureRoot, 'valid-chain.json'));
   const definitions = definitionByKind(schema);
@@ -132,8 +132,8 @@ test('GDP M0 frozen shapes remain closed as M3 activates only admitted proof ide
     assert.equal(definition.additionalProperties, false, record.kind);
     assert.equal(record[definition['x-sflow-selfHash']], semanticHash(definition, record), record.kind);
     assert.equal(productionFamilies.has(record.kind),
-      ['proof-subject', 'change-passport', 'proof-predicate-result', 'proof-summary'].includes(record.kind),
-      `${record.kind} has the wrong runtime registration state after M3`);
+      ['proof-subject', 'change-passport', 'proof-predicate-result', 'proof-summary', 'delivery-selection'].includes(record.kind),
+      `${record.kind} has the wrong runtime registration state`);
   }
 
   assert.equal(chain.predicateResult.proofSubjectSha256, chain.proofSubject.proofSubjectSha256);
@@ -177,7 +177,7 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm4-observation-families-mig-registered');
+  assert.equal(catalog.status, 'm5-outcome-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -188,7 +188,10 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   ]);
   const productionFamilies = new Set(migrationRegistrySnapshot().map((family) => family.id));
   assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), [
-    'change-passport', 'environment-attestation', 'environment-profile',
+    'autonomy-decision', 'change-passport', 'change-risk-assessment',
+    'completion-contract', 'delivery-recommendation', 'delivery-selection',
+    'effect-policy', 'effect-policy-compilation',
+    'environment-attestation', 'environment-profile',
     'impact-disposition', 'impact-should-set', 'nondeterminism-profile',
     'proof-evaluation-receipt', 'proof-evidence-invalidation', 'proof-gap-item',
     'proof-gap-register', 'proof-predicate-result', 'proof-predicate-specification',

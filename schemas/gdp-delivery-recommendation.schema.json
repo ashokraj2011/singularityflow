@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://singularity-flow.dev/schemas/gdp-delivery-recommendation.schema.json",
+  "title": "GDP Delivery Recommendation v1", "type": "object",
+  "required": ["schemaVersion", "kind", "workId", "requestSha256", "repositoryRevisionSha256", "configurationSha256", "selectionStrategy", "outcome", "requiredMode", "reasons", "assumptions", "allowedModes", "defaultWorkflowProfile", "recommendationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "delivery-recommendation" }, "workId": { "$ref": "#/$defs/id" },
+    "requestSha256": { "$ref": "#/$defs/digest" }, "repositoryRevisionSha256": { "$ref": "#/$defs/digest" }, "configurationSha256": { "$ref": "#/$defs/digest" },
+    "selectionStrategy": { "enum": ["recommend", "fixed", "human-choice"] },
+    "outcome": { "enum": ["outcome-recommended", "workflow-recommended", "workflow-required", "human-choice-required", "insufficient-evidence"] },
+    "requiredMode": { "oneOf": [{ "enum": ["workflow", "outcome"] }, { "type": "null" }] },
+    "reasons": { "$ref": "#/$defs/ids" }, "assumptions": { "$ref": "#/$defs/ids" },
+    "allowedModes": { "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["workflow", "outcome"] } },
+    "defaultWorkflowProfile": { "$ref": "#/$defs/id" }, "recommendationSha256": { "$ref": "#/$defs/digest" }
+  }, "additionalProperties": false, "x-sflow-selfHash": "recommendationSha256",
+  "$defs": { "id": { "type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$" }, "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "ids": { "type": "array", "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } } }
+}

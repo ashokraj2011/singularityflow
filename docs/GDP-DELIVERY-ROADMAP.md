@@ -4,7 +4,7 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M3 implemented; later milestones remain planning only
+**Status:** GDP-M0 through GDP-M5 implemented; later milestones remain opt-in delivery work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -322,7 +322,24 @@ Exit evidence:
 Rollback boundary: switch the pilot to disabled; ordinary module-level Code Delivery evidence
 continues unchanged.
 
-### [ ] GDP-M5 — Bounded Outcome-mode pilot
+### [x] GDP-M5 — Bounded Outcome-mode pilot
+
+**Implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M5-OUTCOME-MODE.md`](GDP-M5-OUTCOME-MODE.md)
+
+Delivered:
+
+- added deterministic recommendation, explicit digest-confirmed selection, Completion Contract,
+  Effect Policy/compilation, risk, and autonomy records;
+- constrained Outcome mode to one repository, medium-or-lower risk, no protected paths, external
+  effects, or credentials, and the existing assisted Ad Hoc execution path;
+- reused the existing Ad Hoc landing preview and recoverable lifecycle publisher as the sole
+  preflight, commit, push, pending-publication, and recovery unit;
+- writes all seven exact GDP records inside that one publication transaction, with exact readback
+  validation before commit;
+- preserved Workflow mode as the default and directed policy-forced work to the existing Story
+  workflow without changing old or in-flight work.
 
 **Planning range:** 3–5 person-weeks  
 **Depends on:** GDP-M3, SGOS Candidate publication, Action Authorization, and current recovery UoW

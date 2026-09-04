@@ -23,7 +23,9 @@ const WHY_SOURCES = new Set(['pin', 'policy', 'gate', 'sequence', 'evidence', 'c
 const NEXT_RANKS = new Set(['NOW', 'SOON', 'LATER']);
 const NEXT_KINDS = new Set(['workflow', 'remediation', 'review', 'informational']);
 const MODEL_POLICIES = new Set(['never', 'optional', 'required']);
-const SUBJECT_KINDS = new Set(['story', 'initiative', 'capability', 'workspace', 'repository', 'goal']);
+const SUBJECT_KINDS = new Set([
+  'story', 'initiative', 'capability', 'workspace', 'repository', 'goal', 'outcome', 'adhoc'
+]);
 const ID_PATTERN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 /** Nothing happened. The only shape a refusal is allowed to declare. */

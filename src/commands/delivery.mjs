@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 
 import { readAdhocSession, startAdhocSession } from '../adhoc/session.mjs';
 import { promoteAdhocSession } from '../adhoc/landing.mjs';
@@ -16,6 +17,7 @@ import {
   applyPromotionPlan, buildPromotionPlan, validateDeliveryModeTransition
 } from '../delivery-modes/promotion.mjs';
 import { evaluateLocalHermeticEvidence } from '../delivery-modes/high-assurance.mjs';
+import { provenanceReadiness } from '../delivery-modes/provenance.mjs';
 import { resolveShadowPassportDiagnostic } from '../delivery-modes/shadow-passport-service.mjs';
 import { branch, gitCommitIdentity, head, repoRoot } from '../git.mjs';
 import { commandResult, succeeded } from '../narration/command-result.mjs';
@@ -269,6 +271,25 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
       }
     }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
   }
+  if (action === 'provenance-status') {
+    const providerFile = optionString(options, 'provider-file');
+    const readiness = provenanceReadiness(providerFile
+      ? await jsonFile(root, providerFile, 'Provenance provider file') : null);
+    return emitCommandResult(commandResult({
+      operation: suppliedOperation ?? { id: 'delivery.provenance-status', classification: 'read' },
+      subject: { kind: 'repository', id: path.basename(root) },
+      outcome: succeeded('delivery.provenance-reported', {
+        status: readiness.status, configured: readiness.configured,
+        verifier: readiness.verifierAvailable
+      }),
+      effects: effects(), restState: 'informational', data: {
+        ...readiness,
+        nextAction: readiness.configured
+          ? 'Install and register an approved verifier implementation before accepting attestations.'
+          : 'Create a reviewed repository-relative provider descriptor; no credentials belong in it.'
+      }
+    }), { json: optionBoolean(options, 'json'), restStateWhenIdle: 'informational' });
+  }
   if (action === 'recommend') {
     const request = normalizeDeliveryRequest(await jsonFile(
       root, optionString(options, 'request-file'), 'Delivery request file'
@@ -296,7 +317,7 @@ export async function run(_argv, { positionals, options, operation: suppliedOper
   if (action !== 'select') throw new SingularityFlowError(
     `Unknown delivery action '${action}'. Use: delivery recommend, delivery select, `
       + 'delivery workflow-status, delivery execution-status, delivery promotion-preview, '
-      + 'delivery promotion-status, or delivery assurance-evaluate.',
+      + 'delivery promotion-status, delivery assurance-evaluate, or delivery provenance-status.',
     { code: 'UNKNOWN_SUBCOMMAND' }
   );
   const envelope = await jsonFile(root, optionString(options, 'plan'), 'Delivery plan');

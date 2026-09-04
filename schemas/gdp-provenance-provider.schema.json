@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-provenance-provider.schema.json",
+  "title": "GDP Provider-Neutral Provenance Configuration v1", "type": "object",
+  "required": ["schemaVersion", "kind", "providerId", "providerType", "trustRootSha256", "verifierId", "acceptedIssuerDigests", "acceptedAudienceDigests", "enabled"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "gdp-provenance-provider" },
+    "providerId": { "$ref": "#/$defs/id" }, "providerType": { "$ref": "#/$defs/id" },
+    "trustRootSha256": { "$ref": "#/$defs/digest" }, "verifierId": { "$ref": "#/$defs/id" },
+    "acceptedIssuerDigests": { "$ref": "#/$defs/digests" },
+    "acceptedAudienceDigests": { "$ref": "#/$defs/digests" },
+    "enabled": { "type": "boolean" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$", "maxLength": 160 },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digests": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } }
+  }
+}

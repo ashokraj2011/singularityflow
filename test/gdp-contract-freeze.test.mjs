@@ -173,11 +173,12 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
     'impact-should-set', 'impact-disposition', 'executable-change-map', 'changed-region-coverage',
     'witness-independence', 'mutation-observation', 'environment-profile',
     'environment-attestation', 'nondeterminism-profile', 'build-attestation',
-    'deployment-attestation'
+    'deployment-attestation', 'provider-environment-attestation',
+    'runtime-identity-attestation', 'production-observation'
   ].sort();
   const actual = catalog.families.map((family) => family.id).sort();
 
-  assert.equal(catalog.status, 'm9-local-observation-families-mig-registered');
+  assert.equal(catalog.status, 'm10-provider-contract-families-mig-registered');
   assert.deepEqual(actual, expected);
   assert.equal(new Set(actual).size, actual.length);
   assert.equal(catalog.migrationOwner, 'MIG');
@@ -189,16 +190,18 @@ test('every proposed GDP family has exactly one planned writer, owner, plane, an
   const productionFamilies = new Set(migrationRegistrySnapshot().map((family) => family.id));
   assert.deepEqual([...catalog.runtimeRegisteredFamilies].sort(), [
     'agent-execution-binding', 'agent-execution-checkpoint', 'agent-steering-decision',
-    'autonomy-decision', 'change-passport', 'change-risk-assessment',
+    'autonomy-decision', 'build-attestation', 'change-passport', 'change-risk-assessment',
     'changed-region-coverage',
     'completion-contract', 'delivery-mode-transition', 'delivery-recommendation', 'delivery-selection',
+    'deployment-attestation',
     'effect-policy', 'effect-policy-compilation',
     'environment-attestation', 'environment-profile',
     'executable-change-map', 'impact-disposition', 'impact-should-set', 'mutation-observation',
-    'nondeterminism-profile',
+    'nondeterminism-profile', 'production-observation',
     'proof-evaluation-receipt', 'proof-evidence-invalidation', 'proof-gap-acceptance', 'proof-gap-item',
     'proof-gap-register', 'proof-predicate-result', 'proof-predicate-specification',
     'proof-profile-selection', 'proof-signal-observation', 'proof-subject', 'proof-summary',
+    'provider-environment-attestation', 'runtime-identity-attestation',
     'witness-independence', 'workflow-checkpoint-satisfaction'
   ]);
   for (const family of catalog.families) {

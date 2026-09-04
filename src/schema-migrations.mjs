@@ -1784,6 +1784,29 @@ const families = [
     id: 'proof-gap-acceptance', currentVersion: 1, immutable: true,
     paths: [/^singularity\/work-items\/[^/]+\/gdp\/decisions\/proof-gap-acceptance\/[a-f0-9]{64}\.json$/]
   }),
+  // GDP-M10 provider-neutral attestation envelopes. Registration reserves exact immutable
+  // identities only. The product contains no built-in trust root or signature verifier, so these
+  // records remain unavailable to lifecycle authority until an approved provider is configured.
+  family({
+    id: 'build-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/build-attestation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'provider-environment-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/provider-environment-attestation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'deployment-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/deployment-attestation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'runtime-identity-attestation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/runtime-identity-attestation\/[a-f0-9]{64}\.json$/]
+  }),
+  family({
+    id: 'production-observation', currentVersion: 1, immutable: true,
+    paths: [/^singularity\/work-items\/[^/]+\/gdp\/evidence\/production-observation\/[a-f0-9]{64}\.json$/]
+  }),
   // Zero-manual-config initialization records. Proposals and activation receipts are immutable:
   // changed detection or a changed decision is a new content-addressed record, never an in-place
   // rewrite of repository law.

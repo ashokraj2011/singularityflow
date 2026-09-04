@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "gdp-contract-family-catalog",
-  "status": "m9-local-observation-families-mig-registered",
+  "status": "m10-provider-contract-families-mig-registered",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "migrationOwner": "MIG",
   "readerPolicy": "N-1-or-version-1-no-predecessor-proof",
@@ -38,7 +38,12 @@
     "changed-region-coverage",
     "witness-independence",
     "mutation-observation",
-    "proof-gap-acceptance"
+    "proof-gap-acceptance",
+    "build-attestation",
+    "provider-environment-attestation",
+    "deployment-attestation",
+    "runtime-identity-attestation",
+    "production-observation"
   ],
   "pathTemplates": {
     "subject": "singularity/work-items/<WORK-ID>/gdp/subjects/<family>/<sha256>.json",
@@ -359,6 +364,33 @@
       "classification": "operational-receipt",
       "authorityOwner": "registered-enterprise-deployment-provider",
       "writer": "registered-deployment-attestor",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M10",
+      "immutable": true
+    },
+    {
+      "id": "provider-environment-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "registered-enterprise-environment-provider",
+      "writer": "registered-environment-attestor",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M10",
+      "immutable": true
+    },
+    {
+      "id": "runtime-identity-attestation",
+      "classification": "operational-receipt",
+      "authorityOwner": "registered-enterprise-runtime-provider",
+      "writer": "registered-runtime-attestor",
+      "storagePlane": "evidence",
+      "firstMilestone": "GDP-M10",
+      "immutable": true
+    },
+    {
+      "id": "production-observation",
+      "classification": "signal",
+      "authorityOwner": "registered-enterprise-observation-provider",
+      "writer": "registered-production-observer",
       "storagePlane": "evidence",
       "firstMilestone": "GDP-M10",
       "immutable": true

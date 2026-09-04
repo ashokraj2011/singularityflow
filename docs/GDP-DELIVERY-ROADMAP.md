@@ -4,8 +4,8 @@
 
 **Contract namespaces:** `GDM` (delivery) and `PFC` (proof)
 
-**Status:** GDP-M0 through GDP-M8 implemented; M9 local observation profile implemented; M9
-enforcement and M10–M11 remain constrained readiness/provider work
+**Status:** GDP-M0 through GDP-M8 implemented; M9 local observation and M10 provider-neutral
+contracts implemented; enforcement, provider pilots, and GA remain constrained readiness work
 
 **Roadmap baseline:** `main@0dd893c5`
 
@@ -536,7 +536,26 @@ Exit evidence:
 
 Rollback boundary: prevent new enforce enrollment and retain the authenticated record readers.
 
-### [ ] GDP-M10 — Build, deploy, and runtime provenance pilots
+### [~] GDP-M10 — Build, deploy, and runtime provenance pilots
+
+**Provider-neutral contract surface implemented:** 2026-09-04
+
+**Implementation guide:** [`GDP-M10-PROVENANCE-CONTRACTS.md`](GDP-M10-PROVENANCE-CONTRACTS.md)
+
+Delivered without claiming a provider pilot:
+
+- immutable signed envelopes for build, provider environment, deployment, runtime identity, and
+  production observations;
+- exact issuer, audience, Proof Subject, Candidate, nonce, expiry, policy epoch, signer, signature,
+  artifact, target, deployment, and runtime bindings;
+- deterministic replay, revocation, expiry, issuer, audience, signature-digest, and provider checks;
+- read-only `delivery provenance-status`, which reports unavailable until configured and continues
+  to report no authority until an approved verifier implementation is injected;
+- no built-in CI provider, no GitHub Actions dependency, no credentials, and no lifecycle consumer.
+
+Still required before M10 can be marked complete: approved provider integrations and Secret Broker
+bindings, cryptographic verifier deployment, outage/revocation/rollback exercises, privacy and
+retention approvals, and reviewed signed production release receipts.
 
 **Planning range:** 8–16+ person-weeks  
 **Depends on:** GDP-M9 and approved enterprise identity/provenance providers
@@ -626,6 +645,7 @@ passing suite on one unsupported development runtime.
 ## Immediate next decision
 
 GDP-M0 through M8 are implemented. The M9 local observation profile is available for contract and
-integration exercises but cannot authorize a gate. The next eligible increment is the M10
-provider-neutral contract surface in fail-closed mode; authenticated provider pilots and M9
-enforcement remain external readiness work and must not be inferred from local tests.
+integration exercises but cannot authorize a gate. M10 provider-neutral contracts are fail-closed
+until an external approved verifier is configured. The next eligible increment is M11 readiness
+reporting; authenticated provider pilots, M9 enforcement, and GA evidence remain external work and
+must not be inferred from local tests.

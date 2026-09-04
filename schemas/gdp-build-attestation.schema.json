@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://singularity-flow.dev/schemas/gdp-build-attestation.schema.json",
+  "title": "GDP Provider Build Attestation v1", "type": "object",
+  "required": ["schemaVersion", "kind", "providerId", "issuerSha256", "audienceSha256", "proofSubjectSha256", "candidateSha256", "nonceSha256", "issuedAt", "expiresAt", "policyEpochSha256", "signerKeyIdSha256", "signatureBase64", "signatureSha256", "toolchainSha256", "artifactSha256", "attestationSha256"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "build-attestation" },
+    "providerId": { "$ref": "#/$defs/id" }, "issuerSha256": { "$ref": "#/$defs/digest" },
+    "audienceSha256": { "$ref": "#/$defs/digest" }, "proofSubjectSha256": { "$ref": "#/$defs/digest" },
+    "candidateSha256": { "$ref": "#/$defs/digest" }, "nonceSha256": { "$ref": "#/$defs/digest" },
+    "issuedAt": { "$ref": "#/$defs/instant" }, "expiresAt": { "$ref": "#/$defs/instant" },
+    "policyEpochSha256": { "$ref": "#/$defs/digest" }, "signerKeyIdSha256": { "$ref": "#/$defs/digest" },
+    "signatureBase64": { "$ref": "#/$defs/signature" }, "signatureSha256": { "$ref": "#/$defs/digest" }, "toolchainSha256": { "$ref": "#/$defs/digest" },
+    "artifactSha256": { "$ref": "#/$defs/digest" }, "attestationSha256": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false, "x-sflow-selfHash": "attestationSha256",
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[._:-][a-z0-9]+)*$", "maxLength": 160 },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "instant": { "type": "string", "format": "date-time" }, "signature": { "type": "string", "pattern": "^[A-Za-z0-9+/]+={0,2}$", "maxLength": 8192 }
+  }
+}

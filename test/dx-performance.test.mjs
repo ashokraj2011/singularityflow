@@ -598,11 +598,14 @@ test('every test that loads TypeScript runs with type stripping, whatever suite 
    * than the behaviour because the failure is a coupling, and a coupling is visible in the source
    * and invisible in a passing run.
    */
-  const runner = await readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8');
-  assert.match(runner, /function needsTypeStripping\(source\)/,
-    'the runner decides type stripping from what a file loads');
-  assert.match(runner, /const stripping = needsTypeStripping\(source\);/,
-    'and asks it of every selected file');
+  const [runner, planner] = await Promise.all([
+    readFile(path.join(root, 'scripts', 'run-test-suite.mjs'), 'utf8'),
+    readFile(path.join(root, 'scripts', 'test-suite-plan.mjs'), 'utf8')
+  ]);
+  assert.match(planner, /function needsTypeStripping\(source\)/,
+    'the shared planner decides type stripping from what a file loads');
+  assert.match(planner, /needsTypeStripping: needsTypeStripping\(source\)/,
+    'and records that decision for every selected file');
   assert.doesNotMatch(runner, /if \(kind === 'vscode'\) needsStripping = true;/,
     'the flag must not depend on which suite a file was sorted into');
   assert.match(runner, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES/,
@@ -623,6 +626,26 @@ test('the suite bounds file concurrency so child processes keep their timeout bu
     'the default must not launch every process-heavy test file at once');
   assert.match(runner, /SINGULARITY_FLOW_TEST_CONCURRENCY/,
     'CI must be able to choose a measured concurrency explicitly');
-  assert.match(runner, /\.\.\.flags, concurrencyFlag, '--test'/,
+  assert.match(runner, /concurrencyFlag, '--test'/,
     'the bounded value must be passed to the Node test runner');
+  assert.match(runner, /SINGULARITY_FLOW_TEST_DEADLINE_MS/,
+    'every shard must have an explicit configurable wall-clock deadline');
+  assert.match(runner, /signalProcessTree/,
+    'a deadline must terminate descendants rather than only the immediate Node process');
+  assert.match(runner, /--shard=/,
+    'a timed-out shard must return one exact retry command');
+});
+
+test('the aggregate runner checkpoints exact shards and retries only incomplete work', async () => {
+  const [aggregate, manifest] = await Promise.all([
+    readFile(path.join(root, 'scripts', 'run-test-aggregate.mjs'), 'utf8'),
+    readFile(path.join(root, 'package.json'), 'utf8')
+  ]);
+  assert.match(aggregate, /partitionTestFiles/);
+  assert.match(aggregate, /reusableReceipt/);
+  assert.match(aggregate, /commit, tree, cleanCheckout/);
+  assert.match(aggregate, /sourceSha256: plan\.sourceSha256/);
+  assert.match(aggregate, /Retry only incomplete shards/);
+  assert.match(aggregate, /SINGULARITY_FLOW_TEST_CONCURRENCY_PER_SHARD/);
+  assert.equal(JSON.parse(manifest).scripts['test:all'], 'node scripts/run-test-aggregate.mjs all');
 });

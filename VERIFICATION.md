@@ -150,7 +150,7 @@ standard/deep grounding, MCP evidence, validation, repair-budget, and publicatio
 The complete general release checks remain:
 
 ```bash
-npm test
+npm run test:release:aggregate
 npm run check
 npm run vscode:build
 npm run vscode:typecheck
@@ -158,5 +158,11 @@ npm run test:vscode
 npm pack --dry-run
 ```
 
-Acceptance requires a clean test run, deterministic checks, a clean worktree
+The test aggregate is split into deterministic weighted shards with process-tree deadlines. Exact
+passing shard receipts live under `.git/singularity-flow/test-runs/`, so a retry on the same clean
+commit runs only incomplete shards. Release mode requires a clean checkout and refuses skipped,
+cancelled, failed, or todo outcomes; the merged summary still uses Node's standard counters and is
+consumed by the signed receipt generator.
+
+Acceptance requires a complete clean-checkout aggregate, deterministic checks, a clean worktree
 after packaging, and successful branch publication without force-pushes.

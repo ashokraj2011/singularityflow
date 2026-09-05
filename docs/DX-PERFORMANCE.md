@@ -96,6 +96,40 @@ Linux/Node-22 accepted baseline.
 Do not update the baseline merely to make a regression pass. Review topology, runner load,
 dependency changes, and the lazy import graph first.
 
+## Bounded aggregate verification
+
+`npm test` no longer starts one unbounded all-files process. It creates eight deterministic,
+largest-first shards, runs at most two shards concurrently with one Node test file per shard, and
+gives each shard a 30-minute wall-clock deadline. The process-tree supervisor terminates the Node
+runner and its CLI, Git, extension-host, and model-provider descendants after a deadline or bounded
+output overflow. The unusually expensive Auto fixture is assigned a dedicated scheduling weight so
+its measured 17-minute local runtime is not hidden behind another hundred test files.
+
+Every shard writes a machine-local receipt under `.git/singularity-flow/test-runs/`. A receipt binds
+the exact commit, tree, selected-test content digest, platform, architecture, Node version, shard
+layout, completion counters, and strict-skip policy. A retry on the same clean checkout reuses only
+exact passing receipts and runs only incomplete shards. Dirty checkouts always rerun because their
+uncommitted implementation bytes are not represented by the Git tree.
+
+```bash
+# Normal resumable aggregate.
+npm test
+
+# Strict clean-checkout aggregate used before release evidence is signed.
+npm run test:release:aggregate
+
+# Tune execution without removing its bounds.
+node scripts/run-test-aggregate.mjs all --shards=8 --workers=2 --deadline-ms=1800000
+
+# Inspect or retry one exact shard.
+node scripts/run-test-suite.mjs all --shard=3/8 --list
+node scripts/run-test-suite.mjs all --shard=3/8 --deadline-ms=1800000
+```
+
+The aggregate prints a standard Node test summary, so existing verification-receipt parsing remains
+compatible. Sharding changes scheduling only: deterministic disjoint file-set digests prove that
+every discovered test file appears exactly once.
+
 ## Git-heavy workflow operations
 
 Capability onboarding, workspace creation/repair, configuration refresh, and Story start use one

@@ -36,6 +36,8 @@ test('POC release gate covers the installed CLI and guided SGOS behavior on its 
     'the generated VSIX must execute its own contained CLI engine');
   assert.match(gate, /'run', 'benchmark:wel'/,
     'the signed release path must execute the full content-free WEL benchmark');
+  assert.match(gate, /'run', 'benchmark:cmp'/,
+    'the signed release path must execute the content-free CMP pilot benchmark');
   assert.match(gate, /SINGULARITY_FLOW_RELEASE_FAIL_ON_SKIPPED_TEST_FILES: '1'/);
   assert.match(gate, /release-test-reporter\.mjs/,
     'the direct grouped Node test stage must reject skipped, cancelled, and todo outcomes');

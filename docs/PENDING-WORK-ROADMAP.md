@@ -1,8 +1,8 @@
 # Singularity Flow pending-work roadmap
 
-**Status:** authoritative cross-product tracker; implementation reconciled, release evidence remains active
+**Status:** authoritative cross-product tracker; code-local remediation reconciled, aggregate and release evidence remain active
 
-**Baseline:** `main@7935d2db`
+**Baseline:** `main@f7fbb1bc`
 
 **Last reviewed:** 2026-09-05
 
@@ -14,9 +14,11 @@ The first performance remediation checkpoint landed on 2026-08-30 at `main@96bb5
 Candidate publication and the next office-Git hardening slice landed on 2026-09-01 at
 `main@cb278ca6`. GDP M0 through M8, the M9 observe surface, M10 provider-neutral contracts, M11
 readiness reporting, and the developer-local signed runner subsequently landed through
-`main@7935d2db`. Items remain `[~]`, not complete, wherever their contract still requires a pinned
-release baseline, an authenticated independent authority, real VS Code hosts, signed platform
-receipts, office-network proof, or live Windows/macOS process and credential-helper evidence.
+`main@7935d2db`. The 2026-09-05 code-local release-regression reconciliation landed at
+`main@f7fbb1bc`. Items remain `[~]`, not complete, wherever their contract still requires a complete
+exact-tree aggregate, a pinned performance baseline, an authenticated independent authority, real
+VS Code hosts, signed platform receipts, office-network proof, or live Windows/macOS process and
+credential-helper evidence.
 
 ## 2026-09-05 reconciliation snapshot
 
@@ -24,11 +26,11 @@ This snapshot resolves conflicts between older domain roadmaps and the executabl
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary at `7935d2db` | Still open |
+| Area | Implemented boundary through `f7fbb1bc` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation | Durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
-| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, and Windows DPAPI-protected local signer | Live working-set/Secret Broker agent integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, and learning |
+| SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, and stop-aware bounded Process-lock contention recovery | Live working-set/Secret Broker agent integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, and learning |
 | WEL | Observe-only witnessed-clause and bounded JUnit/Surefire diagnostics | Reviewed exact pilot, authenticated hermetic execution, enforcement/recovery, additional adapters, and release proof |
 | CAB | Corrected design plus reusable Candidate, proof, JUnit binder, and developer-local runner primitives delivered under SGOS/GDP/WEL | CAB design ratification, authenticated isolation/trust roots, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
@@ -37,12 +39,26 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 
 ### Release baseline health
 
-The latest broad local run on `main@7935d2db` did not establish a green release baseline: 4,444
-tests passed, 102 failed, and one was skipped. The local signed-runner focused suite passed; the
-remaining failures were concentrated in older initialization, VS Code, and World Model Builder
-fixtures. Treat repair and classification of that aggregate baseline as `REL-P0-001`; no roadmap
-item may cite the current tree as release-ready until the failures are fixed or proven to be an
-invalid test environment and rerun cleanly.
+`main@f7fbb1bc` repairs every classified failure from the earlier 4,444-pass/102-fail aggregate:
+legacy Auto and Story fixtures now declare the capability templates they require, reusable
+World-Model identity and source scope are stable, the bounded context separates payload completeness
+from model freshness, VS Code activation avoids its heavy workspace-panel import and global-test
+selection leak, command startup imports are lazy, and SGOS parallel execution retries safe
+pre-handler Process-lock contention without weakening the fail-closed store contract.
+
+The latest **completed** aggregate before the final SGOS contention correction reached 4,553 passes,
+one failure, and one platform skip; its sole failure was the now-covered SGOS parallel-wave race.
+On the exact `f7fbb1bc` tree, the affected evidence is green: Auto 56/56 (including 128 portable
+pause/halt lock races), capability/Git 145/145, Story worktrees 13/13, WMB v4 commands 39/39,
+VS Code extension 256/256, and lazy startup 2/2. The SGOS contention, timeout, and immutable-store
+regressions passed three repeated runs. Repository conformance passed 1,307 checks, and both VS Code
+build and typecheck passed.
+
+`REL-P0-001` nevertheless remains `[~]`: the exact-tree aggregate was stopped after 48 minutes while
+still progressing, and the isolated Auto fixture alone required 17.6 minutes. Completion requires a
+clean exact-tree aggregate receipt and a bounded/sharded aggregate runtime so release verification
+cannot be mistaken for a hung process. No roadmap item may cite the current tree as release-ready
+until that receipt is recorded.
 
 ## Status rules
 
@@ -60,7 +76,7 @@ invalid test environment and rerun cleanly.
 
 | Track | Current boundary | Next eligible increment | Detailed authority |
 |---|---|---|---|
-| Release baseline | Focused local-runner evidence is green, but the latest aggregate suite is not | `REL-P0-001`: classify the 102 aggregate failures, repair valid defects, and record a clean exact-tree rerun | This document and [Verification](../VERIFICATION.md) |
+| Release baseline | All classified functional failures are repaired at `f7fbb1bc`; affected suites and conformance are green | `REL-P0-001`: bound/shard the slow aggregate and record one clean exact-tree completion receipt | This document and [Verification](../VERIFICATION.md) |
 | Developer-experience performance | Hot paths and the office-Git code-local slice are implemented; pinned relative baseline and cross-platform host evidence are not established | Finish `DXP-P0-001`, then close each `[~]` platform gate | This document and [DX performance](DX-PERFORMANCE.md) |
 | SGOS | Universal Candidate publication and portable authority transport are code-complete; signed cross-platform release proof remains open | Finish the `SGOS-P0-001` and `SGOS-P0-003` signed platform matrices | [SGOS pending work](SGOS-PENDING-WORK.md) |
 | World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
@@ -78,7 +94,7 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 
 The remaining portfolio work should be completed in this order:
 
-1. restore a trustworthy green aggregate baseline (`REL-P0-001`);
+1. complete and retain a trustworthy exact-tree aggregate receipt with bounded runtime (`REL-P0-001`);
 2. establish trustworthy measurements (`DXP-P0-001`);
 3. remove activation, refresh, and enterprise-Git correctness hazards (`DXP-P0-002` through
    `DXP-P0-006`);

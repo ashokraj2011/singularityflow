@@ -2,7 +2,7 @@
 
 **Status:** authoritative cross-product tracker; bounded exact-tree aggregate and the latest code-local asynchronous Git migration are complete, while platform release evidence remains active
 
-**Baseline:** `main@258ce110`
+**Baseline:** `main@116d6f43`
 
 **Last reviewed:** 2026-09-06
 
@@ -65,18 +65,23 @@ storage, verify their local bytes, and reset them without changing the applicati
 governed Process, or authority. This is only the disposable-environment slice: portable progress,
 independent certification, accessibility/offline evidence, and version migration remain staged.
 
+WEL benchmark v4 landed at `main@116d6f43`. It adds a bounded synthetic post-preflight Story push
+rejection and proves that the public recovery path publishes the exact retained governed commit.
+Only content-free failure/recovery timings, a stable failure class, and commit equality are emitted;
+the report explicitly does not claim office-network evidence.
+
 ## 2026-09-05 reconciliation snapshot
 
 This snapshot resolves conflicts between older domain roadmaps and the executable baseline. A
 shared primitive does not complete a higher-assurance track: for example, the developer-local
 signed runner is useful M9 evidence, but it is not an authenticated independent CAB/WEL verifier.
 
-| Area | Implemented boundary through `258ce110` | Still open |
+| Area | Implemented boundary through `116d6f43` | Still open |
 |---|---|---|
 | Auto v2 | Dependency-free Story profile and its P0/P1 controls | Optional SGOS execution profile, interval runtime, direct Ad Hoc materialization, and registered comparative-quality evidence |
 | CMP | Model-free, read-only `comprehension regions` and `check` foundation plus a release-gated content-free synthetic benchmark | Reviewed real corpus and storage/privacy decision, durable cause authority, intent graph/replay, typed walkthroughs, lifecycle enforcement, Comprehension Center, and brownfield policy |
 | SGOS | Bounded runtime, Universal Candidate code path, Git-trusted authority transport, signed transport, Windows DPAPI-protected local signer, stop-aware bounded Process-lock contention recovery, checkpoint-bound working-set injection, guarded signed-Pack/Device meta-tool activation CLI, native preview/confirm review UI, and isolated disposable learning workspaces | Real external-adapter Secret Broker integration, signed platform release aggregate, end-to-end proof, additional adapters, orchestration, stores, portable learning progress, independent certification, accessibility/offline proof, and migration |
-| WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, and model-free local Story-start transaction measurement; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, office-network remote publication latency, authenticated hermetic execution, enforcement/recovery, additional adapters, and signed platform release proof |
+| WEL | Observe-only witnessed clauses plus an exact-static local JUnit/Surefire pilot, human mapping review, same-process incremental cost, content-free Context X-Ray projection, model-free local Story-start transaction measurement, and exact local post-preflight push recovery; results remain inconclusive | Candidate/Program/attempt join, reviewed corpus, office-network remote publication latency, authenticated hermetic execution, enforcement recovery, additional adapters, and signed platform release proof |
 | CAB | CAB v0.2 code-local architecture, adversarial design contract, and observe-only exact-static JUnit pilot are active over existing SGOS/GDP/WEL primitives | Independent R0 ratification, authenticated isolation/trust roots, corpus/platform proof, opt-in enforcement, adequacy, provider adapters, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness report implemented as partial milestones | Authenticated runner and verifier, provider pilots, enforce enrollment, migration/support-window exercises, signed package/platform receipts, and GA decision |
 | VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, visual regression contract, and native developer-local runner review are complete | Future CMP Comprehension Center; this is a new surface, not a defect left in the closed remediation plan |

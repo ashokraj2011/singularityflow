@@ -6,7 +6,7 @@
 
 **Created:** 2026-08-30
 
-**Current reconciliation:** checked against `main@150b6326` on 2026-09-06. Commits `259b76f1`,
+**Current reconciliation:** checked against `main@116d6f43` on 2026-09-06. Commits `259b76f1`,
 `58d9329d`, and `d55229c7` provide the bounded exact-static JUnit identity adapter, immutable
 proposal snapshot, human review through the existing phase approval, migration, safe command-shape
 fallbacks, the evolving content-free benchmark, and same-process unenrolled delta measurement. Commit
@@ -209,6 +209,10 @@ Implemented in the current increment:
   configuration authority. It includes the local publication commits, disables application push,
   model grounding, and AST warming, defaults to three bounded samples, and emits only timing and
   resulting workflow-byte counts. `--story-samples=1..30` permits a larger reviewed local run;
+- benchmark v4 induces one post-preflight local push rejection, retains the exact governed Story
+  commit, recovers it through the public `sync` path, and proves the remote ref equals that retained
+  SHA. It records only failure/recovery duration, stable failure class, and the equality result, and
+  labels the exercise synthetic local evidence rather than office-network proof;
 - the release gate installs the exact npm tarball into an isolated prefix and extracts the exact
   VSIX engine under a loader that refuses source-tree module access; both artifacts must contain the
   Java parser helper, import the WEL adapter, and return the admitted Maven/Surefire command shape;
@@ -223,8 +227,9 @@ Implemented in the current increment:
 Implementation checkpoints: `d55229c7` (content-free benchmark v2), `6fbcf3bf` (isolated npm and
 VSIX engine proof), `d960e928` (portable deterministic corpus command), `396ccb73` (mandatory
 release-gate benchmark), `e3330e80` (same-process incremental observation cost), and `723099fc`
-(content-free Context X-Ray projection latency and byte measurement), plus `150b6326` (bounded
-model-free governed Story-start transaction latency and workflow-byte measurement).
+(content-free Context X-Ray projection latency and byte measurement), `150b6326` (bounded
+model-free governed Story-start transaction latency and workflow-byte measurement), and `116d6f43`
+(content-free post-preflight push-failure and exact-sync recovery measurement).
 
 Still required before completion: reviewed real-repository corpus metrics, office-network remote
 Story publication latency measurements, an approved Flow Impact design, office/offline/recovery exercises, execution
